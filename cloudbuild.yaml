@@ -1,0 +1,76 @@
+# Cloud Build for deployment-service
+#
+# 1. Build Docker image
+# 2. Run quality gates INSIDE the image
+# 3. Push ONLY if tests pass
+
+steps:
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'configure-docker'
+    args: ['auth', 'configure-docker', 'asia-northeast1-docker.pkg.dev', '--quiet']
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'ensure-repo'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud artifacts repositories describe deployment \
+          --location=asia-northeast1 &>/dev/null || \
+        gcloud artifacts repositories create deployment \
+          --repository-format=docker \
+          --location=asia-northeast1 \
+          --description="deployment-service Docker images"
+    waitFor: ['-']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'pull-base-image'
+    args: ['pull', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/unified-cloud-services/unified-cloud-services:latest']
+    waitFor: ['configure-docker']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile'
+      - '--build-arg'
+      - 'PROJECT_ID=$PROJECT_ID'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:latest'
+      - '.'
+    waitFor: ['pull-base-image', 'ensure-repo']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'quality-gates'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        echo "Running quality gates inside deployment-service image..."
+        docker run --rm \
+          --entrypoint "" \
+          -e CLOUD_BUILD=true \
+          -e GCP_PROJECT_ID=$PROJECT_ID \
+          asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA \
+          /bin/bash -c "scripts/quality-gates.sh --no-fix --quick"
+    waitFor: ['build']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push'
+    args: ['push', '--all-tags', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service']
+    waitFor: ['quality-gates']
+
+images:
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA'
+  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+timeout: '1800s'
