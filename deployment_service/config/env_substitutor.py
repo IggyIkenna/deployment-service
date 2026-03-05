@@ -24,7 +24,7 @@ def _get_env_snapshot() -> dict[str, str]:
     """
     import os
 
-    return dict(os.environ)
+    return dict(os.environ)  # config-bootstrap: intentional full env snapshot for template substitution
 
 
 def get_cloud_provider() -> str:
