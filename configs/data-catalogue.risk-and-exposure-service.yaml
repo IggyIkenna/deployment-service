@@ -1,0 +1,123 @@
+# Data Catalogue: risk-and-exposure-service
+# ====================================
+# STATUS: PENDING -- service sharding config created 2026-02-21, data collection pending
+# Generated: 2026-02-21
+
+service_name: "risk-and-exposure-service"
+last_updated: "2026-02-21"
+auto_refreshed: null
+status: "PENDING"
+
+known_exceptions: []
+
+catalogue_dimensions:
+  - category
+  - venue
+  - date
+
+# Risk calculation depends on position-balance-monitor-service data availability
+# Once position-balance-monitor-service data catalogue is complete, this should mirror its coverage
+shard_status:
+  CEFI:
+    BINANCE-SPOT:
+      start_date: "2019-03-30"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    BINANCE-FUTURES:
+      start_date: "2019-11-17"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    OKX:
+      start_date: "2019-03-30"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    UPBIT:
+      start_date: "2021-09-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    COINBASE:
+      start_date: "2019-03-30"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    HYPERLIQUID:
+      start_date: "2023-05-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    ASTER:
+      start_date: "2021-08-30"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+
+  TRADFI:
+    CME:
+      start_date: "2020-01-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    CBOE:
+      start_date: "2020-01-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    NYSE:
+      start_date: "2020-01-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+
+  DEFI:
+    AAVE_V3_ETH:
+      start_date: "2023-01-27"  # Aave V3 launch
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    UNISWAPV2-ETH:
+      start_date: "2020-05-18"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    UNISWAPV3-ETH:
+      start_date: "2021-05-05"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"
+    COMPOUND_V3_ETH:
+      start_date: "2022-08-24"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "Depends on position-balance-monitor-service data availability"

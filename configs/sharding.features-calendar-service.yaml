@@ -1,0 +1,81 @@
+# Sharding Configuration: features-calendar-service
+# Generates calendar/temporal features (day of week, FOMC, earnings, etc.)
+#
+# NOTE: Calendar features are UNIVERSAL - same data applies to all categories
+# (temporal patterns, economic events, macro indicators don't vary by crypto/tradfi/defi)
+# Single bucket storage avoids 3x redundant data storage.
+
+service: features-calendar-service
+description: Generate calendar and temporal features
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/features/calendar-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: features-calendar-service-job
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+# SIMPLIFIED: No category dimension - calendar features are universal
+dimensions:
+  - name: feature_group
+    type: fixed
+    values:
+      - day_of_week
+      - fomc_events
+      - earnings_calendar
+      - macro_indicators
+      - holiday_calendar
+    description: Calendar feature group to generate
+
+  - name: date
+    type: date_range
+    granularity: monthly
+    description: Date range split into monthly chunks (calendar features are lightweight)
+
+# CLI argument mappings
+# NOTE: Service CLI accepts --category but bucket is SHARED (no category suffix)
+# The --category arg is ignored for bucket routing but may be used for logging/metadata
+cli_args:
+  feature_group: --feature-group
+  start_date: --start-date
+  end_date: --end-date
+
+# No fixed CLI arguments needed - bucket is shared across all categories
+
+# Service-specific CLI flags (per codex: --operation compute --mode batch)
+cli_flags:
+  operation: "--operation compute"
+  mode: "--mode batch"
+
+# Optional CLI arguments (control arguments, not shard dimensions)
+# Timeframe is NOT a shard dimension - each shard generates ALL timeframes
+cli_optional:
+  - name: timeframes
+    flag: --timeframes
+    description: "Comma-separated list of timeframes to generate (default: 1h,4h,24h)"
+    default: "1h,4h,24h"
+  - name: force
+    flag: --force
+    description: Force reprocessing even if output exists
+  - name: dry-run
+    flag: --dry-run
+    description: Don't upload to GCS, validate only
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 32  # >= 2x RAM (16GB) for swap
+    description: Very light workload
+    gcsfuse_buckets: []
+      # No input buckets needed - calendar calculations only
+      # Output bucket (features-calendar) uses GCS API for writes
+  cloud_run:
+    memory: 1Gi
+    cpu: 1
+    timeout_seconds: 600
+
+# Estimated runtime per shard
+runtime:
+  estimated_minutes: 2
+  notes: Very fast - just calendar calculations

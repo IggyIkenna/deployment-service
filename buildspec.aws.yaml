@@ -1,0 +1,52 @@
+# AWS CodeBuild Buildspec for deployment-service-v3
+# AWS equivalent of cloudbuild.yaml for multi-cloud CI/CD
+
+version: 0.2
+
+env:
+  secrets-manager:
+    GITHUB_TOKEN: github-pat:token
+  variables:
+    SERVICE_NAME: "deployment-service-v3"
+    CLOUD_PROVIDER: "aws"
+    CLOUD_MOCK_MODE: "true"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13
+    commands:
+      - pip install uv
+
+  pre_build:
+    commands:
+      - echo "=== Cloning dependencies ==="
+      - git clone https://x-access-token:${GITHUB_TOKEN}@github.com/IggyIkenna/unified-trading-library.git /tmp/unified-trading-library
+      - uv pip install -e /tmp/unified-trading-library
+      - uv pip install -e . || uv pip install -e ".[dev]"
+      - uv pip install ruff pytest build
+
+  build:
+    commands:
+      - echo "=== Running linting ==="
+      - ruff check --line-length 120 deployment_service/ tests/ || exit 1
+
+      - echo "=== Running tests ==="
+      - pytest tests/ -v --tb=short || exit 1
+
+      - echo "=== Building wheel ==="
+      - python -m build
+
+  post_build:
+    commands:
+      - echo "Build completed"
+
+artifacts:
+  files:
+    - 'dist/*.whl'
+    - 'dist/*.tar.gz'
+  discard-paths: no
+
+cache:
+  paths:
+    - '/root/.cache/pip/**/*'

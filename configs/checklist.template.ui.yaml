@@ -1,0 +1,318 @@
+# UI Production Readiness Checklist Template
+# ===========================================
+# Copy this template to checklist.{ui-name}.yaml and fill in status for each item.
+#
+# Status values:
+#   - done: Item is complete
+#   - partial: Item is partially complete (add notes)
+#   - pending: Item needs work
+#   - n/a: Not applicable to this UI
+#
+# Each item has:
+#   - status: Current status
+#   - notes: Optional notes about current state or what's needed
+#   - verified_date: Date when item was last verified (YYYY-MM-DD)
+#
+# =============================================================================
+# STANDARDS REFERENCE
+# =============================================================================
+# UIs are thin presentation layers:
+#   - NEVER own data (no GCS, PubSub, BigQuery imports)
+#   - All data fetched via API services
+#   - Environment-based API routing (dev vs prod)
+#   - Google OAuth gating where applicable
+#   - Static hosting or Cloud Run for serving
+# =============================================================================
+
+service_name: "{UI_NAME}"
+last_updated: "YYYY-MM-DD"
+owner: ""
+
+# =============================================================================
+# PHASE 1: Repository Foundation (Items 1-7)
+# =============================================================================
+phase_1_repository_foundation:
+
+  item_01_repository_exists:
+    description: "UI repo is present in workspace"
+    status: pending
+    notes: ""
+    verified_date: null
+
+  item_02_package_json:
+    description: "package.json with all dependencies pinned and lock file committed"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "package.json exists with name, version, scripts"
+      - "package-lock.json or pnpm-lock.yaml committed"
+      - "Node.js version specified in .nvmrc or engines field"
+      - "npm install or pnpm install completes without errors"
+      - "No version conflicts"
+
+  item_03_typescript_config:
+    description: "TypeScript configured with strict mode"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "tsconfig.json exists with strict: true"
+      - "No any types in source code (noImplicitAny: true)"
+      - "All source files are .ts or .tsx"
+      - "tsc --noEmit passes without errors"
+
+  item_04_build_config:
+    description: "Build tooling configured (Vite, Next.js, or equivalent)"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "vite.config.ts or next.config.js exists"
+      - "npm run build produces production bundle"
+      - "Bundle size within budget (<500KB gzipped for SPA)"
+      - "Source maps generated for production debugging"
+
+  item_05_linting:
+    description: "ESLint and Prettier configured for consistent code style"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - ".eslintrc or eslint.config.js exists"
+      - ".prettierrc exists"
+      - "npm run lint passes without errors"
+      - "Pre-commit hooks run lint on staged files"
+
+  item_06_quality_gates:
+    description: ".github/workflows/quality-gates.yml runs lint, type check, tests, build"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "quality-gates.yml runs on push/PR to main"
+      - "Runs lint (eslint)"
+      - "Runs type check (tsc --noEmit)"
+      - "Runs tests (vitest or jest)"
+      - "Runs build (npm run build)"
+      - "Failures block merge"
+
+  item_07_no_secrets_in_code:
+    description: "No API keys, tokens, or credentials in source code or .env committed to repo"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "No hardcoded API keys in source code"
+      - ".env is gitignored"
+      - ".env.example documents required variables (names only)"
+      - "Secrets injected at deploy time via Cloud Run env vars or Secret Manager"
+
+# =============================================================================
+# PHASE 2: API Wiring (Items 8-11)
+# =============================================================================
+phase_2_api_wiring:
+
+  item_08_api_base_url:
+    description: "VITE_API_URL (or equivalent) environment variable configures API endpoint"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "VITE_API_URL or NEXT_PUBLIC_API_URL defined in .env.example"
+      - "API base URL read from environment, not hardcoded"
+      - "Different values for dev (localhost) and prod (Cloud Run URL)"
+      - "No hardcoded localhost:PORT in production code"
+
+  item_09_env_routing:
+    description: "Environment-based routing switches between dev and prod API endpoints"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Dev environment points to localhost API"
+      - "Production environment points to Cloud Run API URL"
+      - "Staging environment (if applicable) points to staging API"
+      - "Environment detection is automatic (import.meta.env.MODE or NODE_ENV)"
+
+  item_10_api_client:
+    description: "Centralized API client with error handling and type-safe responses"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Single API client module (e.g., src/api/client.ts)"
+      - "All API calls go through the centralized client"
+      - "Response types match API Pydantic models"
+      - "Error responses parsed into typed error objects"
+      - "Request/response interceptors for auth headers"
+
+  item_11_loading_and_error_states:
+    description: "All data-fetching components handle loading, error, and empty states"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Loading indicators shown during API calls"
+      - "Error messages displayed on API failure"
+      - "Empty state UI when no data available"
+      - "Retry buttons for recoverable errors"
+
+# =============================================================================
+# PHASE 3: Authentication (Items 12-14)
+# =============================================================================
+phase_3_authentication:
+
+  item_12_google_oauth:
+    description: "Google OAuth login flow implemented for user authentication"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Google OAuth client ID configured via environment variable"
+      - "Login button redirects to Google consent screen"
+      - "Callback handles token exchange"
+      - "User session stored securely (httpOnly cookie or secure localStorage)"
+    applies_if: "UI requires user authentication"
+
+  item_13_auth_gating:
+    description: "Protected routes redirect unauthenticated users to login"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Route guard or middleware checks auth state"
+      - "Unauthenticated users redirected to /login"
+      - "Auth tokens included in API requests automatically"
+      - "Token refresh handled transparently"
+    applies_if: "UI requires user authentication"
+
+  item_14_logout:
+    description: "Logout clears session and revokes tokens"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Logout button visible in authenticated state"
+      - "Session/tokens cleared on logout"
+      - "User redirected to login page after logout"
+    applies_if: "UI requires user authentication"
+
+# =============================================================================
+# PHASE 4: Build and Deployment (Items 15-19)
+# =============================================================================
+phase_4_build_and_deployment:
+
+  item_15_dockerfile:
+    description: "Dockerfile serves static build via nginx or runs SSR via Node.js"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Dockerfile exists at repo root"
+      - "Multi-stage build: build stage + serve stage"
+      - "SPA: nginx serves static files from build output"
+      - "SSR: Node.js serves with production settings"
+      - "Non-root user for security"
+
+  item_16_cloud_run_config:
+    description: "Cloud Run service configured with appropriate resources"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Cloud Run service deployed and accessible"
+      - "Memory and CPU limits set appropriately"
+      - "Min instances configured (0 for cost savings or 1 for no cold starts)"
+      - "Custom domain mapped (if applicable)"
+
+  item_17_cloud_build:
+    description: "cloudbuild.yaml builds and deploys on push to main"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "cloudbuild.yaml exists"
+      - "Runs quality gates before build"
+      - "Builds Docker image"
+      - "Pushes to Artifact Registry"
+      - "Deploys to Cloud Run"
+
+  item_18_env_injection:
+    description: "Environment variables injected at build time or runtime"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Build-time env vars (VITE_*) set in cloudbuild.yaml"
+      - "Runtime env vars set in Cloud Run service config"
+      - "No secrets in build args (use Secret Manager for runtime)"
+
+  item_19_caching:
+    description: "Static assets cached with appropriate headers"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Hashed filenames for cache busting (Vite default)"
+      - "Cache-Control headers set for static assets"
+      - "index.html served with no-cache for instant updates"
+
+# =============================================================================
+# PHASE 5: UI Never Owns Data (Items 20-23)
+# =============================================================================
+phase_5_ui_never_owns_data:
+
+  item_20_no_gcs_imports:
+    description: "No google.cloud.storage imports anywhere in UI codebase"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "grep -r 'google.cloud' returns 0 hits in src/"
+      - "grep -r '@google-cloud' returns 0 hits in src/"
+      - "No GCS bucket names in source code"
+      - "All data comes via API endpoints"
+
+  item_21_no_pubsub_imports:
+    description: "No PubSub client or subscription logic in UI codebase"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "grep -r 'pubsub' returns 0 hits in src/ (case-insensitive)"
+      - "Real-time data delivered via SSE or WebSocket from API service"
+      - "UI does not subscribe to any message queues"
+
+  item_22_no_bigquery_imports:
+    description: "No BigQuery client or direct query execution in UI codebase"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "grep -r 'bigquery' returns 0 hits in src/ (case-insensitive)"
+      - "All analytics data fetched via API endpoints"
+      - "No SQL queries in UI code"
+
+  item_23_no_database_imports:
+    description: "No direct database connections (Postgres, SQLite, etc.) in UI codebase"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "No database driver imports (pg, sqlite3, prisma client)"
+      - "All CRUD operations performed via API endpoints"
+      - "No ORM or query builder in UI dependencies"
+
+# =============================================================================
+# Summary
+# =============================================================================
+summary:
+  total_items: 23
+  done: 0
+  partial: 0
+  pending: 23
+  not_applicable: 0
+  completion_percentage: 0
+  blockers: []
+  next_actions: []

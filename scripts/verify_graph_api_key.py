@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""
+Verify The Graph API key and round-robin rotation.
+
+Usage:
+  # Dry-run (no deps, shows key mapping):
+  python scripts/verify_graph_api_key.py --dry-run
+  SHARD_INDEX=1 python scripts/verify_graph_api_key.py --dry-run
+
+  # Full verification (run from instruments-service or market-tick-data-handler):
+  cd instruments-service && uv run python ../deployment-service/scripts/verify_graph_api_key.py
+
+Secrets: thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9 (9 keys total).
+Round-robin: key_number = (SHARD_INDEX % 9) + 1
+SHARD_INDEX is injected by deployment-v2 orchestrator when running sharded jobs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+from unified_trading_library import TheGraphBaseClient, clear_thegraph_api_key_cache
+
+_NUM_KEYS = 9  # thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Verify The Graph API key and round-robin"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Only show which key would be used"
+    )
+    parser.add_argument(
+        "--project-id", default=None, help="GCP project ID (default: from env)"
+    )
+    args = parser.parse_args()
+
+    shard_index = int(os.environ.get("SHARD_INDEX", "0"))
+    if args.project_id:
+        project_id = args.project_id
+    else:
+        project_id = os.environ.get("GCP_PROJECT_ID")
+        if not project_id:
+            raise SystemExit("ERROR: GCP project ID required. Set GCP_PROJECT_ID or pass --project-id")
+    secret_env = (
+        os.environ.get("GRAPH_SECRET_NAME")
+        or os.environ.get("THEGRAPH_SECRET_NAME")
+        or "thegraph-api-key"
+    )
+
+    print("=" * 60)
+    print("The Graph API Key Verification")
+    print("=" * 60)
+    print(f"SHARD_INDEX: {shard_index}")
+    print(f"GCP_PROJECT_ID: {project_id}")
+    print(f"GRAPH_SECRET_NAME / THEGRAPH_SECRET_NAME: {secret_env}")
+    print()
+
+    # Round-robin formula (matches UCS TheGraphBaseClient)
+    key_number = (shard_index % _NUM_KEYS) + 1
+    secret_name = (
+        "thegraph-api-key" if key_number == 1 else f"thegraph-api-key-{key_number}"
+    )
+    print(f"Round-robin: key_number={key_number} → secret={secret_name}")
+    print("(9 keys total: thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9)")
+    print()
+
+    if args.dry_run:
+        print("Dry-run: skipping actual API key fetch and query.")
+        return 0
+
+    # Full verification: run from instruments-service or market-tick-data-handler
+    try:
+        clear_thegraph_api_key_cache()
+        client = TheGraphBaseClient(project_id=project_id)
+        api_key = client.api_key
+    except (OSError, ValueError, RuntimeError) as e:
+        print(f"❌ Failed to load API key: {e}")
+        print(
+            "   Ensure GCP auth (gcloud auth application-default login) and secret exists."
+        )
+        return 1
+
+    if not api_key:
+        print(
+            "❌ No API key found. Set THEGRAPH_API_KEY in env or create secret in GCP."
+        )
+        return 1
+
+    print(f"✅ API key {key_number} loaded successfully")
+
+    # Minimal GraphQL query to verify key works
+    subgraph_id = "Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g"  # AAVE V3
+    url = f"https://gateway.thegraph.com/api/{api_key}/subgraphs/id/{subgraph_id}"
+    payload = {"query": "{ _meta { block { number } } }"}
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read().decode())
+            if "data" in body:
+                print("✅ GraphQL query succeeded (key is valid)")
+            else:
+                print(f"⚠️ Unexpected response: {body}")
+    except urllib.error.HTTPError as e:
+        print(f"⚠️ Query failed {e.code}: {e.read().decode()[:200]}")
+    except (OSError, ValueError, RuntimeError) as e:
+        print(f"⚠️ Query failed: {e}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

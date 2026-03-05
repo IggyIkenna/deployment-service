@@ -1,0 +1,83 @@
+# Sharding Configuration: ml-training-service
+# Trains ML models for price prediction using walk-forward methodology
+
+service: ml-training-service
+description: Train ML models for swing high/low prediction with walk-forward validation
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/ml-training-service/ml-training-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: ml-training-service-job
+
+# Model naming convention (execution-service style):
+# Format: {CATEGORY}_{ASSET}_{target-type}_{MODEL-TYPE}_{TIMEFRAME}_V{N}
+# Example: CEFI_BTC_swing-high_LIGHTGBM_1h_V1
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+# Dimension "operation" maps to --operation (codex: train_phase1 | train_phase2 | train_phase3)
+dimensions:
+  - name: operation
+    type: fixed
+    values: [train_phase1, train_phase2, train_phase3]
+    description: Training pipeline stage (affects dependencies and outputs)
+
+  - name: instrument
+    type: fixed
+    values: [BTC, ETH, SOL, SPY]
+    description: Instrument to train model for
+
+  - name: timeframe
+    type: fixed
+    values: [1m, 5m, 15m, 1h, 4h]
+    description: Prediction timeframe
+
+  - name: target_type
+    type: fixed
+    values: [swing_high, swing_low]
+    description: Prediction target type
+
+  - name: training_period
+    type: monthly_rolling
+    lookback_months: 72  # 6 years of monthly models
+    description: Walk-forward training period (YYYY-MM format)
+
+  - name: config
+    type: gcs_dynamic
+    gcs_bucket: ml-configs-store-{project_id}
+    gcs_prefix: training/grid_configs/
+    file_pattern: "*.json"
+    description: Training config from GCS (dynamic at runtime)
+
+# CLI argument mappings (operation dimension -> --operation)
+cli_args:
+  operation: --operation
+  instrument: --instruments
+  timeframe: --timeframes
+  target_type: --target-types
+  config_path: --grid-config
+
+# Service-specific CLI flags (per codex: --operation train_phase1|2|3 --mode batch)
+cli_flags:
+  mode: "--mode batch"
+
+# Date range NOT used for training (uses all available historical data)
+# Training determines its own date ranges from feature availability
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-8
+    disk_size_gb: 100
+    description: Heavy ML workload - feature selection + training
+    gcsfuse_buckets: []
+      # Disabled: Large feature buckets cause OOM; use GCS API instead
+  cloud_run:
+    memory: 16Gi
+    cpu: 4
+    timeout_seconds: 14400  # 4 hours
+
+# Estimated runtime per shard
+runtime:
+  estimated_minutes: 120
+  notes: Long-running - includes feature selection and hyperparameter tuning

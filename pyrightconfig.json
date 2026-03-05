@@ -1,0 +1,16 @@
+{
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "strict",
+  "include": [
+    "deployment_service"
+  ],
+  "reportAny": "error",
+  "reportMissingTypeStubs": false,
+  "extraPaths": [
+    "."
+  ],
+  "reportImplicitRelativeImport": "none",
+  "reportMissingImports": "none",
+  "reportUnknownMemberType": "error",
+  "reportUnknownVariableType": "error"
+}

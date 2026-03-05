@@ -1,0 +1,32 @@
+# Data Provider Configuration
+# Manages external data source access modes (Tardis, etc.)
+#
+# This file controls venue filtering based on data provider subscription levels.
+# The filter is ONLY applied to services that download data (market-tick-data-service).
+# Other services (instruments-service, features-*, etc.) are NOT affected.
+
+tardis:
+  # Access mode: auto | perpetuals_only | full_access
+  # - auto: Auto-detect from secrets (checks if TARDIS_API_KEY_FULL_DATA exists)
+  # - perpetuals_only: Filter out spot-only venues (BINANCE-SPOT, COINBASE, UPBIT)
+  # - full_access: All venues accessible
+  #
+  # Override with env var: TARDIS_ACCESS_MODE=full_access
+  mode: auto
+
+  # Venues requiring full Tardis subscription (spot data)
+  # These are filtered out when mode=perpetuals_only
+  # Updated 2026-02-09: Currently have full access via TARDIS_API_KEY_FULL_DATA
+  spot_only_venues:
+    - BINANCE-SPOT
+    - COINBASE
+    - UPBIT
+
+  # Secret names for auto-detection
+  # The system checks if tardis-api-key-full exists in Secret Manager
+  # If it exists: mode = full_access (all venues accessible)
+  # If it doesn't exist: mode = perpetuals_only (spot venues filtered)
+  # Note: These names match market-tick-data-service/.env configuration
+  secrets:
+    basic: tardis-api-key
+    full_access: tardis-api-key-full

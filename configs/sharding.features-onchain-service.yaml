@@ -1,0 +1,66 @@
+# Sharding Configuration: features-onchain-service
+# Generates on-chain features (lending rates, LST yields, macro sentiment)
+#
+# NOTE: Output bucket is SHARED (no category suffix): features-onchain-{project_id}
+# The category dimension is used for upstream bucket selection (market-data-tick-{category})
+# but output goes to a single shared bucket since onchain metrics apply across domains.
+
+service: features-onchain-service
+description: Generate on-chain features from DeFi protocol data
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/features/onchain-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: features-onchain-service-job
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, DEFI]  # TRADFI not supported (no on-chain data)
+    description: Market category to process
+
+  - name: feature_group
+    type: fixed
+    values:
+      - macro_sentiment
+      - lending_rates
+      - lst_yields
+      # NOTE: onchain_perps is DEPRECATED - use features-delta-one-service with --category CEFI --feature-group funding_oi instead
+    description: On-chain feature group to generate
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date range split into daily chunks
+
+# CLI argument mappings
+cli_args:
+  category: --category
+  feature_group: --feature-group
+  start_date: --start-date
+  end_date: --end-date
+
+# Service-specific CLI flags (per codex: --operation compute --mode batch)
+cli_flags:
+  operation: "--operation compute"
+  mode: "--mode batch"
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 40  # >= 2x RAM (16GB) for swap
+    description: Light workload - mostly API aggregation
+    gcsfuse_buckets: []
+      # Disabled: Large buckets cause OOM; use GCS API instead
+  cloud_run:
+    memory: 4Gi
+    cpu: 1
+    timeout_seconds: 1800
+
+# Estimated runtime per shard
+runtime:
+  estimated_minutes: 10
+  notes: Fast - aggregates pre-computed protocol metrics

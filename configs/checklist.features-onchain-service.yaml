@@ -1,0 +1,135 @@
+# Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch/checklist.features-onchain-service.yaml
+service_name: features-onchain-service
+last_updated: '2026-02-10'
+owner: ''
+execution_order: 7
+phase_1_repository_foundation:
+  item_06_dockerfile_exists:
+    description: Containerization ready for Cloud Build
+    status: done
+    notes: Multi-stage build with unified-trading-library from GitHub, non-root user,
+      health check
+    verified_date: '2026-01-27'
+phase_2_testing_and_quality:
+  item_11_cloud_build_config:
+    description: cloudbuild.yaml includes quality gates before Docker build
+    status: done
+    notes: cloudbuild.yaml exists with quality gates (lint + pytest), then Docker
+      build/push
+    verified_date: '2026-01-27'
+  item_12_quality_gates_pass:
+    description: Pushing to main triggers quality gates; failure blocks image build
+    status: done
+    notes: 'Quality gates pass locally: ruff check (0 errors) and pytest (30 passed).
+      Fixed syntax error in calculators/__init__.py.'
+    verified_date: '2026-01-27'
+phase_3_deployment_infrastructure:
+  item_13_sharding_config:
+    description: configs/sharding.features-onchain-service.yaml exists
+    status: done
+    notes: 'Defines category, feature_group, date dimensions. Note: TRADFI not supported'
+    verified_date: '2026-01-27'
+  item_14_dependencies_entry:
+    description: Entry in configs/dependencies.yaml
+    status: done
+    notes: 'Upstream: market-data-processing-service (CEFI, DEFI only). Outputs to
+      features-onchain bucket'
+    verified_date: '2026-01-27'
+  item_15_expected_start_dates:
+    description: Entry in configs/expected_start_dates.yaml
+    status: done
+    notes: 'CEFI: 2017-01-01, DEFI: 2020-12-17. Note: TRADFI not supported'
+    verified_date: '2026-01-27'
+  item_16_venues_entry:
+    description: Service's venues in configs/venues.yaml
+    status: n/a
+    notes: No hierarchical venue dimension
+    verified_date: '2026-01-27'
+  item_17_terraform_resources:
+    description: Buckets, IAM, Cloud Run job defined in terraform/
+    status: done
+    notes: Cloud Run job, GCS buckets (cefi/defi), Cloud Workflows (daily/backfill),
+      scheduler defined in terraform/services/features-onchain-service/gcp/
+    verified_date: '2026-01-27'
+  item_17b_required_buckets_exist:
+    description: All required input/output buckets exist before deployment
+    status: pending
+    notes: 'Need to verify all input (market-data processed candles) and output (features-onchain)
+      buckets exist. Note: TRADFI not supported.'
+    verified_date: null
+    gcp_buckets:
+      outputs:
+      - features-onchain-cefi-test-project
+      - features-onchain-defi-test-project
+      inputs:
+      - market-data-tick-cefi-test-project
+      - market-data-tick-defi-test-project
+    aws_buckets:
+      outputs:
+      - unified-trading-features-onchain-cefi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-onchain-defi-${AWS_ACCOUNT_ID}
+      inputs:
+      - unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}
+      - unified-trading-market-data-defi-${AWS_ACCOUNT_ID}
+  item_18_deploy_cli_works:
+    description: python deploy.py deploy --service features-onchain-service executes
+    status: done
+    notes: deploy.py calculate works correctly. Generates 56 shards (2 categories
+      x 4 feature_groups x 7 days).
+    verified_date: '2026-01-27'
+phase_5_production_deployment:
+  item_23_image_builds:
+    description: Cloud Build produces image in Artifact Registry
+    status: done
+    notes: 'Image built and pushed: asia-northeast1-docker.pkg.dev/test-project/features-onchain-service/features-onchain-service:latest
+      (481MB)'
+    verified_date: '2026-01-27'
+  item_24_deployment_runs_smoothly:
+    description: Full deployment completes in reasonable time (<1 hour)
+    status: done
+    notes: Deployment completed successfully. 4 shards for 1 day DEFI finished in
+      1 minute 3 seconds.
+    verified_date: '2026-01-27'
+
+phase_9_deployable_enhancements:
+  item_38_data_availability:
+    description: "Data availability verified — input/output buckets exist; data paths verified"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All required GCS buckets exist (inputs and outputs)"
+      - "Data paths align with data-catalogue.features-onchain-service.yaml"
+      - "At least one successful read/write cycle verified"
+    reference: "plans_to_deployable_unified_audit.plan.md Phase 10"
+
+  item_39_gap_filling:
+    description: "Empty gaps documented; recovery process defined for known gaps"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Known data gaps documented (holidays, pre-launch, venue not live)"
+      - "Gap-filling process defined for recoverable gaps"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_40_recovery_processes:
+    description: "Recovery processes documented for failure scenarios"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Recovery runbook exists for common failure modes"
+      - "Backfill/re-run process documented"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_41_security_audit_trail:
+    description: "Security audit trail for security-relevant actions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Secret access logged (SECRET_ACCESSED event)"
+      - "Auth failures logged (AUTH_FAILURE event)"
+      - "Config changes logged (CONFIG_CHANGED event)"
+    reference: "event-logging.mdc, trading-system-audit-prompt.md"

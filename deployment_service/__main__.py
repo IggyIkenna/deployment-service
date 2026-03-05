@@ -1,20 +1,15 @@
-"""CLI entry point for deployment-service."""
+"""Entry point for python -m deployment_service.cli
 
-import click
+Suppresses third-party deprecation warnings from openbb_*, pydantic, etc.
+"""
 
+import warnings
 
-@click.group()
-@click.version_option(version="0.1.0")
-def cli() -> None:
-    """Deployment orchestration service."""
-    pass
+# Suppress ALL warnings before any imports
+warnings.filterwarnings("ignore")
 
-
-@cli.command()
-def status() -> None:
-    """Show deployment status."""
-    click.echo("Deployment service — status stub")
-
+# Now safe to import
+from deployment_service.cli import cli  # noqa: E402
 
 if __name__ == "__main__":
     cli()
