@@ -74,8 +74,57 @@ class ConfigLoader(BaseConfigLoader):
         return config
 
     def load_runtime_topology_config(self) -> dict[str, object]:
-        """Load runtime topology configuration (deployment profile + transport by mode)."""
-        return self._load_optional_yaml_file("runtime-topology.yaml")
+        """Load runtime topology from PM (SSOT).
+
+        Resolution order:
+        1. RUNTIME_TOPOLOGY_PATH env var (absolute path)
+        2. {WORKSPACE_ROOT}/unified-trading-pm/configs/runtime-topology.yaml
+        """
+        import os
+        from pathlib import Path
+
+        topology_path_env = os.environ.get("RUNTIME_TOPOLOGY_PATH")  # config-bootstrap: topology file location
+        if topology_path_env:
+            path = Path(topology_path_env)
+            if path.exists():
+                cache_key = "runtime-topology"
+                if cache_key in self._cache:
+                    from typing import cast
+
+                    return cast(dict[str, object], self._cache[cache_key])
+                import yaml
+
+                with open(path) as f:
+                    from typing import cast
+
+                    content = cast(dict[str, object], yaml.safe_load(f) or {})
+                self._cache[cache_key] = content
+                return content
+            logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", topology_path_env)
+
+        workspace_root = os.environ.get(
+            "WORKSPACE_ROOT", ""
+        )  # config-bootstrap: workspace root for topology resolution
+        if workspace_root:
+            pm_path = Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
+            if pm_path.exists():
+                cache_key = "runtime-topology"
+                if cache_key in self._cache:
+                    from typing import cast
+
+                    return cast(dict[str, object], self._cache[cache_key])
+                import yaml
+
+                with open(pm_path) as f:
+                    from typing import cast
+
+                    content = cast(dict[str, object], yaml.safe_load(f) or {})
+                self._cache[cache_key] = content
+                return content
+            logger.warning("PM topology not found at %s", pm_path)
+
+        logger.warning("runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT.")
+        return {}
 
     def list_available_services(self) -> list[str]:
         """List all available services with sharding configs."""
