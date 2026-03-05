@@ -1,0 +1,111 @@
+service_name: features-volatility-service
+last_updated: '2026-02-06'
+auto_refreshed: '2026-02-06T22:00:00'
+overall_completion_pct: 0.0
+overall_dates_found: 0
+overall_dates_expected: 2289
+status: 0% complete -- blocked on market-tick-data-service (reads raw tick data directly)
+known_exceptions:
+- DEFI not supported -- no options data
+- 'CEFI: ON HOLD until TARDIS API issue resolved'
+catalogue_dimensions:
+- category
+- feature_group
+- date
+feature_groups:
+- options_iv
+- options_term_structure
+- futures_basis
+- futures_term_structure
+shard_status:
+  CEFI:
+    _status: 0.0% -- 0/763 dates (2024-01-01 to 2026-02-01)
+    completion_pct: 0.0
+    dates_found: 0
+    dates_expected: 763
+    bucket: features-volatility-cefi-test-project
+    options_iv:
+      start_date: '2019-03-30'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: Requires options_chain data (DERIBIT only). ON HOLD until TARDIS API
+        issue resolved.
+    options_term_structure:
+      start_date: '2019-03-30'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: Requires options_chain data
+    futures_basis:
+      start_date: '2019-03-30'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: Requires derivative_ticker data
+    futures_term_structure:
+      start_date: '2019-03-30'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: Requires derivative_ticker data
+  TRADFI:
+    _status: 0.0% -- 0/763 dates (2024-01-01 to 2026-02-01)
+    completion_pct: 0.0
+    dates_found: 0
+    dates_expected: 763
+    bucket: features-volatility-tradfi-test-project
+    options_iv:
+      start_date: '2020-01-01'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: CME/ICE/CBOE options
+    options_term_structure:
+      start_date: '2020-01-01'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: ''
+    futures_basis:
+      start_date: '2020-01-01'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: ''
+    futures_term_structure:
+      start_date: '2020-01-01'
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      completion_pct: 0.0
+      latest_data_date: null
+      assignee: ''
+      notes: ''
+  DEFI:
+    _status: 0.0% -- 0/763 dates (2024-01-01 to 2026-02-01). No options/futures data
+      in DeFi.
+    completion_pct: 0.0
+    dates_found: 0
+    dates_expected: 763
+    bucket: features-volatility-defi-test-project
+    notes: DEFI not supported -- no options data. Bucket exists but expected to remain
+      empty.
+epic_dependencies:
+- epic_task: market-data:4.1
+  blocker_type: D1
+  classification: VALIDATE
+  required_shards: 10220

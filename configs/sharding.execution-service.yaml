@@ -1,0 +1,150 @@
+# Sharding Configuration: execution-service
+# Tests execution algorithms on tick data
+
+service: execution-service
+description: Test execution algorithms via backtesting on tick data
+
+# Docker image (used by both Cloud Run and VM)
+# NOTE: {project_id} is substituted at runtime from environment
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/execution/execution-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: execution-service-job
+
+# ============================================================================
+# ARCHITECTURE NOTE: Instruction Type Driven (Not Domain Driven)
+# ============================================================================
+# Algorithm selection is driven by INSTRUCTION TYPE inferred from instrument ID:
+#
+#   - TRADE: CLOB execution (Binance, Hyperliquid, CME, etc.)
+#            Algorithms: TWAP, VWAP, ICEBERG, ADAPTIVE_TWAP, ALMGREN_CHRISS
+#
+#   - SWAP: DEX execution (Uniswap, Curve, Balancer)
+#           Algorithms: SMART_ORDER_ROUTER, SOR_TWAP, MAX_SLIPPAGE
+#
+#   - ZERO_ALPHA: Lending/staking (AAVE, Lido, Ethena)
+#                 Algorithms: BENCHMARK_FILL only (alpha = 0)
+#
+# BENCHMARK_FILL is available for ALL types as a baseline comparison.
+# Category (cefi/tradfi/defi) is derived from instrument definitions for bucket routing.
+# See: execution-service/docs/UNIFIED_EXECUTION_DELTA.md
+# ============================================================================
+#
+# DIRECTORY STRUCTURE (V2):
+# ============================================================================
+# Strategy instructions: gs://strategy-store-{project}/strategy_instructions/{strategy_id}/day-{date}/
+# Execution configs:     gs://execution-store-{project}/configs/{strategy_id}/{timeframe}/{config}.json
+#
+# Examples:
+#   - strategy_id: CEFI_BTC_MOM_MACD_SCE, AAVE_USDT_LENDING, COMPREHENSIVE_DEFI
+#   - timeframe: 5m, 15m, 1h, 4h, 24h
+#   - config: trade_twap_slices5_int30.json, swap_sor_maxslip20.json
+# ============================================================================
+
+# Sharding dimensions (order defines hierarchy)
+# Structure: gs://execution-store-.../configs/{strategy_id}/{config}.json
+# Note: GCS lists files not directories, so we list all config files directly
+dimensions:
+  - name: config
+    type: gcs_dynamic
+    gcs_bucket_template: "execution-store-{project_id}"
+    gcs_prefix: configs/
+    file_pattern: "*/*.json"
+    exclude_patterns: ["V1/", "_deprecated/", "comprehensive_matrix/"]
+    description: Execution config file (full GCS path including strategy_id)
+
+  - name: client
+    type: fixed
+    values: [internal, external]
+    description: Client scope for execution routing
+
+  - name: subaccount
+    type: fixed
+    values: [default, hedge, mm]
+    description: Subaccount for position/risk isolation
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date range split into daily chunks
+
+# CLI argument mappings
+# Note: config dimension value is the full GCS path, passed directly as --config-gcs
+cli_args:
+  config: --config-gcs
+  client: --client
+  subaccount: --subaccount
+  start_date: --start
+  end_date: --end
+
+# Service-specific CLI flags (per codex: --operation execute --mode live only)
+cli_flags:
+  operation: "--operation execute"
+  mode: "--mode live"
+
+# Default CLI arguments (always added to every shard)
+cli_defaults:
+  log-level: INFO
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-8
+    disk_size_gb: 100
+    description: Heavy tick-by-tick simulation
+    # GCS FUSE: mount these buckets for 10-100x faster parquet reads (Ubuntu VM)
+    gcsfuse_buckets: []
+      # Disabled: Large buckets cause OOM; use GCS API instead
+  cloud_run:
+    memory: 16Gi
+    cpu: 4
+    timeout_seconds: 14400  # 4 hours
+
+# Estimated runtime per shard
+runtime:
+  estimated_minutes: 90
+  notes: Very heavy - tick-by-tick execution simulation
+
+# Validation rules - configs are checked before sharding
+validation:
+  # Check that config file is valid JSON with required schema
+  config_schema: unified_trading_library.schemas.config_schema
+
+  # Dynamic checks per shard
+  checks:
+    - name: config_valid_json
+      description: Config must be valid JSON
+
+    - name: required_fields_present
+      description: Config must have config_id, strategy_id, instruments, execution
+
+    - name: instruments_match_instruction_type
+      description: Instruments must match execution instruction types
+
+    - name: algo_horizon_within_timeframe
+      description: Algorithm horizon_secs must not exceed strategy timeframe
+
+    - name: secondary_instruments_for_sor
+      description: SOR/SOR_TWAP algorithms require secondary instruments# Example shards (for testing)
+# Uses strategy IDs from STANDARD_TEST_PERIODS
+example_shards:
+  # May 2023 period - CeFi TRADE
+  - strategy_id: CEFI_BTC_momentum-macd_SCE_5M_V1
+    timeframe: 5m
+    config: CEFI_BTC_momentum-macd_SCE_5M_V1_TWAP_horizon300_slices5_V1.json
+    date: "2023-05-23"
+  # May 2023 period - TradFi TRADE
+  - strategy_id: TRADFI_SPY_momentum-macd_SCE_5M_V1
+    timeframe: 5m
+    config: TRADFI_SPY_momentum-macd_SCE_5M_V1_TWAP_horizon300_slices5_V1.json
+    date: "2023-05-23"
+  # May 2023 period - DeFi SWAP
+  - strategy_id: DEFI_ETH_swap-routing_SCE_5M_V1
+    timeframe: 5m
+    config: DEFI_ETH_swap-routing_SCE_5M_V1_SOR_TWAP_horizon120_slices5_V1.json
+    date: "2023-05-23"
+  # July 2024 period - DeFi comprehensive
+  - strategy_id: DEFI_ETH_comprehensive-defi_SCE_5M_V1
+    timeframe: 5m
+    config: DEFI_ETH_comprehensive-defi_SCE_5M_V1_SMART_ORDER_ROUTER_V1.json
+    date: "2024-07-01"

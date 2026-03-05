@@ -1,0 +1,67 @@
+# Data Catalogue: features-calendar-service
+# ============================================
+# Independent service -- no upstream data dependencies
+# Dimensions: date (monthly granularity)
+# Generated: 2026-02-06
+
+service_name: "features-calendar-service"
+last_updated: "2026-02-06"
+auto_refreshed: "2026-02-06T22:00:00"
+overall_completion_pct: 0.0
+overall_dates_found: 0
+overall_dates_expected: 763
+status: "0% complete -- bucket queried (features-calendar-cefi-test-project) returned 0 data; likely bucket empty or not provisioned"
+
+known_exceptions:
+  - "FRED API key not yet configured (economic actuals: NFP, CPI, GDP)"
+  - "Earnings API provider not yet chosen (Alpha Vantage, Polygon.io, or FMP)"
+
+catalogue_dimensions:
+  - date
+
+# Calendar features are domain-independent (shared bucket, no category)
+# Output: features-calendar-{project_id}/calendar/temporal/by_date/day-{date}/features.parquet
+# NOTE: API queried CEFI-specific bucket (features-calendar-cefi-test-project).
+#       Bucket returned 0 data -- may still not be provisioned or is empty.
+
+api_query_result:
+  category_queried: "CEFI"
+  bucket_queried: "features-calendar-cefi-test-project"
+  completion_pct: 0.0
+  dates_found: 0
+  dates_expected: 763
+  notes: "Bucket was queried without 404 error but returned 0 dates. Bucket may exist but be empty, or turbo mode may suppress 404."
+
+shard_status:
+  CEFI:
+    _status: "0.0% -- 0/763 dates (2024-01-01 to 2026-02-01)"
+    completion_pct: 0.0
+    dates_found: 0
+    dates_expected: 763
+
+  temporal_features:
+    start_date: "2019-03-30"
+    stage_1_has_run: false
+    stage_2_data_complete: false
+    completion_pct: 0.0
+    latest_data_date: null
+    assignee: ""
+    notes: "Bucket queried (features-calendar-cefi-test-project) returned 0 data. Bucket may not be provisioned or is empty."
+
+  scheduled_events:
+    start_date: "2019-03-30"
+    stage_1_has_run: false
+    stage_2_data_complete: false
+    completion_pct: 0.0
+    latest_data_date: null
+    assignee: ""
+    notes: "Bucket returned 0 data. FOMC, NFP, CPI schedules. Requires FRED_API_KEY for actuals."
+
+  event_actuals:
+    start_date: "2019-03-30"
+    stage_1_has_run: false
+    stage_2_data_complete: false
+    completion_pct: 0.0
+    latest_data_date: null
+    assignee: ""
+    notes: "Bucket returned 0 data. Blocked on FRED API key and earnings API provider selection."

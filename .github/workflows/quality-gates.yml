@@ -33,11 +33,21 @@ jobs:
       - name: Checkout dependencies
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
+          DEP_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
+          BRANCH="${DEP_BRANCH:-main}"
           if [ -n "$GH_PAT" ]; then
-            git clone https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-library.git ../unified-trading-library 2>/dev/null || \
-            git clone https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-services.git ../unified-trading-library 2>/dev/null || echo "Could not clone unified-trading-library"
-            git clone https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-config-interface.git ../unified-config-interface 2>/dev/null || echo "Could not clone unified-config-interface"
+            for repo_remote in "unified-trading-library:IggyIkenna/unified-trading-library" "unified-config-interface:IggyIkenna/unified-config-interface"; do
+              repo="${repo_remote%%:*}"
+              remote="${repo_remote#*:}"
+              dest="../${repo}"
+              if git ls-remote -h "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$BRANCH" 2>/dev/null | head -1 | grep -q .; then
+                git clone -b "$BRANCH" "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || true
+              else
+                git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || true
+              fi
+            done
+            [ -d "../unified-trading-library" ] || git clone -b main https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-services.git ../unified-trading-library 2>/dev/null || true
           else
             echo "::notice::GH_PAT not set - installing deps from PyPI/Artifact Registry only"
           fi

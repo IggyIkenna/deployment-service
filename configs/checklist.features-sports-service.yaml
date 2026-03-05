@@ -1,0 +1,182 @@
+# Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch/checklist.features-sports-service.yaml
+service_name: features-sports-service
+last_updated: '2026-03-01'
+owner: ''
+execution_order: 20  # Post-commercialization — runs after all financial market services
+phase_1_repository_foundation:
+  item_06_dockerfile_exists:
+    description: Containerization ready for Cloud Build
+    status: pending
+    notes: Dockerfile not yet created. Service is post-commercialization (not part of
+      financial markets MVP).
+    verified_date: null
+phase_2_testing_and_quality:
+  item_11_cloud_build_config:
+    description: cloudbuild.yaml includes quality gates before Docker build
+    status: pending
+    notes: cloudbuild.yaml not yet created
+    verified_date: null
+  item_12_quality_gates_pass:
+    description: Pushing to main triggers quality gates; failure blocks image build
+    status: pending
+    notes: Quality gates not yet configured
+    verified_date: null
+phase_3_deployment_infrastructure:
+  item_13_sharding_config:
+    description: configs/sharding.features-sports-service.yaml exists
+    status: done
+    notes: Defines league, feature_group, date dimensions. Shards by league (EPL,
+      LA_LIGA, BUNDESLIGA, etc.)
+    verified_date: '2026-03-01'
+  item_14_dependencies_entry:
+    description: Entry in configs/dependencies.yaml
+    status: pending
+    notes: 'Upstream: none (root service with external API dependencies). Outputs to
+      features-sports bucket.'
+    verified_date: null
+  item_15_expected_start_dates:
+    description: Entry in configs/expected_start_dates.yaml
+    status: pending
+    notes: 'SPORTS: 2020-08-01 (earliest reliable data from API-Football / FootyStats)'
+    verified_date: null
+  item_16_venues_entry:
+    description: Service's venues in configs/venues.yaml
+    status: done
+    notes: SPORTS category with POLYMARKET, BETFAIR, PINNACLE venues already defined
+      in venues.yaml
+    verified_date: '2026-03-01'
+  item_17_terraform_resources:
+    description: Buckets, IAM, Cloud Run job defined in terraform/
+    status: pending
+    notes: Terraform not yet created for features-sports-service. Requires GCS bucket,
+      Cloud Run job, Secret Manager secrets.
+    verified_date: null
+  item_17b_required_buckets_exist:
+    description: All required input/output buckets exist before deployment
+    status: pending
+    notes: 'Root service -- no upstream input buckets. Output bucket: features-sports-{project_id}.
+      Requires Secret Manager secrets for external APIs.'
+    verified_date: null
+    gcp_buckets:
+      outputs:
+      - features-sports-test-project
+      inputs: []
+    aws_buckets:
+      outputs:
+      - unified-trading-features-sports-${AWS_ACCOUNT_ID}
+      inputs: []
+    secret_manager_secrets:
+    - name: api-football-api-key
+      env_var: API_FOOTBALL_SECRET_NAME
+      description: API-Football (api-sports.io) API key for fixture data, team stats,
+        lineups
+      required: true
+    - name: footystats-api-key
+      env_var: FOOTYSTATS_SECRET_NAME
+      description: FootyStats API key for xG data, advanced stats, weather
+      required: true
+    - name: odds-api-key
+      env_var: ODDS_API_SECRET_NAME
+      description: The Odds API key for cross-bookmaker odds aggregation
+      required: true
+    - name: open-meteo-api-key
+      env_var: OPEN_METEO_SECRET_NAME
+      description: Open-Meteo API key for weather forecasts (optional -- free tier
+        available)
+      required: false
+    - name: soccer-football-info-api-key
+      env_var: SOCCER_FOOTBALL_INFO_SECRET_NAME
+      description: Soccer-Football-Info API key for referee data, additional stats
+      required: true
+    bigquery_datasets:
+    - name: features_sports
+      description: BigQuery dataset for sports feature external tables
+      location: asia-northeast1
+    pubsub_topics:
+    - name: features-sports-fixtures-updated
+      description: Published when new fixture data is ingested
+    - name: features-sports-features-computed
+      description: Published when feature vectors are computed for a batch
+    pubsub_subscriptions:
+    - name: features-sports-fixtures-updated-sub
+      topic: features-sports-fixtures-updated
+      description: Subscription for downstream consumers (ML training, strategy)
+    - name: features-sports-features-computed-sub
+      topic: features-sports-features-computed
+      description: Subscription for downstream consumers
+    iam_bindings:
+    - role: roles/storage.objectAdmin
+      member: serviceAccount:features-sports-service@{project_id}.iam.gserviceaccount.com
+      resource: features-sports-{project_id}
+      description: Read/write to sports features output bucket
+    - role: roles/secretmanager.secretAccessor
+      member: serviceAccount:features-sports-service@{project_id}.iam.gserviceaccount.com
+      resource: projects/{project_id}/secrets/*
+      description: Access Secret Manager secrets for API keys
+    - role: roles/pubsub.publisher
+      member: serviceAccount:features-sports-service@{project_id}.iam.gserviceaccount.com
+      resource: projects/{project_id}/topics/features-sports-*
+      description: Publish to sports features Pub/Sub topics
+    - role: roles/bigquery.dataEditor
+      member: serviceAccount:features-sports-service@{project_id}.iam.gserviceaccount.com
+      resource: projects/{project_id}/datasets/features_sports
+      description: Create/update external tables in features_sports dataset
+  item_18_deploy_cli_works:
+    description: python deploy.py deploy --service features-sports-service executes
+    status: pending
+    notes: Deploy CLI not yet tested for features-sports-service
+    verified_date: null
+phase_5_production_deployment:
+  item_23_image_builds:
+    description: Cloud Build produces image in Artifact Registry
+    status: pending
+    notes: No Docker image built yet. Post-commercialization service.
+    verified_date: null
+  item_24_deployment_runs_smoothly:
+    description: Full deployment completes in reasonable time (<1 hour)
+    status: pending
+    notes: Not yet deployed
+    verified_date: null
+
+phase_9_deployable_enhancements:
+  item_38_data_availability:
+    description: "Data availability verified — input/output buckets exist; data paths verified"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All required GCS buckets exist (inputs and outputs)"
+      - "Data paths align with data-catalogue.features-sports-service.yaml"
+      - "At least one successful read/write cycle verified"
+    reference: "plans_to_deployable_unified_audit.plan.md Phase 10"
+
+  item_39_gap_filling:
+    description: "Empty gaps documented; recovery process defined for known gaps"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Known data gaps documented (holidays, pre-launch, venue not live)"
+      - "Gap-filling process defined for recoverable gaps"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_40_recovery_processes:
+    description: "Recovery processes documented for failure scenarios"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Recovery runbook exists for common failure modes"
+      - "Backfill/re-run process documented"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_41_security_audit_trail:
+    description: "Security audit trail for security-relevant actions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Secret access logged (SECRET_ACCESSED event)"
+      - "Auth failures logged (AUTH_FAILURE event)"
+      - "Config changes logged (CONFIG_CHANGED event)"
+    reference: "event-logging.mdc, trading-system-audit-prompt.md"

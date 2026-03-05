@@ -1,0 +1,172 @@
+# Sharding Configuration: market-tick-data-service
+# Downloads raw tick data from exchanges
+
+service: market-tick-data-service
+description: Download raw tick data from exchanges
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/market-data/market-tick-data-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: market-tick-data-service
+
+# =============================================================================
+# SHARDING DIMENSIONS
+# These define how work is split into parallel shards
+# Order defines hierarchy - dimensions are combined as cartesian product
+#
+# download: category × venue × instrument_type × data_type × date
+# This maximizes parallelism for heavy download workloads
+# =============================================================================
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI, SPORTS]
+    description: Market category to download (SPORTS = live odds via USEI scrapers/OpticOdds/OddsJam)
+
+  - name: venue
+    type: hierarchical
+    parent: category
+    source: venues.yaml
+    description: Venue within category (from venues.yaml)
+
+  - name: instrument_type
+    type: fixed
+    values: [SPOT_PAIR, PERPETUAL, FUTURE, OPTION, INDEX]
+    description: Instrument type filter for download scope
+
+  - name: data_type
+    type: fixed
+    values: [trades, book_snapshot_5, book_snapshot_25, liquidations, open_interest]
+    description: Type of tick data to download
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date range split into daily chunks
+
+# =============================================================================
+# CLI ARGUMENTS
+# All arguments passed to the service container
+# =============================================================================
+
+# Required operation and mode (per codex cli-standards)
+cli_flags:
+  operation: "--operation fetch"
+  mode: "--mode batch"
+
+# Mapping: dimension name -> CLI argument
+# These are populated from shard dimensions
+cli_args:
+  category: --category
+  venue: --venues
+  instrument_type: --instrument-types
+  data_type: --data-types
+  # Date dimension expands to start_date + end_date using these mappings
+  start_date: --start-date
+  end_date: --end-date
+
+# =============================================================================
+# META/CONTROL ARGUMENTS (non-sharding)
+# These do NOT map to GCS directory structure - they control runtime behavior
+# =============================================================================
+cli_optional:
+  # Standard meta args (available on all services)
+  - name: force
+    flag: --force
+    description: Force re-download even if data exists in GCS (skips existence check)
+  - name: dry-run
+    flag: --dry-run
+    description: Don't upload to GCS, dump to local data/sample/ directory instead
+  - name: log-level
+    flag: --log-level
+    description: "Logging level (DEBUG, INFO, WARNING, ERROR)"
+    default: INFO
+  - name: max-workers
+    flag: --max-workers
+    description: Maximum parallel workers for processing
+    default: 4
+  - name: max-results
+    flag: --max-results
+    description: Maximum output files (instruments) per shard at deepest directory level
+
+  # Filtering options (these map to storage dimensions via filename)
+  - name: venues
+    flag: --venues
+    description: "Specific venues to process (space-separated)"
+    example: "--venues BINANCE-SPOT BINANCE-FUTURES"
+  - name: data-types
+    flag: --data-types
+    description: "Data types to download (space-separated)"
+    example: "--data-types trades book_snapshot_5"
+  - name: symbols
+    flag: --symbols
+    description: "Specific symbols to download"
+    example: "--symbols BTC-USDT ETH-USDT"
+  - name: instrument-types
+    flag: --instrument-types
+    description: "Filter by instrument type"
+    example: "--instrument-types SPOT_PAIR PERPETUAL"
+  - name: instrument-ids
+    flag: --instrument-ids
+    description: "Specific canonical instrument IDs to process (max 10 to avoid CMD length limits)"
+    example: "--instrument-ids CBOE:INDEX:VIX-USD UPBIT:SPOT_PAIR:BTC-KRW"
+
+  # Service-specific options
+  - name: tick-data
+    flag: --tick-data
+    description: Force tick data for TradFi (expensive - use sparingly)
+  - name: batch-size
+    flag: --batch-size
+    description: Batch size for processing
+    default: 1000
+
+# =============================================================================
+# COMPUTE CONFIGURATION
+# Updated based on GCS file size analysis (Jan 2026):
+# - Max parquet file: 409 MB (COINBASE BTC-USD book_snapshot_5)
+# - In-memory peak: ~1.2 GB per file (3x parquet expansion)
+# - 8 concurrent workers x 1.2 GB x 1.5 safety = ~14-20 GB peak
+# - Using 64 GB RAM for extra safety margin on busy days
+# =============================================================================
+compute:
+  vm:
+    machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM (C2 compute-optimized)
+    disk_size_gb: 150  # >= 2x RAM (64GB) for swap + temp files
+    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400  # 24 hours (maximum)
+    self_delete: true
+    description: Heavy download + compression workload - sized for 8 concurrent workers with 64GB safety margin
+    gcsfuse_buckets: []
+      # Disabled: gcsfuse memory overhead too high for large buckets
+      # All I/O via GCS API (unified-trading-library handles caching)
+
+  cloud_run:
+    memory: 64Gi  # Was 16Gi - increased for 8 concurrent workers with large files + safety margin
+    cpu: "8"      # Was 4 - matched to DOWNLOAD_MAX_WORKERS=8
+    timeout_seconds: 86400  # 24 hours (maximum)
+    max_retries: 3
+
+  # Per-venue compute overrides (applied when venue is in shard dimensions)
+  # COINBASE has massive BTC order book data (409MB parquet -> 1.2GB in memory per file)
+  # With 8 concurrent workers, need 4x RAM = c2-standard-60 (240GB RAM)
+  # Using C2 to stay within C2_CPUS quota (don't breach N2 quotas)
+  venue_overrides:
+    COINBASE:
+      vm:
+        machine_type: c2-standard-60  # 60 vCPU, 240 GB RAM (C2 compute-optimized, max RAM)
+        disk_size_gb: 500  # Must be >= 2x RAM (240GB) for swap + temp files
+      cloud_run:
+        memory: 128Gi  # 2x normal - Cloud Run max is 32Gi, so use VM for COINBASE
+
+# =============================================================================
+# RUNTIME ESTIMATES
+# =============================================================================
+runtime:
+  estimated_minutes: 60
+  notes: |
+    Varies significantly by venue and data_type:
+    - CEFI trades: 30-60 min (largest datasets)
+    - TRADFI: 15-30 min
+    - DEFI: 10-20 min
+    - book_snapshot_5: 2-3x trades time

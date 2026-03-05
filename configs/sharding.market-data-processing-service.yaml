@@ -1,0 +1,156 @@
+# Sharding Configuration: market-data-processing-service
+# Processes raw tick data into OHLCV candles
+
+service: market-data-processing-service
+description: Process tick data into candles at multiple timeframes
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/market-data/market-data-processing-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: market-data-processing-service-job
+
+# =============================================================================
+# SHARDING DIMENSIONS
+# These define how work is split into parallel shards
+# Order defines hierarchy - dimensions are combined as cartesian product
+#
+# processing: category × venue × instrument_type × timeframe × date
+# This maximizes parallelism and isolates venue failures
+# =============================================================================
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI]
+    description: Market category to process
+
+  - name: venue
+    type: hierarchical
+    parent: category
+    source: venues.yaml
+    description: Venue within category (from venues.yaml)
+
+  - name: instrument_type
+    type: fixed
+    values: [SPOT_PAIR, PERPETUAL, FUTURE, OPTION, INDEX]
+    description: Instrument type to process
+
+  - name: timeframe
+    type: fixed
+    values: [15s, 1m, 5m, 15m, 1h, 4h, 24h]
+    description: Output candle timeframe
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date to process (single day per shard)
+
+# =============================================================================
+# CLI ARGUMENTS
+# All arguments passed to the service container
+# =============================================================================
+
+# Required operation and mode (per codex cli-standards)
+cli_flags:
+  operation: "--operation process"
+  mode: "--mode batch"
+
+# Mapping: dimension name -> CLI argument
+# These are populated from shard dimensions
+cli_args:
+  category: --CEFI/--TRADFI/--DEFI  # Boolean flags
+  venue: --venues
+  instrument_type: --instrument-types
+  timeframe: --timeframes
+  start_date: --start-date
+  end_date: --end-date
+
+# =============================================================================
+# META/CONTROL ARGUMENTS (non-sharding)
+# These do NOT map to GCS directory structure - they control runtime behavior
+# =============================================================================
+cli_optional:
+  # Standard meta args (available on all services)
+  - name: force
+    flag: --force
+    description: Force reprocessing even if output exists
+  - name: dry-run
+    flag: --dry-run
+    description: Don't upload to GCS, validate only
+  - name: log-level
+    flag: --log-level
+    description: "Logging level (DEBUG, INFO, WARNING, ERROR)"
+    default: INFO
+  - name: max-workers
+    flag: --max-workers
+    description: Maximum parallel workers for processing
+    default: 8
+  - name: skip-dependency-check
+    flag: --skip-dependency-check
+    description: Skip upstream dependency validation (for testing)
+
+  # Filtering options
+  - name: data-types
+    flag: --data-types
+    description: "Data types to process (space-separated)"
+    example: "--data-types trades book_snapshot_5"
+  - name: timeframes
+    flag: --timeframes
+    description: "Timeframes to generate (space-separated)"
+    example: "--timeframes 15s 1m 5m 15m 1h 4h 24h"
+    default: "15s 1m 5m 15m 1h 4h 24h"
+  - name: instrument-ids
+    flag: --instrument-ids
+    description: "Specific instrument IDs to process"
+    example: "--instrument-ids BINANCE-FUTURES:PERPETUAL:BTC-USDT"
+
+# =============================================================================
+# COMPUTE CONFIGURATION
+# Candle aggregation is CPU-bound (pandas/numpy operations)
+# Memory usage scales with instruments per venue (largest: BINANCE ~2000 instruments)
+# =============================================================================
+compute:
+  vm:
+    machine_type: c2-standard-8  # 8 vCPU, 32 GB RAM (C2 compute-optimized)
+    disk_size_gb: 80  # >= 2x RAM for swap + temp files
+    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400  # 24 hours (maximum)
+    self_delete: true
+    description: CPU-bound aggregation - sized for pandas/numpy operations on large instrument sets
+    gcsfuse_buckets: []
+      # Disabled: Large buckets cause OOM; use GCS API instead
+
+  cloud_run:
+    memory: 16Gi
+    cpu: "4"
+    timeout_seconds: 3600  # 1 hour per shard
+
+  # Per-venue compute overrides (venues with many instruments need more RAM)
+  venue_overrides:
+    BINANCE-SPOT:
+      vm:
+        machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM
+        disk_size_gb: 150
+      cloud_run:
+        memory: 32Gi
+        cpu: "8"
+    BINANCE-FUTURES:
+      vm:
+        machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM
+        disk_size_gb: 150
+      cloud_run:
+        memory: 32Gi
+        cpu: "8"
+
+# =============================================================================
+# RUNTIME ESTIMATES
+# =============================================================================
+runtime:
+  estimated_minutes: 45
+  notes: |
+    Varies by venue size and data types:
+    - BINANCE: 45-60 min (2000+ instruments)
+    - DERIBIT: 30-45 min (options/futures chains)
+    - Other CEFI: 15-30 min
+    - TRADFI: 10-20 min
+    - DEFI: 5-15 min (fewer instruments)

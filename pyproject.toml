@@ -1,83 +1,67 @@
-[build-system]
-requires = ["setuptools>=65", "wheel"]
-build-backend = "setuptools.build_meta"
-
-
 [project]
 name = "deployment-service"
 version = "0.1.0"
-description = "Deployment orchestration service for Unified Trading System"
 requires-python = ">=3.13,<3.14"
+description = "Deployment orchestration engine — extracted from unified-trading-deployment-v3"
 dependencies = [
-    "unified-trading-library>=0.4.0,<1.0.0",
-    "unified-config-interface>=0.1.0,<1.0.0",
-    "click>=8.0.0,<9.0.0",
+    "unified-trading-library>=0.1.0",
     "pyyaml>=6.0.1,<7.0.0",
-    "rich>=13.0.0,<14.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.1,<10.0.0",
+    "pytest-asyncio>=0.25.0,<2.0.0",
+    "pytest-mock>=3.15.0,<4.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
-    "pytest-asyncio>=1.0.0,<2.0.0",
-    "pytest-xdist>=3.5.0,<4.0.0",
-    "pytest-timeout>=2.2.0,<3.0.0",
+    "pytest-xdist>=3.6.0,<4.0.0",
+    "pytest-timeout>=2.4.0,<3.0.0",
+    "pip-audit>=2.7.0,<3.0.0",
+    "bandit>=1.7.0,<2.0.0",
     "ruff==0.15.0",
-    "basedpyright>=1.18.0,<2.0.0",
-    "pre-commit>=3.0,<4.0.0",
-    "pip-audit>=2.0.0",
+    "basedpyright>=1.21.0,<2.0.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["deployment_service*"]
-exclude = ["tests*"]
+[project.scripts]
+deploy-shards = "deployment_service.cli:main"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-addopts = "-v --strict-markers --cov=deployment_service --cov-report=term-missing --cov-fail-under=70"
-markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "smoke: Smoke tests",
-]
+[tool.uv.sources]
+unified-trading-library = { path = "../unified-trading-library" }
+unified-events-interface = { path = "../unified-events-interface" }
 
-[tool.coverage.run]
-branch = true
-source = ["deployment_service"]
-omit = ["*/tests/*", "*/test_*.py", "*/__pycache__/*", "*/__main__.py"]
-
-[tool.coverage.report]
-precision = 2
-show_missing = true
-fail_under = 70
-exclude_lines = [
-    "pragma: no cover",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 120
 target-version = "py313"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP"]
+select = ["E", "F", "I", "UP", "B", "SIM", "G"]
 ignore = ["E501"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-
-[tool.quality-gates]
-repo_arch_tier = "devops"
+per-file-ignores = { "deployment_service/deployment/quota_broker_client.py" = ["E402"], "deployment_service/backends/provider_factory.py" = ["E402"] }
 
 [tool.basedpyright]
-typeCheckingMode = "strict"
-reportAny = "error"
-useLibraryCodeForTypes = true
 pythonVersion = "3.13"
+reportAny = "error"
+reportUnknownVariableType = "error"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownMemberType = "error"
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.coverage.report]
+fail_under = 70  # ISS-028: target 70%. Currently at ~21% (8679 lines). 402 tests pass but mostly test configs/data. Need tests for backends/, pipeline/, deployment/, and services/ modules.

@@ -1,0 +1,120 @@
+service_name: features-multi-timeframe-service
+last_updated: '2026-02-28'
+owner: ''
+execution_order: 6
+phase_1_repository_foundation:
+  item_06_dockerfile_exists:
+    description: Containerization ready for Cloud Build
+    status: pending
+    notes: Mirror features-cross-instrument-service Dockerfile. Multi-stage build, non-root user, health check.
+    verified_date: null
+phase_2_testing_and_quality:
+  item_11_cloud_build_config:
+    description: cloudbuild.yaml includes quality gates before Docker build
+    status: done
+    notes: cloudbuild.yaml created, mirroring features-cross-instrument-service pattern. Quality gates run inside image before push.
+    verified_date: '2026-02-28'
+  item_12_quality_gates_pass:
+    description: Pushing to main triggers quality gates; failure blocks image build
+    status: pending
+    notes: scripts/quality-gates.sh set up (setup only, not yet run).
+    verified_date: null
+phase_3_deployment_infrastructure:
+  item_13_sharding_config:
+    description: configs/sharding.features-multi-timeframe-service.yaml exists
+    status: done
+    notes: Entry in sharding_config.yaml — [category, feature_category, date]. Feature categories — tf_momentum_alignment, tf_structure_context, tf_vol_compression, tf_session_context.
+    verified_date: '2026-02-28'
+  item_14_dependencies_entry:
+    description: Entry in configs/runtime-topology.yaml service_flows
+    status: done
+    notes: FDS→FMTS (batch+live), FMTS→ml-training (batch), FMTS→ml-inference (batch+live). Added 2026-02-28.
+    verified_date: '2026-02-28'
+  item_15_expected_start_dates:
+    description: Entry in configs/expected_start_dates.yaml
+    status: pending
+    notes: To be added. CEFI start date TBD (depends on FDS backfill availability).
+    verified_date: null
+  item_16_venues_entry:
+    description: Service's venues in configs/venues.yaml
+    status: n/a
+    notes: No hierarchical venue dimension. Per-instrument, multi-TF aggregation.
+    verified_date: '2026-02-28'
+  item_17_terraform_resources:
+    description: Buckets, IAM, Cloud Run job defined in terraform/
+    status: done
+    notes: Terraform in terraform/services/features-multi-timeframe-service/gcp/. Cloud Run job + daily + backfill workflows. GCS buckets (3 per category).
+    verified_date: '2026-02-28'
+  item_17b_required_buckets_exist:
+    description: All required input/output buckets exist before deployment
+    status: pending
+    notes: Requires deployment verification.
+    verified_date: null
+    gcp_buckets:
+      outputs:
+        - features-multi-timeframe-cefi-test-project
+        - features-multi-timeframe-tradfi-test-project
+        - features-multi-timeframe-defi-test-project
+      inputs:
+        - features-delta-one-cefi-test-project
+        - features-delta-one-tradfi-test-project
+        - features-delta-one-defi-test-project
+  item_18_deploy_cli_works:
+    description: python deploy.py deploy --service features-multi-timeframe-service executes
+    status: pending
+    notes: Pending service deployment.
+    verified_date: null
+phase_5_production_deployment:
+  item_23_image_builds:
+    description: Cloud Build produces image in Artifact Registry
+    status: pending
+    notes: Pending Dockerfile + Cloud Build config.
+    verified_date: null
+  item_24_deployment_runs_smoothly:
+    description: Full deployment completes in reasonable time (<1 hour)
+    status: pending
+    notes: Pending deployment. Move to consolidated_remaining_work.plan.md when ready.
+    verified_date: null
+
+phase_9_deployable_enhancements:
+  item_38_data_availability:
+    description: "Data availability verified — input/output buckets exist; data paths verified"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All required GCS buckets exist (inputs and outputs)"
+      - "Data paths align with data-catalogue.features-multi-timeframe-service.yaml"
+      - "At least one successful read/write cycle verified"
+    reference: "plans_to_deployable_unified_audit.plan.md Phase 10"
+
+  item_39_gap_filling:
+    description: "Empty gaps documented; recovery process defined for known gaps"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Known data gaps documented (holidays, pre-launch, venue not live)"
+      - "Gap-filling process defined for recoverable gaps"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_40_recovery_processes:
+    description: "Recovery processes documented for failure scenarios"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Recovery runbook exists for common failure modes"
+      - "Backfill/re-run process documented"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_41_security_audit_trail:
+    description: "Security audit trail for security-relevant actions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Secret access logged (SECRET_ACCESSED event)"
+      - "Auth failures logged (AUTH_FAILURE event)"
+      - "Config changes logged (CONFIG_CHANGED event)"
+    reference: "event-logging.mdc, trading-system-audit-prompt.md"

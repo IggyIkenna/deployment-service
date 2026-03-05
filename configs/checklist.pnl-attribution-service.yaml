@@ -1,0 +1,45 @@
+# Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch/checklist.pnl-attribution-service.yaml
+service_name: pnl-attribution-service
+
+phase_9_deployable_enhancements:
+  item_38_data_availability:
+    description: "Data availability verified — input/output buckets exist; data paths verified"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All required GCS buckets exist (inputs and outputs)"
+      - "Data paths align with data-catalogue.pnl-attribution-service.yaml"
+      - "At least one successful read/write cycle verified"
+    reference: "plans_to_deployable_unified_audit.plan.md Phase 10"
+
+  item_39_gap_filling:
+    description: "Empty gaps documented; recovery process defined for known gaps"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Known data gaps documented (holidays, pre-launch, venue not live)"
+      - "Gap-filling process defined for recoverable gaps"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_40_recovery_processes:
+    description: "Recovery processes documented for failure scenarios"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Recovery runbook exists for common failure modes"
+      - "Backfill/re-run process documented"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_41_security_audit_trail:
+    description: "Security audit trail for security-relevant actions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Secret access logged (SECRET_ACCESSED event)"
+      - "Auth failures logged (AUTH_FAILURE event)"
+      - "Config changes logged (CONFIG_CHANGED event)"
+    reference: "event-logging.mdc, trading-system-audit-prompt.md"

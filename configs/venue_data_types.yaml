@@ -1,0 +1,473 @@
+# Venue-Specific Data Type Expectations
+# Used by data-status to determine expected vs optional data_types per venue
+# This prevents reporting "missing" data for data_types that a venue doesn't produce
+
+# =============================================================================
+# CEFI - Centralized Finance
+# =============================================================================
+CEFI:
+  # Domain-level defaults
+  domain: cefi
+  book_type: L2_MBP  # CeFi has 5-level order book depth
+  fee_type: asymmetric  # maker != taker fees
+
+  # Data types that ALL CEFI venues have
+  common_data_types:
+    - trades
+    - book_snapshot_5
+
+  # Venue-specific configurations
+  venues:
+    BINANCE-SPOT:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [SPOT_PAIR]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # Empty list = no accessible types. Remove/update when we get a full key.
+      accessible_instrument_types: []
+      folders: [spot]
+      data_types:
+        - trades
+        - book_snapshot_5
+      # No options/futures, no derivative_ticker
+
+    BINANCE-FUTURES:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [PERPETUAL, FUTURE]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # FUTURE blocked. Remove/update when we get a full key.
+      accessible_instrument_types: [PERPETUAL]
+      folders: [perpetuals, futures_chain]
+      data_types:
+        - trades
+        - book_snapshot_5
+        - derivative_ticker
+        - liquidations
+      underlyings:  # For futures_chain completeness tracking
+        - BTC-USDT
+        - ETH-USDT
+
+    DERIBIT:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [PERPETUAL, FUTURE, OPTION]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # FUTURE and OPTION blocked. Remove/update when we get a full key.
+      accessible_instrument_types: [PERPETUAL]
+      folders: [perpetuals, futures_chain, options_chain]
+      data_types:
+        - trades
+        - book_snapshot_5
+        - derivative_ticker
+        - liquidations
+        - options_chain   # ONLY DERIBIT has options
+      underlyings:  # For options_chain and futures_chain completeness
+        - BTC-USD
+        - ETH-USD
+
+    BYBIT:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [SPOT_PAIR, PERPETUAL]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # SPOT_PAIR blocked. Remove/update when we get a full key.
+      accessible_instrument_types: [PERPETUAL]
+      folders: [spot, perpetuals]
+      data_types:
+        - trades
+        - book_snapshot_5
+        - derivative_ticker
+        - liquidations
+      # No options/futures_chain
+
+    OKX:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [SPOT_PAIR, PERPETUAL, FUTURE]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # SPOT_PAIR and FUTURE blocked. Remove/update when we get a full key.
+      accessible_instrument_types: [PERPETUAL]
+      folders: [spot, perpetuals, futures_chain]
+      data_types:
+        - trades
+        - book_snapshot_5
+        - derivative_ticker
+        - liquidations
+      # Has futures but we don't track futures_chain separately yet
+
+    UPBIT:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [SPOT_PAIR]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # Empty list = no accessible types. Remove/update when we get a full key.
+      accessible_instrument_types: []
+      folders: [spot]
+      data_types:
+        - trades
+        - book_snapshot_5
+      # Spot only - no derivatives
+
+    COINBASE:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [SPOT_PAIR]
+      # accessible_instrument_types: Tardis API key is perpetuals-only.
+      # Empty list = no accessible types. Remove/update when we get a full key.
+      accessible_instrument_types: []
+      folders: [spot]
+      data_types:
+        - trades
+        - book_snapshot_5
+      # Spot only - no derivatives
+
+    HYPERLIQUID:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [PERPETUAL]
+      folders: [perpetuals]
+      data_types:
+        - trades
+        - book_snapshot_5
+        - derivative_ticker
+        # NO liquidations - Hyperliquid does not provide liquidation data via API
+      start_date: "2023-05-01"  # Hyperliquid S3 data start
+
+    ASTER:
+      domain: cefi
+      book_type: L2_MBP
+      fee_type: asymmetric
+      instrument_types: [PERPETUAL]
+      folders: [perpetuals]
+      data_types:
+        - trades
+        # Only trades available for Aster (no book_snapshot_5, derivative_ticker, or liquidations)
+      start_date: "2021-08-30"  # Earliest data available
+
+# =============================================================================
+# TRADFI - Traditional Finance
+# =============================================================================
+TRADFI:
+  # Domain-level defaults
+  domain: tradfi
+  book_type: L1_MBP  # TradFi uses TBBO (top of book)
+  fee_type: symmetric  # maker == taker fees (approximately)
+
+  # Per-venue configurations (structure from venues.yaml venue_data_types)
+  venues:
+    CME:
+      domain: tradfi
+      book_type: L1_MBP
+      fee_type: symmetric
+      instrument_types: [FUTURE, OPTION]
+      folders: [futures_chain, options_chain]
+      data_types:
+        default: [ohlcv_1m]  # Cost-optimized: 1-min candles outside tick windows
+        tick_window: [trades, ohlcv_1m, tbbo]  # Full tick data in backtest windows
+      underlyings:
+        - ES   # S&P 500 E-mini
+        - NQ   # Nasdaq E-mini
+        - CL   # Crude Oil
+        - GC   # Gold
+      start_date: "2020-01-01"
+
+    ICE:
+      domain: tradfi
+      book_type: L1_MBP
+      fee_type: symmetric
+      instrument_types: [FUTURE, OPTION]
+      folders: [futures_chain, options_chain]
+      data_types:
+        default: [ohlcv_1m]  # Cost-optimized: 1-min candles outside tick windows
+        tick_window: [trades, ohlcv_1m, tbbo]  # Full tick data in backtest windows
+      start_date: "2018-12-23"
+
+    NASDAQ:
+      domain: tradfi
+      book_type: L1_MBP
+      fee_type: symmetric
+      instrument_types: [EQUITY, ETF]
+      folders: [equities, etf]
+      data_types:
+        default: [ohlcv_1m]  # Cost-optimized: 1-min candles outside tick windows
+        tick_window: [trades, ohlcv_1m, tbbo]  # Full tick data in backtest windows
+      start_date: "2020-01-01"
+
+    NYSE:
+      domain: tradfi
+      book_type: L1_MBP
+      fee_type: symmetric
+      instrument_types: [EQUITY, ETF]
+      folders: [equities, etf]
+      data_types:
+        default: [ohlcv_1m]  # Cost-optimized: 1-min candles outside tick windows
+        tick_window: [trades, ohlcv_1m, tbbo]  # Full tick data in backtest windows
+      start_date: "2020-01-01"
+
+    CBOE:
+      domain: tradfi
+      book_type: L1_MBP
+      fee_type: symmetric
+      instrument_types: [INDEX]
+      folders: [indices]
+      data_types:
+        default: [ohlcv_1m, ohlcv_15m]  # ohlcv_1m from Databento, ohlcv_15m from Barchart (VIX)
+        tick_window: [trades, ohlcv_1m, tbbo, ohlcv_15m]  # Full tick + Barchart VIX
+      start_date: "2020-01-01"
+
+    FX:
+      domain: tradfi
+      book_type: L1_MBP  # OTC rates - no actual order book
+      fee_type: symmetric
+      instrument_types: [SPOT_PAIR]
+      folders: [spot]
+      data_types:
+        default: [ohlcv_24h]  # Yahoo Finance provides daily OHLCV only (KRW/USD)
+        tick_window: [ohlcv_24h]  # External source (Yahoo Finance), daily candles - no tick data
+      start_date: "2020-01-01"
+
+  # Tick data windows (dates where expensive tick data is collected)
+  tick_windows:
+    - start: "2023-05-01"
+      end: "2023-05-31"
+    - start: "2024-07-01"
+      end: "2024-07-31"
+
+# =============================================================================
+# DEFI - Decentralized Finance
+# =============================================================================
+# UNISWAP LIQUIDITY DATA GRANULARITY:
+#   - V2: Hourly liquidity via pairHourDatas (The Graph) - confirmed by live query Feb 2026
+#   - V3: Hourly liquidity via poolHourDatas (The Graph)
+#   - V4: Hourly liquidity via poolHourDatas (The Graph) - confirmed by live query Feb 2026
+# All three Uniswap versions support hourly liquidity snapshots.
+#
+# FOLDER STANDARDIZATION:
+#   - pool/: DEX pools (POOL), Lending tokens (A_TOKEN, DEBT_TOKEN)
+#   - lst/: LST protocols (LST, YIELD_BEARING)
+#
+# DEPRECATED DATA TYPES:
+#   - yields: REMOVED - can be computed from oracle_prices (price change over time)
+#   - rates: REMOVED - redundant with rate_indices (same data, overlapping fields)
+#   - market_state: REMOVED - total_supply/total_borrow already in rate_indices
+#
+# UTILIZATION NOTE:
+#   utilization is extracted from the rate_indices download (no duplicate API call).
+#   The adapter downloads rate_indices once and saves both rate_indices and utilization
+#   as separate parquet outputs from the same data.
+#
+# RISK_PARAMS NOTE:
+#   risk_params (LTV, liquidation_threshold, etc.) change over time via governance.
+#   Downloaded historically from The Graph reserveParamsHistory / Morpho API.
+# =============================================================================
+DEFI:
+  # Domain-level defaults
+  domain: defi
+  book_type: AMM  # DeFi uses AMM liquidity pools
+  fee_type: pool  # always taker (we don't LP)
+
+  # Common data types across all DEFI (none - very heterogeneous)
+  common_data_types: []
+
+  # Folder mappings for GCS paths
+  folder_mappings:
+    POOL: pool
+    A_TOKEN: pool
+    DEBT_TOKEN: pool
+    LST: lst
+    YIELD_BEARING: lst
+
+  venues:
+    # DEX protocols - swaps + liquidity (folder: pool)
+    UNISWAPV2-ETH:
+      domain: defi
+      book_type: AMM
+      fee_type: pool  # 0.3% pool fee
+      pool_version: v2  # constant product x*y=k
+      instrument_types: [POOL]
+      folders: [pool]
+      data_types:
+        - swaps
+        - liquidity  # Hourly pool snapshots via pairHourDatas (V2 subgraph supports hourly)
+      start_date: "2020-05-18"  # Uniswap V2 launch
+
+    UNISWAPV3-ETH:
+      domain: defi
+      book_type: AMM
+      fee_type: pool  # variable pool fee (0.01%, 0.05%, 0.3%, 1%)
+      pool_version: v3  # concentrated liquidity
+      instrument_types: [POOL]
+      folders: [pool]
+      data_types:
+        - swaps
+        - liquidity  # Hourly pool snapshots via poolHourDatas (V3 supports hourly)
+      start_date: "2021-05-05"  # Uniswap V3 launch
+
+    UNISWAPV4-ETH:
+      domain: defi
+      book_type: AMM
+      fee_type: pool  # variable pool fee via hooks
+      pool_version: v4  # hooks + singleton
+      instrument_types: [POOL]
+      folders: [pool]
+      data_types:
+        - swaps
+        - liquidity  # Hourly pool snapshots via poolHourDatas (V4 subgraph supports hourly)
+      start_date: "2025-02-07"  # 14-day buffer after first swap (Jan 24). Was 2024-11-01.
+
+    # Lending protocols (folder: pool)
+    # NOTE: Lending protocols use AMM book_type but have lending-specific fee_type
+    # rate_indices includes: liquidity_index, borrow_index, utilization_rate, supply_apy, borrow_apy
+    # utilization is extracted from rate_indices download (no duplicate API call)
+    # risk_params queried from The Graph for historical governance parameter changes
+    AAVE_V3_ETH:
+      domain: defi
+      book_type: AMM  # Lending uses pool-based matching
+      fee_type: lending  # borrow/supply rate based fees
+      instrument_types: [A_TOKEN, DEBT_TOKEN]
+      folders: [pool]
+      data_types:
+        - rate_indices      # Indices, rates, utilization (from The Graph)
+        - oracle_prices     # On-chain oracle prices (Chainlink via AAVE)
+        - utilization       # Extracted from rate_indices: utilization_rate, total_supply, total_borrow
+        - risk_params       # Historical: LTV, liquidation_threshold, reserve_factor (from The Graph)
+      start_date: "2023-01-27"
+
+    MORPHO-ETHEREUM:
+      domain: defi
+      book_type: AMM  # Lending uses pool-based matching
+      fee_type: lending  # borrow/supply rate based fees
+      instrument_types: [A_TOKEN, DEBT_TOKEN]
+      folders: [pool]
+      data_types:
+        - rate_indices              # Indices, rates, utilization (from Morpho API)
+        - utilization               # Extracted from rate_indices: utilization, total_supply, total_borrow
+        - flash_loan_availability   # Available liquidity for flash loans (from Morpho API historicalState)
+      # NOTE: oracle_prices NOT needed for Morpho - used for flash loans (pay back same day)
+      start_date: "2024-01-08"
+
+    # LST protocols - oracle_prices (folder: lst)
+    # NOTE: yields data type REMOVED - yield can be derived from oracle_prices
+    # (price change over time = yield for rebasing/yield-bearing tokens)
+    LIDO:
+      domain: defi
+      book_type: AMM  # LST uses oracle-based pricing
+      fee_type: none  # No trading fees for LST staking
+      instrument_types: [LST]
+      folders: [lst]
+      data_types:
+        - oracle_prices  # stETH/wstETH exchange rate - use to compute yield
+      start_date: "2020-12-18"
+
+    ETHERFI:
+      domain: defi
+      book_type: AMM  # LST uses oracle-based pricing
+      fee_type: none  # No trading fees for LST staking
+      instrument_types: [LST]
+      folders: [lst]
+      data_types:
+        - oracle_prices  # weETH exchange rate - use to compute yield
+        - rewards        # EIGEN weekly + ETHFI top-ups + seasonal airdrops (EigenLayer Sidecar RPC + manual)
+      start_date: "2024-02-01"
+
+    ETHENA:
+      domain: defi
+      book_type: AMM  # Yield-bearing uses oracle-based pricing
+      fee_type: none  # No trading fees for yield-bearing tokens
+      instrument_types: [YIELD_BEARING]
+      folders: [lst]
+      data_types:
+        - oracle_prices  # sUSDe exchange rate - use to compute yield
+      start_date: "2024-02-16"
+
+# =============================================================================
+# SPORTS - Sports Betting (Post-commercialization)
+# =============================================================================
+# SPORTS venues produce odds, markets, outcomes, and settlements data.
+# Data is sharded by league (not by venue) in features-sports-service.
+# Venues here represent data providers / betting exchanges.
+# =============================================================================
+SPORTS:
+  # Domain-level defaults
+  domain: sports
+  book_type: EXCHANGE  # Betting exchanges and bookmakers
+  fee_type: commission  # Exchange commission or bookmaker margin (vig)
+
+  # Common data types across all SPORTS venues
+  common_data_types:
+    - odds
+    - markets
+
+  venues:
+    POLYMARKET:
+      domain: sports
+      book_type: EXCHANGE
+      fee_type: commission
+      instrument_types: [MARKET]
+      folders: [markets]
+      data_types:
+        - odds
+        - markets
+        - outcomes
+        - settlements
+      start_date: "2020-01-01"
+
+    BETFAIR:
+      domain: sports
+      book_type: EXCHANGE
+      fee_type: commission  # 2-5% commission on net winnings
+      instrument_types: [MARKET]
+      folders: [markets]
+      data_types:
+        - odds
+        - markets
+        - outcomes
+        - settlements
+      start_date: "2020-01-01"
+
+    PINNACLE:
+      domain: sports
+      book_type: BOOKMAKER
+      fee_type: margin  # Low-margin bookmaker (1-3% vig)
+      instrument_types: [MARKET]
+      folders: [markets]
+      data_types:
+        - odds
+        - markets
+        - outcomes
+        - settlements
+      start_date: "2020-01-01"
+
+# =============================================================================
+# Chain Data Types - Special handling for options/futures
+# These data types contain multiple instruments per file, grouped by underlying
+# =============================================================================
+chain_data_types:
+  options_chain:
+    description: "Options greeks, IV, mark prices - grouped by underlying"
+    venues: [DERIBIT]  # Only DERIBIT has options
+    path_structure: "{data_type}/options_chain/{VENUE}/{underlying}.parquet"
+
+  futures_chain:
+    description: "Dated futures data - grouped by underlying"
+    venues: [DERIBIT, BINANCE-FUTURES]
+    path_structure: "{data_type}/futures_chain/{VENUE}/{underlying}/{instrument_key}.parquet"
+
+# =============================================================================
+# Expected Start Dates by Category
+# Used to exclude dates before venue/category launched
+# =============================================================================
+category_start_dates:
+  CEFI: "2019-01-01"
+  TRADFI: "2023-01-01"
+  DEFI: "2023-01-01"
+  SPORTS: "2020-08-01"

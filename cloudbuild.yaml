@@ -1,49 +1,73 @@
-# Cloud Build for deployment-service
+# Cloud Build configuration for Deployment Dashboard (API + UI)
 #
-# 1. Build Docker image
-# 2. Run quality gates INSIDE the image
-# 3. Push ONLY if tests pass
+# This runs the EXACT same quality gates as:
+#   - Local: ./scripts/quality-gates.sh
+#   - GitHub Actions: .github/workflows/quality-gates.yml
+#
+# All three MUST be kept in sync. If you change one, change all three.
+#
+# This builds and deploys the deployment monitoring dashboard to Cloud Run.
+# Triggered automatically on push to main branch.
+#
+# Prerequisites:
+#   1. Artifact Registry repository: deployment-dashboard
+#   2. Cloud Run service will be created on first deploy
+#   3. Service account with Cloud Run Admin, Storage Admin roles
+#
+# Manual trigger:
+#   gcloud builds submit --config=cloudbuild.yaml --region=asia-northeast1
+
+substitutions:
+  _SERVICE_NAME: deployment-dashboard
+  # For feature branch builds, set _VERSION_SUFFIX via trigger: +feat.${BRANCH_NAME}.${SHORT_SHA}
+  _VERSION_SUFFIX: ''
+  _REGION: asia-northeast1
+  _ARTIFACT_REPO: deployment-dashboard
+  # Resource configuration - adjust based on usage (reduced for regional memory quota)
+  _MEMORY: '4Gi'           # Reduced for regional memory quota (was 8Gi)
+  _CPU: '2'                # 2 vCPUs (scaled with memory)
+  _MIN_INSTANCES: '0'      # 0 = scale to zero to free quota (use 1 to avoid cold starts)
+  _MAX_INSTANCES: '10'     # Was 20; 4Gi x 10 = 40 Gi peak (was 160 Gi)
+  _CONCURRENCY: '200'      # Requests per instance before scaling
 
 steps:
+  # ============================================================
+  # QUALITY GATES - Must pass before Docker build proceeds
+  # ============================================================
+
+  # Step 1: Configure Docker auth
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'configure-docker'
-    args: ['auth', 'configure-docker', 'asia-northeast1-docker.pkg.dev', '--quiet']
+    args: ['auth', 'configure-docker', '${_REGION}-docker.pkg.dev', '--quiet']
     waitFor: ['-']
 
-  - name: 'gcr.io/cloud-builders/gcloud'
-    id: 'ensure-repo'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        gcloud artifacts repositories describe deployment \
-          --location=asia-northeast1 &>/dev/null || \
-        gcloud artifacts repositories create deployment \
-          --repository-format=docker \
-          --location=asia-northeast1 \
-          --description="deployment-service Docker images"
-    waitFor: ['-']
-
-  - name: 'gcr.io/cloud-builders/docker'
-    id: 'pull-base-image'
-    args: ['pull', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/unified-cloud-services/unified-cloud-services:latest']
-    waitFor: ['configure-docker']
-
+  # Step 2: Build production image (API + UI)
   - name: 'gcr.io/cloud-builders/docker'
     id: 'build'
+    waitFor: ['configure-docker']
     args:
       - 'build'
-      - '-f'
-      - 'Dockerfile'
-      - '--build-arg'
-      - 'PROJECT_ID=$PROJECT_ID'
+      - '--target'
+      - 'api'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}'
       - '-t'
-      - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:latest'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest'
       - '.'
-    waitFor: ['pull-base-image', 'ensure-repo']
 
+  # Step 3: Build api-dev image (includes dev deps for quality gates)
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-dev'
+    waitFor: ['build']
+    args:
+      - 'build'
+      - '--target'
+      - 'api-dev'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev'
+      - '.'
+
+  # Step 4: Run quality gates INSIDE the api-dev image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'quality-gates'
     entrypoint: 'bash'
@@ -51,26 +75,125 @@ steps:
       - '-c'
       - |
         set -e
-        echo "Running quality gates inside deployment-service image..."
+        echo "Running quality gates inside deployment-dashboard image..."
         docker run --rm \
           --entrypoint "" \
           -e CLOUD_BUILD=true \
+          -e CLOUD_MOCK_MODE=true \
           -e GCP_PROJECT_ID=$PROJECT_ID \
-          asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA \
-          /bin/bash -c "scripts/quality-gates.sh --no-fix --quick"
-    waitFor: ['build']
+          -e GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+          ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev \
+          /bin/bash -c "scripts/quality-gates.sh --no-fix --quick" || {
+          echo "❌ Quality gates failed. Run locally: bash scripts/quality-gates.sh --no-fix"
+          exit 1
+        }
+        echo "✅ Quality gates passed"
+    waitFor: ['build-dev']
 
+  # Step 5: Push image ONLY if quality gates passed
   - name: 'gcr.io/cloud-builders/docker'
     id: 'push'
-    args: ['push', '--all-tags', 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service']
     waitFor: ['quality-gates']
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}'
 
+  # Step 6b: Generate env vars file for deploy (avoids Cloud Build 100-args limit)
+  - name: 'ubuntu'
+    id: 'gen-env'
+    waitFor: ['push']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cat > /workspace/env.yaml << EOF
+        GCP_PROJECT_ID: "${PROJECT_ID}"
+        GCS_REGION: "${_REGION}"
+        STATE_BUCKET: "deployment-orchestration-${PROJECT_ID}"
+        GITHUB_ORG: "IggyIkenna"
+        DEPLOYMENT_ENV: "production"
+        WORKERS: "4"
+        PYTHONUNBUFFERED: "1"
+        AUTO_SCHEDULER_MAX_LAUNCH_PER_TICK: "2000"
+        AUTO_SCHEDULER_MAX_RELEASES_PER_TICK: "200"
+        AUTO_SYNC_ENABLED: "true"
+        EOF
+
+  # Step 7: Deploy to Cloud Run with production-grade resources
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    waitFor: ['push', 'gen-env']
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'  # Requires authentication
+      # ----- Resource Configuration -----
+      - '--memory'
+      - '${_MEMORY}'
+      - '--cpu'
+      - '${_CPU}'
+      - '--cpu-boost'                      # Faster startup with extra CPU during init
+      # ----- Scaling Configuration -----
+      - '--min-instances'
+      - '${_MIN_INSTANCES}'
+      - '--max-instances'
+      - '${_MAX_INSTANCES}'
+      - '--concurrency'
+      - '${_CONCURRENCY}'
+      # ----- Timeout Configuration -----
+      - '--timeout'
+      - '3600'                             # 1 hour max request timeout
+      # ----- Execution Environment -----
+      - '--execution-environment'
+      - 'gen2'                             # 2nd gen for better performance
+      - '--no-cpu-throttling'              # Don't throttle CPU between requests
+      # ----- GCS FUSE Volume Mount (production only - STATE_BUCKET for deployment orchestration) -----
+      # Mount ONLY deployment-orchestration bucket for fast state reads (last 48h of deployments)
+      # All domain service buckets (instruments, market-tick, features, ml, etc.) NOT mounted
+      # API only needs to read/write deployment state - domain data accessed via GCS API when needed
+      - '--add-volume'
+      - 'name=vol-deployment,type=cloud-storage,bucket=deployment-orchestration-${PROJECT_ID},readonly=false'
+      - '--add-volume-mount'
+      - 'volume=vol-deployment,mount-path=/mnt/gcs/deployment-orchestration-${PROJECT_ID}'
+      # ----- Environment Variables (file avoids Cloud Build 100-args limit) -----
+      - '--env-vars-file'
+      - '/workspace/env.yaml'
+
+  # Step 8: Ensure public access (IAM policy)
+  # This is needed because --allow-unauthenticated may be blocked by org policy
+  # Note: This may fail if Cloud Build SA doesn't have setIamPolicy permission
+  # In that case, run manually: gcloud run services add-iam-policy-binding deployment-dashboard --region=asia-northeast1 --member=allUsers --role=roles/run.invoker
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'set-iam'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run services add-iam-policy-binding ${_SERVICE_NAME} \
+          --region=${_REGION} \
+          --member=allUsers \
+          --role=roles/run.invoker \
+        || echo "WARNING: Could not set IAM policy. Service may require manual IAM setup."
+
+# Store images in Artifact Registry
 images:
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:$SHORT_SHA'
-  - 'asia-northeast1-docker.pkg.dev/$PROJECT_ID/deployment/deployment-service:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest'
 
+# Build options - use a powerful machine for faster builds
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+  machineType: 'E2_HIGHCPU_32'             # Fast builds with 32 vCPUs
+  diskSizeGb: 200                          # More disk for Docker layer caching
 
-timeout: '1800s'
+# Timeout for the entire build (30 minutes)
+timeout: '600s'

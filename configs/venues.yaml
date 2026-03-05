@@ -1,0 +1,283 @@
+# Canonical Venue-Category Mappings
+# Single source of truth for deployment sharding validation
+# Extracted from: unified_trading_library/models/venue_config.py
+
+categories:
+  CEFI:
+    description: Centralized Finance exchanges (Tardis API) and on-chain CLOBs
+    venues:
+      # Centralized exchanges (Tardis API)
+      - BINANCE-SPOT
+      - BINANCE-FUTURES
+      - DERIBIT
+      - BYBIT
+      - OKX
+      - UPBIT
+      - COINBASE
+      # On-chain CLOB perpetuals (same CLOB-style data schema)
+      - HYPERLIQUID
+      - ASTER
+    data_types:
+      - trades
+      - book_snapshot_5
+      - derivative_ticker
+      - liquidations
+      - options_chain
+    # Tardis exchange endpoint mappings (CEX only)
+    venue_to_tardis:
+      BINANCE-SPOT: binance
+      BINANCE-FUTURES: binance-futures
+      DERIBIT: deribit
+      BYBIT: [bybit, bybit-spot]
+      OKX: [okex, okex-futures, okex-swap]
+      UPBIT: upbit
+      COINBASE: coinbase
+    # On-chain CLOB data provider mappings
+    venue_to_provider:
+      HYPERLIQUID: hyperliquid_api
+      ASTER: aster_api
+
+  TRADFI:
+    description: Traditional Finance exchanges (Databento API) and external data providers
+    venues:
+      # Primary exchanges (Databento API)
+      - CME
+      - CBOE
+      - NASDAQ
+      - NYSE
+      - ICE
+      # External data providers (non-exchange)
+      - FX  # FX rates (KRW-USD, etc.) - ohlcv_24h (data via Yahoo Finance)
+    # Global data_types list (for backward compatibility)
+    data_types:
+      - trades
+      - ohlcv_1m
+      - ohlcv_15m  # VIX from CBOE/Barchart
+      - ohlcv_24h  # FX rates from FX venue (Yahoo Finance source)
+      - tbbo
+    # Databento dataset mappings
+    venue_to_databento:
+      CME: GLBX.MDP3
+      CBOE: BARCHART
+      NASDAQ: DBEQ.BASIC
+      NYSE: DBEQ.BASIC
+      ICE: IFUS.IMPACT
+    # Per-venue data_type expectations for data-status validation
+    # Format: venue -> instrument_type -> {data_types, tick_window_data_types}
+    # tick_window_data_types apply for May 2023 and July 2024 (expensive tick data)
+    venue_data_types:
+      CME:
+        FUTURE:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+        OPTION:
+          default: [trades, ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+      ICE:
+        FUTURE:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+        OPTION:
+          default: [trades, ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+      NASDAQ:
+        EQUITY:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+        ETF:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+      NYSE:
+        EQUITY:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+        ETF:
+          default: [ohlcv_1m]
+          tick_window: [trades, ohlcv_1m, tbbo]
+      CBOE:
+        # VIX is special - uses Barchart external source, always 15m
+        INDEX:
+          default: [ohlcv_15m]
+          tick_window: [ohlcv_15m]  # No tick data for external source
+      FX:
+        # FX rates - daily OHLCV only (data via Yahoo Finance)
+        SPOT_PAIR:
+          default: [ohlcv_24h]
+          tick_window: [ohlcv_24h]  # No tick data for external source
+    # Tick data windows (dates where we collect expensive tick data)
+    tick_windows:
+      - start: "2023-05-01"
+        end: "2023-05-31"
+      - start: "2024-07-01"
+        end: "2024-07-31"
+
+  DEFI:
+    description: Decentralized Finance protocols (The Graph, Direct APIs)
+    venues:
+      # Ethereum DEX protocols (swaps)
+      - UNISWAPV2-ETH
+      - UNISWAPV3-ETH
+      - UNISWAPV4-ETH
+      - CURVE-ETH
+      # FUTURE IMPLEMENTATION - NOT MVP (data source issues, see adapters for details)
+      # - BALANCER-ETH   # TODO: The Graph deprecated, RPC fallback needs work
+      # Lending protocols
+      - AAVE_V3_ETH
+      - COMPOUND_V3_ETH
+      - MORPHO-ETHEREUM
+      # - EULER-PLASMA   # TODO: Adapter not implemented - excluded from deployment
+      # - FLUID-PLASMA   # TODO: Adapter not implemented - excluded from deployment
+      # LST/Yield protocols
+      - LIDO
+      - ETHERFI
+      - ETHENA
+    data_types:
+      - swaps
+      - rate_indices
+      - oracle_prices
+      - utilization
+      - liquidity               # AMM pool liquidity for slippage simulation (Uniswap)
+      - risk_params             # Governance parameters (LTV, liquidation thresholds)
+      - flash_loan_availability # Flash loan liquidity (Morpho)
+      - rewards                 # Protocol rewards (EtherFi EIGEN/ETHFI)
+      # REMOVED: yields (deprecated - derive from oracle_prices)
+      # REMOVED: rates (redundant with rate_indices)
+    # Per-venue data_type expectations
+    # DEX = swaps + liquidity, Lending = rate_indices/utilization/oracle_prices/risk_params
+    # LST = oracle_prices + rewards
+    venue_data_types:
+      UNISWAPV2-ETH:
+        POOL:
+          default: [swaps, liquidity]
+          tick_window: [swaps, liquidity]
+      UNISWAPV3-ETH:
+        POOL:
+          default: [swaps, liquidity]
+          tick_window: [swaps, liquidity]
+      UNISWAPV4-ETH:
+        POOL:
+          default: [swaps, liquidity]
+          tick_window: [swaps, liquidity]
+      AAVE_V3_ETH:
+        POOL:
+          default: [rate_indices, oracle_prices, utilization, risk_params]
+          tick_window: [rate_indices, oracle_prices, utilization, risk_params]
+      COMPOUND_V3_ETH:
+        POOL:
+          default: [rate_indices, oracle_prices, utilization, risk_params]
+          tick_window: [rate_indices, oracle_prices, utilization, risk_params]
+      MORPHO-ETHEREUM:
+        POOL:
+          default: [rate_indices, utilization, flash_loan_availability]
+          tick_window: [rate_indices, utilization, flash_loan_availability]
+      LIDO:
+        LST:
+          default: [oracle_prices]
+          tick_window: [oracle_prices]
+      ETHERFI:
+        LST:
+          default: [oracle_prices, rewards]
+          tick_window: [oracle_prices, rewards]
+      ETHENA:
+        YIELD_BEARING:
+          default: [oracle_prices]
+          tick_window: [oracle_prices]
+    # Data provider mappings
+    venue_to_provider:
+      UNISWAPV2-ETH: the_graph
+      UNISWAPV3-ETH: the_graph
+      UNISWAPV4-ETH: the_graph
+      # FUTURE IMPLEMENTATION - NOT MVP
+      # CURVE-ETH: the_graph      # TODO: The Graph deprecated
+      # BALANCER-ETH: the_graph   # TODO: The Graph deprecated
+      AAVE_V3_ETH: protocol_sdk
+      COMPOUND_V3_ETH: protocol_sdk
+      MORPHO-ETHEREUM: protocol_sdk
+      # EULER-PLASMA: protocol_sdk   # TODO: Adapter not implemented
+      # FLUID-PLASMA: protocol_sdk   # TODO: Adapter not implemented
+      LIDO: protocol_sdk
+      ETHERFI: protocol_sdk
+      ETHENA: protocol_sdk
+
+  SPORTS:
+    description: Sports betting exchanges (EXCLUDED FROM MVP - Post-commercialization)
+    venues:
+      - POLYMARKET
+      - BETFAIR
+      - PINNACLE
+    data_types:
+      - odds
+      - markets
+      - outcomes
+      - settlements
+    # Per-venue data_type expectations
+    venue_data_types:
+      POLYMARKET:
+        MARKET:
+          default: [odds, markets, outcomes, settlements]
+          tick_window: [odds, markets, outcomes, settlements]
+      BETFAIR:
+        MARKET:
+          default: [odds, markets, outcomes, settlements]
+          tick_window: [odds, markets, outcomes, settlements]
+      PINNACLE:
+        MARKET:
+          default: [odds, markets, outcomes, settlements]
+          tick_window: [odds, markets, outcomes, settlements]
+    # Data provider mappings
+    venue_to_provider:
+      POLYMARKET: polymarket_api
+      BETFAIR: betfair_api
+      PINNACLE: pinnacle_api
+
+# GCS bucket mappings per category
+# NOTE: raw_tick_data and processed_candles are in the SAME bucket, different prefixes
+gcs_buckets:
+  CEFI:
+    raw_tick_data: market-data-tick-cefi
+    processed_candles: market-data-tick-cefi
+    features: features-store-cefi
+  TRADFI:
+    raw_tick_data: market-data-tick-tradfi
+    processed_candles: market-data-tick-tradfi
+    features: features-store-tradfi
+  DEFI:
+    raw_tick_data: market-data-tick-defi
+    processed_candles: market-data-tick-defi
+    features: features-store-defi
+  SPORTS:
+    raw_tick_data: market-data-tick-sports
+    processed_candles: market-data-tick-sports
+    features: features-store-sports
+
+# Instrument types per venue
+instrument_types:
+  BINANCE-SPOT: [SPOT_PAIR]
+  BINANCE-FUTURES: [PERPETUAL, FUTURE]
+  DERIBIT: [PERPETUAL, FUTURE, OPTION]
+  BYBIT: [SPOT_PAIR, PERPETUAL]
+  OKX: [SPOT_PAIR, PERPETUAL, FUTURE]
+  UPBIT: [SPOT_PAIR]
+  COINBASE: [SPOT_PAIR]
+  CME: [FUTURE, OPTION]
+  CBOE: [INDEX]
+  NASDAQ: [EQUITY, ETF]
+  NYSE: [EQUITY, ETF]
+  ICE: [FUTURE, OPTION]
+  FX: [SPOT_PAIR]  # FX rates (data via Yahoo Finance)
+  HYPERLIQUID: [PERPETUAL]
+  ASTER: [PERPETUAL]
+  # DeFi protocols (instrument type = POOL or LST or YIELD_BEARING)
+  UNISWAPV2-ETH: [POOL]
+  UNISWAPV3-ETH: [POOL]
+  UNISWAPV4-ETH: [POOL]
+  AAVE_V3_ETH: [POOL]
+  COMPOUND_V3_ETH: [POOL]
+  MORPHO-ETHEREUM: [POOL]
+  LIDO: [LST]
+  ETHERFI: [LST]
+  ETHENA: [YIELD_BEARING]
+  # Sports betting venues (EXCLUDED FROM MVP - Post-commercialization)
+  POLYMARKET: [MARKET]
+  BETFAIR: [MARKET]
+  PINNACLE: [MARKET]

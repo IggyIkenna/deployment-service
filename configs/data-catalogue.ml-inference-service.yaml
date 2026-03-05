@@ -1,0 +1,46 @@
+# Data Catalogue: ml-inference-service
+# ====================================
+# STATUS: PENDING -- service sharding config exists, data collection pending
+# Generated: 2026-02-21
+
+service_name: "ml-inference-service"
+last_updated: "2026-02-21"
+auto_refreshed: null
+status: "PENDING"
+
+known_exceptions: []
+
+catalogue_dimensions:
+  - category
+  - model_version (trained models from ml-training-service)
+  - date
+
+# ML inference depends on ml-training-service model availability and features data
+# MVP: CEFI and TRADFI only (no ML for DeFi in MVP)
+shard_status:
+  CEFI:
+    ALL_VENUES_ALL_MODELS:
+      start_date: "2019-03-30"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "ML inference for swing high/low predictions (1m, 5m, 15m, 4h, 24h timeframes). Depends on ml-training-service models and features data. Sharding per category×model_version×date (model_version is dynamic from training)."
+
+  TRADFI:
+    ALL_VENUES_ALL_MODELS:
+      start_date: "2020-01-01"
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "pending"
+      notes: "ML inference for swing high/low predictions (1m, 5m, 15m, 4h, 24h timeframes). Depends on ml-training-service models and features data. Sharding per category×model_version×date (model_version is dynamic from training)."
+
+  DEFI:
+    NOT_IN_MVP:
+      start_date: null
+      stage_1_has_run: false
+      stage_2_data_complete: false
+      latest_data_date: null
+      assignee: "n/a"
+      notes: "No ML in DeFi for MVP per user specification. DeFi uses rule-based strategies only."

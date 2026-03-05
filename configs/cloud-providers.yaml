@@ -1,0 +1,110 @@
+# Cloud Provider Configuration
+# Defines cloud-specific settings for multi-cloud deployments
+#
+# Supported providers: GCP (primary), AWS (secondary)
+# Services are configured with just a service name, and the full
+# docker image URL is resolved at runtime based on CLOUD_PROVIDER.
+#
+# Environment variable:
+#   CLOUD_PROVIDER — gcp | aws (default: gcp)
+#   Aligned with unified-trading-codex/05-infrastructure/cloud-agnostic-migration.md
+
+# =============================================================================
+# GCP Configuration
+# =============================================================================
+gcp:
+  # Default project and region
+  project_id: ${GCP_PROJECT_ID:-test-project}
+  region: ${GCS_REGION:-asia-northeast1}
+
+  # Container Registry (Artifact Registry)
+  container_registry:
+    # Pattern: {region}-docker.pkg.dev/{project_id}/{repository}/{image}:{tag}
+    url_pattern: "${region}-docker.pkg.dev/${project_id}/${repository}/${service}:${tag}"
+    # Default tag if not specified
+    default_tag: latest
+
+  # Storage buckets
+  storage:
+    # Bucket naming pattern: {domain}-{category}-{project_id}
+    bucket_pattern: "${domain}-${category_lower}-${project_id}"
+
+    # Category-specific buckets
+    instruments:
+      CEFI: instrument-definitions-cefi-${project_id}
+      TRADFI: instrument-definitions-tradfi-${project_id}
+      DEFI: instrument-definitions-defi-${project_id}
+
+    market_data:
+      CEFI: market-data-tick-cefi-${project_id}
+      TRADFI: market-data-tick-tradfi-${project_id}
+      DEFI: market-data-tick-defi-${project_id}
+
+    features: features-${project_id}
+    execution: execution-store-cefi-${project_id}
+    ml_models: ml-models-${project_id}
+    state: terraform-state-${project_id}
+
+  # Secrets Manager
+  secrets:
+    # Secret name pattern
+    name_pattern: "${secret_name}"
+
+# =============================================================================
+# AWS Configuration
+# =============================================================================
+aws:
+  # Default account and region
+  account_id: ${AWS_ACCOUNT_ID}
+  region: ${AWS_REGION:-us-east-1}
+
+  # Container Registry (ECR)
+  container_registry:
+    # Pattern: {account_id}.dkr.ecr.{region}.amazonaws.com/{service}:{tag}
+    url_pattern: "${account_id}.dkr.ecr.${region}.amazonaws.com/${service}:${tag}"
+    # Default tag if not specified
+    default_tag: latest
+
+  # Storage buckets (S3)
+  storage:
+    # Bucket naming pattern: unified-trading-{domain}-{category}-{account_id}
+    bucket_pattern: "unified-trading-${domain}-${category_lower}-${account_id}"
+
+    # Category-specific buckets
+    instruments:
+      CEFI: unified-trading-instruments-cefi-${account_id}
+      TRADFI: unified-trading-instruments-tradfi-${account_id}
+      DEFI: unified-trading-instruments-defi-${account_id}
+
+    market_data:
+      CEFI: unified-trading-market-data-cefi-${account_id}
+      TRADFI: unified-trading-market-data-tradfi-${account_id}
+      DEFI: unified-trading-market-data-defi-${account_id}
+
+    features: unified-trading-features-${account_id}
+    execution: unified-trading-execution-${account_id}
+    ml_models: unified-trading-ml-models-${account_id}
+    state: unified-trading-terraform-state-${account_id}
+
+  # Secrets Manager
+  secrets:
+    # Secret name pattern (same as GCP for simplicity)
+    name_pattern: "${secret_name}"
+
+# =============================================================================
+# Service Repository Mapping
+# Maps service names to their container repository names
+# =============================================================================
+service_repositories:
+  instruments-service: instruments
+  corporate-actions: instruments  # Uses same image as instruments
+  market-tick-data-service: market-data-tick-handler
+  market-data-processing-service: market-data-processing-service
+  features-calendar-service: features-calendar-service
+  features-delta-one-service: features-delta-one-service
+  features-volatility-service: features-volatility-service
+  features-onchain-service: features-onchain-service
+  ml-training-service: ml-training-service
+  ml-inference-service: ml-inference-service
+  strategy-service: strategy-service
+  execution-service: execution-service

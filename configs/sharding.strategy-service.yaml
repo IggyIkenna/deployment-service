@@ -1,0 +1,66 @@
+# Sharding Configuration: strategy-service
+# Tests trading signals via strategy backtesting
+
+service: strategy-service
+description: Test trading signals via strategy backtesting
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/strategy-service/strategy-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: strategy-service-job
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI]
+    description: Market category to backtest
+
+  - name: strategy_id
+    type: gcs_dynamic
+    gcs_bucket_template: "strategy-store-{project_id}"
+    gcs_prefix: configs_grid/
+    file_pattern: "**/*.json"
+    description: Strategy ID derived from config path in GCS
+
+  - name: client
+    type: fixed
+    values: [internal, external]
+    description: Client scope for strategy execution
+
+  - name: date
+    type: date_range
+    granularity: weekly
+    description: Date range split into weekly chunks
+
+# CLI argument mappings
+cli_args:
+  category: --category
+  strategy_id: --strategy-id
+  client: --client
+  start_date: --start-date
+  end_date: --end-date
+
+# Service-specific CLI flags (per codex: --operation backtest --mode batch)
+cli_flags:
+  operation: "--operation backtest"
+  mode: "--mode batch"
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 50
+    description: Signal generation + backtesting
+    gcsfuse_buckets: []
+      # Disabled: Large buckets cause OOM; use GCS API instead
+  cloud_run:
+    memory: 8Gi
+    cpu: 2
+    timeout_seconds: 7200
+
+# Estimated runtime per shard
+runtime:
+  estimated_minutes: 30
+  notes: Varies by strategy complexity and date range

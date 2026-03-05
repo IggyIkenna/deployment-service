@@ -1,0 +1,106 @@
+# Sharding Configuration: risk-and-exposure-service
+# Calculates risk metrics and exposure limits (domain data engine)
+
+service: risk-and-exposure-service
+description: Calculate risk metrics and exposure limits from positions
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/risk-and-exposure-service/risk-and-exposure-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: risk-and-exposure-service-job
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI]
+    description: Market category to calculate risk for
+
+  - name: venue
+    type: fixed
+    values:
+      # Dynamically populated from venues.yaml per category
+      # CEFI: BINANCE-SPOT, BINANCE-FUTURES, OKX, UPBIT, COINBASE, HYPERLIQUID, ASTER
+      # DEFI: AAVE_V3_ETH, UNISWAPV2-ETH, UNISWAPV3-ETH, COMPOUND_V3_ETH
+      # TRADFI: CME, CBOE, NYSE
+    description: Venue to calculate risk for
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date to calculate risk for
+
+# CLI argument mappings
+cli_args:
+  category: --category
+  venue: --venue
+  start_date: --start-date
+  end_date: --end-date
+
+# Service-specific CLI flags
+cli_flags:
+  operation: "--operation compute"
+  mode: "--mode batch"
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 30
+    description: Risk and exposure calculation
+    gcsfuse_buckets: []
+  cloud_run:
+    memory: 4Gi
+    cpu: 2
+    timeout_seconds: 3600
+
+# Estimated runtime per shard (category × venue × date)
+runtime:
+  estimated_minutes: 8
+  notes: Varies by number of positions and risk calculations
+
+# Data dependencies (inputs)
+input_data:
+  - service: position-balance-monitor-service
+    bucket_pattern: "positions-store-{project_id}-{category_lower}"
+    path_pattern: "positions/{venue}/{date}/positions_*.parquet"
+    required: true
+
+  - service: instruments-service
+    bucket_pattern: "instruments-store-{project_id}"
+    path_pattern: "instruments/{category}/{venue}/{date}/instruments_*.parquet"
+    required: true
+
+  - service: market-data-processing-service
+    bucket_pattern: "market-data-tick-{category_lower}-{project_id}"  # Processed candles in same bucket as raw
+    path_pattern: "{venue}/{date}/{data_type}/*.parquet"
+    required: true
+    rationale: "Need current prices for mark-to-market risk calculations"
+
+# Data outputs
+output_data:
+  bucket_pattern: "risk-store-{project_id}-{category_lower}"
+  path_pattern: "risk/{venue}/{date}/risk_{timestamp}.parquet"
+  schema_ref: "risk-and-exposure-service/schemas/output_schemas.py"
+
+# Missing data handling
+missing_data_strategy:
+  positions_data_missing: "Skip date (no positions = no risk to calculate)"
+  instruments_data_missing: "Fail loudly (need instrument metadata for risk calculation)"
+  market_data_missing: "Fail loudly (need current prices for mark-to-market)"
+
+# Sharding alignment
+sharding_alignment:
+  failure_isolation: "Shard-level (one venue/date failure does not affect other shards)"
+  completion_check: "Per category×venue×date (matches sharding dimension)"
+  rationale: "Risk calculation is independent per venue/date; failure in one shard does not block others"
+
+# Notes
+notes:
+  - "Risk-and-exposure is NOT a UI - it's a domain data engine"
+  - "Calculates risk metrics (VaR, exposure, limits) used by strategy-service for execution decisions"
+  - "Live mode: Single deployment per category, parallel threads per venue"
+  - "Batch mode: Parallel jobs per category×venue×date"
+  - "Output is domain data (risk metrics) stored in GCS and published to Pub/Sub"
+  - "Strategy-service consumes risk data to enforce position limits and risk controls"

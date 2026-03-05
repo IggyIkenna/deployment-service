@@ -1,0 +1,384 @@
+# Library Production Readiness Checklist Template
+# ================================================
+# Copy this template to checklist.{library}.yaml and fill in status for each item.
+#
+# Status values:
+#   - done: Item is complete
+#   - partial: Item is partially complete (add notes)
+#   - pending: Item needs work
+#   - n/a: Not applicable to this library
+#
+# Each item has:
+#   - status: Current status
+#   - notes: Optional notes about current state or what's needed
+#   - verified_date: Date when item was last verified (YYYY-MM-DD)
+#
+# =============================================================================
+# STANDARDS REFERENCE
+# =============================================================================
+# Libraries follow tier architecture (T0 → T1 → T2 → T3):
+#   - Top-level imports only (no nested module imports by consumers)
+#   - No imports from higher tiers
+#   - No circular dependencies
+#   - No Any types (reportAny is BLOCKING)
+#   - Pydantic models for data contracts
+#   - Protocol types for duck typing
+#   - See: unified-trading-codex/04-architecture/TIER-ARCHITECTURE.md
+# =============================================================================
+
+service_name: "{LIBRARY_NAME}"
+last_updated: "YYYY-MM-DD"
+owner: ""
+tier: null  # 0 | 1 | 2 | 3
+
+# =============================================================================
+# PHASE 1: Repository Foundation (Items 1-6)
+# =============================================================================
+phase_1_repository_foundation:
+
+  item_01_repository_exists:
+    description: "Library repo is present in workspace"
+    status: pending
+    notes: ""
+    verified_date: null
+
+  item_02_dependency_management:
+    description: "pyproject.toml with all dependencies pinned; uv.lock committed (UV for installs)"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "pyproject.toml exists with requires-python >=3.13,<3.14"
+      - "uv.lock exists and is committed"
+      - "UV used for all installs (uv pip install or uv sync)"
+      - "uv pip install -e '.[dev]' completes without errors"
+      - "No version conflicts with consumer services"
+    reference: "unified-trading-codex/06-coding-standards/dependency-management.md"
+
+  item_03_ci_cd_pipeline:
+    description: ".github/workflows/quality-gates.yml configured for library"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "quality-gates.yml runs on push/PR to main"
+      - "Version bump action triggers on merge to main"
+      - "Library published to Artifact Registry on version bump"
+      - "scripts/quality-gates.sh exists and is executable"
+      - "scripts/quickmerge.sh exists; runs quality gates before creating PR"
+
+  item_04_quality_gates:
+    description: "Ruff linting, basedpyright type checking, pytest all pass"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "ruff check passes with no errors"
+      - "basedpyright passes with no reportAny violations"
+      - "pytest runs without errors"
+      - "Coverage > 50% (higher bar for libraries)"
+      - "NO continue-on-error or || true bypasses"
+
+  item_05_pre_commit_hooks:
+    description: ".pre-commit-config.yaml for local code quality"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - ".pre-commit-config.yaml exists"
+      - "Includes ruff formatter and linter"
+      - "Includes trailing whitespace and EOF checks"
+      - "Commit message format validated (conventional commits)"
+
+  item_06_versioning:
+    description: "Semantic versioning with automated bumps on merge to main"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Version in pyproject.toml follows semver (X.Y.Z)"
+      - "GitHub Action bumps version based on conventional commit type"
+      - "NEVER bump version manually on branches"
+      - "CHANGELOG.md or git tags track version history"
+    reference: "unified-trading-codex/06-coding-standards/feature-branch-workflow.md"
+
+# =============================================================================
+# PHASE 2: Exports and API Surface (Items 7-10)
+# =============================================================================
+phase_2_exports_and_api_surface:
+
+  item_07_top_level_exports:
+    description: "All public API exported from package __init__.py"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "__init__.py re-exports all public classes, functions, types"
+      - "__all__ defined listing every public symbol"
+      - "Consumers import from package root: from {library} import X"
+      - "No consumer needs to import from nested modules"
+    reference: ".cursor/rules/external-import-standards.mdc"
+
+  item_08_no_nested_imports:
+    description: "Consumers never import from internal module paths"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "grep across all consumer repos: no 'from {library}.internal' imports"
+      - "grep across all consumer repos: no 'from {library}.core.module' imports"
+      - "Internal modules prefixed with _ or in _internal/ directory"
+      - "Refactoring internal modules does not break consumers"
+
+  item_09_stable_api:
+    description: "Public API documented and stable; breaking changes require major version bump"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Public API functions/classes have docstrings"
+      - "Removing or renaming public symbols bumps major version"
+      - "New optional parameters do not break existing callers"
+      - "Deprecated symbols raise warnings before removal"
+
+  item_10_type_exports:
+    description: "All public types (TypedDict, Protocol, Enum) exported for consumer type checking"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All TypedDict, Protocol, Enum types in __init__.py"
+      - "py.typed marker file exists (PEP 561)"
+      - "Consumer type checking resolves all imported types"
+
+# =============================================================================
+# PHASE 3: Tier Compliance (Items 11-14)
+# =============================================================================
+phase_3_tier_compliance:
+
+  item_11_tier_assignment:
+    description: "Library assigned to correct tier (T0/T1/T2/T3) in workspace manifest"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Library listed in workspace-manifest.json with correct tier"
+      - "Tier matches dependency depth (T0 = leaf, no internal deps)"
+      - "Tier documented in README.md"
+    reference: "unified-trading-codex/04-architecture/TIER-ARCHITECTURE.md"
+
+  item_12_no_higher_tier_imports:
+    description: "Library does not import from higher-tier libraries"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "T0 libraries: no imports from T1, T2, T3 libraries"
+      - "T1 libraries: no imports from T2, T3 libraries"
+      - "T2 libraries: no imports from T3 libraries"
+      - "pyproject.toml dependencies match tier constraints"
+      - "rg confirms no import violations in source code"
+
+  item_13_no_circular_deps:
+    description: "No circular dependency chains between libraries"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Library A does not depend on Library B if B depends on A"
+      - "Dependency graph is a DAG (directed acyclic graph)"
+      - "Quality gates check for circular imports"
+
+  item_14_no_service_imports:
+    description: "Library does not import from any service repo"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "No imports from *-service packages"
+      - "No imports from *-handler packages"
+      - "Libraries provide abstractions; services consume them"
+
+# =============================================================================
+# PHASE 4: Type Safety (Items 15-19)
+# =============================================================================
+phase_4_type_safety:
+
+  item_15_no_any_types:
+    description: "No Any types in public or internal API; reportAny is BLOCKING"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "basedpyright --strict passes with no reportAny violations"
+      - "grep -r 'Any' returns 0 hits in source (excluding comments)"
+      - "Function signatures use specific types, not Any"
+      - "Dict values typed specifically (not dict[str, Any])"
+    reference: ".cursor/rules/no-type-any-use-specific.mdc"
+
+  item_16_pydantic_models:
+    description: "Data contracts use Pydantic BaseModel with validators"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All data transfer objects are Pydantic BaseModel subclasses"
+      - "Field validators for domain constraints"
+      - "model_config with strict=True where appropriate"
+      - "No raw dict passing between public functions"
+
+  item_17_protocol_types:
+    description: "Duck typing uses Protocol classes, not ABC where possible"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Interfaces defined as Protocol classes"
+      - "Protocol methods have type annotations"
+      - "Consumers type-check against Protocol, not concrete class"
+      - "runtime_checkable decorator where isinstance checks needed"
+
+  item_18_generic_types:
+    description: "Generic containers use built-in generics (list, dict, tuple), not typing module"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "No from typing import List, Dict, Tuple, Set"
+      - "Uses list[X], dict[K, V], tuple[X, ...], set[X]"
+      - "TypeVar used for generic classes/functions"
+    reference: ".cursor/rules/builtin-generics-standard.mdc"
+
+  item_19_return_types:
+    description: "All public functions have explicit return type annotations"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Every public function has -> ReturnType annotation"
+      - "No implicit None returns (use -> None explicitly)"
+      - "Union types use X | Y syntax (not Union[X, Y])"
+
+# =============================================================================
+# PHASE 5: Testing (Items 20-24)
+# =============================================================================
+phase_5_testing:
+
+  item_20_unit_tests:
+    description: "tests/unit/ directory with comprehensive coverage of public API"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "tests/unit/ directory exists"
+      - "Every public function/class has at least one test"
+      - "Edge cases and error paths tested"
+      - "pytest runs without errors"
+      - "Coverage > 50%"
+
+  item_21_test_isolation:
+    description: "Unit tests run without external dependencies (GCS, APIs, databases)"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "No real network calls in unit tests"
+      - "External dependencies mocked with unittest.mock or pytest-mock"
+      - "Tests pass without GCP credentials"
+      - "Tests pass without internet connectivity"
+
+  item_22_integration_tests:
+    description: "Integration tests verify library works correctly with consumer services"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "tests/integration/ directory exists (or integration tests in consumers)"
+      - "Consumer services can import and use library without errors"
+      - "Type checking passes in consumer context"
+      - "Integration tests marked with @pytest.mark.integration"
+    applies_if: "Library has complex interactions with consumers"
+
+  item_23_regression_tests:
+    description: "Regression tests cover previously fixed bugs"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Each bug fix includes a regression test"
+      - "Tests named descriptively: test_issue_NNN_description"
+      - "Regression tests prevent reintroduction of fixed bugs"
+
+  item_24_conftest:
+    description: "Shared fixtures in conftest.py; no duplicate fixtures across test files"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "conftest.py exists with shared fixtures"
+      - "No duplicate fixture definitions across test files"
+      - "Fixtures use appropriate scope (session, module, function)"
+      - "Mock factories centralized in conftest.py"
+    reference: ".cursor/rules/test-quality-standards.mdc"
+
+# =============================================================================
+# PHASE 6: Documentation (Items 25-28)
+# =============================================================================
+phase_6_documentation:
+
+  item_25_docstrings:
+    description: "All public classes, functions, and modules have docstrings"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Every public class has a class-level docstring"
+      - "Every public function has a function-level docstring"
+      - "Docstrings include Args, Returns, Raises sections"
+      - "Module-level docstrings explain purpose"
+
+  item_26_readme:
+    description: "README.md with installation, quick start, and API overview"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "README.md exists at repo root"
+      - "Installation instructions (uv pip install)"
+      - "Quick start code example"
+      - "API overview with key classes/functions"
+      - "Tier and dependency information"
+
+  item_27_api_reference:
+    description: "API reference generated or maintained for all public symbols"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All public symbols documented (classes, functions, types)"
+      - "Examples for common usage patterns"
+      - "Type signatures visible in documentation"
+
+  item_28_migration_guide:
+    description: "Migration guide exists for breaking changes between major versions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "MIGRATION.md or docs/migration/ exists for major versions"
+      - "Before/after code examples for breaking changes"
+      - "All removed or renamed symbols listed"
+    applies_if: "Library has had breaking changes"
+
+# =============================================================================
+# Summary
+# =============================================================================
+summary:
+  total_items: 28
+  done: 0
+  partial: 0
+  pending: 28
+  not_applicable: 0
+  completion_percentage: 0
+  blockers: []
+  next_actions: []

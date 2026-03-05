@@ -1,0 +1,103 @@
+# Sharding Configuration: instruments-service
+# Generates instrument definitions from exchange APIs
+
+service: instruments-service
+description: Generate instrument definitions for all venues
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/instruments/instruments-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: instruments-service
+
+# =============================================================================
+# SHARDING DIMENSIONS
+# These define how work is split into parallel shards
+# Order defines hierarchy - dimensions are combined as cartesian product
+#
+# instruments: category × venue × date = granular per-venue shards
+# This enables precise reprocessing of individual venue+date combinations
+# =============================================================================
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI]
+    description: Market category to process
+
+  - name: venue
+    type: hierarchical
+    parent: category
+    source: venues.yaml
+    description: Venue within category (from venues.yaml)
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date range split into daily chunks
+
+# =============================================================================
+# CLI ARGUMENTS
+# All arguments passed to the service container
+# =============================================================================
+
+# Required operation and mode (per codex cli-standards: --operation <what> --mode batch|live)
+cli_flags:
+  operation: "--operation instrument"
+  mode: "--mode batch"
+
+# Mapping: dimension name -> CLI argument
+# These are populated from shard dimensions
+cli_args:
+  category: --category
+  venue: --venues
+  # Date dimension expands to start_date + end_date using these mappings
+  start_date: --start-date
+  end_date: --end-date
+
+# =============================================================================
+# META/CONTROL ARGUMENTS (non-sharding)
+# These do NOT map to GCS directory structure - they control runtime behavior
+# =============================================================================
+cli_optional:
+  # Standard meta args (available on all services)
+  - name: force
+    flag: --force
+    description: Force processing all dates (overrides existence checks)
+  - name: dry-run
+    flag: --dry-run
+    description: Don't upload to GCS, dump to local data/sample/ directory instead
+  - name: log-level
+    flag: --log-level
+    description: "Logging level (DEBUG, INFO, WARNING, ERROR)"
+    default: INFO
+  # Service-specific args
+  - name: gcs-bucket
+    flag: --gcs-bucket
+    description: Override GCS bucket (uses category-specific defaults otherwise)
+
+# =============================================================================
+# COMPUTE CONFIGURATION
+# =============================================================================
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 40  # >= 2x RAM (16GB) for swap
+    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400  # 24 hours (maximum)
+    self_delete: true
+    description: Light workload - API calls only
+    gcsfuse_buckets: []
+      # Disabled: Use GCS API for all I/O
+
+  cloud_run:
+    memory: 4Gi
+    cpu: "2"
+    timeout_seconds: 86400  # 24 hours (maximum)
+    max_retries: 3
+
+# =============================================================================
+# RUNTIME ESTIMATES
+# =============================================================================
+runtime:
+  estimated_minutes: 5
+  notes: Fast - just API calls to exchanges

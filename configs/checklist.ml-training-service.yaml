@@ -1,0 +1,143 @@
+# Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch/checklist.ml-training-service.yaml
+service_name: ml-training-service
+last_updated: '2026-02-10'
+owner: ''
+execution_order: 8
+phase_1_repository_foundation:
+  item_06_dockerfile_exists:
+    description: Containerization ready for Cloud Build
+    status: done
+    notes: Multi-stage build with unified-trading-library from GitHub, non-root user,
+      health check
+    verified_date: '2026-01-27'
+phase_2_testing_and_quality:
+  item_11_cloud_build_config:
+    description: cloudbuild.yaml includes quality gates before Docker build
+    status: done
+    notes: cloudbuild.yaml with quality gates (ruff lint + pytest). Python 3.13, dependencies
+      aligned with unified-trading-library.
+    verified_date: '2026-01-27'
+  item_12_quality_gates_pass:
+    description: Pushing to main triggers quality gates; failure blocks image build
+    status: done
+    notes: Quality gates (ruff lint + pytest) pass in cloudbuild.yaml. Build 6afd3393-a20f-42e9-a80b-cb9849368aa3
+      succeeded. Dependencies (polars, pyarrow, tqdm, ruff) in pyproject.toml.
+    verified_date: '2026-01-28'
+phase_3_deployment_infrastructure:
+  item_13_sharding_config:
+    description: configs/sharding.ml-training-service.yaml exists
+    status: done
+    notes: Uses gcs_dynamic dimension type for training configs
+    verified_date: '2026-01-27'
+  item_14_dependencies_entry:
+    description: Entry in configs/dependencies.yaml
+    status: done
+    notes: 'Upstream: features-delta-one (required), features-volatility (optional),
+      features-onchain (optional). Outputs trained models.'
+    verified_date: '2026-01-27'
+  item_15_expected_start_dates:
+    description: Entry in configs/expected_start_dates.yaml
+    status: partial
+    notes: 'Only default entry with category_start: 2024-01-01. May need category-specific
+      dates.'
+    verified_date: '2026-01-27'
+  item_16_venues_entry:
+    description: Service's venues in configs/venues.yaml
+    status: n/a
+    notes: No hierarchical venue dimension - uses GCS dynamic configs
+    verified_date: '2026-01-27'
+  item_17_terraform_resources:
+    description: Buckets, IAM, Cloud Run job defined in terraform/
+    status: done
+    notes: terraform/services/ml-training-service/ exists with GCP and AWS configs.
+      ml-models-store bucket defined in shared-infrastructure.
+    verified_date: '2026-02-03'
+  item_17b_required_buckets_exist:
+    description: All required input/output buckets exist before deployment
+    status: done
+    notes: Buckets defined in terraform/modules/shared-infrastructure/gcp/main.tf.
+      ml-models-store-{project_id} and feature buckets configured.
+    verified_date: '2026-02-03'
+    gcp_buckets:
+      outputs:
+      - ml-models-store-test-project
+      - ml-configs-store-test-project
+      inputs:
+      - features-delta-one-cefi-test-project
+      - features-delta-one-tradfi-test-project
+      - features-delta-one-defi-test-project
+      - features-volatility-cefi-test-project
+      - features-volatility-tradfi-test-project
+      - features-onchain-cefi-test-project
+      - features-onchain-defi-test-project
+    aws_buckets:
+      outputs:
+      - unified-trading-ml-models-${AWS_ACCOUNT_ID}
+      - unified-trading-ml-configs-${AWS_ACCOUNT_ID}
+      inputs:
+      - unified-trading-features-delta-one-cefi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-delta-one-tradfi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-delta-one-defi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-volatility-cefi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-volatility-tradfi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-onchain-cefi-${AWS_ACCOUNT_ID}
+      - unified-trading-features-onchain-defi-${AWS_ACCOUNT_ID}
+  item_18_deploy_cli_works:
+    description: python deploy.py deploy --service ml-training-service executes
+    status: pending
+    notes: Need to test deployment CLI (will fail without Dockerfile)
+    verified_date: null
+phase_5_production_deployment:
+  item_23_image_builds:
+    description: Cloud Build produces image in Artifact Registry
+    status: done
+    notes: 'Build 6afd3393-a20f-42e9-a80b-cb9849368aa3 succeeded. Image: asia-northeast1-docker.pkg.dev/test-project/ml-training-service/ml-training-service:latest'
+    verified_date: '2026-01-28'
+  item_24_deployment_runs_smoothly:
+    description: Full deployment completes in reasonable time (<1 hour)
+    status: pending
+    notes: Docker image now available. Ready for deployment testing.
+    verified_date: null
+
+phase_9_deployable_enhancements:
+  item_38_data_availability:
+    description: "Data availability verified — input/output buckets exist; data paths verified"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "All required GCS buckets exist (inputs and outputs)"
+      - "Data paths align with data-catalogue.ml-training-service.yaml"
+      - "At least one successful read/write cycle verified"
+    reference: "plans_to_deployable_unified_audit.plan.md Phase 10"
+
+  item_39_gap_filling:
+    description: "Empty gaps documented; recovery process defined for known gaps"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Known data gaps documented (holidays, pre-launch, venue not live)"
+      - "Gap-filling process defined for recoverable gaps"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_40_recovery_processes:
+    description: "Recovery processes documented for failure scenarios"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Recovery runbook exists for common failure modes"
+      - "Backfill/re-run process documented"
+    reference: "plans_to_deployable_unified_audit.plan.md checklist-enhancements"
+
+  item_41_security_audit_trail:
+    description: "Security audit trail for security-relevant actions"
+    status: pending
+    notes: ""
+    verified_date: null
+    validation:
+      - "Secret access logged (SECRET_ACCESSED event)"
+      - "Auth failures logged (AUTH_FAILURE event)"
+      - "Config changes logged (CONFIG_CHANGED event)"
+    reference: "event-logging.mdc, trading-system-audit-prompt.md"

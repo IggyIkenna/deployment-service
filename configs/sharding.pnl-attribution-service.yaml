@@ -1,0 +1,106 @@
+# Sharding Configuration: pnl-attribution-service
+# Calculates P&L attribution from positions and market prices (domain data engine)
+
+service: pnl-attribution-service
+description: Calculate P&L attribution from position changes and mark-to-market prices across venues
+
+# Docker image (used by both Cloud Run and VM)
+docker_image: ${GCS_REGION:-asia-northeast1}-docker.pkg.dev/${GCP_PROJECT_ID:-test-project}/pnl-attribution-service/pnl-attribution-service:latest
+
+# Cloud Run Job name (must exist in GCP)
+cloud_run_job_name: pnl-attribution-service-job
+
+# Sharding dimensions (order defines hierarchy - most decisive first)
+dimensions:
+  - name: category
+    type: fixed
+    values: [CEFI, TRADFI, DEFI]
+    description: Market category to calculate P&L for
+
+  - name: venue
+    type: fixed
+    values:
+      # Dynamically populated from venues.yaml per category
+      # CEFI: BINANCE-SPOT, BINANCE-FUTURES, OKX, UPBIT, COINBASE, HYPERLIQUID, ASTER
+      # DEFI: AAVE_V3_ETH, UNISWAPV2-ETH, UNISWAPV3-ETH, COMPOUND_V3_ETH
+      # TRADFI: CME, CBOE, NYSE
+    description: Venue to calculate P&L for
+
+  - name: date
+    type: date_range
+    granularity: daily
+    description: Date to calculate P&L for
+
+# CLI argument mappings
+cli_args:
+  category: --category
+  venue: --venue
+  start_date: --start-date
+  end_date: --end-date
+
+# Service-specific CLI flags
+cli_flags:
+  operation: "--operation compute"
+  mode: "--mode batch"
+
+# Compute recommendations
+compute:
+  vm:
+    machine_type: c2-standard-4
+    disk_size_gb: 30
+    description: P&L attribution calculation from positions and market prices
+    gcsfuse_buckets: []
+  cloud_run:
+    memory: 4Gi
+    cpu: 2
+    timeout_seconds: 3600
+
+# Estimated runtime per shard (category × venue × date)
+runtime:
+  estimated_minutes: 8
+  notes: Varies by number of positions and price updates on venue/date
+
+# Data dependencies (inputs)
+input_data:
+  - service: position-balance-monitor-service
+    bucket_pattern: "positions-store-{project_id}-{category_lower}"
+    path_pattern: "positions/{venue}/{date}/positions_*.parquet"
+    required: true
+
+  - service: market-data-processing-service
+    bucket_pattern: "market-data-tick-{category_lower}-{project_id}"
+    path_pattern: "by_date/day={date}/data_type=tbbo/instrument_type=*/venue={venue}/*.parquet"
+    required: true
+    notes: "Uses mark prices (tbbo) for mark-to-market P&L calculation"
+
+  - service: instruments-service
+    bucket_pattern: "instruments-store-{project_id}"
+    path_pattern: "instruments/{category}/{venue}/{date}/instruments_*.parquet"
+    required: true
+
+# Data outputs
+output_data:
+  bucket_pattern: "pnl-store-{project_id}-{category_lower}"
+  path_pattern: "pnl/{venue}/{date}/pnl_attribution_{timestamp}.parquet"
+  schema_ref: "pnl-attribution-service/schemas/output_schemas.py"
+
+# Missing data handling
+missing_data_strategy:
+  positions_missing: "Skip date (no positions = no P&L to calculate)"
+  market_data_missing: "Fail loudly (need mark prices for mark-to-market P&L)"
+  instruments_data_missing: "Fail loudly (need instrument metadata for P&L calculation)"
+
+# Sharding alignment
+sharding_alignment:
+  failure_isolation: "Shard-level (one venue/date failure does not affect other shards)"
+  completion_check: "Per category×venue×date (matches sharding dimension)"
+  rationale: "P&L attribution is independent per venue/date; failure in one shard does not block others"
+
+# Notes
+notes:
+  - "pnl-attribution-service is NOT a UI - it's a domain data engine"
+  - "Calculates realized/unrealized P&L, attributions by strategy, instrument, time period"
+  - "Live mode: Single deployment per category, parallel threads per venue"
+  - "Batch mode: Parallel jobs per category×venue×date"
+  - "Output is domain data (P&L) stored in GCS and published to Pub/Sub"
+  - "Used by risk-and-exposure-service, trading-analytics-ui, settlement-ui"
