@@ -7,17 +7,28 @@ AMI (Amazon ECS-optimized AMI) to run Docker containers.
 
 import base64
 import concurrent.futures
+import importlib.util
 import logging
 import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-import boto3
 from botocore.exceptions import ClientError
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_boto3():
+    """Deferred boto3 import — deployment AWS control-plane boundary."""
+    if importlib.util.find_spec("boto3") is None:
+        raise ImportError(
+            "boto3 is required for AWS EC2 functionality. Install with: uv pip install 'deployment-service[aws]'"
+        )
+    import boto3  # Deferred — deployment AWS control-plane boundary
+
+    return boto3
 
 
 class AWSEC2Backend(ComputeBackend):
@@ -68,9 +79,10 @@ class AWSEC2Backend(ComputeBackend):
         self._key_name = key_name
 
         # Initialize EC2 client
-        self._client = boto3.client("ec2", region_name=region)
-        self._resource = boto3.resource("ec2", region_name=region)
-        self._ssm_client = boto3.client("ssm", region_name=region)
+        boto3 = _ensure_boto3()
+        self._client = boto3.client("ec2", region_name=region)  # type: ignore[reportCallIssue]
+        self._resource = boto3.resource("ec2", region_name=region)  # type: ignore[reportCallIssue]
+        self._ssm_client = boto3.client("ssm", region_name=region)  # type: ignore[reportCallIssue]
 
         logger.info("AWS EC2 backend initialized for region: %s", region)
 
