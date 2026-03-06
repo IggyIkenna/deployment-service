@@ -7,16 +7,17 @@ Usage: python reorganize_gcs_parallel.py [--dry-run] [--workers 5]
 """
 
 import argparse
-import os
 import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
+from pathlib import Path
 
-_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-if not _PROJECT_ID:
-    raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
+
+_PROJECT_ID = get_project_id()
 BUCKET = f"gs://market-data-tick-tradfi-{_PROJECT_ID}"
 BASE_PREFIX = "raw_tick_data/by_date"
 

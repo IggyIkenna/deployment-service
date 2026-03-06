@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_graph_secret_name, get_project_id, get_shard_index
 from unified_trading_library import TheGraphBaseClient, clear_thegraph_api_key_cache
 
 _NUM_KEYS = 9  # thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9
@@ -35,14 +37,9 @@ def main() -> int:
     parser.add_argument("--project-id", default=None, help="GCP project ID (default: from env)")
     args = parser.parse_args()
 
-    shard_index = int(os.environ.get("SHARD_INDEX", "0"))
-    if args.project_id:
-        project_id = args.project_id
-    else:
-        project_id = os.environ.get("GCP_PROJECT_ID")
-        if not project_id:
-            raise SystemExit("ERROR: GCP project ID required. Set GCP_PROJECT_ID or pass --project-id")
-    secret_env = os.environ.get("GRAPH_SECRET_NAME") or os.environ.get("THEGRAPH_SECRET_NAME") or "thegraph-api-key"
+    shard_index = get_shard_index()
+    project_id = args.project_id or get_project_id()
+    secret_env = get_graph_secret_name()
 
     print("=" * 60)
     print("The Graph API Key Verification")

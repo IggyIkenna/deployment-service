@@ -27,13 +27,15 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
 from unified_cloud_interface import get_storage_client
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
 
 # =============================================================================
 # CONFIGURATION
@@ -43,9 +45,7 @@ DEFAULT_INPUT_DIR = "data/instruments_raw"
 DEFAULT_OUTPUT_DIR = "data"
 
 # GCS bucket for aggregated instruments (optional upload)
-_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-if not _PROJECT_ID:
-    raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
+_PROJECT_ID = get_project_id()
 AGGREGATED_BUCKET = f"instruments-store-aggregated-{_PROJECT_ID}"
 AGGREGATED_PREFIX = "aggregated"
 

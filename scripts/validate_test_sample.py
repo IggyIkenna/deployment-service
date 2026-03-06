@@ -14,7 +14,6 @@ Usage:
 import argparse
 import json
 import logging
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -23,6 +22,9 @@ from typing import TypedDict
 import yaml
 from unified_cloud_interface import StorageClient
 from unified_trading_library import get_storage_client
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -280,10 +282,7 @@ def validate_test_sample(
         return report
 
     # Real validation with GCS
-    _env_project_id = os.environ.get("GCP_PROJECT_ID")
-    if not project_id and not _env_project_id:
-        raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
-    resolved_project_id = project_id or _env_project_id
+    resolved_project_id = project_id or get_project_id()
     storage_client = get_storage_client()
 
     for category in ["cefi", "tradfi", "defi"]:
