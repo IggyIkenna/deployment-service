@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from google.cloud.storage import Client as GCSClient
+from unified_cloud_interface import StorageClient, get_storage_client
 from unified_config_interface import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ PrefixStats = dict[str, int | float]
 
 
 def get_bucket_stats(
-    client: GCSClient,
+    client: StorageClient,
     bucket_name: str,
     prefix: str = "",
     depth: int = 2,
@@ -170,7 +170,7 @@ def main() -> None:
 
     logger.info("Enumerating gs://%s/%s ...", bucket_name, args.prefix or "(all)")
 
-    client = GCSClient(project=config.gcp_project_id)
+    client = get_storage_client(project_id=config.gcp_project_id)
     total_size, total_objects, breakdown = get_bucket_stats(
         client,
         bucket_name,

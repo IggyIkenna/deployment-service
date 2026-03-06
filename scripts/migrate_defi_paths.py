@@ -148,11 +148,7 @@ def parse_flat_defi_filename(filename: str) -> dict | None:
         return None
 
     # Last part is typically chain (ETHEREUM)
-    chain = (
-        remaining[-1]
-        if remaining[-1] in ("ETHEREUM", "ARBITRUM", "OPTIMISM", "BASE", "POLYGON")
-        else "ETHEREUM"
-    )
+    chain = remaining[-1] if remaining[-1] in ("ETHEREUM", "ARBITRUM", "OPTIMISM", "BASE", "POLYGON") else "ETHEREUM"
 
     # Symbol is everything between inst_type and chain
     symbol = "-".join(remaining[:-1]) if remaining[-1] == chain and len(remaining) > 1 else "-".join(remaining)
@@ -198,14 +194,10 @@ def build_new_path(old_path: str, parsed: dict) -> str:
 
     # Build new instrument key in standard format
     # VENUE:INST_TYPE:SYMBOL@CHAIN (matches CeFi format)
-    instrument_key = (
-        f"{venue}:{parsed['inst_type']}:{parsed['symbol']}@{parsed['chain']}.parquet"
-    )
+    instrument_key = f"{venue}:{parsed['inst_type']}:{parsed['symbol']}@{parsed['chain']}.parquet"
 
     # Build new path
-    new_path = (
-        f"{BASE_PREFIX}/{date_part}/{data_type_part}/{folder}/{venue}/{instrument_key}"
-    )
+    new_path = f"{BASE_PREFIX}/{date_part}/{data_type_part}/{folder}/{venue}/{instrument_key}"
 
     return new_path
 
@@ -248,9 +240,7 @@ def migrate_blob(
 
         # Check if source exists
         if not source_blob.exists():
-            return MigrationResult(
-                old_path, new_path, "skip_not_found", False, "Source blob not found"
-            )
+            return MigrationResult(old_path, new_path, "skip_not_found", False, "Source blob not found")
 
         # Check if destination already exists
         dest_blob = bucket.blob(new_path)
@@ -334,18 +324,16 @@ def process_date(
             stats["to_migrate"] += 1
 
     if not migrations:
-        logger.info(
-            "  %s: No files need migration (scanned %s)", date_str, stats['scanned']
-        )
+        logger.info("  %s: No files need migration (scanned %s)", date_str, stats["scanned"])
         return stats
 
-    logger.info("  %s: %s files to migrate", date_str, stats['to_migrate'])
+    logger.info("  %s: %s files to migrate", date_str, stats["to_migrate"])
 
     if dry_run:
         # Show sample of what would be migrated
         for old_path, new_path in migrations[:3]:
-            logger.info("    Would migrate: %s", old_path.split('/')[-1])
-            logger.info("              to: %s", '/'.join(new_path.split('/')[-3:]))
+            logger.info("    Would migrate: %s", old_path.split("/")[-1])
+            logger.info("              to: %s", "/".join(new_path.split("/")[-3:]))
         if len(migrations) > 3:
             logger.info("    ... and %s more", len(migrations) - 3)
         stats["migrated"] = stats["to_migrate"]
@@ -354,8 +342,7 @@ def process_date(
     # Execute migration in parallel
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, bucket_name, old, new, False): (old, new)
-            for old, new in migrations
+            executor.submit(migrate_blob, client, bucket_name, old, new, False): (old, new) for old, new in migrations
         }
 
         for future in as_completed(futures):
@@ -367,7 +354,7 @@ def process_date(
                 if result.error:
                     logger.error("    Failed: %s: %s", result.old_path, result.error)
 
-    logger.info("  %s: Migrated %s, Failed %s", date_str, stats['migrated'], stats['failed'])
+    logger.info("  %s: Migrated %s, Failed %s", date_str, stats["migrated"], stats["failed"])
     return stats
 
 
@@ -386,9 +373,7 @@ def generate_date_range(start_date: str, end_date: str) -> list[str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Migrate DeFi GCS data from flat structure to folder/venue hierarchy"
-    )
+    parser = argparse.ArgumentParser(description="Migrate DeFi GCS data from flat structure to folder/venue hierarchy")
     parser.add_argument(
         "--date",
         help="Single date to migrate (YYYY-MM-DD)",
@@ -449,14 +434,12 @@ def main():
     bucket_name = args.bucket or f"market-data-tick-defi-{project_id}"
 
     logger.info("=" * 60)
-    logger.info("DeFi GCS Migration %s", '(DRY RUN)' if dry_run else '')
+    logger.info("DeFi GCS Migration %s", "(DRY RUN)" if dry_run else "")
     logger.info("=" * 60)
     logger.info("  Bucket: %s", bucket_name)
     logger.info("  Dates: %s to %s (%s days)", dates[0], dates[-1], len(dates))
     logger.info("  Workers: %s (per date), %s (dates)", args.workers, args.date_workers)
-    logger.info(
-        "  Folder mapping: A_TOKEN/DEBT_TOKEN/POOL -> pool/, LST/YIELD_BEARING -> lst/"
-    )
+    logger.info("  Folder mapping: A_TOKEN/DEBT_TOKEN/POOL -> pool/, LST/YIELD_BEARING -> lst/")
     logger.info("  Deprecated (skipped): %s", DEPRECATED_DATA_TYPES)
     logger.info("")
 
@@ -493,17 +476,15 @@ def main():
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info("MIGRATION %sCOMPLETE", '(DRY RUN) ' if dry_run else '')
+    logger.info("MIGRATION %sCOMPLETE", "(DRY RUN) " if dry_run else "")
     logger.info("=" * 60)
-    logger.info("  Total scanned:          %s", total_stats['scanned'])
-    logger.info("  Already correct:        %s", total_stats['skipped_already_correct'])
-    logger.info("  Skipped (deprecated):   %s", total_stats['skipped_deprecated'])
-    logger.info("  Skipped (unknown):      %s", total_stats['skipped_unknown'])
-    logger.info(
-        "  %s:       %s", 'Would migrate' if dry_run else 'Migrated', total_stats['migrated']
-    )
+    logger.info("  Total scanned:          %s", total_stats["scanned"])
+    logger.info("  Already correct:        %s", total_stats["skipped_already_correct"])
+    logger.info("  Skipped (deprecated):   %s", total_stats["skipped_deprecated"])
+    logger.info("  Skipped (unknown):      %s", total_stats["skipped_unknown"])
+    logger.info("  %s:       %s", "Would migrate" if dry_run else "Migrated", total_stats["migrated"])
     if total_stats["failed"] > 0:
-        logger.info("  Failed:                 %s", total_stats['failed'])
+        logger.info("  Failed:                 %s", total_stats["failed"])
     logger.info("=" * 60)
 
 

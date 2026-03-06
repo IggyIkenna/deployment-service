@@ -12,7 +12,8 @@ from ..utils.data_status_checkers import (
     check_feature_groups_detailed,
     check_timeframes_detailed,
 )
-from ..utils.data_status_display import display_dynamic_service_status, display_fixed_service_status
+from ..utils.data_status_display_dynamic import display_dynamic_service_status
+from ..utils.data_status_display_fixed import display_fixed_service_status
 from ..utils.data_status_formatters import format_benchmark_info
 from ..utils.data_status_venue_utils import check_instruments_venue_coverage
 

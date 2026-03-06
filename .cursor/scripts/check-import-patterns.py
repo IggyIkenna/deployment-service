@@ -19,35 +19,30 @@ from pathlib import Path
 
 # External packages that should only use top-level imports
 EXTERNAL_PACKAGES = {
-    'unified_config_interface',
-    'unified_config_service',
-    'unified_events_interface',
-    'unified_domain_client',
-    'unified_trading_library',
-    'unified_market_interface',
-    'unified_trade_execution_interface',
-    'unified_ml_interface',
-    'unified_defi_execution_interface',
-    'execution_algo_library',
-    'matching_engine_library',
+    "unified_config_interface",
+    "unified_config_service",
+    "unified_events_interface",
+    "unified_domain_client",
+    "unified_trading_library",
+    "unified_market_interface",
+    "unified_trade_execution_interface",
+    "unified_ml_interface",
+    "unified_defi_execution_interface",
+    "execution_algo_library",
+    "matching_engine_library",
 }
 
 # Patterns for detecting deep imports
-DEEP_IMPORT_PATTERN = re.compile(
-    r'^from\s+(' + '|'.join(EXTERNAL_PACKAGES) + r')\.(\w+(?:\.\w+)*)\s+import'
-)
+DEEP_IMPORT_PATTERN = re.compile(r"^from\s+(" + "|".join(EXTERNAL_PACKAGES) + r")\.(\w+(?:\.\w+)*)\s+import")
 
 # Pattern for from imports
-FROM_IMPORT_PATTERN = re.compile(
-    r'^(\s*)from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+import\s+(.+)$'
-)
+FROM_IMPORT_PATTERN = re.compile(r"^(\s*)from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+import\s+(.+)$")
 
 
 class ImportViolation:
     """Represents an import pattern violation."""
 
-    def __init__(self, file_path: str, line_no: int, original: str,
-                 package: str, module_path: str, imports: str):
+    def __init__(self, file_path: str, line_no: int, original: str, package: str, module_path: str, imports: str):
         self.file_path = file_path
         self.line_no = line_no
         self.original = original
@@ -58,12 +53,11 @@ class ImportViolation:
     def get_fixed_import(self) -> str:
         """Generate the corrected import statement."""
         # Extract indentation from original
-        indent = re.match(r'^(\s*)', self.original).group(1)
+        indent = re.match(r"^(\s*)", self.original).group(1)
         return f"{indent}from {self.package} import {self.imports}"
 
     def __str__(self) -> str:
-        return (f"{self.file_path}:{self.line_no}: "
-                f"Deep import from {self.package}.{self.module_path}")
+        return f"{self.file_path}:{self.line_no}: Deep import from {self.package}.{self.module_path}"
 
 
 class ImportChecker:
@@ -80,7 +74,7 @@ class ImportChecker:
         violations = []
 
         try:
-            with open(file_path, encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 lines = f.readlines()
 
             for line_no, line in enumerate(lines, 1):
@@ -94,8 +88,7 @@ class ImportChecker:
                     if import_match:
                         imports = import_match.group(3)
                         violation = ImportViolation(
-                            str(file_path), line_no, line.rstrip(),
-                            package, module_path, imports
+                            str(file_path), line_no, line.rstrip(), package, module_path, imports
                         )
                         violations.append(violation)
 
@@ -107,10 +100,9 @@ class ImportChecker:
 
     def check_directory(self, directory: Path) -> None:
         """Recursively check all Python files in a directory."""
-        for file_path in directory.rglob('*.py'):
+        for file_path in directory.rglob("*.py"):
             # Skip certain directories
-            if any(part in file_path.parts for part in
-                   ['.venv', 'venv', '__pycache__', '.git', 'node_modules']):
+            if any(part in file_path.parts for part in [".venv", "venv", "__pycache__", ".git", "node_modules"]):
                 continue
 
             self.files_checked += 1
@@ -123,7 +115,7 @@ class ImportChecker:
     def fix_file(self, file_path: str, violations: list[ImportViolation]) -> bool:
         """Fix violations in a file."""
         try:
-            with open(file_path, encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 lines = f.readlines()
 
             # Sort violations by line number in reverse to avoid offset issues
@@ -131,9 +123,9 @@ class ImportChecker:
 
             for violation in sorted_violations:
                 # Replace the line with fixed import
-                lines[violation.line_no - 1] = violation.get_fixed_import() + '\n'
+                lines[violation.line_no - 1] = violation.get_fixed_import() + "\n"
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.writelines(lines)
 
             return True
@@ -195,25 +187,11 @@ class ImportChecker:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description='Check and fix import patterns for external dependencies'
-    )
-    parser.add_argument(
-        'paths', nargs='*', default=['.'],
-        help='Paths to check (default: current directory)'
-    )
-    parser.add_argument(
-        '--fix', action='store_true',
-        help='Automatically fix violations'
-    )
-    parser.add_argument(
-        '--verbose', action='store_true',
-        help='Show detailed output'
-    )
-    parser.add_argument(
-        '--quiet', action='store_true',
-        help='Only show errors'
-    )
+    parser = argparse.ArgumentParser(description="Check and fix import patterns for external dependencies")
+    parser.add_argument("paths", nargs="*", default=["."], help="Paths to check (default: current directory)")
+    parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
+    parser.add_argument("--verbose", action="store_true", help="Show detailed output")
+    parser.add_argument("--quiet", action="store_true", help="Only show errors")
 
     args = parser.parse_args()
 
@@ -223,7 +201,7 @@ def main():
     for path in args.paths:
         path_obj = Path(path).resolve()
         if path_obj.is_file():
-            if path_obj.suffix == '.py':
+            if path_obj.suffix == ".py":
                 checker.files_checked += 1
                 violations = checker.check_file(path_obj)
                 if violations:
@@ -261,5 +239,5 @@ def main():
             sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

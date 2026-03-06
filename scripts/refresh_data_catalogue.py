@@ -83,7 +83,7 @@ def run_data_status_cli(
     elif service == "instruments-service":
         cmd.append("--check-venues")
 
-    logger.info("Running: %s", ' '.join(cmd))
+    logger.info("Running: %s", " ".join(cmd))
 
     try:
         result = subprocess.run(
@@ -214,9 +214,9 @@ def refresh_service(
     api_url: str = "http://127.0.0.1:8000",
 ) -> bool:
     """Refresh a single service's data catalogue."""
-    logger.info("\n%s", '=' * 60)
+    logger.info("\n%s", "=" * 60)
     logger.info("Refreshing %s", service)
-    logger.info("%s", '=' * 60)
+    logger.info("%s", "=" * 60)
 
     # Load existing catalogue
     catalogue = load_catalogue(service)
@@ -242,9 +242,7 @@ def refresh_service(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Refresh data catalogue YAMLs from data-status API"
-    )
+    parser = argparse.ArgumentParser(description="Refresh data catalogue YAMLs from data-status API")
     parser.add_argument(
         "--all",
         action="store_true",
@@ -288,9 +286,9 @@ def main():
         results[service] = "OK" if success else "FAILED"
 
     # Summary
-    logger.info("\n%s", '=' * 60)
+    logger.info("\n%s", "=" * 60)
     logger.info("REFRESH SUMMARY")
-    logger.info("%s", '=' * 60)
+    logger.info("%s", "=" * 60)
     for service, status in results.items():
         logger.info("  %s: %s", service, status)
 

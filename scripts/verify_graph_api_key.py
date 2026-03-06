@@ -30,15 +30,9 @@ _NUM_KEYS = 9  # thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify The Graph API key and round-robin"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Only show which key would be used"
-    )
-    parser.add_argument(
-        "--project-id", default=None, help="GCP project ID (default: from env)"
-    )
+    parser = argparse.ArgumentParser(description="Verify The Graph API key and round-robin")
+    parser.add_argument("--dry-run", action="store_true", help="Only show which key would be used")
+    parser.add_argument("--project-id", default=None, help="GCP project ID (default: from env)")
     args = parser.parse_args()
 
     shard_index = int(os.environ.get("SHARD_INDEX", "0"))
@@ -48,11 +42,7 @@ def main() -> int:
         project_id = os.environ.get("GCP_PROJECT_ID")
         if not project_id:
             raise SystemExit("ERROR: GCP project ID required. Set GCP_PROJECT_ID or pass --project-id")
-    secret_env = (
-        os.environ.get("GRAPH_SECRET_NAME")
-        or os.environ.get("THEGRAPH_SECRET_NAME")
-        or "thegraph-api-key"
-    )
+    secret_env = os.environ.get("GRAPH_SECRET_NAME") or os.environ.get("THEGRAPH_SECRET_NAME") or "thegraph-api-key"
 
     print("=" * 60)
     print("The Graph API Key Verification")
@@ -64,9 +54,7 @@ def main() -> int:
 
     # Round-robin formula (matches UCS TheGraphBaseClient)
     key_number = (shard_index % _NUM_KEYS) + 1
-    secret_name = (
-        "thegraph-api-key" if key_number == 1 else f"thegraph-api-key-{key_number}"
-    )
+    secret_name = "thegraph-api-key" if key_number == 1 else f"thegraph-api-key-{key_number}"
     print(f"Round-robin: key_number={key_number} → secret={secret_name}")
     print("(9 keys total: thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9)")
     print()
@@ -82,15 +70,11 @@ def main() -> int:
         api_key = client.api_key
     except (OSError, ValueError, RuntimeError) as e:
         print(f"❌ Failed to load API key: {e}")
-        print(
-            "   Ensure GCP auth (gcloud auth application-default login) and secret exists."
-        )
+        print("   Ensure GCP auth (gcloud auth application-default login) and secret exists.")
         return 1
 
     if not api_key:
-        print(
-            "❌ No API key found. Set THEGRAPH_API_KEY in env or create secret in GCP."
-        )
+        print("❌ No API key found. Set THEGRAPH_API_KEY in env or create secret in GCP.")
         return 1
 
     print(f"✅ API key {key_number} loaded successfully")

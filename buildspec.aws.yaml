@@ -1,52 +1,65 @@
-# AWS CodeBuild Buildspec for deployment-service-v3
-# AWS equivalent of cloudbuild.yaml for multi-cloud CI/CD
-
+# AWS CodeBuild equivalent of cloudbuild.yaml
+# ARCHITECTURE: Test the artifact you deploy
+#   1. Build Docker image
+#   2. Run quality gates INSIDE the image
+#   3. Push ONLY if tests pass
 version: 0.2
 
 env:
-  secrets-manager:
-    GITHUB_TOKEN: github-pat:token
   variables:
-    SERVICE_NAME: "deployment-service-v3"
-    CLOUD_PROVIDER: "aws"
-    CLOUD_MOCK_MODE: "true"
+    AWS_DEFAULT_REGION: "ap-northeast-1"
+  exported-variables:
+    - IMAGE_TAG
 
 phases:
   install:
     runtime-versions:
-      python: 3.13
+      python: "3.13"
     commands:
       - pip install uv
+      - VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "//;s/"//') && export VERSION && echo "$VERSION" > VERSION
+      - echo "Building version $VERSION"
+      - export IMAGE_TAG=$VERSION
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
 
   pre_build:
     commands:
-      - echo "=== Cloning dependencies ==="
-      - git clone https://x-access-token:${GITHUB_TOKEN}@github.com/IggyIkenna/unified-trading-library.git /tmp/unified-trading-library
-      - uv pip install -e /tmp/unified-trading-library
-      - uv pip install -e . || uv pip install -e ".[dev]"
-      - uv pip install ruff pytest build
+      - REPO_NAME=$(basename $(pwd))
+      - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
+      - aws ecr describe-repositories --repository-names $REPO_NAME || aws ecr create-repository --repository-name $REPO_NAME
 
   build:
     commands:
-      - echo "=== Running linting ==="
-      - ruff check --line-length 120 deployment_service/ tests/ || exit 1
-
-      - echo "=== Running tests ==="
-      - pytest tests/ -v --tb=short || exit 1
-
-      - echo "=== Building wheel ==="
-      - python -m build
+      - VERSION=$(cat VERSION)
+      - REPO_NAME=$(basename $(pwd))
+      - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
+      - docker build -f Dockerfile -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
+      - docker run --rm --entrypoint "" -e CLOUD_BUILD=true -e CLOUD_MOCK_MODE=true -e CLOUD_PROVIDER=aws -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION $ECR_REPO:$VERSION /bin/bash -c "scripts/quality-gates.sh --no-fix --quick"
+      - docker push $ECR_REPO --all-tags
 
   post_build:
     commands:
-      - echo "Build completed"
+      - VERSION=$(cat VERSION)
+      - REPO_NAME=$(basename $(pwd))
+      - |
+        if [ -n "$GH_PAT" ]; then
+          IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME:$VERSION"
+          curl -sS -X POST -H "Authorization: token $GH_PAT" -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/IggyIkenna/deployment-service/dispatches \
+            -d "{\"event_type\":\"service-deployed\",\"client_payload\":{\"service_name\":\"$REPO_NAME\",\"version\":\"$VERSION\",\"image\":\"$IMAGE\"}}" || true
+        fi
+      - pip install build twine
+      - python -m build --wheel --outdir dist/ || true
+      - |
+        if [ -n "$CODEARTIFACT_DOMAIN" ]; then
+          aws codeartifact login --tool twine --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --repository unified-libraries || true
+          python -m twine upload --repository codeartifact dist/*.whl || true
+        fi
 
 artifacts:
   files:
-    - 'dist/*.whl'
-    - 'dist/*.tar.gz'
-  discard-paths: no
+    - "**/*"
 
 cache:
   paths:
-    - '/root/.cache/pip/**/*'
+    - "/root/.cache/uv/**/*"
