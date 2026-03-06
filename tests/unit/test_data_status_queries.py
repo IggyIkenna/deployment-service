@@ -34,7 +34,7 @@ class TestTurboServiceConfig:
     def test_supported_services(self):
         """Test that all expected services are supported."""
         # Services that should be supported in turbo mode
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(
@@ -66,7 +66,7 @@ class TestInstrumentTypeExtraction:
         The mock simulates the migrated structure where venue is a directory:
         raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={inst_type}/venue={venue}/
         """
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         mock_get_path_combinatorics.return_value = mock_path_combinatorics
 

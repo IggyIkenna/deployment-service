@@ -29,7 +29,7 @@ def test_vm_backend_cloud_init_template_no_public_dns():
     CLOUD_INIT_TEMPLATE (COS) must NOT use --dns 8.8.8.8.
     Public DNS breaks metadata.google.internal resolution.
     """
-    from deployment_service.backends.vm import CLOUD_INIT_TEMPLATE
+    from deployment_service.backends.services.vm_config import CLOUD_INIT_TEMPLATE
 
     for pattern in FORBIDDEN_DNS_PATTERNS:
         assert pattern not in CLOUD_INIT_TEMPLATE, (
@@ -44,7 +44,7 @@ def test_vm_backend_cloud_init_gcsfuse_template_no_public_dns():
     CLOUD_INIT_GCSFUSE_TEMPLATE (Ubuntu) must NOT use --dns 8.8.8.8.
     Public DNS breaks metadata.google.internal resolution.
     """
-    from deployment_service.backends.vm import CLOUD_INIT_GCSFUSE_TEMPLATE
+    from deployment_service.backends.services.vm_config import CLOUD_INIT_GCSFUSE_TEMPLATE
 
     for pattern in FORBIDDEN_DNS_PATTERNS:
         assert pattern not in CLOUD_INIT_GCSFUSE_TEMPLATE, (

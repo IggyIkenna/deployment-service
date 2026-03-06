@@ -36,7 +36,7 @@ class TestTurboServiceConfig:
         # Services that should be supported in turbo mode
 
         # BUCKET_MAPPING defines supported services
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(

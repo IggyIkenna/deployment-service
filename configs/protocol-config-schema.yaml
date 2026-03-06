@@ -31,11 +31,12 @@ SERVICE_MODE:
 PROTOCOL_DATA_SINK_BACKEND:
   required: false
   default: local
-  values: [gcs, s3, bigquery, local]
+  values: [gcs, s3, bigquery, athena, local]
   description: >
     Storage backend for data writes. Defaults to "local" (safe for dev/CI).
     GCP deployments use "gcs"; AWS deployments use "s3".
-    Use "bigquery" only for live-mode streaming inserts.
+    Use "bigquery" for live-mode streaming inserts via BigQuery insertAll API.
+    Use "athena" for AWS S3+Glue-compatible batch writes.
 
 PROTOCOL_DATA_SINK_BUCKET:
   required: false  # required when BACKEND != local and no routing-key overrides
@@ -69,6 +70,14 @@ PROTOCOL_DATA_SINK_FORMAT:
   default: parquet
   values: [parquet, json, csv]
   description: Default serialisation format for DataFrame writes.
+
+PROTOCOL_DATA_SINK_TABLE_PREFIX:
+  required: false
+  default: ""
+  description: >
+    BigQuery table name prefix (used when BACKEND=bigquery).
+    Table is derived as "{TABLE_PREFIX}_{partition_day}" or just TABLE_PREFIX
+    if no partition. Required when using BigQueryDataSink without a "table" partition key.
 
 # =============================================================================
 # DATA SOURCE  (where the service reads structured data)

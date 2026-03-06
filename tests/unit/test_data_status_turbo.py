@@ -42,7 +42,7 @@ class TestTurboServiceConfig:
         # BUCKET_MAPPING defines supported services
         import asyncio
 
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(
@@ -69,7 +69,7 @@ class TestRequestSizeGuard:
         """
         import asyncio
 
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         # Mock storage client (never used - guard raises before GCS access)
         mock_get_storage_client.return_value = MagicMock()
@@ -113,7 +113,7 @@ class TestInstrumentTypeExtraction:
         """
         import asyncio
 
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         mock_get_path_combinatorics.return_value = mock_path_combinatorics
 
