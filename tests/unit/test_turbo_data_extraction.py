@@ -18,8 +18,8 @@ from .turbo_fixtures import mock_gcs_client
 class TestInstrumentTypeExtraction:
     """Tests for instrument type breakdown extraction."""
 
-    @patch("api.utils.path_combinatorics.get_path_combinatorics")
-    @patch("api.utils.gcs_client.get_storage_client")
+    @patch("deployment_api.utils.path_combinatorics.get_path_combinatorics")
+    @patch("deployment_api.utils.storage_client.get_storage_client")
     def test_instrument_types_market_tick_data_handler(
         self,
         mock_get_storage_client,

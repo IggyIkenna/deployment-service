@@ -19,8 +19,8 @@ from .turbo_fixtures import create_filter_dates_function
 class TestRequestSizeGuard:
     """Tests for the request-size guard that prevents 503 timeout on large turbo requests."""
 
-    @patch("api.utils.path_combinatorics.get_path_combinatorics")
-    @patch("api.utils.gcs_client.get_storage_client")
+    @patch("deployment_api.utils.path_combinatorics.get_path_combinatorics")
+    @patch("deployment_api.utils.storage_client.get_storage_client")
     def test_instruments_service_large_range_raises_400(self, mock_get_storage_client, mock_get_path_combinatorics):
         """Large date range for instruments-service with venue breakdown should raise 400.
 
