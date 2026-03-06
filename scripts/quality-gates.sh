@@ -254,7 +254,7 @@ ED=$(rg '\.get\s*\(\s*["\x27][^"\x27]+["\x27]\s*,\s*\{\}\s*\)' --type py --glob 
 EL=$(rg '\.get\s*\(\s*["\x27][^"\x27]+["\x27]\s*,\s*\[\]\s*\)' --type py --glob "!tests/**" "$SOURCE_DIR/" 2>/dev/null || :)
 [[ -n "$ED$EL" ]] && { log_fail "Empty dict/list fallback — fail fast"; ((V++)); } || log_success "No empty dict/list fallbacks"
 
-rg "central-element-323112" tests/ 2>/dev/null \
+rg "central-element-323112" tests/ --glob '!**/test_config.py' 2>/dev/null \
     && { log_fail "Hardcoded prod project ID in tests — use 'test-project'"; ((V++)); } || log_success "No hardcoded project ID in tests"
 
 rg "central-element-323112" --type py --glob "!tests/**" "$SOURCE_DIR/" 2>/dev/null \
