@@ -44,7 +44,7 @@ dimensions:
 
   - name: config
     type: gcs_dynamic
-    gcs_bucket: ml-configs-store-{project_id}
+    source_bucket: ml-configs-store-{project_id}
     gcs_prefix: training/grid_configs/
     file_pattern: "*.json"
     description: Training config from GCS (dynamic at runtime)
