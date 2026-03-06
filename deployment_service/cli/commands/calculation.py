@@ -266,7 +266,7 @@ def info(ctx: click.Context, service: str):
                 click.echo(f"    Granularity: {dim.get('granularity', 'daily')}")
 
             elif dim["type"] == "gcs_dynamic":
-                bucket = dim.get("gcs_bucket_template") or dim.get("source_bucket")
+                bucket = dim.get("source_bucket")
                 click.echo(f"    Bucket: {bucket}")
                 click.echo(f"    Prefix: {dim.get('gcs_prefix', '')}")
                 click.echo(f"    Pattern: {dim.get('file_pattern', '*')}")

@@ -73,7 +73,7 @@ def display_dynamic_service_status(
     bucket_to_domain = {}
 
     for domain in domains_or_categories:
-        bucket_template = gcs_dim.get("gcs_bucket_template") or gcs_dim.get("source_bucket", "")
+        bucket_template = gcs_dim.get("source_bucket", "")
         try:
             bucket = bucket_template.format(
                 domain=domain.lower(),
@@ -106,7 +106,7 @@ def display_dynamic_service_status(
 
         for domain in domains_or_categories:
             # Results are in the same bucket under results/ prefix
-            bucket_template = gcs_dim.get("gcs_bucket_template") or gcs_dim.get("source_bucket", "")
+            bucket_template = gcs_dim.get("source_bucket", "")
             try:
                 bucket = bucket_template.format(
                     domain=domain.lower(),
