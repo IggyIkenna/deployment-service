@@ -33,7 +33,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
-from google.cloud.storage import Client as GCSClient
+from unified_cloud_interface import get_storage_client
 
 # =============================================================================
 # CONFIGURATION
@@ -110,9 +110,7 @@ def aggregate_instruments(
             log("Using 'instrument_id' as dedup key instead of 'instrument_key'")
             required_cols[0] = "instrument_id"
 
-    dedup_col = (
-        "instrument_key" if "instrument_key" in sample_schema else "instrument_id"
-    )
+    dedup_col = "instrument_key" if "instrument_key" in sample_schema else "instrument_id"
     timestamp_col = "timestamp" if "timestamp" in sample_schema else None
 
     # Lazy scan all files (doesn't load into memory yet)
@@ -142,16 +140,10 @@ def aggregate_instruments(
     log(f"Deduplicating by '{dedup_col}'...")
     if timestamp_col and timestamp_col in sample_schema:
         # Sort by timestamp descending, then take first per instrument_key
-        deduped = (
-            combined.sort(timestamp_col, descending=True)
-            .group_by(dedup_col)
-            .agg(pl.all().first())
-        )
+        deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
     else:
         # No timestamp column, just take first occurrence
-        log(
-            "WARNING: No timestamp column found, taking first occurrence per instrument"
-        )
+        log("WARNING: No timestamp column found, taking first occurrence per instrument")
         deduped = combined.group_by(dedup_col).agg(pl.all().first())
 
     # Collect (materialize the lazy frame)
@@ -176,7 +168,7 @@ def upload_to_gcs(local_path: str, bucket_name: str, gcs_path: str) -> bool:
     """Upload file to GCS."""
     try:
         log(f"Uploading to gs://{bucket_name}/{gcs_path}...")
-        client = GCSClient()
+        client = get_storage_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(local_path)
@@ -231,9 +223,7 @@ Examples:
 
     # Generate default output path with today's date
     today = date.today().isoformat()
-    output_path = (
-        args.output or f"{DEFAULT_OUTPUT_DIR}/aggregated_instruments_{today}.parquet"
-    )
+    output_path = args.output or f"{DEFAULT_OUTPUT_DIR}/aggregated_instruments_{today}.parquet"
 
     # Print configuration
     log("=" * 60)
@@ -269,9 +259,7 @@ Examples:
             log(f"  {row[0]}: {row[1]}")
 
     if "instrument_type" in result.columns:
-        type_counts = (
-            result.group_by("instrument_type").len().sort("len", descending=True)
-        )
+        type_counts = result.group_by("instrument_type").len().sort("len", descending=True)
         log("\nInstrument types:")
         for row in type_counts.iter_rows():
             log(f"  {row[0]}: {row[1]}")

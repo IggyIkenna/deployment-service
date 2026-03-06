@@ -226,9 +226,7 @@ def validate_test_sample(
         Validation report dict
     """
     # Load config
-    config_path = (
-        Path(__file__).parent.parent / "configs" / "test_sample_instruments.yaml"
-    )
+    config_path = Path(__file__).parent.parent / "configs" / "test_sample_instruments.yaml"
     if not config_path.exists():
         logger.error("Config file not found: %s", config_path)
         return {"error": f"Config file not found: {config_path}"}
@@ -236,9 +234,7 @@ def validate_test_sample(
     config = load_test_sample_config(config_path)
     dates = get_date_range(test_date, lookback_days)
 
-    logger.info(
-        "Validating test sample for %s with %s-day lookback", test_date, lookback_days
-    )
+    logger.info("Validating test sample for %s with %s-day lookback", test_date, lookback_days)
     logger.info("Date range: %s to %s (%s days)", dates[0], dates[-1], len(dates))
 
     report = {
@@ -327,15 +323,11 @@ def validate_test_sample(
         category_report["instruments_check"] = instruments_result
 
         if instruments_result.get("missing_dates"):
-            report["summary"]["missing_instruments_data"] += len(
-                instruments_result["missing_dates"]
-            )
+            report["summary"]["missing_instruments_data"] += len(instruments_result["missing_dates"])
 
         # Check market data bucket (sample check - first few instruments only)
         logger.info("Checking market data bucket for %s...", category.upper())
-        sample_instruments = all_instruments[
-            :3
-        ]  # Only check first 3 to avoid long runtime
+        sample_instruments = all_instruments[:3]  # Only check first 3 to avoid long runtime
         sample_dates = dates[-3:]  # Only check last 3 dates
 
         market_data_result = check_market_data_bucket(
@@ -349,9 +341,7 @@ def validate_test_sample(
         category_report["market_data_check"] = market_data_result
 
         if market_data_result.get("missing_data"):
-            report["summary"]["missing_market_data"] += len(
-                market_data_result["missing_data"]
-            )
+            report["summary"]["missing_market_data"] += len(market_data_result["missing_data"])
 
         report["categories"][category.upper()] = category_report
 
@@ -364,13 +354,13 @@ def print_report(report: ValidationReportDict) -> None:
     logger.info("TEST SAMPLE VALIDATION REPORT")
     logger.info("=" * 80)
 
-    logger.info("Test Date: %s", report['test_date'])
-    logger.info("Lookback Days: %s", report['lookback_days'])
+    logger.info("Test Date: %s", report["test_date"])
+    logger.info("Lookback Days: %s", report["lookback_days"])
     logger.info(
         "Date Range: %s to %s (%s days)",
-        report['date_range']['start'],
-        report['date_range']['end'],
-        report['date_range']['count'],
+        report["date_range"]["start"],
+        report["date_range"]["end"],
+        report["date_range"]["count"],
     )
 
     if report.get("mode") == "dry_run":
@@ -379,14 +369,12 @@ def print_report(report: ValidationReportDict) -> None:
     logger.info("-" * 40)
     logger.info("SUMMARY")
     logger.info("-" * 40)
-    logger.info("Total Instruments: %s", report['summary']['total_instruments'])
-    logger.info("Total Data Types: %s", report['summary']['total_data_types'])
+    logger.info("Total Instruments: %s", report["summary"]["total_instruments"])
+    logger.info("Total Data Types: %s", report["summary"]["total_data_types"])
 
     if report.get("mode") != "dry_run":
-        logger.info(
-            "Missing Instruments Data: %s", report['summary']['missing_instruments_data']
-        )
-        logger.info("Missing Market Data: %s", report['summary']['missing_market_data'])
+        logger.info("Missing Instruments Data: %s", report["summary"]["missing_instruments_data"])
+        logger.info("Missing Market Data: %s", report["summary"]["missing_market_data"])
 
     for category, cat_report in report.get("categories", {}).items():
         logger.info("-" * 40)
@@ -395,51 +383,47 @@ def print_report(report: ValidationReportDict) -> None:
 
         for venue, venue_info in cat_report.get("venues", {}).items():
             logger.info("  %s:", venue)
-            logger.info("    Instruments: %s", venue_info['instrument_count'])
-            logger.info("    Data Types: %s", ', '.join(venue_info.get('data_types', [])))
+            logger.info("    Instruments: %s", venue_info["instrument_count"])
+            logger.info("    Data Types: %s", ", ".join(venue_info.get("data_types", [])))
 
             if "instruments" in venue_info:
                 for inst in venue_info["instruments"][:3]:
                     logger.info("      - %s", inst)
                 if len(venue_info["instruments"]) > 3:
-                    logger.info("      ... and %s more", len(venue_info['instruments']) - 3)
+                    logger.info("      ... and %s more", len(venue_info["instruments"]) - 3)
 
         # Show check results if available
         if cat_report.get("instruments_check"):
             check = cat_report["instruments_check"]
             if check.get("missing_dates"):
-                logger.warning("  Missing instrument dates: %s", len(check['missing_dates']))
+                logger.warning("  Missing instrument dates: %s", len(check["missing_dates"]))
                 for date in check["missing_dates"][:5]:
                     logger.warning("      - %s", date)
             else:
                 logger.info(
                     "  Instruments check: %s/%s dates found",
-                    check.get('total_found', 0),
-                    check.get('total_checked', 0),
+                    check.get("total_found", 0),
+                    check.get("total_checked", 0),
                 )
 
         if cat_report.get("market_data_check"):
             check = cat_report["market_data_check"]
             if check.get("missing_data"):
-                logger.warning("  Missing market data: %s files", len(check['missing_data']))
+                logger.warning("  Missing market data: %s files", len(check["missing_data"]))
                 for item in check["missing_data"][:5]:
-                    logger.warning(
-                        "      - %s: %s (%s)", item['date'], item['instrument'], item['data_type']
-                    )
+                    logger.warning("      - %s: %s (%s)", item["date"], item["instrument"], item["data_type"])
             else:
                 logger.info(
                     "  Market data check: %s/%s files found",
-                    check.get('total_found', 0),
-                    check.get('total_checked', 0),
+                    check.get("total_found", 0),
+                    check.get("total_checked", 0),
                 )
 
     logger.info("=" * 80)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Validate test sample data availability"
-    )
+    parser = argparse.ArgumentParser(description="Validate test sample data availability")
     parser.add_argument(
         "--test-date",
         default="2023-05-23",

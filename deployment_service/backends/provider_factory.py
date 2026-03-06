@@ -27,6 +27,8 @@ from pathlib import Path
 _repo_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 
+from unified_config_interface.topology_reader import get_deployment_target
+
 from deployment_service.deployment_config import DeploymentConfig
 
 from .aws_batch import AWSBatchBackend
@@ -174,6 +176,44 @@ def _get_aws_backend(
         )
     else:
         raise ValueError(f"Unsupported AWS compute type: {compute_type}")
+
+
+def get_backend_for_service(
+    service_name: str,
+    project_id: str,
+    region: str,
+    service_account_email: str = "",
+    **kwargs,
+) -> ComputeBackend:
+    """
+    Get a compute backend by resolving the deployment target from the topology SSOT.
+
+    Uses get_deployment_target(service_name) from unified_config_interface.topology_reader
+    to look up cloud_run vs vm (or ecs/batch for AWS) from runtime-topology.yaml.
+
+    Args:
+        service_name: Service name (e.g. "deployment-api", "instruments-service")
+        project_id: GCP project ID or AWS account ID
+        region: Cloud region
+        service_account_email: GCP service account (not used for AWS)
+        **kwargs: Additional backend-specific parameters (job_name for cloud_run, zone for vm)
+
+    Returns:
+        ComputeBackend implementation selected by topology
+    """
+    compute_type = get_deployment_target(service_name)
+    logger.info(
+        "Topology resolved deployment target for '%s': compute_type='%s'",
+        service_name,
+        compute_type,
+    )
+    return get_backend(
+        compute_type=compute_type,
+        project_id=project_id,
+        region=region,
+        service_account_email=service_account_email,
+        **kwargs,
+    )
 
 
 def list_available_backends(provider: str | None = None) -> dict[str, object]:

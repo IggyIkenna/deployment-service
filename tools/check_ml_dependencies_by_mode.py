@@ -348,9 +348,7 @@ Examples:
     # Validate operation-specific arguments
     if args.operation == "train_phase1":
         if not args.instrument_id or not args.timeframe:
-            parser.error(
-                "--instrument-id and --timeframe are required for train_phase1"
-            )
+            parser.error("--instrument-id and --timeframe are required for train_phase1")
     elif args.operation in ["train_phase2", "train_phase3"] and not args.model_id:
         parser.error("--model-id is required for %s", args.operation)
 
@@ -360,9 +358,7 @@ Examples:
 
     # Check dependencies based on operation
     if args.operation == "train_phase1":
-        logger.info(
-            "Checking Stage 1 dependencies for %s @ %s", args.instrument_id, args.timeframe
-        )
+        logger.info("Checking Stage 1 dependencies for %s @ %s", args.instrument_id, args.timeframe)
         result = check_stage1_dependencies(
             storage_client,
             args.instrument_id,
