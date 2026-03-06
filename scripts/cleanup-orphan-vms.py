@@ -45,7 +45,7 @@ def main() -> int:
 
     base_prefix = f"deployments.{DEPLOYMENT_ENV}/"
     from deployment.orchestrator import DeploymentOrchestrator
-    from unified_trading_library import get_storage_client
+    from unified_cloud_interface import get_storage_client
 
     # List deployment state files (narrow prefix when --service given)
     list_prefix = f"{base_prefix}{args.service}-" if args.service else base_prefix
