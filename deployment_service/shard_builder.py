@@ -266,8 +266,3 @@ def validate_shard_uniqueness(
         )
 
         raise ValueError(error_msg)
-
-
-# Aliases for backward compatibility
-_build_args = build_shard_args
-_build_shard_id = build_shard_id

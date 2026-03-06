@@ -31,28 +31,21 @@ logger = logging.getLogger(__name__)
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Terminate orphan VMs")
-    parser.add_argument(
-        "--service", help="Only this service (e.g. market-tick-data-handler)"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Don't actually terminate"
-    )
-    parser.add_argument(
-        "--limit", type=int, default=0, help="Max deployments to check (0=all)"
-    )
+    parser.add_argument("--service", help="Only this service (e.g. market-tick-data-handler)")
+    parser.add_argument("--dry-run", action="store_true", help="Don't actually terminate")
+    parser.add_argument("--limit", type=int, default=0, help="Max deployments to check (0=all)")
     args = parser.parse_args()
-
-    from google.cloud import compute_v1
 
     from api.settings import (
         DEPLOYMENT_ENV,
         GCP_PROJECT_ID,
         STATE_BUCKET,
     )
+    from google.cloud import compute_v1
 
     base_prefix = f"deployments.{DEPLOYMENT_ENV}/"
-    from unified_trading_library import get_storage_client
     from deployment.orchestrator import DeploymentOrchestrator
+    from unified_trading_library import get_storage_client
 
     # List deployment state files (narrow prefix when --service given)
     list_prefix = f"{base_prefix}{args.service}-" if args.service else base_prefix
@@ -73,9 +66,7 @@ def main() -> int:
 
     prefix = base_prefix
     if args.service:
-        logger.info(
-            "Checking %s %s deployment(s) for orphan VMs...", len(deployment_ids), args.service
-        )
+        logger.info("Checking %s %s deployment(s) for orphan VMs...", len(deployment_ids), args.service)
     else:
         logger.info("Checking %s deployment(s) for orphan VMs...", len(deployment_ids))
     terminated = 0
@@ -152,9 +143,7 @@ def main() -> int:
                         orch = DeploymentOrchestrator(
                             project_id=GCP_PROJECT_ID,
                             region=config.get("region") or "asia-northeast1",
-                            service_account_email=config.get(
-                                "service_account_email", ""
-                            ),
+                            service_account_email=config.get("service_account_email", ""),
                             state_bucket=STATE_BUCKET,
                             state_prefix=f"deployments.{DEPLOYMENT_ENV}",
                         )
@@ -172,15 +161,17 @@ def main() -> int:
                         if backend and hasattr(backend, "cancel_job"):
                             if args.dry_run:
                                 logger.info(
-                                    "  [DRY-RUN] Would terminate %s (%s/%s, GCS=%s)", job_id, deployment_id, shard_id, st
+                                    "  [DRY-RUN] Would terminate %s (%s/%s, GCS=%s)",
+                                    job_id,
+                                    deployment_id,
+                                    shard_id,
+                                    st,
                                 )
                                 terminated += 1
                             else:
                                 backend.cancel_job(job_id)
                                 terminated += 1
-                                logger.info(
-                                    "  Terminated %s (%s/%s, GCS=%s)", job_id, deployment_id, shard_id, st
-                                )
+                                logger.info("  Terminated %s (%s/%s, GCS=%s)", job_id, deployment_id, shard_id, st)
                     except (OSError, ValueError, RuntimeError) as e:
                         logger.warning("  Failed to terminate %s: %s", job_id, e)
 

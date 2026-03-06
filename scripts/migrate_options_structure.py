@@ -87,18 +87,14 @@ def find_files_to_migrate(bucket: StorageBucket) -> list[tuple[str, str]]:
         if "/data_type-options_chain/options_chain/" in blob.name:
             old_path = blob.name
             # Remove the duplicate options_chain
-            new_path = old_path.replace(
-                "/data_type-options_chain/options_chain/", "/data_type-options_chain/"
-            )
+            new_path = old_path.replace("/data_type-options_chain/options_chain/", "/data_type-options_chain/")
             to_migrate.append((old_path, new_path))
 
     return to_migrate
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Migrate options_chain from double-nested to single-nested structure"
-    )
+    parser = argparse.ArgumentParser(description="Migrate options_chain from double-nested to single-nested structure")
     parser.add_argument(
         "--bucket",
         required=True,
@@ -128,7 +124,7 @@ def main():
 
     dry_run = args.dry_run
 
-    logger.info("%sOptions chain migration starting", 'DRY RUN: ' if dry_run else '')
+    logger.info("%sOptions chain migration starting", "DRY RUN: " if dry_run else "")
     logger.info("  Bucket: %s", args.bucket)
     logger.info("  Workers: %s", args.workers)
 
@@ -159,8 +155,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, args.bucket, old, new, dry_run): (old, new)
-            for old, new in to_migrate
+            executor.submit(migrate_blob, client, args.bucket, old, new, dry_run): (old, new) for old, new in to_migrate
         }
 
         for i, future in enumerate(as_completed(futures)):
@@ -173,15 +168,19 @@ def main():
             # Progress update every 50 files
             if (i + 1) % 50 == 0:
                 logger.info(
-                    "Progress: %s/%s (%s migrated, %s failed)", i + 1, len(to_migrate), stats['migrated'], stats['failed']
+                    "Progress: %s/%s (%s migrated, %s failed)",
+                    i + 1,
+                    len(to_migrate),
+                    stats["migrated"],
+                    stats["failed"],
                 )
 
     logger.info("")
     logger.info("=" * 60)
     logger.info("MIGRATION COMPLETE")
     logger.info("  Total: %s", len(to_migrate))
-    logger.info("  Migrated: %s", stats['migrated'])
-    logger.info("  Failed: %s", stats['failed'])
+    logger.info("  Migrated: %s", stats["migrated"])
+    logger.info("  Failed: %s", stats["failed"])
     logger.info("=" * 60)
 
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from google.cloud.storage import Client as GCSClient
+from unified_cloud_interface import StorageClient, get_storage_client
 from unified_config_interface import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def _list_feature_blobs(
-    client: GCSClient,
+    client: StorageClient,
     bucket_name: str,
     league_id: int,
     season: int,
@@ -48,7 +48,7 @@ def _list_feature_blobs(
 
 
 def _list_fixture_blobs(
-    client: GCSClient,
+    client: StorageClient,
     bucket_name: str,
     league_id: int,
     season: int,
@@ -67,7 +67,7 @@ def _list_fixture_blobs(
 
 
 def validate_pipeline(
-    client: GCSClient,
+    client: StorageClient,
     bucket_name: str,
     league_id: int,
     season: int,
@@ -155,7 +155,7 @@ def main() -> None:
     bucket_name = args.bucket or f"sports-data-{config.gcp_project_id}"
 
     logger.info("Connecting to GCS project=%s bucket=%s", config.gcp_project_id, bucket_name)
-    client = GCSClient(project=config.gcp_project_id)
+    client = get_storage_client(project_id=config.gcp_project_id)
 
     success = validate_pipeline(
         client=client,

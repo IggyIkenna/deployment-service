@@ -76,7 +76,7 @@ class VMBackend(ComputeBackend):
             # Default: try all zones in the region
             self.zones = self._config_manager.get_zones_for_region(region)
 
-        self.zone = self.zones[0]  # Primary zone for backward compatibility
+        self.zone = self.zones[0]  # Primary zone
         self.status_bucket = status_bucket
         self.status_prefix = status_prefix
 

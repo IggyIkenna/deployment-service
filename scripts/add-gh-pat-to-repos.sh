@@ -81,7 +81,6 @@ REPOS=(
   unified-trading-codex
   unified-trading-deployment
   unified-trading-deployment-v2
-  unified-trading-deployment-v3
   unified-trading-library
   unified-trading-pm
   unified-trading-ui-auth

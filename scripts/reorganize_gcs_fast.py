@@ -217,14 +217,10 @@ def process_date_folder(date_folder, dry_run=False, parallel_threads=20):
 
     # Get list of data_type folders
     try:
-        result = subprocess.run(
-            ["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30
-        )
+        result = subprocess.run(["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             return 0
-        data_type_folders = [
-            f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f
-        ]
+        data_type_folders = [f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f]
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return 0
 
@@ -284,9 +280,7 @@ def process_date_folder(date_folder, dry_run=False, parallel_threads=20):
     if not all_move_pairs:
         return 0
 
-    log(
-        f"  Moving {len(all_move_pairs)} files with {parallel_threads} parallel threads..."
-    )
+    log(f"  Moving {len(all_move_pairs)} files with {parallel_threads} parallel threads...")
     moved = batch_move_files(all_move_pairs, dry_run, parallel_threads)
     return moved
 
@@ -302,29 +296,21 @@ def process_date_wrapper(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Fast GCS reorganization with parallel moves"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Show what would be done"
-    )
+    parser = argparse.ArgumentParser(description="Fast GCS reorganization with parallel moves")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
     parser.add_argument(
         "--workers",
         type=int,
         default=20,
         help="Parallel file moves per folder (default: 20)",
     )
-    parser.add_argument(
-        "--date-workers", type=int, default=5, help="Parallel date folders (default: 5)"
-    )
+    parser.add_argument("--date-workers", type=int, default=5, help="Parallel date folders (default: 5)")
     parser.add_argument(
         "--cpu-cores",
         type=int,
         help="Auto-configure based on CPU cores (e.g., --cpu-cores 32)",
     )
-    parser.add_argument(
-        "--start-date", type=str, help="Start from this date (YYYY-MM-DD)"
-    )
+    parser.add_argument("--start-date", type=str, help="Start from this date (YYYY-MM-DD)")
     parser.add_argument("--limit", type=int, help="Limit number of date folders")
     args = parser.parse_args()
 
@@ -389,10 +375,7 @@ def main():
 
     # Process date folders in parallel batches
     with ThreadPoolExecutor(max_workers=args.date_workers) as executor:
-        tasks = [
-            (df, args.dry_run, args.workers, i + 1, total)
-            for i, df in enumerate(date_folders)
-        ]
+        tasks = [(df, args.dry_run, args.workers, i + 1, total) for i, df in enumerate(date_folders)]
         results = list(executor.map(process_date_wrapper, tasks))
         total_moved = sum(results)
 
