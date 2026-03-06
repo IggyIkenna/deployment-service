@@ -200,14 +200,14 @@ class TestSkipExistingFilter:
         # Should have 2 categories * 3 days = 6 shards
         assert len(shards) == 6
 
-    @patch("google.cloud.storage.Client")
+    @patch("deployment_service.calculators.shard_distribution.get_storage_client")
     def test_skip_existing_true_filters_existing_shards(
-        self, mock_storage_client, temp_config_for_skip_existing, mock_env_vars
+        self, mock_get_storage_client, temp_config_for_skip_existing, mock_env_vars
     ):
         """Test that skip_existing=True filters out shards where data exists."""
         # Mock the storage client to simulate some data exists
         mock_client = MagicMock()
-        mock_storage_client.return_value = mock_client
+        mock_get_storage_client.return_value = mock_client
         mock_bucket = MagicMock()
         mock_client.bucket.return_value = mock_bucket
         mock_blob = MagicMock()
@@ -226,8 +226,8 @@ class TestSkipExistingFilter:
             skip_existing=True,
         )
 
-        # Should have filtered out 2 shards where data exists
-        # Remaining: 4 shards
+        # Should have filtered out shards where data exists
+        # With mocked storage, 2 blobs exist so 4 shards should remain
         assert len(shards) == 4
 
     def test_skip_existing_parameter_in_signature(self, temp_config_for_skip_existing, mock_env_vars):
@@ -245,21 +245,24 @@ class TestSkipExistingFilter:
 
         assert len(shards) > 0
 
-    def test_skip_existing_with_empty_storage_response(self, temp_config_for_skip_existing, mock_env_vars):
+    @patch("deployment_service.calculators.shard_distribution.get_storage_client")
+    def test_skip_existing_with_empty_storage_response(
+        self, mock_get_storage_client, temp_config_for_skip_existing, mock_env_vars
+    ):
         """Test skip_existing handles storage errors gracefully."""
+        # When storage raises an exception, each shard check returns False (not exists)
+        # so all shards should be returned
+        mock_get_storage_client.side_effect = Exception("Storage unavailable")
+
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 
-        # Even if storage check fails, should not crash
-        with patch("google.cloud.storage.Client") as mock_storage:
-            mock_storage.side_effect = Exception("Storage unavailable")
+        shards = calculator.calculate_shards(
+            service="instruments-service",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 1, 1),
+            max_shards=1000,
+            skip_existing=True,
+        )
 
-            shards = calculator.calculate_shards(
-                service="instruments-service",
-                start_date=date(2024, 1, 1),
-                end_date=date(2024, 1, 1),
-                max_shards=1000,
-                skip_existing=True,
-            )
-
-            # Should fall back to not skipping any shards
-            assert len(shards) > 0
+        # Should fall back to not skipping any shards (storage error = assume doesn't exist)
+        assert len(shards) > 0

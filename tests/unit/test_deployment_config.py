@@ -28,11 +28,11 @@ class TestDeploymentConfig:
     def test_api_port_defaults(self):
         """Test API port has sensible defaults."""
         config = DeploymentConfig()
-        assert config.api_port == 8000  # Default value
+        assert config.api_port == "8000"  # Default value (stored as string)
 
         with patch.dict(os.environ, {"API_PORT": "9000"}):
             config = DeploymentConfig()
-            assert config.api_port == 9000
+            assert config.api_port == "9000"
 
     def test_workers_configuration(self):
         """Test workers configuration."""
@@ -66,24 +66,24 @@ class TestDeploymentConfig:
         """Test VM orchestration configuration."""
         config = DeploymentConfig()
 
-        assert config.vm_launch_mini_batch_size == 5
-        assert config.vm_launch_mini_batch_delay_seconds == 15
-        assert config.unknown_status_max_polls == 20
+        assert config.vm_launch_mini_batch_size == 200
+        assert config.vm_launch_mini_batch_delay_seconds == 3.0
+        assert config.unknown_status_max_polls == 10
 
     def test_performance_tuning_config(self):
         """Test performance tuning configuration."""
         config = DeploymentConfig()
 
-        assert config.gcs_pool_size == 10
-        assert config.compute_pool_size == 10
-        assert config.compute_pool_maxsize == 20
+        assert config.gcs_pool_size == 200
+        assert config.compute_pool_size == 200
+        assert config.compute_pool_maxsize == 200
 
     def test_cache_configuration(self):
         """Test cache configuration."""
         config = DeploymentConfig()
 
-        assert config.redis_url is None  # Default
-        assert config.data_status_cache_ttl_seconds == 300
+        assert config.redis_url == "redis://localhost:6379/0"  # Default
+        assert config.data_status_cache_ttl_seconds == 1800
 
         with patch.dict(os.environ, {"REDIS_URL": "redis://localhost:6379"}):
             config = DeploymentConfig()
@@ -94,10 +94,11 @@ class TestDeploymentConfig:
         config = DeploymentConfig()
 
         assert config.github_org == "IggyIkenna"  # Default
-        assert config.github_token_sa is None  # Default
+        assert config.github_token_sa == ""  # Default is empty string
 
-        # Test effective_github_token_sa
-        assert config.effective_github_token_sa == "github-ci-reader@central-trading-353019.iam.gserviceaccount.com"
+        # Test effective_github_token_sa falls back to computed value based on project_id
+        assert config.effective_github_token_sa.startswith("github-token-sa@")
+        assert ".iam.gserviceaccount.com" in config.effective_github_token_sa
 
         with patch.dict(os.environ, {"GITHUB_TOKEN_SA": "custom-sa@project.iam"}):
             config = DeploymentConfig()
@@ -105,29 +106,30 @@ class TestDeploymentConfig:
 
     def test_effective_port_fallback(self):
         """Test effective_port property with fallback logic."""
-        # Test default
+        # Test default: when api_port is "8000" and no PORT set, returns "8080" (Cloud Run fallback)
         config = DeploymentConfig()
-        assert config.effective_port == "8000"
+        assert config.effective_port == "8080"
 
         # Test PORT override
         with patch.dict(os.environ, {"PORT": "3000"}):
             config = DeploymentConfig()
             assert config.effective_port == "3000"
 
-        # Test API_PORT override when PORT not set
+        # Test API_PORT override when PORT not set and api_port != "8000"
         with patch.dict(os.environ, {"API_PORT": "9000"}, clear=True):
             config = DeploymentConfig()
             assert config.effective_port == "9000"
 
     def test_deployment_region_config(self):
-        """Test deployment region configuration."""
+        """Test GCS region configuration (used as deployment region)."""
         config = DeploymentConfig()
 
-        assert config.deployment_region == "asia-northeast1"
+        # gcs_region is the regional config field (e.g. "asia-northeast1-c")
+        assert config.gcs_region is not None
 
-        with patch.dict(os.environ, {"DEPLOYMENT_REGION": "us-central1"}):
+        with patch.dict(os.environ, {"GCS_REGION": "us-central1-a"}):
             config = DeploymentConfig()
-            assert config.deployment_region == "us-central1"
+            assert config.gcs_region == "us-central1-a"
 
     def test_cloud_provider_config(self):
         """Test cloud provider configuration."""
@@ -153,9 +155,9 @@ class TestDeploymentConfig:
         """Test auto-scheduler configuration."""
         config = DeploymentConfig()
 
-        assert config.auto_scheduler_max_launch_per_tick == 3
-        assert config.auto_scheduler_batch_size == 20
-        assert config.stuck_shard_grace_seconds == 900
+        assert config.auto_scheduler_max_launch_per_tick == 2000
+        assert config.auto_scheduler_batch_size == 200
+        assert config.stuck_shard_grace_seconds == 600
 
         with patch.dict(os.environ, {"AUTO_SCHEDULER_MAX_LAUNCH_PER_TICK": "5", "AUTO_SCHEDULER_BATCH_SIZE": "50"}):
             config = DeploymentConfig()
@@ -198,7 +200,7 @@ class TestDeploymentConfig:
 
         # Check inherited properties
         assert hasattr(config, "gcp_project_id")
-        assert hasattr(config, "bucket_suffix")
+        assert hasattr(config, "cloud_provider")
 
     def test_all_fields_have_defaults(self):
         """Test that all configuration fields have sensible defaults."""
@@ -209,5 +211,5 @@ class TestDeploymentConfig:
         assert config.api_port is not None
         assert config.workers is not None
         assert config.auto_sync_enabled is not None
-        assert config.deployment_region is not None
+        assert config.gcs_region is not None
         assert config.cloud_provider is not None

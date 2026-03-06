@@ -63,7 +63,7 @@ class TestLoadVenuesConfig:
         """Test error when venues.yaml is missing."""
         loader = ConfigLoader(str(tmp_path))
 
-        with pytest.raises(FileNotFoundError, match="Venues config not found"):
+        with pytest.raises(FileNotFoundError, match="Config file not found"):
             loader.load_venues_config()
 
     def test_venues_config_invalid_yaml(self, tmp_path):
@@ -118,7 +118,7 @@ class TestLoadServiceConfig:
         """Test error when service config is missing."""
         loader = ConfigLoader(str(temp_config_dir))
 
-        with pytest.raises(FileNotFoundError, match="Service config not found"):
+        with pytest.raises(FileNotFoundError, match="Config file not found"):
             loader.load_service_config("nonexistent-service")
 
     def test_service_config_name_mismatch(self, temp_config_dir):
