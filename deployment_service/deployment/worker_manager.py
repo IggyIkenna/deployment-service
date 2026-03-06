@@ -469,3 +469,172 @@ def launch_shards_parallel(
         failed,
         succeeded,
     )
+
+
+def launch_shards_rolling(
+    state: DeploymentState,
+    backend: ComputeBackend,
+    docker_image: str,
+    environment_variables: dict[str, str],
+    compute_config: dict[str, object],
+    rate_limiter: RateLimiter,
+    state_manager: StateManager,
+    quota_broker: QuotaBrokerClient | None = None,
+    vm_resource_request_fn: object = None,
+    max_workers: int = 50,
+    max_concurrent: int = 2000,
+    venue_overrides: dict[str, dict[str, object]] | None = None,
+    compute_type: str = "vm",
+    no_wait: bool = False,
+) -> None:
+    """
+    Launch shards in a rolling fashion, maintaining at most max_concurrent running at any time.
+
+    Unlike launch_shards_parallel which launches all shards at once, this function
+    launches shards in waves — as running shards complete, new ones are launched to
+    fill the slots up to max_concurrent.
+
+    Args:
+        state: DeploymentState to update
+        backend: ComputeBackend to use
+        docker_image: Docker image URL
+        environment_variables: Environment variables
+        compute_config: Default compute configuration
+        rate_limiter: RateLimiter instance for API throttling
+        state_manager: StateManager for persisting state
+        quota_broker: Optional quota broker client
+        vm_resource_request_fn: Function to map VM config to resource requirements
+        max_workers: Maximum concurrent API calls per launch wave
+        max_concurrent: Maximum simultaneously running VMs/jobs
+        venue_overrides: Per-venue compute overrides
+        compute_type: "vm" or "cloud_run"
+        no_wait: If True, launch first wave and return without monitoring remaining
+    """
+    all_pending = state.pending_shards[:]
+    total = len(all_pending)
+    poll_interval = 30  # seconds between status checks
+
+    logger.info(
+        "[ROLLING_LAUNCH] Starting rolling launch: %s total shards, max_concurrent=%s",
+        total,
+        max_concurrent,
+    )
+
+    wave_number = 0
+    launched_count = 0
+
+    while all_pending or state.running_shards:
+        # Count currently running shards
+        currently_running = len(state.running_shards)
+        slots_available = max(0, max_concurrent - currently_running)
+
+        if slots_available > 0 and all_pending:
+            # Take up to slots_available shards from the pending list
+            wave = all_pending[:slots_available]
+            all_pending = all_pending[slots_available:]
+            wave_number += 1
+            launched_count += len(wave)
+
+            logger.info(
+                "[ROLLING_LAUNCH] Wave %s: launching %s shards (%s/%s total, %s slots available)",
+                wave_number,
+                len(wave),
+                launched_count,
+                total,
+                slots_available,
+            )
+
+            # Hide non-wave pending shards so launch_shards_parallel only processes this wave
+            wave_ids = {s.shard_id for s in wave}
+            non_wave_pending = [
+                s for s in state.shards if s.status == ShardStatus.PENDING and s.shard_id not in wave_ids
+            ]
+            # Temporarily mark non-wave pending shards as QUEUED to hide from parallel launcher
+            # We use FAILED as a safe sentinel (will be restored immediately after)
+            _HIDDEN_STATUS = ShardStatus.FAILED
+            original_statuses: dict[str, ShardStatus] = {}
+            for shard in non_wave_pending:
+                original_statuses[shard.shard_id] = shard.status
+                shard.status = _HIDDEN_STATUS
+
+            launch_shards_parallel(
+                state=state,
+                backend=backend,
+                docker_image=docker_image,
+                environment_variables=environment_variables,
+                compute_config=compute_config,
+                rate_limiter=rate_limiter,
+                state_manager=state_manager,
+                quota_broker=quota_broker,
+                vm_resource_request_fn=vm_resource_request_fn,
+                max_workers=min(max_workers, len(wave)),
+                venue_overrides=venue_overrides,
+                compute_type=compute_type,
+                auto_retry_failed=False,  # Rolling launch handles retries via waves
+            )
+
+            # Restore non-wave pending shards to PENDING (only those still in FAILED sentinel state)
+            for shard in non_wave_pending:
+                if shard.shard_id in original_statuses and shard.status == _HIDDEN_STATUS:
+                    shard.status = original_statuses[shard.shard_id]
+
+            if no_wait and wave_number == 1:
+                # Fire and forget — launch first wave only, leave rest pending
+                logger.info(
+                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards, %s remain pending",
+                    len(wave),
+                    len(all_pending),
+                )
+                state_manager.save_state(state)
+                return
+
+        if not all_pending:
+            # All shards have been launched; rolling launch phase complete
+            logger.info(
+                "[ROLLING_LAUNCH] All %s shards have been launched across %s waves",
+                total,
+                wave_number,
+            )
+            break
+
+        # Wait before checking running count again
+        logger.info(
+            "[ROLLING_LAUNCH] %s shards running (max_concurrent=%s), %s pending — waiting %ss",
+            currently_running,
+            max_concurrent,
+            len(all_pending),
+            poll_interval,
+        )
+        time.sleep(poll_interval)
+
+        # Poll backend to refresh running shard statuses
+        for shard in state.running_shards:
+            if not shard.job_id:
+                continue
+            try:
+                rate_limiter.acquire()
+                job_info: JobInfo = backend.get_status(shard.job_id)
+                if job_info.status == JobStatus.SUCCEEDED:
+                    shard.status = ShardStatus.SUCCEEDED
+                    shard.end_time = datetime.now(UTC).isoformat()
+                elif job_info.status == JobStatus.FAILED:
+                    shard.status = ShardStatus.FAILED
+                    shard.error_message = job_info.error_message
+                    shard.end_time = datetime.now(UTC).isoformat()
+            except (OSError, ValueError, RuntimeError) as e:
+                logger.warning("[ROLLING_LAUNCH] Failed to poll shard %s: %s", shard.shard_id, e)
+
+        state_manager.save_state(state)
+
+    # Final status summary
+    succeeded = sum(1 for s in state.shards if s.status == ShardStatus.SUCCEEDED)
+    failed = sum(1 for s in state.shards if s.status == ShardStatus.FAILED)
+    running = sum(1 for s in state.shards if s.status == ShardStatus.RUNNING)
+
+    logger.info(
+        "[ROLLING_LAUNCH] Complete: %s total shards (running: %s, failed: %s, succeeded: %s)",
+        total,
+        running,
+        failed,
+        succeeded,
+    )
