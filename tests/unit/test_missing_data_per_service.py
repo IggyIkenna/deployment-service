@@ -255,9 +255,9 @@ def _run_turbo(
     clear_cache()
 
     with (
-        patch("api.utils.gcs_client.get_storage_client", return_value=mock_storage_client),
+        patch("deployment_api.utils.storage_client.get_storage_client", return_value=mock_storage_client),
         patch(
-            "api.utils.path_combinatorics.get_path_combinatorics",
+            "deployment_api.utils.path_combinatorics.get_path_combinatorics",
             return_value=make_mock_path_combinatorics(),
         ),
     ):
