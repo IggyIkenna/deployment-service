@@ -29,11 +29,11 @@ Usage:
 
 import argparse
 import logging
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 
 from unified_cloud_interface import StorageClient
+from unified_config_interface import UnifiedCloudConfig
 from unified_trading_library import get_storage_client
 
 logging.basicConfig(
@@ -353,7 +353,7 @@ Examples:
         parser.error("--model-id is required for %s", args.operation)
 
     # Initialize GCS client
-    project_id = args.project_id or os.environ["GCP_PROJECT_ID"]
+    project_id = args.project_id or UnifiedCloudConfig().gcp_project_id
     storage_client = get_storage_client()
 
     # Check dependencies based on operation
