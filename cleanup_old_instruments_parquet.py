@@ -25,9 +25,7 @@ from unified_cloud_interface import StorageClient
 from unified_trading_library import get_storage_client
 
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -38,12 +36,11 @@ def _get_buckets(project_id: str) -> list[str]:
         f"instruments-store-tradfi-{project_id}",
     ]
 
+
 # Pattern to match date-level instruments.parquet files (NOT venue-level)
 # Match: instrument_availability/by_date/day-YYYY-MM-DD/instruments.parquet
 # Don't match: instrument_availability/by_date/day-YYYY-MM-DD/venue-*/instruments.parquet
-DATE_LEVEL_PATTERN = re.compile(
-    r"^instrument_availability/by_date/day-\d{4}-\d{2}-\d{2}/instruments\.parquet$"
-)
+DATE_LEVEL_PATTERN = re.compile(r"^instrument_availability/by_date/day-\d{4}-\d{2}-\d{2}/instruments\.parquet$")
 
 
 def find_date_level_files(bucket_name: str, client: StorageClient) -> list[str]:
@@ -62,9 +59,7 @@ def find_date_level_files(bucket_name: str, client: StorageClient) -> list[str]:
     return date_level_files
 
 
-def delete_blob(
-    bucket_name: str, blob_name: str, client: StorageClient, dry_run: bool
-) -> tuple[str, bool, str]:
+def delete_blob(bucket_name: str, blob_name: str, client: StorageClient, dry_run: bool) -> tuple[str, bool, str]:
     """Delete a single blob. Returns (blob_name, success, error_message)."""
     try:
         if dry_run:
@@ -80,13 +75,11 @@ def delete_blob(
         return (blob_name, False, error_msg)
 
 
-def cleanup_bucket(
-    bucket_name: str, client: StorageClient, dry_run: bool, max_workers: int
-) -> dict:
+def cleanup_bucket(bucket_name: str, client: StorageClient, dry_run: bool, max_workers: int) -> dict:
     """Cleanup a single bucket using parallel workers."""
-    logger.info("\n%s", '=' * 60)
+    logger.info("\n%s", "=" * 60)
     logger.info("Processing bucket: %s", bucket_name)
-    logger.info("%s", '=' * 60)
+    logger.info("%s", "=" * 60)
 
     # Find all date-level files
     files_to_delete = find_date_level_files(bucket_name, client)
@@ -101,8 +94,7 @@ def cleanup_bucket(
             "errors": [],
         }
 
-    logger.info(
-        "🗑️ Deleting %s files with %s workers...", len(files_to_delete), max_workers    )
+    logger.info("🗑️ Deleting %s files with %s workers...", len(files_to_delete), max_workers)
 
     deleted = 0
     failed = 0
@@ -111,9 +103,7 @@ def cleanup_bucket(
     # Use ThreadPoolExecutor for parallel deletion
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(
-                delete_blob, bucket_name, blob_name, client, dry_run
-            ): blob_name
+            executor.submit(delete_blob, bucket_name, blob_name, client, dry_run): blob_name
             for blob_name in files_to_delete
         }
 
@@ -135,9 +125,7 @@ def cleanup_bucket(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Delete old date-level instruments.parquet files from GCS"
-    )
+    parser = argparse.ArgumentParser(description="Delete old date-level instruments.parquet files from GCS")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -174,12 +162,10 @@ def main():
         }
         buckets_to_clean = [bucket_map[args.bucket]]
 
-    logger.info("\n%s", '=' * 60)
+    logger.info("\n%s", "=" * 60)
     logger.info("GCS Cleanup: Old Date-Level instruments.parquet Files")
-    logger.info("%s", '=' * 60)
-    logger.info(
-        "Mode: %s", 'DRY-RUN (no files will be deleted)' if args.dry_run else 'LIVE (files will be deleted)'
-    )
+    logger.info("%s", "=" * 60)
+    logger.info("Mode: %s", "DRY-RUN (no files will be deleted)" if args.dry_run else "LIVE (files will be deleted)")
     logger.info("Workers: %s", args.workers)
     logger.info("Buckets: %s", len(buckets_to_clean))
 
@@ -190,33 +176,31 @@ def main():
         results.append(result)
 
     # Print summary
-    logger.info("\n%s", '=' * 60)
+    logger.info("\n%s", "=" * 60)
     logger.info("SUMMARY")
-    logger.info("%s", '=' * 60)
+    logger.info("%s", "=" * 60)
 
     total_found = sum(r["files_found"] for r in results)
     total_deleted = sum(r["files_deleted"] for r in results)
     total_failed = sum(r["files_failed"] for r in results)
 
     for result in results:
-        logger.info("\n%s:", result['bucket'])
-        logger.info("  Found: %s", result['files_found'])
-        logger.info("  Deleted: %s", result['files_deleted'])
-        logger.info("  Failed: %s", result['files_failed'])
+        logger.info("\n%s:", result["bucket"])
+        logger.info("  Found: %s", result["files_found"])
+        logger.info("  Deleted: %s", result["files_deleted"])
+        logger.info("  Failed: %s", result["files_failed"])
         if result["errors"]:
             for error in result["errors"][:5]:  # Show first 5 errors
                 logger.error("    - %s", error)
             if len(result["errors"]) > 5:
-                logger.error("    ... and %s more errors", len(result['errors']) - 5)
+                logger.error("    ... and %s more errors", len(result["errors"]) - 5)
 
-    logger.info("\n%s", '=' * 60)
-    logger.info(
-        "TOTAL: Found=%s, Deleted=%s, Failed=%s", total_found, total_deleted, total_failed
-    )
+    logger.info("\n%s", "=" * 60)
+    logger.info("TOTAL: Found=%s, Deleted=%s, Failed=%s", total_found, total_deleted, total_failed)
     if args.dry_run:
         logger.info("⚠️  DRY-RUN MODE - No files were actually deleted")
         logger.info("Run without --dry-run to delete files")
-    logger.info("%s", '=' * 60)
+    logger.info("%s", "=" * 60)
 
 
 if __name__ == "__main__":

@@ -405,6 +405,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },
+    { name = "unified-cloud-interface" },
+    { name = "unified-config-interface" },
     { name = "unified-trading-library" },
 ]
 
@@ -435,6 +437,8 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
+    { name = "unified-cloud-interface", directory = "../unified-cloud-interface" },
+    { name = "unified-config-interface", directory = "../unified-config-interface" },
     { name = "unified-trading-library", directory = "../unified-trading-library" },
 ]
 provides-extras = ["dev"]
@@ -1524,6 +1528,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/5a/b46fa56bf322901eee5b0454a34343cdbdae202cd421775a8ee4e42fd519/pyjwt-2.11.0.tar.gz", hash = "sha256:35f95c1f0fbe5d5ba6e43f00271c275f7a1a4db1dab27bf708073b75318ea623", size = 98019, upload-time = "2026-01-30T19:59:55.694Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/01/c26ce75ba460d5cd503da9e13b21a33804d38c2165dec7b716d06b13010c/pyjwt-2.11.0-py3-none-any.whl", hash = "sha256:94a6bde30eb5c8e04fee991062b534071fd1439ef58d2adc9ccb823e7bcd0469", size = 28224, upload-time = "2026-01-30T19:59:54.539Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1676,6 +1689,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/de/94/980b50a6531b3019e45ddeada0626d45fa85cbe22300844a7983285bed3b/pyyaml-6.0.3-cp313-cp313-win32.whl", hash = "sha256:d0eae10f8159e8fdad514efdc92d74fd8d682c933a6dd088030f3834bc8e6b26", size = 137427, upload-time = "2025-09-25T21:32:32.58Z" },
     { url = "https://files.pythonhosted.org/packages/97/c9/39d5b874e8b28845e4ec2202b5da735d0199dbe5b8fb85f91398814a9a46/pyyaml-6.0.3-cp313-cp313-win_amd64.whl", hash = "sha256:79005a0d97d5ddabfeeea4cf676af11e647e41d81c9a7722a193022accdb6b7c", size = 154090, upload-time = "2025-09-25T21:32:33.659Z" },
     { url = "https://files.pythonhosted.org/packages/73/e8/2bdf3ca2090f68bb3d75b44da7bbc71843b19c9f2b9cb9b0f4ab7a5a4329/pyyaml-6.0.3-cp313-cp313-win_arm64.whl", hash = "sha256:5498cd1645aa724a7c71c8f378eb29ebe23da2fc0d7a08071d89469bf1d2defb", size = 140246, upload-time = "2025-09-25T21:32:34.663Z" },
+]
+
+[[package]]
+name = "redis"
+version = "5.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyjwt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/cf/128b1b6d7086200c9f387bd4be9b2572a30b90745ef078bd8b235042dc9f/redis-5.3.1.tar.gz", hash = "sha256:ca49577a531ea64039b5a36db3d6cd1a0c7a60c34124d46924a45b956e8cf14c", size = 4626200, upload-time = "2025-07-25T08:06:27.778Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/26/5c5fa0e83c3621db835cfc1f1d789b37e7fa99ed54423b5f519beb931aa7/redis-5.3.1-py3-none-any.whl", hash = "sha256:dc1909bd24669cc31b5f67a039700b16ec30571096c5f1f0d9d2324bff31af97", size = 272833, upload-time = "2025-07-25T08:06:26.317Z" },
 ]
 
 [[package]]
@@ -1952,8 +1977,104 @@ wheels = [
 ]
 
 [[package]]
+name = "unified-cloud-interface"
+version = "1.1.0"
+source = { directory = "../unified-cloud-interface" }
+dependencies = [
+    { name = "redis" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0,<2.0.0" },
+    { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.21.0,<2.0.0" },
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.40.70,<2.0.0" },
+    { name = "boto3", marker = "extra == 'dev'", specifier = ">=1.40.70,<2.0.0" },
+    { name = "boto3-stubs", extras = ["s3", "secretsmanager"], marker = "extra == 'dev'", specifier = ">=1.35.0,<2.0.0" },
+    { name = "botocore", marker = "extra == 'aws'", specifier = ">=1.34.0,<2.0.0" },
+    { name = "botocore", marker = "extra == 'dev'", specifier = ">=1.34.0,<2.0.0" },
+    { name = "google-auth", marker = "extra == 'gcp'", specifier = ">=2.40.0,<3.0.0" },
+    { name = "google-cloud-logging", marker = "extra == 'gcp'", specifier = ">=3.12.0,<4.0.0" },
+    { name = "google-cloud-pubsub", marker = "extra == 'dev'", specifier = ">=2.28.0,<3.0.0" },
+    { name = "google-cloud-pubsub", marker = "extra == 'gcp'", specifier = ">=2.28.0,<3.0.0" },
+    { name = "google-cloud-secret-manager", marker = "extra == 'dev'", specifier = ">=2.25.0,<3.0.0" },
+    { name = "google-cloud-secret-manager", marker = "extra == 'gcp'", specifier = ">=2.25.0,<3.0.0" },
+    { name = "google-cloud-storage", marker = "extra == 'dev'", specifier = ">=3.8.0,<4.0.0" },
+    { name = "google-cloud-storage", marker = "extra == 'gcp'", specifier = ">=3.8.0,<4.0.0" },
+    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0,<3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1,<10.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0,<2.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0,<8.0.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0,<3.0.0" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4.0.0" },
+    { name = "redis", specifier = ">=5.0.0,<6.0.0" },
+    { name = "redis", marker = "extra == 'cache'", specifier = ">=5.0.0,<6.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
+]
+provides-extras = ["gcp", "aws", "cache", "dev"]
+
+[[package]]
+name = "unified-config-interface"
+version = "0.1.9"
+source = { directory = "../unified-config-interface" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "unified-events-interface" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0,<2.0.0" },
+    { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.21.0,<2.0.0" },
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.40.70,<2.0.0" },
+    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0,<3.0.0" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0,<4.0.0" },
+    { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
+    { name = "pydantic-settings", specifier = ">=2.12.0,<3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1,<10.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0,<2.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0,<8.0.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0,<3.0.0" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4.0.0" },
+    { name = "python-dateutil", specifier = ">=2.8.2,<3.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
+    { name = "unified-events-interface", directory = "../unified-events-interface" },
+]
+provides-extras = ["aws", "dev"]
+
+[[package]]
+name = "unified-events-interface"
+version = "0.2.0"
+source = { directory = "../unified-events-interface" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7.0,<2.0.0" },
+    { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.21.0,<2.0.0" },
+    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0,<3.0.0" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0,<4.0.0" },
+    { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1,<10.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0,<2.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0,<8.0.0" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.4.0,<3.0.0" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4.0.0" },
+    { name = "python-dateutil", specifier = ">=2.8.2,<3.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "unified-trading-library"
-version = "0.3.9"
+version = "0.3.21"
 source = { directory = "../unified-trading-library" }
 dependencies = [
     { name = "fsspec" },
@@ -2012,11 +2133,11 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0,<2.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
-    { name = "unified-cloud-interface", extras = ["gcp", "aws"], marker = "extra == 'all'" },
-    { name = "unified-config-interface", marker = "extra == 'all'", specifier = ">=0.1.0" },
-    { name = "unified-config-interface", marker = "extra == 'split-libraries'", specifier = ">=0.1.0" },
-    { name = "unified-events-interface", marker = "extra == 'all'", specifier = ">=0.1.0" },
-    { name = "unified-events-interface", marker = "extra == 'split-libraries'", specifier = ">=0.1.0" },
+    { name = "unified-cloud-interface", extras = ["gcp", "aws"], marker = "extra == 'all'", directory = "../unified-cloud-interface" },
+    { name = "unified-config-interface", marker = "extra == 'all'", directory = "../unified-config-interface" },
+    { name = "unified-config-interface", marker = "extra == 'split-libraries'", directory = "../unified-config-interface" },
+    { name = "unified-events-interface", marker = "extra == 'all'", directory = "../unified-events-interface" },
+    { name = "unified-events-interface", marker = "extra == 'split-libraries'", directory = "../unified-events-interface" },
     { name = "unified-market-interface", marker = "extra == 'all'", specifier = ">=0.1.0" },
     { name = "unified-market-interface", marker = "extra == 'split-libraries'", specifier = ">=0.1.0" },
     { name = "unified-trade-execution-interface", marker = "extra == 'all'", specifier = ">=0.1.0" },

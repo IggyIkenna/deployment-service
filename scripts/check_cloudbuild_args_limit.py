@@ -119,7 +119,6 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
     try:
         data = yaml.safe_load(path.read_text())
     except (ValueError, KeyError, TypeError):
-
         return False
 
     steps = data.get("steps") or []
@@ -142,23 +141,17 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
     artifact_count = _count_artifact_paths(data.get("artifacts") or {})
     if artifact_count > LIMITS["artifact_paths_per_build"]:
-        print(
-            f"❌ {path}: {artifact_count} artifact paths (max {LIMITS['artifact_paths_per_build']})"
-        )
+        print(f"❌ {path}: {artifact_count} artifact paths (max {LIMITS['artifact_paths_per_build']})")
         ok = False
 
     subs = data.get("substitutions") or {}
     if len(subs) > LIMITS["substitution_params"]:
-        print(
-            f"❌ {path}: {len(subs)} substitution params (max {LIMITS['substitution_params']})"
-        )
+        print(f"❌ {path}: {len(subs)} substitution params (max {LIMITS['substitution_params']})")
         ok = False
 
     secret_refs = _collect_secret_env_refs(data)
     if len(secret_refs) > LIMITS["secret_env_per_build"]:
-        print(
-            f"❌ {path}: {len(secret_refs)} unique secretEnv refs (max {LIMITS['secret_env_per_build']})"
-        )
+        print(f"❌ {path}: {len(secret_refs)} unique secretEnv refs (max {LIMITS['secret_env_per_build']})")
         ok = False
 
     # Step-level limits
@@ -170,13 +163,9 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
         effective_args = _effective_args_count(args)
 
         if verbose:
-            extra = (
-                f" (effective {effective_args})" if effective_args != len(args) else ""
-            )
+            extra = f" (effective {effective_args})" if effective_args != len(args) else ""
             status = "⚠️" if effective_args > 80 or len(env) > 80 else "✓"
-            print(
-                f"  {path.name} Step {i + 1} ({step_id}): args={len(args)}{extra}, env={len(env)} {status}"
-            )
+            print(f"  {path.name} Step {i + 1} ({step_id}): args={len(args)}{extra}, env={len(env)} {status}")
 
         if effective_args > LIMITS["args_per_step"]:
             msg = f"Step {i + 1} ({step_id}) has {effective_args} effective args (max {LIMITS['args_per_step']})"
@@ -185,9 +174,7 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
             print(f"❌ {path}: {msg}")
             ok = False
         if len(env) > LIMITS["env_per_step"]:
-            print(
-                f"❌ {path}: Step {i + 1} ({step_id}) has {len(env)} env vars (max {LIMITS['env_per_step']})"
-            )
+            print(f"❌ {path}: Step {i + 1} ({step_id}) has {len(env)} env vars (max {LIMITS['env_per_step']})")
             ok = False
 
         for j, arg in enumerate(args):
@@ -208,10 +195,7 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
         dir_val = step.get("dir") or ""
         if dir_val and len(str(dir_val)) > LIMITS["dir_length"]:
-            print(
-                f"❌ {path}: Step {i + 1} ({step_id}) dir length {len(str(dir_val))} "
-                f"(max {LIMITS['dir_length']})"
-            )
+            print(f"❌ {path}: Step {i + 1} ({step_id}) dir length {len(str(dir_val))} (max {LIMITS['dir_length']})")
             ok = False
 
         for j, ev in enumerate(env):

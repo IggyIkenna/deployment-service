@@ -32,7 +32,7 @@ class CloudClient:
     Cloud-agnostic storage client for listing config files.
 
     Uses unified-trading-library for the underlying implementation when available,
-    with fallback to direct GCS client for backward compatibility.
+    with fallback to direct GCS client.
 
     Usage::
 
@@ -52,7 +52,7 @@ class CloudClient:
         self._storage_client = StorageClient(project_id=project_id, provider=provider)
         self._query_client = QueryClient(self._storage_client)
 
-        # Expose properties for backward compatibility
+        # Expose properties from storage client
         self.project_id: str | None = self._storage_client.project_id
         self.provider: str = self._storage_client.provider
         self._mock_mode: bool = self._storage_client.mock_mode
@@ -370,7 +370,7 @@ class CloudClient:
         """
         return self._query_client.check_venue_dates_fast(bucket_name, prefix_template, venues, dates, max_workers)
 
-    # Utility methods (exposed from storage client for backward compatibility)
+    # Utility methods (exposed from storage client)
     def _parse_cloud_path(self, cloud_path: str) -> tuple[str, str, str]:
         """
         Parse a cloud path into provider, bucket, and prefix/blob.

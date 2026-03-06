@@ -58,7 +58,10 @@ from pathlib import Path
 from typing import Optional
 
 import polars as pl
-from google.cloud.storage import Client, transfer_manager
+from google.cloud.storage import (
+    transfer_manager,  # TODO(uci): transfer_manager not yet in UCI — tracked in uci_cloud_abstraction_complete.plan.md
+)
+from unified_cloud_interface import StorageClient, get_storage_client
 
 # =============================================================================
 # CONFIGURATION
@@ -120,7 +123,7 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
     Returns the most recent date found across all categories, or None if no files exist.
     """
     categories = categories or list(BUCKETS.keys())
-    client = Client()
+    client = get_storage_client()
     latest_date: date | None = None
 
     log("Detecting last aggregated instrument date from GCS...")
@@ -136,15 +139,9 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
             blobs = list(bucket.list_blobs(prefix=AGGREGATED_PREFIX))
             for blob in blobs:
                 # Match: aggregated/aggregated_instruments_2026-02-04.parquet
-                match = re.search(
-                    r"aggregated_instruments_(\d{4}-\d{2}-\d{2})\.parquet", blob.name
-                )
+                match = re.search(r"aggregated_instruments_(\d{4}-\d{2}-\d{2})\.parquet", blob.name)
                 if match:
-                    blob_date = (
-                        datetime.strptime(match.group(1), "%Y-%m-%d")
-                        .replace(tzinfo=UTC)
-                        .date()
-                    )
+                    blob_date = datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=UTC).date()
                     if latest_date is None or blob_date > latest_date:
                         latest_date = blob_date
                         log(f"  {category}: Found aggregated file dated {blob_date}")
@@ -159,9 +156,7 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
     return latest_date
 
 
-def prompt_date_range_confirmation(
-    start_date: date, end_date: date, skip_prompt: bool = False
-) -> bool:
+def prompt_date_range_confirmation(start_date: date, end_date: date, skip_prompt: bool = False) -> bool:
     """
     Prompt user to confirm the date range for downloading instrument definitions.
 
@@ -216,7 +211,7 @@ class InstrumentDownloader:
         self.categories = categories or list(BUCKETS.keys())
         self.start_date = start_date
         self.end_date = end_date
-        self._clients: dict[str, Client] = {}
+        self._clients: dict[str, StorageClient] = {}
         self._buckets: dict[str, object] = {}
 
     def warmup_connections(self) -> None:
@@ -227,7 +222,7 @@ class InstrumentDownloader:
                 log(f"  WARNING: Unknown category '{category}', skipping")
                 continue
             bucket_name = BUCKETS[category]
-            self._clients[category] = Client()
+            self._clients[category] = get_storage_client()
             self._buckets[category] = self._clients[category].bucket(bucket_name)
             # Warmup: make a small request to establish connection
             try:
@@ -254,9 +249,7 @@ class InstrumentDownloader:
 
     def list_all_blobs_parallel(self) -> dict[str, list[str]]:
         """List blobs from all buckets in parallel using ThreadPoolExecutor."""
-        log(
-            f"Listing blobs from {len(self.categories)} buckets with {self.list_workers} workers..."
-        )
+        log(f"Listing blobs from {len(self.categories)} buckets with {self.list_workers} workers...")
 
         def list_bucket_blobs(category: str) -> tuple[str, list[str]]:
             if category not in self._buckets:
@@ -265,11 +258,7 @@ class InstrumentDownloader:
             bucket = self._buckets[category]
             try:
                 blobs = list(bucket.list_blobs(prefix=PREFIX))
-                blob_names = [
-                    b.name
-                    for b in blobs
-                    if b.name.endswith(".parquet") and self._filter_by_date(b.name)
-                ]
+                blob_names = [b.name for b in blobs if b.name.endswith(".parquet") and self._filter_by_date(b.name)]
                 log(f"  {category}: Found {len(blob_names)} parquet files")
                 return category, blob_names
             except (OSError, ValueError, RuntimeError) as e:
@@ -309,9 +298,7 @@ class InstrumentDownloader:
             # Filter out existing files if skip_existing is enabled
             if skip_existing:
                 original_count = len(blob_names)
-                blob_names = [
-                    name for name in blob_names if not (category_dest / name).exists()
-                ]
+                blob_names = [name for name in blob_names if not (category_dest / name).exists()]
                 skipped = original_count - len(blob_names)
                 stats["skipped"] += skipped
                 if skipped > 0:
@@ -322,10 +309,7 @@ class InstrumentDownloader:
                 continue
 
             stats["total"] += len(blob_names)
-            log(
-                f"  {category}: Downloading {len(blob_names)} files "
-                f"with {self.download_workers} workers..."
-            )
+            log(f"  {category}: Downloading {len(blob_names)} files with {self.download_workers} workers...")
 
             try:
                 # transfer_manager.download_many_to_path handles parallelism internally
@@ -397,18 +381,12 @@ class InstrumentAggregator:
 
         # Determine dedup column
         sample_schema = lazy_frames[0].collect_schema()
-        dedup_col = (
-            "instrument_key" if "instrument_key" in sample_schema else "instrument_id"
-        )
+        dedup_col = "instrument_key" if "instrument_key" in sample_schema else "instrument_id"
         timestamp_col = "timestamp" if "timestamp" in sample_schema else None
 
         # Deduplicate: keep latest by timestamp for each instrument_key
         if timestamp_col:
-            deduped = (
-                combined.sort(timestamp_col, descending=True)
-                .group_by(dedup_col)
-                .agg(pl.all().first())
-            )
+            deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
         else:
             deduped = combined.group_by(dedup_col).agg(pl.all().first())
 
@@ -431,7 +409,7 @@ class InstrumentAggregator:
         gcs_client = None
 
         if upload_to_gcs:
-            gcs_client = Client()
+            gcs_client = get_storage_client()
 
         for category in self.categories:
             log(f"\nAggregating {category}...")
@@ -441,9 +419,7 @@ class InstrumentAggregator:
                 continue
 
             # Write local file
-            local_file = (
-                output_path / f"aggregated_instruments_{category}_{today}.parquet"
-            )
+            local_file = output_path / f"aggregated_instruments_{category}_{today}.parquet"
             df.write_parquet(local_file)
             file_size_mb = local_file.stat().st_size / (1024 * 1024)
             log(f"  {category}: Wrote {local_file} ({file_size_mb:.2f} MB)")
@@ -603,9 +579,7 @@ Examples:
 
         if last_date is None:
             log("ERROR: No existing aggregated files found. Cannot use --auto mode.")
-            log(
-                "       Run without --auto and specify --start-date manually for initial backfill."
-            )
+            log("       Run without --auto and specify --start-date manually for initial backfill.")
             return 1
 
         # Start from day after last aggregated, end at T-1 (yesterday)
@@ -613,16 +587,12 @@ Examples:
         auto_end = date.today() - timedelta(days=1)
 
         if auto_start > auto_end:
-            log(
-                f"Already up to date! Last aggregated: {last_date}, today: {date.today()}"
-            )
+            log(f"Already up to date! Last aggregated: {last_date}, today: {date.today()}")
             log("No new instrument definitions to download.")
             return 0
 
         # Prompt user for confirmation
-        if not prompt_date_range_confirmation(
-            auto_start, auto_end, skip_prompt=args.yes
-        ):
+        if not prompt_date_range_confirmation(auto_start, auto_end, skip_prompt=args.yes):
             log("Download cancelled by user.")
             return 0
 
@@ -638,9 +608,7 @@ Examples:
     else:
         log("INSTRUMENT DEFINITIONS DOWNLOADER")
     log("=" * 60)
-    log(
-        f"Environment: {DEPLOYMENT_ENV} ({'4x workers' if IS_PRODUCTION else '1x workers'})"
-    )
+    log(f"Environment: {DEPLOYMENT_ENV} ({'4x workers' if IS_PRODUCTION else '1x workers'})")
     log(f"CPU cores: {CPU_COUNT}")
     if not args.aggregate_only:
         log(f"Download workers: {args.download_workers}")

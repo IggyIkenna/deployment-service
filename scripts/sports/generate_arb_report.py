@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-from google.cloud.storage import Client as GCSClient
+from unified_cloud_interface import StorageClient, get_storage_client
 from unified_config_interface import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _read_parquet_from_gcs(client: GCSClient, bucket_name: str, blob_path: str) -> pd.DataFrame:
+def _read_parquet_from_gcs(client: StorageClient, bucket_name: str, blob_path: str) -> pd.DataFrame:
     """Download a Parquet blob and return a DataFrame."""
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_path)
@@ -44,7 +44,7 @@ def _read_parquet_from_gcs(client: GCSClient, bucket_name: str, blob_path: str) 
 
 
 def _load_from_gcs(
-    client: GCSClient,
+    client: StorageClient,
     bucket_name: str,
     prefix: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -183,7 +183,7 @@ def main() -> None:
     else:
         bucket_name = args.bucket or f"sports-analysis-{config.gcp_project_id}"
         logger.info("Loading data from GCS: gs://%s/%s", bucket_name, args.prefix)
-        client = GCSClient(project=config.gcp_project_id)
+        client = get_storage_client(project_id=config.gcp_project_id)
         bookmaker_liq, market_liq, spread_lines, totals_lines = _load_from_gcs(client, bucket_name, args.prefix)
 
     logger.info("Generating HTML report...")
