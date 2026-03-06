@@ -105,9 +105,70 @@ terraform -chdir="$TF_DIR" apply -auto-approve \
   -var="environment=${ENV}" \
   -var="bucket_prefix=${PREFIX}"
 
+# ---------------------------------------------------------------------------
+# Service deployment helper — inject PROTOCOL_* env vars from configs/services/
+# ---------------------------------------------------------------------------
+
+# Root of configs directory (relative to repo root)
+CONFIGS_DIR="$REPO_ROOT/configs/services"
+
+# deploy_service SERVICE_NAME IMAGE_URI
+# Reads configs/services/$SERVICE_NAME/{live,batch}.env and deploys to Cloud Run
+# with all PROTOCOL_* and SERVICE_MODE env vars injected.
+deploy_service() {
+  local svc="$1"
+  local image="$2"
+  local mode="${3:-live}"   # live | batch
+
+  local env_file="$CONFIGS_DIR/$svc/${mode}.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "    [WARN] No ${mode}.env for $svc — skipping Cloud Run deploy"
+    return 0
+  fi
+
+  # Build comma-separated KEY=VALUE pairs for --set-env-vars (strip comments/blanks)
+  local env_vars
+  env_vars=$(grep -E '^[A-Z_]+=.*' "$env_file" \
+    | sed "s|\\\${GCP_PROJECT_ID}|${PROJECT_ID}|g" \
+    | tr '\n' ',' | sed 's/,$//')
+
+  if [[ -z "$env_vars" ]]; then
+    echo "    [WARN] No env vars found in $env_file — skipping"
+    return 0
+  fi
+
+  echo "    Deploying $svc to Cloud Run (mode=$mode)..."
+  gcloud run deploy "$svc" \
+    --image="$image" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --set-env-vars="$env_vars,GCP_PROJECT_ID=${PROJECT_ID}" \
+    --service-account="unified-trading-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --no-allow-unauthenticated \
+    --quiet
+  echo "    Deployed $svc."
+}
+
+# Example: uncomment and set IMAGE_REGISTRY to deploy services after bootstrap.
+# IMAGE_REGISTRY="gcr.io/${PROJECT_ID}"
+#
+# deploy_service "market-tick-data-service"          "${IMAGE_REGISTRY}/market-tick-data-service:latest"   live
+# deploy_service "features-volatility-service"       "${IMAGE_REGISTRY}/features-volatility-service:latest" batch
+# deploy_service "features-delta-one-service"        "${IMAGE_REGISTRY}/features-delta-one-service:latest"  batch
+# deploy_service "features-cross-instrument-service" "${IMAGE_REGISTRY}/features-cross-instrument-service:latest" batch
+# deploy_service "features-onchain-service"          "${IMAGE_REGISTRY}/features-onchain-service:latest"    batch
+# deploy_service "ml-training-service"               "${IMAGE_REGISTRY}/ml-training-service:latest"         batch
+# deploy_service "ml-inference-service"              "${IMAGE_REGISTRY}/ml-inference-service:latest"        live
+# deploy_service "strategy-service"                  "${IMAGE_REGISTRY}/strategy-service:latest"            live
+# deploy_service "execution-service"                 "${IMAGE_REGISTRY}/execution-service:latest"           live
+# deploy_service "risk-and-exposure-service"         "${IMAGE_REGISTRY}/risk-and-exposure-service:latest"   live
+
 echo ""
 echo "==> GCP bootstrap complete."
 echo "    Project:  $PROJECT_ID"
 echo "    Region:   $REGION"
 echo "    Env:      $ENV"
 echo "    State:    gs://${STATE_BUCKET}/shared-infrastructure"
+echo ""
+echo "    To deploy services with PROTOCOL_* env vars, uncomment the"
+echo "    deploy_service() calls above or run them manually."
