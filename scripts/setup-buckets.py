@@ -54,7 +54,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
 import yaml
+from _common import get_aws_account_id, get_aws_region, get_gcs_region, get_project_id
 
 logger = logging.getLogger(__name__)
 # Global configuration holder
@@ -115,12 +117,10 @@ def get_default_values(cloud: str) -> dict:
     defaults = config["defaults"][cloud]
 
     if cloud == "gcp":
-        project_id = os.environ.get("GCP_PROJECT_ID")
-        if not project_id:
-            raise ValueError("GCP_PROJECT_ID is required. Set GCP_PROJECT_ID environment variable.")
-        return {"project_id": project_id, "region": os.environ.get("GCS_REGION", defaults["region"])}
+        project_id = get_project_id()
+        return {"project_id": project_id, "region": get_gcs_region(defaults["region"])}
     else:  # aws
-        account_id = os.environ.get("AWS_ACCOUNT_ID")
+        account_id = get_aws_account_id()
         if not account_id:
             try:
                 result = subprocess.run(
@@ -139,7 +139,7 @@ def get_default_values(cloud: str) -> dict:
                 "AWS_ACCOUNT_ID is required when using AWS. "
                 "Set AWS_ACCOUNT_ID or ensure 'aws sts get-caller-identity' succeeds."
             )
-        return {"account_id": account_id, "region": os.environ.get("AWS_REGION", defaults["region"])}
+        return {"account_id": account_id, "region": get_aws_region(defaults["region"])}
 
 
 def get_test_bucket_name(prod_bucket_name: str, project_id: str) -> str:

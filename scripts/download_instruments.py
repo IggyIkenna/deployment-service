@@ -63,13 +63,14 @@ from google.cloud.storage import (
 )
 from unified_cloud_interface import StorageClient, get_storage_client
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-if not _PROJECT_ID:
-    raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
+_PROJECT_ID = get_project_id()
 BUCKETS = {
     "CEFI": f"instruments-store-cefi-{_PROJECT_ID}",
     "TRADFI": f"instruments-store-tradfi-{_PROJECT_ID}",
