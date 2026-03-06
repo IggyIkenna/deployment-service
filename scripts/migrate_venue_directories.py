@@ -265,13 +265,14 @@ def migrate_date(
 
     if not to_migrate:
         logger.info(
-            "  %s: No files need migration (%s scanned, %s already in new structure)", date_str, stats['scanned'], stats['already_new']
+            "  %s: No files need migration (%s scanned, %s already in new structure)",
+            date_str,
+            stats["scanned"],
+            stats["already_new"],
         )
         return stats
 
-    logger.info(
-        "  %s: %s files to migrate out of %s scanned", date_str, stats['needs_migration'], stats['scanned']
-    )
+    logger.info("  %s: %s files to migrate out of %s scanned", date_str, stats["needs_migration"], stats["scanned"])
 
     if dry_run:
         # Just show what would be migrated
@@ -285,8 +286,7 @@ def migrate_date(
     # Execute migration in parallel
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, bucket_name, old, new, dry_run): (old, new)
-            for old, new in to_migrate
+            executor.submit(migrate_blob, client, bucket_name, old, new, dry_run): (old, new) for old, new in to_migrate
         }
 
         for future in as_completed(futures):
@@ -296,7 +296,7 @@ def migrate_date(
             else:
                 stats["failed"] += 1
 
-    logger.info("  %s: Migrated %s, Failed %s", date_str, stats['migrated'], stats['failed'])
+    logger.info("  %s: Migrated %s, Failed %s", date_str, stats["migrated"], stats["failed"])
     return stats
 
 
@@ -373,7 +373,7 @@ def main():
 
     dry_run = args.dry_run
 
-    logger.info("%sMigration starting", 'DRY RUN: ' if dry_run else '')
+    logger.info("%sMigration starting", "DRY RUN: " if dry_run else "")
     logger.info("  Bucket: %s", args.bucket)
     logger.info("  Dates: %s to %s (%s days)", dates[0], dates[-1], len(dates))
     logger.info("  Workers: %s (per date), %s (dates)", args.workers, args.date_workers)
@@ -409,15 +409,13 @@ def main():
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info("%sMIGRATION COMPLETE", 'DRY RUN ' if dry_run else '')
-    logger.info("  Total scanned: %s", total_stats['scanned'])
-    logger.info("  Already in new structure: %s", total_stats['already_new'])
-    logger.info("  Needed migration: %s", total_stats['needs_migration'])
-    logger.info(
-        "  %s: %s", 'Would migrate' if dry_run else 'Migrated', total_stats['migrated']
-    )
+    logger.info("%sMIGRATION COMPLETE", "DRY RUN " if dry_run else "")
+    logger.info("  Total scanned: %s", total_stats["scanned"])
+    logger.info("  Already in new structure: %s", total_stats["already_new"])
+    logger.info("  Needed migration: %s", total_stats["needs_migration"])
+    logger.info("  %s: %s", "Would migrate" if dry_run else "Migrated", total_stats["migrated"])
     if total_stats["failed"] > 0:
-        logger.info("  Failed: %s", total_stats['failed'])
+        logger.info("  Failed: %s", total_stats["failed"])
     logger.info("=" * 60)
 
 

@@ -17,7 +17,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from google.cloud.storage import Client as GCSClient
+from unified_cloud_interface import StorageClient, get_storage_client
 from unified_config_interface import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
@@ -91,14 +91,14 @@ ID_CORRECTIONS: dict[int, int] = {
 # ---------------------------------------------------------------------------
 
 
-def _list_parquet_blobs(client: GCSClient, bucket_name: str, prefix: str) -> list[str]:
+def _list_parquet_blobs(client: StorageClient, bucket_name: str, prefix: str) -> list[str]:
     """List all .parquet blobs under *prefix* in *bucket_name*."""
     bucket = client.bucket(bucket_name)
     blobs = bucket.list_blobs(prefix=prefix)
     return [blob.name for blob in blobs if blob.name.endswith(".parquet")]
 
 
-def _download_blob_bytes(client: GCSClient, bucket_name: str, blob_name: str) -> bytes:
+def _download_blob_bytes(client: StorageClient, bucket_name: str, blob_name: str) -> bytes:
     """Download a single blob as bytes."""
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
@@ -170,7 +170,7 @@ def main() -> None:
         logger.info("")
         logger.info("Connecting to GCS bucket: %s/%s", bucket_name, args.prefix)
 
-        client = GCSClient(project=config.gcp_project_id)
+        client = get_storage_client(project_id=config.gcp_project_id)
         existing_blobs = _list_parquet_blobs(client, bucket_name, args.prefix)
         logger.info("Found %d existing Parquet files", len(existing_blobs))
 

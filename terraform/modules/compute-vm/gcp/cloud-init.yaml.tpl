@@ -39,7 +39,7 @@ write_files:
       # metadata.google.internal (GCE-internal hostname). Containers need it for ADC,
       # Secret Manager, gRPC auth. See tests/unit/test_docker_dns_validation.py
       ExecStart=/usr/bin/docker run --rm --name job-container \
-        -e GOOGLE_CLOUD_PROJECT=${project_id} \
+        -e GCP_PROJECT_ID=${project_id} \
         -e PYTHONUNBUFFERED=1 \
         ${env_flags} \
         ${docker_image} \

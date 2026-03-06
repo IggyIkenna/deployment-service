@@ -70,9 +70,7 @@ def main() -> int:
                     violations.append((str(rel), "unified_trading_library.observability"))
 
     if violations:
-        print(
-            "ERROR: Only deployment-service may use setup_cloud_logging or unified_trading_library.observability"
-        )
+        print("ERROR: Only deployment-service may use setup_cloud_logging or unified_trading_library.observability")
         print("Use unified_events_interface (setup_events, log_event) instead.")
         print()
         for path, pattern in violations:

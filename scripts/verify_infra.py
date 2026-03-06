@@ -267,9 +267,7 @@ def _build_default_resources(project_id: str) -> tuple[list[str], list[str], lis
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Verify infrastructure connectivity for deployment-service"
-    )
+    parser = argparse.ArgumentParser(description="Verify infrastructure connectivity for deployment-service")
     parser.add_argument(
         "--project-id",
         required=True,

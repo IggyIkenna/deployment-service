@@ -87,8 +87,12 @@ def load_bucket_config(config_dir: Path) -> dict:
 def validate_config(config: dict) -> None:
     """Validate bucket configuration schema."""
     required_sections = [
-        'defaults', 'shared_bucket_services', 'service_categories',
-        'infrastructure_buckets', 'aws_bucket_mappings', 'bucket_settings'
+        "defaults",
+        "shared_bucket_services",
+        "service_categories",
+        "infrastructure_buckets",
+        "aws_bucket_mappings",
+        "bucket_settings",
     ]
 
     for section in required_sections:
@@ -96,37 +100,34 @@ def validate_config(config: dict) -> None:
             raise ValueError(f"Missing required config section: {section}")
 
     # Validate cloud providers in defaults
-    if 'gcp' not in config['defaults'] or 'aws' not in config['defaults']:
+    if "gcp" not in config["defaults"] or "aws" not in config["defaults"]:
         raise ValueError("Missing gcp/aws sections in defaults")
 
     # Validate bucket settings for both clouds
-    for cloud in ['gcp', 'aws']:
-        if cloud not in config['bucket_settings']:
+    for cloud in ["gcp", "aws"]:
+        if cloud not in config["bucket_settings"]:
             raise ValueError(f"Missing {cloud} bucket settings")
 
 
 def get_default_values(cloud: str) -> dict:
     """Get default values for a cloud provider."""
     config = load_bucket_config(get_config_dir())
-    defaults = config['defaults'][cloud]
+    defaults = config["defaults"][cloud]
 
-    if cloud == 'gcp':
-        project_id = os.environ.get('GCP_PROJECT_ID')
+    if cloud == "gcp":
+        project_id = os.environ.get("GCP_PROJECT_ID")
         if not project_id:
-            raise ValueError(
-                "GCP_PROJECT_ID is required. Set GCP_PROJECT_ID environment variable."
-            )
-        return {
-            'project_id': project_id,
-            'region': os.environ.get('GCS_REGION', defaults['region'])
-        }
+            raise ValueError("GCP_PROJECT_ID is required. Set GCP_PROJECT_ID environment variable.")
+        return {"project_id": project_id, "region": os.environ.get("GCS_REGION", defaults["region"])}
     else:  # aws
-        account_id = os.environ.get('AWS_ACCOUNT_ID')
+        account_id = os.environ.get("AWS_ACCOUNT_ID")
         if not account_id:
             try:
                 result = subprocess.run(
-                    ['aws', 'sts', 'get-caller-identity', '--query', 'Account', '--output', 'text'],
-                    capture_output=True, text=True, timeout=30
+                    ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 if result.returncode == 0:
                     account_id = result.stdout.strip()
@@ -138,10 +139,7 @@ def get_default_values(cloud: str) -> dict:
                 "AWS_ACCOUNT_ID is required when using AWS. "
                 "Set AWS_ACCOUNT_ID or ensure 'aws sts get-caller-identity' succeeds."
             )
-        return {
-            'account_id': account_id,
-            'region': os.environ.get('AWS_REGION', defaults['region'])
-        }
+        return {"account_id": account_id, "region": os.environ.get("AWS_REGION", defaults["region"])}
 
 
 def get_test_bucket_name(prod_bucket_name: str, project_id: str) -> str:
@@ -149,9 +147,9 @@ def get_test_bucket_name(prod_bucket_name: str, project_id: str) -> str:
     Generate test bucket name from production bucket name using configuration.
     """
     config = load_bucket_config(get_config_dir())
-    test_config = config['test_buckets']
+    test_config = config["test_buckets"]
 
-    if test_config['naming_pattern'] == 'infix' and project_id in prod_bucket_name:
+    if test_config["naming_pattern"] == "infix" and project_id in prod_bucket_name:
         # Insert '-test' before the project_id
         return prod_bucket_name.replace(f"-{project_id}", f"-test-{project_id}")
     else:
@@ -209,9 +207,7 @@ def get_all_required_buckets(
             # Handle shared bucket services (no category)
             if not categories:
                 # Shared bucket - resolve without category
-                bucket_name = resolve_bucket_name(
-                    bucket_template, "", project_id, cloud, cloud_config
-                )
+                bucket_name = resolve_bucket_name(bucket_template, "", project_id, cloud, cloud_config)
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -244,9 +240,7 @@ def get_all_required_buckets(
             else:
                 # Category-specific buckets
                 for category in categories:
-                    bucket_name = resolve_bucket_name(
-                        bucket_template, category, project_id, cloud, cloud_config
-                    )
+                    bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config)
 
                     if bucket_name and bucket_name not in seen_buckets:
                         # Add production bucket (unless test_only)
@@ -264,9 +258,7 @@ def get_all_required_buckets(
 
                         # Add test bucket (if include_test or test_only)
                         if include_test or test_only:
-                            test_bucket_name = get_test_bucket_name(
-                                bucket_name, project_id
-                            )
+                            test_bucket_name = get_test_bucket_name(bucket_name, project_id)
                             if test_bucket_name not in seen_buckets:
                                 seen_buckets.add(test_bucket_name)
                                 buckets.append(
@@ -290,16 +282,10 @@ def get_all_required_buckets(
 
             # Check for category restrictions
             dep_categories = check.get("categories")
-            categories = (
-                dep_categories
-                if dep_categories
-                else get_service_categories(service_name)
-            )
+            categories = dep_categories if dep_categories else get_service_categories(service_name)
 
             for category in categories:
-                bucket_name = resolve_bucket_name(
-                    bucket_template, category, project_id, cloud, cloud_config
-                )
+                bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config)
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -354,29 +340,27 @@ def get_service_categories(service_name: str) -> list[str]:
     config = load_bucket_config(get_config_dir())
 
     # Services with SHARED buckets (no category)
-    if service_name in config['shared_bucket_services']:
+    if service_name in config["shared_bucket_services"]:
         return []  # No category dimension - uses shared bucket
 
     # Services with restricted categories
-    restricted = config['service_categories']['restricted_categories']
+    restricted = config["service_categories"]["restricted_categories"]
     for pattern, categories in restricted.items():
         if pattern in service_name:
             return categories
 
     # Default categories for most services
-    return config['service_categories']['default_categories']
+    return config["service_categories"]["default_categories"]
 
 
-def resolve_bucket_name(
-    template: str, category: str, project_id: str, cloud: str, cloud_config: dict
-) -> str | None:
+def resolve_bucket_name(template: str, category: str, project_id: str, cloud: str, cloud_config: dict) -> str | None:
     """Resolve a bucket name from template."""
     cat_lower = category.lower()
     config = load_bucket_config(get_config_dir())
 
     # Skip invalid category combinations
-    for rule in config['validation']['invalid_combinations']:
-        if rule['template_contains'] in template and cat_lower == rule['invalid_category']:
+    for rule in config["validation"]["invalid_combinations"]:
+        if rule["template_contains"] in template and cat_lower == rule["invalid_category"]:
             return None
 
     if cloud == "gcp":
@@ -389,12 +373,10 @@ def resolve_bucket_name(
         return convert_to_aws_bucket_name(template, cat_lower, project_id, cloud_config)
 
 
-def convert_to_aws_bucket_name(
-    gcp_template: str, category: str, account_id: str, cloud_config: dict
-) -> str:
+def convert_to_aws_bucket_name(gcp_template: str, category: str, account_id: str, cloud_config: dict) -> str:
     """Convert a GCP bucket template to AWS S3 bucket name."""
     config = load_bucket_config(get_config_dir())
-    mappings = config['aws_bucket_mappings']
+    mappings = config["aws_bucket_mappings"]
 
     # Find matching pattern in mappings
     for pattern, template in mappings.items():
@@ -402,26 +384,26 @@ def convert_to_aws_bucket_name(
             return template.replace("{category}", category).replace("{account_id}", account_id)
 
     # Fallback: replace default project with account_id
-    defaults = config['defaults']['gcp']
-    return gcp_template.replace(defaults['project_id'], account_id)
+    defaults = config["defaults"]["gcp"]
+    return gcp_template.replace(defaults["project_id"], account_id)
 
 
-def get_infrastructure_buckets(
-    project_id: str, cloud: str, cloud_config: dict
-) -> list[dict]:
+def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) -> list[dict]:
     """Get infrastructure buckets (terraform state, deployment orchestration)."""
     config = load_bucket_config(get_config_dir())
-    infra_config = config['infrastructure_buckets'][cloud]
+    infra_config = config["infrastructure_buckets"][cloud]
 
     buckets = []
     for bucket_def in infra_config:
-        bucket_name = bucket_def['name_template'].replace('{project_id}', project_id)
-        buckets.append({
-            "name": bucket_name,
-            "service": bucket_def['service'],
-            "type": bucket_def['type'],
-            "category": bucket_def['category'],
-        })
+        bucket_name = bucket_def["name_template"].replace("{project_id}", project_id)
+        buckets.append(
+            {
+                "name": bucket_name,
+                "service": bucket_def["service"],
+                "type": bucket_def["type"],
+                "category": bucket_def["category"],
+            }
+        )
 
     return buckets
 
@@ -465,7 +447,7 @@ def create_gcs_bucket(
     Create a GCS bucket with settings from configuration.
     """
     config = load_bucket_config(get_config_dir())
-    settings = config['bucket_settings']['gcp']
+    settings = config["bucket_settings"]["gcp"]
 
     if bucket_exists_gcs(bucket_name):
         print(f"  [EXISTS] gs://{bucket_name}")
@@ -480,12 +462,8 @@ def create_gcs_bucket(
 
     try:
         # Create bucket with configured settings
-        create_args = [
-            "gsutil", "mb", "-p", project_id,
-            "-c", settings['storage_class'],
-            "-l", region
-        ]
-        if settings['uniform_bucket_access']:
+        create_args = ["gsutil", "mb", "-p", project_id, "-c", settings["storage_class"], "-l", region]
+        if settings["uniform_bucket_access"]:
             create_args.extend(["-b", "on"])
         create_args.append(f"gs://{bucket_name}")
 
@@ -495,25 +473,23 @@ def create_gcs_bucket(
             return False
 
         # Enable versioning if configured
-        if settings['versioning']:
+        if settings["versioning"]:
             subprocess.run(
-                ["gsutil", "versioning", "set", "on", f"gs://{bucket_name}"],
-                capture_output=True, timeout=30
+                ["gsutil", "versioning", "set", "on", f"gs://{bucket_name}"], capture_output=True, timeout=30
             )
 
         # Set lifecycle rule from configuration
-        lifecycle_type = 'test' if is_test else 'production'
-        lifecycle_rule = settings['lifecycle_rules'][lifecycle_type]
-        lifecycle_days = lifecycle_rule['age_days']
+        lifecycle_type = "test" if is_test else "production"
+        lifecycle_rule = settings["lifecycle_rules"][lifecycle_type]
+        lifecycle_days = lifecycle_rule["age_days"]
 
         lifecycle_config = {
-            "rule": [{
-                "action": {
-                    "type": lifecycle_rule['action'],
-                    "storageClass": lifecycle_rule['storage_class']
-                },
-                "condition": {"age": lifecycle_days}
-            }]
+            "rule": [
+                {
+                    "action": {"type": lifecycle_rule["action"], "storageClass": lifecycle_rule["storage_class"]},
+                    "condition": {"age": lifecycle_days},
+                }
+            ]
         }
 
         lifecycle_file = f"/tmp/lifecycle_{bucket_name}.json"
@@ -521,23 +497,19 @@ def create_gcs_bucket(
             json.dump(lifecycle_config, f)
 
         subprocess.run(
-            ["gsutil", "lifecycle", "set", lifecycle_file, f"gs://{bucket_name}"],
-            capture_output=True, timeout=30
+            ["gsutil", "lifecycle", "set", lifecycle_file, f"gs://{bucket_name}"], capture_output=True, timeout=30
         )
         os.remove(lifecycle_file)
 
         # Set labels from configuration
-        labels_config = settings['labels']
+        labels_config = settings["labels"]
         labels = f"managed-by:{labels_config['managed_by']}"
         labels += f",service:{service.replace('-', '_')}"
         if category != "ALL":
             labels += f",category:{category.lower()}"
         labels += f",environment:{'test' if is_test else 'production'}"
 
-        subprocess.run(
-            ["gsutil", "label", "ch", "-l", labels, f"gs://{bucket_name}"],
-            capture_output=True, timeout=30
-        )
+        subprocess.run(["gsutil", "label", "ch", "-l", labels, f"gs://{bucket_name}"], capture_output=True, timeout=30)
 
         print(f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})")
         return True
@@ -562,7 +534,7 @@ def create_s3_bucket(
     Create an S3 bucket with settings from configuration.
     """
     config = load_bucket_config(get_config_dir())
-    settings = config['bucket_settings']['aws']
+    settings = config["bucket_settings"]["aws"]
 
     if bucket_exists_s3(bucket_name):
         print(f"  [EXISTS] s3://{bucket_name}")
@@ -589,45 +561,57 @@ def create_s3_bucket(
             return False
 
         # Enable versioning if configured
-        if settings['versioning']:
+        if settings["versioning"]:
             subprocess.run(
-                ["aws", "s3api", "put-bucket-versioning", "--bucket", bucket_name,
-                 "--versioning-configuration", "Status=Enabled"],
-                capture_output=True, timeout=30
+                [
+                    "aws",
+                    "s3api",
+                    "put-bucket-versioning",
+                    "--bucket",
+                    bucket_name,
+                    "--versioning-configuration",
+                    "Status=Enabled",
+                ],
+                capture_output=True,
+                timeout=30,
             )
 
         # Enable encryption from configuration
         encryption_config = {
-            "Rules": [{
-                "ApplyServerSideEncryptionByDefault": {
-                    "SSEAlgorithm": settings['encryption']['algorithm']
-                }
-            }]
+            "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": settings["encryption"]["algorithm"]}}]
         }
         subprocess.run(
-            ["aws", "s3api", "put-bucket-encryption", "--bucket", bucket_name,
-             "--server-side-encryption-configuration", json.dumps(encryption_config)],
-            capture_output=True, timeout=30
+            [
+                "aws",
+                "s3api",
+                "put-bucket-encryption",
+                "--bucket",
+                bucket_name,
+                "--server-side-encryption-configuration",
+                json.dumps(encryption_config),
+            ],
+            capture_output=True,
+            timeout=30,
         )
 
         # Set tags from configuration
-        tags_config = settings['tags']
+        tags_config = settings["tags"]
         tags = [
-            {"Key": "ManagedBy", "Value": tags_config['ManagedBy']},
-            {"Key": "Project", "Value": tags_config['Project']},
+            {"Key": "ManagedBy", "Value": tags_config["ManagedBy"]},
+            {"Key": "Project", "Value": tags_config["Project"]},
             {"Key": "Service", "Value": service},
-            {"Key": "Environment", "Value": "test" if is_test else "production"}
+            {"Key": "Environment", "Value": "test" if is_test else "production"},
         ]
         if category != "ALL":
             tags.append({"Key": "Category", "Value": category})
 
         subprocess.run(
-            ["aws", "s3api", "put-bucket-tagging", "--bucket", bucket_name,
-             "--tagging", json.dumps({"TagSet": tags})],
-            capture_output=True, timeout=30
+            ["aws", "s3api", "put-bucket-tagging", "--bucket", bucket_name, "--tagging", json.dumps({"TagSet": tags})],
+            capture_output=True,
+            timeout=30,
         )
 
-        encryption_alg = settings['encryption']['algorithm']
+        encryption_alg = settings["encryption"]["algorithm"]
         print(f"    OK (versioning=on, encryption={encryption_alg})")
         return True
 
@@ -645,9 +629,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument(
-        "--cloud", choices=["gcp", "aws"], required=True, help="Cloud provider"
-    )
+    parser.add_argument("--cloud", choices=["gcp", "aws"], required=True, help="Cloud provider")
     parser.add_argument("--service", help="Only create buckets for specific service")
     parser.add_argument("--project-id", help="GCP project ID or AWS account ID")
     parser.add_argument("--region", help="Region for bucket creation")
@@ -701,14 +683,14 @@ def main():
             region = args.region
         else:
             defaults = get_default_values(args.cloud)
-            region = defaults.get('region')
+            region = defaults.get("region")
     else:
         defaults = get_default_values(args.cloud)
-        project_id = defaults.get('project_id') or defaults.get('account_id')
-        region = args.region or defaults.get('region')
+        project_id = defaults.get("project_id") or defaults.get("account_id")
+        region = args.region or defaults.get("region")
 
         if not project_id:
-            if args.cloud == 'aws':
+            if args.cloud == "aws":
                 print("ERROR: AWS_ACCOUNT_ID not set and could not determine from AWS CLI")
                 print("Run: aws sts get-caller-identity")
             else:
@@ -764,9 +746,7 @@ def main():
                 for bucket in prod_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     print(f"  {prefix}{bucket['name']}")
-                    print(
-                        f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
-                    )
+                    print(f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}")
                 print()
 
             if test_buckets:
@@ -775,9 +755,7 @@ def main():
                 for bucket in test_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     print(f"  {prefix}{bucket['name']}")
-                    print(
-                        f"      Service: {bucket['service']}, Category: {bucket['category']}"
-                    )
+                    print(f"      Service: {bucket['service']}, Category: {bucket['category']}")
                 print()
         else:
             print("Required buckets:")
@@ -785,9 +763,7 @@ def main():
             for bucket in buckets:
                 prefix = "gs://" if args.cloud == "gcp" else "s3://"
                 print(f"  {prefix}{bucket['name']}")
-                print(
-                    f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
-                )
+                print(f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}")
             print()
 
         # Print env var suggestions for services
@@ -816,7 +792,6 @@ def main():
         try:
             subprocess.run(["gsutil", "version"], capture_output=True, timeout=10)
         except (OSError, ValueError, RuntimeError):
-
             sys.exit(1)
     else:
         # Check aws cli
@@ -855,11 +830,7 @@ def main():
             )
 
         if success:
-            if (
-                bucket_exists_gcs(bucket["name"])
-                if args.cloud == "gcp"
-                else bucket_exists_s3(bucket["name"])
-            ):
+            if bucket_exists_gcs(bucket["name"]) if args.cloud == "gcp" else bucket_exists_s3(bucket["name"]):
                 skipped += 1
             else:
                 created += 1

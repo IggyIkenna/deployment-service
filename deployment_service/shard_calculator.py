@@ -196,5 +196,4 @@ class ShardCalculator:
         }
 
 
-# Re-export classes for backward compatibility
 __all__ = ["Shard", "ShardCalculator", "ShardLimitExceeded"]
