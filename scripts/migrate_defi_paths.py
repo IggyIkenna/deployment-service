@@ -30,11 +30,14 @@ Usage:
 
 import argparse
 import logging
-import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
 from unified_cloud_interface import StorageClient
 from unified_trading_library import get_storage_client
 
@@ -428,9 +431,7 @@ def main():
         parser.error("Must specify either --date or both --start-date and --end-date")
 
     dry_run = args.dry_run
-    project_id = os.environ.get("GCP_PROJECT_ID")
-    if not project_id:
-        raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
+    project_id = get_project_id()
     bucket_name = args.bucket or f"market-data-tick-defi-{project_id}"
 
     logger.info("=" * 60)

@@ -10,17 +10,18 @@ Usage: python reorganize_gcs_defi.py [--dry-run] [--workers 20] [--start-date 20
 
 import argparse
 import logging
-import os
 import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from _common import get_project_id
 
 logger = logging.getLogger(__name__)
-_PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-if not _PROJECT_ID:
-    raise SystemExit("ERROR: GCP_PROJECT_ID environment variable is required")
+_PROJECT_ID = get_project_id()
 BUCKET = f"gs://market-data-tick-defi-{_PROJECT_ID}"
 BASE_PREFIX = "raw_tick_data/by_date"
 
