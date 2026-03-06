@@ -173,13 +173,13 @@ class StorageClient:
             return BucketStats(file_count=0, total_size_bytes=0)
         try:
             if self.provider == "gcs":
-                return self._get_gcs_bucket_stats(bucket_name, prefix, pattern, max_scan)
+                return self._get_storage_bucket_stats(bucket_name, prefix, pattern, max_scan)
             return BucketStats(file_count=0, total_size_bytes=0)
         except (OSError, ValueError, RuntimeError) as e:
             logger.error("Error getting bucket stats: %s", e)
             return BucketStats(file_count=0, total_size_bytes=0)
 
-    def _get_gcs_bucket_stats(self, bucket_name: str, prefix: str, pattern: str, max_scan: int) -> BucketStats:
+    def _get_storage_bucket_stats(self, bucket_name: str, prefix: str, pattern: str, max_scan: int) -> BucketStats:
         """Get GCS bucket statistics."""
         try:
             client = self.client

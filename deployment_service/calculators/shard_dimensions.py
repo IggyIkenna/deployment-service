@@ -261,7 +261,7 @@ class DimensionProcessor:
             return files
 
         # Use template from config
-        bucket_template_raw = dim.get("gcs_bucket_template") or dim.get("gcs_bucket")
+        bucket_template_raw = dim.get("gcs_bucket_template") or dim.get("source_bucket")
         prefix = str(dim.get("gcs_prefix", "") or "")
         file_pattern = str(dim.get("file_pattern", "*") or "*")
 
