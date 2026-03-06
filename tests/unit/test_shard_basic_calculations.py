@@ -216,7 +216,7 @@ class TestShardCalculatorDateRangeDimensions:
         """Test that missing date raises error for date_range services."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
-        with pytest.raises(ValueError, match="requires --start-date and --end-date"):
+        with pytest.raises(ValueError, match="requires start_date and end_date"):
             calculator.calculate_shards(
                 service="test-service",
                 max_shards=100,

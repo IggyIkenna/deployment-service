@@ -215,7 +215,7 @@ class TestShardCalculatorDateRangeDimensions:
         """Test that missing date raises error for date_range services."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
-        with pytest.raises(ValueError, match="requires --start-date and --end-date"):
+        with pytest.raises(ValueError, match="requires start_date and end_date"):
             calculator.calculate_shards(
                 service="test-service",
                 max_shards=100,
@@ -738,14 +738,14 @@ class TestSkipExistingFilter:
         # Should have 2 categories * 3 days = 6 shards
         assert len(shards) == 6
 
-    @patch("google.cloud.storage.Client")
+    @patch("deployment_service.calculators.shard_distribution.get_storage_client")
     def test_skip_existing_true_filters_existing_shards(
-        self, mock_storage_client, temp_config_for_skip_existing, mock_env_vars
+        self, mock_get_storage_client, temp_config_for_skip_existing, mock_env_vars
     ):
         """Test that skip_existing=True filters out shards where data exists."""
         # Mock the storage client to simulate some data exists
         mock_client = MagicMock()
-        mock_storage_client.return_value = mock_client
+        mock_get_storage_client.return_value = mock_client
         mock_bucket = MagicMock()
         mock_client.bucket.return_value = mock_bucket
         mock_blob = MagicMock()
@@ -764,8 +764,8 @@ class TestSkipExistingFilter:
             skip_existing=True,
         )
 
-        # Should have filtered out 2 shards where data exists
-        # Remaining: 4 shards
+        # Should have filtered out shards where data exists
+        # With mocked storage, 2 blobs exist so 4 shards should remain
         assert len(shards) == 4
 
     def test_skip_existing_parameter_in_signature(self, temp_config_for_skip_existing, mock_env_vars):
