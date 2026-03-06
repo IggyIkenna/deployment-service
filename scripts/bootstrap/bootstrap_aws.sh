@@ -119,9 +119,86 @@ terraform -chdir="$TF_DIR" apply -auto-approve \
   -var="environment=${ENV}" \
   -var="bucket_prefix=${PREFIX}"
 
+# ---------------------------------------------------------------------------
+# Service deployment helper — inject PROTOCOL_* env vars from configs/services/
+# ---------------------------------------------------------------------------
+
+CONFIGS_DIR="$REPO_ROOT/configs/services"
+
+# deploy_service SERVICE_NAME TASK_DEF_FAMILY CLUSTER MODE
+# Reads configs/services/$SERVICE_NAME/{live,batch}.env and registers an ECS
+# task definition revision with updated PROTOCOL_* environment variables.
+deploy_service() {
+  local svc="$1"
+  local task_family="${2:-$svc}"
+  local cluster="${3:-unified-trading}"
+  local mode="${4:-live}"
+
+  local env_file="$CONFIGS_DIR/$svc/${mode}.env"
+  if [[ ! -f "$env_file" ]]; then
+    echo "    [WARN] No ${mode}.env for $svc — skipping ECS update"
+    return 0
+  fi
+
+  # Build JSON array of {name, value} pairs for ECS task definition environment
+  local env_json="["
+  local first=1
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    value="${value//\$\{AWS_ACCOUNT_ID\}/${ACCOUNT_ID}}"
+    [[ $first -eq 0 ]] && env_json+=","
+    env_json+="{\"name\":\"${key}\",\"value\":\"${value}\"}"
+    first=0
+  done < <(grep -E '^[A-Z_]+=' "$env_file")
+  env_json+=",{\"name\":\"AWS_ACCOUNT_ID\",\"value\":\"${ACCOUNT_ID}\"}]"
+
+  echo "    Registering ECS task definition for $svc (mode=$mode)..."
+  current_def=$(aws ecs describe-task-definition --task-definition "$task_family" \
+    --query 'taskDefinition' --output json 2>/dev/null || echo "{}")
+
+  if [[ "$current_def" == "{}" ]]; then
+    echo "    [WARN] No existing task definition for $task_family — skipping"
+    return 0
+  fi
+
+  new_def=$(echo "$current_def" | python3 -c "
+import json, sys
+td = json.load(sys.stdin)
+env = json.loads('${env_json}')
+for cd in td.get('containerDefinitions', []):
+    existing = {e['name']: e['value'] for e in cd.get('environment', [])}
+    existing.update({e['name']: e['value'] for e in env})
+    cd['environment'] = [{'name': k, 'value': v} for k, v in existing.items()]
+for f in ['taskDefinitionArn','revision','status','requiresAttributes','compatibilities',
+          'registeredAt','registeredBy','deregisteredAt']:
+    td.pop(f, None)
+print(json.dumps(td))
+")
+
+  aws ecs register-task-definition --cli-input-json "$new_def" --region "$REGION" --quiet
+  echo "    Registered new task definition revision for $svc."
+}
+
+# Example: uncomment and customize CLUSTER to deploy after bootstrap.
+# CLUSTER="unified-trading-${ENV}"
+#
+# deploy_service "market-tick-data-service"          "market-tick-data-service"          "$CLUSTER" live
+# deploy_service "features-volatility-service"       "features-volatility-service"       "$CLUSTER" batch
+# deploy_service "features-delta-one-service"        "features-delta-one-service"        "$CLUSTER" batch
+# deploy_service "features-cross-instrument-service" "features-cross-instrument-service" "$CLUSTER" batch
+# deploy_service "ml-training-service"               "ml-training-service"               "$CLUSTER" batch
+# deploy_service "ml-inference-service"              "ml-inference-service"              "$CLUSTER" live
+# deploy_service "strategy-service"                  "strategy-service"                  "$CLUSTER" live
+# deploy_service "execution-service"                 "execution-service"                 "$CLUSTER" live
+# deploy_service "risk-and-exposure-service"         "risk-and-exposure-service"         "$CLUSTER" live
+
 echo ""
 echo "==> AWS bootstrap complete."
 echo "    Account:  $ACCOUNT_ID"
 echo "    Region:   $REGION"
 echo "    Env:      $ENV"
 echo "    State:    s3://${STATE_BUCKET}/terraform/state"
+echo ""
+echo "    To deploy services with PROTOCOL_* env vars, uncomment the"
+echo "    deploy_service() calls above or run them manually."
