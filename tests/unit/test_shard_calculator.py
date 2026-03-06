@@ -796,7 +796,7 @@ class TestExcludeDatesDeploymentFiltering:
 
     def test_exclude_dates_field_in_deploy_request(self):
         """Test that DeployRequest model accepts exclude_dates field."""
-        from api.routes.deployments import DeployRequest
+        from deployment_api.routes.deployments import DeployRequest
 
         # Should be able to create a request with exclude_dates
         request = DeployRequest(
@@ -815,7 +815,7 @@ class TestExcludeDatesDeploymentFiltering:
 
     def test_exclude_dates_field_optional(self):
         """Test that exclude_dates is optional in DeployRequest."""
-        from api.routes.deployments import DeployRequest
+        from deployment_api.routes.deployments import DeployRequest
 
         # Should work without exclude_dates
         request = DeployRequest(

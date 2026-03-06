@@ -18,7 +18,7 @@ def app():
     """Create FastAPI app for testing (requires config_dir)."""
     from pathlib import Path
 
-    from api.main import app as _app
+    from deployment_api.main import app as _app
 
     # Ensure config_dir exists for lifespan
     api_dir = Path(__file__).resolve().parent.parent.parent / "api"

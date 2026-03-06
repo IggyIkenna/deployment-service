@@ -22,7 +22,7 @@ class TestTurboServiceConfig:
         """Test market-tick-data-handler turbo config is correct."""
         # The config is defined inside the function, so we test behavior instead
         # by checking that the function accepts the expected parameters
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
@@ -34,7 +34,7 @@ class TestTurboServiceConfig:
     def test_supported_services(self):
         """Test that all expected services are supported."""
         # Services that should be supported in turbo mode
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(
@@ -66,7 +66,7 @@ class TestInstrumentTypeExtraction:
         The mock simulates the migrated structure where venue is a directory:
         raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={inst_type}/venue={venue}/
         """
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         mock_get_path_combinatorics.return_value = mock_path_combinatorics
 
@@ -189,7 +189,7 @@ class TestFileCounts:
 
     def test_include_file_counts_parameter(self):
         """Test that include_file_counts parameter exists in turbo endpoint."""
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())

@@ -33,7 +33,7 @@ class TestInstrumentTypeExtraction:
         The mock simulates the migrated structure where venue is a directory:
         raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={inst_type}/venue={venue}/
         """
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         mock_get_path_combinatorics.return_value = mock_path_combinatorics
 

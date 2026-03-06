@@ -249,8 +249,8 @@ def _run_turbo(
     Clears the data_status cache before each call to prevent cross-test
     contamination (earlier test results leaking into later tests).
     """
-    from api.routes.data_status import get_data_status_turbo_impl
-    from api.utils.data_status_cache import clear_cache
+    from deployment_api.routes.data_status import get_data_status_turbo_impl
+    from deployment_api.utils.data_status_cache import clear_cache
 
     clear_cache()
 
