@@ -4,6 +4,8 @@ Unit tests for DependencyGraph.
 Tests dependency configuration loading and validation.
 """
 
+from unittest.mock import patch
+
 import pytest
 import yaml
 
@@ -351,16 +353,18 @@ class TestDependencyChecking:
                 }
             },
         }
-        with open(temp_config_dir / "runtime-topology.yaml", "w") as f:
+        topology_path = temp_config_dir / "runtime-topology.yaml"
+        with open(topology_path, "w") as f:
             yaml.dump(runtime_topology, f)
 
-        graph = DependencyGraph(str(temp_config_dir))
-        report = graph.check_dependencies(
-            service="market-data-processing-service",
-            date="2024-01-15",
-            mode="live",
-            deployment_profile="co_located_vm",
-        )
+        with patch.dict("os.environ", {"RUNTIME_TOPOLOGY_PATH": str(topology_path)}):
+            graph = DependencyGraph(str(temp_config_dir))
+            report = graph.check_dependencies(
+                service="market-data-processing-service",
+                date="2024-01-15",
+                mode="live",
+                deployment_profile="co_located_vm",
+            )
 
         assert report.required_passed is True
         assert len(report.checks) == 1
@@ -405,17 +409,19 @@ class TestDependencyChecking:
                 }
             },
         }
-        with open(temp_config_dir / "runtime-topology.yaml", "w") as f:
+        topology_path = temp_config_dir / "runtime-topology.yaml"
+        with open(topology_path, "w") as f:
             yaml.dump(runtime_topology, f)
 
-        graph = DependencyGraph(str(temp_config_dir))
-        with pytest.raises(ValueError, match="not allowed in deployment profile"):
-            graph.check_dependencies(
-                service="market-data-processing-service",
-                date="2024-01-15",
-                mode="live",
-                deployment_profile="distributed",
-            )
+        with patch.dict("os.environ", {"RUNTIME_TOPOLOGY_PATH": str(topology_path)}):
+            graph = DependencyGraph(str(temp_config_dir))
+            with pytest.raises(ValueError, match="not allowed in deployment profile"):
+                graph.check_dependencies(
+                    service="market-data-processing-service",
+                    date="2024-01-15",
+                    mode="live",
+                    deployment_profile="distributed",
+                )
 
 
 class TestDependencyTree:
