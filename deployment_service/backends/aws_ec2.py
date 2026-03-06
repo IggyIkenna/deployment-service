@@ -330,6 +330,54 @@ shutdown -h now
         }
         return state_map.get(state, JobStatus.UNKNOWN)
 
+    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:
+        """Get status for multiple EC2 instances in a single API call."""
+        if not job_ids:
+            return {}
+
+        result = {}
+
+        # EC2 describe_instances supports filtering by multiple InstanceIds
+        for i in range(0, len(job_ids), 100):
+            batch = job_ids[i : i + 100]
+            try:
+                response = self._client.describe_instances(InstanceIds=batch)
+
+                for reservation in response.get("Reservations") or []:
+                    for instance in reservation.get("Instances") or []:
+                        instance_id = instance["InstanceId"]
+                        status = self._map_instance_state(instance["State"]["Name"])
+
+                        shard_id = "unknown"
+                        for tag in instance.get("Tags") or []:
+                            if tag["Key"] == "shard_id":
+                                shard_id = tag["Value"]
+                                break
+
+                        start_time = instance.get("LaunchTime")
+                        if start_time and not isinstance(start_time, datetime):
+                            start_time = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+
+                        result[instance_id] = JobInfo(
+                            job_id=instance_id,
+                            shard_id=shard_id,
+                            status=status,
+                            start_time=start_time,
+                            logs_url=self.get_logs_url(instance_id),
+                        )
+
+            except ClientError as e:
+                logger.error("Failed to get batch status for instances: %s", e)
+                for job_id in batch:
+                    result[job_id] = JobInfo(
+                        job_id=job_id,
+                        shard_id="unknown",
+                        status=JobStatus.UNKNOWN,
+                        error_message=str(e),
+                    )
+
+        return result
+
     def cancel_job(self, job_id: str) -> bool:
         """Terminate an EC2 instance."""
         try:
