@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
+from unified_cloud_interface import StorageClient as _UTLStorageClient
 from unified_trading_library import get_storage_client as _get_storage_client
-from unified_trading_library.core.storage_abstraction import StorageClient as _UTLStorageClient
 
 from ..deployment_config import DeploymentConfig
 

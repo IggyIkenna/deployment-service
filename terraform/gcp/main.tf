@@ -15,8 +15,12 @@ terraform {
     }
   }
 
+  # NOTE: Terraform backend blocks do not support variable interpolation.
+  # Set the bucket name at init time with:
+  #   terraform init -backend-config="bucket=<bucket_prefix>-terraform-state-<project_id>"
+  # Convention: <bucket_prefix>-terraform-state-<project_id>  (e.g. uts-terraform-state-my-project-123)
   backend "gcs" {
-    bucket = "${var.bucket_prefix}-terraform-state-${var.project_id}"
+    bucket = "REPLACE_WITH_BUCKET_PREFIX-terraform-state-REPLACE_WITH_PROJECT_ID"
     prefix = "terraform/state"
   }
 }
