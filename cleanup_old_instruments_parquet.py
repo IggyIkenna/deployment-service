@@ -17,11 +17,11 @@ Usage:
 
 import argparse
 import logging
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from unified_cloud_interface import StorageClient
+from unified_config_interface import UnifiedCloudConfig
 from unified_trading_library import get_storage_client
 
 # Setup logging
@@ -147,7 +147,7 @@ def main():
 
     args = parser.parse_args()
 
-    project_id = os.environ["GCP_PROJECT_ID"]
+    project_id = UnifiedCloudConfig().gcp_project_id
     client = get_storage_client()
     all_buckets = _get_buckets(project_id)
 
