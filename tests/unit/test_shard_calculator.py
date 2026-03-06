@@ -311,6 +311,7 @@ class TestShardCalculatorGCSDynamicDimensions:
 
         mock_client = MockCloudClient(mock_cloud_files)
         calculator.cloud_client = mock_client
+        calculator.dimension_processor.cloud_client = mock_client
 
         shards = calculator.calculate_shards(
             service="gcs-dynamic-test-service",

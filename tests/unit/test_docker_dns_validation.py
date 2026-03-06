@@ -77,7 +77,7 @@ def test_aws_ec2_backend_no_public_dns():
     AWS EC2 startup script must NOT use --dns 8.8.8.8.
     Aligned with GCP behavior; AWS metadata uses different resolution.
     """
-    aws_path = Path(__file__).parent.parent.parent / "backends" / "aws_ec2.py"
+    aws_path = Path(__file__).parent.parent.parent / "deployment_service" / "backends" / "aws_ec2.py"
     content = aws_path.read_text()
 
     for pattern in FORBIDDEN_DNS_PATTERNS:
