@@ -29,7 +29,7 @@ class TestRequestSizeGuard:
         Mocks GCS client and path combinatorics so the test runs without ADC in CI.
         The guard triggers before any GCS calls when days x venues > 35_000.
         """
-        from deployment_api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
 
         test_data = sample_request_size_guard_data["large_request"]
 
