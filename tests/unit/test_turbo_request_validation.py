@@ -27,7 +27,7 @@ class TestRequestSizeGuard:
         Mocks GCS client and path combinatorics so the test runs without ADC in CI.
         The guard triggers before any GCS calls when days x venues > 35_000.
         """
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         # Mock storage client (never used - guard raises before GCS access)
         mock_get_storage_client.return_value = MagicMock()

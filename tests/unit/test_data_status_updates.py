@@ -179,7 +179,7 @@ class TestDatesFoundListIncluded:
         """Test that include_dates_list parameter exists in turbo endpoint."""
         import inspect
 
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())

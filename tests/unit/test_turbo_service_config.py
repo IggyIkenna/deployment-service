@@ -22,7 +22,7 @@ class TestTurboServiceConfig:
 
         # Import the SERVICE_CONFIG from the turbo endpoint
         # We need to access it indirectly through the function's closure
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
@@ -36,7 +36,7 @@ class TestTurboServiceConfig:
         # Services that should be supported in turbo mode
 
         # BUCKET_MAPPING defines supported services
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(
@@ -180,7 +180,7 @@ class TestFileCounts:
 
     def test_include_file_counts_parameter(self):
         """Test that include_file_counts parameter exists in turbo endpoint."""
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
@@ -236,7 +236,7 @@ class TestDatesFoundListIncluded:
 
     def test_include_dates_list_parameter_exists(self):
         """Test that include_dates_list parameter exists in turbo endpoint."""
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())

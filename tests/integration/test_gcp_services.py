@@ -364,7 +364,7 @@ class TestArtifactRegistryIntegration:
 
         sys.path.insert(0, str(__file__).rsplit("/", 3)[0])
 
-        from api.utils.artifact_registry import get_image_info
+        from deployment_api.utils.artifact_registry import get_image_info
 
         # Test with a known image (instruments-service)
         image_url = f"{region}-docker.pkg.dev/{project_id}/unified-services/instruments-service:latest"

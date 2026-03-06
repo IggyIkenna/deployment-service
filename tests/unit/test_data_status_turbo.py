@@ -26,7 +26,7 @@ class TestTurboServiceConfig:
 
         # Import the SERVICE_CONFIG from the turbo endpoint
         # We need to access it indirectly through the function's closure
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
@@ -42,7 +42,7 @@ class TestTurboServiceConfig:
         # BUCKET_MAPPING defines supported services
         import asyncio
 
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         # Test that unsupported service returns error
         result = asyncio.run(
@@ -69,7 +69,7 @@ class TestRequestSizeGuard:
         """
         import asyncio
 
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         # Mock storage client (never used - guard raises before GCS access)
         mock_get_storage_client.return_value = MagicMock()
@@ -113,7 +113,7 @@ class TestInstrumentTypeExtraction:
         """
         import asyncio
 
-        from api.routes.data_status import get_data_status_turbo_impl
+        from deployment_api.routes.data_status import get_data_status_turbo_impl
 
         mock_get_path_combinatorics.return_value = mock_path_combinatorics
 
@@ -613,7 +613,7 @@ class TestFileCounts:
         """Test that include_file_counts parameter exists in turbo endpoint."""
         import inspect
 
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
@@ -1180,7 +1180,7 @@ class TestDatesFoundListIncluded:
         """Test that include_dates_list parameter exists in turbo endpoint."""
         import inspect
 
-        from api.routes.data_status import get_data_status_turbo
+        from deployment_api.routes.data_status import get_data_status_turbo
 
         sig = inspect.signature(get_data_status_turbo)
         params = list(sig.parameters.keys())
