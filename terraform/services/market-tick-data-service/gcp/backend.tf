@@ -3,11 +3,11 @@
 
 terraform {
   backend "gcs" {
-    bucket = "terraform-state-central-element-323112"
+    bucket = "terraform-state-{project_id}"
     prefix = "services/market-tick-data-service"
   }
 }
 
 # Note: Before first use, create the state bucket:
-# gsutil mb -l asia-northeast1 gs://terraform-state-central-element-323112
-# gsutil versioning set on gs://terraform-state-central-element-323112
+# gsutil mb -l asia-northeast1 gs://terraform-state-{project_id}
+# gsutil versioning set on gs://terraform-state-{project_id}

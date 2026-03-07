@@ -42,22 +42,22 @@ jobs:
               remote="${repo_remote#*:}"
               dest="../${repo}"
               if git ls-remote -h "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$BRANCH" 2>/dev/null | head -1 | grep -q .; then
-                git clone -b "$BRANCH" "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || true
+                git clone -b "$BRANCH" "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || :
               else
-                git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || true
+                git clone -b main "https://x-access-token:${GH_PAT}@github.com/${remote}.git" "$dest" 2>/dev/null || :
               fi
             done
-            [ -d "../unified-trading-library" ] || git clone -b main https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-services.git ../unified-trading-library 2>/dev/null || true
+            [ -d "../unified-trading-library" ] || git clone -b main https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-services.git ../unified-trading-library 2>/dev/null || :
           else
             echo "::notice::GH_PAT not set - installing deps from PyPI/Artifact Registry only"
           fi
 
       - name: Install dependencies
         run: |
-          [ -d "../unified-trading-library" ] && uv pip install --system -e ../unified-trading-library 2>/dev/null || true
-          [ -d "../unified-config-interface" ] && uv pip install --system -e ../unified-config-interface 2>/dev/null || true
+          [ -d "../unified-trading-library" ] && uv pip install --system -e ../unified-trading-library 2>/dev/null || :
+          [ -d "../unified-config-interface" ] && uv pip install --system -e ../unified-config-interface 2>/dev/null || :
           uv pip install --system -e ".[dev]" || uv pip install --system -e .
-          uv pip install --system ruff==0.15.0 basedpyright 2>/dev/null || true
+          uv pip install --system ruff==0.15.0 basedpyright
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep

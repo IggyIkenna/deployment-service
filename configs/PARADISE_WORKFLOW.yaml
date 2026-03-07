@@ -20,13 +20,13 @@ prerequisites:
       command: |
         for REPO in instruments-service market-tick-data-service market-data-processing-service \
           features-delta-one-service features-volatility-service features-onchain-service \
-          features-calendar-service unified-trading-library unified-trading-deployment-v2; do
+          features-calendar-service unified-trading-library deployment-service; do
           git clone git@github.com:IggyIkenna/$REPO.git
         done
 
-    - step: "Run Unified Trading Deployment v2 UI (the control center)"
+    - step: "Run Deployment Service UI (the control center)"
       commands:
-        - "cd unified-trading-deployment-v2"
+        - "cd deployment-service"
         - "source ./scripts/setup.sh"
         - "cd ui && npm install && cd .."
         - "./run-api.sh all"
@@ -39,7 +39,7 @@ prerequisites:
     description: "Alternatively use the cloud-hosted dashboard (no local setup)"
     url: "https://deployment-dashboard-cldtjniqvq-an.a.run.app/"
     what_it_is: "Same UI and API as local, served from a single Cloud Run service in GCP"
-    how_updates_work: "Push to unified-trading-deployment-v2 triggers Cloud Build; quality gates (lint, tests) must pass before the service is auto-deployed to this URL. Failed gates block deploy until fixed."
+    how_updates_work: "Push to deployment-service triggers Cloud Build; quality gates (lint, tests) must pass before the service is auto-deployed to this URL. Failed gates block deploy until fixed."
 
 # =============================================================================
 # PIPELINE DEPENDENCY ORDER

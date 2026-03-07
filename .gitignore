@@ -1,5 +1,6 @@
 
 # Security - Never commit credentials
+*.tfvars.bak
 *-credentials.json
 *-service-account.json
 workspace-dev-sa-key.json

@@ -117,10 +117,10 @@ for repo in "${REPOS[@]}"; do
     repo_path="$REPO_ROOT/$repo"
     if [ ! -d "$repo_path" ]; then
         echo -e "${YELLOW}[$repo] SKIP (not found)${NC}"
-        ((SKIPPED++)) || true
+        ((SKIPPED++)) || :
     elif [ ! -f "$repo_path/scripts/quality-gates.sh" ]; then
         echo -e "${YELLOW}[$repo] SKIP (no quality-gates.sh)${NC}"
-        ((SKIPPED++)) || true
+        ((SKIPPED++)) || :
     else
         REPOS_TO_RUN+=("$repo")
     fi
@@ -137,7 +137,7 @@ if [ "$SEQUENTIAL" = true ]; then
         echo -e "${BLUE}[$repo] Running...${NC}"
         if run_one_sequential "$repo" "$repo_path"; then
             echo -e "${GREEN}[$repo] PASSED${NC}"
-            ((PASSED++)) || true
+            ((PASSED++)) || :
         else
             echo -e "${RED}[$repo] FAILED - exiting (use 'bash scripts/quality-gates.sh' in $repo to auto-fix, then re-run)${NC}"
             exit 1
@@ -164,8 +164,8 @@ while [ $idx -lt $total ]; do
         result_file="$RESULTS_DIR/$repo"
         echo -e "${BLUE}[$repo] Starting...${NC}"
         run_one "$repo" "$repo_path" "$result_file" &
-        ((idx++)) || true
-        ((batch++)) || true
+        ((idx++)) || :
+        ((batch++)) || :
     done
     wait
 done
@@ -177,10 +177,10 @@ for repo in "${REPOS_TO_RUN[@]}"; do
         code=$(cat "$result_file")
         if [ "$code" -eq 0 ]; then
             echo -e "${GREEN}[$repo] PASSED${NC}"
-            ((PASSED++)) || true
+            ((PASSED++)) || :
         else
             echo -e "${RED}[$repo] FAILED${NC}"
-            ((FAILED++)) || true
+            ((FAILED++)) || :
             if [ -f "$result_file.log" ]; then
                 echo "  Last 20 lines of log:"
                 tail -20 "$result_file.log" | sed 's/^/    /'

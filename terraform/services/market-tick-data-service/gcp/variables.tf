@@ -81,19 +81,19 @@ variable "environment" {
 variable "gcs_bucket_cefi" {
   description = "GCS bucket for CEFI market data"
   type        = string
-  default     = "market-data-tick-cefi-central-element-323112"
+  default     = "market-data-tick-cefi-{project_id}"
 }
 
 variable "gcs_bucket_tradfi" {
   description = "GCS bucket for TRADFI market data"
   type        = string
-  default     = "market-data-tick-tradfi-central-element-323112"
+  default     = "market-data-tick-tradfi-{project_id}"
 }
 
 variable "gcs_bucket_defi" {
   description = "GCS bucket for DEFI market data"
   type        = string
-  default     = "market-data-tick-defi-central-element-323112"
+  default     = "market-data-tick-defi-{project_id}"
 }
 
 # Workflow Configuration

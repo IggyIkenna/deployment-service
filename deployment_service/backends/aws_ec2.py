@@ -9,18 +9,22 @@ import base64
 import concurrent.futures
 import importlib.util
 import logging
+import types
 import uuid
 from datetime import UTC, datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import ClientError
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
+if TYPE_CHECKING:
+    import boto3 as _boto3_module
+
 logger = logging.getLogger(__name__)
 
 
-def _ensure_boto3():
+def _ensure_boto3() -> "types.ModuleType":
     """Deferred boto3 import — deployment AWS control-plane boundary."""
     if importlib.util.find_spec("boto3") is None:
         raise ImportError(
@@ -79,10 +83,11 @@ class AWSEC2Backend(ComputeBackend):
         self._key_name = key_name
 
         # Initialize EC2 client
-        boto3 = _ensure_boto3()
-        self._client = boto3.client("ec2", region_name=region)  # type: ignore[reportCallIssue]
-        self._resource = boto3.resource("ec2", region_name=region)  # type: ignore[reportCallIssue]
-        self._ssm_client = boto3.client("ssm", region_name=region)  # type: ignore[reportCallIssue]
+        # cast: _ensure_boto3() returns ModuleType at runtime; boto3-stubs provide .client()/.resource() overloads
+        _boto3 = cast("_boto3_module", _ensure_boto3())
+        self._client = _boto3.client("ec2", region_name=region)
+        self._resource = _boto3.resource("ec2", region_name=region)
+        self._ssm_client = _boto3.client("ssm", region_name=region)
 
         logger.info("AWS EC2 backend initialized for region: %s", region)
 

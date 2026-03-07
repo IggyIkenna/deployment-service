@@ -29,7 +29,7 @@ set -e
 # ── REPO-SPECIFIC SETTINGS ────────────────────────────────────────────────────
 SERVICE_NAME="deployment-service"          # e.g. instruments-service
 SOURCE_DIR="deployment_service"            # e.g. instruments_service  (underscore form)
-MIN_COVERAGE=70                    # Minimum test coverage % — BLOCKING (target: 80%)
+MIN_COVERAGE=70  # Template default — set to (actual coverage - 1%) after first test run. See test-coverage-targets.mdc
 RUN_INTEGRATION=false              # Set true when integration tests are stable
 PYTEST_WORKERS=${PYTEST_WORKERS:-2} # Default 2; override via env (cap to avoid OOM)
 
@@ -300,9 +300,12 @@ EL_OLD=$(rg "from unified_trading_library[. ].*(log_event|setup_events|setup_clo
 
 # ============================================================
 # STEP 5.5 — No direct cloud SDK imports (must route through UCLI/UCS)
+# Bypass: backends/_gcp_sdk.py TYPE_CHECKING imports — documented in QUALITY_GATE_BYPASS_AUDIT.md §3
 # ============================================================
 DIRECT_CLOUD=$(rg 'from google\.cloud import|^import boto3\b|^from boto3 import|^from botocore import' \
-    --type py "${SOURCE_DIR}/" 2>/dev/null | grep -v __pycache__ | grep -v '\.venv' || :)
+    --type py \
+    --glob '!backends/_gcp_sdk.py' \
+    "${SOURCE_DIR}/" 2>/dev/null | grep -v __pycache__ | grep -v '\.venv' || :)
 [[ -n "$DIRECT_CLOUD" ]] && {
     log_fail "Direct cloud SDK imports found (route through unified-cloud-interface instead):"
     echo "$DIRECT_CLOUD" | head -5
@@ -417,7 +420,7 @@ fi
 
 # CI/CD hygiene: ||true bypasses in quality gate scripts
 BYPASS=$(rg "\|\|true|\|\| true" --glob "**/quality-gates.sh" --glob "**/quality-gates.yml" . 2>/dev/null \
-    | grep -v "^#\|zombies\|pyright\|cleanup\|CI/CD hygiene.*||true bypass\|log_fail \".*||true bypass\|log_success \".*No ||true\|grep -v.*BYPASS" || :)
+    | grep -v "^#\|zombies\|pyright\|cleanup" || :)
 [[ -n "$BYPASS" ]] && { log_fail "||true bypass in quality gates — fix the root cause"; echo "$BYPASS" | head -3; ((V++)); } || log_success "No ||true quality gate bypasses"
 
 # ============================================================

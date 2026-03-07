@@ -81,19 +81,19 @@ variable "environment" {
 variable "gcs_bucket_cefi" {
   description = "GCS bucket for CEFI instruments"
   type        = string
-  default     = "instruments-store-cefi-central-element-323112"
+  default     = "instruments-store-cefi-{project_id}"
 }
 
 variable "gcs_bucket_tradfi" {
   description = "GCS bucket for TRADFI instruments"
   type        = string
-  default     = "instruments-store-tradfi-central-element-323112"
+  default     = "instruments-store-tradfi-{project_id}"
 }
 
 variable "gcs_bucket_defi" {
   description = "GCS bucket for DEFI instruments"
   type        = string
-  default     = "instruments-store-defi-central-element-323112"
+  default     = "instruments-store-defi-{project_id}"
 }
 
 # Workflow Configuration

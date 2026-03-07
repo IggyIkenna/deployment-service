@@ -5,7 +5,7 @@
 version: 1
 ssot:
   purpose: Service sharding dimensions for batch and live modes
-  owner: unified-trading-deployment-v3
+  owner: deployment-service
   paired_runtime_ssot: runtime-topology.yaml
 
 # ---------------------------------------------------------------------------

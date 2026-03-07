@@ -67,19 +67,19 @@ variable "environment" {
 variable "strategy_bucket_cefi" {
   description = "GCS bucket for CEFI strategies"
   type        = string
-  default     = "strategy-store-cefi-central-element-323112"
+  default     = "strategy-store-cefi-{project_id}"
 }
 
 variable "strategy_bucket_tradfi" {
   description = "GCS bucket for TRADFI strategies"
   type        = string
-  default     = "strategy-store-tradfi-central-element-323112"
+  default     = "strategy-store-tradfi-{project_id}"
 }
 
 variable "strategy_bucket_defi" {
   description = "GCS bucket for DEFI strategies"
   type        = string
-  default     = "strategy-store-defi-central-element-323112"
+  default     = "strategy-store-defi-{project_id}"
 }
 
 variable "workflow_name" {

@@ -1,14 +1,22 @@
 {
   "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
-  "include": ["deployment_service"],
+  "include": [
+    "deployment_service"
+  ],
   "reportAny": "error",
   "reportMissingTypeStubs": false,
-  "extraPaths": ["."],
+  "extraPaths": [
+    ".",
+    "../unified-cloud-interface",
+    "../unified-config-interface",
+    "../unified-events-interface",
+    "../unified-trading-library"
+  ],
   "reportImplicitRelativeImport": "none",
   "reportMissingImports": "none",
   "reportUnknownMemberType": "error",
   "reportUnknownVariableType": "error",
-  "venvPath": "../",
-  "venv": ".venv-workspace"
+  "venvPath": ".",
+  "venv": ".venv"
 }

@@ -7,7 +7,7 @@
 #   alerting-service, client-reporting-api, execution-results-api, market-data-api,
 #   pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service,
 #   strategy-validation-service
-# Then re-run: terraform apply -var="project_id=central-element-323112" -auto-approve
+# Then re-run: terraform apply -var="project_id={project_id}" -auto-approve
 
 terraform {
   required_version = ">= 1.0.0"
@@ -20,7 +20,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "terraform-state-central-element-323112"
+    bucket = "terraform-state-{project_id}"
     prefix = "cloud-build"
   }
 }

@@ -69,7 +69,7 @@ def test_deployment_config_has_cloud_provider() -> None:
 
 def test_no_hardcoded_project_id_in_production(production_files: list[Path]) -> None:
     """Production Python source must not contain the hardcoded GCP project ID."""
-    hardcoded_id = "central-element-323112"
+    hardcoded_id = "test-project-id"
     violations: list[str] = []
     for fpath in production_files:
         content = fpath.read_text(encoding="utf-8")

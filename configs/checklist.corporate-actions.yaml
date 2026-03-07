@@ -47,7 +47,7 @@ phase_3_deployment_infrastructure:
     notes: ''
     verified_date: null
     validation:
-    - sharding.{service}.yaml exists in unified-trading-deployment-v2/configs/
+    - sharding.{service}.yaml exists in deployment-service/configs/
     - Dimensions defined (category, venue, date, etc.)
     - CLI args mapped correctly
     - Compute recommendation specified (vm vs cloud-run)

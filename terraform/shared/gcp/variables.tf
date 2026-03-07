@@ -3,7 +3,7 @@
 variable "project_id" {
   description = "GCP project ID"
   type        = string
-  default     = "central-element-323112"
+  default     = "{project_id}"
 }
 
 variable "region" {

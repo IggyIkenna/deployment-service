@@ -7,12 +7,13 @@ and status updates with progress tracking.
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import cast
 
 from deployment_service.backends import ComputeBackend, JobStatus
 
-from .quota_broker_client import QuotaBrokerClient
+from .quota_broker_client import ComputeType, QuotaBrokerClient
 from .state import DeploymentState, DeploymentStatus, ShardState, ShardStatus
 
 logger = logging.getLogger(__name__)
@@ -157,11 +158,11 @@ def monitor_shards(
                 if quota_broker and quota_broker.enabled():
                     broker_region = getattr(backend, "region", "us-central1")
                     if state.compute_type == "vm":
-                        resources: dict[str, float] = (
-                            cast(dict[str, float], vm_resource_request_fn(compute_config))
-                            if callable(vm_resource_request_fn)
-                            else {}
-                        )  # type: ignore[operator]
+                        if callable(vm_resource_request_fn):
+                            _fn = cast(Callable[[object], dict[str, float]], vm_resource_request_fn)
+                            resources: dict[str, float] = _fn(compute_config)
+                        else:
+                            resources = {}
                         ttl_override: int | None = None
                     else:
                         resources = {"RUNNING_EXECUTIONS": 1.0}
@@ -172,7 +173,7 @@ def monitor_shards(
                         admission = quota_broker.acquire(
                             deployment_id=state.deployment_id,
                             shard_id=shard.shard_id,
-                            compute_type=state.compute_type,  # type: ignore[arg-type]
+                            compute_type=cast(ComputeType, state.compute_type),
                             region=broker_region,
                             resources=resources,
                             ttl_seconds=ttl_override,
