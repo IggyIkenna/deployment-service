@@ -50,6 +50,19 @@ locals {
     "hyperliquid-aws-s3",
     "binance-read-api-key",
     "deribit-read-api-key",
+    # Sports betting secrets
+    "betfair-app-key",
+    "odds-api-key",
+    "oddsjam-api-key",
+    "opticodds-api-key",
+    "metabet-api-key",
+    "polymarket-private-key",
+    # On-chain / CEX data secrets
+    "coinglass-api-key",
+    "hyblock-api-key",
+    # Write API keys
+    "binance-write-api-key",
+    "deribit-write-api-key",
   ]
 }
 
