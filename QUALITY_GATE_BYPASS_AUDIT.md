@@ -44,21 +44,29 @@ errors fall into the categories documented below.
 #### 1. boto3 Service Stubs Missing
 
 **Status: JUSTIFIED**
+**Last reviewed:** 2026-03-07 — `reportCallIssue` ignores removed; `cast("_boto3_module", _ensure_boto3())` pattern added to resolve call-site type errors without inline suppression.
 
-`boto3-stubs` (version 1.42.60) is installed but only includes the base `boto3` stubs and
-the S3 + Secrets Manager service extras (`mypy-boto3-s3`, `mypy-boto3-secretsmanager`).
-The three services this deployment service uses — AWS Batch, EC2, and CloudWatch Logs — have
-no installed service stubs:
+`boto3-stubs` base package is installed and provides `boto3.client()` overloads, but the
+three service-specific stub extras this deployment service uses — AWS Batch, EC2, and
+CloudWatch Logs — are not installed:
 
 - `mypy-boto3-batch` — not installed
 - `mypy-boto3-ec2` — not installed
 - `mypy-boto3-logs` — not installed
 
-As a result, every call to `boto3.client("batch", ...)`, `boto3.client("logs", ...)`, and
-`boto3.client("ec2", ...)` returns a client typed as `Unknown`. All downstream attribute
-access and return values propagate as `Unknown`, producing cascading `reportUnknownMemberType`
-and `reportUnknownVariableType` errors throughout `backends/aws.py`, `backends/aws_batch.py`,
-`backends/aws_ec2.py`, and the EC2 VM management layer.
+The `_ensure_boto3()` helper performs a deferred import and returns `types.ModuleType`. The
+call sites now use `cast("_boto3_module", _ensure_boto3())` to narrow the module type so
+`boto3.client()` overload resolution works for the base boto3 stubs. However, since the
+service-specific stubs are absent, the returned client objects are typed as `Unknown`, and
+all downstream attribute access and return values propagate as `Unknown`, producing cascading
+`reportUnknownMemberType` and `reportUnknownVariableType` errors throughout `backends/aws.py`,
+`backends/aws_batch.py`, `backends/aws_ec2.py`, and the EC2 VM management layer.
+
+The five `# type: ignore[reportCallIssue]` comments previously on `boto3.client()` /
+`boto3.resource()` call lines have been removed and replaced with `cast` narrowing. The
+downstream `reportUnknownMemberType` errors on the client objects are the residual effect of
+missing service stubs and are covered by this bypass entry (status: JUSTIFIED — no upstream
+stubs exist for all required Batch/EC2/SSM/Logs service APIs in this boto3-stubs version).
 
 **Affected files:**
 - `deployment_service/backends/aws.py`
@@ -200,6 +208,12 @@ the correct type.
 #### 8. Fixable Type-Safety Errors
 
 **Status: MIGRATION_PENDING**
+**Last reviewed:** 2026-03-07 — four inline `# type: ignore` comments fixed:
+- `monitoring.py:164` `[operator]`: replaced ternary with explicit `if callable()` block + `cast(Callable[[object], dict[str, float]], fn)` — removed.
+- `monitoring.py:175` `[arg-type]`: replaced with `cast(ComputeType, state.compute_type)` — removed.
+- `worker_manager.py:125` `[arg-type]`: replaced with `cast(ComputeType, compute_type)` — removed.
+- `_worker_rolling.py:116` `[arg-type]`: replaced with `cast(ComputeType, compute_type)` — removed.
+- `aws_batch.py:67-68`, `aws.py:67-68`, `aws_ec2.py:83-85` `[reportCallIssue]`: replaced with `cast("_boto3_module", _ensure_boto3())` pattern — removed (see Category 1).
 
 168 errors across four rule codes that represent genuine type-safety gaps in the service's
 own code that are fixable without external stub changes:

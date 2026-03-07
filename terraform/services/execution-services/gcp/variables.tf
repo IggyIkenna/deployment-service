@@ -68,19 +68,19 @@ variable "environment" {
 variable "execution_bucket_cefi" {
   description = "GCS bucket for CEFI execution results"
   type        = string
-  default     = "execution-store-cefi-central-element-323112"
+  default     = "execution-store-cefi-{project_id}"
 }
 
 variable "execution_bucket_tradfi" {
   description = "GCS bucket for TRADFI execution results"
   type        = string
-  default     = "execution-store-tradfi-central-element-323112"
+  default     = "execution-store-tradfi-{project_id}"
 }
 
 variable "execution_bucket_defi" {
   description = "GCS bucket for DEFI execution results"
   type        = string
-  default     = "execution-store-defi-central-element-323112"
+  default     = "execution-store-defi-{project_id}"
 }
 
 variable "workflow_name" {

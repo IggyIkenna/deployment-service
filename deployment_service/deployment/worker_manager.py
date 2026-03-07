@@ -15,7 +15,7 @@ from typing import cast
 from deployment_service.backends import ComputeBackend, JobInfo, JobStatus
 from deployment_service.deployment_config import DeploymentConfig
 
-from .quota_broker_client import QuotaBrokerClient
+from .quota_broker_client import ComputeType, QuotaBrokerClient
 from .rate_limiter import RateLimiter
 from .state import DeploymentState, DeploymentStatus, ShardState, ShardStatus, StateManager
 
@@ -122,7 +122,7 @@ def launch_shards_parallel(
                 admission = quota_broker.acquire(
                     deployment_id=state.deployment_id,
                     shard_id=shard.shard_id,
-                    compute_type=compute_type,  # type: ignore[arg-type]
+                    compute_type=cast(ComputeType, compute_type),
                     region=broker_region,
                     resources=resources,
                     ttl_seconds=ttl_override,

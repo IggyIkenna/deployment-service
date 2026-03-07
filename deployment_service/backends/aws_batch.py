@@ -8,18 +8,22 @@ with Fargate compute (serverless) or EC2 compute (managed instances).
 import concurrent.futures
 import importlib.util
 import logging
+import types
 import uuid
 from datetime import UTC, datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import ClientError
+
+if TYPE_CHECKING:
+    import boto3 as _boto3_module
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_boto3():
+def _ensure_boto3() -> "types.ModuleType":
     """Deferred boto3 import — deployment AWS control-plane boundary."""
     if importlib.util.find_spec("boto3") is None:
         raise ImportError(
@@ -63,9 +67,10 @@ class AWSBatchBackend(ComputeBackend):
         self._job_definition = job_definition
 
         # Initialize Batch client
-        boto3 = _ensure_boto3()
-        self._client = boto3.client("batch", region_name=region)  # type: ignore[reportCallIssue]
-        self._logs_client = boto3.client("logs", region_name=region)  # type: ignore[reportCallIssue]
+        # cast: _ensure_boto3() returns ModuleType at runtime; boto3-stubs provide .client() overloads
+        _boto3 = cast("_boto3_module", _ensure_boto3())
+        self._client = _boto3.client("batch", region_name=region)
+        self._logs_client = _boto3.client("logs", region_name=region)
 
         logger.info("AWS Batch backend initialized for region: %s", region)
 

@@ -44,7 +44,7 @@
 #     - Dependency checker usage; blocked by unified-trading-library PR #27
 #     - Config provides CloudTarget params; no direct google.cloud imports in prod
 #
-#   .cursor/audits/CLOUD_AGNOSTIC_FIX_unified-trading-deployment-v2.md
+#   .cursor/audits/CLOUD_AGNOSTIC_FIX_deployment-service.md
 #     - storage_facade for GCS; bigquery_facade; no hardcoded project IDs
 #     - API routes, backends, scripts refactored to use abstractions
 #
@@ -304,7 +304,7 @@ phase_1_repository_foundation:
       - "Service-specific events present per spec (see STANDARDIZED_EVENT_LOGGING.md)"
       - "tests/unit/test_event_logging.py exists and passes"
       - "log_event imported from unified_trading_library.observability"
-    reference: "unified-trading-deployment-v2/docs/STANDARDIZED_EVENT_LOGGING.md"
+    reference: "deployment-service/docs/STANDARDIZED_EVENT_LOGGING.md"
 
   item_05_no_secrets_in_code:
     description: "API keys use get_secret_client() pattern (Secret Manager + env fallback)"
@@ -418,7 +418,7 @@ phase_2_testing_and_quality:
       - "quality-gates.yml exists"
       - "Runs on push/PR to main"
       - "Checks out unified-trading-library dependency"
-      - "Checks out unified-trading-deployment-v2 dependency"
+      - "Checks out deployment-service dependency"
       - "Runs unit tests (tests/unit/)"
       - "Runs integration tests (tests/integration/)"
       - "Runs e2e tests (tests/e2e/)"
@@ -449,7 +449,7 @@ phase_2_testing_and_quality:
     dependency_checkout:
       pattern: "Use git clone for private dependencies (NOT actions/checkout@v4)"
       unified_trading_library: "REQUIRED - fail if unavailable"
-      unified_trading_deployment_v2: "OPTIONAL - skip smoke tests if unavailable"
+      deployment_service: "OPTIONAL - skip smoke tests if unavailable"
       github_actions_example: |
         # CORRECT: git clone for private repos
         git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/IggyIkenna/unified-trading-library.git
@@ -460,7 +460,7 @@ phase_2_testing_and_quality:
         #     repository: IggyIkenna/unified-trading-library
         #     token: ${{ secrets.GH_PAT }}
     smoke_test_fallback: |
-      Smoke tests should be SKIPPED (not failed) if unified-trading-deployment-v2 configs are unavailable.
+      Smoke tests should be SKIPPED (not failed) if deployment-service configs are unavailable.
       Use environment variable to track: DEPLOYMENT_CONFIGS_AVAILABLE=true/false
     pytest_exit_code_5: |
       Pytest exit code 5 (no tests collected) should be treated as SUCCESS, not failure.
@@ -509,7 +509,7 @@ phase_3_deployment_infrastructure:
     notes: ""
     verified_date: null
     validation:
-      - "sharding.{service}.yaml exists in unified-trading-deployment-v2/configs/"
+      - "sharding.{service}.yaml exists in deployment-service/configs/"
       - "Dimensions defined (category, venue, date, etc.)"
       - "CLI args mapped correctly"
       - "Compute recommendation specified (vm vs cloud-run)"

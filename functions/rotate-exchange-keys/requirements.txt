@@ -1,0 +1,4 @@
+functions-framework==3.*
+google-cloud-secret-manager>=2.20.0,<3.0.0
+google-cloud-pubsub>=2.21.0,<3.0.0
+flask>=3.0.0,<4.0.0

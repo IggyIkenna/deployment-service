@@ -66,13 +66,13 @@ variable "environment" {
 variable "ml_models_bucket" {
   description = "GCS bucket for ML models"
   type        = string
-  default     = "ml-models-store-central-element-323112"
+  default     = "ml-models-store-{project_id}"
 }
 
 variable "ml_predictions_bucket" {
   description = "GCS bucket for ML predictions"
   type        = string
-  default     = "ml-predictions-store-central-element-323112"
+  default     = "ml-predictions-store-{project_id}"
 }
 
 variable "workflow_name" {

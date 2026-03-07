@@ -4,9 +4,9 @@ version = "0.1.1"
 requires-python = ">=3.13,<3.14"
 description = "Deployment orchestration engine (split from unified-trading-deployment-v3 2026-03-03)"
 dependencies = [
-    "unified-trading-library>=0.1.0",
-    "unified-cloud-interface>=1.1.0",
-    "unified-config-interface>=0.1.0",
+    "unified-trading-library[gcp]>=0.1.0,<1.0.0",
+    "unified-cloud-interface>=0.11.6,<1.0.0",
+    "unified-config-interface>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
 ]
 
@@ -34,17 +34,27 @@ unified-cloud-interface = { path = "../unified-cloud-interface" }
 unified-config-interface = { path = "../unified-config-interface" }
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=75,<82", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deployment_service*"]
+exclude = ["tests*"]
 
 [tool.ruff]
-line-length = 120
+line-length = 100
 target-version = "py313"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "G"]
-ignore = ["E501", "E402", "G003", "G004", "G201", "G202", "SIM103", "B905"]
+select = ["E", "F", "I", "UP", "B", "SIM", "G",
+"C90",]
+ignore = ["E402", "G003", "G004", "G201", "G202", "SIM103", "B905"]
 per-file-ignores = { "deployment_service/deployment/quota_broker_client.py" = ["E402"], "deployment_service/backends/provider_factory.py" = ["E402"] }
+
+
+[tool.ruff.lint.mccabe]
+max-complexity = 7
 
 [tool.basedpyright]
 pythonVersion = "3.13"

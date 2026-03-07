@@ -11,7 +11,7 @@ terraform {
 }
 
 provider "google" {
-  project = "central-element-323112"
+  project = "{project_id}"
   region  = "asia-northeast1"
 }
 
@@ -26,10 +26,10 @@ module "parallel_vms" {
   for_each = toset(local.dates)
 
   name                  = "vm-parallel-${each.value}"
-  project_id            = "central-element-323112"
+  project_id            = "{project_id}"
   zone                  = "asia-northeast1-a"
-  image                 = "asia-northeast1-docker.pkg.dev/central-element-323112/market-data-tick-handler/market-tick-data-service:latest"
-  service_account_email = "instruments-service-cloud-run@central-element-323112.iam.gserviceaccount.com"
+  image                 = "asia-northeast1-docker.pkg.dev/{project_id}/market-data-tick-handler/market-tick-data-service:latest"
+  service_account_email = "instruments-service-cloud-run@{project_id}.iam.gserviceaccount.com"
 
   # VM config
   machine_type = "c2-standard-4"
@@ -60,7 +60,7 @@ module "parallel_vms" {
   environment  = "test"
 
   # Status tracking
-  status_bucket = "terraform-state-central-element-323112"
+  status_bucket = "terraform-state-{project_id}"
   status_prefix = "vm-parallel-tests"
   deployment_id = "parallel-001"
   shard_id      = each.value

@@ -2,7 +2,7 @@
 
 terraform {
   backend "gcs" {
-    bucket = "terraform-state-central-element-323112"
+    bucket = "terraform-state-{project_id}"
     prefix = "services/features-calendar-service"
   }
 }

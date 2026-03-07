@@ -1,250 +1,142 @@
-# ARCHITECTURE.md
-## deployment-service-v3 Architecture & Purpose
+# Deployment System Architecture
 
-**Date:** February 25, 2026  
-**Repository:** deployment-service-v3  
-**Type:** **Deployment Orchestration Tool** (NOT a shared library)
+**Last Updated:** 2026-03-07
+**Repos:** deployment-service · deployment-api · deployment-ui · system-integration-tests
 
 ---
 
-## What UTDv3 Actually Is
+## Overview
 
-**deployment-service-v3 is a standalone deployment orchestration platform** that manages the deployment infrastructure for the entire Unified Trading System. It is **NOT** a shared library that services import or depend on.
+The deployment system is a four-repo cluster that manages the deployment lifecycle for all services in
+the Unified Trading System. It is a **standalone operational tool** — no trading service imports from
+it or depends on it at runtime.
 
-### Primary Purpose
-- **Deployment Orchestration:** Calculate and execute deployment shards for parallel processing
-- **Infrastructure Management:** Terraform modules for GCP/AWS infrastructure
-- **CI/CD Pipelines:** Automated Docker image builds and deployments  
-- **Deployment UI:** Self-service web interface for deployment management
-- **Monitoring Dashboard:** Track deployment status, not analyze results
-
-### Key Characteristics
-- **Standalone Tool:** Operates independently of services
-- **CLI Tool:** `deploy-shards` command for deployment operations
-- **Web Application:** UI at ports 8000 (API) and 5173 (frontend)
-- **DevOps Focus:** Deployment monitoring, not business logic
-- **Cloud Agnostic:** Supports GCP now, AWS migration planned
+```
+deployment-service     Core orchestration engine (shard calculator, VM/Cloud Run backends, config)
+deployment-api         FastAPI service exposing deployment operations over HTTP
+deployment-ui          React web UI (port 5173) for self-service deployment management
+system-integration-tests   Layer 3 smoke + e2e tests that validate deployments end-to-end
+```
 
 ---
 
-## Architecture Components
+## How Services Relate to the Deployment System
 
-### 1. Core Deployment Engine
+Services **are managed by** the deployment system — they do not import from it.
+
+| Services DO | Services DO NOT |
+|---|---|
+| Run inside containers orchestrated by deployment-service | Import deployment-service as a Python dependency |
+| Expose `/health` and `/readiness` endpoints | Call deployment-api at runtime |
+| Emit `SERVICE_STARTED` / `SERVICE_STOPPED` lifecycle events | Know about shard calculation or deployment topology |
+
+---
+
+## deployment-service
+
+The orchestration engine. Standalone CLI tool and library; no FastAPI server.
+
 ```
 deployment_service/
-├── shard_calculator.py      # Calculate parallel deployment shards
-├── orchestrator.py           # Orchestrate multi-service deployments
-├── monitor.py                # Monitor deployment status
-├── dependencies.py           # Service dependency graph
-└── catalog.py               # Data catalog tracking
+├── shard_calculator.py      # Parallelise work across date/venue/symbol dimensions
+├── orchestrator.py          # Multi-service deployment sequencing
+├── monitor.py               # Deployment status monitoring
+├── dependencies.py          # Service dependency graph (topological order)
+├── catalog.py               # Data catalog tracking
+├── cloud_client.py          # Cloud-agnostic storage (wraps get_storage_client())
+├── config_loader.py         # Runtime topology + config loading
+├── config/
+│   ├── base_config.py
+│   ├── config_validator.py
+│   └── env_substitutor.py   # Template substitution (# config-bootstrap layer)
+├── backends/
+│   ├── vm.py                # Compute Engine VM backend
+│   ├── cloud_run.py         # Cloud Run backend
+│   └── provider_factory.py  # Backend selection
+└── cli/                     # Click commands: deploy, monitor, shard
 ```
 
-### 2. Cloud Abstraction Layer
-```
-deployment_service/
-├── cloud_client.py          # Cloud-agnostic storage (wraps GCS/S3)
-├── config_loader.py         # Configuration management
-└── config/
-    ├── base_config.py       # Base configuration classes
-    ├── config_validator.py  # Configuration validation
-    └── env_substitutor.py   # Environment variable substitution
-```
+### Deployment Modes
 
-### 3. Backend Executors
-```
-backends/
-├── vm.py                    # VM-based deployment backend
-├── cloud_run.py             # Cloud Run deployment backend
-└── services/
-    ├── vm_config.py         # VM configuration
-    └── quota_manager.py     # Quota management
-```
+| Mode | Transport | Compute | Trigger |
+|---|---|---|---|
+| Batch | Date-sharded | Cloud Run ephemeral jobs | Cloud Build / cron |
+| Live | Scheduled | Cloud Run persistent / GCE VM | Cloud Build on merge |
 
-### 4. API & Web UI
-```
-api/
-├── main.py                  # FastAPI application
-├── routes/
-│   ├── deployments.py       # Deployment management endpoints
-│   ├── data_status.py       # Data status monitoring
-│   └── health.py            # Health checks
-└── services/
-    ├── deployment_manager.py # Deployment orchestration
-    └── deployment_state.py   # State management
-```
+### Sharding
 
-### 5. Infrastructure as Code
-```
-terraform/
-├── modules/                 # Reusable Terraform modules
-├── services/                # Service-specific infrastructure
-│   ├── instruments-service/
-│   ├── market-tick-data-handler/
-│   └── ...
-└── shared/                  # Shared infrastructure
-    ├── gcp/                 # GCP-specific resources
-    └── aws/                 # AWS-specific resources (future)
-```
-
-### 6. Service Configurations
-```
-configs/
-├── checklist.*.yaml         # Service capability checklists
-├── data-catalogue.*.yaml    # Data catalog definitions
-├── sharding.*.yaml          # Sharding configurations
-└── bucket_config.yaml       # Storage bucket configurations
-```
+Shard calculator partitions work across (date × venue × symbol) then dispatches shards to parallel
+Cloud Run jobs or VMs. Zone failover and quota management are handled by `backends/`.
 
 ---
 
-## How Services Interact with UTDv3
+## deployment-api
 
-### Services DO NOT:
-- ❌ Import UTDv3 as a Python dependency
-- ❌ Use UTDv3 classes/functions in their code
-- ❌ Depend on UTDv3 for runtime operations
-- ❌ Call UTDv3 APIs programmatically (typically)
+FastAPI HTTP service that exposes deployment-service operations for the UI and operator tooling.
 
-### Services ARE Managed By UTDv3:
-- ✅ Deployed through UTDv3's orchestration
-- ✅ Monitored via UTDv3's dashboard
-- ✅ Configured in UTDv3's YAML files
-- ✅ Sharded by UTDv3 for parallel execution
-
-### Deployment Flow
 ```
-Developer/Operator
-        ↓
-   UTDv3 CLI/UI
-        ↓
-  Shard Calculator
-        ↓
-  Deployment API
-        ↓
-  Backend Executor (VM/Cloud Run)
-        ↓
-  Service Container (Docker)
+deployment_api/
+├── api/routes/
+│   ├── deployments.py   # POST /deployments, GET /deployments/{id}
+│   ├── data_status.py   # GET /data-status
+│   └── health.py        # GET /health, GET /readiness
+└── services/
+    ├── deployment_manager.py
+    └── deployment_state.py
 ```
+
+Auth: operator IAM service account token. Not exposed to the internet — internal VPC only.
+
+---
+
+## deployment-ui
+
+React SPA at port 5173. Communicates exclusively with deployment-api over the internal VPC.
+
+---
+
+## system-integration-tests
+
+Layer 3 (smoke + e2e) tests per the 5-layer integration testing strategy:
+- **Layer 3a smoke**: fast pre-deploy gate — `/health`, `/readiness` on all services
+- **Layer 3b e2e**: full pipeline smoke — deploy → run batch → verify outputs in GCS
+
+---
+
+## Infrastructure as Code
+
+Terraform modules in `deployment-service/infra/`:
+
+```
+infra/
+└── ibkr-gateway/   # IB Gateway infrastructure (IBKR connectivity)
+```
+
+Service-level GCP resources (VMs, Cloud Run services, IAM) are defined per-service in each service repo's
+`infra/` or `buildspec.aws.yaml` / `cloudbuild.yaml`.
 
 ---
 
 ## Design Principles
 
-### 1. Cloud Agnostic
-- `CloudClient` wraps cloud-specific storage (GCS now, S3 later)
-- Terraform modules abstract cloud providers
-- Configuration is cloud-independent
-
-### 2. Service Independence
-- Services don't know about UTDv3
-- UTDv3 orchestrates services without code coupling
-- Clean separation of concerns
-
-### 3. Parallel Execution
-- Shard calculation enables massive parallelization
-- Zone failover for high availability
-- Quota management prevents resource exhaustion
-
-### 4. Self-Service
-- Web UI for non-technical users
-- CLI for automation
-- API for programmatic access (if needed)
+1. **Services are unaware of deployment tooling.** No deployment-service import in any trading service.
+2. **Cloud-agnostic.** `cloud_client.py` routes through `get_storage_client()` from `unified-cloud-interface`.
+   Direct cloud SDK usage only in `unified_cloud_interface/providers/` (approved permanent exception).
+3. **Topology SSOT.** Runtime topology decisions come from `unified-trading-pm/configs/runtime-topology.yaml`,
+   read via `unified_config_interface.topology_reader`. deployment-service does not duplicate this.
+4. **Parallel by default.** Shard calculator maximises parallelism; sequential is the fallback for
+   services with strict DAG ordering.
 
 ---
 
 ## Key Technologies
 
-### Backend
-- **Python 3.13:** Core orchestration engine
-- **FastAPI:** REST API framework
-- **Click:** CLI framework
-- **Terraform:** Infrastructure as Code
-- **Docker:** Container orchestration
-
-### Frontend
-- **React/Vue:** Web UI (port 5173)
-- **WebSockets:** Real-time deployment updates
-
-### Cloud Services
-- **Google Cloud Storage:** State and artifact storage
-- **Cloud Run:** Serverless compute backend
-- **Compute Engine:** VM-based compute backend
-- **Cloud Build:** CI/CD pipelines
-
-### Observability
-- **Structured Logging:** Using UEI for event logging
-- **Metrics:** Deployment success rates, durations
-- **Health Checks:** Service availability monitoring
-
----
-
-## Deployment Modes
-
-### 1. Batch Mode
-- Date-based sharding for historical processing
-- Ephemeral Cloud Run jobs
-- Parallel execution across dates/venues/symbols
-
-### 2. Live Mode (v3 addition)
-- Scheduled Cloud Run jobs (e.g., every 15 minutes)
-- Persistent state management
-- Real-time monitoring
-
----
-
-## Security Considerations
-
-### Current Issues to Fix:
-- ❌ Hardcoded project IDs → Move to configuration
-- ❌ Direct environment variables → Use ConfigLoader
-- ❌ Broad exception handling → Specific error handling
-
-### Best Practices:
-- ✅ Service account isolation
-- ✅ Least privilege access
-- ✅ Secrets in Secret Manager
-- ✅ Audit logging
-
----
-
-## Clarifications
-
-### UTDv3 is NOT:
-- ❌ A shared library for services to import
-- ❌ A dependency services need in their code
-- ❌ Part of service runtime operations
-- ❌ An analysis platform (that's separate)
-
-### UTDv3 IS:
-- ✅ A deployment orchestration platform
-- ✅ A DevOps monitoring dashboard
-- ✅ An infrastructure management tool
-- ✅ A standalone deployment service
-
----
-
-## Future Roadmap
-
-### Near Term
-- Fix technical debt (lazy imports, type errors)
-- Improve test coverage to 35%+
-- Add UEI structured logging
-- Remove hardcoded values
-
-### Medium Term
-- AWS support (cloud-agnostic goal)
-- Enhanced monitoring capabilities
-- Automated rollback mechanisms
-- Cost optimization features
-
-### Long Term
-- Multi-region deployments
-- Advanced orchestration patterns
-- Integration with analysis platform
-- ML-based deployment optimization
-
----
-
-## Conclusion
-
-UTDv3 is a **deployment orchestration tool**, not a shared library. Its purpose is to manage the deployment lifecycle of all services in the Unified Trading System without requiring services to have any knowledge of or dependency on UTDv3 itself. This clean separation ensures services remain focused on business logic while UTDv3 handles the complexity of deployment orchestration.
+| Layer | Technology |
+|---|---|
+| Orchestration | Python 3.13, Click CLI |
+| API | FastAPI, uvicorn |
+| UI | React, Vite |
+| CI/CD | Cloud Build (GCP), GitHub Actions |
+| IaC | Terraform |
+| Containers | Docker, Artifact Registry |
+| Observability | UEI log_event(), Cloud Monitoring |
