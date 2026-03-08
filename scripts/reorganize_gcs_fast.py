@@ -15,7 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import logging
+
 from _common import get_project_id
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ID = get_project_id()
 BUCKET = f"gs://market-data-tick-tradfi-{_PROJECT_ID}"
@@ -135,7 +139,7 @@ OPTIONS_VENUE_MAP = {
 
 
 def log(msg):
-    print(
+    logger.info(
         f"[{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
         flush=True,
     )
@@ -218,10 +222,14 @@ def process_date_folder(date_folder, dry_run=False, parallel_threads=20):
 
     # Get list of data_type folders
     try:
-        result = subprocess.run(["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30
+        )
         if result.returncode != 0:
             return 0
-        data_type_folders = [f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f]
+        data_type_folders = [
+            f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f
+        ]
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return 0
 
@@ -305,7 +313,9 @@ def main():
         default=20,
         help="Parallel file moves per folder (default: 20)",
     )
-    parser.add_argument("--date-workers", type=int, default=5, help="Parallel date folders (default: 5)")
+    parser.add_argument(
+        "--date-workers", type=int, default=5, help="Parallel date folders (default: 5)"
+    )
     parser.add_argument(
         "--cpu-cores",
         type=int,
@@ -376,7 +386,9 @@ def main():
 
     # Process date folders in parallel batches
     with ThreadPoolExecutor(max_workers=args.date_workers) as executor:
-        tasks = [(df, args.dry_run, args.workers, i + 1, total) for i, df in enumerate(date_folders)]
+        tasks = [
+            (df, args.dry_run, args.workers, i + 1, total) for i, df in enumerate(date_folders)
+        ]
         results = list(executor.map(process_date_wrapper, tasks))
         total_moved = sum(results)
 

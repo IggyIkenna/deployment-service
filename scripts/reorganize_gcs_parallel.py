@@ -15,7 +15,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import logging
+
 from _common import get_project_id
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ID = get_project_id()
 BUCKET = f"gs://market-data-tick-tradfi-{_PROJECT_ID}"
@@ -135,7 +139,7 @@ OPTIONS_VENUE_MAP = {
 
 
 def log(msg):
-    print(
+    logger.info(
         f"[{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
         flush=True,
     )
@@ -204,10 +208,14 @@ def process_date_folder(date_folder, dry_run=False, max_workers=5):
 
     # Get list of data_type folders
     try:
-        result = subprocess.run(["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30
+        )
         if result.returncode != 0:
             return 0
-        data_type_folders = [f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f]
+        data_type_folders = [
+            f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f
+        ]
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return 0
 
@@ -271,7 +279,9 @@ def process_date_folder(date_folder, dry_run=False, max_workers=5):
 
     # Execute moves in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(move_file, src, dst, dry_run): (src, dst) for src, dst in move_tasks}
+        futures = {
+            executor.submit(move_file, src, dst, dry_run): (src, dst) for src, dst in move_tasks
+        }
 
         for future in as_completed(futures):
             src, _dst = futures[future]
@@ -287,8 +297,12 @@ def process_date_folder(date_folder, dry_run=False, max_workers=5):
 
 def main():
     parser = argparse.ArgumentParser(description="Reorganize GCS files into venue subfolders")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be done without moving")
-    parser.add_argument("--workers", type=int, default=5, help="Number of parallel workers (default: 5)")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be done without moving"
+    )
+    parser.add_argument(
+        "--workers", type=int, default=5, help="Number of parallel workers (default: 5)"
+    )
     parser.add_argument("--start-date", type=str, help="Start from this date (YYYY-MM-DD)")
     parser.add_argument("--limit", type=int, help="Limit number of date folders to process")
     args = parser.parse_args()

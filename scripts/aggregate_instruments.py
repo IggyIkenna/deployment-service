@@ -35,7 +35,11 @@ import polars as pl
 from unified_cloud_interface import get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
+import logging
+
 from _common import get_project_id
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # CONFIGURATION
@@ -52,7 +56,7 @@ AGGREGATED_PREFIX = "aggregated"
 
 def log(msg: str) -> None:
     """Print timestamped log message."""
-    print(
+    logger.info(
         f"[{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
         flush=True,
     )
@@ -140,7 +144,9 @@ def aggregate_instruments(
     log(f"Deduplicating by '{dedup_col}'...")
     if timestamp_col and timestamp_col in sample_schema:
         # Sort by timestamp descending, then take first per instrument_key
-        deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
+        deduped = (
+            combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
+        )
     else:
         # No timestamp column, just take first occurrence
         log("WARNING: No timestamp column found, taking first occurrence per instrument")
@@ -180,6 +186,7 @@ def upload_to_gcs(local_path: str, bucket_name: str, gcs_path: str) -> bool:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Aggregate instrument definition parquet files",
         formatter_class=argparse.RawDescriptionHelpFormatter,

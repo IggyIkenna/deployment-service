@@ -207,7 +207,9 @@ def get_all_required_buckets(
             # Handle shared bucket services (no category)
             if not categories:
                 # Shared bucket - resolve without category
-                bucket_name = resolve_bucket_name(bucket_template, "", project_id, cloud, cloud_config)
+                bucket_name = resolve_bucket_name(
+                    bucket_template, "", project_id, cloud, cloud_config
+                )
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -240,7 +242,9 @@ def get_all_required_buckets(
             else:
                 # Category-specific buckets
                 for category in categories:
-                    bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config)
+                    bucket_name = resolve_bucket_name(
+                        bucket_template, category, project_id, cloud, cloud_config
+                    )
 
                     if bucket_name and bucket_name not in seen_buckets:
                         # Add production bucket (unless test_only)
@@ -285,7 +289,9 @@ def get_all_required_buckets(
             categories = dep_categories if dep_categories else get_service_categories(service_name)
 
             for category in categories:
-                bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config)
+                bucket_name = resolve_bucket_name(
+                    bucket_template, category, project_id, cloud, cloud_config
+                )
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -353,7 +359,9 @@ def get_service_categories(service_name: str) -> list[str]:
     return config["service_categories"]["default_categories"]
 
 
-def resolve_bucket_name(template: str, category: str, project_id: str, cloud: str, cloud_config: dict) -> str | None:
+def resolve_bucket_name(
+    template: str, category: str, project_id: str, cloud: str, cloud_config: dict
+) -> str | None:
     """Resolve a bucket name from template."""
     cat_lower = category.lower()
     config = load_bucket_config(get_config_dir())
@@ -373,7 +381,9 @@ def resolve_bucket_name(template: str, category: str, project_id: str, cloud: st
         return convert_to_aws_bucket_name(template, cat_lower, project_id, cloud_config)
 
 
-def convert_to_aws_bucket_name(gcp_template: str, category: str, account_id: str, cloud_config: dict) -> str:
+def convert_to_aws_bucket_name(
+    gcp_template: str, category: str, account_id: str, cloud_config: dict
+) -> str:
     """Convert a GCP bucket template to AWS S3 bucket name."""
     config = load_bucket_config(get_config_dir())
     mappings = config["aws_bucket_mappings"]
@@ -450,32 +460,43 @@ def create_gcs_bucket(
     settings = config["bucket_settings"]["gcp"]
 
     if bucket_exists_gcs(bucket_name):
-        print(f"  [EXISTS] gs://{bucket_name}")
+        logger.info(f"  [EXISTS] gs://{bucket_name}")
         return True
 
     bucket_type = "TEST" if is_test else "PROD"
     if dry_run:
-        print(f"  [DRY-RUN] Would create gs://{bucket_name} ({bucket_type})")
+        logger.info(f"  [DRY-RUN] Would create gs://{bucket_name} ({bucket_type})")
         return True
 
-    print(f"  [CREATE] gs://{bucket_name} ({bucket_type})")
+    logger.info(f"  [CREATE] gs://{bucket_name} ({bucket_type})")
 
     try:
         # Create bucket with configured settings
-        create_args = ["gsutil", "mb", "-p", project_id, "-c", settings["storage_class"], "-l", region]
+        create_args = [
+            "gsutil",
+            "mb",
+            "-p",
+            project_id,
+            "-c",
+            settings["storage_class"],
+            "-l",
+            region,
+        ]
         if settings["uniform_bucket_access"]:
             create_args.extend(["-b", "on"])
         create_args.append(f"gs://{bucket_name}")
 
         result = subprocess.run(create_args, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
-            print(f"    ERROR: {result.stderr}")
+            logger.info(f"    ERROR: {result.stderr}")
             return False
 
         # Enable versioning if configured
         if settings["versioning"]:
             subprocess.run(
-                ["gsutil", "versioning", "set", "on", f"gs://{bucket_name}"], capture_output=True, timeout=30
+                ["gsutil", "versioning", "set", "on", f"gs://{bucket_name}"],
+                capture_output=True,
+                timeout=30,
             )
 
         # Set lifecycle rule from configuration
@@ -486,7 +507,10 @@ def create_gcs_bucket(
         lifecycle_config = {
             "rule": [
                 {
-                    "action": {"type": lifecycle_rule["action"], "storageClass": lifecycle_rule["storage_class"]},
+                    "action": {
+                        "type": lifecycle_rule["action"],
+                        "storageClass": lifecycle_rule["storage_class"],
+                    },
                     "condition": {"age": lifecycle_days},
                 }
             ]
@@ -497,7 +521,9 @@ def create_gcs_bucket(
             json.dump(lifecycle_config, f)
 
         subprocess.run(
-            ["gsutil", "lifecycle", "set", lifecycle_file, f"gs://{bucket_name}"], capture_output=True, timeout=30
+            ["gsutil", "lifecycle", "set", lifecycle_file, f"gs://{bucket_name}"],
+            capture_output=True,
+            timeout=30,
         )
         os.remove(lifecycle_file)
 
@@ -509,16 +535,22 @@ def create_gcs_bucket(
             labels += f",category:{category.lower()}"
         labels += f",environment:{'test' if is_test else 'production'}"
 
-        subprocess.run(["gsutil", "label", "ch", "-l", labels, f"gs://{bucket_name}"], capture_output=True, timeout=30)
+        subprocess.run(
+            ["gsutil", "label", "ch", "-l", labels, f"gs://{bucket_name}"],
+            capture_output=True,
+            timeout=30,
+        )
 
-        print(f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})")
+        logger.info(
+            f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})"
+        )
         return True
 
     except subprocess.TimeoutExpired:
-        print("    ERROR: Timeout creating bucket")
+        logger.info("    ERROR: Timeout creating bucket")
         return False
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"    ERROR: {e}")
+        logger.info(f"    ERROR: {e}")
         return False
 
 
@@ -537,15 +569,15 @@ def create_s3_bucket(
     settings = config["bucket_settings"]["aws"]
 
     if bucket_exists_s3(bucket_name):
-        print(f"  [EXISTS] s3://{bucket_name}")
+        logger.info(f"  [EXISTS] s3://{bucket_name}")
         return True
 
     bucket_type = "TEST" if is_test else "PROD"
     if dry_run:
-        print(f"  [DRY-RUN] Would create s3://{bucket_name} ({bucket_type})")
+        logger.info(f"  [DRY-RUN] Would create s3://{bucket_name} ({bucket_type})")
         return True
 
-    print(f"  [CREATE] s3://{bucket_name} ({bucket_type})")
+    logger.info(f"  [CREATE] s3://{bucket_name} ({bucket_type})")
 
     try:
         # Create bucket
@@ -557,7 +589,7 @@ def create_s3_bucket(
 
         result = subprocess.run(create_cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
-            print(f"    ERROR: {result.stderr}")
+            logger.info(f"    ERROR: {result.stderr}")
             return False
 
         # Enable versioning if configured
@@ -578,7 +610,13 @@ def create_s3_bucket(
 
         # Enable encryption from configuration
         encryption_config = {
-            "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": settings["encryption"]["algorithm"]}}]
+            "Rules": [
+                {
+                    "ApplyServerSideEncryptionByDefault": {
+                        "SSEAlgorithm": settings["encryption"]["algorithm"]
+                    }
+                }
+            ]
         }
         subprocess.run(
             [
@@ -606,20 +644,28 @@ def create_s3_bucket(
             tags.append({"Key": "Category", "Value": category})
 
         subprocess.run(
-            ["aws", "s3api", "put-bucket-tagging", "--bucket", bucket_name, "--tagging", json.dumps({"TagSet": tags})],
+            [
+                "aws",
+                "s3api",
+                "put-bucket-tagging",
+                "--bucket",
+                bucket_name,
+                "--tagging",
+                json.dumps({"TagSet": tags}),
+            ],
             capture_output=True,
             timeout=30,
         )
 
         encryption_alg = settings["encryption"]["algorithm"]
-        print(f"    OK (versioning=on, encryption={encryption_alg})")
+        logger.info(f"    OK (versioning=on, encryption={encryption_alg})")
         return True
 
     except subprocess.TimeoutExpired:
-        print("    ERROR: Timeout creating bucket")
+        logger.info("    ERROR: Timeout creating bucket")
         return False
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"    ERROR: {e}")
+        logger.info(f"    ERROR: {e}")
         return False
 
 
@@ -665,7 +711,7 @@ def main():
     # Get config directory
     config_dir = args.config_dir or get_config_dir()
     if not config_dir.exists():
-        print(f"ERROR: Config directory not found: {config_dir}")
+        logger.info(f"ERROR: Config directory not found: {config_dir}")
         sys.exit(1)
 
     # Load and validate bucket configuration
@@ -673,7 +719,7 @@ def main():
         bucket_config = load_bucket_config(config_dir)
         validate_config(bucket_config)
     except (FileNotFoundError, ValueError) as e:
-        print(f"ERROR: Configuration error: {e}")
+        logger.info(f"ERROR: Configuration error: {e}")
         sys.exit(1)
 
     # Get project/account ID and region from configuration or args
@@ -691,10 +737,10 @@ def main():
 
         if not project_id:
             if args.cloud == "aws":
-                print("ERROR: AWS_ACCOUNT_ID not set and could not determine from AWS CLI")
-                print("Run: aws sts get-caller-identity")
+                logger.info("ERROR: AWS_ACCOUNT_ID not set and could not determine from AWS CLI")
+                logger.info("Run: aws sts get-caller-identity")
             else:
-                print("ERROR: GCP_PROJECT_ID not set")
+                logger.info("ERROR: GCP_PROJECT_ID not set")
             sys.exit(1)
 
     # Get all required buckets
@@ -708,7 +754,7 @@ def main():
     )
 
     if not buckets:
-        print("No buckets to create.")
+        logger.info("No buckets to create.")
         sys.exit(0)
 
     # Count production vs test buckets
@@ -716,63 +762,69 @@ def main():
     test_buckets = [b for b in buckets if b.get("is_test", False)]
 
     # Print header
-    print()
-    print("=" * 70)
-    print("Unified Trading System - Bucket Setup")
-    print("=" * 70)
-    print(f"Cloud Provider: {args.cloud.upper()}")
-    print(f"Project/Account: {project_id}")
-    print(f"Region: {region}")
-    print(f"Total Buckets: {len(buckets)}")
+    logger.info()
+    logger.info("=" * 70)
+    logger.info("Unified Trading System - Bucket Setup")
+    logger.info("=" * 70)
+    logger.info(f"Cloud Provider: {args.cloud.upper()}")
+    logger.info(f"Project/Account: {project_id}")
+    logger.info(f"Region: {region}")
+    logger.info(f"Total Buckets: {len(buckets)}")
     if args.include_test or args.test_only:
-        print(f"  - Production: {len(prod_buckets)}")
-        print(f"  - Test: {len(test_buckets)}")
+        logger.info(f"  - Production: {len(prod_buckets)}")
+        logger.info(f"  - Test: {len(test_buckets)}")
     if args.service:
-        print(f"Service Filter: {args.service}")
+        logger.info(f"Service Filter: {args.service}")
     if args.test_only:
-        print("Mode: TEST BUCKETS ONLY")
+        logger.info("Mode: TEST BUCKETS ONLY")
     elif args.include_test:
-        print("Mode: Production + Test Buckets")
-    print("=" * 70)
-    print()
+        logger.info("Mode: Production + Test Buckets")
+    logger.info("=" * 70)
+    logger.info()
 
     # List only mode
     if args.list_only:
         if args.include_test or args.test_only:
             # Separate production and test buckets in output
             if prod_buckets and not args.test_only:
-                print("Production buckets:")
-                print()
+                logger.info("Production buckets:")
+                logger.info()
                 for bucket in prod_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
-                    print(f"  {prefix}{bucket['name']}")
-                    print(f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}")
-                print()
+                    logger.info(f"  {prefix}{bucket['name']}")
+                    logger.info(
+                        f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
+                    )
+                logger.info()
 
             if test_buckets:
-                print("Test buckets (for quality gates and CI/CD):")
-                print()
+                logger.info("Test buckets (for quality gates and CI/CD):")
+                logger.info()
                 for bucket in test_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
-                    print(f"  {prefix}{bucket['name']}")
-                    print(f"      Service: {bucket['service']}, Category: {bucket['category']}")
-                print()
+                    logger.info(f"  {prefix}{bucket['name']}")
+                    logger.info(
+                        f"      Service: {bucket['service']}, Category: {bucket['category']}"
+                    )
+                logger.info()
         else:
-            print("Required buckets:")
-            print()
+            logger.info("Required buckets:")
+            logger.info()
             for bucket in buckets:
                 prefix = "gs://" if args.cloud == "gcp" else "s3://"
-                print(f"  {prefix}{bucket['name']}")
-                print(f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}")
-            print()
+                logger.info(f"  {prefix}{bucket['name']}")
+                logger.info(
+                    f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
+                )
+            logger.info()
 
         # Print env var suggestions for services
         if args.include_test or args.test_only:
-            print("=" * 70)
-            print("Environment Variables for Test Buckets")
-            print("=" * 70)
-            print("Add these to your .env files or CI/CD configuration:")
-            print()
+            logger.info("=" * 70)
+            logger.info("Environment Variables for Test Buckets")
+            logger.info("=" * 70)
+            logger.info("Add these to your .env files or CI/CD configuration:")
+            logger.info()
             for bucket in test_buckets:
                 # Generate env var name from bucket name
                 service_name = bucket["service"].replace("-", "_").upper()
@@ -781,8 +833,8 @@ def main():
                     env_var = f"{service_name.replace('_SERVICE', '')}_GCS_BUCKET_{category}_TEST"
                 else:
                     env_var = f"{service_name.replace('_SERVICE', '')}_GCS_BUCKET_TEST"
-                print(f"  {env_var}={bucket['name']}")
-            print()
+                logger.info(f"  {env_var}={bucket['name']}")
+            logger.info()
 
         sys.exit(0)
 
@@ -798,7 +850,7 @@ def main():
         try:
             subprocess.run(["aws", "--version"], capture_output=True, timeout=10)
         except (OSError, ValueError, RuntimeError):
-            print("ERROR: aws CLI not found. Install AWS CLI.")
+            logger.info("ERROR: aws CLI not found. Install AWS CLI.")
             sys.exit(1)
 
     # Create buckets
@@ -830,7 +882,11 @@ def main():
             )
 
         if success:
-            if bucket_exists_gcs(bucket["name"]) if args.cloud == "gcp" else bucket_exists_s3(bucket["name"]):
+            if (
+                bucket_exists_gcs(bucket["name"])
+                if args.cloud == "gcp"
+                else bucket_exists_s3(bucket["name"])
+            ):
                 skipped += 1
             else:
                 created += 1
@@ -838,23 +894,23 @@ def main():
             failed += 1
 
     # Print summary
-    print()
-    print("=" * 70)
-    print("Summary")
-    print("=" * 70)
+    logger.info()
+    logger.info("=" * 70)
+    logger.info("Summary")
+    logger.info("=" * 70)
     if args.dry_run:
-        print(f"  Would create: {len(buckets)} buckets")
+        logger.info(f"  Would create: {len(buckets)} buckets")
     else:
-        print(f"  Created: {created}")
-        print(f"  Already existed: {skipped}")
-        print(f"  Failed: {failed}")
-    print()
+        logger.info(f"  Created: {created}")
+        logger.info(f"  Already existed: {skipped}")
+        logger.info(f"  Failed: {failed}")
+    logger.info()
 
     if failed > 0:
-        print("Some buckets failed to create. Check permissions and try again.")
+        logger.info("Some buckets failed to create. Check permissions and try again.")
         sys.exit(1)
     else:
-        print("All buckets ready!")
+        logger.info("All buckets ready!")
 
 
 if __name__ == "__main__":

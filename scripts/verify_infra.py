@@ -311,20 +311,20 @@ def main() -> None:
     )
 
     if args.output == "json":
-        print(json.dumps(result.to_dict(), indent=2))
+        logger.info(json.dumps(result.to_dict(), indent=2))
     else:
-        print(f"\nInfra Verification — project: {result.project_id}")
-        print(f"Timestamp: {result.timestamp}")
-        print(f"Status: {'PASSED' if result.passed else 'FAILED'}")
-        print(f"Summary: {result.summary}")
-        print()
+        logger.info(f"\nInfra Verification — project: {result.project_id}")
+        logger.info(f"Timestamp: {result.timestamp}")
+        logger.info(f"Status: {'PASSED' if result.passed else 'FAILED'}")
+        logger.info(f"Summary: {result.summary}")
+        logger.info()
         for check in result.checks:
             icon = {"ok": "✓", "error": "✗", "skip": "~"}.get(check.status, "?")
-            print(f"  {icon} [{check.status.upper():5}] {check.name}")
+            logger.info(f"  {icon} [{check.status.upper():5}] {check.name}")
             if check.resource:
-                print(f"           resource: {check.resource}")
+                logger.info(f"           resource: {check.resource}")
             if check.error:
-                print(f"           error: {check.error}")
+                logger.info(f"           error: {check.error}")
 
     sys.exit(0 if result.passed else 1)
 

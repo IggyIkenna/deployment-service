@@ -29,10 +29,13 @@ Usage:
   python check_cloudbuild_args_limit.py --verbose ...      # Show per-step counts
 """
 
+import logging
 import sys
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 # Cloud Build quotas - https://cloud.google.com/build/quotas
 LIMITS = {
@@ -126,32 +129,38 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
     # Build-level limits
     if len(steps) > LIMITS["steps_per_build"]:
-        print(f"❌ {path}: {len(steps)} steps (max {LIMITS['steps_per_build']})")
+        logger.info(f"❌ {path}: {len(steps)} steps (max {LIMITS['steps_per_build']})")
         ok = False
 
     images = data.get("images") or []
     if len(images) > LIMITS["images_per_build"]:
-        print(f"❌ {path}: {len(images)} images (max {LIMITS['images_per_build']})")
+        logger.info(f"❌ {path}: {len(images)} images (max {LIMITS['images_per_build']})")
         ok = False
 
     tags = data.get("tags") or []
     if len(tags) > LIMITS["tags_per_build"]:
-        print(f"❌ {path}: {len(tags)} tags (max {LIMITS['tags_per_build']})")
+        logger.info(f"❌ {path}: {len(tags)} tags (max {LIMITS['tags_per_build']})")
         ok = False
 
     artifact_count = _count_artifact_paths(data.get("artifacts") or {})
     if artifact_count > LIMITS["artifact_paths_per_build"]:
-        print(f"❌ {path}: {artifact_count} artifact paths (max {LIMITS['artifact_paths_per_build']})")
+        logger.info(
+            f"❌ {path}: {artifact_count} artifact paths (max {LIMITS['artifact_paths_per_build']})"
+        )
         ok = False
 
     subs = data.get("substitutions") or {}
     if len(subs) > LIMITS["substitution_params"]:
-        print(f"❌ {path}: {len(subs)} substitution params (max {LIMITS['substitution_params']})")
+        logger.info(
+            f"❌ {path}: {len(subs)} substitution params (max {LIMITS['substitution_params']})"
+        )
         ok = False
 
     secret_refs = _collect_secret_env_refs(data)
     if len(secret_refs) > LIMITS["secret_env_per_build"]:
-        print(f"❌ {path}: {len(secret_refs)} unique secretEnv refs (max {LIMITS['secret_env_per_build']})")
+        logger.info(
+            f"❌ {path}: {len(secret_refs)} unique secretEnv refs (max {LIMITS['secret_env_per_build']})"
+        )
         ok = False
 
     # Step-level limits
@@ -165,21 +174,25 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
         if verbose:
             extra = f" (effective {effective_args})" if effective_args != len(args) else ""
             status = "⚠️" if effective_args > 80 or len(env) > 80 else "✓"
-            print(f"  {path.name} Step {i + 1} ({step_id}): args={len(args)}{extra}, env={len(env)} {status}")
+            logger.info(
+                f"  {path.name} Step {i + 1} ({step_id}): args={len(args)}{extra}, env={len(env)} {status}"
+            )
 
         if effective_args > LIMITS["args_per_step"]:
             msg = f"Step {i + 1} ({step_id}) has {effective_args} effective args (max {LIMITS['args_per_step']})"
             if effective_args != len(args):
                 msg += f" [raw YAML: {len(args)} + --set-env-vars expansion penalty]"
-            print(f"❌ {path}: {msg}")
+            logger.info(f"❌ {path}: {msg}")
             ok = False
         if len(env) > LIMITS["env_per_step"]:
-            print(f"❌ {path}: Step {i + 1} ({step_id}) has {len(env)} env vars (max {LIMITS['env_per_step']})")
+            logger.info(
+                f"❌ {path}: Step {i + 1} ({step_id}) has {len(env)} env vars (max {LIMITS['env_per_step']})"
+            )
             ok = False
 
         for j, arg in enumerate(args):
             if len(str(arg)) > LIMITS["arg_value_length"]:
-                print(
+                logger.info(
                     f"❌ {path}: Step {i + 1} ({step_id}) arg[{j}] length {len(str(arg))} "
                     f"(max {LIMITS['arg_value_length']})"
                 )
@@ -187,7 +200,7 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
         name_val = step.get("name") or ""
         if len(str(name_val)) > LIMITS["step_name_length"]:
-            print(
+            logger.info(
                 f"❌ {path}: Step {i + 1} ({step_id}) name length {len(str(name_val))} "
                 f"(max {LIMITS['step_name_length']})"
             )
@@ -195,12 +208,14 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
         dir_val = step.get("dir") or ""
         if dir_val and len(str(dir_val)) > LIMITS["dir_length"]:
-            print(f"❌ {path}: Step {i + 1} ({step_id}) dir length {len(str(dir_val))} (max {LIMITS['dir_length']})")
+            logger.info(
+                f"❌ {path}: Step {i + 1} ({step_id}) dir length {len(str(dir_val))} (max {LIMITS['dir_length']})"
+            )
             ok = False
 
         for j, ev in enumerate(env):
             if len(str(ev)) > LIMITS["env_value_length"]:
-                print(
+                logger.info(
                     f"❌ {path}: Step {i + 1} ({step_id}) env[{j}] length {len(str(ev))} "
                     f"(max {LIMITS['env_value_length']})"
                 )
@@ -210,6 +225,7 @@ def check_cloudbuild(path: Path, verbose: bool = False) -> bool:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     argv = list(sys.argv[1:])
     verbose = False
     if "--verbose" in argv or "-v" in argv:
@@ -221,27 +237,27 @@ def main() -> int:
     else:
         paths = [Path("cloudbuild.yaml")]
         if not paths[0].exists():
-            print("No cloudbuild.yaml in cwd; pass path(s) as arguments")
+            logger.info("No cloudbuild.yaml in cwd; pass path(s) as arguments")
             return 0  # Skip, not fail
 
     if verbose:
-        print("Cloud Build limits (cloud.google.com/build/quotas):")
+        logger.info("Cloud Build limits (cloud.google.com/build/quotas):")
         for k, v in LIMITS.items():
-            print(f"  {k}: {v}")
-        print()
+            logger.info(f"  {k}: {v}")
+        logger.info()
 
     all_ok = True
     for p in paths:
         p = Path(p).resolve()
         if not p.exists():
-            print(f"❌ {p}: File not found")
+            logger.info(f"❌ {p}: File not found")
             all_ok = False
             continue
         if not check_cloudbuild(p, verbose=verbose):
             all_ok = False
 
     if all_ok and paths:
-        print("✅ All Cloud Build limits satisfied")
+        logger.info("✅ All Cloud Build limits satisfied")
     return 0 if all_ok else 1
 
 
