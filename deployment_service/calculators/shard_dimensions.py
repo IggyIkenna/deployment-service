@@ -25,7 +25,12 @@ _config = DeploymentConfig()
 class DimensionProcessor:
     """Handles processing of different dimension types for shard calculation."""
 
-    def __init__(self, config_loader: "ConfigLoader", cloud_client: "CloudClient", venues_config: dict[str, object]):
+    def __init__(
+        self,
+        config_loader: "ConfigLoader",
+        cloud_client: "CloudClient",
+        venues_config: dict[str, object],
+    ):
         """
         Initialize dimension processor.
 
@@ -146,13 +151,19 @@ class DimensionProcessor:
         for parent_val in parent_vals:
             parent_val_str = str(parent_val)
             if dim_name == "venue":
-                category_config = cast(dict[str, object], self.venues_config["categories"]).get(parent_val_str, {})
-                venues: list[object] = cast(list[object], cast(dict[str, object], category_config).get("venues") or [])
+                category_config = cast(dict[str, object], self.venues_config["categories"]).get(
+                    parent_val_str, {}
+                )
+                venues: list[object] = cast(
+                    list[object], cast(dict[str, object], category_config).get("venues") or []
+                )
                 for venue in venues:
                     all_tuples.append((parent_val, venue))
                     all_values.add(venue)
             elif dim_name == "data_type":
-                category_config = cast(dict[str, object], self.venues_config["categories"]).get(parent_val_str, {})
+                category_config = cast(dict[str, object], self.venues_config["categories"]).get(
+                    parent_val_str, {}
+                )
                 data_types: list[object] = cast(
                     list[object], cast(dict[str, object], category_config).get("data_types") or []
                 )
@@ -235,10 +246,14 @@ class DimensionProcessor:
         parent_values: dict[str, list[object]],
     ) -> list[str]:
         """List config files from cloud storage at runtime."""
-        if cloud_config_path and (cloud_config_path.startswith("gs://") or cloud_config_path.startswith("s3://")):
+        if cloud_config_path and (
+            cloud_config_path.startswith("gs://") or cloud_config_path.startswith("s3://")
+        ):
             # User provided cloud config directory
             logger.info("[CLOUD_CONFIG] Discovering configs from: %s", cloud_config_path)
-            all_files: list[str] = self.cloud_client.list_files(cloud_config_path, "**/*.json", max_results=50000)
+            all_files: list[str] = self.cloud_client.list_files(
+                cloud_config_path, "**/*.json", max_results=50000
+            )
 
             # Filter out non-config files
             excluded_filenames = {
@@ -250,7 +265,9 @@ class DimensionProcessor:
             files: list[str] = [
                 f
                 for f in all_files
-                if not any(f.endswith(f"/{excl}") or f.endswith(excl) for excl in excluded_filenames)
+                if not any(
+                    f.endswith(f"/{excl}") or f.endswith(excl) for excl in excluded_filenames
+                )
             ]
 
             if len(files) < len(all_files):
@@ -260,8 +277,8 @@ class DimensionProcessor:
             logger.info("[CLOUD_CONFIG] Found %s config files", len(files))
             return files
 
-        # Use template from config
-        bucket_template_raw = dim.get("source_bucket")
+        # Use template from config — support both field names for backwards compatibility
+        bucket_template_raw = dim.get("source_bucket") or dim.get("gcs_bucket_template")
         prefix = str(dim.get("gcs_prefix", "") or "")
         file_pattern = str(dim.get("file_pattern", "*") or "*")
 

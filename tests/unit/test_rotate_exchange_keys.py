@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
+
+import flask as _flask
+
+# Flask app used to provide application context for flask.make_response() calls
+# inside the rotate_exchange_keys Cloud Function during unit tests.
+_TEST_APP = _flask.Flask(__name__)
 
 
 def _make_secret(name: str, labels: dict[str, str]) -> MagicMock:
@@ -18,30 +24,44 @@ def _make_secret(name: str, labels: dict[str, str]) -> MagicMock:
 class TestMaxAgeDays:
     def test_trade_category_returns_trade_max(self):
         import sys
-        sys.path.insert(0, "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys")
+
+        sys.path.insert(
+            0,
+            "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys",
+        )
         import importlib
+
         import main as m
+
         importlib.reload(m)
         assert m._max_age_days("any-secret", "trade") == m._TRADE_MAX_DAYS
 
     def test_data_category_returns_data_max(self):
         import sys
-        sys.path.insert(0, "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys")
+
+        sys.path.insert(
+            0,
+            "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys",
+        )
         import main as m
+
         assert m._max_age_days("any-secret", "data") == m._DATA_MAX_DAYS
 
     def test_infer_trade_from_name(self):
         import main as m
+
         result = m._max_age_days("binance-api-key", None)
         assert result == m._TRADE_MAX_DAYS
 
     def test_infer_data_from_name(self):
         import main as m
+
         result = m._max_age_days("tardis-api-key", None)
         assert result == m._DATA_MAX_DAYS
 
     def test_conservative_default_for_unknown(self):
         import main as m
+
         result = m._max_age_days("unknown-key-xyz", None)
         assert result == m._TRADE_MAX_DAYS  # conservative
 
@@ -49,17 +69,20 @@ class TestMaxAgeDays:
 class TestDaysSinceRotation:
     def test_returns_days_since_date(self):
         import main as m
+
         last = (date.today() - timedelta(days=30)).isoformat()
         result = m._days_since_rotation({"last_rotated": last})
         assert result == 30
 
     def test_returns_none_when_label_missing(self):
         import main as m
+
         result = m._days_since_rotation({})
         assert result is None
 
     def test_returns_none_for_invalid_date_string(self):
         import main as m
+
         result = m._days_since_rotation({"last_rotated": "not-a-date"})
         assert result is None
 
@@ -98,16 +121,21 @@ class TestRotateExchangeKeys:
     def _run_function(self, secrets: list[MagicMock], env_overrides: dict | None = None):
         """Run the Cloud Function with mocked dependencies."""
         import sys
-        sys.path.insert(0, "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys")
+
+        sys.path.insert(
+            0,
+            "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys",
+        )
 
         env = {"PROJECT_ID": "test-project", "ALERT_TOPIC": "secret-rotation-alerts"}
         if env_overrides:
             env.update(env_overrides)
 
-        with patch.dict("os.environ", env), \
-             patch("main.secretmanager.SecretManagerServiceClient") as mock_sm_cls, \
-             patch("main.pubsub_v1.PublisherClient") as mock_pub_cls:
-
+        with (
+            patch.dict("os.environ", env),
+            patch("main.secretmanager.SecretManagerServiceClient") as mock_sm_cls,
+            patch("main.pubsub_v1.PublisherClient") as mock_pub_cls,
+        ):
             mock_sm = MagicMock()
             mock_sm.list_secrets.return_value = secrets
             mock_sm_cls.return_value = mock_sm
@@ -118,24 +146,34 @@ class TestRotateExchangeKeys:
             mock_pub.topic_path.return_value = "projects/test-project/topics/secret-rotation-alerts"
             mock_pub_cls.return_value = mock_pub
 
-            import main as m
             import importlib
+
+            import main as m
+
             importlib.reload(m)
 
             mock_request = MagicMock()
-            response = m.rotate_exchange_keys(mock_request)
+            with _TEST_APP.app_context():
+                response = m.rotate_exchange_keys(mock_request)
             return response, mock_pub
 
     def test_returns_500_without_project_id(self):
         import sys
-        sys.path.insert(0, "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys")
+
+        sys.path.insert(
+            0,
+            "/Users/ikennaigboaka/Code/unified-trading-system-repos/deployment-service/functions/rotate-exchange-keys",
+        )
 
         with patch.dict("os.environ", {"PROJECT_ID": ""}):
-            import main as m
             import importlib
+
+            import main as m
+
             importlib.reload(m)
             mock_request = MagicMock()
-            response = m.rotate_exchange_keys(mock_request)
+            with _TEST_APP.app_context():
+                response = m.rotate_exchange_keys(mock_request)
             assert response.status_code == 500
             body = json.loads(response.get_data())
             assert "error" in body
