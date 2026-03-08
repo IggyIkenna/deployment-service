@@ -83,9 +83,14 @@ class ConfigLoader(BaseConfigLoader):
         Resolution order:
         1. RUNTIME_TOPOLOGY_PATH env var (absolute path)
         2. {WORKSPACE_ROOT}/unified-trading-pm/configs/runtime-topology.yaml
+
+        Bootstrap phase: direct os.environ access for RUNTIME_TOPOLOGY_PATH and
+        WORKSPACE_ROOT is intentional here. These are filesystem path variables that
+        locate the topology file that feeds into the config system itself.
+        UnifiedCloudConfig cannot be used to resolve these values — it has not yet
+        been initialized at this point in the startup sequence.
+        See: unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
         """
-        # Bootstrap phase: os.environ access intentional here — config system not yet initialized.
-        # See unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
         topology_path_env = os.environ.get("RUNTIME_TOPOLOGY_PATH")
         if topology_path_env:
             path = Path(topology_path_env)
@@ -99,8 +104,6 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", topology_path_env)
 
-        # Bootstrap phase: os.environ access intentional here — config system not yet initialized.
-        # See unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
         workspace_root = os.environ.get("WORKSPACE_ROOT", "")
         if workspace_root:
             pm_path = (
