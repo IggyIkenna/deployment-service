@@ -63,10 +63,29 @@ def build_instruments_mock(venues_with_data, dates, category="CEFI"):
         for d in dates:
             date_prefix = f"{base}day={d}/"
             if prefix == date_prefix:
-                venue_dirs = [f"{date_prefix}venue={v}/" for v, v_dates in venues_with_data.items() if d in v_dates]
+                venue_dirs = [
+                    f"{date_prefix}venue={v}/"
+                    for v, v_dates in venues_with_data.items()
+                    if d in v_dates
+                ]
                 it.prefixes = venue_dirs
                 it.__iter__ = lambda self: iter([])
                 return it
+
+            # Venue-level listing (used by query_generic_prefixes_for_category)
+            # → return a mock blob when this venue has data on this date
+            for v, v_dates in venues_with_data.items():
+                venue_prefix = f"{date_prefix}venue={v}/"
+                if prefix == venue_prefix or prefix.startswith(venue_prefix):
+                    if d in v_dates:
+                        mock_blob = MagicMock()
+                        mock_blob.name = f"{venue_prefix}instruments.parquet"
+                        mock_blob.updated = None
+                        mock_blob.size = 1024
+                        mock_blob.time_created = None
+                        it.prefixes = []
+                        it.__iter__ = lambda self, _b=mock_blob: iter([_b])
+                        return it
 
         # Default: nothing
         it.prefixes = []
@@ -141,6 +160,21 @@ def build_market_tick_mock(venues_with_data, dates, data_types, category="CEFI")
                     it.__iter__ = lambda self: iter([])
                     return it
 
+                # Venue-level listing (used by query_specific_prefixes_for_category)
+                # → return a mock blob when this venue+date_type+date has data
+                for v, v_dates in venues_with_data.items():
+                    venue_prefix = f"{dt_prefix}instrument_type=spot/venue={v}/"
+                    if prefix == venue_prefix or prefix.startswith(venue_prefix):
+                        if d in v_dates:
+                            mock_blob = MagicMock()
+                            mock_blob.name = f"{venue_prefix}data.parquet"
+                            mock_blob.updated = None
+                            mock_blob.size = 1024
+                            mock_blob.time_created = None
+                            it.prefixes = []
+                            it.__iter__ = lambda self, _b=mock_blob: iter([_b])
+                            return it
+
         it.prefixes = []
         it.__iter__ = lambda self: iter([])
         return it
@@ -153,7 +187,7 @@ def build_features_mock(feature_groups_with_data, dates, category="CEFI"):
     """Build GCS mock for features-delta-one-service (or similar feature services).
 
     Path layout:
-      by_date/day={date}/feature_group={GROUP}/
+      features/by_date/day={date}/feature_group={GROUP}/
 
     Parameters
     ----------
@@ -166,7 +200,7 @@ def build_features_mock(feature_groups_with_data, dates, category="CEFI"):
     mock_bucket = MagicMock()
     mock_storage_client.bucket.return_value = mock_bucket
 
-    base = "by_date/"
+    base = "features/by_date/"
 
     def list_blobs(prefix, delimiter="/", max_results=None):
         it = MagicMock()
@@ -191,6 +225,21 @@ def build_features_mock(feature_groups_with_data, dates, category="CEFI"):
                 it.prefixes = fg_dirs
                 it.__iter__ = lambda self: iter([])
                 return it
+
+            # Feature_group-level listing (used by query_generic_prefixes_for_category)
+            # → return a mock blob when this feature_group has data on this date
+            for fg, fg_dates in feature_groups_with_data.items():
+                fg_prefix = f"{date_prefix}feature_group={fg}/"
+                if prefix == fg_prefix or prefix.startswith(fg_prefix):
+                    if d in fg_dates:
+                        mock_blob = MagicMock()
+                        mock_blob.name = f"{fg_prefix}features.parquet"
+                        mock_blob.updated = None
+                        mock_blob.size = 1024
+                        mock_blob.time_created = None
+                        it.prefixes = []
+                        it.__iter__ = lambda self, _b=mock_blob: iter([_b])
+                        return it
 
         it.prefixes = []
         it.__iter__ = lambda self: iter([])
@@ -223,6 +272,21 @@ def build_corporate_actions_mock(dates_with_data, all_dates):
             it.__iter__ = lambda self: iter([])
             return it
 
+        # Date-level listing (used by query_generic_prefixes_for_category)
+        # → return a mock blob when this date has data
+        for d in all_dates:
+            date_prefix = f"{base}day={d}/"
+            if prefix == date_prefix or prefix.startswith(date_prefix):
+                if d in dates_with_data:
+                    mock_blob = MagicMock()
+                    mock_blob.name = f"{date_prefix}corporate_actions.parquet"
+                    mock_blob.updated = None
+                    mock_blob.size = 1024
+                    mock_blob.time_created = None
+                    it.prefixes = []
+                    it.__iter__ = lambda self, _b=mock_blob: iter([_b])
+                    return it
+
         it.prefixes = []
         it.__iter__ = lambda self: iter([])
         return it
@@ -254,11 +318,19 @@ def _run_turbo(
 
     clear_cache()
 
+    mock_pc = make_mock_path_combinatorics()
     with (
-        patch("deployment_api.utils.storage_client.get_storage_client", return_value=mock_storage_client),
+        patch(
+            "deployment_api.utils.storage_client.get_storage_client",
+            return_value=mock_storage_client,
+        ),
         patch(
             "deployment_api.utils.path_combinatorics.get_path_combinatorics",
-            return_value=make_mock_path_combinatorics(),
+            return_value=mock_pc,
+        ),
+        patch(
+            "deployment_api.routes.batch_query_engine.get_path_combinatorics",
+            return_value=mock_pc,
         ),
     ):
         return asyncio.run(

@@ -14,12 +14,17 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
-from botocore.exceptions import ClientError
-
 from .base import ComputeBackend, JobInfo, JobStatus
 
 if TYPE_CHECKING:
     import boto3 as _boto3_module
+    from botocore.exceptions import ClientError
+
+# Deferred botocore — only imported when AWS EC2 is actually used.
+if importlib.util.find_spec("botocore") is not None:
+    from botocore.exceptions import ClientError  # type: ignore[assignment]
+else:
+    ClientError = Exception  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -228,11 +233,14 @@ shutdown -h now
 
             if self._security_group_id:
                 launch_params["SecurityGroupIds"] = cast(
-                    "str | int | list[dict[str, str | list[dict[str, str]]]]", [self._security_group_id]
+                    "str | int | list[dict[str, str | list[dict[str, str]]]]",
+                    [self._security_group_id],
                 )
 
             if self._instance_profile_arn:
-                launch_params["IamInstanceProfile"] = cast(object, {"Arn": self._instance_profile_arn})
+                launch_params["IamInstanceProfile"] = cast(
+                    object, {"Arn": self._instance_profile_arn}
+                )
 
             if self._key_name:
                 launch_params["KeyName"] = self._key_name

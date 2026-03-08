@@ -55,7 +55,11 @@ class TestDeploymentConfig:
         # Test environment overrides
         with patch.dict(
             os.environ,
-            {"AUTO_SYNC_ENABLED": "false", "AUTO_SYNC_INTERVAL_SECONDS": "120", "AUTO_SYNC_MAX_PARALLEL": "5"},
+            {
+                "AUTO_SYNC_ENABLED": "false",
+                "AUTO_SYNC_INTERVAL_SECONDS": "120",
+                "AUTO_SYNC_MAX_PARALLEL": "5",
+            },
         ):
             config = DeploymentConfig()
             assert config.auto_sync_enabled is False
@@ -64,7 +68,20 @@ class TestDeploymentConfig:
 
     def test_vm_orchestration_config(self):
         """Test VM orchestration configuration."""
-        config = DeploymentConfig()
+        # Clear env vars that .env may override so we test true defaults
+        with patch.dict(
+            os.environ,
+            {
+                "VM_LAUNCH_MINI_BATCH_SIZE": "",
+                "VM_LAUNCH_MINI_BATCH_DELAY_SECONDS": "",
+                "UNKNOWN_STATUS_MAX_POLLS": "",
+            },
+            clear=False,
+        ):
+            os.environ.pop("VM_LAUNCH_MINI_BATCH_SIZE", None)
+            os.environ.pop("VM_LAUNCH_MINI_BATCH_DELAY_SECONDS", None)
+            os.environ.pop("UNKNOWN_STATUS_MAX_POLLS", None)
+            config = DeploymentConfig(_env_file=None)
 
         assert config.vm_launch_mini_batch_size == 200
         assert config.vm_launch_mini_batch_delay_seconds == 3.0
@@ -91,7 +108,9 @@ class TestDeploymentConfig:
 
     def test_github_configuration(self):
         """Test GitHub configuration."""
-        config = DeploymentConfig()
+        # Clear env vars that .env may override so we test true defaults
+        os.environ.pop("GITHUB_TOKEN_SA", None)
+        config = DeploymentConfig(_env_file=None)
 
         assert config.github_org == "IggyIkenna"  # Default
         assert config.github_token_sa == ""  # Default is empty string
@@ -101,7 +120,7 @@ class TestDeploymentConfig:
         assert ".iam.gserviceaccount.com" in config.effective_github_token_sa
 
         with patch.dict(os.environ, {"GITHUB_TOKEN_SA": "custom-sa@project.iam"}):
-            config = DeploymentConfig()
+            config = DeploymentConfig(_env_file=None)
             assert config.effective_github_token_sa == "custom-sa@project.iam"
 
     def test_effective_port_fallback(self):
@@ -159,7 +178,10 @@ class TestDeploymentConfig:
         assert config.auto_scheduler_batch_size == 200
         assert config.stuck_shard_grace_seconds == 600
 
-        with patch.dict(os.environ, {"AUTO_SCHEDULER_MAX_LAUNCH_PER_TICK": "5", "AUTO_SCHEDULER_BATCH_SIZE": "50"}):
+        with patch.dict(
+            os.environ,
+            {"AUTO_SCHEDULER_MAX_LAUNCH_PER_TICK": "5", "AUTO_SCHEDULER_BATCH_SIZE": "50"},
+        ):
             config = DeploymentConfig()
             assert config.auto_scheduler_max_launch_per_tick == 5
             assert config.auto_scheduler_batch_size == 50

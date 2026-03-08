@@ -13,14 +13,23 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
-from botocore.exceptions import ClientError
-
 if TYPE_CHECKING:
     import boto3 as _boto3_module
+    from botocore.exceptions import ClientError
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
 logger = logging.getLogger(__name__)
+
+# Deferred botocore — only imported when AWS Batch is actually used.
+# ClientError is referenced in except clauses; we provide a stub when botocore
+# is not installed so that the module can be imported on non-AWS deployments.
+if importlib.util.find_spec("botocore") is not None:
+    from botocore.exceptions import ClientError  # type: ignore[assignment]
+else:
+    # Stub: unreachable at runtime unless botocore is installed, but satisfies
+    # the module-level name so except-clauses don't raise NameError on import.
+    ClientError = Exception  # type: ignore[assignment,misc]
 
 
 def _ensure_boto3() -> "types.ModuleType":
@@ -105,7 +114,9 @@ class AWSBatchBackend(ComputeBackend):
             # Build container overrides
             container_overrides = {
                 "command": args if args else [],
-                "environment": [{"name": k, "value": str(v)} for k, v in environment_variables.items()],
+                "environment": [
+                    {"name": k, "value": str(v)} for k, v in environment_variables.items()
+                ],
             }
 
             # Add resource requirements if specified
@@ -151,7 +162,9 @@ class AWSBatchBackend(ComputeBackend):
 
             # Add tags
             if labels:
-                submit_params["tags"] = cast("str | dict[str, list[str] | list[dict[str, str]]]", labels)
+                submit_params["tags"] = cast(
+                    "str | dict[str, list[str] | list[dict[str, str]]]", labels
+                )
 
             # Submit the job
             response = self._client.submit_job(**submit_params)

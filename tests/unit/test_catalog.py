@@ -195,7 +195,7 @@ class TestDataCatalog:
         """Test catalog instance creation."""
         catalog = DataCatalog(str(temp_config_with_service))
 
-        assert catalog.project_id == "test-project"
+        assert catalog.project_id == "test-project-123"
 
     def test_catalog_service_mock_mode(self, temp_config_with_service, mock_env_vars):
         """Test cataloging service in mock mode (no GCS)."""

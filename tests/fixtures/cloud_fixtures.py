@@ -36,6 +36,16 @@ def mock_gcs_blob_listing():
 
         # Mock different path structures based on prefix
         if "day=2024-01" in prefix and prefix.endswith("/"):
+            # Venue-level existence check (used by query_specific_prefixes_for_category)
+            if "venue=BINANCE-FUTURES/" in prefix:
+                blob = MagicMock()
+                blob.name = f"{prefix}data.parquet"
+                blob.updated = None
+                blob.size = 1024
+                blob.time_created = None
+                iterator.prefixes = []
+                iterator.__iter__ = lambda self, _b=blob: iter([_b])
+                return iterator
             # Mock date folder structure for market-tick-data-handler
             if "data_type=" not in prefix:
                 iterator.prefixes = [
@@ -44,7 +54,10 @@ def mock_gcs_blob_listing():
                     f"{prefix}data_type=options_chain/",
                 ]
                 iterator.__iter__ = lambda self: iter([])
-            elif "data_type=trades/" in prefix and "instrument_type=" not in prefix.split("data_type=trades/")[1]:
+            elif (
+                "data_type=trades/" in prefix
+                and "instrument_type=" not in prefix.split("data_type=trades/")[1]
+            ):
                 iterator.prefixes = [
                     f"{prefix}instrument_type=spot/",
                     f"{prefix}instrument_type=perpetuals/",
@@ -253,7 +266,9 @@ def mock_cloud_run_client():
 def mock_cloud_compute_client():
     """Mock Google Cloud Compute client."""
     mock_client = MagicMock()
-    mock_client.instances.return_value.insert.return_value.execute.return_value = {"name": "test-operation"}
+    mock_client.instances.return_value.insert.return_value.execute.return_value = {
+        "name": "test-operation"
+    }
     return mock_client
 
 

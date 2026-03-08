@@ -22,12 +22,27 @@ def mock_gcs_client():
 
 @pytest.fixture
 def mock_turbo_list_blobs():
-    """Mock list_blobs method for market-tick-data-handler structure."""
+    """Mock list_blobs method for market-tick-data-handler structure.
+
+    Handles both hierarchical directory scanning (old code path) and
+    direct venue-level existence checks (new query_specific_prefixes path).
+    """
 
     def mock_list_blobs(prefix, delimiter="/", max_results=None):
         iterator = MagicMock()
 
         if "day=2024-01" in prefix and prefix.endswith("/"):
+            # Direct existence check at venue level: return a mock blob
+            if "venue=BINANCE-FUTURES/" in prefix:
+                blob = MagicMock()
+                blob.name = f"{prefix}data.parquet"
+                blob.updated = None
+                blob.size = 1024
+                blob.time_created = None
+                iterator.prefixes = []
+                iterator.__iter__ = lambda self, _b=blob: iter([_b])
+                return iterator
+
             # Return data_type folders for a date
             if "data_type=" not in prefix:
                 iterator.prefixes = [
@@ -48,7 +63,8 @@ def mock_turbo_list_blobs():
                 iterator.__iter__ = lambda self: iter([])
             elif (
                 "data_type=options_chain/" in prefix
-                and "instrument_type=options_chain/" not in prefix.split("data_type=options_chain/")[1]
+                and "instrument_type=options_chain/"
+                not in prefix.split("data_type=options_chain/")[1]
             ):
                 iterator.prefixes = [f"{prefix}instrument_type=options_chain/"]
                 iterator.__iter__ = lambda self: iter([])
@@ -152,7 +168,9 @@ def create_filter_dates_function():
         if not category_start:
             return all_dates
         start_dt = datetime.strptime(category_start, "%Y-%m-%d").replace(tzinfo=UTC)
-        return {d for d in all_dates if datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=UTC) >= start_dt}
+        return {
+            d for d in all_dates if datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=UTC) >= start_dt
+        }
 
     return filter_dates_by_category_start
 
@@ -185,7 +203,13 @@ def create_exclude_dates_filter():
             cat = dims.get("category", "")
             date_val = dims.get("date", {})
 
-            date_str = date_val.get("start", "") if isinstance(date_val, dict) else str(date_val) if date_val else ""
+            date_str = (
+                date_val.get("start", "")
+                if isinstance(date_val, dict)
+                else str(date_val)
+                if date_val
+                else ""
+            )
 
             # Skip if this category+date is in exclude_dates
             if cat in exclude_sets and date_str in exclude_sets[cat]:
