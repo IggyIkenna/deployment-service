@@ -75,7 +75,7 @@ class TestCloudAgnosticPaths:
                                 f"{file_path}:{i + 1}: Direct call to get_gcs_client()"
                             )
 
-            except Exception:
+            except (OSError, UnicodeDecodeError):
                 # Skip files that can't be parsed
                 continue
 
