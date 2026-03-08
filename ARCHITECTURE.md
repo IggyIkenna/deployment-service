@@ -24,10 +24,10 @@ system-integration-tests   Layer 3 smoke + e2e tests that validate deployments e
 
 Services **are managed by** the deployment system — they do not import from it.
 
-| Services DO | Services DO NOT |
-|---|---|
-| Run inside containers orchestrated by deployment-service | Import deployment-service as a Python dependency |
-| Expose `/health` and `/readiness` endpoints | Call deployment-api at runtime |
+| Services DO                                                 | Services DO NOT                                     |
+| ----------------------------------------------------------- | --------------------------------------------------- |
+| Run inside containers orchestrated by deployment-service    | Import deployment-service as a Python dependency    |
+| Expose `/health` and `/readiness` endpoints                 | Call deployment-api at runtime                      |
 | Emit `SERVICE_STARTED` / `SERVICE_STOPPED` lifecycle events | Know about shard calculation or deployment topology |
 
 ---
@@ -58,10 +58,10 @@ deployment_service/
 
 ### Deployment Modes
 
-| Mode | Transport | Compute | Trigger |
-|---|---|---|---|
-| Batch | Date-sharded | Cloud Run ephemeral jobs | Cloud Build / cron |
-| Live | Scheduled | Cloud Run persistent / GCE VM | Cloud Build on merge |
+| Mode  | Transport    | Compute                       | Trigger              |
+| ----- | ------------ | ----------------------------- | -------------------- |
+| Batch | Date-sharded | Cloud Run ephemeral jobs      | Cloud Build / cron   |
+| Live  | Scheduled    | Cloud Run persistent / GCE VM | Cloud Build on merge |
 
 ### Sharding
 
@@ -98,22 +98,57 @@ React SPA at port 5173. Communicates exclusively with deployment-api over the in
 ## system-integration-tests
 
 Layer 3 (smoke + e2e) tests per the 5-layer integration testing strategy:
+
 - **Layer 3a smoke**: fast pre-deploy gate — `/health`, `/readiness` on all services
 - **Layer 3b e2e**: full pipeline smoke — deploy → run batch → verify outputs in GCS
 
 ---
 
+## Deployment Model
+
+This service uses **runtime-driven deployment** rather than declarative Terraform per-service.
+
+### Why no Terraform Cloud Run / ECS task definitions?
+
+Cloud Run Jobs and ECS task definitions are intentionally NOT defined in Terraform.
+All service compute resources are deployed at runtime by the deployment-service backends:
+
+- `backends/cloud_run.py` — deploys GCP Cloud Run Jobs programmatically via the Google Cloud Run SDK
+- `backends/aws_batch.py` — submits AWS Batch jobs programmatically via boto3
+- `backends/vm.py` — provisions VMs for long-running workloads
+
+**Rationale:**
+
+- Services have dynamic config (env vars, resource limits) that changes per-run
+- Terraform state would require plan/apply cycles for each service version update
+- Runtime deployment enables per-run parameterisation without IaC overhead
+- Secrets are injected at runtime from Secret Manager, not baked into Terraform
+
+**GCP Terraform scope** (`terraform/gcp/main.tf`): GCS buckets, BigQuery datasets, Secret Manager secrets, IAM bindings, Artifact Registry
+
+**AWS Terraform scope** (`terraform/aws/main.tf`): S3 buckets, Athena workgroup/databases, Secrets Manager stubs, IAM role, ECS cluster (cluster only — no task definitions)
+
+This is intentional and documented. Cloud Run Jobs and ECS task definitions are
+managed by the deployment-service runtime backends, not Terraform.
+
+---
+
 ## Infrastructure as Code
 
-Terraform modules in `deployment-service/infra/`:
+Terraform modules in `deployment-service/terraform/`:
+
+```
+terraform/
+├── gcp/main.tf   # GCS buckets, BigQuery, Secret Manager, IAM (NO Cloud Run definitions)
+└── aws/main.tf   # S3 buckets, Athena, Secrets Manager, IAM, ECS cluster (NO task definitions)
+```
+
+Additional IaC in `deployment-service/infra/`:
 
 ```
 infra/
 └── ibkr-gateway/   # IB Gateway infrastructure (IBKR connectivity)
 ```
-
-Service-level GCP resources (VMs, Cloud Run services, IAM) are defined per-service in each service repo's
-`infra/` or `buildspec.aws.yaml` / `cloudbuild.yaml`.
 
 ---
 
@@ -131,12 +166,12 @@ Service-level GCP resources (VMs, Cloud Run services, IAM) are defined per-servi
 
 ## Key Technologies
 
-| Layer | Technology |
-|---|---|
-| Orchestration | Python 3.13, Click CLI |
-| API | FastAPI, uvicorn |
-| UI | React, Vite |
-| CI/CD | Cloud Build (GCP), GitHub Actions |
-| IaC | Terraform |
-| Containers | Docker, Artifact Registry |
+| Layer         | Technology                        |
+| ------------- | --------------------------------- |
+| Orchestration | Python 3.13, Click CLI            |
+| API           | FastAPI, uvicorn                  |
+| UI            | React, Vite                       |
+| CI/CD         | Cloud Build (GCP), GitHub Actions |
+| IaC           | Terraform                         |
+| Containers    | Docker, Artifact Registry         |
 | Observability | UEI log_event(), Cloud Monitoring |

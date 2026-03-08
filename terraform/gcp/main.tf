@@ -2,8 +2,9 @@
 # Provisions: GCS buckets, BigQuery datasets, Secret Manager stubs,
 #             unified-trading service account with least-privilege IAM.
 #
-# Cloud Run service definitions are intentionally omitted here.
-# TODO: add Cloud Run service definitions per service image
+# NOTE: Cloud Run Job definitions are intentionally absent here.
+# See ARCHITECTURE.md "Deployment Model" section for rationale.
+# Cloud Run Jobs are deployed at runtime by backends/cloud_run.py.
 
 terraform {
   required_version = ">= 1.6"
