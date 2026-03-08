@@ -5,7 +5,7 @@ Centralizes GCP SDK access so that backend modules import from here
 instead of from google.cloud directly. All SDK modules are loaded lazily
 on first access so that google.cloud libraries are not imported unless used.
 
-TODO(uci): Replace compute_v1/run_v2 access with UCI CloudComputeClient/
+TODO(GH-BACKLOG): Replace compute_v1/run_v2 access with UCI CloudComputeClient/
 CloudRunClient abstractions when those are added to unified-cloud-interface.
 """
 

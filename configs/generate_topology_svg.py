@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Generate RUNTIME_DEPLOYMENT_TOPOLOGY_DAG.svg using Graphviz.
 
 Run: python3 generate_topology_svg.py
@@ -40,7 +41,13 @@ CO = {"color": "#ea580c", "penwidth": "2.0", "style": "dashed"}  # co-located in
 H = {"color": "#06b6d4", "penwidth": "1.5"}  # HTTP/SSE
 K = {"color": "#dc2626", "penwidth": "2.5", "style": "dashed"}  # circuit breaker / kill switch
 PL = {"color": PLANNED_COLOR, "penwidth": "1.5", "style": "dashed"}  # planned
-REDIS = {"color": "#16a34a", "penwidth": "1.0", "style": "dotted", "arrowsize": "0.6", "constraint": "false"}
+REDIS = {
+    "color": "#16a34a",
+    "penwidth": "1.0",
+    "style": "dotted",
+    "arrowsize": "0.6",
+    "constraint": "false",
+}
 
 
 def svc(layer, label, planned=False, rename=None, tooltip=""):
@@ -113,7 +120,12 @@ def build():
 
     # -- L1: Data Ingestion --
     with g.subgraph(name="cluster_l1") as s:
-        s.attr(label="L1 - Data Ingestion  [Shared Data Plane]", style="rounded", color="#3b82f6", bgcolor="#f0f7ff")
+        s.attr(
+            label="L1 - Data Ingestion  [Shared Data Plane]",
+            style="rounded",
+            color="#3b82f6",
+            bgcolor="#f0f7ff",
+        )
         s.node(
             "IS",
             **svc(
@@ -177,7 +189,9 @@ def build():
             **svc(
                 "l3",
                 "features-calendar-svc  [CR Job]\\ndaily 00:05 UTC (Cloud Scheduler)\\nB: cat x date (batch only)\\nSinks: GCS only",
-                tooltip=("Batch only -- no live mode\\nBatch dims: category x date\\nRecovery: re-run batch job"),
+                tooltip=(
+                    "Batch only -- no live mode\\nBatch dims: category x date\\nRecovery: re-run batch job"
+                ),
             ),
         )
         s.node(
@@ -256,7 +270,12 @@ def build():
 
     # -- L5: ML Pipeline --
     with g.subgraph(name="cluster_l5") as s:
-        s.attr(label="L5 - ML Pipeline  [Shared Data Plane]", style="rounded", color="#d97706", bgcolor="#fffbeb")
+        s.attr(
+            label="L5 - ML Pipeline  [Shared Data Plane]",
+            style="rounded",
+            color="#d97706",
+            bgcolor="#fffbeb",
+        )
         s.node(
             "MLTR",
             **svc(
@@ -474,7 +493,12 @@ def build():
         )
 
         with s.subgraph(name="cluster_ui_batch") as b:
-            b.attr(label="Batch Research (3 tiers)", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa")
+            b.attr(
+                label="Batch Research (3 tiers)",
+                style="rounded,dashed",
+                color="#94a3b8",
+                bgcolor="#f0fdfa",
+            )
             b.node(
                 "MLUI",
                 **svc(
@@ -504,7 +528,12 @@ def build():
             )
 
         with s.subgraph(name="cluster_ui_trade") as t:
-            t.attr(label="Trading + Monitoring", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa")
+            t.attr(
+                label="Trading + Monitoring",
+                style="rounded,dashed",
+                color="#94a3b8",
+                bgcolor="#f0fdfa",
+            )
             t.node(
                 "TAUI",
                 **svc(
@@ -523,15 +552,32 @@ def build():
             )
 
         with s.subgraph(name="cluster_ui_ops") as o:
-            o.attr(label="Ops + Deployment", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa")
-            o.node("DEPUI", **svc("ui", "deployment-ui  [CR Svc]\\nbatch vs live deploy\\n-> deployment-api :8001"))
+            o.attr(
+                label="Ops + Deployment", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa"
+            )
+            o.node(
+                "DEPUI",
+                **svc(
+                    "ui", "deployment-ui  [CR Svc]\\nbatch vs live deploy\\n-> deployment-api :8001"
+                ),
+            )
             o.node("BAUI", **svc("ui", "batch-audit-ui  [CR Svc]\\n-> deployment-api :8001"))
             o.node("LGUI", **svc("ui", "logs-dashboard-ui  [CR Svc]\\n-> deployment-api :8001"))
-            o.node("OBUI", **svc("ui", "onboarding-ui  [CR Svc]\\nclient wizard\\n-> deployment-api :8001"))
+            o.node(
+                "OBUI",
+                **svc("ui", "onboarding-ui  [CR Svc]\\nclient wizard\\n-> deployment-api :8001"),
+            )
 
         with s.subgraph(name="cluster_ui_client") as c:
-            c.attr(label="Client + Reporting", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa")
-            c.node("CRUI", **svc("ui", "client-reporting-ui  [CR Svc]\\n-> client-reporting-api :8005"))
+            c.attr(
+                label="Client + Reporting",
+                style="rounded,dashed",
+                color="#94a3b8",
+                bgcolor="#f0fdfa",
+            )
+            c.node(
+                "CRUI", **svc("ui", "client-reporting-ui  [CR Svc]\\n-> client-reporting-api :8005")
+            )
             c.node(
                 "SETU",
                 **svc(
@@ -606,9 +652,14 @@ def build():
             tooltip="NOT persistence, NOT transport. Execution-service: hot order state (ephemeral). MDPS: ~1yr rolling candle window (survives restarts via GCS warmup).",
         )
 
-    # ═══════════════════════════════════
-    # Reference Panels
-    # ═══════════════════════════════════
+    _add_reference_panels(g)
+    _add_edges(g)
+
+    return g
+
+
+def _add_reference_panels(g: graphviz.Digraph) -> None:
+    """Add architecture reference panel nodes to the graph."""
 
     # Legend panel
     g.node(
@@ -771,9 +822,9 @@ def build():
         margin="0.15,0.1",
     )
 
-    # ═══════════════════════════════════
-    # EDGES -- pipeline flow
-    # ═══════════════════════════════════
+
+def _add_edges(g: graphviz.Digraph) -> None:
+    """Add pipeline flow edges and reference panel positioning to the graph."""
 
     # L1 internal
     g.edge("IS", "MTDH", label="instruments_universe\\nB:GCS | L:PS", **B)
@@ -828,16 +879,26 @@ def build():
     g.edge("PBM", "STR", label="position_snapshots\\nL:PS (authority)", **L, constraint="false")
 
     # Risk -> alerting (circuit breaker triggers)
-    g.edge("RAE", "ALT", label="risk_alerts (circuit\\nbreaker triggers)  L:PS", **L, constraint="false")
+    g.edge(
+        "RAE",
+        "ALT",
+        label="risk_alerts (circuit\\nbreaker triggers)  L:PS",
+        **L,
+        constraint="false",
+    )
     g.edge("PBM", "ALT", label="balance_alerts  L:PS", **L, constraint="false")
 
     # Circuit breakers (alerting -> services)
-    g.edge("ALT", "EXEC", label="CIRCUIT BREAKER HALT\\nkill-switch-commands PS", **K, constraint="false")
+    g.edge(
+        "ALT",
+        "EXEC",
+        label="CIRCUIT BREAKER HALT\\nkill-switch-commands PS",
+        **K,
+        constraint="false",
+    )
     g.edge("ALT", "STR", label="CIRCUIT BREAKER HALT", **K, constraint="false")
 
-    # ═══════════════════════════════════
     # Service -> API (data source connections)
-    # ═══════════════════════════════════
     g.edge("EXEC", "ERA", label="execution_results\\nB:GCS | L:PS", **B, constraint="false")
     g.edge("MDPS", "MDA", label="candles\\nB:GCS | L:PS (SSE)", **B, constraint="false")
     g.edge("MTDH", "MDA", label="orderbook_stream\\nL:PS (SSE)", **L, constraint="false")
@@ -845,9 +906,7 @@ def build():
     g.edge("DEPENG", "DEPAPI", label="orchestration", **H)
     g.edge("STR", "STRAPI", label="signals_backtest_results\\nB:GCS", **PL, constraint="false")
 
-    # ═══════════════════════════════════
     # API -> UI (HTTP/SSE)
-    # ═══════════════════════════════════
     g.edge("ERA", "TAUI", label="fills SSE", **H)
     g.edge("ERA", "EXANI", label="exec results", **H)
     g.edge("ERA", "SETU", **H)
@@ -864,19 +923,28 @@ def build():
     g.edge("DEPAPI", "STUI", label="deploy hook", **H)
 
     # Infra
-    g.edge("DEPAPI", "SIT", label="post-deploy trigger", style="dashed", color="#64748b", constraint="false")
+    g.edge(
+        "DEPAPI",
+        "SIT",
+        label="post-deploy trigger",
+        style="dashed",
+        color="#64748b",
+        constraint="false",
+    )
 
-    # ═══════════════════════════════════
-    # Exceptional Redis sinks (not shown via badge since Redis is not all-services)
-    # ═══════════════════════════════════
+    # Exceptional Redis sinks (not shown via badge; Redis is not all-services)
     g.edge("EXEC", "REDIS", label="hot order state", **REDIS)
     g.edge("MDPS", "REDIS", label="~1yr candle cache", **REDIS)
 
-    # ═══════════════════════════════════
     # Reference panel positioning (invisible edges to sink rank)
-    # ═══════════════════════════════════
     with g.subgraph(name="cluster_panels") as p:
-        p.attr(label="Architecture Reference", style="rounded,dashed", color="#94a3b8", bgcolor="#f9fafb", rank="sink")
+        p.attr(
+            label="Architecture Reference",
+            style="rounded,dashed",
+            color="#94a3b8",
+            bgcolor="#f9fafb",
+            rank="sink",
+        )
         p.node("LEGEND")
         p.node("RECOVERY")
         p.node("CIRCUIT")
@@ -889,8 +957,6 @@ def build():
     g.edge("REDIS", "CIRCUIT", style="invis", constraint="false")
     g.edge("GCS", "PPOLICY", style="invis", constraint="false")
     g.edge("PS", "DEPLOYSUM", style="invis", constraint="false")
-
-    return g
 
 
 if __name__ == "__main__":
