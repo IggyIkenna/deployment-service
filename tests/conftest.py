@@ -17,12 +17,6 @@ from google.oauth2 import service_account
 from tests.mocks import make_mock_path_combinatorics
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers", "integration: mark test as integration test (requires external services)"
-    )
-
-
 @pytest.fixture(autouse=True)
 def mock_secret_client(monkeypatch):
     """Prevent real secret access in all unit tests."""
