@@ -21,7 +21,9 @@ class TestRequestSizeGuard:
 
     @patch("deployment_api.utils.path_combinatorics.get_path_combinatorics")
     @patch("deployment_api.utils.storage_client.get_storage_client")
-    def test_instruments_service_large_range_raises_400(self, mock_get_storage_client, mock_get_path_combinatorics):
+    def test_instruments_service_large_range_raises_400(
+        self, mock_get_storage_client, mock_get_path_combinatorics
+    ):
         """Large date range for instruments-service with venue breakdown should raise 400.
 
         Mocks GCS client and path combinatorics so the test runs without ADC in CI.

@@ -110,7 +110,7 @@ def _output_commands(shards: list[Shard], summary: dict[str, object]) -> None:
     "Use --ignore-start-dates to include all date-venue combinations.",
 )
 @click.pass_context
-def calculate(
+def calculate(  # noqa: C901
     ctx: click.Context,
     service: str,
     start_date: datetime | None,
@@ -146,7 +146,7 @@ def calculate(
         # Show commands for execution-service (all configs in bucket)
         python -m deployment_service.cli calculate -s execution-service --start-date 2024-01-01 --end-date 2024-01-01 \\
           --cloud-config-path gs://execution-store-{GCP_PROJECT_ID}/configs/ -o commands
-    """
+    """  # noqa: E501
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 
     try:
@@ -217,7 +217,10 @@ def list_services(ctx: click.Context):
         for service in services:
             config = loader.load_service_config(service)
             description = config.get("description", "No description")
-            dims = [str(d["name"]) for d in cast(list[dict[str, object]], config.get("dimensions") or [])]
+            dims = [
+                str(d["name"])
+                for d in cast(list[dict[str, object]], config.get("dimensions") or [])
+            ]
 
             click.echo(click.style(f"  {service}", fg="green"))
             click.echo(f"    {description}")
@@ -232,7 +235,7 @@ def list_services(ctx: click.Context):
 @click.command()
 @click.option("--service", "-s", required=True, help="Service to show info for")
 @click.pass_context
-def info(ctx: click.Context, service: str):
+def info(ctx: click.Context, service: str):  # noqa: C901
     """Show detailed information about a service's sharding config."""
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 
@@ -317,7 +320,9 @@ def venues(ctx: click.Context):
         click.echo(click.style("Venues by Category:", fg="cyan", bold=True))
         click.echo()
 
-        for category, cat_config in cast(dict[str, dict[str, object]], config.get("categories") or {}).items():
+        for category, cat_config in cast(
+            dict[str, dict[str, object]], config.get("categories") or {}
+        ).items():
             click.echo(click.style(f"  {category}", fg="green", bold=True))
             click.echo(f"    {cat_config.get('description', '')}")
             click.echo()

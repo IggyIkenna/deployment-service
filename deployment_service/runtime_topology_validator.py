@@ -50,7 +50,7 @@ def _get_manifest_entities(workspace_manifest: dict[str, object]) -> dict[str, s
     return entities
 
 
-def validate_runtime_topology(
+def validate_runtime_topology(  # noqa: C901
     runtime_topology_path: Path,
     workspace_manifest_path: Path,
 ) -> list[str]:
@@ -60,7 +60,13 @@ def validate_runtime_topology(
 
     violations: list[str] = []
 
-    required_sections = ["service_flows", "api_interactions", "storage_flows", "deployment_profiles", "storage_systems"]
+    required_sections = [
+        "service_flows",
+        "api_interactions",
+        "storage_flows",
+        "deployment_profiles",
+        "storage_systems",
+    ]
     for section in required_sections:
         if section not in topology:
             violations.append(f"Missing required section '{section}' in runtime-topology.yaml")
@@ -72,7 +78,9 @@ def validate_runtime_topology(
 
     for service_name in services:
         if service_name not in entities:
-            violations.append(f"Unknown service in runtime topology: '{service_name}' not found in workspace-manifest")
+            violations.append(
+                f"Unknown service in runtime topology: '{service_name}' not found in workspace-manifest"  # noqa: E501
+            )
 
     deployment_profiles = topology.get("deployment_profiles", {})
     if not isinstance(deployment_profiles, dict):
@@ -84,7 +92,9 @@ def validate_runtime_topology(
             continue
         allowed = profile_cfg.get("allowed_transports", [])
         if not isinstance(allowed, list):
-            violations.append(f"deployment_profiles.{profile_name}.allowed_transports must be a list")
+            violations.append(
+                f"deployment_profiles.{profile_name}.allowed_transports must be a list"
+            )
             continue
         valid_transports.update(str(item) for item in allowed)
 
@@ -116,23 +126,27 @@ def validate_runtime_topology(
                 transport = str(mode_cfg["transport"])
                 if transport not in valid_transports:
                     violations.append(
-                        f"service_flows[{idx}] transport '{transport}' is not allowed by any deployment profile"
+                        f"service_flows[{idx}] transport '{transport}' is not allowed by any deployment profile"  # noqa: E501
                     )
             else:
                 for profile_name, profile_cfg in mode_cfg.items():
                     if profile_name not in deployment_profiles:
                         violations.append(
-                            f"service_flows[{idx}] unknown deployment profile '{profile_name}' in mode '{mode_name}'"
+                            f"service_flows[{idx}] unknown deployment profile '{profile_name}' in mode '{mode_name}'"  # noqa: E501
                         )
                         continue
                     if not isinstance(profile_cfg, dict):
-                        violations.append(f"service_flows[{idx}].modes.{mode_name}.{profile_name} must be a mapping")
+                        violations.append(
+                            f"service_flows[{idx}].modes.{mode_name}.{profile_name} must be a mapping"  # noqa: E501
+                        )
                         continue
                     transport = str(profile_cfg.get("transport", ""))
-                    allowed = deployment_profiles.get(profile_name, {}).get("allowed_transports", [])
+                    allowed = deployment_profiles.get(profile_name, {}).get(
+                        "allowed_transports", []
+                    )
                     if transport and transport not in allowed:
                         violations.append(
-                            f"service_flows[{idx}] transport '{transport}' is not allowed in profile '{profile_name}'"
+                            f"service_flows[{idx}] transport '{transport}' is not allowed in profile '{profile_name}'"  # noqa: E501
                         )
 
     api_interactions = topology.get("api_interactions", [])
@@ -150,7 +164,9 @@ def validate_runtime_topology(
         if callee not in entities:
             violations.append(f"api_interactions[{idx}] unknown callee '{callee}'")
         elif entities[callee] != "api-service":
-            violations.append(f"api_interactions[{idx}] callee '{callee}' must be type 'api-service'")
+            violations.append(
+                f"api_interactions[{idx}] callee '{callee}' must be type 'api-service'"
+            )
 
     storage_systems = topology.get("storage_systems", {})
     valid_stores = set(storage_systems.keys()) if isinstance(storage_systems, dict) else set()
@@ -173,9 +189,13 @@ def validate_runtime_topology(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate runtime-topology.yaml against workspace-manifest.json")
+    parser = argparse.ArgumentParser(
+        description="Validate runtime-topology.yaml against workspace-manifest.json"
+    )
     parser.add_argument("--runtime-topology", required=True, help="Path to runtime-topology.yaml")
-    parser.add_argument("--workspace-manifest", required=True, help="Path to workspace-manifest.json")
+    parser.add_argument(
+        "--workspace-manifest", required=True, help="Path to workspace-manifest.json"
+    )
     args = parser.parse_args()
 
     violations = validate_runtime_topology(

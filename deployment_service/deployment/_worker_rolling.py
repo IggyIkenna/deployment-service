@@ -20,7 +20,7 @@ _config = DeploymentConfig()
 logger = logging.getLogger(__name__)
 
 
-def launch_shards_rolling(
+def launch_shards_rolling(  # noqa: C901
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -71,7 +71,9 @@ def launch_shards_rolling(
 
     total_shards = len(state.pending_shards)
     logger.info(
-        "[ROLLING_LAUNCH] Starting rolling launch: %s total shards, max_concurrent=%s", total_shards, max_concurrent
+        "[ROLLING_LAUNCH] Starting rolling launch: %s total shards, max_concurrent=%s",
+        total_shards,
+        max_concurrent,
     )
 
     def get_shard_compute_config(shard: ShardState) -> dict[str, object]:
@@ -87,7 +89,7 @@ def launch_shards_rolling(
     shard_index_counter = [0]
     shard_index_lock = threading.Lock()
 
-    def launch_single_shard(shard: ShardState) -> tuple[ShardState, JobInfo | None]:
+    def launch_single_shard(shard: ShardState) -> tuple[ShardState, JobInfo | None]:  # noqa: C901
         """Launch a single shard and return result."""
         lease_id: str | None = None
         try:
@@ -107,7 +109,9 @@ def launch_shards_rolling(
                     _ttl_override = None
                 else:
                     _resources = {"RUNNING_EXECUTIONS": 1.0}
-                    timeout_s = int(cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600))
+                    timeout_s = int(
+                        cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600)
+                    )
                     _ttl_override = max(300, min(timeout_s, 6 * 3600))
 
                 admission = quota_broker.acquire(
@@ -174,7 +178,11 @@ def launch_shards_rolling(
                     quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                     shard.quota_lease_id = None
             except (ConnectionError, TimeoutError) as e2:
-                logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e2)
+                logger.warning(
+                    "Failed to release quota lease for %s (connection issue): %s",
+                    shard.shard_id,
+                    e2,
+                )
             except (OSError, ValueError, RuntimeError) as e2:
                 logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e2)
             logger.error("[ROLLING_LAUNCH] Failed to launch %s: %s", shard.shard_id, e)
@@ -214,7 +222,7 @@ def launch_shards_rolling(
     mini_batch_delay_seconds = _config.vm_launch_mini_batch_delay_seconds
 
     logger.info(
-        "[ROLLING_LAUNCH] Launching initial batch of %s shards (mini-batches of %s with %ss delay)...",
+        "[ROLLING_LAUNCH] Launching initial batch of %s shards (mini-batches of %s with %ss delay)...",  # noqa: E501
         len(initial_batch),
         mini_batch_size,
         mini_batch_delay_seconds,
@@ -275,7 +283,9 @@ def launch_shards_rolling(
 
         # Delay between mini-batches to let GCP provision VMs
         if mini_batch_idx + mini_batch_size < len(initial_batch):
-            logger.debug("[ROLLING_LAUNCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds)
+            logger.debug(
+                "[ROLLING_LAUNCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds
+            )
             time.sleep(mini_batch_delay_seconds)
 
     logger.info("[ROLLING_LAUNCH] Initial batch complete: %s shards launched", launched)
@@ -310,7 +320,11 @@ def launch_shards_rolling(
                         quota_broker.release(lease_id=str(shard.quota_lease_id))
                         shard.quota_lease_id = None
                 except (ConnectionError, TimeoutError) as e:
-                    logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+                    logger.warning(
+                        "Failed to release quota lease for %s (connection issue): %s",
+                        shard.shard_id,
+                        e,
+                    )
                 except (OSError, ValueError, RuntimeError) as e:
                     logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
             elif status == JobStatus.FAILED:
@@ -324,7 +338,11 @@ def launch_shards_rolling(
                         quota_broker.release(lease_id=str(shard.quota_lease_id))
                         shard.quota_lease_id = None
                 except (ConnectionError, TimeoutError) as e:
-                    logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+                    logger.warning(
+                        "Failed to release quota lease for %s (connection issue): %s",
+                        shard.shard_id,
+                        e,
+                    )
                 except (OSError, ValueError, RuntimeError) as e:
                     logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
             elif status == JobStatus.CANCELLED:
@@ -338,7 +356,11 @@ def launch_shards_rolling(
                         quota_broker.release(lease_id=str(shard.quota_lease_id))
                         shard.quota_lease_id = None
                 except (ConnectionError, TimeoutError) as e:
-                    logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+                    logger.warning(
+                        "Failed to release quota lease for %s (connection issue): %s",
+                        shard.shard_id,
+                        e,
+                    )
                 except (OSError, ValueError, RuntimeError) as e:
                     logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
             elif status == JobStatus.UNKNOWN:
@@ -346,9 +368,7 @@ def launch_shards_rolling(
                 if shard.unknown_polls >= unknown_threshold:
                     shard.status = ShardStatus.FAILED
                     shard.end_time = datetime.now(UTC).isoformat()
-                    shard.error_message = (
-                        f"Backend status UNKNOWN for {shard.unknown_polls} polls; marking shard as failed"
-                    )
+                    shard.error_message = f"Backend status UNKNOWN for {shard.unknown_polls} polls; marking shard as failed"  # noqa: E501
                     completed_this_round += 1
                     # Release quota lease (best-effort)
                     try:
@@ -383,7 +403,9 @@ def launch_shards_rolling(
                 mini_batch = batch_to_launch[mini_batch_idx : mini_batch_idx + mini_batch_size]
 
                 with ThreadPoolExecutor(max_workers=min(max_workers, len(mini_batch))) as executor:
-                    futures = {executor.submit(launch_single_shard, shard): shard for shard in mini_batch}
+                    futures = {
+                        executor.submit(launch_single_shard, shard): shard for shard in mini_batch
+                    }
 
                     for future in as_completed(futures):
                         shard, job_info = future.result()
@@ -397,7 +419,9 @@ def launch_shards_rolling(
 
                         if job_info is None or job_info.status == JobStatus.FAILED:
                             shard.status = ShardStatus.FAILED
-                            shard.error_message = job_info.error_message if job_info else "Launch failed"
+                            shard.error_message = (
+                                job_info.error_message if job_info else "Launch failed"
+                            )
                             shard.end_time = datetime.now(UTC).isoformat()
 
                             # Release admission lease on failed launch (best-effort)
@@ -406,7 +430,9 @@ def launch_shards_rolling(
                                     quota_broker.release(lease_id=str(shard.quota_lease_id))
                                     shard.quota_lease_id = None
                             except (OSError, ValueError, RuntimeError) as e:
-                                logger.warning("Failed to release quota lease on failed launch: %s", e)
+                                logger.warning(
+                                    "Failed to release quota lease on failed launch: %s", e
+                                )
                         else:
                             shard.status = ShardStatus.RUNNING
                             shard.job_id = job_info.job_id
@@ -419,7 +445,9 @@ def launch_shards_rolling(
                     time.sleep(mini_batch_delay_seconds)
 
             # Update remaining list
-            remaining_to_launch = [s for s in state.pending_shards if s.shard_id not in launched_shard_ids]
+            remaining_to_launch = [
+                s for s in state.pending_shards if s.shard_id not in launched_shard_ids
+            ]
 
         # Save state and display progress
         state_manager.save_state(state)
@@ -431,7 +459,7 @@ def launch_shards_rolling(
         pending = sum(1 for s in state.shards if s.status == ShardStatus.PENDING)
 
         logger.info(
-            "[ROLLING_LAUNCH] Progress: running=%s, succeeded=%s, failed=%s, pending=%s, remaining_to_launch=%s",
+            "[ROLLING_LAUNCH] Progress: running=%s, succeeded=%s, failed=%s, pending=%s, remaining_to_launch=%s",  # noqa: E501
             running,
             succeeded,
             failed,

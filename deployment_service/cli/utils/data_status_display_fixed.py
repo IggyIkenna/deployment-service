@@ -33,7 +33,7 @@ from .data_status_scanning import (
 logger = logging.getLogger(__name__)
 
 
-def display_fixed_service_status(
+def display_fixed_service_status(  # noqa: C901
     service: str,
     start_date,
     end_date,
@@ -115,7 +115,13 @@ def display_fixed_service_status(
             category_start_date[cat] = None
 
     format_fixed_service_header(
-        service, start_date, end_date, total_requested_days, category_excluded, categories, category_start_date
+        service,
+        start_date,
+        end_date,
+        total_requested_days,
+        category_excluded,
+        categories,
+        category_start_date,
     )
 
     # Decide on scan mode: fast (targeted queries) vs batch (full bucket scan)
@@ -124,7 +130,9 @@ def display_fixed_service_status(
     auto_fast = fast or (has_venue_dimension and num_days <= 60)
 
     if auto_fast:
-        click.echo(click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True))
+        click.echo(
+            click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True)
+        )
     else:
         click.echo(click.style("Scanning buckets (batch mode)...", dim=True))
 
@@ -141,7 +149,11 @@ def display_fixed_service_status(
         }
         try:
             bucket = gcs_config["bucket_template"].format(**template_vars)
-            path_template = path_prefix + gcs_config["path_template"] if path_prefix else gcs_config["path_template"]
+            path_template = (
+                path_prefix + gcs_config["path_template"]
+                if path_prefix
+                else gcs_config["path_template"]
+            )
             bucket_info[cat] = {
                 "bucket": bucket,
                 "path_template": path_template,
@@ -172,7 +184,9 @@ def display_fixed_service_status(
         )
     elif auto_fast:
         # FAST MODE: Targeted date queries for non-venue services
-        fast_results = scan_dates_fast_mode(categories, bucket_info, category_valid_dates, cloud_client, num_days)
+        fast_results = scan_dates_fast_mode(
+            categories, bucket_info, category_valid_dates, cloud_client, num_days
+        )
     else:
         # BATCH MODE: Scan full bucket (original method - best for small buckets)
         bucket_indexes = scan_buckets_batch_mode(categories, bucket_info, cloud_client)
@@ -250,7 +264,12 @@ def display_fixed_service_status(
         # Tree view (default)
         overall_pct = (overall_complete / overall_total * 100) if overall_total > 0 else 0
         format_tree_output(
-            hierarchy, overall_complete, overall_total, overall_excluded, category_excluded, show_timestamps
+            hierarchy,
+            overall_complete,
+            overall_total,
+            overall_excluded,
+            category_excluded,
+            show_timestamps,
         )
 
         click.echo()

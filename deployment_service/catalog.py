@@ -149,7 +149,7 @@ SERVICE_GCS_CONFIGS = {
     },
     "market-data-processing-service": {
         "bucket_template": "market-data-tick-{category_lower}-{project_id}",
-        "path_template": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/",
+        "path_template": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/",  # noqa: E501
         "dimensions": ["category", "timeframe", "data_type", "venue", "date"],
         "list_prefix": True,
         # Expected timeframes - all 7 must be present for completion
@@ -172,8 +172,8 @@ SERVICE_GCS_CONFIGS = {
         # Chain path templates - match market-data-processing implementation
         # Implementation: .../data_type={type}/{asset_class}/{venue}/{instrument_id}.parquet
         "chain_path_templates": {
-            "options_chain": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type=options_chain/options_chain/{venue}/",
-            "futures_chain": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/futures_chain/{venue}/",
+            "options_chain": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type=options_chain/options_chain/{venue}/",  # noqa: E501
+            "futures_chain": "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/futures_chain/{venue}/",  # noqa: E501
         },
         # Enable venue-specific data_type expectations from venue_data_types.yaml
         "use_venue_specific_data_types": True,
@@ -203,7 +203,7 @@ SERVICE_GCS_CONFIGS = {
         "path_template": "calendar/category={feature_group}/by_date/day={date}/",
         "dimensions": ["feature_group", "date"],  # No category dimension
         "list_prefix": True,
-        # Feature groups: temporal (hour/day cycles), scheduled_events (FOMC, NFP), event_actuals (T+1 data)
+        # Feature groups: temporal (hour/day cycles), scheduled_events (FOMC, NFP), event_actuals (T+1 data)  # noqa: E501
         "expected_feature_groups": ["temporal", "scheduled_events", "event_actuals"],
     },
     "ml-training-service": {
@@ -228,7 +228,7 @@ SERVICE_GCS_CONFIGS = {
     "execution-service": {
         "bucket_template": "execution-store-{domain}-{project_id}",
         "path_template": "backtest_results/",
-        # Dimensions align with sharding: domain determines bucket, strategy/instruments filter signals
+        # Dimensions align with sharding: domain determines bucket, strategy/instruments filter signals  # noqa: E501
         "dimensions": ["domain", "strategy_id", "instrument", "date"],
         "list_prefix": True,
         "notes": (
@@ -315,7 +315,9 @@ class DataCatalog:
         # Check each combination
         entries: list[CatalogEntry] = []
         for combo in combinations:
-            entry = self._check_combination(service, cast(dict[str, object], gcs_config), combo, include_files)
+            entry = self._check_combination(
+                service, cast(dict[str, object], gcs_config), combo, include_files
+            )
             entries.append(entry)
 
         return ServiceCatalog(
@@ -325,7 +327,7 @@ class DataCatalog:
             entries=entries,
         )
 
-    def _build_combinations(
+    def _build_combinations(  # noqa: C901
         self,
         service_config: dict[str, object],
         start_date: date,
@@ -345,7 +347,11 @@ class DataCatalog:
             if dim_type == "fixed":
                 values: list[object] = cast(list[object], dim.get("values") or [])
                 if filter_value:
-                    filter_list = cast(list[object], filter_value) if isinstance(filter_value, list) else [filter_value]
+                    filter_list = (
+                        cast(list[object], filter_value)
+                        if isinstance(filter_value, list)
+                        else [filter_value]
+                    )
                     values = [v for v in values if v in filter_list]
                 dimension_values[dim_name] = values
 
@@ -379,7 +385,9 @@ class DataCatalog:
 
                 if filter_value:
                     filter_list2 = (
-                        cast(list[object], filter_value) if isinstance(filter_value, list) else [filter_value]
+                        cast(list[object], filter_value)
+                        if isinstance(filter_value, list)
+                        else [filter_value]
                     )
                     hier_values = [v for v in hier_values if v in filter_list2]
 
@@ -457,7 +465,7 @@ class DataCatalog:
             files=files if include_files else [],
         )
 
-    def catalog_all_services(
+    def catalog_all_services(  # noqa: C901
         self,
         start_date: date,
         end_date: date,
@@ -480,7 +488,9 @@ class DataCatalog:
             services = self.config_loader.list_available_services()
 
         catalogs: dict[str, ServiceCatalog] = {}
-        dimension_filters: dict[str, object] = {k: v for k, v in filters.items() if k != "include_files"}
+        dimension_filters: dict[str, object] = {
+            k: v for k, v in filters.items() if k != "include_files"
+        }
         include_files: bool = bool(filters.get("include_files", False))
         for service in services:
             try:
@@ -535,7 +545,7 @@ class DataCatalog:
             lines.append("-" * len(service))
             lines.append(f"Date Range: {catalog.start_date} to {catalog.end_date}")
             lines.append(
-                f"Completion: {catalog.overall_completion:.1f}% ({catalog.complete_entries}/{catalog.total_entries})"
+                f"Completion: {catalog.overall_completion:.1f}% ({catalog.complete_entries}/{catalog.total_entries})"  # noqa: E501
             )
 
             # Show breakdown by first dimension
@@ -546,8 +556,14 @@ class DataCatalog:
                 if breakdown:
                     lines.append(f"\nBreakdown by {first_dim}:")
                     for dim_val, counts in sorted(breakdown.items()):
-                        pct = (counts["complete"] / counts["total"] * 100) if counts["total"] > 0 else 0
-                        lines.append(f"  {dim_val}: {pct:.1f}% ({counts['complete']}/{counts['total']})")
+                        pct = (
+                            (counts["complete"] / counts["total"] * 100)
+                            if counts["total"] > 0
+                            else 0
+                        )
+                        lines.append(
+                            f"  {dim_val}: {pct:.1f}% ({counts['complete']}/{counts['total']})"
+                        )
 
         lines.append("\n" + "=" * 60)
 

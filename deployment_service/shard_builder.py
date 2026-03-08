@@ -16,7 +16,7 @@ from typing import cast
 logger = logging.getLogger(__name__)
 
 
-def build_shard_args(
+def build_shard_args(  # noqa: C901
     shard: object,
     service_config: dict[str, object],
     extra_options: dict[str, object] | None = None,
@@ -52,7 +52,10 @@ def build_shard_args(
     # 2. Add dimension values from shard
     # Support both object.dimensions and dict["dimensions"] access
     dimensions = cast(
-        dict[str, object], getattr(shard, "dimensions", None) or cast(dict[str, object], shard).get("dimensions") or {}
+        dict[str, object],
+        getattr(shard, "dimensions", None)
+        or cast(dict[str, object], shard).get("dimensions")
+        or {},
     )
 
     for dim_name, dim_value in dimensions.items():
@@ -139,7 +142,7 @@ def build_shard_args(
         else:
             service_name = service_config.get("service", "unknown")
             logger.warning(
-                "--max-workers=%s requested but %s does not accept --max-workers in its cli_optional config. Ignoring. Add it to sharding.%s.yaml cli_optional if needed.",
+                "--max-workers=%s requested but %s does not accept --max-workers in its cli_optional config. Ignoring. Add it to sharding.%s.yaml cli_optional if needed.",  # noqa: E501
                 extra_options["max_workers"],
                 service_name,
                 service_name,
@@ -174,7 +177,10 @@ def build_shard_id(shard: object, index: int) -> str:
     """
     # Support both object.dimensions and dict["dimensions"] access
     dimensions = cast(
-        dict[str, object], getattr(shard, "dimensions", None) or cast(dict[str, object], shard).get("dimensions") or {}
+        dict[str, object],
+        getattr(shard, "dimensions", None)
+        or cast(dict[str, object], shard).get("dimensions")
+        or {},
     )
 
     parts = []

@@ -57,10 +57,18 @@ class BucketStats:
         return {
             "file_count": self.file_count,
             "total_size_bytes": self.total_size_bytes,
-            "oldest_file_time": (self.oldest_file_time.isoformat() if self.oldest_file_time else None),
-            "newest_file_time": (self.newest_file_time.isoformat() if self.newest_file_time else None),
-            "oldest_update_time": (self.oldest_update_time.isoformat() if self.oldest_update_time else None),
-            "newest_update_time": (self.newest_update_time.isoformat() if self.newest_update_time else None),
+            "oldest_file_time": (
+                self.oldest_file_time.isoformat() if self.oldest_file_time else None
+            ),
+            "newest_file_time": (
+                self.newest_file_time.isoformat() if self.newest_file_time else None
+            ),
+            "oldest_update_time": (
+                self.oldest_update_time.isoformat() if self.oldest_update_time else None
+            ),
+            "newest_update_time": (
+                self.newest_update_time.isoformat() if self.newest_update_time else None
+            ),
         }
 
 
@@ -100,7 +108,9 @@ class StorageClient:
         except (OSError, PermissionError):
             return []
 
-    def _list_gcs_files(self, bucket_name: str, prefix: str, pattern: str = "*", max_results: int = 1000) -> list[str]:
+    def _list_gcs_files(
+        self, bucket_name: str, prefix: str, pattern: str = "*", max_results: int = 1000
+    ) -> list[str]:
         """List files in a GCS bucket."""
         try:
             client = self.client
@@ -108,7 +118,11 @@ class StorageClient:
                 return []
             bucket = client.bucket(bucket_name)
             blobs = bucket.list_blobs(prefix=prefix, max_results=max_results)
-            return [f"gs://{bucket_name}/{blob.name}" for blob in blobs if self._matches_pattern(blob.name, pattern)]
+            return [
+                f"gs://{bucket_name}/{blob.name}"
+                for blob in blobs
+                if self._matches_pattern(blob.name, pattern)
+            ]
         except (OSError, PermissionError):
             return []
 
@@ -142,7 +156,9 @@ class StorageClient:
             logger.error("Error checking prefix %s in bucket %s: %s", prefix, bucket_name, e)
             return False
 
-    def count_files(self, bucket_name: str, prefix: str, pattern: str = "*", max_scan: int = 10000) -> int:
+    def count_files(
+        self, bucket_name: str, prefix: str, pattern: str = "*", max_scan: int = 10000
+    ) -> int:
         """Count files in a bucket/prefix matching a pattern."""
         if self._mock_mode or self.client is None:
             return 0
@@ -179,7 +195,9 @@ class StorageClient:
             logger.error("Error getting bucket stats: %s", e)
             return BucketStats(file_count=0, total_size_bytes=0)
 
-    def _get_storage_bucket_stats(self, bucket_name: str, prefix: str, pattern: str, max_scan: int) -> BucketStats:
+    def _get_storage_bucket_stats(
+        self, bucket_name: str, prefix: str, pattern: str, max_scan: int
+    ) -> BucketStats:
         """Get GCS bucket statistics."""
         try:
             client = self.client
@@ -259,7 +277,9 @@ class StorageClient:
             provider = "s3"
             path = cloud_path[5:]
         else:
-            raise ValueError(f"Invalid cloud path: {cloud_path}. Must start with 'gs://' or 's3://'")
+            raise ValueError(
+                f"Invalid cloud path: {cloud_path}. Must start with 'gs://' or 's3://'"
+            )
         parts = path.split("/", 1)
         bucket_name = parts[0]
         prefix = parts[1] if len(parts) > 1 else ""

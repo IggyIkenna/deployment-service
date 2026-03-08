@@ -4,7 +4,7 @@ CLI - Command-line interface for shard calculation and deployment
 Usage:
     python -m src.cli calculate --service instruments-service --start-date 2024-01-01 --end-date 2024-12-31
     python -m src.cli calculate --service market-tick-data-handler --category CEFI --max-shards 100
-"""
+"""  # noqa: E501
 
 import logging
 import warnings
@@ -57,7 +57,9 @@ def get_config_dir() -> Path:
         if parent.name == "deployment-service":
             return parent / "configs"
 
-    raise click.ClickException("Could not find configs directory. Run from deployment-service or specify --config-dir")
+    raise click.ClickException(
+        "Could not find configs directory. Run from deployment-service or specify --config-dir"
+    )
 
 
 @click.group()

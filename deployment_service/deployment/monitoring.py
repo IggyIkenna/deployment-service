@@ -19,7 +19,7 @@ from .state import DeploymentState, DeploymentStatus, ShardState, ShardStatus
 logger = logging.getLogger(__name__)
 
 
-def monitor_shards(
+def monitor_shards(  # noqa: C901
     state: DeploymentState,
     backend: ComputeBackend,
     state_manager: object,
@@ -54,7 +54,9 @@ def monitor_shards(
     if docker_image is None:
         docker_image = cast(str | None, state.config.get("docker_image"))
     if environment_variables is None:
-        environment_variables = cast(dict[str, str], state.config.get("environment_variables") or {})
+        environment_variables = cast(
+            dict[str, str], state.config.get("environment_variables") or {}
+        )
     if compute_config is None:
         compute_config = cast(dict[str, object], state.config.get("compute_config") or {})
 
@@ -99,7 +101,11 @@ def monitor_shards(
                     pass
                 # Log retry success clearly so it's visible when grepping logs
                 if shard.retries > 0:
-                    logger.info("[RETRY_SUCCESS] Shard %s succeeded after %s retry(ies)", shard_id, shard.retries)
+                    logger.info(
+                        "[RETRY_SUCCESS] Shard %s succeeded after %s retry(ies)",
+                        shard_id,
+                        shard.retries,
+                    )
             elif job_info.status == JobStatus.FAILED:
                 # Release quota lease (best-effort) before retrying/marking failed
                 try:
@@ -126,7 +132,7 @@ def monitor_shards(
                     shard.end_time = datetime.now(UTC).isoformat()
                     completed_shards.append(shard_id)
                     logger.error(
-                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts (max retries reached): %s",
+                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts (max retries reached): %s",  # noqa: E501
                         shard_id,
                         shard.retries + 1,
                         job_info.error_message,
@@ -151,7 +157,12 @@ def monitor_shards(
         # Retry failed shards (if any)
         for retry_idx, shard in enumerate(shards_to_retry):
             shard.retries += 1
-            logger.info("Retrying shard %s (attempt %s/%s)", shard.shard_id, shard.retries + 1, max_retries + 1)
+            logger.info(
+                "Retrying shard %s (attempt %s/%s)",
+                shard.shard_id,
+                shard.retries + 1,
+                max_retries + 1,
+            )
 
             try:
                 # Admission control (optional) - block until granted.
@@ -166,7 +177,9 @@ def monitor_shards(
                         ttl_override: int | None = None
                     else:
                         resources = {"RUNNING_EXECUTIONS": 1.0}
-                        timeout_s = int(cast(int, (compute_config or {}).get("timeout_seconds") or 3600))
+                        timeout_s = int(
+                            cast(int, (compute_config or {}).get("timeout_seconds") or 3600)
+                        )
                         ttl_override = max(300, min(timeout_s, 6 * 3600))
 
                     while True:
@@ -247,7 +260,9 @@ def monitor_shards(
                         quota_broker.release(lease_id=str(shard.quota_lease_id))
                         shard.quota_lease_id = None
                 except (OSError, ValueError, RuntimeError) as inner_err:
-                    logger.warning("Unexpected error during operation: %s", inner_err, exc_info=True)
+                    logger.warning(
+                        "Unexpected error during operation: %s", inner_err, exc_info=True
+                    )
                 if shard.retries >= max_retries:
                     shard.status = ShardStatus.FAILED
                     shard.error_message = f"Retry failed: {retry_err}"

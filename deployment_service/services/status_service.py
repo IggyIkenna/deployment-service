@@ -52,7 +52,12 @@ class StatusService:
             "created_at": datetime.now(UTC).isoformat(),
             "updated_at": datetime.now(UTC).isoformat(),
             "shards": self._get_shard_status(deployment_id),
-            "summary": {"total_shards": 0, "completed_shards": 0, "failed_shards": 0, "running_shards": 0},
+            "summary": {
+                "total_shards": 0,
+                "completed_shards": 0,
+                "failed_shards": 0,
+                "running_shards": 0,
+            },
         }
 
     def _get_shard_status(self, deployment_id: str) -> list[dict[str, object]]:
@@ -67,7 +72,9 @@ class StatusService:
         # Placeholder for shard status
         return []
 
-    def list_deployments(self, status_filter: str | None = None, limit: int = 50) -> list[dict[str, object]]:
+    def list_deployments(
+        self, status_filter: str | None = None, limit: int = 50
+    ) -> list[dict[str, object]]:
         """List deployments with optional status filtering.
 
         Args:
@@ -81,7 +88,11 @@ class StatusService:
             deployments = self._fetch_deployments_list(limit)
 
             if status_filter:
-                deployments = [d for d in deployments if str(d.get("status") or "").lower() == status_filter.lower()]
+                deployments = [
+                    d
+                    for d in deployments
+                    if str(d.get("status") or "").lower() == status_filter.lower()
+                ]
 
             return deployments
         except (OSError, ValueError, RuntimeError) as e:
@@ -115,7 +126,9 @@ class StatusService:
             current_status = status.get("status", "")
 
             if current_status in ("completed", "failed", "cancelled") and not force:
-                raise click.ClickException(f"Deployment {deployment_id} is already {current_status}")
+                raise click.ClickException(
+                    f"Deployment {deployment_id} is already {current_status}"
+                )
 
             # Perform cancellation
             success = self._cancel_deployment_backend(deployment_id, force)

@@ -27,7 +27,7 @@ def _ensure_boto3() -> "types.ModuleType":
     """Deferred boto3 import — deployment AWS control-plane boundary."""
     if importlib.util.find_spec("boto3") is None:
         raise ImportError(
-            "boto3 is required for AWS Batch functionality. Install with: uv pip install 'deployment-service[aws]'"
+            "boto3 is required for AWS Batch functionality. Install with: uv pip install 'deployment-service[aws]'"  # noqa: E501
         )
     import boto3  # Deferred — deployment AWS control-plane boundary
 
@@ -67,7 +67,7 @@ class AWSBatchBackend(ComputeBackend):
         self._job_definition = job_definition
 
         # Initialize Batch client
-        # cast: _ensure_boto3() returns ModuleType at runtime; boto3-stubs provide .client() overloads
+        # cast: _ensure_boto3() returns ModuleType at runtime; boto3-stubs provide .client() overloads  # noqa: E501
         _boto3 = cast("_boto3_module", _ensure_boto3())
         self._client = _boto3.client("batch", region_name=region)
         self._logs_client = _boto3.client("logs", region_name=region)
@@ -78,7 +78,7 @@ class AWSBatchBackend(ComputeBackend):
     def backend_type(self) -> str:
         return "aws_batch"
 
-    def deploy_shard(
+    def deploy_shard(  # noqa: C901
         self,
         shard_id: str,
         docker_image: str,
@@ -105,7 +105,9 @@ class AWSBatchBackend(ComputeBackend):
             # Build container overrides
             container_overrides = {
                 "command": args if args else [],
-                "environment": [{"name": k, "value": str(v)} for k, v in environment_variables.items()],
+                "environment": [
+                    {"name": k, "value": str(v)} for k, v in environment_variables.items()
+                ],
             }
 
             # Add resource requirements if specified
@@ -151,7 +153,9 @@ class AWSBatchBackend(ComputeBackend):
 
             # Add tags
             if labels:
-                submit_params["tags"] = cast("str | dict[str, list[str] | list[dict[str, str]]]", labels)
+                submit_params["tags"] = cast(
+                    "str | dict[str, list[str] | list[dict[str, str]]]", labels
+                )
 
             # Submit the job
             response = self._client.submit_job(**submit_params)
@@ -209,7 +213,7 @@ class AWSBatchBackend(ComputeBackend):
                         {"type": "VCPU", "value": str(vcpu)},
                         {"type": "MEMORY", "value": str(memory)},
                     ],
-                    "executionRoleArn": f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role",
+                    "executionRoleArn": f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role",  # noqa: E501
                     "networkConfiguration": {
                         "assignPublicIp": "ENABLED",
                     },
@@ -290,7 +294,7 @@ class AWSBatchBackend(ComputeBackend):
         }
         return status_map.get(batch_status, JobStatus.UNKNOWN)
 
-    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:
+    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:  # noqa: C901
         """Get status for multiple jobs in a single API call."""
         if not job_ids:
             return {}

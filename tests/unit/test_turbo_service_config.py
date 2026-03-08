@@ -261,7 +261,9 @@ class TestDatesFoundListIncluded:
     def test_dates_found_list_empty_when_no_data(self):
         """Test that dates_found_list is empty when no data exists."""
         # When a category has no data, dates_found_list should be []
-        sample_response = {"categories": {"DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}}}
+        sample_response = {
+            "categories": {"DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}}
+        }
 
         assert sample_response["categories"]["DEFI"]["dates_found_list"] == []
         assert sample_response["categories"]["DEFI"]["dates_found"] == 0
@@ -305,7 +307,8 @@ class TestDateHandlingConsistency:
         bad_response = {"date_range": {"start": "2026-01-04", "end": "2026-02-02", "days": 30}}
         # Frontend validation should catch this mismatch
         has_mismatch = (
-            bad_response["date_range"]["start"] != request_start or bad_response["date_range"]["end"] != request_end
+            bad_response["date_range"]["start"] != request_start
+            or bad_response["date_range"]["end"] != request_end
         )
         assert has_mismatch, "Should detect date mismatch"
 

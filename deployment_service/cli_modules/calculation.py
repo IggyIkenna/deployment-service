@@ -103,7 +103,10 @@ class CalculationCLI(BaseCLI):
         return resources
 
     def optimize_shards(
-        self, service: str, target_metric: str = "cost", constraints: dict[str, object] | None = None
+        self,
+        service: str,
+        target_metric: str = "cost",
+        constraints: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Optimize shard configuration for a service.
 
@@ -181,12 +184,16 @@ class CalculationCLI(BaseCLI):
 
         if output_format == "summary":
             # Just include summary statistics
-            shard_dicts = [cast(dict[str, object], s) if isinstance(s, dict) else {} for s in shards]
+            shard_dicts = [
+                cast(dict[str, object], s) if isinstance(s, dict) else {} for s in shards
+            ]
             results["summary"] = self._calculate_shard_summary(shard_dicts)
 
         elif output_format == "table":
             # Format as table-friendly structure
-            shard_dicts = [cast(dict[str, object], s) if isinstance(s, dict) else {} for s in shards]
+            shard_dicts = [
+                cast(dict[str, object], s) if isinstance(s, dict) else {} for s in shards
+            ]
             results["shards"] = self._format_shards_as_table(shard_dicts)
 
         else:  # json (default)
@@ -215,7 +222,9 @@ class CalculationCLI(BaseCLI):
             return {}
 
         # Calculate various statistics
-        date_ranges: list[dict[str, object]] = [cast(dict[str, object], s.get("date_range") or {}) for s in shards]
+        date_ranges: list[dict[str, object]] = [
+            cast(dict[str, object], s.get("date_range") or {}) for s in shards
+        ]
         categories: list[object] = [s.get("category", "unknown") for s in shards]
 
         category_distribution: dict[str, object] = {}
@@ -267,8 +276,12 @@ class CalculationCLI(BaseCLI):
                 "category": str(shard.get("category") or "N/A"),
                 "date_start": str(date_range.get("start") or "N/A"),
                 "date_end": str(date_range.get("end") or "N/A"),
-                "venues": len(cast(list[object], venues_raw)) if isinstance(venues_raw, list) else 0,
-                "instruments": len(cast(list[object], instruments_raw)) if isinstance(instruments_raw, list) else 0,
+                "venues": len(cast(list[object], venues_raw))
+                if isinstance(venues_raw, list)
+                else 0,
+                "instruments": len(cast(list[object], instruments_raw))
+                if isinstance(instruments_raw, list)
+                else 0,
             }
             table_data.append(row)
 
@@ -343,7 +356,11 @@ class CalculationCLI(BaseCLI):
             "constraints": constraints,
             "original_shards": config.get("max_shards", 100),
             "optimized_shards": 75,  # Example optimized value
-            "improvements": {"cost_reduction": "25%", "performance_gain": "15%", "resource_efficiency": "30%"},
+            "improvements": {
+                "cost_reduction": "25%",
+                "performance_gain": "15%",
+                "resource_efficiency": "30%",
+            },
             "recommendations": [
                 "Consolidate low-volume shards",
                 "Use larger instance types for high-throughput shards",

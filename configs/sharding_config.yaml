@@ -26,7 +26,16 @@ services:
       dimensions: [category, venue, instrument_type, data_type, date]
       category_values: [cefi, defi, tradfi]
       instrument_type_values: [spot, perpetual, future, option]
-      data_type_values: [trades, book_snapshot_5, derivative_ticker, liquidations, incremental_book_l2, opra_options, cme_options]
+      data_type_values:
+        [
+          trades,
+          book_snapshot_5,
+          derivative_ticker,
+          liquidations,
+          incremental_book_l2,
+          opra_options,
+          cme_options,
+        ]
     live:
       dimensions: [venue, instrument_type, data_type]
       notes: One WebSocket per stream, multiplexed internally per venue
@@ -51,7 +60,25 @@ services:
     batch:
       dimensions: [category, venue, feature_category, date]
       category_values: [cefi, defi, tradfi]
-      feature_category_values: [technical_indicators, moving_averages, oscillators, volatility_realized, momentum, volume_analysis, vwap, candlestick_patterns, market_structure, returns, round_numbers, streaks, microstructure, funding_oi, liquidations, temporal]
+      feature_category_values:
+        [
+          technical_indicators,
+          moving_averages,
+          oscillators,
+          volatility_realized,
+          momentum,
+          volume_analysis,
+          vwap,
+          candlestick_patterns,
+          market_structure,
+          returns,
+          round_numbers,
+          streaks,
+          microstructure,
+          funding_oi,
+          liquidations,
+          temporal,
+        ]
     live:
       dimensions: [venue, feature_category]
       notes: Triggered by MDPS completion event
@@ -60,7 +87,8 @@ services:
     batch:
       dimensions: [category, venue, feature_category, date]
       category_values: [cefi, defi, tradfi]
-      feature_category_values: [options_volatility, futures_basis, tradfi_vol_surface]
+      feature_category_values:
+        [options_volatility, futures_basis, tradfi_vol_surface]
     live:
       dimensions: [venue, feature_category]
       notes: Triggered by MDPS completion event
@@ -77,7 +105,13 @@ services:
     batch:
       dimensions: [category, feature_category, date]
       category_values: [cefi, defi, tradfi]
-      feature_category_values: [regime, cross_venue_spread, realized_vs_implied, cross_asset_correlation]
+      feature_category_values:
+        [
+          regime,
+          cross_venue_spread,
+          realized_vs_implied,
+          cross_asset_correlation,
+        ]
     live:
       dimensions: [feature_category]
       notes: Aggregates across venues/instruments. Triggered by FDS+FVS completion.
@@ -86,7 +120,13 @@ services:
     batch:
       dimensions: [category, feature_category, date]
       category_values: [cefi, defi, tradfi]
-      feature_category_values: [tf_momentum_alignment, tf_structure_context, tf_vol_compression, tf_session_context]
+      feature_category_values:
+        [
+          tf_momentum_alignment,
+          tf_structure_context,
+          tf_vol_compression,
+          tf_session_context,
+        ]
     live:
       dimensions: [feature_category]
       notes: L3b cross-TF aggregation. Triggered by FDS completion per instrument.

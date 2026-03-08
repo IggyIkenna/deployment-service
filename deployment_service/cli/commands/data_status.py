@@ -100,10 +100,10 @@ FIXED_DIMENSION_SERVICES = {
     "--mode",
     type=click.Choice(["batch", "live"], case_sensitive=False),
     default="batch",
-    help="Data path mode: batch (historical by_date/day=) or live (persisted live sink under live/ prefix).",
+    help="Data path mode: batch (historical by_date/day=) or live (persisted live sink under live/ prefix).",  # noqa: E501
 )
 @click.pass_context
-def data_status(
+def data_status(  # noqa: C901
     ctx,
     service: str,
     start_date: datetime,
@@ -152,7 +152,7 @@ def data_status(
 
         # Check venue coverage within instruments parquet files (instruments-service only)
         data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31 --check-venues
-    """
+    """  # noqa: E501
     config_dir = ctx.obj.get("config_dir", "configs")
     total_start = time.time()
 
@@ -193,13 +193,15 @@ def data_status(
             if service not in feature_services:
                 click.echo(
                     click.style(
-                        f"--check-feature-groups is only supported for: {', '.join(feature_services)}",
+                        f"--check-feature-groups is only supported for: {', '.join(feature_services)}",  # noqa: E501
                         fg="red",
                     ),
                     err=True,
                 )
                 sys.exit(1)
-            check_feature_groups_detailed(service, start_date, end_date, category, config_dir, output)
+            check_feature_groups_detailed(
+                service, start_date, end_date, category, config_dir, output
+            )
 
         elif check_timeframes:
             if service != "market-data-processing-service":
@@ -214,7 +216,9 @@ def data_status(
             check_timeframes_detailed(start_date, end_date, category, venue, config_dir, output)
 
         elif service in DYNAMIC_DIMENSION_SERVICES:
-            display_dynamic_service_status(service, start_date, end_date, category, output, config_dir, mode)
+            display_dynamic_service_status(
+                service, start_date, end_date, category, output, config_dir, mode
+            )
 
         else:
             display_fixed_service_status(

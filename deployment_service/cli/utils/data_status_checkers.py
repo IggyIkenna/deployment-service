@@ -16,7 +16,7 @@ from ...deployment_config import DeploymentConfig
 logger = logging.getLogger(__name__)
 
 
-def check_data_types_detailed(
+def check_data_types_detailed(  # noqa: C901
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],
@@ -76,9 +76,11 @@ def check_data_types_detailed(
 
     if show_progress:
         click.echo()
-        click.echo(f"DETAILED DATA TYPE STATUS: {click.style('market-tick-data-handler', fg='cyan', bold=True)}")
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
+            f"DETAILED DATA TYPE STATUS: {click.style('market-tick-data-handler', fg='cyan', bold=True)}"  # noqa: E501
+        )
+        click.echo(
+            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
         )
         click.echo("=" * 70)
         click.echo()
@@ -126,7 +128,9 @@ def check_data_types_detailed(
             for inst_type in venue_inst_types:
                 inst_config = venue_dt_config.get(inst_type, {})
                 if in_tick_window:
-                    expected_dts.update(inst_config.get("tick_window", inst_config.get("default") or []))
+                    expected_dts.update(
+                        inst_config.get("tick_window", inst_config.get("default") or [])
+                    )
                 else:
                     expected_dts.update(inst_config.get("default") or [])
 
@@ -226,7 +230,9 @@ def check_data_types_detailed(
                     "expected": info["expected"],
                     "found": info["found"],
                     "completion_percent": (
-                        round(info["found"] / info["expected"] * 100, 1) if info["expected"] > 0 else 0
+                        round(info["found"] / info["expected"] * 100, 1)
+                        if info["expected"] > 0
+                        else 0
                     ),
                     "missing_dates": info["missing_dates"],
                 }
@@ -303,7 +309,7 @@ def check_data_types_detailed(
         )
 
 
-def check_feature_groups_detailed(
+def check_feature_groups_detailed(  # noqa: C901
     service: str,
     start_date: datetime,
     end_date: datetime,
@@ -377,7 +383,7 @@ def check_feature_groups_detailed(
         click.echo()
         click.echo(f"FEATURE GROUP STATUS: {click.style(service, fg='cyan', bold=True)}")
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
+            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
         )
         click.echo(f"Expected Feature Groups: {len(expected_feature_groups)}")
         click.echo("=" * 70)
@@ -400,7 +406,9 @@ def check_feature_groups_detailed(
             )
         except KeyError:
             if show_progress:
-                click.echo(click.style(f"  Could not format bucket template for {cat}", fg="yellow"))
+                click.echo(
+                    click.style(f"  Could not format bucket template for {cat}", fg="yellow")
+                )
             continue
 
         category_results = {}
@@ -444,7 +452,9 @@ def check_feature_groups_detailed(
         for fg in expected_feature_groups:
             fg_expected = len(all_dates)
             fg_found = sum(
-                1 for date_str, date_results in cat_results.items() if date_results.get(fg, {}).get("exists", False)
+                1
+                for date_str, date_results in cat_results.items()
+                if date_results.get(fg, {}).get("exists", False)
             )
             fg_missing = [
                 date_str
@@ -455,7 +465,9 @@ def check_feature_groups_detailed(
             cat_feature_groups[fg] = {
                 "expected": fg_expected,
                 "found": fg_found,
-                "completion_percent": (round(fg_found / fg_expected * 100, 1) if fg_expected > 0 else 0),
+                "completion_percent": (
+                    round(fg_found / fg_expected * 100, 1) if fg_expected > 0 else 0
+                ),
                 "missing_dates": (fg_missing[:10] if len(fg_missing) > 10 else fg_missing),
                 "total_missing": len(fg_missing),
             }
@@ -509,7 +521,9 @@ def check_feature_groups_detailed(
         else:
             status = click.style("🕐", fg="red")
 
-        click.echo(f"{status} {cat}: {cat_stats['total_found']}/{cat_stats['total_expected']} ({pct:.0f}%)")
+        click.echo(
+            f"{status} {cat}: {cat_stats['total_found']}/{cat_stats['total_expected']} ({pct:.0f}%)"
+        )
 
         # Show per-feature_group breakdown
         for fg, fg_stats in cat_stats["feature_groups"].items():
@@ -522,13 +536,17 @@ def check_feature_groups_detailed(
             else:
                 fg_icon = click.style("✗", fg="red")
 
-            click.echo(f"   {fg_icon} {fg}: {fg_stats['found']}/{fg_stats['expected']} ({fg_pct:.0f}%)")
+            click.echo(
+                f"   {fg_icon} {fg}: {fg_stats['found']}/{fg_stats['expected']} ({fg_pct:.0f}%)"
+            )
 
             # Show missing dates if any
             if fg_stats["total_missing"] > 0:
                 missing_preview = fg_stats["missing_dates"]
                 if fg_stats["total_missing"] > 10:
-                    dates_str = f"{', '.join(missing_preview[:3])}, ... ({fg_stats['total_missing']} dates)"
+                    dates_str = (
+                        f"{', '.join(missing_preview[:3])}, ... ({fg_stats['total_missing']} dates)"
+                    )
                 else:
                     dates_str = ", ".join(missing_preview)
                 click.echo(click.style(f"      └── missing: {dates_str}", fg="red", dim=True))
@@ -556,7 +574,7 @@ def check_feature_groups_detailed(
         )
 
 
-def check_timeframes_detailed(
+def check_timeframes_detailed(  # noqa: C901
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],
@@ -581,7 +599,9 @@ def check_timeframes_detailed(
     show_progress = output != "json"
 
     # Expected timeframes
-    expected_timeframes = gcs_config.get("expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"])
+    expected_timeframes = gcs_config.get(
+        "expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"]
+    )
 
     # Filter categories
     categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
@@ -595,9 +615,11 @@ def check_timeframes_detailed(
 
     if show_progress:
         click.echo()
-        click.echo(f"TIMEFRAME STATUS: {click.style('market-data-processing-service', fg='cyan', bold=True)}")
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
+            f"TIMEFRAME STATUS: {click.style('market-data-processing-service', fg='cyan', bold=True)}"  # noqa: E501
+        )
+        click.echo(
+            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
         )
         click.echo(f"Expected Timeframes: {', '.join(expected_timeframes)}")
         click.echo("=" * 70)
@@ -648,7 +670,9 @@ def check_timeframes_detailed(
         for tf in expected_timeframes:
             tf_expected = len(all_dates)
             tf_found = sum(
-                1 for date_str, date_results in cat_results.items() if date_results.get(tf, {}).get("exists", False)
+                1
+                for date_str, date_results in cat_results.items()
+                if date_results.get(tf, {}).get("exists", False)
             )
             tf_missing = [
                 date_str
@@ -659,7 +683,9 @@ def check_timeframes_detailed(
             cat_timeframes[tf] = {
                 "expected": tf_expected,
                 "found": tf_found,
-                "completion_percent": (round(tf_found / tf_expected * 100, 1) if tf_expected > 0 else 0),
+                "completion_percent": (
+                    round(tf_found / tf_expected * 100, 1) if tf_expected > 0 else 0
+                ),
                 "missing_dates": (tf_missing[:10] if len(tf_missing) > 10 else tf_missing),
                 "total_missing": len(tf_missing),
             }
@@ -713,7 +739,9 @@ def check_timeframes_detailed(
         else:
             status = click.style("🕐", fg="red")
 
-        click.echo(f"{status} {cat}: {cat_stats['total_found']}/{cat_stats['total_expected']} ({pct:.0f}%)")
+        click.echo(
+            f"{status} {cat}: {cat_stats['total_found']}/{cat_stats['total_expected']} ({pct:.0f}%)"
+        )
 
         # Show per-timeframe breakdown
         for tf, tf_stats in cat_stats["timeframes"].items():
@@ -726,13 +754,17 @@ def check_timeframes_detailed(
             else:
                 tf_icon = click.style("✗", fg="red")
 
-            click.echo(f"   {tf_icon} {tf}: {tf_stats['found']}/{tf_stats['expected']} ({tf_pct:.0f}%)")
+            click.echo(
+                f"   {tf_icon} {tf}: {tf_stats['found']}/{tf_stats['expected']} ({tf_pct:.0f}%)"
+            )
 
             # Show missing dates if any
             if tf_stats["total_missing"] > 0:
                 missing_preview = tf_stats["missing_dates"]
                 if tf_stats["total_missing"] > 10:
-                    dates_str = f"{', '.join(missing_preview[:3])}, ... ({tf_stats['total_missing']} dates)"
+                    dates_str = (
+                        f"{', '.join(missing_preview[:3])}, ... ({tf_stats['total_missing']} dates)"
+                    )
                 else:
                     dates_str = ", ".join(missing_preview)
                 click.echo(click.style(f"      └── missing: {dates_str}", fg="red", dim=True))

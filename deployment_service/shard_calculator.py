@@ -42,7 +42,9 @@ class ShardCalculator:
         self.venues_config = self.config_loader.load_venues_config()
 
         # Initialize processors
-        self.dimension_processor = DimensionProcessor(self.config_loader, self.cloud_client, self.venues_config)
+        self.dimension_processor = DimensionProcessor(
+            self.config_loader, self.cloud_client, self.venues_config
+        )
         self.combination_calculator = CombinationCalculator(self.config_loader, self.cloud_client)
 
     def calculate_shards(
@@ -88,14 +90,16 @@ class ShardCalculator:
         dimension_values: dict[str, list[object]]
         dimension_counts: dict[str, int]
         hierarchical_dims: dict[str, str]
-        dimension_values, dimension_counts, hierarchical_dims = self.dimension_processor.process_dimensions(
-            service_config,
-            start_date,
-            end_date,
-            cloud_config_path,
-            skip_dimensions,
-            date_granularity_override,
-            **filters,
+        dimension_values, dimension_counts, hierarchical_dims = (
+            self.dimension_processor.process_dimensions(
+                service_config,
+                start_date,
+                end_date,
+                cloud_config_path,
+                skip_dimensions,
+                date_granularity_override,
+                **filters,
+            )
         )
 
         # Calculate all valid combinations
@@ -104,7 +108,9 @@ class ShardCalculator:
         )
 
         # Apply filtering strategies
-        combinations = self._apply_filters(combinations, service, respect_start_dates, skip_existing)
+        combinations = self._apply_filters(
+            combinations, service, respect_start_dates, skip_existing
+        )
 
         total_shards = len(combinations)
         logger.info("Service %s: %s total shards", service, total_shards)
@@ -155,7 +161,9 @@ class ShardCalculator:
         # Filter by existing data if requested
         if skip_existing:
             original_count = len(combinations)
-            combinations = self.combination_calculator.filter_by_existing_data(combinations, service)
+            combinations = self.combination_calculator.filter_by_existing_data(
+                combinations, service
+            )
             filtered_count = original_count - len(combinations)
             if filtered_count > 0:
                 logger.info("Filtered %s shards where data already exists", filtered_count)

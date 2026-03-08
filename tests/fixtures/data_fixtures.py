@@ -237,7 +237,10 @@ def sample_filename_patterns():
         "venue_directory": {
             "pattern": r"venue=([^/]+)",
             "examples": [
-                ("instrument_availability/by_date/day=2024-01-01/venue=BINANCE-FUTURES/", "BINANCE-FUTURES"),
+                (
+                    "instrument_availability/by_date/day=2024-01-01/venue=BINANCE-FUTURES/",
+                    "BINANCE-FUTURES",
+                ),
                 ("raw_tick_data/by_date/day=2024-01-01/data_type=trades/venue=DERIBIT/", "DERIBIT"),
             ],
         },

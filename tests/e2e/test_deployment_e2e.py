@@ -107,7 +107,9 @@ class TestShardCalculator:
         sharding_files = list(config_dir.glob("sharding.*.yaml"))
 
         # Should have at least 10 services
-        assert len(sharding_files) >= 10, f"Expected at least 10 sharding configs, found {len(sharding_files)}"
+        assert len(sharding_files) >= 10, (
+            f"Expected at least 10 sharding configs, found {len(sharding_files)}"
+        )
 
 
 class TestCLI:

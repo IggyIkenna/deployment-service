@@ -2,7 +2,11 @@
 
 import pytest
 
-from deployment_service.config.config_validator import ConfigurationError, ConfigValidator, ValidationUtils
+from deployment_service.config.config_validator import (
+    ConfigurationError,
+    ConfigValidator,
+    ValidationUtils,
+)
 
 
 class TestValidationUtils:
@@ -112,7 +116,10 @@ class TestConfigValidator:
         """Test validate_service_config with valid config."""
         config = {
             "service": "test-svc",
-            "dimensions": [{"name": "date", "type": "date_range"}, {"name": "venue", "type": "fixed", "values": ["A"]}],
+            "dimensions": [
+                {"name": "date", "type": "date_range"},
+                {"name": "venue", "type": "fixed", "values": ["A"]},
+            ],
         }
         # Should not raise
         validator.validate_service_config(config, "test-svc")

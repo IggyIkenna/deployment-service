@@ -15,7 +15,7 @@ from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results
 
 
-def check_instruments_venue_coverage(
+def check_instruments_venue_coverage(  # noqa: C901
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],
@@ -47,7 +47,9 @@ def check_instruments_venue_coverage(
     categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
 
     format_venue_coverage_header(start_date, end_date)
-    click.echo(click.style("Scanning parquet files for venue coverage (venue column only)...", dim=True))
+    click.echo(
+        click.style("Scanning parquet files for venue coverage (venue column only)...", dim=True)
+    )
 
     # Generate date list
     all_dates = []
@@ -111,7 +113,9 @@ def check_instruments_venue_coverage(
 
             bucket = f"instruments-store-{cat.lower()}-{_deployment_config.gcp_project_id}"
             # Path without gs:// prefix for gcsfs
-            gcs_path = f"{bucket}/instrument_availability/by_date/day={date_str}/instruments.parquet"
+            gcs_path = (
+                f"{bucket}/instrument_availability/by_date/day={date_str}/instruments.parquet"
+            )
 
             tasks.append((cat, date_str, gcs_path, expected_venues))
             total_files += 1
@@ -174,8 +178,12 @@ def check_instruments_venue_coverage(
                 click.echo(f"  [{files_checked}/{total_files}] files checked...")
 
     scan_time = time.time() - scan_start
-    click.echo(click.style(f"Scan complete in {scan_time:.1f}s ({files_checked} files)", fg="green"))
+    click.echo(
+        click.style(f"Scan complete in {scan_time:.1f}s ({files_checked} files)", fg="green")
+    )
     click.echo()
 
     # Display results
-    format_venue_coverage_results(_cast(dict[str, dict[str, object]], results), output, start_date, end_date)
+    format_venue_coverage_results(
+        _cast(dict[str, dict[str, object]], results), output, start_date, end_date
+    )

@@ -11,7 +11,7 @@ from typing import cast
 from deployment_service.backends import CloudRunBackend, ComputeBackend, VMBackend
 
 
-def vm_resource_request(compute_config: dict[str, object]) -> dict[str, float]:
+def vm_resource_request(compute_config: dict[str, object]) -> dict[str, float]:  # noqa: C901
     """
     Best-effort mapping from VM compute_config -> regional quota metrics.
 

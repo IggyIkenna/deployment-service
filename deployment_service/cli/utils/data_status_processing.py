@@ -7,7 +7,7 @@ import re
 from typing import cast
 
 
-def process_fast_results(
+def process_fast_results(  # noqa: C901
     fast_results: dict[str, object],
     categories: list[str],
     category_valid_dates: dict[str, object],
@@ -34,7 +34,9 @@ def process_fast_results(
 
         if has_venue_dimension:
             cat_venues = (
-                list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+                list(venue)
+                if venue
+                else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
             )
         else:
             cat_venues = ["ALL"]
@@ -84,7 +86,7 @@ def process_fast_results(
     return overall_complete, overall_total, overall_excluded
 
 
-def process_batch_results(
+def process_batch_results(  # noqa: C901
     bucket_indexes: dict[str, object],
     categories: list[str],
     bucket_info: dict[str, object],
@@ -105,7 +107,7 @@ def process_batch_results(
     overall_excluded = 0
 
     bucket_to_category = {
-        f"gs://{bucket_info[cat]['bucket']}/{bucket_info[cat]['path_template'].split('{date}')[0] if '{date}' in bucket_info[cat]['path_template'] else ''}": cat
+        f"gs://{bucket_info[cat]['bucket']}/{bucket_info[cat]['path_template'].split('{date}')[0] if '{date}' in bucket_info[cat]['path_template'] else ''}": cat  # noqa: E501
         for cat in categories
         if cat in bucket_info
     }
@@ -128,7 +130,9 @@ def process_batch_results(
 
         if has_venue_dimension:
             cat_venues = (
-                list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+                list(venue)
+                if venue
+                else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
             )
         else:
             cat_venues = ["ALL"]

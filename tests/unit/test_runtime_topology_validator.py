@@ -21,7 +21,10 @@ def test_runtime_topology_validation_passes_for_valid_minimum(tmp_path):
                 "consumer": "market-data-processing-service",
                 "modes": {
                     "batch": {"transport": "gcs"},
-                    "live": {"distributed": {"transport": "pubsub"}, "co_located_vm": {"transport": "in_memory"}},
+                    "live": {
+                        "distributed": {"transport": "pubsub"},
+                        "co_located_vm": {"transport": "in_memory"},
+                    },
                 },
             }
         ],
