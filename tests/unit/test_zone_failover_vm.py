@@ -8,6 +8,7 @@ Validates:
 - get_zones_for_region returns correct zones for asia-northeast1
 """
 
+import os
 from unittest.mock import MagicMock, patch
 
 from deployment_service.backends.vm import VMBackend
@@ -20,9 +21,14 @@ def _make_vm_backend(**kwargs):
         patch(
             "deployment_service.backends.services.vm_lifecycle.get_instances_client"
         ) as mock_instances,
+        patch(
+            "deployment_service.backends.services.vm_monitoring.get_instances_client"
+        ) as mock_monitoring_instances,
+        patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}),
     ):
         mock_images.return_value = MagicMock()
         mock_instances.return_value = MagicMock()
+        mock_monitoring_instances.return_value = MagicMock()
         return VMBackend(**kwargs)
 
 
