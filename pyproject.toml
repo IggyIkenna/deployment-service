@@ -83,4 +83,4 @@ markers = [
 ]
 
 [tool.coverage.report]
-fail_under = 20  # Calibrated: actual 20.37% (2026-03-08); coverage gap tracked in ISS-028
+fail_under = 80  # Calibrated: actual 81.05% (2026-03-08)
