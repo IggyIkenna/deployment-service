@@ -29,7 +29,7 @@ set -e
 # ── REPO-SPECIFIC SETTINGS ────────────────────────────────────────────────────
 SERVICE_NAME="deployment-service"          # e.g. instruments-service
 SOURCE_DIR="deployment_service"            # e.g. instruments_service  (underscore form)
-MIN_COVERAGE=19  # Calibrated: actual 20.32% (2026-03-08). Large infra repo; many untested service/utility modules. See test-coverage-targets.mdc
+MIN_COVERAGE=70  # Aligned with pyproject.toml fail_under=70 (CR1 fix). Actual: 20.32% (2026-03-08); large infra repo — coverage gap is tracked in ISS-028.
 RUN_INTEGRATION=false              # Set true when integration tests are stable
 PYTEST_WORKERS=${PYTEST_WORKERS:-2} # Default 2; override via env (cap to avoid OOM)
 
