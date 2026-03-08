@@ -1,69 +1,85 @@
 # Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch|live/checklist.unified-trading-library.yaml
 service_name: unified-trading-library
-last_updated: '2026-02-10'
-owner: ''
+last_updated: "2026-02-10"
+owner: ""
 execution_order: 0
+auth_setup:
+  local_auth_method: "adc" # adc | sa_key_file | none
+  github_secret_name: "GH_PAT"
+  cloudbuild_sa_roles: []
+  inter_service_auth: "none" # none | oauth | mtls
+  aws_secret_name: null
+  # Venue credential secrets (Tranche B execution clients only)
+  # Pattern: exec-{client}-{venue}-{account_type}
+  # Resolved via CredentialsRegistry.exec_secret_for_client() in UCI
+  exec_credentials_pattern: "exec-{client}-{venue}-{account_type}"
+  # Service account secret (used for S2S auth Phase 0)
+  # Pattern: {service}-service-account
+  service_account_secret: null # e.g. execution-service-service-account
+
 phase_1_repository_foundation:
   item_06_dockerfile_exists:
     description: Containerization ready for Cloud Build
     status: done
-    notes: Dockerfile exists with Python 3.13-slim, gcsfuse, Google Cloud SDK, health
+    notes:
+      Dockerfile exists with Python 3.13-slim, gcsfuse, Google Cloud SDK, health
       check
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
 phase_2_testing_and_quality:
   item_11_cloud_build_config:
     description: cloudbuild.yaml includes quality gates before Docker build
     status: n/a
-    notes: Shared library - not deployed via Cloud Build. Other services install from
+    notes:
+      Shared library - not deployed via Cloud Build. Other services install from
       GitHub.
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_12_quality_gates_pass:
     description: Pushing to main triggers quality gates; failure blocks image build
     status: partial
     notes: GitHub Actions quality gates exist. No Cloud Build trigger needed for library.
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
 phase_3_deployment_infrastructure:
   item_13_sharding_config:
     description: configs/sharding.unified-trading-library.yaml exists
     status: n/a
     notes: Shared library - not deployed as a batch service
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_14_dependencies_entry:
     description: Entry in configs/dependencies.yaml
     status: n/a
     notes: Shared library - not in dependency graph (is a dependency OF other services)
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_15_expected_start_dates:
     description: Entry in configs/expected_start_dates.yaml
     status: n/a
     notes: Shared library - no data to track
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_16_venues_entry:
     description: Service's venues in configs/venues.yaml
     status: n/a
     notes: Shared library - not applicable
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_17_terraform_resources:
     description: Buckets, IAM, Cloud Run job defined in terraform/
     status: n/a
     notes: Shared library - no dedicated resources needed
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_18_deploy_cli_works:
     description: python deploy.py deploy --service unified-trading-library executes
     status: n/a
     notes: Shared library - not deployed via deploy.py
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
 phase_5_production_deployment:
   item_23_image_builds:
     description: Cloud Build produces image in Artifact Registry
     status: n/a
     notes: Shared library - installed from GitHub by other services
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_24_deployment_runs_smoothly:
     description: Full deployment completes in reasonable time (<1 hour)
     status: n/a
     notes: Shared library - not deployed independently
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
 
 phase_9_deployable_enhancements:
   item_38_data_availability:

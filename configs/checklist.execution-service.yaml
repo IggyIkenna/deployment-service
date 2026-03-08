@@ -1,104 +1,125 @@
 # Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/live/checklist.execution-service.yaml
 service_name: execution-service
-last_updated: '2026-02-10'
-owner: ''
+last_updated: "2026-02-10"
+owner: ""
 execution_order: 11
+auth_setup:
+  local_auth_method: "adc" # adc | sa_key_file | none
+  github_secret_name: "GH_PAT"
+  cloudbuild_sa_roles: []
+  inter_service_auth: "none" # none | oauth | mtls
+  aws_secret_name: null
+  # Venue credential secrets (Tranche B execution clients only)
+  # Pattern: exec-{client}-{venue}-{account_type}
+  # Resolved via CredentialsRegistry.exec_secret_for_client() in UCI
+  exec_credentials_pattern: "exec-{client}-{venue}-{account_type}"
+  # Service account secret (used for S2S auth Phase 0)
+  # Pattern: {service}-service-account
+  service_account_secret: null # e.g. execution-service-service-account
+
 phase_1_repository_foundation:
   item_06_dockerfile_exists:
     description: Containerization ready for Cloud Build
     status: done
-    notes: Multi-stage build with unified-trading-library from GitHub, non-root user,
+    notes:
+      Multi-stage build with unified-trading-library from GitHub, non-root user,
       health check
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
 phase_2_testing_and_quality:
   item_11_cloud_build_config:
     description: cloudbuild.yaml includes quality gates before Docker build
     status: done
     notes: cloudbuild.yaml exists with quality gates, but references missing Dockerfile
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_12_quality_gates_pass:
     description: Pushing to main triggers quality gates; failure blocks image build
     status: done
-    notes: cloudbuild.yaml quality-gates step runs ruff check (blocking) and pytest
+    notes:
+      cloudbuild.yaml quality-gates step runs ruff check (blocking) and pytest
       tests/unit (blocking). Build c2e41757-35d4-462e-8d12-554d837d778e passed all
       quality gates (2026-02-03). Lint errors fixed with ruff --fix and ruff format.
-    verified_date: '2026-02-03'
+    verified_date: "2026-02-03"
 phase_3_deployment_infrastructure:
   item_13_sharding_config:
     description: configs/sharding.execution-service.yaml exists
     status: done
     notes: Uses gcs_dynamic dimension type for execution configs
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_14_dependencies_entry:
     description: Entry in configs/dependencies.yaml
     status: done
-    notes: 'Upstream: strategy-service (required), market-tick-data-service (required),
-      instruments-service (required). Outputs execution results.'
-    verified_date: '2026-01-27'
+    notes:
+      "Upstream: strategy-service (required), market-tick-data-service (required),
+      instruments-service (required). Outputs execution results."
+    verified_date: "2026-01-27"
   item_15_expected_start_dates:
     description: Entry in configs/expected_start_dates.yaml
     status: done
-    notes: 'Entry exists in expected_start_dates.yaml lines 227-294 with category_start:
-      2023-05-23, test_periods (may2023, july2024), and per-strategy start dates.'
-    verified_date: '2026-02-03'
+    notes:
+      "Entry exists in expected_start_dates.yaml lines 227-294 with category_start:
+      2023-05-23, test_periods (may2023, july2024), and per-strategy start dates."
+    verified_date: "2026-02-03"
   item_16_venues_entry:
     description: Service's venues in configs/venues.yaml
     status: n/a
     notes: No hierarchical venue dimension - uses GCS dynamic configs
-    verified_date: '2026-01-27'
+    verified_date: "2026-01-27"
   item_17_terraform_resources:
     description: Buckets, IAM, Cloud Run job defined in terraform/
     status: done
-    notes: Terraform exists at terraform/services/execution-service/gcp/main.tf with
+    notes:
+      Terraform exists at terraform/services/execution-service/gcp/main.tf with
       Cloud Run job module, daily workflow, backfill workflow, and all required variables.
       Also has AWS configs in terraform/services/execution-service/aws/.
-    verified_date: '2026-02-03'
+    verified_date: "2026-02-03"
   item_17b_required_buckets_exist:
     description: All required input/output buckets exist before deployment
     status: done
-    notes: 'Verified via gcloud: execution-store-test-project exists for
+    notes: "Verified via gcloud: execution-store-test-project exists for
       outputs. Inputs verified: strategy-store-test-project, market-data-tick-cefi/tradfi/defi,
-      instruments-store-cefi/tradfi/defi all exist.'
-    verified_date: '2026-02-03'
+      instruments-store-cefi/tradfi/defi all exist."
+    verified_date: "2026-02-03"
     gcp_buckets:
       outputs:
-      - execution-store-test-project
+        - execution-store-test-project
       inputs:
-      - strategy-store-test-project
-      - market-data-tick-cefi-test-project
-      - market-data-tick-tradfi-test-project
-      - market-data-tick-defi-test-project
-      - instruments-store-cefi-test-project
-      - instruments-store-tradfi-test-project
-      - instruments-store-defi-test-project
+        - strategy-store-test-project
+        - market-data-tick-cefi-test-project
+        - market-data-tick-tradfi-test-project
+        - market-data-tick-defi-test-project
+        - instruments-store-cefi-test-project
+        - instruments-store-tradfi-test-project
+        - instruments-store-defi-test-project
     aws_buckets:
       outputs:
-      - unified-trading-execution-cefi-${AWS_ACCOUNT_ID}
-      - unified-trading-execution-tradfi-${AWS_ACCOUNT_ID}
-      - unified-trading-execution-defi-${AWS_ACCOUNT_ID}
+        - unified-trading-execution-cefi-${AWS_ACCOUNT_ID}
+        - unified-trading-execution-tradfi-${AWS_ACCOUNT_ID}
+        - unified-trading-execution-defi-${AWS_ACCOUNT_ID}
       inputs:
-      - unified-trading-strategy-cefi-${AWS_ACCOUNT_ID}
-      - unified-trading-strategy-tradfi-${AWS_ACCOUNT_ID}
-      - unified-trading-strategy-defi-${AWS_ACCOUNT_ID}
-      - unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}
-      - unified-trading-market-data-tradfi-${AWS_ACCOUNT_ID}
-      - unified-trading-market-data-defi-${AWS_ACCOUNT_ID}
-      - unified-trading-instruments-cefi-${AWS_ACCOUNT_ID}
-      - unified-trading-instruments-tradfi-${AWS_ACCOUNT_ID}
-      - unified-trading-instruments-defi-${AWS_ACCOUNT_ID}
+        - unified-trading-strategy-cefi-${AWS_ACCOUNT_ID}
+        - unified-trading-strategy-tradfi-${AWS_ACCOUNT_ID}
+        - unified-trading-strategy-defi-${AWS_ACCOUNT_ID}
+        - unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}
+        - unified-trading-market-data-tradfi-${AWS_ACCOUNT_ID}
+        - unified-trading-market-data-defi-${AWS_ACCOUNT_ID}
+        - unified-trading-instruments-cefi-${AWS_ACCOUNT_ID}
+        - unified-trading-instruments-tradfi-${AWS_ACCOUNT_ID}
+        - unified-trading-instruments-defi-${AWS_ACCOUNT_ID}
 phase_5_production_deployment:
   item_23_image_builds:
     description: Cloud Build produces image in Artifact Registry
     status: done
-    notes: Cloud Build trigger 'execution-service-build' in asia-northeast1 successfully
+    notes:
+      Cloud Build trigger 'execution-service-build' in asia-northeast1 successfully
       builds and pushes to asia-northeast1-docker.pkg.dev/test-project/execution/execution-service.
       Build verified 2026-02-03 with tags cb66ae1 and latest. Quality gates (lint
       + unit tests) are blocking.
-    verified_date: '2026-02-03'
+    verified_date: "2026-02-03"
   item_24_deployment_runs_smoothly:
     description: Full deployment completes in reasonable time (<1 hour)
     status: done
-    notes: 'Test deployment of 140 shards completed in ~6 minutes with 100% success
+    notes:
+      "Test deployment of 140 shards completed in ~6 minutes with 100% success
       rate.
 
       Command: deploy -s execution-service --start-date 2023-05-23 --end-date 2023-05-23
@@ -106,8 +127,8 @@ phase_5_production_deployment:
 
       Results uploaded to GCS. VMs self-deleted after completion.
 
-      '
-    verified_date: '2026-02-03'
+      "
+    verified_date: "2026-02-03"
 
 phase_9_deployable_enhancements:
   item_38_data_availability:
