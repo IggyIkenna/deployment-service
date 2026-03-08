@@ -41,3 +41,4 @@ logs/
 # Coverage output from quality-gates
 coverage.xml
 .coverage
+*.bak
