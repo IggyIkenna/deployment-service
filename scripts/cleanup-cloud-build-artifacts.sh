@@ -31,7 +31,7 @@ echo "Dry run: $DRY_RUN"
 echo ""
 
 # Calculate cutoff date
-CUTOFF_DATE=$(date -u -v-${DAYS_TO_KEEP}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "${DAYS_TO_KEEP} days ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || python3 -c "from datetime import datetime, timedelta; print((datetime.utcnow() - timedelta(days=$DAYS_TO_KEEP)).isoformat() + 'Z')")
+CUTOFF_DATE=$(date -u -v-${DAYS_TO_KEEP}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "${DAYS_TO_KEEP} days ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || python3 -c "from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) - timedelta(days=$DAYS_TO_KEEP)).isoformat() + 'Z')")
 
 echo "Cutoff date: $CUTOFF_DATE"
 echo ""
