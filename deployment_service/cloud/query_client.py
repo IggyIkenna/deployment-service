@@ -237,9 +237,7 @@ class QueryClient:
                 data_types: dict[str, dict[str, object]] = {}
                 for b in venue_blobs:
                     # Extract data_type from path like data_type=trades/
-                    import re as _re
-
-                    dt_match = _re.search(r"data_type=([^/]+)", b.name)
+                    dt_match = re.search(r"data_type=([^/]+)", b.name)
                     dt = dt_match.group(1) if dt_match else "unknown"
                     if dt not in data_types:
                         data_types[dt] = {"file_count": 0, "total_size": 0}

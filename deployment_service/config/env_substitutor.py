@@ -6,6 +6,7 @@ values with support for default values and various patterns.
 """
 
 import logging
+import os
 import re
 
 from ..deployment_config import DeploymentConfig
@@ -22,8 +23,6 @@ def _get_env_snapshot() -> dict[str, str]:
     # config-bootstrap: This is the intentional config substitution boundary.
     # All env var reads for template substitution must go through this function.
     """
-    import os
-
     return dict(
         os.environ
     )  # config-bootstrap: intentional full env snapshot for template substitution
@@ -42,9 +41,6 @@ def substitute_env_vars(value: str) -> str:
     - ${VAR_NAME} - required variable
     - ${VAR_NAME:-default} - with default value
     """
-    if not isinstance(value, str):
-        return value
-
     pattern = r"\$\{([^}:]+)(?::-([^}]*))?\}"
     env = _get_env_snapshot()
 

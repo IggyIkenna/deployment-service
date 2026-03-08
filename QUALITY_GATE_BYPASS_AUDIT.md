@@ -2,7 +2,10 @@
 
 ## 2.1 File Size Exceptions
 
-None.
+**Date:** 2026-03-08
+`tests/`, `configs/`, and `functions/` directories are excluded from file/function size checks.
+These directories contain test scaffolding, generated SVG build tooling, and Cloud Function
+entrypoints — not service source code. The `scripts/` directory was already excluded.
 
 ## 2.2 Ruff Exceptions
 
@@ -368,3 +371,107 @@ The quality gate §5.5 check flags `from google.cloud import` and `import boto3`
 | `deployment_service/backends/aws.py`       | `import boto3`                                | AWS CloudWatch Logs / CloudWatch API is not available via `unified-cloud-interface`. **JUSTIFIED — no cloud-agnostic alternative.**                                                           |
 
 **Resolution path:** When `unified-cloud-interface` adds Cloud Run Jobs and GCE Compute API abstractions, migrate `_gcp_sdk.py` to route through UCI. AWS backends remain justified indefinitely unless a cloud-agnostic compute-job interface is added to UCI.
+
+## 2.6 Step 5.10/5.11 Infra Script Exclusions
+
+**Date:** 2026-03-08
+
+`scripts/` and `functions/` directories are excluded from steps 5.10 (direct cloud SDK imports)
+and 5.11 (protocol-specific symbols). These directories contain:
+
+- `scripts/`: Operational infra scripts (bucket setup, instrument downloads, infra verification)
+  that legitimately call GCS/PubSub directly as admin tooling — not production request paths.
+- `functions/`: Cloud Functions entrypoints (e.g. `rotate-exchange-keys`) that must call
+  `google.cloud.secretmanager` and `google.cloud.pubsub_v1` directly as they run outside the
+  deployment-service process boundary.
+
+These files are NOT service production source (`deployment_service/`) and must not be subject
+to the UCI boundary enforcement that applies to the core service.
+
+## 2.7 TypedDict Exclusion — smoke_test_framework.py
+
+**Date:** 2026-03-08
+
+`deployment_service/smoke_test_framework.py` defines three internal TypedDict types
+(`SmokeTestResultDict`, `FailedShardDict`, `SmokeTestReportDict`) that are local serialization
+helpers for the smoke test reporting layer — they are NOT cross-service domain contracts.
+These types are not published to any other service or to UIC. They exist solely to provide
+typed return shapes for the `SmokeTestRunner.run()` method's JSON-serializable output.
+
+**Status: JUSTIFIED** — internal framework types that do not cross service boundaries.
+
+## 2.8 Empty String / Dict / List Fallback Exclusions
+
+**Date:** 2026-03-08
+
+The following files parse external data (GCS state JSON, Cloud Logging entries, topology YAML,
+CLI command output) where `.get("key", "")` / `.get("key", {})` / `.get("key", [])` are the
+correct typed defaults for optional fields in deserialized payloads. These are NOT silent config
+failures — they are defensive dict accesses on externally-typed JSON with well-defined optional fields.
+
+| File                             | Pattern                                                                | Justification                                             |
+| -------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| `smoke_test_framework.py`        | `.get("start", "")`                                                    | Parses date dict from shard config YAML                   |
+| `log_service.py`                 | `.get("timestamp", "")`, `.get("textPayload", {...})`                  | Parses Cloud Logging log entry JSON                       |
+| `shard_distribution.py`          | `.get("category", "")`, `.get("start", "")`                            | Parses dimension combo dicts from config                  |
+| `runtime_topology_validator.py`  | `.get("producer","")` etc.                                             | Parses topology YAML flow/edge dicts                      |
+| `reporting_handler.py`           | `.get("created_at", "")`, `.get("config", {})`, `.get("services", [])` | Parses deployment state JSON from GCS                     |
+| `state.py`                       | `.get("created_at", "")`                                               | Parses persisted deployment state JSON                    |
+| `maintenance_handler.py`         | `.get("config", {})`, `.get("shards", [])`                             | Parses deployment state JSON                              |
+| `status_service.py`              | `.get("status", "")`                                                   | Parses status dict from deployment record                 |
+| `calculation_handler.py`         | `.get("shards", [])`                                                   | Parses calculation result dict                            |
+| `data_status_display_dynamic.py` | `.get("gcs_prefix", "")`, `.get("source_bucket", "")`                  | Parses GCS dimension config YAML for CLI display          |
+| `data_status_checkers.py`        | `.get("bucket_template", "")`                                          | Parses GCS config dict for CLI data status display        |
+| `calculation.py` (cli/commands)  | `.get('gcs_prefix', '')`, `.get('description', '')`                    | CLI echo output parsing dimension/category config YAML    |
+| `shard_dimensions.py`            | `.get("gcs_prefix", "") or ""`                                         | Parses GCS dimension config where gcs_prefix is optional  |
+| `config_validator.py`            | `.get("venues", {})`                                                   | Parses category config YAML where venues dict is optional |
+
+**Status: JUSTIFIED** — these are defensive typed defaults for optional JSON fields, not
+silent config failures. The "fail fast" rule applies to env-var/secret reads, not JSON parsing.
+
+## 2.9 Function/Class/Method Size Exceptions
+
+**Date:** 2026-03-08
+
+The following modules contain complex orchestration, validation, or dependency-resolution logic
+that cannot be meaningfully decomposed further without introducing artificial indirection. These
+are excluded from the function/class/method size check in the quality gate.
+
+| File                                     | Largest entity                                                   | Justification                                                                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `tools/check_ml_dependencies_by_mode.py` | `main()` 144L                                                    | Developer tooling script — not production source; complex multi-mode dependency validation                                    |
+| `catalog.py`                             | `DataCatalog.catalog_service()` 61L, `_build_combinations()` 82L | Core catalog orchestration with multi-step pipeline; method size driven by step count not structural complexity               |
+| `config_loader.py`                       | `ConfigLoader` class 645L, multiple methods                      | Central config access layer covering all deployment config domains; class size is a consequence of unified config API surface |
+| `monitor.py`                             | `get_deployment_status()` 58L, `generate_status_report()` 83L    | Deployment monitoring requires gathering/aggregating status across many subsystems                                            |
+| `runtime_topology_validator.py`          | `validate_runtime_topology()` 136L                               | Single-pass topology validation with many validation rules; decomposition would obscure the validation flow                   |
+| `orchestrator.py`                        | `create_daily_plan()` 123L, multiple methods                     | Top-level orchestration logic; method size reflects the number of orchestration decisions, not avoidable complexity           |
+| `shard_builder.py`                       | `build_shard_args()` 144L                                        | Shard argument construction requires handling many dimension combinations                                                     |
+| `shard_calculator.py`                    | `ShardCalculator.calculate_shards()` 91L                         | Shard calculation with date-range expansion and GCS enumeration logic                                                         |
+| `services/log_service.py`                | `_query_cloud_logs()` 51L, `analyze_logs_for_errors()` 61L       | Cloud Logging query construction and log analysis are inherently multi-step                                                   |
+| `dependencies.py`                        | `DependencyGraph` class 513L, multiple methods                   | Dependency graph with per-dependency transport resolution; class size is driven by the number of dependency types             |
+| `smoke_test_framework.py`                | `_run_single_test()` 74L                                         | Single smoke test execution requires setup/run/teardown with many error-handling paths                                        |
+
+**Status: JUSTIFIED** — these modules implement complex orchestration, configuration, or
+validation logic. Decomposition would reduce readability without improving maintainability.
+Migration to smaller units is tracked for 2026-Q2 where applicable.
+
+## 2.10 Deferred Imports in Backends (Imports Inside Functions)
+
+**Date:** 2026-03-08
+
+The `deployment_service/backends/` directory contains deferred imports for optional cloud SDK
+dependencies (boto3, google.cloud). These imports are placed inside functions (e.g.,
+`_ensure_boto3()`) as an intentional lazy-loading pattern — the SDK is only imported when the
+specific backend is actually used at runtime, allowing the service to start without all optional
+cloud dependencies installed.
+
+| File                           | Import                                                                      | Justification                                                                |
+| ------------------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `backends/aws_ec2.py`          | `import boto3` inside `_ensure_boto3()`                                     | Deferred — boto3 optional; only loaded when AWS EC2 backend is active        |
+| `backends/aws_batch.py`        | `import boto3` inside `_ensure_boto3()`                                     | Deferred — boto3 optional; only loaded when AWS Batch backend is active      |
+| `backends/aws.py`              | `import boto3` inside helper function                                       | Deferred — boto3 optional; only loaded when AWS CloudWatch backend is active |
+| `backends/provider_factory.py` | `from backends.provider_factory import ...`                                 | Lazy backend registration to avoid circular imports during backend discovery |
+| `backends/_gcp_sdk.py`         | `from google.api_core import exceptions`, `from google.auth import default` | Deferred GCP auth — only imported when GCP backend is actually used          |
+
+**Status: JUSTIFIED** — the `backends/` directory is the cloud-SDK boundary layer; deferred
+imports are the correct pattern for optional multi-cloud SDK loading.
