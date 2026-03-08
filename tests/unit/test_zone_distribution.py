@@ -6,6 +6,7 @@ Validates:
 - 30 shards -> 10-10-10 across zones
 """
 
+import os
 from unittest.mock import MagicMock, patch
 
 from deployment_service.backends.vm import VMBackend
@@ -16,11 +17,16 @@ def _make_vm_backend(**kwargs):
     with (
         patch("deployment_service.backends.services.vm_config.get_images_client") as mock_images,
         patch(
-            "deployment_service.backends.services.vm_config.get_instances_client"
+            "deployment_service.backends.services.vm_lifecycle.get_instances_client"
         ) as mock_instances,
+        patch(
+            "deployment_service.backends.services.vm_monitoring.get_instances_client"
+        ) as mock_monitoring_instances,
+        patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}),
     ):
         mock_images.return_value = MagicMock()
         mock_instances.return_value = MagicMock()
+        mock_monitoring_instances.return_value = MagicMock()
         return VMBackend(**kwargs)
 
 
