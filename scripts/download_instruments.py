@@ -66,6 +66,8 @@ from unified_cloud_interface import StorageClient, get_storage_client
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import get_project_id
 
+from deployment_service.deployment_config import DeploymentConfig
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -80,7 +82,8 @@ PREFIX = "instrument_availability/by_date"
 AGGREGATED_PREFIX = "aggregated"
 
 # Environment detection (same pattern as deployment/state.py)
-DEPLOYMENT_ENV = os.getenv("DEPLOYMENT_ENV", "development")
+_dl_config = DeploymentConfig()
+DEPLOYMENT_ENV = _dl_config.deployment_env
 IS_PRODUCTION = DEPLOYMENT_ENV == "production"
 
 # Environment multiplier: 4x workers in production
@@ -92,18 +95,10 @@ BASE_DOWNLOAD_WORKERS = CPU_COUNT * 2
 BASE_LIST_WORKERS = CPU_COUNT
 
 # Apply environment multiplier with caps
-DEFAULT_DOWNLOAD_WORKERS = int(
-    os.getenv(
-        "INSTRUMENT_DOWNLOAD_WORKERS",
-        str(min(64 if IS_PRODUCTION else 16, BASE_DOWNLOAD_WORKERS * ENV_MULTIPLIER)),
-    )
-)
-DEFAULT_LIST_WORKERS = int(
-    os.getenv(
-        "INSTRUMENT_LIST_WORKERS",
-        str(min(32 if IS_PRODUCTION else 8, BASE_LIST_WORKERS * ENV_MULTIPLIER)),
-    )
-)
+_computed_download = min(64 if IS_PRODUCTION else 16, BASE_DOWNLOAD_WORKERS * ENV_MULTIPLIER)
+_computed_list = min(32 if IS_PRODUCTION else 8, BASE_LIST_WORKERS * ENV_MULTIPLIER)
+DEFAULT_DOWNLOAD_WORKERS = int(_dl_config.instrument_download_workers or _computed_download)
+DEFAULT_LIST_WORKERS = int(_dl_config.instrument_list_workers or _computed_list)
 
 
 def log(msg: str) -> None:
@@ -142,7 +137,9 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
                 # Match: aggregated/aggregated_instruments_2026-02-04.parquet
                 match = re.search(r"aggregated_instruments_(\d{4}-\d{2}-\d{2})\.parquet", blob.name)
                 if match:
-                    blob_date = datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=UTC).date()
+                    blob_date = (
+                        datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=UTC).date()
+                    )
                     if latest_date is None or blob_date > latest_date:
                         latest_date = blob_date
                         log(f"  {category}: Found aggregated file dated {blob_date}")
@@ -157,7 +154,9 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
     return latest_date
 
 
-def prompt_date_range_confirmation(start_date: date, end_date: date, skip_prompt: bool = False) -> bool:
+def prompt_date_range_confirmation(
+    start_date: date, end_date: date, skip_prompt: bool = False
+) -> bool:
     """
     Prompt user to confirm the date range for downloading instrument definitions.
 
@@ -250,7 +249,9 @@ class InstrumentDownloader:
 
     def list_all_blobs_parallel(self) -> dict[str, list[str]]:
         """List blobs from all buckets in parallel using ThreadPoolExecutor."""
-        log(f"Listing blobs from {len(self.categories)} buckets with {self.list_workers} workers...")
+        log(
+            f"Listing blobs from {len(self.categories)} buckets with {self.list_workers} workers..."
+        )
 
         def list_bucket_blobs(category: str) -> tuple[str, list[str]]:
             if category not in self._buckets:
@@ -259,7 +260,11 @@ class InstrumentDownloader:
             bucket = self._buckets[category]
             try:
                 blobs = list(bucket.list_blobs(prefix=PREFIX))
-                blob_names = [b.name for b in blobs if b.name.endswith(".parquet") and self._filter_by_date(b.name)]
+                blob_names = [
+                    b.name
+                    for b in blobs
+                    if b.name.endswith(".parquet") and self._filter_by_date(b.name)
+                ]
                 log(f"  {category}: Found {len(blob_names)} parquet files")
                 return category, blob_names
             except (OSError, ValueError, RuntimeError) as e:
@@ -310,7 +315,9 @@ class InstrumentDownloader:
                 continue
 
             stats["total"] += len(blob_names)
-            log(f"  {category}: Downloading {len(blob_names)} files with {self.download_workers} workers...")
+            log(
+                f"  {category}: Downloading {len(blob_names)} files with {self.download_workers} workers..."
+            )
 
             try:
                 # transfer_manager.download_many_to_path handles parallelism internally
@@ -387,7 +394,11 @@ class InstrumentAggregator:
 
         # Deduplicate: keep latest by timestamp for each instrument_key
         if timestamp_col:
-            deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
+            deduped = (
+                combined.sort(timestamp_col, descending=True)
+                .group_by(dedup_col)
+                .agg(pl.all().first())
+            )
         else:
             deduped = combined.group_by(dedup_col).agg(pl.all().first())
 

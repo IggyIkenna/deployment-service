@@ -104,7 +104,7 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", topology_path_env)
 
-        workspace_root = os.environ.get("WORKSPACE_ROOT", "")
+        workspace_root = os.environ.get("WORKSPACE_ROOT")
         if workspace_root:
             pm_path = (
                 Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
