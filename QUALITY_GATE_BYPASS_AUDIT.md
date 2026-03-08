@@ -329,6 +329,7 @@ These files use `os.environ` because their core responsibility is environment-va
 | File                                            | Lines      | Purpose                                                                                                                                                                                                                                                          | Status    |
 | ----------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | `deployment_service/config/env_substitutor.py`  | 22, 42, 71 | Module's entire purpose is template substitution — reads `${VAR}` references from deployment templates and replaces them with live `os.environ` values. Must read `os.environ` directly; there is no config object that owns these arbitrary template variables. | JUSTIFIED |
+| `deployment_service/config/bootstrap_config.py` | 33-34      | Topology bootstrap: `RUNTIME_TOPOLOGY_PATH` and `WORKSPACE_ROOT` read before `UnifiedCloudConfig` exists. Used by `ConfigLoader.load_runtime_topology_config`. This IS the bootstrap.                                                                            | JUSTIFIED |
 | `deployment_service/config/config_validator.py` | 40, 66     | Validates that required env vars are present before deployment begins — this is a pre-config-initialisation check. The validator cannot use `UnifiedCloudConfig` because it is confirming the env vars that `UnifiedCloudConfig` itself would later depend on.   | JUSTIFIED |
 | `deployment_service/__main__.py`                | 11         | `os.environ["PYTHONWARNINGS"] = "ignore"` — process-level Python warning suppression that must be set before any module imports execute. Cannot be deferred to config load.                                                                                      | JUSTIFIED |
 | `deployment_service/cli.py`                     | 21, 120    | `os.environ.setdefault("UCS_SKIP_GCSFUSE_CHECK", "1")` (process bootstrap) and `os.environ["CLOUD_PROVIDER"] = cloud_provider` (CLI flag propagated to child processes). These are process-environment mutations for subprocesses, not config reads.             | JUSTIFIED |
@@ -361,6 +362,14 @@ These files are operational/maintenance scripts that are not importable producti
 | --------------------------------------------------------- | ----------------------------------------------------------- | ------------------ |
 | `dependencies.py:87` — `GCP_PROJECT_ID` fallback          | Phase 1: add to `UnifiedCloudConfig`                        | deployment-service |
 | `smoke_test_framework.py:218` — `GCP_PROJECT_ID` fallback | Phase 1: add to `UnifiedCloudConfig` (same change as above) | deployment-service |
+
+## 2.4a Print in Jinja Template (BYPASS)
+
+**Date:** 2026-03-08
+
+| File                                                | Location            | Purpose                                                                                                                                                                                                                   | Status    |
+| --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `deployment_service/backends/services/vm_config.py` | CLOUD_INIT_TEMPLATE | `python3 -c "import sys, json; print(json.load(sys.stdin)[\"access_token\"])"` is a shell one-liner inside a Jinja template that renders to bash. Cannot replace with logger — this is shell stdout for token extraction. | JUSTIFIED |
 
 ## 2.5 Direct Cloud SDK Import Exceptions (Quality Gate §5.5)
 

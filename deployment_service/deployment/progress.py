@@ -8,6 +8,7 @@ Shows real-time progress with:
 - ETA calculations
 """
 
+import logging
 from datetime import UTC, datetime
 
 from rich.console import Console
@@ -25,7 +26,16 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
+logger = logging.getLogger(__name__)
+
 from .state import DeploymentState, ShardState, ShardStatus
+
+
+def _render_to_str(console: Console, renderable) -> str:
+    """Capture Rich renderable to string for logging."""
+    with console.capture() as capture:
+        console.print(renderable)
+    return capture.get()
 
 
 class ProgressDisplay:
@@ -60,19 +70,16 @@ class ProgressDisplay:
         """
         self._start_time = datetime.now(UTC)
 
-        self.console.print()
-        self.console.print(
-            Panel(
-                f"[bold cyan]Deployment: {state.deployment_id}[/bold cyan]\n"
-                f"Service: [green]{state.service}[/green] | "
-                f"Compute: [yellow]{state.compute_type}[/yellow]\n"
-                f"Date Range: {state.start_date or 'N/A'} to {state.end_date or 'N/A'}\n"
-                f"Total Shards: [bold]{state.total_shards}[/bold]",
-                title="Deployment Started",
-                border_style="cyan",
-            )
+        panel = Panel(
+            f"[bold cyan]Deployment: {state.deployment_id}[/bold cyan]\n"
+            f"Service: [green]{state.service}[/green] | "
+            f"Compute: [yellow]{state.compute_type}[/yellow]\n"
+            f"Date Range: {state.start_date or 'N/A'} to {state.end_date or 'N/A'}\n"
+            f"Total Shards: [bold]{state.total_shards}[/bold]",
+            title="Deployment Started",
+            border_style="cyan",
         )
-        self.console.print()
+        logger.info("\n%s", _render_to_str(self.console, panel))
 
     def display_progress(self, state: DeploymentState, max_rows: int = 15) -> None:
         """
@@ -90,13 +97,11 @@ class ProgressDisplay:
             completed=len(state.succeeded_shards) + len(state.failed_shards),
         )
 
-        self.console.print(progress)
-        self.console.print()
+        logger.info("\n%s", _render_to_str(self.console, progress))
 
         # Shard table
         table = self._create_shard_table(state.shards, max_rows)
-        self.console.print(table)
-        self.console.print()
+        logger.info("\n%s", _render_to_str(self.console, table))
 
         # Stats
         self._print_stats(state)
@@ -332,20 +337,16 @@ class ProgressDisplay:
 
     def _print_stats(self, state: DeploymentState) -> None:
         """Print stats line."""
-        self.console.print(self._get_stats_text(state))
+        logger.info("%s", _render_to_str(self.console, self._get_stats_text(state)))
 
     def _print_errors(self, failed_shards: list[ShardState]) -> None:
         """Print error summary."""
-        self.console.print()
-        self.console.print("[red bold]Errors:[/red bold]")
-
+        lines = ["Errors:"]
         for shard in failed_shards[:5]:
-            self.console.print(
-                f"  [red]{shard.shard_id}[/red]: {shard.error_message or 'Unknown error'}"
-            )
-
+            lines.append(f"  {shard.shard_id}: {shard.error_message or 'Unknown error'}")
         if len(failed_shards) > 5:
-            self.console.print(f"  ... and {len(failed_shards) - 5} more errors")
+            lines.append(f"  ... and {len(failed_shards) - 5} more errors")
+        logger.info("\n%s", "\n".join(lines))
 
     def _calculate_eta(self, state: DeploymentState) -> str | None:
         """Calculate estimated time remaining."""
@@ -408,18 +409,14 @@ class ProgressDisplay:
         else:
             duration_str = "N/A"
 
-        self.console.print()
-        self.console.print(
-            Panel(
-                f"[bold]{icon} {title}[/bold]\n\n"
-                f"Succeeded: [green]{succeeded}[/green] / {total}\n"
-                f"Failed: [red]{failed}[/red] / {total}\n"
-                f"Total Duration: {duration_str}",
-                border_style=style,
-            )
+        panel = Panel(
+            f"[bold]{icon} {title}[/bold]\n\n"
+            f"Succeeded: [green]{succeeded}[/green] / {total}\n"
+            f"Failed: [red]{failed}[/red] / {total}\n"
+            f"Total Duration: {duration_str}",
+            border_style=style,
         )
+        logger.info("\n%s", _render_to_str(self.console, panel))
 
         if failed > 0:
-            self.console.print()
-            self.console.print("[yellow]To retry failed shards:[/yellow]")
-            self.console.print(f"  python deploy.py resume {state.deployment_id}")
+            logger.info("To retry failed shards: python deploy.py resume %s", state.deployment_id)
