@@ -273,7 +273,7 @@ resource "aws_ecs_cluster" "unified_trading" {
     Name = "unified-trading-${var.environment}"
   }
 
-  # TODO (p4): Add ECS task definitions per service.
-  # Each service registers its own task definition via the deployment-api.
-  # Template: terraform/modules/container-job/aws/
+  # NOTE: ECS task definitions are intentionally absent here.
+  # See ARCHITECTURE.md "Deployment Model" section for rationale.
+  # ECS task definitions are submitted at runtime by backends/aws_batch.py.
 }
