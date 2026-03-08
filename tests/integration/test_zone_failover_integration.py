@@ -40,7 +40,7 @@ class TestZoneDistributionIntegration:
             region="asia-northeast1",
             service_account_email="test@test.iam.gserviceaccount.com",
         )
-        zones = backend._get_zones_for_region(backend.region)
+        zones = backend._config_manager.get_zones_for_region(backend.region)
         assert len(zones) == 3
 
         counts = dict.fromkeys(zones, 0)
@@ -67,7 +67,7 @@ class TestZoneExhaustionIntegration:
         )
         assert not hasattr(backend, "regions")
         assert not hasattr(backend, "_switch_to_next_region")
-        zones = backend._get_zones_for_region(backend.region)
+        zones = backend._config_manager.get_zones_for_region(backend.region)
         assert len(zones) == 3
         # Cycling 9 times (3 zones * 3 retries) stays in same region
         for i in range(9):
