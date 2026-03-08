@@ -12,25 +12,25 @@ This document consolidates the API caching architecture and deployment state man
 
 Three-tier caching:
 
-| Tier | Backend | Speed | Persistence | Scope |
-|------|---------|-------|-------------|-------|
-| 1 | In-Memory | ~0.1ms | ❌ Lost on restart | Per-instance |
-| 2 | Redis | ~1-5ms | ❌ Lost on restart | Shared (if configured) |
-| 3 | GCS | ~50-200ms | ✅ Survives restarts | Shared across instances |
+| Tier | Backend   | Speed     | Persistence          | Scope                   |
+| ---- | --------- | --------- | -------------------- | ----------------------- |
+| 1    | In-Memory | ~0.1ms    | ❌ Lost on restart   | Per-instance            |
+| 2    | Redis     | ~1-5ms    | ❌ Lost on restart   | Shared (if configured)  |
+| 3    | GCS       | ~50-200ms | ✅ Survives restarts | Shared across instances |
 
 **Read path:** In-Memory → Redis → GCS → Fetch
 **Write path:** Fetch → In-Memory + Redis + GCS (async)
 
 ### TTL Guidelines
 
-| Data Type | TTL | Persist to GCS? |
-|-----------|-----|-----------------|
-| Health checks | 5s | No |
-| Deployment list | 20s | No |
-| Service status | 120s | Yes |
-| Data status | 300s | Yes |
-| Build info | 300s | Yes |
-| Trigger IDs | 3600s | Yes |
+| Data Type       | TTL   | Persist to GCS? |
+| --------------- | ----- | --------------- |
+| Health checks   | 5s    | No              |
+| Deployment list | 20s   | No              |
+| Service status  | 120s  | Yes             |
+| Data status     | 300s  | Yes             |
+| Build info      | 300s  | Yes             |
+| Trigger IDs     | 3600s | Yes             |
 
 ### Configuration
 
@@ -49,6 +49,7 @@ Three-tier caching:
 ### Critical Principle: Never Assume Success
 
 A shard can ONLY be marked as `SUCCEEDED` if:
+
 1. **Has a valid `job_id`** — proves a VM was actually launched
 2. **GCS status file contains "SUCCESS"** — proves the job completed
 
@@ -71,6 +72,7 @@ VM Exists?
 ### GCS State Structure
 
 **Environment separation:**
+
 - `deployments.development/` — local development (default)
 - `deployments.production/` — Docker/Cloud Run
 
@@ -98,12 +100,12 @@ gs://deployment-orchestration-test-project/
 
 ### Common Failure Modes
 
-| Scenario | GCS Status | job_id | Result |
-|----------|-----------|--------|--------|
-| Normal success | SUCCESS | ✓ | SUCCEEDED |
-| Normal failure | FAILED | ✓ | FAILED |
-| VM crashed before writing | None | ✓ | FAILED |
-| Launch failed | None | ✗ | FAILED |
+| Scenario                  | GCS Status | job_id | Result    |
+| ------------------------- | ---------- | ------ | --------- |
+| Normal success            | SUCCESS    | ✓      | SUCCEEDED |
+| Normal failure            | FAILED     | ✓      | FAILED    |
+| VM crashed before writing | None       | ✓      | FAILED    |
+| Launch failed             | None       | ✗      | FAILED    |
 
 ### Historical Bugs (Fixed)
 
@@ -145,7 +147,8 @@ Self-Delete via GCP API (10 retries with exponential backoff)
 # Example: Deployment with 100 VMs
 vm_config:
   self_delete: true
-  delete_batch_delay_seconds: 45  # Default
+  delete_batch_delay_seconds: 45 # Default
+
 
 # VM 1: deletes immediately
 # VM 2: waits 45 seconds
@@ -156,6 +159,7 @@ vm_config:
 **Formula:** `sleep $(( batch_index * delay_seconds ))`
 
 **Benefits:**
+
 - Spreads 100 VMs over ~75 minutes
 - Avoids GCP rate limits (quota: ~20 deletes/min)
 - VMs still terminate quickly relative to job duration
@@ -169,6 +173,7 @@ A VM that completed its job but **failed to self-delete** after 10 API retry att
 **Why ZOMBIE markers?**
 
 Without a marker, orchestrator sees:
+
 - VM terminated (status = TERMINATED)
 - GCS status = "SUCCESS"
 - **Assumption:** Job succeeded and VM deleted normally
@@ -189,6 +194,7 @@ Content: ZOMBIE:2026-02-10T12:35:30Z:deletion_failed_after_10_retries
 ### ZOMBIE Handling
 
 **VM Behavior (on deletion failure):**
+
 1. Write ZOMBIE marker to GCS (reuses existing GCS token from status write)
 2. Log warning: "❌ VM deletion failed after all retries"
 3. Sleep 30 seconds (grace period for GCS write to complete)
@@ -215,6 +221,7 @@ for shard_id in shard_ids:
 ```
 
 **UI Impact:**
+
 - Shard shows as `FAILED` (with ZOMBIE reason)
 - Deployment dashboard shows warning for zombie cleanup
 - Admin can manually trigger `cleanup_zombie_vms()` if needed
@@ -252,17 +259,17 @@ fi
 **Retry Schedule (10 attempts):**
 
 | Attempt | Wait Before | Cumulative Wait |
-|---------|-------------|-----------------|
-| 1 | 0s | 0s |
-| 2 | 25s | 25s |
-| 3 | 35s | 60s |
-| 4 | 45s | 105s |
-| 5 | 55s | 160s |
-| 6 | 65s | 225s |
-| 7 | 75s | 300s (5 min) |
-| 8 | 85s | 385s |
-| 9 | 95s | 480s (8 min) |
-| 10 | 105s | 585s (~10 min) |
+| ------- | ----------- | --------------- |
+| 1       | 0s          | 0s              |
+| 2       | 25s         | 25s             |
+| 3       | 35s         | 60s             |
+| 4       | 45s         | 105s            |
+| 5       | 55s         | 160s            |
+| 6       | 65s         | 225s            |
+| 7       | 75s         | 300s (5 min)    |
+| 8       | 85s         | 385s            |
+| 9       | 95s         | 480s (8 min)    |
+| 10      | 105s        | 585s (~10 min)  |
 
 **Formula:** `sleep $((15 + attempt * 10))`
 
@@ -296,6 +303,7 @@ fi
 If deletion fails, VM must NOT run forever (cost/quota waste).
 
 **Mechanism:**
+
 ```bash
 echo "Forcing VM shutdown in 30 seconds to prevent zombie state..."
 sleep 30  # Grace period for GCS writes to complete
@@ -304,6 +312,7 @@ sudo poweroff
 ```
 
 **Safety:**
+
 - 30-second grace period ensures GCS writes complete
 - `sudo poweroff` is clean shutdown (not kill signal)
 - Prevents orphaned processes or corrupted writes
@@ -339,15 +348,18 @@ gcloud compute instances delete {instance-name} --zone={zone} --quiet
 **Scenario: 100 VM deployment, 1 hour jobs**
 
 **Without self-deletion:**
+
 - VMs run indefinitely until manual cleanup
 - Cost: $0.2088/hour × 100 VMs × 24 hours = **$501/day**
 
 **With self-deletion:**
+
 - VMs delete 1-2 minutes after job completion
 - Cost: $0.2088/hour × 100 VMs × 1.03 hours = **$21.51**
 - **Savings: $479/day (96%)**
 
 **With ZOMBIE handling:**
+
 - Failed deletions cleaned up within 10 minutes
 - Max cost: $0.2088/hour × 1 VM × 0.17 hours = **$0.04 per zombie**
 - Even with 10% zombie rate: **$21.91 vs $501**
@@ -411,10 +423,10 @@ gcloud projects add-iam-policy-binding {project} ... # (restore IAM)
 
 ## Part 4: Key Files
 
-| File | Purpose |
-|------|---------|
-| `api/utils/cache.py` | UnifiedCache, TTL constants |
-| `backends/vm.py` | VM status, GCS status file reading, ZOMBIE detection, self-deletion logic |
-| `deployment/state.py` | DeploymentState, ShardState models |
-| `api/routes/deployments.py` | batch_refresh, create_deployment |
-| `api/main.py` | Auto-sync background task |
+| File                        | Purpose                                                                   |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `api/utils/cache.py`        | UnifiedCache, TTL constants                                               |
+| `backends/vm.py`            | VM status, GCS status file reading, ZOMBIE detection, self-deletion logic |
+| `deployment/state.py`       | DeploymentState, ShardState models                                        |
+| `api/routes/deployments.py` | batch_refresh, create_deployment                                          |
+| `api/main.py`               | Auto-sync background task                                                 |

@@ -16,19 +16,25 @@ interface Shard {
   shard_id: string;
   deployment_id: string;
   service: string;
-  status: "pending" | "running" | "completed" | "failed" | "timeout" | "cancelled";
+  status:
+    | "pending"
+    | "running"
+    | "completed"
+    | "failed"
+    | "timeout"
+    | "cancelled";
   exit_code?: number;
-  created_at: string;  // ISO timestamp
+  created_at: string; // ISO timestamp
   started_at?: string;
   completed_at?: string;
   duration_seconds?: number;
 
   // NEW: Multi-date support
-  start_date: string;  // "YYYY-MM-DD"
-  end_date: string;    // "YYYY-MM-DD"
-  date_count: number;  // Number of dates in range
+  start_date: string; // "YYYY-MM-DD"
+  end_date: string; // "YYYY-MM-DD"
+  date_count: number; // Number of dates in range
   max_workers: number; // Parallelism level
-  dates?: string[];    // Explicit list of dates
+  dates?: string[]; // Explicit list of dates
 
   // Existing fields
   cli_args: string;
@@ -47,7 +53,7 @@ interface Shard {
 
 ```typescript
 interface DateResult {
-  date: string;  // "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   status: "success" | "failed" | "timeout";
   duration_sec: number;
   error?: string;
@@ -59,7 +65,7 @@ interface ShardResults {
   shard_id: string;
   deployment_id: string;
   max_workers: number;
-  actual_workers_used?: number;  // May differ if adaptive
+  actual_workers_used?: number; // May differ if adaptive
   task_type?: "io_bound" | "cpu_bound" | "unknown";
 
   dates: DateResult[];
@@ -71,7 +77,7 @@ interface ShardResults {
     timeout: number;
     total_duration_sec: number;
     avg_date_duration_sec: number;
-    speedup_vs_serial?: number;  // Calculated speedup
+    speedup_vs_serial?: number; // Calculated speedup
   };
 
   adaptive_adjustments?: Array<{
@@ -91,10 +97,10 @@ interface ShardResults {
 ```typescript
 interface ShardResourceMetrics {
   shard_id: string;
-  avg_cpu: number;      // 0-100
-  peak_cpu: number;     // 0-100
-  avg_memory: number;   // 0-100
-  peak_memory: number;  // 0-100
+  avg_cpu: number; // 0-100
+  peak_cpu: number; // 0-100
+  avg_memory: number; // 0-100
+  peak_memory: number; // 0-100
   avg_disk?: number;
   samples_collected: number;
 }
@@ -111,11 +117,11 @@ interface ResourceMetrics {
   peak_memory: number;
 
   // Configuration
-  machine_type: string;  // "c2-standard-4"
+  machine_type: string; // "c2-standard-4"
   allocated_vcpus: number;
   allocated_memory_gb: number;
   max_workers_configured: number;
-  max_workers_actual_avg: number;  // Average across shards
+  max_workers_actual_avg: number; // Average across shards
 
   // Task profiling
   task_type?: "io_bound" | "cpu_bound" | "unknown";
@@ -126,12 +132,16 @@ interface ResourceMetrics {
 
   // Recommendations
   recommendation?: {
-    action: "optimal" | "upsize" | "reduce_max_workers" | "increase_max_workers";
+    action:
+      | "optimal"
+      | "upsize"
+      | "reduce_max_workers"
+      | "increase_max_workers";
     message: string;
     suggested_machine_type?: string;
     suggested_max_workers?: number;
-    estimated_savings?: number;  // Annual savings in dollars
-    estimated_speedup?: number;   // Performance improvement
+    estimated_savings?: number; // Annual savings in dollars
+    estimated_speedup?: number; // Performance improvement
   };
 }
 ```
@@ -144,14 +154,14 @@ interface ResourceMetrics {
 // GET /api/deployments/{deployment_id}/shards/{shard_id}/results
 async function getShardResults(
   deploymentId: string,
-  shardId: string
+  shardId: string,
 ): Promise<ShardResults | null> {
   const response = await fetch(
-    `/api/deployments/${deploymentId}/shards/${shardId}/results`
+    `/api/deployments/${deploymentId}/shards/${shardId}/results`,
   );
 
   if (response.status === 404) {
-    return null;  // Results not available yet
+    return null; // Results not available yet
   }
 
   if (!response.ok) {
@@ -163,10 +173,10 @@ async function getShardResults(
 
 // GET /api/deployments/{deployment_id}/resource-metrics
 async function getResourceMetrics(
-  deploymentId: string
+  deploymentId: string,
 ): Promise<ResourceMetrics> {
   const response = await fetch(
-    `/api/deployments/${deploymentId}/resource-metrics`
+    `/api/deployments/${deploymentId}/resource-metrics`,
   );
 
   if (!response.ok) {
@@ -630,31 +640,30 @@ const shardResourceColumns: GridColDef[] = [
 
 export async function getShardResults(
   deploymentId: string,
-  shardId: string
+  shardId: string,
 ): Promise<ShardResults | null> {
   const response = await apiClient.get(
-    `/deployments/${deploymentId}/shards/${shardId}/results`
+    `/deployments/${deploymentId}/shards/${shardId}/results`,
   );
   return response.data;
 }
 
 export async function getResourceMetrics(
-  deploymentId: string
+  deploymentId: string,
 ): Promise<ResourceMetrics> {
   const response = await apiClient.get(
-    `/deployments/${deploymentId}/resource-metrics`
+    `/deployments/${deploymentId}/resource-metrics`,
   );
   return response.data;
 }
 
 export async function retryFailedDates(
   deploymentId: string,
-  failedDates: string[]
+  failedDates: string[],
 ): Promise<{ retry_deployment_id: string; retry_shard_count: number }> {
-  const response = await apiClient.post(
-    `/deployments/${deploymentId}/retry`,
-    { failed_dates: failedDates }
-  );
+  const response = await apiClient.post(`/deployments/${deploymentId}/retry`, {
+    failed_dates: failedDates,
+  });
   return response.data;
 }
 ```
@@ -666,34 +675,34 @@ export async function retryFailedDates(
 ```typescript
 // ui/src/hooks/useShardResults.ts
 
-import { useQuery, UseQueryResult } from 'react-query';
-import { getShardResults } from '../api/client';
-import { ShardResults } from '../types';
+import { useQuery, UseQueryResult } from "react-query";
+import { getShardResults } from "../api/client";
+import { ShardResults } from "../types";
 
 export function useShardResults(
   deploymentId: string,
   shardId: string,
-  options?: { refetchInterval?: number }
+  options?: { refetchInterval?: number },
 ): UseQueryResult<ShardResults | null> {
   return useQuery(
-    ['shard-results', deploymentId, shardId],
+    ["shard-results", deploymentId, shardId],
     () => getShardResults(deploymentId, shardId),
     {
-      refetchInterval: options?.refetchInterval || 10000,  // 10s default
-      retry: 2
-    }
+      refetchInterval: options?.refetchInterval || 10000, // 10s default
+      retry: 2,
+    },
   );
 }
 
 // ui/src/hooks/useResourceMetrics.ts
 
 export function useResourceMetrics(
-  deploymentId: string
+  deploymentId: string,
 ): UseQueryResult<ResourceMetrics> {
   return useQuery(
-    ['resource-metrics', deploymentId],
+    ["resource-metrics", deploymentId],
     () => getResourceMetrics(deploymentId),
-    { staleTime: 30000 }  // 30s cache
+    { staleTime: 30000 }, // 30s cache
   );
 }
 ```
@@ -712,6 +721,7 @@ export function useResourceMetrics(
 - ✅ Helper functions (formatDuration, getColor, etc.)
 
 **File Locations:**
+
 - Types: `ui/src/types/shard.ts`, `ui/src/types/resource.ts`
 - Components: `ui/src/components/ShardCard.tsx`, `ui/src/components/ShardDetails.tsx`, `ui/src/components/ResourceMetricsPanel.tsx`
 - API: `ui/src/api/client.ts`

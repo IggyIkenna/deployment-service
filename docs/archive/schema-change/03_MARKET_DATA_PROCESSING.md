@@ -34,6 +34,7 @@ gs://market-data-candles-{category}-{project}/
 **Path Format:** `processed_candles/by_date/day={date}/timeframe={tf}/{inst}.parquet`
 
 **Changes:**
+
 - `day-` → `day=`
 - `timeframe-` → `timeframe=`
 
@@ -48,12 +49,14 @@ gs://market-data-candles-{category}-{project}/
 **File:** Output path builder (estimated location)
 
 **Current:**
+
 ```python
 def build_candle_output_path(date, timeframe, instrument_id):
     return f"processed_candles/by_date/day-{date}/timeframe-{timeframe}/{instrument_id}.parquet"
 ```
 
 **New:**
+
 ```python
 def build_candle_output_path(date, timeframe, instrument_id):
     return f"processed_candles/by_date/day={date}/timeframe={timeframe}/{instrument_id}.parquet"
@@ -66,6 +69,7 @@ def build_candle_output_path(date, timeframe, instrument_id):
 ## Downstream Impact
 
 **Services that read candles:**
+
 - features-delta-one-service (main consumer)
 - deployment-service (missing data checker)
 
@@ -100,6 +104,7 @@ WHERE day = '2023-05-23'
 **Severity:** MEDIUM
 
 **Locations affected:** ~15
+
 - market-data-processing output (~3)
 - features-delta-one input (~10)
 - deployment-service (~2)

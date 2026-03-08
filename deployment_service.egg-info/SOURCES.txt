@@ -78,6 +78,7 @@ deployment_service/cloud/query_client.py
 deployment_service/cloud/storage_client.py
 deployment_service/config/__init__.py
 deployment_service/config/base_config.py
+deployment_service/config/bootstrap_config.py
 deployment_service/config/config_validator.py
 deployment_service/config/env_substitutor.py
 deployment_service/deployment/__init__.py

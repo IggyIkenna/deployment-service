@@ -1,45 +1,48 @@
 service_name: strategy-service
-last_updated: '2026-02-21'
+last_updated: "2026-02-21"
 auto_refreshed: null
 status: PENDING
 known_exceptions: []
 catalogue_dimensions:
-- category
-- config (strategy config from GCS)
-- date
+  - category
+  - config (strategy config from GCS)
+  - date
 shard_status:
   CEFI:
     ALL_VENUES_ALL_CONFIGS:
-      start_date: '2019-03-30'
+      start_date: "2019-03-30"
       stage_1_has_run: false
       stage_2_data_complete: false
       latest_data_date: null
       assignee: pending
-      notes: "Strategy backtesting depends on features data (calendar, delta-one,\
+      notes:
+        "Strategy backtesting depends on features data (calendar, delta-one,\
         \ volatility, onchain). Sharding per category\xD7config\xD7date (config is\
         \ dynamic from GCS)."
   TRADFI:
     ALL_VENUES_ALL_CONFIGS:
-      start_date: '2020-01-01'
+      start_date: "2020-01-01"
       stage_1_has_run: false
       stage_2_data_complete: false
       latest_data_date: null
       assignee: pending
-      notes: "Strategy backtesting depends on features data (calendar, delta-one,\
+      notes:
+        "Strategy backtesting depends on features data (calendar, delta-one,\
         \ volatility, onchain). Sharding per category\xD7config\xD7date (config is\
         \ dynamic from GCS)."
   DEFI:
     ALL_VENUES_ALL_CONFIGS:
-      start_date: '2020-05-18'
+      start_date: "2020-05-18"
       stage_1_has_run: false
       stage_2_data_complete: false
       latest_data_date: null
       assignee: pending
-      notes: "Strategy backtesting depends on features data (calendar, delta-one,\
+      notes:
+        "Strategy backtesting depends on features data (calendar, delta-one,\
         \ volatility, onchain). Sharding per category\xD7config\xD7date (config is\
         \ dynamic from GCS)."
 epic_dependencies:
-- epic_task: market-data:5.1
-  blocker_type: D1
-  classification: VALIDATE
-  required_shards: 15330
+  - epic_task: market-data:5.1
+    blocker_type: D1
+    classification: VALIDATE
+    required_shards: 15330

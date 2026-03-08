@@ -14,7 +14,7 @@ This document condenses external contractor specs, infrastructure specs, and ope
 
 ## Paradise Getting Started
 
-**Sprint onboarding:** (1) Open deployment dashboard; (2) Read repeatable workflow (11 steps); (3) Set up market-tick-data-handler locally. Pipeline order: instruments → market-tick → market-data-processing → features-* → ml-* → strategy → execution. Data Status tab shows per-service completion. See [docs/SETUP.md](SETUP.md) and [docs/TESTING.md](TESTING.md).
+**Sprint onboarding:** (1) Open deployment dashboard; (2) Read repeatable workflow (11 steps); (3) Set up market-tick-data-handler locally. Pipeline order: instruments → market-tick → market-data-processing → features-_ → ml-_ → strategy → execution. Data Status tab shows per-service completion. See [docs/SETUP.md](SETUP.md) and [docs/TESTING.md](TESTING.md).
 
 ---
 

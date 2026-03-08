@@ -73,7 +73,7 @@ input_data:
     required: true
 
   - service: market-data-processing-service
-    bucket_pattern: "market-data-tick-{category_lower}-{project_id}"  # Processed candles in same bucket as raw
+    bucket_pattern: "market-data-tick-{category_lower}-{project_id}" # Processed candles in same bucket as raw
     path_pattern: "{venue}/{date}/{data_type}/*.parquet"
     required: true
     rationale: "Need current prices for mark-to-market risk calculations"

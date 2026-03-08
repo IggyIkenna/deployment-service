@@ -51,7 +51,7 @@ class BaseCLI:
     def setup_logging(level: str = "INFO"):
         """Setup logging configuration."""
         log_level = getattr(logging, level.upper(), logging.INFO)
-        logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+        logging.getLogger().setLevel(log_level)
 
     def load_config(self, service: str) -> dict[str, object] | None:
         """Load configuration for a service."""

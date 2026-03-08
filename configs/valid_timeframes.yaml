@@ -21,19 +21,19 @@ data_type_base_granularity:
   futures_chain: "15s"
 
   # TRADFI data - varies by source
-  ohlcv_1m: "1m"      # Databento equities, CME, ICE, NASDAQ, NYSE
-  ohlcv_15m: "15m"    # CBOE VIX (Barchart source)
-  ohlcv_24h: "24h"    # FX venue (KRW-USD, etc.) - data via Yahoo Finance
-  tbbo: "1m"          # Top of book best offer
+  ohlcv_1m: "1m" # Databento equities, CME, ICE, NASDAQ, NYSE
+  ohlcv_15m: "15m" # CBOE VIX (Barchart source)
+  ohlcv_24h: "24h" # FX venue (KRW-USD, etc.) - data via Yahoo Finance
+  tbbo: "1m" # Top of book best offer
 
   # DEFI data - block-level granularity (~12s on ETH)
   swaps: "15s"
-  utilization: "1h"               # Lending utilization (extracted from rate_indices, hourly)
-  rate_indices: "1h"              # Interest rate indices
+  utilization: "1h" # Lending utilization (extracted from rate_indices, hourly)
+  rate_indices: "1h" # Interest rate indices
   oracle_prices: "15s"
-  risk_params: "24h"              # Governance parameters (LTV, liquidation thresholds) - change rarely
-  flash_loan_availability: "1h"   # Flash loan liquidity snapshots
-  rewards: "24h"                  # Protocol rewards (EIGEN/ETHFI) - daily granularity
+  risk_params: "24h" # Governance parameters (LTV, liquidation thresholds) - change rarely
+  flash_loan_availability: "1h" # Flash loan liquidity snapshots
+  rewards: "24h" # Protocol rewards (EIGEN/ETHFI) - daily granularity
   # REMOVED: yields - deprecated, derive from oracle_prices
 
 # =============================================================================
@@ -64,13 +64,13 @@ instrument_overrides:
 # =============================================================================
 timeframe_hierarchy:
   # From smallest to largest
-  - "15s"   # Base for tick data
-  - "1m"    # 4x 15s
-  - "5m"    # 5x 1m
-  - "15m"   # 3x 5m
-  - "1h"    # 4x 15m
-  - "4h"    # 4x 1h
-  - "24h"   # 6x 4h (or 24x 1h)
+  - "15s" # Base for tick data
+  - "1m" # 4x 15s
+  - "5m" # 5x 1m
+  - "15m" # 3x 5m
+  - "1h" # 4x 15m
+  - "4h" # 4x 1h
+  - "24h" # 6x 4h (or 24x 1h)
 
 # =============================================================================
 # Expected Timeframes by Service
@@ -93,4 +93,4 @@ service_timeframes:
     default: ["15s", "1m", "5m", "15m", "1h"]
 
   features-calendar-service:
-    default: ["1h", "4h", "24h"]  # Calendar features make most sense at longer timeframes
+    default: ["1h", "4h", "24h"] # Calendar features make most sense at longer timeframes

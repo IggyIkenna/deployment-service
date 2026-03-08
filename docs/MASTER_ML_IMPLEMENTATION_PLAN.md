@@ -12,6 +12,7 @@
 **CRITICAL DISCOVERY:** All production services already use BigQuery-compatible `key=value` folder format!
 
 **What This Means:**
+
 - ✅ No code migration needed
 - ✅ BigQuery external tables ready after data generation
 - ✅ Only documentation/script cleanup needed
@@ -51,12 +52,14 @@ Total: Nested structure with ~140 files per instrument per day (20 groups × 7 t
 ```
 
 **Current Structure Benefits:**
+
 - ✅ BigQuery external tables compatible (hive partitioning)
 - ✅ Nested organization (easy to understand)
 - ✅ Partition by `day`, `feature_group`, `timeframe`
 - ✅ No code changes needed
 
 **BigQuery External Table Setup:**
+
 ```sql
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
@@ -73,6 +76,7 @@ OPTIONS (
 ### Legacy Data
 
 If you have old data with `day-2023-01-01/` format:
+
 - ✅ BigQuery external tables will ignore it (pattern matching)
 - ✅ No migration needed for new data
 - ✅ Safe coexistence (no conflict)
@@ -151,12 +155,14 @@ If you have old data with `day-2023-01-01/` format:
 **File:** `features_delta_one_service/app/core/feature_writer.py`
 
 **Current (OLD):**
+
 ```python
 def _build_output_path(self, date, feature_group, timeframe, instrument_id):
     return f"by_date/day-{date}/feature_group-{feature_group}/timeframe-{timeframe}/{instrument_id}.parquet"
 ```
 
 **New (REQUIRED):**
+
 ```python
 def _build_output_path(self, date, instrument_id):
     return f"by_date/day-{date}/{instrument_id}.parquet"
@@ -193,11 +199,13 @@ def write_features(self, features_df, date, instrument_id):
 **File:** `ml_training_service/app/core/gcs_feature_reader.py`
 
 **Current (reads nested):**
+
 ```python
 path = f"by_date/day-{date}/feature_group-{group}/timeframe-{tf}/{inst}.parquet"
 ```
 
 **New (reads flat):**
+
 ```python
 path = f"by_date/day-{date}/{inst}.parquet"
 # Filter by feature_group and timeframe in DataFrame
@@ -231,6 +239,7 @@ if feature_groups:
 **Setup Script:** `deployment-service/scripts/create_bigquery_external_tables.sh`
 
 **What It Creates:**
+
 ```sql
 -- Example: Features 1m external table
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
@@ -245,6 +254,7 @@ OPTIONS (
 ```
 
 **Properties:**
+
 - **Storage Cost:** $0 (pointer to GCS, no duplication)
 - **Query Cost:** $6/TB scanned (only pay when querying)
 - **Freshness:** Always current (reads GCS directly)
@@ -252,9 +262,10 @@ OPTIONS (
 - **Partitions:** Automatically extracts `day`, `feature_group`, `timeframe` from folder names
 
 **Usage Example:**
+
 ```sql
 -- Query features for BTC, January 2023
-SELECT 
+SELECT
   timestamp,
   instrument_id,
   rsi_14,
@@ -271,12 +282,14 @@ WHERE day BETWEEN '2023-01-01' AND '2023-01-31'
 **Decision:** External tables only (no materialized views)
 
 **Why:**
+
 - Materialized views cost $131/year storage + $3-338/year refresh
 - 10-20x faster queries (2 sec vs 20-30 sec) not worth cost for batch ML training
 - GCS parallel reader acceptable for production (20-30 sec is fine)
 - External tables sufficient for ad-hoc analysis and debugging
 
 **If Needed Later:**
+
 - Can add materialized views on top of external tables
 - Cloud Function for event-driven refresh
 - Cost/benefit should be evaluated based on actual usage
@@ -299,6 +312,7 @@ features_df = reader.read_features(
 ```
 
 **Properties:**
+
 - Direct parquet reads from GCS (no BigQuery dependency)
 - Parallel downloads for speed
 - Works with nested GCS structure
@@ -306,11 +320,13 @@ features_df = reader.read_features(
 - $0 cost beyond GCS storage
 
 **When to Use:**
+
 - ✅ Production ML training pipelines
 - ✅ Batch feature loading
 - ✅ Reproducible data loading (no external dependencies)
 
 **When to Use BigQuery External Tables:**
+
 - ✅ Ad-hoc SQL queries for exploration
 - ✅ Data quality checks
 - ✅ Fast debugging (2 sec queries)
@@ -319,11 +335,13 @@ features_df = reader.read_features(
 ### 3.4 Documentation
 
 **Complete Guides:**
+
 - [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) - Setup, usage, cost optimization
 - [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDATION.md) - Service audit and validation
 - [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md) - Path formats and standards
 
 **Scripts:**
+
 - `deployment-service/scripts/create_bigquery_external_tables.sh` - One-time setup (run after data exists)
 
 **File:** `features-delta-one-service/cloud_functions/refresh_bigquery_mv/main.py`
@@ -348,6 +366,7 @@ def refresh_on_gcs_change(event, context):
 ```
 
 **Deploy:**
+
 ```bash
 gcloud functions deploy refresh-features-mv \
   --trigger-bucket features-delta-one-cefi-test-project \
@@ -367,12 +386,14 @@ gcloud functions deploy refresh-features-mv \
 **Status:** Code complete, ready for testing with real data
 
 **Implementation:**
+
 - ✅ Handlers created (preselection, hyperparam_grid, final_training)
 - ✅ CLI wired with mode routing
 - ✅ All 5 arguments added (`--training-period`, `--correlation-threshold`, `--importance-threshold`, `--selection-metric`, `--cv-folds`)
 - ✅ 73/73 unit tests passing
 
 **Usage:**
+
 ```bash
 # Stage 1: Feature pre-selection (1000s → 300 features)
 ml-training --mode pre-selection --training-period 2023-Q1 \
@@ -387,6 +408,7 @@ ml-training --mode final-training --training-period 2023-Q1
 ```
 
 **Output Locations:**
+
 - Stage 1: `gs://ml-training-artifacts-{project}/stage1-preselection/{training_period}/selected_features.json`
 - Stage 2: `gs://ml-training-artifacts-{project}/stage2-hyperparams/{training_period}/best_hyperparams.json`
 - Stage 3: `gs://ml-models-store-{project}/models/{model_id}/training-period-{YYYY-MM}/model.joblib`
@@ -398,12 +420,14 @@ ml-training --mode final-training --training-period 2023-Q1
 **Status:** Complete and tested
 
 **Implementation:**
+
 - ✅ Fixed in `ml-inference-service/ml_inference_service/app/inference/orchestrator.py`
 - ✅ Uses `load_model_for_inference_date()` instead of `load_model()`
 - ✅ 9/9 new unit tests passing (all walk-forward scenarios)
 - ✅ Prevents lookahead bias
 
 **Example:**
+
 ```python
 # Inference on 2023-04-01 uses model trained in 2023-03 (or earlier)
 # NEVER uses model trained in 2023-04 or later
@@ -416,6 +440,7 @@ model_result = self.model_loader.load_model_for_inference_date(
 ```
 
 **Test Coverage:**
+
 - ✓ Inference date before first model (returns None)
 - ✓ Inference date between training periods (uses older model)
 - ✓ Inference same month as training (uses previous quarter)
@@ -426,6 +451,7 @@ model_result = self.model_loader.load_model_for_inference_date(
 **Status:** Production-ready
 
 **Implementation:**
+
 - ✅ Parallel parquet reader from GCS
 - ✅ Handles nested `key=value` structure
 - ✅ No BigQuery dependency
@@ -434,6 +460,7 @@ model_result = self.model_loader.load_model_for_inference_date(
 **Location:** `ml-training-service/ml_training_service/app/core/gcs_feature_reader.py`
 
 **Usage:**
+
 ```python
 from ml_training_service.app.core.gcs_feature_reader import GCSFeatureReader
 
@@ -462,19 +489,21 @@ df = reader.read_features(
 **Status:** Configuration complete
 
 **Implementation:**
+
 - ✅ `MODE_AWARE_SERVICES` defined in `deployment-service`
 - ✅ `stage_dependencies` in `configs/dependencies.yaml`
 - ✅ `mode` dimension in `configs/sharding.ml-training-service.yaml`
 
 **Example:**
+
 ```yaml
 # ml-training-service has 3 modes with different dependencies
 mode_aware_services:
   ml-training-service:
     modes:
-      - pre-selection    # Depends on: features-delta-one, features-calendar
-      - hyperparameter-grid  # Depends on: stage1 artifacts
-      - final-training   # Depends on: stage2 artifacts
+      - pre-selection # Depends on: features-delta-one, features-calendar
+      - hyperparameter-grid # Depends on: stage1 artifacts
+      - final-training # Depends on: stage2 artifacts
 ```
 
 **Next:** CLI integration for mode-aware data status display
@@ -486,6 +515,7 @@ mode_aware_services:
 ### Phase 1: Infrastructure (COMPLETE ✅)
 
 **Deliverables:**
+
 - [x] Mock data seeder
 - [x] GCS parallel reader
 - [x] 3-stage handlers
@@ -496,11 +526,13 @@ mode_aware_services:
 ### Phase 2: Mock Data Testing (PARTIALLY COMPLETE)
 
 **Completed:**
+
 - [x] 54,720 rows seeded (38 days, 4 groups, 1m, 1 instrument)
 - [x] Training works (4 models trained)
 - [x] Metrics show models are useless on random data (expected)
 
 **Remaining:**
+
 - [ ] Generate mock for ALL 20 groups
 - [ ] Generate for ALL 7 timeframes
 - [ ] Generate for BTC + SPY (test holiday handling)
@@ -509,6 +541,7 @@ mode_aware_services:
 ### Phase 3: Real Data Integration (NEXT - Requires Market-Tick)
 
 **Prerequisites (YOUR TASK):**
+
 ```bash
 # 1. Generate market-tick for BTC (24/7)
 market-tick-data-handler \
@@ -524,6 +557,7 @@ market-tick-data-handler \
 ```
 
 **Then:**
+
 ```bash
 # 3. Generate features (NEW STRUCTURE)
 features-delta-one --mode batch \
@@ -557,16 +591,20 @@ cd deployment-service
 ## 7. Service-by-Service Update Checklist
 
 ### Instruments Service
+
 - [ ] No changes needed ✅
 
 ### Market-Tick-Data-Handler
+
 - [ ] Consider external table for future
 - [ ] Structure already BigQuery-compatible
 
 ### Market-Data-Processing-Service
+
 - [ ] No changes needed ✅
 
 ### Features-Delta-One-Service ⚠️ REQUIRES UPDATES
+
 - [ ] Update feature_writer.py for new structure
 - [ ] Add feature_group, timeframe as data columns
 - [ ] Write 1 file per instrument per day (not 140)
@@ -575,10 +613,12 @@ cd deployment-service
 - [ ] Update tests for new structure
 
 ### Features-Calendar-Service
+
 - [ ] Verify schema compatible
 - [ ] No structure changes needed (already flat)
 
 ### ML-Training-Service ⚠️ REQUIRES UPDATES
+
 - [ ] Update gcs_feature_reader.py for new paths
 - [ ] Update CloudFeatureProvider
 - [ ] Test GCS reader with new structure
@@ -586,17 +626,21 @@ cd deployment-service
 - [ ] Verify both readers return identical data
 
 ### ML-Inference-Service ⚠️ REQUIRES UPDATES
+
 - [ ] Update feature_subscriber.py
 - [ ] Same changes as ml-training
 - [ ] Test inference with new structure
 
 ### Strategy-Service
+
 - [ ] No changes needed (consumes ML predictions) ✅
 
 ### Execution-Services
+
 - [ ] No changes needed ✅
 
 ### Unified-Trading-Deployment-V2 ⚠️ REQUIRES UPDATES
+
 - [ ] Update missing data checker (support both structures)
 - [ ] Simpler path checks: `by_date/day-{date}/{inst}.parquet`
 - [ ] Update data-status display
@@ -611,6 +655,7 @@ cd deployment-service
 **Requirement:** Match GitHub Actions and Cloud Build
 
 **Standard test suite for ALL repos:**
+
 ```bash
 # Quality gates (must match CI)
 ruff check {service}/ tests/
@@ -623,6 +668,7 @@ pytest tests/integration/ -v --tb=short
 ```
 
 **Action Items:**
+
 - [ ] Verify each repo has unit tests
 - [ ] Add integration tests where missing
 - [ ] Ensure local quality gates match CI
@@ -630,17 +676,20 @@ pytest tests/integration/ -v --tb=short
 ### 8.2 Integration Tests (Per Service)
 
 **features-delta-one:**
+
 - [ ] Test write to new structure
 - [ ] Verify schema includes metadata columns
 - [ ] Test BigQuery can read external table
 
 **ml-training:**
+
 - [ ] Test GCS reader with new structure
 - [ ] Test BigQuery reader
 - [ ] Test Stage 1 → 2 → 3 flow
 - [ ] Test quarterly training periods
 
 **ml-inference:**
+
 - [ ] Test walk-forward model selection
 - [ ] Test with multiple training periods
 - [ ] Verify no-lookahead enforcement
@@ -648,18 +697,21 @@ pytest tests/integration/ -v --tb=short
 ### 8.3 End-to-End Tests (Full Pipeline)
 
 **Test 1: Instruments → Features → ML**
+
 ```bash
 # Generate 1 day end-to-end
 instruments → market-tick → market-data-processing → features-delta-one → ml-training
 ```
 
 **Test 2: ML → Strategy → Execution**
+
 ```bash
 # Use ML predictions for strategy
 ml-inference → strategy → execution
 ```
 
 **Test 3: Parallel Shard Execution**
+
 ```bash
 # 16 model configs in parallel
 # Verify no conflicts, all complete
@@ -670,16 +722,19 @@ ml-inference → strategy → execution
 ## 9. Cost Analysis Summary
 
 ### Current (Old Structure, GCS Only)
+
 - Storage: $1,877/year
 - Queries: Direct GCS (20-30 sec)
 
 ### After Migration (New Structure + BigQuery)
+
 - GCS storage: $1,877/year (same)
 - BigQuery external table: $0
 - BigQuery MV: $11,305/year (ADDITIONAL - for speed)
 - **Total: $13,182/year**
 
 ### With Optimizations
+
 - Use external tables for dev (free)
 - Use MVs only for production training
 - **Optimized: $7,234/year**
@@ -689,6 +744,7 @@ ml-inference → strategy → execution
 ## 10. Implementation Timeline
 
 ### Week 1: Code Updates (Current Session - 95% Done)
+
 - [x] Walk-forward fix
 - [x] CLI args
 - [x] BigQuery module
@@ -697,6 +753,7 @@ ml-inference → strategy → execution
 - [ ] features-delta-one new structure (30% done)
 
 ### Week 2: Data Generation (Requires Market-Tick)
+
 - [ ] YOU: Generate market-tick (BTC + SPY, 15 months)
 - [ ] Run features-delta-one with new structure
 - [ ] Validate 1 day before full run
@@ -704,6 +761,7 @@ ml-inference → strategy → execution
 - [ ] Setup BigQuery external tables + MVs
 
 ### Week 3: ML Training & Testing
+
 - [ ] Run 3-stage pipeline (4 quarters)
 - [ ] Train 16 model configs
 - [ ] Test walk-forward inference
@@ -711,6 +769,7 @@ ml-inference → strategy → execution
 - [ ] Performance testing
 
 ### Week 4: Cleanup & Production
+
 - [ ] Delete old GCS structure
 - [ ] Final documentation
 - [ ] Production deployment checklist
@@ -721,22 +780,26 @@ ml-inference → strategy → execution
 ## 11. Success Criteria
 
 ### Infrastructure ✅
+
 - [x] Code complete
 - [x] Tests passing
 - [x] Documentation complete
 
 ### Data
+
 - [ ] New structure populated (15 months × 2 instruments)
 - [ ] BigQuery tables created
 - [ ] Old structure deleted
 
 ### ML Pipeline
+
 - [ ] 3-stage pipeline tested end-to-end
 - [ ] Walk-forward validated with real data
 - [ ] 16 model configs trained
 - [ ] Mode-aware data-status working
 
 ### Production Ready
+
 - [ ] All quality gates passing
 - [ ] All PRs merged
 - [ ] Monitoring in place
@@ -769,15 +832,19 @@ Validation & Production
 ## 13. Open Questions & Decisions
 
 ### Q1: When to delete old structure?
+
 **A:** After new structure 100% validated (Week 3)
 
 ### Q2: Support both structures during transition?
+
 **A:** Yes, deployment-service checks both
 
 ### Q3: Materialized views worth $11K/year?
+
 **A:** Yes for development (10x faster), optional for production
 
 ### Q4: External tables sufficient?
+
 **A:** For dev yes, for production training MVs better
 
 ---
@@ -785,15 +852,18 @@ Validation & Production
 ## 14. Next Session Action Items
 
 **Immediate (30 min):**
+
 - [ ] Verify all PRs merged
 - [ ] Pull latest from all repos
 
 **This Week:**
+
 - [ ] Update features-delta-one for new structure
 - [ ] Test with 1 day
 - [ ] Document schema changes
 
 **Next Week:**
+
 - [ ] Generate market-tick data
 - [ ] Regenerate all features
 - [ ] Run ML pipeline end-to-end

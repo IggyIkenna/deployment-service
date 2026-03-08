@@ -13,6 +13,7 @@
 **Why:** C2-only quota constraint prevents downsizing → parallelize dates within machines instead
 
 **Impact:**
+
 - 36% fewer VMs needed (2,555 → 1,628)
 - 16x faster for low-utilization services
 - 85-95% CPU utilization (vs 10-40% before)
@@ -27,12 +28,14 @@
 ### Key Insight: CPU vs RAM Over-Subscription
 
 **CPU Over-Subscription:** ✅ **SAFE**
+
 - Spawn more processes than vCPUs available
 - OS queues processes naturally
 - No crash, just natural scheduling
 - Example: 40 processes on 4 vCPUs → all complete, just queue
 
 **RAM Over-Subscription:** ❌ **FATAL**
+
 - Spawn processes that exceed available RAM
 - Linux OOM killer terminates process (exit 137)
 - Job fails, data lost, costly retry
@@ -43,6 +46,7 @@
 ### Adaptive Strategy (Recommended)
 
 **How it works:**
+
 1. **Profile first date** - Detect I/O vs CPU bound, measure memory
 2. **Calculate safe workers** - Based on RAM availability
 3. **Monitor RAM in real-time** - Every 10 seconds
@@ -50,6 +54,7 @@
 5. **Increase if RAM < 60%** - Maximize throughput (I/O-bound only)
 
 **Benefits:**
+
 - ✅ **Machine-agnostic** - Works on c2-std-4, c2-std-8, c2-std-16 automatically
 - ✅ **Data-agnostic** - Adapts if date sizes vary
 - ✅ **No manual tuning** - Service self-optimizes
@@ -58,6 +63,7 @@
 - ✅ **CPU-bound safety** - Conservative matching (prevents context switching overhead)
 
 **Example: instruments-service (I/O-bound)**
+
 ```
 Machine: c2-standard-4 (4 vCPU, 16 GB)
 Task: 10% CPU, 0.5 GB RAM per worker
@@ -77,16 +83,19 @@ If one date uses 2 GB instead of 0.5 GB:
 ### Static Strategy (Fallback)
 
 **How it works:**
+
 1. Configure MAX_WORKERS in env/Terraform
 2. Service uses fixed worker count
 3. No runtime adaptation
 
 **Use when:**
+
 - Service has uniform, predictable memory usage
 - Already at resource limits (features-delta-one at 90% CPU, 75% RAM)
 - Prefer deterministic behavior over optimization
 
 **Drawback:**
+
 - Must manually tune per service per machine type
 - Risk of OOM if data size increases
 - Can't maximize I/O-bound tasks (limited to conservative workers)
@@ -99,22 +108,23 @@ If one date uses 2 GB instead of 0.5 GB:
 
 **Files to Create:**
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `core/adaptive_parallel_processor.py` | ~800 | **AdaptiveParallelDateProcessor (RECOMMENDED)** |
-| `core/parallel_date_processor.py` | ~300 | Simple ParallelDateProcessor (fallback) |
+| File                                  | Lines | Purpose                                         |
+| ------------------------------------- | ----- | ----------------------------------------------- |
+| `core/adaptive_parallel_processor.py` | ~800  | **AdaptiveParallelDateProcessor (RECOMMENDED)** |
+| `core/parallel_date_processor.py`     | ~300  | Simple ParallelDateProcessor (fallback)         |
 
 **Files to Update:**
 
-| File | Lines Changed | Change Description |
-|------|---------------|-------------------|
-| `core/performance_monitor.py` | ~50 | Log MAX_WORKERS, calculate speedup metrics |
-| `__init__.py` | ~10 | Export both processors |
-| `README.md` | ~100 | Document adaptive and simple processors |
+| File                          | Lines Changed | Change Description                         |
+| ----------------------------- | ------------- | ------------------------------------------ |
+| `core/performance_monitor.py` | ~50           | Log MAX_WORKERS, calculate speedup metrics |
+| `__init__.py`                 | ~10           | Export both processors                     |
+| `README.md`                   | ~100          | Document adaptive and simple processors    |
 
 **New Classes/Functions:**
 
 **Adaptive (Recommended):**
+
 ```python
 # core/adaptive_parallel_processor.py
 class AdaptiveParallelDateProcessor:
@@ -133,6 +143,7 @@ def calculate_cpu_bound_workers()  # Conservative CPU matching
 ```
 
 **Simple (Static):**
+
 ```python
 # core/parallel_date_processor.py
 class ParallelDateProcessor:
@@ -143,11 +154,13 @@ def calculate_optimal_workers(allocated_vcpus, single_date_cpu, single_date_memo
 ```
 
 **Environment Variables Used:**
+
 - `MAX_WORKERS` - Number of date workers (set by deployment orchestrator)
 - `DEPLOYMENT_ID` - For results JSON path
 - `SHARD_ID` - For results JSON path
 
 **Testing:**
+
 - Unit tests with mock date processing
 - Test various worker counts (1, 4, 16, 32)
 - Test uneven date counts
@@ -161,13 +174,14 @@ def calculate_optimal_workers(allocated_vcpus, single_date_cpu, single_date_memo
 
 **Files to Update:**
 
-| File | Lines Changed | Change Description |
-|------|---------------|-------------------|
-| `instruments_service/cli/main.py` | ~80 | Refactor to use ParallelDateProcessor |
-| `.env.example` | +1 | Add MAX_WORKERS=16 |
-| `README.md` | ~20 | Document parallel processing |
+| File                              | Lines Changed | Change Description                    |
+| --------------------------------- | ------------- | ------------------------------------- |
+| `instruments_service/cli/main.py` | ~80           | Refactor to use ParallelDateProcessor |
+| `.env.example`                    | +1            | Add MAX_WORKERS=16                    |
+| `README.md`                       | ~20           | Document parallel processing          |
 
 **Pattern:**
+
 ```python
 # OLD (cli/main.py)
 for date in date_range:
@@ -187,6 +201,7 @@ def main():
 ```
 
 **Testing:**
+
 - Local: 5 dates, MAX_WORKERS=4
 - VM: 30 days, MAX_WORKERS=16
 - Validate: CPU 85-95%, all dates successful
@@ -200,6 +215,7 @@ def main():
 **Same pattern as instruments-service**
 
 **Files:**
+
 - `features_calendar_service/cli/batch_handler.py` (~80 lines)
 - `.env.example` (+1 line)
 
@@ -212,6 +228,7 @@ def main():
 **Same pattern**
 
 **Files:**
+
 - `ml_inference_service/cli/main.py` (~80 lines)
 - `.env.example` (+1 line)
 
@@ -223,18 +240,19 @@ def main():
 
 **Files to Update:**
 
-| File | Lines Changed | Change Description |
-|------|---------------|-------------------|
-| `deployment_service/shard_calculator.py` | ~100 | Multi-date shard batching logic |
-| `deployment_service/dependencies.py` | ~150 | Add `check_dependencies_batch()` |
-| `api/routes/deployments.py` | ~200 | Enhanced retry logic, results reader, MAX_WORKERS param |
-| `deployment_service/cloud_client.py` | ~80 | Batch GCS existence checking |
-| `deployment_service/cli.py` | ~20 | Add `--max-workers` argument |
-| `ui/src/components/ShardCard.tsx` | ~50 | Display date ranges, parallelism |
-| `ui/src/components/ShardDetails.tsx` | ~100 | Per-date status table |
-| `ui/src/components/ResourceMetricsPanel.tsx` | ~300 | NEW: Resource usage visualization |
+| File                                         | Lines Changed | Change Description                                      |
+| -------------------------------------------- | ------------- | ------------------------------------------------------- |
+| `deployment_service/shard_calculator.py`     | ~100          | Multi-date shard batching logic                         |
+| `deployment_service/dependencies.py`         | ~150          | Add `check_dependencies_batch()`                        |
+| `api/routes/deployments.py`                  | ~200          | Enhanced retry logic, results reader, MAX_WORKERS param |
+| `deployment_service/cloud_client.py`         | ~80           | Batch GCS existence checking                            |
+| `deployment_service/cli.py`                  | ~20           | Add `--max-workers` argument                            |
+| `ui/src/components/ShardCard.tsx`            | ~50           | Display date ranges, parallelism                        |
+| `ui/src/components/ShardDetails.tsx`         | ~100          | Per-date status table                                   |
+| `ui/src/components/ResourceMetricsPanel.tsx` | ~300          | NEW: Resource usage visualization                       |
 
 **New API Endpoints:**
+
 ```python
 GET /api/deployments/{id}/resource-metrics  # Aggregate CPU/RAM per shard
 GET /api/deployments/{id}/shards/{shard_id}/results  # Per-date outcomes
@@ -242,8 +260,8 @@ GET /api/deployments/{id}/shards/{shard_id}/results  # Per-date outcomes
 
 **Configuration Updates:**
 
-| File | Addition |
-|------|----------|
+| File                                         | Addition                |
+| -------------------------------------------- | ----------------------- |
 | `configs/service_defaults.yaml` (or similar) | SERVICE_MAX_WORKERS map |
 
 ```yaml
@@ -258,6 +276,7 @@ service_max_workers:
 ```
 
 **Testing:**
+
 - Unit tests for shard_calculator batching
 - Integration tests for multi-date dependency checking
 - E2E tests for full deployment with MAX_WORKERS
@@ -268,13 +287,14 @@ service_max_workers:
 
 **Files to Update:**
 
-| File | Lines Changed | Change Description |
-|------|---------------|-------------------|
-| `terraform/variables.tf` | ~20 | Add `service_max_workers` variable |
-| `terraform/modules/container-job/gcp/main.tf` | ~10 | Add MAX_WORKERS env var |
-| `terraform/modules/compute-vm/gcp/main.tf` | ~10 | Add MAX_WORKERS env var |
+| File                                          | Lines Changed | Change Description                 |
+| --------------------------------------------- | ------------- | ---------------------------------- |
+| `terraform/variables.tf`                      | ~20           | Add `service_max_workers` variable |
+| `terraform/modules/container-job/gcp/main.tf` | ~10           | Add MAX_WORKERS env var            |
+| `terraform/modules/compute-vm/gcp/main.tf`    | ~10           | Add MAX_WORKERS env var            |
 
 **Example:**
+
 ```hcl
 # variables.tf
 variable "service_max_workers" {
@@ -308,11 +328,12 @@ env {
 
 **Files to Update:**
 
-| File | Lines Changed | Change Description |
-|------|---------------|-------------------|
-| `market_data_processing_service/config.py` | 1 line | **CRITICAL:** Change CSV sampling default "true" → "false" |
+| File                                       | Lines Changed | Change Description                                         |
+| ------------------------------------------ | ------------- | ---------------------------------------------------------- |
+| `market_data_processing_service/config.py` | 1 line        | **CRITICAL:** Change CSV sampling default "true" → "false" |
 
 **Fix:**
+
 ```python
 # Line 406
 enable_csv_sampling: bool = Field(
@@ -323,6 +344,7 @@ enable_csv_sampling: bool = Field(
 ```
 
 **Why Critical:**
+
 - Current default enables CSV dumps on production VMs
 - With MAX_WORKERS=4, creates 280+ CSV files per shard
 - Kills SSD performance
@@ -336,17 +358,18 @@ enable_csv_sampling: bool = Field(
 
 ### Core Implementation Docs (NEW - Feb 2026)
 
-| Document | Purpose | Size | Status |
-|----------|---------|------|--------|
-| [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) | Complete implementation guide | 994 lines | ✅ Ready |
-| **[ADAPTIVE_MAX_WORKERS_DESIGN.md](ADAPTIVE_MAX_WORKERS_DESIGN.md)** | **🎯 Self-regulating parallelism (RECOMMENDED)** | **800 lines** | **✅ Ready** |
-| [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) | All audit findings consolidated | 850 lines | ✅ Ready |
-| [INTRA_MACHINE_DATE_PARALLELIZATION.md](INTRA_MACHINE_DATE_PARALLELIZATION.md) | Technical parallelization strategy | 851 lines | ✅ Ready |
-| [DATE_PARALLELIZATION_COMPLETE_AUDIT.md](DATE_PARALLELIZATION_COMPLETE_AUDIT.md) | Service-by-service analysis | 1,052 lines | ✅ Ready |
-| [RESOURCE_MONITORING_AND_RIGHTSIZING.md](RESOURCE_MONITORING_AND_RIGHTSIZING.md) | Monitoring plan, C2 constraints | 928 lines | ✅ Ready |
-| [CSV_DUMP_AUDIT_FINAL.md](CSV_DUMP_AUDIT_FINAL.md) | CSV audit with critical fix | 350 lines | ✅ Ready |
+| Document                                                                                 | Purpose                                          | Size          | Status       |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------- | ------------ |
+| [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) | Complete implementation guide                    | 994 lines     | ✅ Ready     |
+| **[ADAPTIVE_MAX_WORKERS_DESIGN.md](ADAPTIVE_MAX_WORKERS_DESIGN.md)**                     | **🎯 Self-regulating parallelism (RECOMMENDED)** | **800 lines** | **✅ Ready** |
+| [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md)                                   | All audit findings consolidated                  | 850 lines     | ✅ Ready     |
+| [INTRA_MACHINE_DATE_PARALLELIZATION.md](INTRA_MACHINE_DATE_PARALLELIZATION.md)           | Technical parallelization strategy               | 851 lines     | ✅ Ready     |
+| [DATE_PARALLELIZATION_COMPLETE_AUDIT.md](DATE_PARALLELIZATION_COMPLETE_AUDIT.md)         | Service-by-service analysis                      | 1,052 lines   | ✅ Ready     |
+| [RESOURCE_MONITORING_AND_RIGHTSIZING.md](RESOURCE_MONITORING_AND_RIGHTSIZING.md)         | Monitoring plan, C2 constraints                  | 928 lines     | ✅ Ready     |
+| [CSV_DUMP_AUDIT_FINAL.md](CSV_DUMP_AUDIT_FINAL.md)                                       | CSV audit with critical fix                      | 350 lines     | ✅ Ready     |
 
 **⭐ ADAPTIVE_MAX_WORKERS_DESIGN.md** implements intelligent self-regulation:
+
 - ✅ CPU over-subscription safe (queues naturally, no crash)
 - ✅ RAM over-subscription prevented (monitors → reduces workers before OOM)
 - ✅ I/O-bound tasks: Aggressive CPU over-subscription (10-20x)
@@ -359,24 +382,24 @@ enable_csv_sampling: bool = Field(
 
 ### Supporting Docs (Updated)
 
-| Document | Updates Made | Status |
-|----------|--------------|--------|
-| [INDEX.md](INDEX.md) | Added MAX_WORKERS section | ✅ Updated |
-| [CLI.md](CLI.md) | Added --max-workers option | ✅ Updated |
-| [HARDENING.md](HARDENING.md) | Added resource optimization goal | ✅ Updated |
-| [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md) | Updated with key=value reality | ✅ Updated |
-| [COST.md](COST.md) | Added lifecycle policy savings | ✅ Updated |
-| [MASTER_ML_IMPLEMENTATION_PLAN.md](MASTER_ML_IMPLEMENTATION_PLAN.md) | Updated BigQuery section | ✅ Updated |
+| Document                                                             | Updates Made                     | Status     |
+| -------------------------------------------------------------------- | -------------------------------- | ---------- |
+| [INDEX.md](INDEX.md)                                                 | Added MAX_WORKERS section        | ✅ Updated |
+| [CLI.md](CLI.md)                                                     | Added --max-workers option       | ✅ Updated |
+| [HARDENING.md](HARDENING.md)                                         | Added resource optimization goal | ✅ Updated |
+| [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md)                               | Updated with key=value reality   | ✅ Updated |
+| [COST.md](COST.md)                                                   | Added lifecycle policy savings   | ✅ Updated |
+| [MASTER_ML_IMPLEMENTATION_PLAN.md](MASTER_ML_IMPLEMENTATION_PLAN.md) | Updated BigQuery section         | ✅ Updated |
 
 ---
 
 ### Related Optimization Docs
 
-| Document | Purpose | Dependency |
-|----------|---------|------------|
-| [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) | Storage optimization (76% savings) | Independent |
-| [MASSIVE_BACKFILL_COST_ANALYSIS.md](MASSIVE_BACKFILL_COST_ANALYSIS.md) | 500 VMs × 24h cost | Independent |
-| [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) | External tables setup | After data generation |
+| Document                                                                     | Purpose                            | Dependency            |
+| ---------------------------------------------------------------------------- | ---------------------------------- | --------------------- |
+| [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) | Storage optimization (76% savings) | Independent           |
+| [MASSIVE_BACKFILL_COST_ANALYSIS.md](MASSIVE_BACKFILL_COST_ANALYSIS.md)       | 500 VMs × 24h cost                 | Independent           |
+| [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md)               | External tables setup              | After data generation |
 
 ---
 
@@ -409,6 +432,7 @@ bash scripts/quickmerge.sh "fix: disable CSV sampling by default (VM safety for 
 **Repository:** unified-trading-library
 
 **Changes:**
+
 1. Create `core/parallel_date_processor.py` (~300 lines)
    - ParallelDateProcessor class
    - calculate_optimal_workers() function
@@ -428,6 +452,7 @@ bash scripts/quickmerge.sh "fix: disable CSV sampling by default (VM safety for 
    - Usage examples
 
 **Testing:**
+
 - Unit tests for ParallelDateProcessor
 - Mock date processing function
 - Test various worker counts
@@ -443,6 +468,7 @@ bash scripts/quickmerge.sh "fix: disable CSV sampling by default (VM safety for 
 **For each service (instruments, features-calendar, ml-inference):**
 
 **Changes:**
+
 1. Refactor CLI main/batch_handler (~80 lines)
    - Extract `process_single_date()` function
    - Integrate ParallelDateProcessor
@@ -455,6 +481,7 @@ bash scripts/quickmerge.sh "fix: disable CSV sampling by default (VM safety for 
    - Document parallel processing
 
 **Testing Per Service:**
+
 - Local: 5 dates, MAX_WORKERS=4
 - VM: 30 days, MAX_WORKERS=N (service-specific)
 - Validate: CPU 85-95%, all dates successful
@@ -470,6 +497,7 @@ bash scripts/quickmerge.sh "fix: disable CSV sampling by default (VM safety for 
 **Core Changes:**
 
 **1. Shard Calculator Update** (2 hours)
+
 - **File:** `deployment_service/shard_calculator.py`
 - **Change:** Multi-date shard batching based on MAX_WORKERS
 - **Lines:** ~100
@@ -495,6 +523,7 @@ def calculate_shards(service, start_date, end_date, shard_by="date", max_workers
 ```
 
 **2. Batch Dependency Checking** (3 hours)
+
 - **File:** `deployment_service/dependencies.py`
 - **Change:** Add `check_dependencies_batch()` for date ranges
 - **Lines:** ~150
@@ -507,6 +536,7 @@ def check_dependencies_batch(service, date_range, category):
 ```
 
 **3. Enhanced Retry Logic** (2 hours)
+
 - **File:** `api/routes/deployments.py`
 - **Change:** Read per-date results, create targeted retries
 - **Lines:** ~100
@@ -519,6 +549,7 @@ def create_retry_shards(failed_shard):
 ```
 
 **4. CLI Argument** (1 hour)
+
 - **File:** `deployment_service/cli.py`
 - **Change:** Add `--max-workers` option
 - **Lines:** ~20
@@ -530,6 +561,7 @@ def deploy(..., max_workers):
 ```
 
 **Testing:**
+
 - Unit tests for multi-date shard creation
 - Test dependency batch checking
 - Test retry logic with partial failures
@@ -543,6 +575,7 @@ def deploy(..., max_workers):
 **Repository:** Both unified-trading-library and deployment-service-v2
 
 **1. Results JSON Writer** (unified-trading-library)
+
 - **File:** `core/parallel_date_processor.py` (part of Phase 1)
 - **Function:** `_write_results_json()`
 
@@ -563,6 +596,7 @@ def _write_results_json(deployment_id, shard_id, results):
 ```
 
 **2. Results JSON Reader** (deployment-service-v2)
+
 - **File:** `api/routes/deployments.py`
 - **Function:** `read_shard_results()`
 
@@ -579,6 +613,7 @@ def get_shard_results(deployment_id, shard_id):
 ```
 
 **Testing:**
+
 - Test results writing from service
 - Test results reading from API
 - Test fallback to log parsing
@@ -592,6 +627,7 @@ def get_shard_results(deployment_id, shard_id):
 **Repository:** deployment-service-v2
 
 **1. ShardCard Component Update** (1 hour)
+
 - **File:** `ui/src/components/ShardCard.tsx`
 - **Change:** Display date range, parallelism indicator
 - **Lines:** ~50
@@ -611,6 +647,7 @@ def get_shard_results(deployment_id, shard_id):
 ```
 
 **2. ShardDetails Expansion** (2 hours)
+
 - **File:** `ui/src/components/ShardDetails.tsx`
 - **Change:** Add per-date status table
 - **Lines:** ~100
@@ -632,6 +669,7 @@ const { data: results } = useQuery(`/api/deployments/${deploymentId}/shards/${sh
 ```
 
 **3. ResourceMetricsPanel** (3 hours)
+
 - **File:** `ui/src/components/ResourceMetricsPanel.tsx` (NEW)
 - **Change:** Create new component for resource visualization
 - **Lines:** ~300
@@ -661,6 +699,7 @@ export function ResourceMetricsPanel({ deploymentId }: Props) {
 ```
 
 **Testing:**
+
 - Test with single-date shards (legacy)
 - Test with multi-date shards (new)
 - Test resource metrics display
@@ -676,26 +715,28 @@ export function ResourceMetricsPanel({ deploymentId }: Props) {
 
 **New or Updated Files:**
 
-| File | Change |
-|------|--------|
-| `service_max_workers.yaml` (NEW) | Define default MAX_WORKERS per service |
-| `dependencies.yaml` (UPDATE) | No changes needed (already date-agnostic) |
+| File                             | Change                                    |
+| -------------------------------- | ----------------------------------------- |
+| `service_max_workers.yaml` (NEW) | Define default MAX_WORKERS per service    |
+| `dependencies.yaml` (UPDATE)     | No changes needed (already date-agnostic) |
 
 **Example `service_max_workers.yaml`:**
+
 ```yaml
 # Default MAX_WORKERS by service
 # Based on resource profiling (see RESOURCE_MONITORING_AND_RIGHTSIZING.md)
 
 service_max_workers:
-  instruments-service: 16  # 10% CPU, 3% RAM → 16 dates parallel = 90% CPU
-  features-calendar-service: 16  # Similar profile
-  ml-inference-service: 3  # 40% CPU, 19% RAM → 3 dates = 85% CPU
-  market-data-processing-service: 1  # 70% CPU, 38% RAM → memory-bound
-  market-tick-data-handler: 1  # 50% CPU, 63% RAM → memory-bound
-  features-delta-one-service: 1  # 90% CPU, 75% RAM → already maxed
-  ml-training-service: 1  # 95% CPU, 78% RAM → already maxed
-  strategy-service: 1  # Conservative default
-  execution-service: 1  # Conservative default
+  instruments-service: 16 # 10% CPU, 3% RAM → 16 dates parallel = 90% CPU
+  features-calendar-service: 16 # Similar profile
+  ml-inference-service: 3 # 40% CPU, 19% RAM → 3 dates = 85% CPU
+  market-data-processing-service: 1 # 70% CPU, 38% RAM → memory-bound
+  market-tick-data-handler: 1 # 50% CPU, 63% RAM → memory-bound
+  features-delta-one-service: 1 # 90% CPU, 75% RAM → already maxed
+  ml-training-service: 1 # 95% CPU, 78% RAM → already maxed
+  strategy-service: 1 # Conservative default
+  execution-service: 1 # Conservative default
+
 
 # Notes:
 # - Services with MAX_WORKERS=1 are memory-bound or already well-utilized
@@ -709,34 +750,34 @@ service_max_workers:
 
 ### Unit Tests
 
-| Repository | Test File | Coverage |
-|------------|-----------|----------|
-| unified-trading-library | `tests/unit/test_parallel_date_processor.py` | ParallelDateProcessor class |
-| deployment-service-v2 | `tests/unit/test_shard_calculator_max_workers.py` | Multi-date shard batching |
-| deployment-service-v2 | `tests/unit/test_batch_dependencies.py` | Batch dependency checking |
-| instruments-service | `tests/unit/test_parallel_processing.py` | Service integration |
+| Repository              | Test File                                         | Coverage                    |
+| ----------------------- | ------------------------------------------------- | --------------------------- |
+| unified-trading-library | `tests/unit/test_parallel_date_processor.py`      | ParallelDateProcessor class |
+| deployment-service-v2   | `tests/unit/test_shard_calculator_max_workers.py` | Multi-date shard batching   |
+| deployment-service-v2   | `tests/unit/test_batch_dependencies.py`           | Batch dependency checking   |
+| instruments-service     | `tests/unit/test_parallel_processing.py`          | Service integration         |
 
 ---
 
 ### Integration Tests
 
-| Test Name | Scope | Validation |
-|-----------|-------|------------|
-| `test_multi_date_shard_creation` | Orchestrator | 365 days, MW=16 → 23 shards |
-| `test_per_date_results` | Service + orchestrator | Results JSON written and readable |
-| `test_partial_shard_retry` | Retry logic | 2 failed dates out of 16 → 2 retry shards |
-| `test_dependency_batch_check` | Dependency checker | 1 GCS call for 16 dates |
+| Test Name                        | Scope                  | Validation                                |
+| -------------------------------- | ---------------------- | ----------------------------------------- |
+| `test_multi_date_shard_creation` | Orchestrator           | 365 days, MW=16 → 23 shards               |
+| `test_per_date_results`          | Service + orchestrator | Results JSON written and readable         |
+| `test_partial_shard_retry`       | Retry logic            | 2 failed dates out of 16 → 2 retry shards |
+| `test_dependency_batch_check`    | Dependency checker     | 1 GCS call for 16 dates                   |
 
 ---
 
 ### E2E Tests
 
-| Test Scenario | Configuration | Expected Outcome |
-|---------------|---------------|------------------|
-| Small deployment | 5 dates, MAX_WORKERS=4 | 2 shards, all complete |
-| Medium deployment | 30 days, MAX_WORKERS=16 | 2 shards, CPU 85-95% |
-| Large deployment | 365 days, MAX_WORKERS=16 | 23 shards, 16x speedup |
-| Partial failure | 16 dates, 2 fail | Targeted retry for 2 dates |
+| Test Scenario     | Configuration            | Expected Outcome           |
+| ----------------- | ------------------------ | -------------------------- |
+| Small deployment  | 5 dates, MAX_WORKERS=4   | 2 shards, all complete     |
+| Medium deployment | 30 days, MAX_WORKERS=16  | 2 shards, CPU 85-95%       |
+| Large deployment  | 365 days, MAX_WORKERS=16 | 23 shards, 16x speedup     |
+| Partial failure   | 16 dates, 2 fail         | Targeted retry for 2 dates |
 
 ---
 
@@ -747,6 +788,7 @@ service_max_workers:
 **Start here:** [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md)
 
 **Then read in order:**
+
 1. [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) - All findings
 2. [CSV_DUMP_AUDIT_FINAL.md](CSV_DUMP_AUDIT_FINAL.md) - Critical fix needed
 3. [INTRA_MACHINE_DATE_PARALLELIZATION.md](INTRA_MACHINE_DATE_PARALLELIZATION.md) - Technical details
@@ -757,12 +799,14 @@ service_max_workers:
 ### For Service Developers
 
 **If updating a service:**
+
 1. Read: [INTRA_MACHINE_DATE_PARALLELIZATION.md](INTRA_MACHINE_DATE_PARALLELIZATION.md)
 2. Follow pattern in Section "Service-Specific Implementation"
 3. Test locally with MAX_WORKERS=4
 4. Deploy to test with service-specific MAX_WORKERS
 
 **Services needing updates:**
+
 - 🔥 Priority 1: instruments-service (16x improvement)
 - 🔥 Priority 2: features-calendar-service (16x improvement)
 - 🔥 Priority 3: ml-inference-service (5x improvement)
@@ -772,6 +816,7 @@ service_max_workers:
 ### For Deployment Orchestrator Changes
 
 **If updating deployment-service-v2:**
+
 1. Read: [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) Section "Deployment Orchestrator Changes"
 2. Read: [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Sections 3-5 (dependencies, status, retry)
 3. Implement in order:
@@ -785,6 +830,7 @@ service_max_workers:
 ### For UI Developers
 
 **If updating deployment dashboard:**
+
 1. Read: [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) Section "UI Updates"
 2. Read: [RESOURCE_MONITORING_AND_RIGHTSIZING.md](RESOURCE_MONITORING_AND_RIGHTSIZING.md) Section "UI Dashboard Component"
 3. Implement:
@@ -798,13 +844,13 @@ service_max_workers:
 
 ### Potential Conflicts and Resolutions
 
-| Potential Conflict | Resolution | Documentation |
-|-------------------|------------|---------------|
-| MAX_WORKERS vs Paradise batching | No conflict (different layers) | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 2 |
-| Multi-date shards vs data-status | No conflict (data-status is per-date) | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 6 |
-| Date parallelism vs instrument parallelism | Compatible (nested parallelism OK) | [DATE_PARALLELIZATION_COMPLETE_AUDIT.md](DATE_PARALLELIZATION_COMPLETE_AUDIT.md) Section "Nested Parallelism" |
-| MAX_WORKERS vs single-date shards | Backward compatible (MAX_WORKERS=1 for single-date) | [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) Section "Core Concept" |
-| Results JSON vs log parsing | Fallback strategy (try JSON first, logs second) | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 4 |
+| Potential Conflict                         | Resolution                                          | Documentation                                                                                                   |
+| ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| MAX_WORKERS vs Paradise batching           | No conflict (different layers)                      | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 2                                                |
+| Multi-date shards vs data-status           | No conflict (data-status is per-date)               | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 6                                                |
+| Date parallelism vs instrument parallelism | Compatible (nested parallelism OK)                  | [DATE_PARALLELIZATION_COMPLETE_AUDIT.md](DATE_PARALLELIZATION_COMPLETE_AUDIT.md) Section "Nested Parallelism"   |
+| MAX_WORKERS vs single-date shards          | Backward compatible (MAX_WORKERS=1 for single-date) | [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) Section "Core Concept" |
+| Results JSON vs log parsing                | Fallback strategy (try JSON first, logs second)     | [COMPLETE_AUDIT_RESULTS.md](COMPLETE_AUDIT_RESULTS.md) Section 4                                                |
 
 ---
 
@@ -812,24 +858,24 @@ service_max_workers:
 
 ### Service-Side (Set by Deployment Orchestrator)
 
-| Variable | Purpose | Set By | Used By |
-|----------|---------|--------|---------|
-| `MAX_WORKERS` | Number of date workers | Deployment orchestrator | All services |
-| `DEPLOYMENT_ID` | Deployment identifier | Deployment orchestrator | ParallelDateProcessor (results path) |
-| `SHARD_ID` | Shard identifier | Deployment orchestrator | ParallelDateProcessor (results path) |
-| `ALLOCATED_VCPUS` | Machine vCPU count | Terraform | PerformanceMonitor (metrics) |
-| `ALLOCATED_MEMORY_GB` | Machine RAM (GB) | Terraform | PerformanceMonitor (metrics) |
-| `ENABLE_CSV_SAMPLING` | Enable CSV dumps | **Should be unset or "false"** | market-data-processing |
+| Variable              | Purpose                | Set By                         | Used By                              |
+| --------------------- | ---------------------- | ------------------------------ | ------------------------------------ |
+| `MAX_WORKERS`         | Number of date workers | Deployment orchestrator        | All services                         |
+| `DEPLOYMENT_ID`       | Deployment identifier  | Deployment orchestrator        | ParallelDateProcessor (results path) |
+| `SHARD_ID`            | Shard identifier       | Deployment orchestrator        | ParallelDateProcessor (results path) |
+| `ALLOCATED_VCPUS`     | Machine vCPU count     | Terraform                      | PerformanceMonitor (metrics)         |
+| `ALLOCATED_MEMORY_GB` | Machine RAM (GB)       | Terraform                      | PerformanceMonitor (metrics)         |
+| `ENABLE_CSV_SAMPLING` | Enable CSV dumps       | **Should be unset or "false"** | market-data-processing               |
 
 ---
 
 ### Deployment Orchestrator Config
 
-| Variable/Config | Purpose | Location |
-|-----------------|---------|----------|
+| Variable/Config       | Purpose                         | Location                       |
+| --------------------- | ------------------------------- | ------------------------------ |
 | `SERVICE_MAX_WORKERS` | Default MAX_WORKERS per service | `shard_calculator.py` constant |
-| `--max-workers` | CLI override | User input |
-| `service_max_workers` | Terraform variable | `terraform/variables.tf` |
+| `--max-workers`       | CLI override                    | User input                     |
+| `service_max_workers` | Terraform variable              | `terraform/variables.tf`       |
 
 ---
 
@@ -837,22 +883,23 @@ service_max_workers:
 
 ### unified-trading-library
 
-| Type | Count | Files |
-|------|-------|-------|
-| **New** | 1 | `core/parallel_date_processor.py` |
-| **Updated** | 3 | `core/performance_monitor.py`, `__init__.py`, `README.md` |
-| **Tests** | 1 | `tests/unit/test_parallel_date_processor.py` |
+| Type        | Count | Files                                                     |
+| ----------- | ----- | --------------------------------------------------------- |
+| **New**     | 1     | `core/parallel_date_processor.py`                         |
+| **Updated** | 3     | `core/performance_monitor.py`, `__init__.py`, `README.md` |
+| **Tests**   | 1     | `tests/unit/test_parallel_date_processor.py`              |
 
 ---
 
 ### Individual Services (×3)
 
-| Type | Count per Service | Files |
-|------|-------------------|-------|
-| **Updated** | 2 | `cli/main.py` (or batch_handler), `.env.example` |
-| **Tests** | 1 | `tests/unit/test_parallel_processing.py` |
+| Type        | Count per Service | Files                                            |
+| ----------- | ----------------- | ------------------------------------------------ |
+| **Updated** | 2                 | `cli/main.py` (or batch_handler), `.env.example` |
+| **Tests**   | 1                 | `tests/unit/test_parallel_processing.py`         |
 
 **Total across 3 services:**
+
 - Updated: 6 files
 - Tests: 3 files
 
@@ -860,22 +907,23 @@ service_max_workers:
 
 ### market-data-processing-service (CRITICAL FIX)
 
-| Type | Count | Files |
-|------|-------|-------|
-| **Updated** | 1 | `market_data_processing_service/config.py` (1 line) |
+| Type        | Count | Files                                               |
+| ----------- | ----- | --------------------------------------------------- |
+| **Updated** | 1     | `market_data_processing_service/config.py` (1 line) |
 
 ---
 
 ### deployment-service-v2
 
-| Type | Count | Files |
-|------|-------|-------|
-| **Updated** | 8 | Orchestrator logic, API, UI components, CLI |
-| **New** | 1 | `ui/src/components/ResourceMetricsPanel.tsx` |
-| **Tests** | 3 | Unit tests for shard calc, deps, retry |
-| **Docs** | 13 | All implementation and audit docs |
+| Type        | Count | Files                                        |
+| ----------- | ----- | -------------------------------------------- |
+| **Updated** | 8     | Orchestrator logic, API, UI components, CLI  |
+| **New**     | 1     | `ui/src/components/ResourceMetricsPanel.tsx` |
+| **Tests**   | 3     | Unit tests for shard calc, deps, retry       |
+| **Docs**    | 13    | All implementation and audit docs            |
 
 **Breakdown:**
+
 - Backend: 5 files (shard_calculator, dependencies, deployments API, cloud_client, CLI)
 - Frontend: 4 files (ShardCard, ShardDetails, ResourceMetricsPanel, DeploymentSummary)
 - Config: 1 file (service_max_workers.yaml)
@@ -885,24 +933,24 @@ service_max_workers:
 
 ### Terraform
 
-| Type | Count | Files |
-|------|-------|-------|
-| **Updated** | 3 | `variables.tf`, `container-job/gcp/main.tf`, `compute-vm/gcp/main.tf` |
+| Type        | Count | Files                                                                 |
+| ----------- | ----- | --------------------------------------------------------------------- |
+| **Updated** | 3     | `variables.tf`, `container-job/gcp/main.tf`, `compute-vm/gcp/main.tf` |
 
 ---
 
 ## Total Implementation Scope
 
-| Repository | Files New | Files Updated | Tests | Docs | Total Lines |
-|------------|-----------|---------------|-------|------|-------------|
-| unified-trading-library | 1 | 3 | 1 | 1 | ~450 |
-| instruments-service | 0 | 2 | 1 | 0 | ~120 |
-| features-calendar-service | 0 | 2 | 1 | 0 | ~120 |
-| ml-inference-service | 0 | 2 | 1 | 0 | ~120 |
-| market-data-processing (fix) | 0 | 1 | 0 | 0 | 1 |
-| deployment-service-v2 | 2 | 11 | 3 | 13 | ~1,800 |
-| Terraform | 0 | 3 | 0 | 0 | ~40 |
-| **Total** | **3** | **24** | **7** | **14** | **~2,650 lines** |
+| Repository                   | Files New | Files Updated | Tests | Docs   | Total Lines      |
+| ---------------------------- | --------- | ------------- | ----- | ------ | ---------------- |
+| unified-trading-library      | 1         | 3             | 1     | 1      | ~450             |
+| instruments-service          | 0         | 2             | 1     | 0      | ~120             |
+| features-calendar-service    | 0         | 2             | 1     | 0      | ~120             |
+| ml-inference-service         | 0         | 2             | 1     | 0      | ~120             |
+| market-data-processing (fix) | 0         | 1             | 0     | 0      | 1                |
+| deployment-service-v2        | 2         | 11            | 3     | 13     | ~1,800           |
+| Terraform                    | 0         | 3             | 0     | 0      | ~40              |
+| **Total**                    | **3**     | **24**        | **7** | **14** | **~2,650 lines** |
 
 ---
 
@@ -1070,10 +1118,10 @@ service_max_workers:
 
 ### Setup Scripts
 
-| Script | Purpose | When to Run |
-|--------|---------|-------------|
-| `setup-gcs-lifecycle-policies.sh` | Apply aggressive lifecycle policy | Before backfill (save $1,500-10,900/year) |
-| `create_bigquery_external_tables.sh` | Create BigQuery external tables | After data generation |
+| Script                               | Purpose                           | When to Run                               |
+| ------------------------------------ | --------------------------------- | ----------------------------------------- |
+| `setup-gcs-lifecycle-policies.sh`    | Apply aggressive lifecycle policy | Before backfill (save $1,500-10,900/year) |
+| `create_bigquery_external_tables.sh` | Create BigQuery external tables   | After data generation                     |
 
 **Both independent of MAX_WORKERS implementation**
 
@@ -1150,6 +1198,7 @@ MASTER_IMPLEMENTATION_INDEX.md (this file)
 ```
 
 **Key Strategy:** AdaptiveParallelDateProcessor monitors RAM and self-regulates:
+
 - CPU over-subscription safe (queues naturally)
 - RAM over-subscription prevented (reduces workers before OOM)
 - Machine-agnostic (works on any C2 size)

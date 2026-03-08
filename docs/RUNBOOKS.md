@@ -17,6 +17,7 @@ For large backfills (year-scale) where shard counts can reach tens of thousands 
 - The UI is fast only if it **doesn't download every shard** and **doesn't analyze logs** on every poll.
 
 Optimized mode enables:
+
 - **Quota-safe concurrency** (rolling scheduling + throttled launch rate)
 - **Shard count reduction** (date chunking heuristics if you didn't explicitly set it)
 - **Fast UI polling** (summary mode + paginated shard inspection)
@@ -92,6 +93,7 @@ If **any** of these fail, the tab might show blank or partial data.
 #### 1. GCS Bucket Access (For Data Timestamps)
 
 **Buckets needed:**
+
 - `instruments-store-cefi-test-project`
 - `instruments-store-tradfi-test-project`
 - `instruments-store-defi-test-project`
@@ -126,6 +128,7 @@ gcloud builds list --region=asia-northeast1 --limit=1
 Requires **TWO** permissions:
 
 **A. Secret Manager:**
+
 ```bash
 gcloud projects add-iam-policy-binding test-project \
   --member="user:YOUR_EMAIL" \
@@ -133,6 +136,7 @@ gcloud projects add-iam-policy-binding test-project \
 ```
 
 **B. Service Account impersonation:**
+
 ```bash
 gcloud iam service-accounts add-iam-policy-binding \
   github-token-sa@test-project.iam.gserviceaccount.com \

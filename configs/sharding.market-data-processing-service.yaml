@@ -58,7 +58,7 @@ cli_flags:
 # Mapping: dimension name -> CLI argument
 # These are populated from shard dimensions
 cli_args:
-  category: --CEFI/--TRADFI/--DEFI  # Boolean flags
+  category: --CEFI/--TRADFI/--DEFI # Boolean flags
   venue: --venues
   instrument_type: --instrument-types
   timeframe: --timeframes
@@ -111,10 +111,10 @@ cli_optional:
 # =============================================================================
 compute:
   vm:
-    machine_type: c2-standard-8  # 8 vCPU, 32 GB RAM (C2 compute-optimized)
-    disk_size_gb: 80  # >= 2x RAM for swap + temp files
-    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
-    timeout_seconds: 86400  # 24 hours (maximum)
+    machine_type: c2-standard-8 # 8 vCPU, 32 GB RAM (C2 compute-optimized)
+    disk_size_gb: 80 # >= 2x RAM for swap + temp files
+    preemptible: false # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400 # 24 hours (maximum)
     self_delete: true
     description: CPU-bound aggregation - sized for pandas/numpy operations on large instrument sets
     gcsfuse_buckets: []
@@ -123,20 +123,20 @@ compute:
   cloud_run:
     memory: 16Gi
     cpu: "4"
-    timeout_seconds: 3600  # 1 hour per shard
+    timeout_seconds: 3600 # 1 hour per shard
 
   # Per-venue compute overrides (venues with many instruments need more RAM)
   venue_overrides:
     BINANCE-SPOT:
       vm:
-        machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM
+        machine_type: c2-standard-16 # 16 vCPU, 64 GB RAM
         disk_size_gb: 150
       cloud_run:
         memory: 32Gi
         cpu: "8"
     BINANCE-FUTURES:
       vm:
-        machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM
+        machine_type: c2-standard-16 # 16 vCPU, 64 GB RAM
         disk_size_gb: 150
       cloud_run:
         memory: 32Gi

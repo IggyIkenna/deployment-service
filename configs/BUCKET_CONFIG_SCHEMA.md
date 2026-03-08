@@ -5,7 +5,9 @@ This document describes the configuration schema for `configs/bucket_config.yaml
 ## Configuration Structure
 
 ### `defaults`
+
 Default values for cloud providers:
+
 ```yaml
 defaults:
   gcp:
@@ -16,7 +18,9 @@ defaults:
 ```
 
 ### `shared_bucket_services`
+
 Services that use shared buckets (no category dimension):
+
 ```yaml
 shared_bucket_services:
   - features-calendar-service
@@ -26,16 +30,20 @@ shared_bucket_services:
 ```
 
 ### `service_categories`
+
 Category restrictions and defaults for services:
+
 ```yaml
 service_categories:
   restricted_categories:
-    volatility: [cefi, tradfi]  # No DEFI for volatility
+    volatility: [cefi, tradfi] # No DEFI for volatility
   default_categories: [cefi, tradfi, defi]
 ```
 
 ### `infrastructure_buckets`
+
 Bucket definitions for infrastructure services:
+
 ```yaml
 infrastructure_buckets:
   gcp:
@@ -51,7 +59,9 @@ infrastructure_buckets:
 ```
 
 ### `aws_bucket_mappings`
+
 Mapping from GCP template patterns to AWS bucket names:
+
 ```yaml
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
@@ -60,7 +70,9 @@ aws_bucket_mappings:
 ```
 
 ### `bucket_settings`
+
 Cloud-specific bucket creation settings:
+
 ```yaml
 bucket_settings:
   gcp:
@@ -84,15 +96,19 @@ bucket_settings:
 ```
 
 ### `test_buckets`
+
 Test bucket naming configuration:
+
 ```yaml
 test_buckets:
-  naming_pattern: "infix"  # insert '-test' before project_id
-  fallback_pattern: "suffix"  # append '-test' if project_id not found
+  naming_pattern: "infix" # insert '-test' before project_id
+  fallback_pattern: "suffix" # append '-test' if project_id not found
 ```
 
 ### `validation`
+
 Validation rules for bucket configurations:
+
 ```yaml
 validation:
   invalid_combinations:
@@ -115,6 +131,7 @@ validation:
 ## Template Variables
 
 The following variables are available for use in templates:
+
 - `{project_id}` - GCP project ID or AWS account ID
 - `{category}` - Category (cefi, tradfi, defi)
 - `{category_lower}` - Category in lowercase
@@ -123,6 +140,7 @@ The following variables are available for use in templates:
 ## Validation Rules
 
 The configuration includes validation rules that prevent invalid combinations:
+
 - No volatility services for DEFI category
 - No onchain services for TRADFI category
 - Required configuration sections must be present

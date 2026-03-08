@@ -26,8 +26,6 @@ from .cli.handlers.deployment_handler import DeploymentHandler  # noqa: E402
 from .cli.handlers.maintenance_handler import MaintenanceHandler  # noqa: E402
 from .cli.handlers.reporting_handler import ReportingHandler  # noqa: E402
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # Deployment concurrency defaults

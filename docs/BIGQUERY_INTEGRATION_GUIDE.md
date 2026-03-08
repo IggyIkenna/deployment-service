@@ -24,6 +24,7 @@
 ### Current State ✅
 
 **All production services already use BigQuery-compatible `key=value` folder format:**
+
 - instruments-service: `day=`, `venue=`
 - market-tick-data-handler: `day=`, `data_type=`, `instrument_type=`, `venue=`, `symbol=`
 - market-data-processing-service: `day=`, `timeframe=`, `data_type=`
@@ -31,6 +32,7 @@
 - features-calendar-service: `day=`, `category=`
 
 **This means:**
+
 - ✅ BigQuery external tables can be created immediately (after data exists)
 - ✅ No code migration needed
 - ✅ Old `day-` data automatically ignored by external tables
@@ -49,6 +51,7 @@
 ### Primary Path: GCS Parallel Reader
 
 **For Production ML Training:**
+
 ```python
 from ml_training_service.app.core.gcs_feature_reader import GCSFeatureReader
 
@@ -63,6 +66,7 @@ features_df = reader.read_features(
 ```
 
 **Why Primary:**
+
 - Direct parquet reads from GCS (20-30 sec for typical queries)
 - No BigQuery dependency or cost
 - Works with any GCS structure
@@ -71,9 +75,10 @@ features_df = reader.read_features(
 ### Optional Path: BigQuery External Tables
 
 **For Development/Analysis:**
+
 ```sql
 -- Fast SQL queries for exploration
-SELECT 
+SELECT
   instrument_id,
   DATE(timestamp) as day,
   AVG(rsi_14) as avg_rsi,
@@ -86,6 +91,7 @@ ORDER BY day;
 ```
 
 **Why Optional:**
+
 - 10-20x faster queries (2 sec vs 20-30 sec) for ad-hoc analysis
 - SQL interface for data exploration
 - Useful for debugging and quality checks
@@ -93,11 +99,11 @@ ORDER BY day;
 
 ### Decision Summary
 
-| Use Case | Method | Speed | Cost |
-|----------|--------|-------|------|
-| **Production ML Training** | GCS Parallel Reader | 20-30 sec | $0 (GCS storage only) |
-| **Development/Exploration** | BigQuery External Tables | 2 sec | $6/TB scanned |
-| **Specific Date Range Loading** | Manual ETL | Varies | $6/TB + storage |
+| Use Case                        | Method                   | Speed     | Cost                  |
+| ------------------------------- | ------------------------ | --------- | --------------------- |
+| **Production ML Training**      | GCS Parallel Reader      | 20-30 sec | $0 (GCS storage only) |
+| **Development/Exploration**     | BigQuery External Tables | 2 sec     | $6/TB scanned         |
+| **Specific Date Range Loading** | Manual ETL               | Varies    | $6/TB + storage       |
 
 ---
 
@@ -108,6 +114,7 @@ ORDER BY day;
 External tables are **metadata pointers** to data stored in GCS. They don't copy or duplicate data.
 
 **Key Properties:**
+
 - **Storage Cost:** $0 (no data duplication)
 - **Query Cost:** $6/TB scanned (same as regular BigQuery queries)
 - **Freshness:** Always current (reads GCS directly on each query)
@@ -119,6 +126,7 @@ External tables are **metadata pointers** to data stored in GCS. They don't copy
 BigQuery can extract partition keys from folder names using the `key=value` format:
 
 **GCS Structure:**
+
 ```
 gs://features-delta-one-cefi-{project}/
   by_date/
@@ -129,6 +137,7 @@ gs://features-delta-one-cefi-{project}/
 ```
 
 **Resulting BigQuery Table:**
+
 ```sql
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
@@ -148,6 +157,7 @@ OPTIONS (
 ```
 
 **Query Optimization:**
+
 ```sql
 -- Efficient: Only scans day=2023-01-01 folder
 SELECT * FROM features_data.features_1m_cefi
@@ -161,6 +171,7 @@ WHERE rsi_14 > 70;
 ### vs Materialized Views (Not Used)
 
 **Materialized Views (MV):**
+
 - **Storage Cost:** $131/year (duplicate data in BigQuery native storage)
 - **Query Cost:** $6/TB (same as external tables)
 - **Freshness:** Stale until refreshed
@@ -168,6 +179,7 @@ WHERE rsi_14 > 70;
 - **Speed:** 10-20x faster than external tables
 
 **Our Decision:** External tables only
+
 - **Reason:** 20-30 sec query time acceptable for batch ML training
 - **Savings:** $131-469/year (storage + refresh costs)
 - **Simplicity:** No refresh infrastructure needed
@@ -202,6 +214,7 @@ cd deployment-service
 ```
 
 **What the script does:**
+
 1. Creates BigQuery datasets (`instruments_data`, `market_tick`, `candles_data`, `features_data`)
 2. Creates external tables with hive partitioning for each service
 3. Tests table creation with sample queries
@@ -217,9 +230,9 @@ bq show --project_id=test-project features_data.features_1m_cefi
 
 # Test query
 bq query --project_id=test-project \
-  "SELECT day, feature_group, COUNT(*) as files 
-   FROM features_data.features_1m_cefi 
-   GROUP BY day, feature_group 
+  "SELECT day, feature_group, COUNT(*) as files
+   FROM features_data.features_1m_cefi
+   GROUP BY day, feature_group
    LIMIT 10"
 ```
 
@@ -257,7 +270,7 @@ client.create_table(table, exists_ok=True)
 
 ```sql
 -- Get all features for BTC, 1m timeframe, Jan 2023
-SELECT 
+SELECT
   timestamp,
   instrument_id,
   feature_group,
@@ -276,7 +289,7 @@ ORDER BY timestamp;
 
 ```sql
 -- Count records per day
-SELECT 
+SELECT
   day,
   feature_group,
   COUNT(*) as record_count,
@@ -291,7 +304,7 @@ ORDER BY day, feature_group;
 
 ```sql
 -- Check for nulls and outliers
-SELECT 
+SELECT
   feature_group,
   COUNT(*) as total_records,
   COUNTIF(rsi_14 IS NULL) as null_rsi,
@@ -308,7 +321,7 @@ GROUP BY feature_group;
 
 ```sql
 -- Combine delta-one and calendar features
-SELECT 
+SELECT
   d.timestamp,
   d.instrument_id,
   d.rsi_14,
@@ -351,10 +364,12 @@ print(f"Loaded {len(df)} rows, {df.memory_usage().sum() / 1e6:.1f} MB")
 ### Storage Costs
 
 **External Tables:** $0 (no data duplication)
+
 - Data stays in GCS
 - Only metadata stored in BigQuery
 
 **GCS Storage:** $0.023/GB/month (asia-northeast1)
+
 - 476 GB features = $11/month = $131/year
 
 ### Query Costs
@@ -363,24 +378,25 @@ print(f"Loaded {len(df)} rows, {df.memory_usage().sum() / 1e6:.1f} MB")
 
 **Example Scenarios:**
 
-| Query Type | Data Scanned | Cost |
-|------------|--------------|------|
-| 1 day, 1 instrument, 1m | ~100 MB | $0.0006 |
-| 30 days, 2 instruments, 1m | ~6 GB | $0.036 |
-| 1 year, 2 instruments, 1m | ~72 GB | $0.43 |
-| Full 6 years, 2 instruments, all timeframes | ~476 GB | $2.86 |
+| Query Type                                  | Data Scanned | Cost    |
+| ------------------------------------------- | ------------ | ------- |
+| 1 day, 1 instrument, 1m                     | ~100 MB      | $0.0006 |
+| 30 days, 2 instruments, 1m                  | ~6 GB        | $0.036  |
+| 1 year, 2 instruments, 1m                   | ~72 GB       | $0.43   |
+| Full 6 years, 2 instruments, all timeframes | ~476 GB      | $2.86   |
 
 **Monthly Usage Estimates:**
 
-| Use Case | Queries/Month | Data Scanned | Cost/Month |
-|----------|---------------|--------------|------------|
-| Light development | 100 | 1 TB | $6 |
-| Active development | 1000 | 10 TB | $60 |
-| Heavy R&D | 3000 | 30 TB | $180 |
+| Use Case           | Queries/Month | Data Scanned | Cost/Month |
+| ------------------ | ------------- | ------------ | ---------- |
+| Light development  | 100           | 1 TB         | $6         |
+| Active development | 1000          | 10 TB        | $60        |
+| Heavy R&D          | 3000          | 30 TB        | $180       |
 
 ### Cost Optimization
 
 **1. Use Partition Filters**
+
 ```sql
 -- Good: Scans only 1 day (100 MB)
 WHERE day = '2023-01-15'
@@ -390,12 +406,14 @@ WHERE timestamp > '2023-01-15 00:00:00'
 ```
 
 **2. Sample Data for Experiments**
+
 ```sql
 -- Query 10% sample (10x cost reduction)
 WHERE day = '2023-01-15' AND MOD(ABS(FARM_FINGERPRINT(instrument_id)), 10) = 0
 ```
 
 **3. Cache Results**
+
 ```python
 # Save query results locally
 df.to_parquet('local_cache/features_2023-01-15.parquet')
@@ -405,18 +423,20 @@ df = pd.read_parquet('local_cache/features_2023-01-15.parquet')
 ```
 
 **4. Use GCS Reader for Production**
+
 - External tables: For exploration and debugging
 - GCS parallel reader: For actual ML training (20-30 sec is acceptable)
 
 ### Total Annual Cost (MVP: BTC + SPY)
 
-| Component | Annual Cost |
-|-----------|-------------|
-| GCS Storage | $131 |
-| BigQuery Queries (1000/month) | $720 |
-| **Total** | **$851** |
+| Component                     | Annual Cost |
+| ----------------------------- | ----------- |
+| GCS Storage                   | $131        |
+| BigQuery Queries (1000/month) | $720        |
+| **Total**                     | **$851**    |
 
 **Compare to:**
+
 - GCS only (no BigQuery): $131/year
 - With Materialized Views: $851 + $131 (storage) + $338 (refresh) = $1,320/year
 
@@ -427,6 +447,7 @@ df = pd.read_parquet('local_cache/features_2023-01-15.parquet')
 ### Old `prefix-value` Format
 
 **If you have old data with folder names like:**
+
 ```
 gs://features-delta-one-cefi-{project}/
   by_date/
@@ -437,6 +458,7 @@ gs://features-delta-one-cefi-{project}/
 ```
 
 **BigQuery external tables will IGNORE these folders:**
+
 - External tables use `sourceUriPrefix` pattern matching
 - Pattern `day=*/feature_group=*/` only matches folders with `=` separator
 - Folders with `-` separator are invisible to BigQuery
@@ -445,17 +467,20 @@ gs://features-delta-one-cefi-{project}/
 **Migration Options:**
 
 **Option 1: Do Nothing** (Recommended)
+
 - Old data ignored by external tables
 - New data immediately queryable
 - No cleanup needed
 
 **Option 2: Delete Old Data** (If Storage Cost is Concern)
+
 ```bash
 # Delete old prefix-value format folders
 gsutil -m rm -r gs://features-delta-one-cefi-{project}/by_date/day-*/
 ```
 
 **Option 3: Migrate Old Data** (If Needed for Historical Analysis)
+
 ```python
 # Use migration script in service repos
 # Example: features-delta-one-service/scripts/migrate_gcs_structure.py
@@ -470,6 +495,7 @@ gsutil -m rm -r gs://features-delta-one-cefi-{project}/by_date/day-*/
 **Error:** `Using multiple asterisks not supported`
 
 **Solution:** Ensure `sourceUriPrefix` is set correctly:
+
 ```python
 # Wrong: Multiple wildcards in uris
 uris = ['gs://bucket/day=*/feature_group=*/timeframe=*/*.parquet']
@@ -482,11 +508,13 @@ source_uri_prefix = 'gs://bucket/by_date/'  # Stops before first wildcard
 ### No Data Returned
 
 **Possible Causes:**
+
 1. Data doesn't exist in GCS yet
 2. Folder format doesn't match `key=value` (check with `gsutil ls`)
 3. Partition filter too restrictive
 
 **Debug:**
+
 ```bash
 # Check actual GCS structure
 gsutil ls -r gs://features-delta-one-cefi-{project}/by_date/ | head -20
@@ -501,11 +529,13 @@ bq query "SELECT day, COUNT(*) FROM features_data.features_1m_cefi GROUP BY day 
 ### Query Costs Higher Than Expected
 
 **Check:**
+
 1. Using partition filters? (`WHERE day = '2023-01-15'`)
 2. Selecting only needed columns? (Not `SELECT *`)
 3. Caching results locally?
 
 **Get Query Cost Estimate:**
+
 ```bash
 bq query --dry_run "SELECT * FROM features_data.features_1m_cefi WHERE day = '2023-01-15'"
 # Shows "bytes processed" before running
@@ -525,21 +555,25 @@ bq query --dry_run "SELECT * FROM features_data.features_1m_cefi WHERE day = '20
 ## Summary
 
 **Current State:**
+
 - ✅ All services use BigQuery-compatible `key=value` format
 - ✅ External tables can be created after data generation
 - ✅ Setup script ready: `scripts/create_bigquery_external_tables.sh`
 
 **When to Use:**
+
 - **GCS Parallel Reader:** Production ML training (primary method)
 - **BigQuery External Tables:** Development, exploration, debugging (optional)
 - **Manual ETL:** Specific use cases requiring BigQuery native tables
 
 **Costs:**
+
 - Storage: $0 (external tables)
 - Queries: $6/TB scanned
 - Total: ~$851/year for active development (1000 queries/month)
 
 **Next Steps:**
+
 1. Generate features data with current services
 2. Run `create_bigquery_external_tables.sh`
 3. Test queries and validate performance

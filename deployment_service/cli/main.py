@@ -24,9 +24,6 @@ from unified_trading_library import (
 
 from ..deployment_config import DeploymentConfig  # noqa: E402
 
-# Configure logging - deployment CLI uses basicConfig (no setup_cloud_logging dependency)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
 logger = logging.getLogger(__name__)
 
 # Initialize deployment configuration

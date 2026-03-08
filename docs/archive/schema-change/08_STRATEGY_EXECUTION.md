@@ -29,6 +29,7 @@ gs://strategy-store-{project}/
 **Path Format:** `strategy_instructions/strategy_id={strategy_id}/day={date}/instructions.parquet`
 
 **Changes:**
+
 - Add `strategy_id=` prefix to folder
 - `day-` → `day=`
 
@@ -38,6 +39,7 @@ gs://strategy-store-{project}/
 ### Code Changes
 
 **Estimated locations:** ~5
+
 - Strategy output path
 - Execution input path (reads instructions)
 - deployment-service templates
@@ -73,6 +75,7 @@ gs://execution-store-{project}/
 ```
 
 **Changes:**
+
 - `{date}` → `date={date}` (add prefix)
 - `{strategy_id}` → `strategy_id={strategy_id}`
 - `{instruction_type}` → `instruction_type={instruction_type}`
@@ -81,6 +84,7 @@ gs://execution-store-{project}/
 ### Code Changes
 
 **Estimated locations:** ~8
+
 - Execution output paths
 - deployment-service templates
 - Any backtest analysis tools
@@ -90,10 +94,12 @@ gs://execution-store-{project}/
 ## Combined Impact
 
 **strategy-service:**
+
 - Output: 1 location
 - Input (ML predictions): Already updated
 
 **execution-service:**
+
 - Output: ~5 locations
 - Input (strategy, market-tick): Must update
 
@@ -106,6 +112,7 @@ gs://execution-store-{project}/
 **Severity:** LOW (limited consumers)
 
 **Affected:**
+
 - Strategy → Execution pipeline
 - Backtest analysis tools
 - deployment-service

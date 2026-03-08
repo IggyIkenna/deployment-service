@@ -39,7 +39,7 @@ dimensions:
 
   - name: training_period
     type: monthly_rolling
-    lookback_months: 72  # 6 years of monthly models
+    lookback_months: 72 # 6 years of monthly models
     description: Walk-forward training period (YYYY-MM format)
 
   - name: config
@@ -75,7 +75,7 @@ compute:
   cloud_run:
     memory: 16Gi
     cpu: 4
-    timeout_seconds: 14400  # 4 hours
+    timeout_seconds: 14400 # 4 hours
 
 # Estimated runtime per shard
 runtime:

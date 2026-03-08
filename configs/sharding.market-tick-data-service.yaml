@@ -37,7 +37,8 @@ dimensions:
 
   - name: data_type
     type: fixed
-    values: [trades, book_snapshot_5, book_snapshot_25, liquidations, open_interest]
+    values:
+      [trades, book_snapshot_5, book_snapshot_25, liquidations, open_interest]
     description: Type of tick data to download
 
   - name: date
@@ -131,10 +132,10 @@ cli_optional:
 # =============================================================================
 compute:
   vm:
-    machine_type: c2-standard-16  # 16 vCPU, 64 GB RAM (C2 compute-optimized)
-    disk_size_gb: 150  # >= 2x RAM (64GB) for swap + temp files
-    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
-    timeout_seconds: 86400  # 24 hours (maximum)
+    machine_type: c2-standard-16 # 16 vCPU, 64 GB RAM (C2 compute-optimized)
+    disk_size_gb: 150 # >= 2x RAM (64GB) for swap + temp files
+    preemptible: false # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400 # 24 hours (maximum)
     self_delete: true
     description: Heavy download + compression workload - sized for 8 concurrent workers with 64GB safety margin
     gcsfuse_buckets: []
@@ -142,9 +143,9 @@ compute:
       # All I/O via GCS API (unified-trading-library handles caching)
 
   cloud_run:
-    memory: 64Gi  # Was 16Gi - increased for 8 concurrent workers with large files + safety margin
-    cpu: "8"      # Was 4 - matched to DOWNLOAD_MAX_WORKERS=8
-    timeout_seconds: 86400  # 24 hours (maximum)
+    memory: 64Gi # Was 16Gi - increased for 8 concurrent workers with large files + safety margin
+    cpu: "8" # Was 4 - matched to DOWNLOAD_MAX_WORKERS=8
+    timeout_seconds: 86400 # 24 hours (maximum)
     max_retries: 3
 
   # Per-venue compute overrides (applied when venue is in shard dimensions)
@@ -154,10 +155,10 @@ compute:
   venue_overrides:
     COINBASE:
       vm:
-        machine_type: c2-standard-60  # 60 vCPU, 240 GB RAM (C2 compute-optimized, max RAM)
-        disk_size_gb: 500  # Must be >= 2x RAM (240GB) for swap + temp files
+        machine_type: c2-standard-60 # 60 vCPU, 240 GB RAM (C2 compute-optimized, max RAM)
+        disk_size_gb: 500 # Must be >= 2x RAM (240GB) for swap + temp files
       cloud_run:
-        memory: 128Gi  # 2x normal - Cloud Run max is 32Gi, so use VM for COINBASE
+        memory: 128Gi # 2x normal - Cloud Run max is 32Gi, so use VM for COINBASE
 
 # =============================================================================
 # RUNTIME ESTIMATES

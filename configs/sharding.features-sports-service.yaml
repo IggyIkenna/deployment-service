@@ -19,14 +19,14 @@ dimensions:
   - name: league
     type: fixed
     values:
-      - EPL            # English Premier League
-      - LA_LIGA        # Spanish La Liga
-      - BUNDESLIGA     # German Bundesliga
-      - SERIE_A        # Italian Serie A
-      - LIGUE_1        # French Ligue 1
-      - CHAMPIONSHIP   # English Championship
-      - EREDIVISIE     # Dutch Eredivisie
-      - PRIMEIRA_LIGA  # Portuguese Primeira Liga
+      - EPL # English Premier League
+      - LA_LIGA # Spanish La Liga
+      - BUNDESLIGA # German Bundesliga
+      - SERIE_A # Italian Serie A
+      - LIGUE_1 # French Ligue 1
+      - CHAMPIONSHIP # English Championship
+      - EREDIVISIE # Dutch Eredivisie
+      - PRIMEIRA_LIGA # Portuguese Primeira Liga
     description: Football league to process (each league is an independent shard)
 
   - name: feature_group
@@ -77,7 +77,7 @@ cli_optional:
 compute:
   vm:
     machine_type: c2-standard-4
-    disk_size_gb: 32  # >= 2x RAM (16GB) for swap
+    disk_size_gb: 32 # >= 2x RAM (16GB) for swap
     description: Light workload - mostly API calls and DataFrame operations
     gcsfuse_buckets: []
       # No GCSFuse needed - uses GCS API for reads/writes
@@ -89,5 +89,6 @@ compute:
 # Estimated runtime per shard
 runtime:
   estimated_minutes: 15
-  notes: Varies by league size (EPL ~380 fixtures/season, Championship ~552 fixtures/season).
+  notes:
+    Varies by league size (EPL ~380 fixtures/season, Championship ~552 fixtures/season).
     API rate limits may throttle external calls.

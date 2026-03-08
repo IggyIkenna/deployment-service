@@ -27,6 +27,7 @@
 **All production services already use BigQuery-compatible `key=value` folder format!**
 
 **What This Means:**
+
 - ✅ No code migration needed
 - ✅ BigQuery external tables ready after data generation
 - ✅ Only documentation/script cleanup needed
@@ -37,6 +38,7 @@ See [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDA
 ### Infrastructure Status
 
 **Deliverables (12+ Hours, Feb 9, 2026):**
+
 - ✅ 12 PRs created with critical bug fixes
 - ✅ 73/73 unit tests passing (ml-training-service)
 - ✅ 9/9 walk-forward tests passing (ml-inference-service)
@@ -45,6 +47,7 @@ See [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDA
 - ✅ Cloud-agnostic design (GCP/AWS ready)
 
 **Critical Bug Fixes:**
+
 1. ✅ market-data-processing path format → `key=value`
 2. ✅ unified-trading-library GCP-only code → cloud-agnostic
 3. ✅ Walk-forward model selection → prevent lookahead bias
@@ -67,16 +70,16 @@ Market-Tick → Market-Data-Processing → Features-Delta-One (+ Calendar) → G
 
 ### Pipeline Components
 
-| Component | Input | Output | Storage |
-|-----------|-------|--------|---------|
-| market-tick-data-handler | Exchange APIs | Raw ticks | GCS (raw_tick_data/) |
-| market-data-processing | Raw ticks | OHLCV candles | GCS (processed_candles/) |
-| features-delta-one | Candles | Technical features | GCS (features-delta-one-{category}/) |
-| features-calendar | External data | Calendar features | GCS (features-calendar-{category}/) |
-| ml-training | Features | ML models | GCS (ml-models-store/) |
-| ml-inference | Features + Models | Predictions | GCS (ml-predictions-store/) |
-| strategy-service | Predictions | Signals | GCS (strategy-signals/) |
-| execution-service | Signals | Orders | Exchange APIs |
+| Component                | Input             | Output             | Storage                              |
+| ------------------------ | ----------------- | ------------------ | ------------------------------------ |
+| market-tick-data-handler | Exchange APIs     | Raw ticks          | GCS (raw_tick_data/)                 |
+| market-data-processing   | Raw ticks         | OHLCV candles      | GCS (processed_candles/)             |
+| features-delta-one       | Candles           | Technical features | GCS (features-delta-one-{category}/) |
+| features-calendar        | External data     | Calendar features  | GCS (features-calendar-{category}/)  |
+| ml-training              | Features          | ML models          | GCS (ml-models-store/)               |
+| ml-inference             | Features + Models | Predictions        | GCS (ml-predictions-store/)          |
+| strategy-service         | Predictions       | Signals            | GCS (strategy-signals/)              |
+| execution-service        | Signals           | Orders             | Exchange APIs                        |
 
 ---
 
@@ -100,13 +103,13 @@ Total: ~140 files per instrument per day (20 groups × 7 timeframes)
 
 **Service Path Formats (All BigQuery-Ready):**
 
-| Service | Path Format | Partition Keys |
-|---------|-------------|----------------|
-| instruments-service | `instrument_availability/by_date/day={date}/venue={venue}/` | day, venue |
-| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={type}/...` | day, data_type, instrument_type, venue, symbol |
-| market-data-processing | `processed_candles/by_date/day={date}/timeframe={tf}/...` | day, timeframe, data_type |
-| features-delta-one | `by_date/day={date}/feature_group={group}/timeframe={tf}/` | day, feature_group, timeframe |
-| features-calendar | `calendar/category={category}/by_date/day={date}/` | category, day |
+| Service                  | Path Format                                                 | Partition Keys                                 |
+| ------------------------ | ----------------------------------------------------------- | ---------------------------------------------- |
+| instruments-service      | `instrument_availability/by_date/day={date}/venue={venue}/` | day, venue                                     |
+| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={type}/...`     | day, data_type, instrument_type, venue, symbol |
+| market-data-processing   | `processed_candles/by_date/day={date}/timeframe={tf}/...`   | day, timeframe, data_type                      |
+| features-delta-one       | `by_date/day={date}/feature_group={group}/timeframe={tf}/`  | day, feature_group, timeframe                  |
+| features-calendar        | `calendar/category={category}/by_date/day={date}/`          | category, day                                  |
 
 **Status:** ✅ All production code validated (Feb 9, 2026)
 
@@ -117,6 +120,7 @@ Total: ~140 files per instrument per day (20 groups × 7 timeframes)
 **Setup Script:** `deployment-service/scripts/create_bigquery_external_tables.sh`
 
 **Example External Table:**
+
 ```sql
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
@@ -131,6 +135,7 @@ OPTIONS (
 ```
 
 **Properties:**
+
 - **Storage Cost:** $0 (pointer to GCS, no duplication)
 - **Query Cost:** $6/TB scanned (only pay when querying)
 - **Freshness:** Always current (reads GCS directly)
@@ -138,6 +143,7 @@ OPTIONS (
 - **Partitions:** Automatically extracts from folder names
 
 **Usage Example:**
+
 ```sql
 -- Query features for BTC, January 2023
 SELECT
@@ -158,12 +164,12 @@ WHERE day BETWEEN '2023-01-01' AND '2023-01-31'
 
 **Rationale:**
 
-| Feature | External Tables | Materialized Views |
-|---------|----------------|-------------------|
-| **Storage Cost** | $0 | $131/year |
-| **Refresh Cost** | $0 | $3-338/year |
-| **Query Speed** | 20-30 sec | 2 sec |
-| **Freshness** | Always current | Stale until refresh |
+| Feature          | External Tables | Materialized Views  |
+| ---------------- | --------------- | ------------------- |
+| **Storage Cost** | $0              | $131/year           |
+| **Refresh Cost** | $0              | $3-338/year         |
+| **Query Speed**  | 20-30 sec       | 2 sec               |
+| **Freshness**    | Always current  | Stale until refresh |
 
 **Conclusion:** Not worth $469/year for 10x speed improvement in batch processing
 
@@ -185,6 +191,7 @@ features_df = reader.read_features(
 ```
 
 **Properties:**
+
 - Direct parquet reads from GCS (no BigQuery dependency)
 - Parallel downloads for speed
 - Works with nested GCS structure
@@ -192,11 +199,13 @@ features_df = reader.read_features(
 - $0 cost beyond GCS storage
 
 **When to Use:**
+
 - ✅ Production ML training pipelines
 - ✅ Batch feature loading
 - ✅ Reproducible data loading (no external dependencies)
 
 **When to Use BigQuery External Tables:**
+
 - ✅ Ad-hoc SQL queries for exploration
 - ✅ Data quality checks
 - ✅ Fast debugging (2 sec queries)
@@ -208,6 +217,7 @@ features_df = reader.read_features(
 **New Format:** `day=2024-01-01/` (current)
 
 **BigQuery External Table Behavior:**
+
 - Pattern: `gs://bucket/by_date/day=*/feature_group=*/timeframe=*/*.parquet`
 - ✅ Matches new format only
 - ❌ Automatically excludes old format
@@ -223,32 +233,39 @@ features_df = reader.read_features(
 **Implementation Status:** ✅ Code complete, ready for testing with real data
 
 **Stage 1: Feature Pre-Selection (1000s → 300 features)**
+
 ```bash
 ml-training --mode pre-selection --training-period 2023-Q1 \
   --correlation-threshold 0.95 --importance-threshold 0.001
 ```
+
 - Removes highly correlated features (threshold: 0.95)
 - Removes low-importance features (threshold: 0.001)
 - Output: `gs://ml-training-artifacts-{project}/stage1-preselection/{training_period}/selected_features.json`
 
 **Stage 2: Hyperparameter Grid Search (3-fold CV, 12 combos)**
+
 ```bash
 ml-training --mode hyperparameter-grid --training-period 2023-Q1 \
   --cv-folds 3 --selection-metric f1_weighted
 ```
+
 - Tests 12 hyperparameter combinations
 - 3-fold cross-validation
 - Output: `gs://ml-training-artifacts-{project}/stage2-hyperparams/{training_period}/best_hyperparams.json`
 
 **Stage 3: Final Training (100% data, best params)**
+
 ```bash
 ml-training --mode final-training --training-period 2023-Q1
 ```
+
 - Uses 100% of training data
 - Applies best hyperparameters from Stage 2
 - Output: `gs://ml-models-store-{project}/models/{model_id}/training-period-{YYYY-MM}/model.joblib`
 
 **Test Coverage:**
+
 - ✅ 73/73 unit tests passing
 - ✅ All CLI args validated
 - ✅ Stage 1 → 2 → 3 flow tested
@@ -258,11 +275,13 @@ ml-training --mode final-training --training-period 2023-Q1
 **Status:** Complete and tested (9/9 tests passing)
 
 **Implementation:**
+
 - Fixed in `ml-inference-service/ml_inference_service/app/inference/orchestrator.py`
 - Uses `load_model_for_inference_date()` instead of `load_model()`
 - Prevents lookahead bias
 
 **Example:**
+
 ```python
 # Inference on 2023-04-01 uses model trained in 2023-03 (or earlier)
 # NEVER uses model trained in 2023-04 or later
@@ -275,6 +294,7 @@ model_result = self.model_loader.load_model_for_inference_date(
 ```
 
 **Test Coverage:**
+
 - ✓ Inference date before first model (returns None)
 - ✓ Inference date between training periods (uses older model)
 - ✓ Inference same month as training (uses previous quarter)
@@ -285,19 +305,21 @@ model_result = self.model_loader.load_model_for_inference_date(
 **Status:** Configuration complete
 
 **Implementation:**
+
 - `MODE_AWARE_SERVICES` defined in `deployment-service`
 - `stage_dependencies` in `configs/dependencies.yaml`
 - `mode` dimension in `configs/sharding.ml-training-service.yaml`
 
 **Example:**
+
 ```yaml
 # ml-training-service has 3 modes with different dependencies
 mode_aware_services:
   ml-training-service:
     modes:
-      - pre-selection    # Depends on: features-delta-one, features-calendar
-      - hyperparameter-grid  # Depends on: stage1 artifacts
-      - final-training   # Depends on: stage2 artifacts
+      - pre-selection # Depends on: features-delta-one, features-calendar
+      - hyperparameter-grid # Depends on: stage1 artifacts
+      - final-training # Depends on: stage2 artifacts
 ```
 
 ---
@@ -307,6 +329,7 @@ mode_aware_services:
 ### Phase 1: Infrastructure (COMPLETE ✅)
 
 **Deliverables:**
+
 - [x] Mock data seeder
 - [x] GCS parallel reader
 - [x] 3-stage handlers
@@ -317,11 +340,13 @@ mode_aware_services:
 ### Phase 2: Mock Data Testing (PARTIALLY COMPLETE)
 
 **Completed:**
+
 - [x] 54,720 rows seeded (38 days, 4 groups, 1m, 1 instrument)
 - [x] Training works (4 models trained)
 - [x] Metrics show models are useless on random data (expected)
 
 **Remaining:**
+
 - [ ] Generate mock for ALL 20 groups
 - [ ] Generate for ALL 7 timeframes
 - [ ] Generate for BTC + SPY (test holiday handling)
@@ -330,6 +355,7 @@ mode_aware_services:
 ### Phase 3: Real Data Integration (NEXT)
 
 **Prerequisites:**
+
 ```bash
 # 1. Generate market-tick for BTC (24/7)
 market-tick-data-handler \
@@ -371,53 +397,62 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 
 ### Production Services (MVP Scope)
 
-| Service | Config | Logging | Testing | Hardening | Path Format | Score | Status |
-|---------|--------|---------|---------|-----------|-------------|-------|--------|
-| instruments-service | ✅ | ✅ | ✅ | ✅ | ✅ key=value | 95% | Ready |
-| market-tick-data-handler | ✅ | ✅ | ⚠️ | ✅ | ✅ key=value | 90% | Ready |
-| market-data-processing | ✅ | ✅ | ✅ | ✅ | ✅ key=value | 95% | Ready |
-| features-delta-one | ✅ | ✅ | ✅ | ✅ | ✅ key=value | 95% | Ready |
-| features-calendar | ✅ | ✅ | ✅ | ✅ | ✅ key=value | 95% | Ready |
-| ml-training | ✅ | ✅ | ✅ | ✅ | N/A | 95% | Ready |
-| ml-inference | ✅ | ✅ | ⚠️ | ✅ | N/A | 90% | Ready |
-| strategy-service | ✅ | ✅ | ⚠️ | ✅ | N/A | 90% | Ready |
-| execution-service | ✅ | ✅ | ⚠️ | ✅ | N/A | 85% | Good |
+| Service                  | Config | Logging | Testing | Hardening | Path Format  | Score | Status |
+| ------------------------ | ------ | ------- | ------- | --------- | ------------ | ----- | ------ |
+| instruments-service      | ✅     | ✅      | ✅      | ✅        | ✅ key=value | 95%   | Ready  |
+| market-tick-data-handler | ✅     | ✅      | ⚠️      | ✅        | ✅ key=value | 90%   | Ready  |
+| market-data-processing   | ✅     | ✅      | ✅      | ✅        | ✅ key=value | 95%   | Ready  |
+| features-delta-one       | ✅     | ✅      | ✅      | ✅        | ✅ key=value | 95%   | Ready  |
+| features-calendar        | ✅     | ✅      | ✅      | ✅        | ✅ key=value | 95%   | Ready  |
+| ml-training              | ✅     | ✅      | ✅      | ✅        | N/A          | 95%   | Ready  |
+| ml-inference             | ✅     | ✅      | ⚠️      | ✅        | N/A          | 90%   | Ready  |
+| strategy-service         | ✅     | ✅      | ⚠️      | ✅        | N/A          | 90%   | Ready  |
+| execution-service        | ✅     | ✅      | ⚠️      | ✅        | N/A          | 85%   | Good   |
 
 **Overall System Score:** 93% (production ready)
 
 ### Service-by-Service Update Checklist
 
 #### Instruments Service
+
 - [x] No changes needed ✅
 
 #### Market-Tick-Data-Handler
+
 - [x] Structure already BigQuery-compatible ✅
 - [ ] Consider external table for future
 
 #### Market-Data-Processing-Service
+
 - [x] No changes needed ✅
 
 #### Features-Delta-One-Service
+
 - [x] Production code uses `key=value` format ✅
 - [ ] Update `scripts/data_catalog.py` (legacy format reference)
 
 #### Features-Calendar-Service
+
 - [x] Schema compatible ✅
 - [x] No structure changes needed ✅
 
 #### ML-Training-Service
+
 - [x] GCS reader production-ready ✅
 - [x] 3-stage pipeline complete ✅
 - [x] 73/73 tests passing ✅
 
 #### ML-Inference-Service
+
 - [x] Walk-forward selection fixed ✅
 - [x] 9/9 tests passing ✅
 
 #### Strategy-Service
+
 - [x] No changes needed (consumes ML predictions) ✅
 
 #### Execution-Services
+
 - [x] No changes needed ✅
 
 ---
@@ -427,6 +462,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 ### Current System (MVP: BTC + SPY, 6 Years)
 
 **Storage Costs (Annual):**
+
 - Instruments: $30
 - Market Tick: $1,589
 - Market Data Processing: $262
@@ -437,16 +473,19 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 - **Total Storage: $2,013/year**
 
 **Compute Costs (Annual):**
+
 - Daily backfill: $4,446
 - Analysis/Backtesting (3K iterations/month): $10,167
 - **Total Compute: $14,613/year**
 
 **BigQuery Costs (Annual, Optional):**
+
 - External Tables Storage: $0
 - Queries (1000/month): $720
 - **Total BigQuery: $720/year**
 
 **Total Annual Cost:**
+
 - **Minimum (storage + backfill):** $6,459/year
 - **With Development (3K iterations/month):** $16,626/year
 - **With BigQuery:** $17,346/year
@@ -454,6 +493,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 ### Optimization Potential
 
 **Cost Reduction Strategies:**
+
 1. Preemptible VMs: Save $1,335/year (30% on compute)
 2. Caching feature queries: Save $3,516/year
 3. Sampling data for experiments: Save $6,336/year
@@ -466,6 +506,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 ## Implementation Timeline
 
 ### Week 1: Code Updates (COMPLETE ✅)
+
 - [x] Walk-forward fix
 - [x] CLI args
 - [x] BigQuery module
@@ -473,6 +514,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 - [x] Documentation
 
 ### Week 2: Data Generation (NEXT)
+
 - [ ] Generate market-tick (BTC + SPY, 15 months)
 - [ ] Run features-delta-one
 - [ ] Validate 1 day before full run
@@ -480,6 +522,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 - [ ] Setup BigQuery external tables
 
 ### Week 3: ML Training & Testing
+
 - [ ] Run 3-stage pipeline (4 quarters)
 - [ ] Train 16 model configs
 - [ ] Test walk-forward inference
@@ -487,6 +530,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 - [ ] Performance testing
 
 ### Week 4: Cleanup & Production
+
 - [ ] Final documentation
 - [ ] Production deployment checklist
 - [ ] Monitoring setup
@@ -497,23 +541,27 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 ## Success Criteria
 
 ### Infrastructure ✅
+
 - [x] Code complete
 - [x] Tests passing (73/73 ml-training, 9/9 ml-inference)
 - [x] Documentation complete (6,500+ lines)
 - [x] Cloud-agnostic design (GCP/AWS ready)
 
 ### Data
+
 - [ ] 200+ continuous days of features for CEFI+TRADFI
 - [ ] BigQuery external tables created
 - [ ] Data validation complete
 
 ### ML Pipeline
+
 - [ ] 3-stage pipeline tested end-to-end
 - [ ] Walk-forward validated with real data
 - [ ] 16 model configs trained
 - [ ] Mode-aware data-status working
 
 ### Production Ready
+
 - [ ] All quality gates passing
 - [ ] All PRs merged
 - [ ] Monitoring in place
@@ -562,6 +610,7 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 ## Related Documentation
 
 **Complete Guides:**
+
 - [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) - Setup, usage, cost optimization
 - [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDATION.md) - Service audit and validation
 - [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md) - Path formats and standards
@@ -569,5 +618,6 @@ ml-inference --start-date 2021-01-01 --end-date 2021-12-31 ...
 - [COST.md](COST.md) - Comprehensive cost analysis
 
 **Scripts:**
+
 - `deployment-service/scripts/create_bigquery_external_tables.sh` - One-time setup
 - `ml-training-service/scripts/etl_gcs_to_bigquery.py` - Manual ETL for debugging

@@ -98,7 +98,7 @@ compute:
   cloud_run:
     memory: 16Gi
     cpu: 4
-    timeout_seconds: 14400  # 4 hours
+    timeout_seconds: 14400 # 4 hours
 
 # Estimated runtime per shard
 runtime:

@@ -15,11 +15,13 @@ gs://market-data-tick-{category}-{project}/
 ```
 
 **Path Format:**
+
 ```
 raw_tick_data/by_date/day-{date}/data_type-{type}/{instrument_type}/{venue}/{symbol}/{file}.parquet
 ```
 
 **Example Real Path:**
+
 ```
 raw_tick_data/by_date/day-2023-05-23/data_type-book_snapshot_5/futures_chain/BINANCE-FUTURES/BTC-USDT/BINANCE-FUTURES:FUTURE:BTC-USDT-230630@LIN.parquet
 ```
@@ -41,11 +43,13 @@ gs://market-data-tick-{category}-{project}/
 ```
 
 **Path Format:**
+
 ```
 raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={asset_class}/venue={venue}/{identifier}.parquet
 ```
 
 **Changes:**
+
 - `day-` → `day=`
 - `data_type-` → `data_type=`
 - Add `instrument_type=` prefix to folder
@@ -59,6 +63,7 @@ raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={asset_class}/
 ### File: Output path construction
 
 **Current:**
+
 ```python
 def _build_output_path(self, date, data_type, instrument_type, venue, symbol):
     return (
@@ -68,6 +73,7 @@ def _build_output_path(self, date, data_type, instrument_type, venue, symbol):
 ```
 
 **New (matches gcs_path_utils.build_raw_tick_data_path):**
+
 ```python
 def build_raw_tick_data_path(date_str, data_type, asset_class, venue, identifier):
     base = f"raw_tick_data/by_date/day={date_str}/data_type={data_type}/"
@@ -85,15 +91,18 @@ def build_raw_tick_data_path(date_str, data_type, asset_class, venue, identifier
 **HIGH IMPACT - Major consumer services:**
 
 **market-data-processing-service:**
+
 - Reads market-tick to generate candles
 - Path construction in ~15 locations
 - Must update all GCS read paths
 
 **features-delta-one-service:**
+
 - May read tick data directly in some calculators
 - Less common but needs checking
 
 **deployment-service:**
+
 - Missing data checker
 - Path templates
 - Data status display
@@ -128,6 +137,7 @@ WHERE day = '2023-05-23'  -- Partition filter (required)
 ```
 
 **Query Performance:**
+
 - Without hive: Scan all files (~2 TB)
 - With hive: Scan only relevant partition (~10 GB)
 - **Speedup:** 200x faster, 200x cheaper!
@@ -139,6 +149,7 @@ WHERE day = '2023-05-23'  -- Partition filter (required)
 **Severity:** HIGH (complex structure, many consumers)
 
 **Affected Services:**
+
 - market-tick-data-handler output (~10 locations)
 - market-data-processing input (~15 locations)
 - features services (~5 locations)
@@ -149,6 +160,7 @@ WHERE day = '2023-05-23'  -- Partition filter (required)
 **Risk:** High - main data pipeline dependency
 
 **Mitigation:**
+
 - Dual-path support during transition
 - Extensive testing required
 - Phased rollout recommended

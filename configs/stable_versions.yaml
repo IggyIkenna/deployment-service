@@ -17,7 +17,7 @@
 # Initial state - all at 1.0.0 baseline (2026-02-25)
 instruments-service:
   version: "1.0.0"
-  image: ""  # to be filled by first Cloud Build
+  image: "" # to be filled by first Cloud Build
   deployed_at: "2026-02-25T00:00:00Z"
   deployed_by: "baseline-reset"
   source_branch: "main"

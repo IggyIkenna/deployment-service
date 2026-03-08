@@ -14,16 +14,16 @@ GCP access, secrets, Cloud Build triggers, and quota requirements.
 
 ### Required IAM Roles
 
-| Role | Purpose |
-|------|---------|
-| `roles/viewer` | Console UI |
-| `roles/compute.instanceAdmin.v1` | Create/manage VMs |
-| `roles/run.admin` | Manage Cloud Run jobs |
-| `roles/storage.objectAdmin` | GCS read/write |
-| `roles/artifactregistry.reader` | Pull Docker images |
-| `roles/secretmanager.secretAccessor` | Access secrets |
-| `roles/logging.viewer` | View logs |
-| `roles/cloudbuild.builds.viewer` | View Cloud Build logs |
+| Role                                 | Purpose               |
+| ------------------------------------ | --------------------- |
+| `roles/viewer`                       | Console UI            |
+| `roles/compute.instanceAdmin.v1`     | Create/manage VMs     |
+| `roles/run.admin`                    | Manage Cloud Run jobs |
+| `roles/storage.objectAdmin`          | GCS read/write        |
+| `roles/artifactregistry.reader`      | Pull Docker images    |
+| `roles/secretmanager.secretAccessor` | Access secrets        |
+| `roles/logging.viewer`               | View logs             |
+| `roles/cloudbuild.builds.viewer`     | View Cloud Build logs |
 
 ### Deployment State Bucket
 
@@ -37,15 +37,15 @@ gsutil ls gs://deployment-orchestration-test-project/
 
 ## Secrets (Secret Manager)
 
-| Secret | Purpose |
-|--------|---------|
-| `github-token` | Clone private repos |
-| `tardis-api-key` | CeFi market data |
-| `databento-api-key` | TradFi market data |
-| `alchemy-api-key` | DeFi RPC |
+| Secret                                                          | Purpose                                            |
+| --------------------------------------------------------------- | -------------------------------------------------- |
+| `github-token`                                                  | Clone private repos                                |
+| `tardis-api-key`                                                | CeFi market data                                   |
+| `databento-api-key`                                             | TradFi market data                                 |
+| `alchemy-api-key`                                               | DeFi RPC                                           |
 | `thegraph-api-key`, `thegraph-api-key-2` … `thegraph-api-key-9` | TheGraph API (9 keys, round-robin via SHARD_INDEX) |
-| `openbb-fred-api-key` | FRED economic data |
-| `openbb-fmp-api-key` | FMP fundamentals |
+| `openbb-fred-api-key`                                           | FRED economic data                                 |
+| `openbb-fmp-api-key`                                            | FMP fundamentals                                   |
 
 ---
 
@@ -72,12 +72,12 @@ bash scripts/setup-cloud-build-triggers.sh run-ordered  # Run builds in dependen
 
 **unified-domain-client:** If the repo is not accessible to the Cloud Build GitHub App, add it via GCP Console: Cloud Build → Repositories → Link repository.
 
-| Service | Trigger Name |
-|---------|--------------|
-| instruments-service | instruments-service-build |
-| market-tick-data-handler | market-tick-data-handler-build |
-| market-data-processing-service | market-data-processing-service-build |
-| ... (all 12 services + 7 libraries) | *-build |
+| Service                             | Trigger Name                         |
+| ----------------------------------- | ------------------------------------ |
+| instruments-service                 | instruments-service-build            |
+| market-tick-data-handler            | market-tick-data-handler-build       |
+| market-data-processing-service      | market-data-processing-service-build |
+| ... (all 12 services + 7 libraries) | \*-build                             |
 
 **Flow:** Push to main → Cloud Build runs quality gates → builds Docker image or wheel → pushes to Artifact Registry.
 
@@ -107,9 +107,11 @@ bash scripts/setup-cloud-build-triggers.sh run-ordered  # Run builds in dependen
 ## Related
 
 **Setup Guides:**
+
 - [SETUP.md](SETUP.md) - Initial installation and workspace setup
 - [GCS_FUSE_VM_SETUP.md](GCS_FUSE_VM_SETUP.md) - GCS FUSE configuration for VMs and Cloud Run
 - [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) - BigQuery external tables setup
 
 **Operations:**
+
 - [CLI.md](CLI.md) - Deployment commands and CLI reference

@@ -77,7 +77,7 @@ cli_flags:
 # These are populated from shard dimensions
 cli_args:
   category: --category
-  date: null  # granularity=none means no --start-date/--end-date passed
+  date: null # granularity=none means no --start-date/--end-date passed
 
 # Optional arguments that can be passed via deploy CLI --extra-args
 # Listed here for documentation
@@ -95,9 +95,9 @@ cli_optional:
 compute:
   vm:
     machine_type: c2-standard-4
-    disk_size_gb: 40  # >= 2x RAM (16GB) for swap
-    preemptible: false  # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
-    timeout_seconds: 86400  # 24 hours (maximum)
+    disk_size_gb: 40 # >= 2x RAM (16GB) for swap
+    preemptible: false # Non-preemptible: PREEMPTIBLE_CPUS quota is only 16 in asia-northeast1
+    timeout_seconds: 86400 # 24 hours (maximum)
     self_delete: true
     description: Moderate workload - API calls + data processing
     gcsfuse_buckets: []
@@ -106,7 +106,7 @@ compute:
   cloud_run:
     memory: 4Gi
     cpu: "2"
-    timeout_seconds: 86400  # 24 hours (maximum)
+    timeout_seconds: 86400 # 24 hours (maximum)
     max_retries: 3
 
 # =============================================================================

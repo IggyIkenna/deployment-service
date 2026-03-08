@@ -15,6 +15,7 @@ Make the entire system AWS-ready by updating all GCP-specific code to cloud-agno
 ### Prerequisites
 
 **GCP:** Already complete. Verify with:
+
 ```bash
 gcloud auth list
 gcloud services list --enabled
@@ -30,11 +31,13 @@ gsutil ls
 ### Step 1: Update Imports
 
 **Before (GCP-specific):**
+
 ```python
 from google.cloud import storage, bigquery, secretmanager
 ```
 
 **After (Cloud-agnostic):**
+
 ```python
 from unified_trading_library import (
     get_storage_client,
@@ -47,6 +50,7 @@ from unified_trading_library import (
 ### Step 2: Update Storage Operations
 
 **Before:**
+
 ```python
 from google.cloud import storage
 client = storage.Client()
@@ -55,6 +59,7 @@ blob.upload_from_filename("/local/file.parquet")
 ```
 
 **After:**
+
 ```python
 from unified_trading_library import get_storage_client
 client = get_storage_client()
@@ -64,6 +69,7 @@ client.upload_file("my-bucket", "path/to/file.parquet", "/local/file.parquet")
 ### Step 3: Update Secret Retrieval
 
 **After:**
+
 ```python
 from unified_trading_library import get_secret
 api_key = get_secret(
@@ -75,6 +81,7 @@ api_key = get_secret(
 ### Step 4: Environment Variables
 
 Add to `.env.example`:
+
 ```bash
 CLOUD_PROVIDER=gcp  # or "aws"
 GCP_PROJECT_ID=test-project
@@ -141,17 +148,17 @@ python deploy.py validate-buckets --service instruments-service --cloud aws
 
 ## Part 4: Per-Service Checklist
 
-| Service | Status | Key Changes |
-|---------|--------|-------------|
-| instruments-service | Mostly done | Fix hardcoded IDs in scripts, add .env.example |
-| market-tick-data-handler | Check | get_storage_client(), day={date} format |
-| market-data-processing-service | Check | Cloud-agnostic storage, paths |
-| features-delta-one-service | Check | Cloud-agnostic storage |
-| features-calendar-service | Done | Uses StandardizedDomainCloudService |
-| ml-training-service | Check | GCS reader cloud-agnostic |
-| ml-inference-service | Check | Feature subscriber AWS-ready |
-| strategy-service | Check | Cloud-agnostic storage |
-| execution-service | Check | ~80 files with GCS refs |
+| Service                        | Status      | Key Changes                                    |
+| ------------------------------ | ----------- | ---------------------------------------------- |
+| instruments-service            | Mostly done | Fix hardcoded IDs in scripts, add .env.example |
+| market-tick-data-handler       | Check       | get_storage_client(), day={date} format        |
+| market-data-processing-service | Check       | Cloud-agnostic storage, paths                  |
+| features-delta-one-service     | Check       | Cloud-agnostic storage                         |
+| features-calendar-service      | Done        | Uses StandardizedDomainCloudService            |
+| ml-training-service            | Check       | GCS reader cloud-agnostic                      |
+| ml-inference-service           | Check       | Feature subscriber AWS-ready                   |
+| strategy-service               | Check       | Cloud-agnostic storage                         |
+| execution-service              | Check       | ~80 files with GCS refs                        |
 
 ---
 
@@ -177,12 +184,14 @@ Create `tests/unit/test_cloud_agnostic.py` in each service:
 ## Part 7: Deployment Commands
 
 **GCP:**
+
 ```bash
 export CLOUD_PROVIDER=gcp
 ./deploy instruments-service --backend vm --date 2023-01-01
 ```
 
 **AWS:**
+
 ```bash
 export CLOUD_PROVIDER=aws
 export AWS_PROJECT_ID=test-project-aws

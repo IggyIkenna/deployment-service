@@ -23,8 +23,8 @@ shared_bucket_services:
 service_categories:
   # Services with restricted categories (no DEFI)
   restricted_categories:
-    volatility: [cefi, tradfi]  # No DEFI options for volatility services
-  
+    volatility: [cefi, tradfi] # No DEFI options for volatility services
+
   # Default categories for most services
   default_categories: [cefi, tradfi, defi]
 
@@ -51,7 +51,7 @@ infrastructure_buckets:
       service: position-balance-monitor-service
       type: infrastructure
       category: ALL
-  
+
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
       service: infrastructure
@@ -106,7 +106,7 @@ bucket_settings:
     labels:
       managed_by: setup_buckets
       # service, category, environment labels are added dynamically
-  
+
   aws:
     versioning: true
     encryption:
@@ -128,8 +128,8 @@ bucket_settings:
 # Test bucket naming configuration
 test_buckets:
   # Pattern for generating test bucket names from production names
-  naming_pattern: "infix"  # insert '-test' before project_id
-  fallback_pattern: "suffix"  # append '-test' if project_id not found in name
+  naming_pattern: "infix" # insert '-test' before project_id
+  fallback_pattern: "suffix" # append '-test' if project_id not found in name
 
 # Validation rules for bucket names and categories
 validation:

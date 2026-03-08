@@ -9,11 +9,13 @@
 ## Core Concept
 
 **The Problem:**
+
 - CPU over-subscription: ✅ Safe (processes queue naturally, no crash)
 - RAM over-subscription: ❌ Fatal (OOM kill, job failure)
 - Static MAX_WORKERS: Can't adapt to variable data sizes or machine conditions
 
 **The Solution: Adaptive Parallelism**
+
 - Start with configured MAX_WORKERS
 - Monitor RAM usage in real-time
 - **Reduce workers if RAM > 85%** (prevent OOM)
@@ -28,21 +30,25 @@
 ### I/O-Bound Tasks (Network, Disk)
 
 **Examples:**
+
 - instruments-service (API calls, minimal computation)
 - market-tick-data-handler (download from Tardis)
 - ml-inference-service (load model, light inference)
 
 **Characteristics:**
+
 - Low CPU usage (~10-40% per worker)
 - Waiting on network/disk I/O
 - GIL not a bottleneck (I/O releases GIL)
 
 **Optimal Strategy:**
+
 - ✅ **Over-subscribe CPU heavily** (10-20x processes per vCPU)
 - While workers wait for I/O, CPU processes other workers
 - Example: 4 vCPUs, 10% usage → spawn 40 workers (100% CPU utilization)
 
 **RAM Constraint:**
+
 - Each worker needs buffers for API responses/downloads
 - Must monitor: 40 workers × buffer_size < available_RAM
 
@@ -51,21 +57,25 @@
 ### CPU-Bound Tasks (Computation)
 
 **Examples:**
+
 - features-delta-one-service (TA-Lib, pandas calculations)
 - ml-training-service (LightGBM training)
 - market-data-processing-service (candle aggregation)
 
 **Characteristics:**
+
 - High CPU usage (~80-100% per worker)
 - Minimal I/O waiting
 - GIL can be bottleneck (depends on library - NumPy/TA-Lib release GIL)
 
 **Optimal Strategy:**
+
 - ✅ **Match workers to vCPUs** (1-2x processes per vCPU)
 - Example: 4 vCPUs, 90% usage → spawn 4-8 workers max
 - More workers = context switching overhead
 
 **RAM Constraint:**
+
 - Each worker needs full dataset in memory
 - Must monitor: N workers × dataset_size < available_RAM
 
@@ -76,6 +86,7 @@
 ### Design
 
 **1. Start with Initial Workers**
+
 ```python
 # Initial MAX_WORKERS from config or env
 initial_workers = int(os.getenv("MAX_WORKERS", "4"))
@@ -93,6 +104,7 @@ max_workers = max(initial_workers, calculated_workers)
 ```
 
 **2. Monitor RAM During Execution**
+
 ```python
 import psutil
 from multiprocessing import Pool, Value, Lock
@@ -151,6 +163,7 @@ class AdaptiveParallelDateProcessor:
 ```
 
 **3. Dynamic Pool Sizing**
+
 ```python
 def process_dates_adaptive(self, dates, config):
     """Process dates with adaptive worker count"""
@@ -240,6 +253,7 @@ class AdaptiveParallelDateProcessor:
 ```
 
 **Example:**
+
 ```
 Machine: c2-standard-4 (4 vCPU, 16 GB)
 Task: instruments-service (10% CPU, 0.5 GB RAM per date)
@@ -380,6 +394,7 @@ class RAMAwarePool:
 ```
 
 **Key Features:**
+
 - ✅ Checks RAM before spawning each worker
 - ✅ Waits if RAM unavailable (backpressure)
 - ✅ Never exceeds RAM capacity
@@ -614,6 +629,7 @@ def detect_task_type(self, sample_date, config):
 ```
 
 **Usage:**
+
 ```python
 def main():
     dates = generate_date_range(start_date, end_date)
@@ -684,6 +700,7 @@ def estimate_memory_per_worker(self, sample_date, config):
 ```
 
 **Use for adaptive calculation:**
+
 ```python
 # Process first date and learn
 memory_per_worker = estimate_memory_per_worker(dates[0], config)
@@ -704,17 +721,20 @@ logger.info(f"Adaptive MAX_WORKERS: {safe_workers} (based on measured memory usa
 **File:** `unified_trading_library/core/adaptive_parallel_processor.py` (NEW)
 
 **Classes:**
+
 1. `AdaptiveParallelDateProcessor` - Main adaptive processor
 2. `RAMAwarePool` - Pool with backpressure
 3. `TaskProfiler` - Auto-detect I/O vs CPU bound
 
 **Functions:**
+
 1. `calculate_io_bound_workers()` - Aggressive CPU over-subscription
 2. `calculate_cpu_bound_workers()` - Conservative CPU matching
 3. `detect_task_type()` - Auto-detect from first date
 4. `estimate_memory_per_worker()` - Learn from execution
 
 **Configuration:**
+
 ```python
 # Auto-adaptive (recommended)
 processor = AdaptiveParallelDateProcessor(
@@ -789,14 +809,16 @@ def main():
 ### 1. No Manual Tuning Needed
 
 **Old approach (static):**
+
 ```yaml
 # Terraform must hardcode MAX_WORKERS per service
 service_max_workers:
-  instruments-service: 16  # What if data size varies?
-  features-calendar: 16    # What if running on c2-standard-8?
+  instruments-service: 16 # What if data size varies?
+  features-calendar: 16 # What if running on c2-standard-8?
 ```
 
 **New approach (adaptive):**
+
 ```python
 # Service automatically adapts to:
 # - Actual data size (may vary by date)
@@ -813,12 +835,14 @@ MAX_WORKERS=16  # Starting point, service adapts from there
 ### 2. Safe for Variable Data Sizes
 
 **Problem:**
+
 ```
 Date 1: BTC only (500 MB) → MAX_WORKERS=16 works fine
 Date 2: BTC + 10 altcoins (5 GB) → MAX_WORKERS=16 causes OOM!
 ```
 
 **Solution:**
+
 ```
 Adaptive processor detects RAM spike on Date 2:
   - RAM hits 85%
@@ -834,11 +858,11 @@ Adaptive processor detects RAM spike on Date 2:
 
 **Same service code works on any machine:**
 
-| Machine | RAM | Calculated Workers (I/O-bound) |
-|---------|-----|-------------------------------|
-| c2-standard-4 | 16 GB | 22 workers (0.5 GB/worker) |
-| c2-standard-8 | 32 GB | 44 workers |
-| c2-standard-16 | 64 GB | 89 workers |
+| Machine        | RAM   | Calculated Workers (I/O-bound) |
+| -------------- | ----- | ------------------------------ |
+| c2-standard-4  | 16 GB | 22 workers (0.5 GB/worker)     |
+| c2-standard-8  | 32 GB | 44 workers                     |
+| c2-standard-16 | 64 GB | 89 workers                     |
 
 **No Terraform changes needed when upsizing machines!**
 
@@ -847,11 +871,13 @@ Adaptive processor detects RAM spike on Date 2:
 ### 4. Graceful Degradation
 
 **Under memory pressure:**
+
 - Reduces workers automatically (no OOM)
 - Completes successfully (slower, but safe)
 - Logs warnings (visible for debugging)
 
 **Better than:**
+
 - Static MAX_WORKERS causing OOM (job fails)
 - Manual intervention to reduce workers
 - Restart with different config
@@ -996,6 +1022,7 @@ SERVICE_CONFIGS = {
 ```
 
 **Pass to service via env vars:**
+
 ```python
 env_vars = {
     "MAX_WORKERS": str(service_config["max_workers"]),
@@ -1137,6 +1164,7 @@ def gcs_file_exists(gcs_path: str, project_id: str = None) -> bool:
 ```
 
 **Usage in Services:**
+
 ```python
 # In ParallelDateProcessor or service main()
 from unified_trading_library.storage.gcs_utils import write_json_to_gcs
@@ -1147,6 +1175,7 @@ write_json_to_gcs(results_path, results_summary)
 ```
 
 **Usage in Orchestrator:**
+
 ```python
 # In deployment API
 from unified_trading_library.storage.gcs_utils import read_json_from_gcs, gcs_file_exists
@@ -1164,6 +1193,7 @@ if gcs_file_exists(results_path):
 **Your insight is perfect!** 🎯
 
 **Key Principles:**
+
 1. ✅ **CPU over-subscription is safe** - Processes queue naturally, no crash
 2. ✅ **RAM over-subscription is fatal** - Must prevent with adaptive logic
 3. ✅ **Service auto-scales** - No manual Terraform tuning needed
@@ -1172,6 +1202,7 @@ if gcs_file_exists(results_path):
 6. ✅ **CPU-bound:** Conservative matching (4-6 workers on 4 vCPUs)
 
 **Implementation:**
+
 - Add `AdaptiveParallelDateProcessor` to unified-trading-library
 - Services use adaptive processor (auto-detects task type)
 - Real-time RAM monitoring adjusts workers
@@ -1179,11 +1210,13 @@ if gcs_file_exists(results_path):
 - No crashes, graceful degradation
 
 **GCS Utilities:**
+
 - ✅ `write_json_to_gcs()` - Fully implemented above
 - ✅ `read_json_from_gcs()` - Fully implemented above
 - ✅ `gcs_file_exists()` - Fully implemented above
 
 **Documentation:**
+
 - ✅ ADAPTIVE_MAX_WORKERS_DESIGN.md created (complete design)
 - ✅ All other docs updated to reference adaptive approach
 - ✅ MASTER_IMPLEMENTATION_INDEX.md includes adaptive strategy

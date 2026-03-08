@@ -43,22 +43,22 @@ instruments-service
 
 ### Sharding
 
-| Dimension | Values |
-|-----------|--------|
-| category | CEFI, TRADFI, DEFI |
-| venue | Per-category (BINANCE-SPOT, CME, etc.) |
-| date | Daily |
+| Dimension | Values                                 |
+| --------- | -------------------------------------- |
+| category  | CEFI, TRADFI, DEFI                     |
+| venue     | Per-category (BINANCE-SPOT, CME, etc.) |
+| date      | Daily                                  |
 
 ### Stages
 
-| Stage | Goal |
-|-------|------|
-| 1 | Local run May 23, 2023 — dry-run then real |
-| 2 | Quality gates — ruff + pytest |
-| 3 | Cloud Build — image in Artifact Registry |
-| 4 | UTD-v2 small test May 23-25, CEFI |
-| 5 | Data validation — Data Status tab |
-| 6 | Full deployment 2023-2024 |
+| Stage | Goal                                       |
+| ----- | ------------------------------------------ |
+| 1     | Local run May 23, 2023 — dry-run then real |
+| 2     | Quality gates — ruff + pytest              |
+| 3     | Cloud Build — image in Artifact Registry   |
+| 4     | UTD-v2 small test May 23-25, CEFI          |
+| 5     | Data validation — Data Status tab          |
+| 6     | Full deployment 2023-2024                  |
 
 ### Key Commands
 
@@ -88,23 +88,23 @@ python -m deployment_service.cli data-status -s market-data-processing-service -
 
 ### Sharding
 
-| Dimension | Values |
-|-----------|--------|
-| category | CEFI, TRADFI, DEFI |
-| date | Monthly |
+| Dimension | Values             |
+| --------- | ------------------ |
+| category  | CEFI, TRADFI, DEFI |
+| date      | Monthly            |
 
 **No venue dimension** — calendar data at category level. ~2 min per shard.
 
 ### Stages
 
-| Stage | Goal |
-|-------|------|
-| 0 | Fix ruff linting errors (if blocking) |
-| 1 | Local run Jan 2024 |
-| 2 | Quality gates |
-| 3 | Cloud Build |
-| 4 | UTD-v2 small test Jan 2024 |
-| 5 | Full deployment 2020-present |
+| Stage | Goal                                  |
+| ----- | ------------------------------------- |
+| 0     | Fix ruff linting errors (if blocking) |
+| 1     | Local run Jan 2024                    |
+| 2     | Quality gates                         |
+| 3     | Cloud Build                           |
+| 4     | UTD-v2 small test Jan 2024            |
+| 5     | Full deployment 2020-present          |
 
 ### Key Commands
 
@@ -121,10 +121,10 @@ python -m deployment_service.cli data-status -s features-calendar-service --star
 
 ### External APIs
 
-| API | Secret | Rate |
-|-----|--------|------|
-| FRED (via OpenBB) | fred-api-key | 120/min |
-| Alpha Vantage | alpha-vantage-api-key | 5/min (free) |
+| API               | Secret                | Rate         |
+| ----------------- | --------------------- | ------------ |
+| FRED (via OpenBB) | fred-api-key          | 120/min      |
+| Alpha Vantage     | alpha-vantage-api-key | 5/min (free) |
 
 ### Expected Issues
 
@@ -136,13 +136,13 @@ python -m deployment_service.cli data-status -s features-calendar-service --star
 
 ## UI Tabs
 
-| Tab | Purpose |
-|-----|---------|
-| Deploy | Launch deployments, dry-run, force |
+| Tab         | Purpose                                                |
+| ----------- | ------------------------------------------------------ |
+| Deploy      | Launch deployments, dry-run, force                     |
 | Data Status | Per-category/venue/timeframe breakdown, Deploy Missing |
-| History | Shard progress, logs, cancel |
-| Readiness | Checklist status |
-| Status | Last data, deployment, build, code push |
+| History     | Shard progress, logs, cancel                           |
+| Readiness   | Checklist status                                       |
+| Status      | Last data, deployment, build, code push                |
 
 ---
 

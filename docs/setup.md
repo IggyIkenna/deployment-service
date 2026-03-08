@@ -128,13 +128,14 @@ terraform apply
 
 ## Environment Configuration
 
-| Variable | Value |
-|---------|-------|
+| Variable         | Value                                          |
+| ---------------- | ---------------------------------------------- |
 | `DEPLOYMENT_ENV` | `development` (local) or `production` (Docker) |
-| `STATE_BUCKET` | `deployment-orchestration-test-project` |
-| `GCP_PROJECT_ID` | `test-project` |
+| `STATE_BUCKET`   | `deployment-orchestration-test-project`        |
+| `GCP_PROJECT_ID` | `test-project`                                 |
 
 **State paths:**
+
 - Local: `deployments.development/`
 - Production: `deployments.production/`
 
@@ -148,13 +149,13 @@ See [INDEX.md](INDEX.md) for validation workflow. Key: Python 3.13 for all servi
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| Python 3.13 required | `pyenv install 3.13.1 && pyenv local 3.13.1` |
-| Architecture mismatch (M1/M2) | Use native ARM64 Python, not x86 under Rosetta |
-| SSH failure (unified-trading-library) | Add SSH key at github.com/settings/keys |
-| Port 8000/5173 in use | `run-api.sh` kills existing; or `lsof -ti:8000 \| xargs kill -9` |
-| Permission denied GCP | `gcloud auth application-default login` |
+| Issue                                 | Fix                                                              |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| Python 3.13 required                  | `pyenv install 3.13.1 && pyenv local 3.13.1`                     |
+| Architecture mismatch (M1/M2)         | Use native ARM64 Python, not x86 under Rosetta                   |
+| SSH failure (unified-trading-library) | Add SSH key at github.com/settings/keys                          |
+| Port 8000/5173 in use                 | `run-api.sh` kills existing; or `lsof -ti:8000 \| xargs kill -9` |
+| Permission denied GCP                 | `gcloud auth application-default login`                          |
 
 ---
 

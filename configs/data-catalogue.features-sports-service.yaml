@@ -41,7 +41,6 @@ feature_groups:
 # Each table maps to Parquet files in GCS, queryable via BigQuery.
 
 bigquery_external_tables:
-
   sports_features:
     description: "ML feature vectors for individual fixtures (one row per fixture)"
     dataset: features_sports
@@ -421,10 +420,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "English Premier League" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "English Premier League",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   LA_LIGA:
     _status: "0.0% -- not yet deployed"
@@ -432,10 +467,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Spanish La Liga" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Spanish La Liga",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   BUNDESLIGA:
     _status: "0.0% -- not yet deployed"
@@ -443,10 +514,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "German Bundesliga" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "German Bundesliga",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   SERIE_A:
     _status: "0.0% -- not yet deployed"
@@ -454,10 +561,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Italian Serie A" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Italian Serie A",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   LIGUE_1:
     _status: "0.0% -- not yet deployed"
@@ -465,10 +608,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "French Ligue 1" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "French Ligue 1",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   CHAMPIONSHIP:
     _status: "0.0% -- not yet deployed"
@@ -476,10 +655,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "English Championship" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "English Championship",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   EREDIVISIE:
     _status: "0.0% -- not yet deployed"
@@ -487,10 +702,46 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Dutch Eredivisie" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Dutch Eredivisie",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
 
   PRIMEIRA_LIGA:
     _status: "0.0% -- not yet deployed"
@@ -498,7 +749,43 @@ shard_status:
     dates_found: 0
     dates_expected: 0
     bucket: "features-sports-test-project"
-    team_form: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Portuguese Primeira Liga" }
-    h2h: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    odds: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    weather: { start_date: "2020-08-01", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
+    team_form:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Portuguese Primeira Liga",
+      }
+    h2h:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    odds:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    weather:
+      {
+        start_date: "2020-08-01",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
