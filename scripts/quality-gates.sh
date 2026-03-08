@@ -300,11 +300,13 @@ EL_OLD=$(rg "from unified_trading_library[. ].*(log_event|setup_events|setup_clo
 
 # ============================================================
 # STEP 5.5 — No direct cloud SDK imports (must route through UCLI/UCS)
-# Bypass: backends/_gcp_sdk.py TYPE_CHECKING imports — documented in QUALITY_GATE_BYPASS_AUDIT.md §3
 # ============================================================
+# Bypass (documented in QUALITY_GATE_BYPASS_AUDIT.md §2.5):
+#   deployment_service/backends/ — deployment control-plane layer; GCE Compute and Cloud Run
+#   APIs are not exposed by unified-cloud-interface. AWS backends also excluded.
 DIRECT_CLOUD=$(rg 'from google\.cloud import|^import boto3\b|^from boto3 import|^from botocore import' \
     --type py \
-    --glob '!backends/_gcp_sdk.py' \
+    --glob '!backends/**' \
     "${SOURCE_DIR}/" 2>/dev/null | grep -v __pycache__ | grep -v '\.venv' || :)
 [[ -n "$DIRECT_CLOUD" ]] && {
     log_fail "Direct cloud SDK imports found (route through unified-cloud-interface instead):"
