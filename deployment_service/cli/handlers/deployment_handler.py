@@ -270,7 +270,7 @@ class DeploymentHandler:
 
             # Display logs
             for entry in logs:
-                formatted = self.log_service._format_log_entry(entry)
+                formatted = self.log_service.format_log_entry(entry)
                 click.echo(formatted)
 
         except (OSError, ValueError, RuntimeError) as e:

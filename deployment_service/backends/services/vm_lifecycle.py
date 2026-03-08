@@ -416,7 +416,7 @@ class VMLifecycleManager:
         """Get the zone for a job from context or try to find it."""
         if job_id in self._job_context:
             context = self._job_context[job_id]
-            if len(context) >= 3:
+            if len(context) >= 3 and context[2] is not None:
                 return context[2]  # (deployment_id, shard_id, zone)
         return self.zones[0]  # Fallback to first zone
 
@@ -554,6 +554,15 @@ class VMLifecycleManager:
                 results[shard_id] = False
 
         return results
+
+    @property
+    def job_context(self) -> dict[str, tuple[str, str, str | None]]:
+        """Public accessor for job context mapping."""
+        return self._job_context
+
+    def get_logs_url(self, job_id: str, zone: str | None = None) -> str:
+        """Public wrapper for logs URL generation."""
+        return self._get_logs_url(job_id, zone)
 
     def _get_logs_url(self, job_id: str, zone: str | None = None) -> str:
         """

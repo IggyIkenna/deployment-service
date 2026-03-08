@@ -9,16 +9,14 @@ various filtering strategies.
 import itertools
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from unified_trading_library import get_secret_client, get_storage_client
 
 from ..catalog import SERVICE_GCS_CONFIGS
+from ..cloud_client import CloudClient
+from ..config_loader import ConfigLoader
 from ..deployment_config import DeploymentConfig
-
-if TYPE_CHECKING:
-    from ..cloud_client import CloudClient
-    from ..config_loader import ConfigLoader
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +27,7 @@ _config = DeploymentConfig()
 class CombinationCalculator:
     """Calculates valid combinations of dimension values with filtering capabilities."""
 
-    def __init__(self, config_loader: "ConfigLoader", cloud_client: "CloudClient"):
+    def __init__(self, config_loader: ConfigLoader, cloud_client: CloudClient):
         """
         Initialize combination calculator.
 
@@ -256,11 +254,12 @@ class CombinationCalculator:
 
         try:
             storage_client = get_storage_client(project_id=str(_config.gcp_project_id or ""))
-        except Exception:
+        except Exception as e:  # noqa: BLE001 — storage init failure is non-fatal; degrade gracefully
             logger.warning(
                 "Storage client unavailable for skip_existing check on service %s; "
-                "treating all shards as not existing",
+                "treating all shards as not existing: %s",
                 service,
+                e,
             )
             return combinations
 

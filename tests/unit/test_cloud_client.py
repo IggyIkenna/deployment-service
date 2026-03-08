@@ -35,7 +35,7 @@ class TestCloudClientInitialization:
         client = CloudClient()
         # Mock mode may still be True if cloud libs not available
         # Just verify the flag was read correctly
-        assert client._mock_mode is False or client._client is None
+        assert client._mock_mode is False or client._storage_client.mock_mode is True
 
 
 class TestCloudPathParsing:
@@ -283,7 +283,9 @@ class TestCloudClientIntegration:
         """
         # Skip if mock mode (no credentials available) or bucket doesn't exist in this env
         if real_cloud_client._mock_mode:
-            pytest.skip("No GCP credentials available - running in mock mode")
+            pytest.skip(
+                "No GCP credentials available, skipping integration test"
+            )  # No GCP credentials — skipping integration
         pytest.skip("Integration test requires a live GCS bucket — skipped in unit test run")
         files = real_cloud_client.list_files(
             "gs://instruments-store-cefi-test-project/",

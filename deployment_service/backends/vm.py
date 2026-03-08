@@ -139,7 +139,7 @@ class VMBackend(ComputeBackend):
         This prevents false failures when a VM self-deletes and we need to confirm
         the final outcome via the GCS status marker.
         """
-        job_context = self._lifecycle_manager._job_context
+        job_context = self._lifecycle_manager.job_context
         return self._monitoring_manager.get_status_with_context(
             job_id=job_id,
             job_context=job_context,
@@ -154,7 +154,7 @@ class VMBackend(ComputeBackend):
         Checks both VM status and GCS status file (if VM self-deleted).
         Tries all zones if the VM is not found in the expected zone.
         """
-        job_context = self._lifecycle_manager._job_context
+        job_context = self._lifecycle_manager.job_context
         return self._monitoring_manager.get_status(job_id, job_context)
 
     def cancel_job(self, job_id: str, zone: str | None = None) -> bool:
@@ -184,4 +184,4 @@ class VMBackend(ComputeBackend):
         """
         Get the serial console URL for a VM.
         """
-        return self._lifecycle_manager._get_logs_url(job_id, zone)
+        return self._lifecycle_manager.get_logs_url(job_id, zone)

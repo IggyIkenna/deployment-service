@@ -2093,7 +2093,7 @@ wheels = [
 
 [[package]]
 name = "unified-api-contracts"
-version = "0.1.63"
+version = "0.1.83"
 source = { directory = "../unified-api-contracts" }
 dependencies = [
     { name = "pydantic" },
@@ -2126,7 +2126,7 @@ provides-extras = ["schema-validation", "dev"]
 
 [[package]]
 name = "unified-cloud-interface"
-version = "0.11.14"
+version = "0.11.15"
 source = { directory = "../unified-cloud-interface" }
 dependencies = [
     { name = "redis" },
@@ -2176,7 +2176,7 @@ provides-extras = ["gcp", "aws", "cache", "dev"]
 
 [[package]]
 name = "unified-config-interface"
-version = "0.1.35"
+version = "0.1.37"
 source = { directory = "../unified-config-interface" }
 dependencies = [
     { name = "pydantic" },
@@ -2231,7 +2231,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "unified-internal-contracts"
-version = "0.1.8"
+version = "0.1.19"
 source = { directory = "../unified-internal-contracts" }
 dependencies = [
     { name = "pandas" },
@@ -2260,7 +2260,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "unified-trading-library"
-version = "0.3.57"
+version = "0.3.67"
 source = { directory = "../unified-trading-library" }
 dependencies = [
     { name = "fsspec" },

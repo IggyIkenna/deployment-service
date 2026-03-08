@@ -71,7 +71,7 @@ class QuotaBrokerClient:
             return self._cached_token
 
         # fetch_id_token() internally uses ADC (metadata server on Cloud Run, or local ADC).
-        token = id_token.fetch_id_token(self._token_request, self._audience())
+        token: str = str(id_token.fetch_id_token(self._token_request, self._audience()))
 
         # Parse exp from JWT without verification (safe for caching only).
         try:

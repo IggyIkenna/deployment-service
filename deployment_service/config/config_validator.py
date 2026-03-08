@@ -186,7 +186,7 @@ class ConfigValidator:
     @staticmethod
     def _is_valid_date_string(date_str: str) -> bool:
         """Check if a string is a valid ISO date format (YYYY-MM-DD)."""
-        if not isinstance(date_str, str) or len(date_str) != 10:
+        if len(date_str) != 10:
             return False
 
         try:

@@ -204,7 +204,7 @@ class T1Orchestrator:
     def __init__(self, config_dir: str = "configs", project_id: str | None = None):
         if not self.__class__._events_initialized:
             # Initialize events lazily to avoid import-time side effects during unit tests.
-            setup_events(service_name="deployment-service", mode="batch")
+            setup_events(service_name="deployment-service", mode="batch", sink=None)
             self.__class__._events_initialized = True
         self.config_dir = config_dir
         self.project_id: str | None = project_id or cast(str | None, _config.gcp_project_id)

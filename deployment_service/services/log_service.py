@@ -135,7 +135,10 @@ class LogService:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         try:
-            for line in iter(process.stdout.readline, ""):
+            stdout = process.stdout
+            if stdout is None:
+                return []
+            for line in iter(stdout.readline, ""):
                 if line.strip():
                     try:
                         log_entry = cast(dict[str, object], json.loads(line))
@@ -146,6 +149,10 @@ class LogService:
             process.terminate()
 
         return []  # Follow mode doesn't return entries
+
+    def format_log_entry(self, entry: dict[str, object]) -> str:
+        """Public wrapper for log entry formatting."""
+        return self._format_log_entry(entry)
 
     def _format_log_entry(self, entry: dict[str, object]) -> str:
         """Format a single log entry for display.

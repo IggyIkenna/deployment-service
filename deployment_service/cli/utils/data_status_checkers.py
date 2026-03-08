@@ -37,7 +37,7 @@ def check_data_types_detailed(  # noqa: C901
     loader = ConfigLoader(config_dir)
     venues_config = loader.load_venues_config()
     cloud_client = CloudClient()
-    gcs_config = SERVICE_GCS_CONFIGS.get("market-tick-data-handler")
+    gcs_config = SERVICE_GCS_CONFIGS.get("market-tick-data-handler") or {}
 
     # Get TRADFI config (only category with detailed data_type config)
     tradfi_config = venues_config.get("categories") or {}.get("TRADFI") or {}
@@ -330,7 +330,7 @@ def check_feature_groups_detailed(  # noqa: C901
     loader = ConfigLoader(config_dir)
     service_config = loader.load_service_config(service)
     cloud_client = CloudClient()
-    gcs_config = SERVICE_GCS_CONFIGS.get(service)
+    gcs_config = SERVICE_GCS_CONFIGS.get(service) or {}
 
     show_progress = output != "json"
 
@@ -453,7 +453,7 @@ def check_feature_groups_detailed(  # noqa: C901
             fg_expected = len(all_dates)
             fg_found = sum(
                 1
-                for date_str, date_results in cat_results.items()
+                for _, date_results in cat_results.items()
                 if date_results.get(fg, {}).get("exists", False)
             )
             fg_missing = [
@@ -594,7 +594,7 @@ def check_timeframes_detailed(  # noqa: C901
     scan_start = time.time()
     ConfigLoader(config_dir)
     cloud_client = CloudClient()
-    gcs_config = SERVICE_GCS_CONFIGS.get("market-data-processing-service")
+    gcs_config = SERVICE_GCS_CONFIGS.get("market-data-processing-service") or {}
 
     show_progress = output != "json"
 
@@ -671,7 +671,7 @@ def check_timeframes_detailed(  # noqa: C901
             tf_expected = len(all_dates)
             tf_found = sum(
                 1
-                for date_str, date_results in cat_results.items()
+                for _, date_results in cat_results.items()
                 if date_results.get(tf, {}).get("exists", False)
             )
             tf_missing = [

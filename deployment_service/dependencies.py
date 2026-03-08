@@ -87,7 +87,7 @@ class DependencyGraph:
             project_id: GCP project ID for bucket names
         """
         self.config_dir = Path(config_dir)
-        _pid = project_id or cast(str, _config.gcp_project_id or "")
+        _pid = project_id or str(_config.gcp_project_id or "")
         if not _pid:
             raise ValueError("GCP_PROJECT_ID must be set in environment or passed as project_id")
         self.project_id: str = _pid
