@@ -84,9 +84,9 @@ class ConfigLoader(BaseConfigLoader):
         1. RUNTIME_TOPOLOGY_PATH env var (absolute path)
         2. {WORKSPACE_ROOT}/unified-trading-pm/configs/runtime-topology.yaml
         """
-        topology_path_env = os.environ.get(
-            "RUNTIME_TOPOLOGY_PATH"
-        )  # config-bootstrap: topology file location
+        # Bootstrap phase: os.environ access intentional here — config system not yet initialized.
+        # See unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
+        topology_path_env = os.environ.get("RUNTIME_TOPOLOGY_PATH")
         if topology_path_env:
             path = Path(topology_path_env)
             if path.exists():
@@ -99,9 +99,9 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", topology_path_env)
 
-        workspace_root = os.environ.get(
-            "WORKSPACE_ROOT", ""
-        )  # config-bootstrap: workspace root for topology resolution
+        # Bootstrap phase: os.environ access intentional here — config system not yet initialized.
+        # See unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
+        workspace_root = os.environ.get("WORKSPACE_ROOT", "")
         if workspace_root:
             pm_path = (
                 Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
