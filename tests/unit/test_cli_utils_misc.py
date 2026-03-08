@@ -2,17 +2,23 @@
 Unit tests for miscellaneous low-coverage modules:
 
 - deployment_service/__main__.py        (5 lines)
+- deployment_service/cli/utils.py       (10 lines) — loaded via importlib (shadowed by utils/ pkg)
 - deployment_service/deployment/utils.py  (34 lines)
 - deployment_service/config/env_substitutor.py (47 lines)
 
-Note: deployment_service/cli/utils.py (10 lines) is shadowed by the
+Note: deployment_service/cli/utils.py is shadowed by the
 deployment_service/cli/utils/ package in Python's import system.
-The file is loaded directly via importlib for coverage purposes.
+The file is loaded directly via importlib.util for coverage purposes.
 
 Covers:
 __main__.py:
 - Module can be imported (sets up warnings filter + imports cli)
 - Executing as __main__ calls cli() (tested via subprocess / patch)
+
+cli/utils.py:
+- Module loads cleanly with DeploymentConfig mocked
+- DEFAULT_MAX_CONCURRENT and MAX_CONCURRENT_HARD_LIMIT are integers
+- DEFAULT_PROJECT_ID, DEFAULT_REGION, DEFAULT_SERVICE_ACCOUNT, DEFAULT_STATE_BUCKET present
 
 deployment/utils.py:
 - vm_resource_request: c2, c2d, c3, n2, e2, unknown families
@@ -47,13 +53,75 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import os
 import sys
 from pathlib import Path
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# cli/utils.py — loaded via importlib (shadowed by utils/ package)
+# ---------------------------------------------------------------------------
+
+
+def _load_cli_utils_module() -> object:
+    """Load deployment_service/cli/utils.py directly (bypasses the utils/ package)."""
+    utils_file = Path(__file__).parent.parent.parent / "deployment_service" / "cli" / "utils.py"
+    spec = importlib.util.spec_from_file_location("_cli_utils_direct", str(utils_file))
+    assert spec is not None
+    assert spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    return mod, spec
+
+
+@pytest.mark.unit
+def test_cli_utils_module_loads_with_mocked_config() -> None:
+    """cli/utils.py should load cleanly when DeploymentConfig is mocked.
+
+    Because cli/utils.py uses relative imports (from ..deployment_config import ...)
+    it cannot be loaded standalone. Instead we register it in sys.modules under a
+    temporary name inside the deployment_service.cli package so relative imports
+    resolve correctly.
+    """
+    mock_cfg = MagicMock()
+    mock_cfg.default_max_concurrent = 50
+    mock_cfg.max_concurrent_hard_limit = 500
+    mock_cfg.gcp_project_id = "test-proj"
+    mock_cfg.gcs_region = "us-central1"
+    mock_cfg.service_account_email = "svc@test.iam.gserviceaccount.com"
+    mock_cfg.effective_state_bucket = "test-state-bucket"
+
+    utils_file = Path(__file__).parent.parent.parent / "deployment_service" / "cli" / "utils.py"
+    spec = importlib.util.spec_from_file_location(
+        "deployment_service.cli._utils_file",
+        str(utils_file),
+        submodule_search_locations=[],
+    )
+    assert spec is not None
+    assert spec.loader is not None
+
+    mod = importlib.util.module_from_spec(spec)
+    # Set the __package__ so relative imports inside utils.py resolve correctly
+    mod.__package__ = "deployment_service.cli"
+
+    temp_mod_name = "deployment_service.cli._utils_file"
+    sys.modules[temp_mod_name] = mod  # type: ignore[assignment]
+
+    try:
+        with patch(
+            "deployment_service.deployment_config.DeploymentConfig",
+            return_value=mock_cfg,
+        ):
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+        assert mod.DEFAULT_MAX_CONCURRENT == 50  # type: ignore[attr-defined]
+        assert mod.MAX_CONCURRENT_HARD_LIMIT == 500  # type: ignore[attr-defined]
+        assert mod.DEFAULT_PROJECT_ID == "test-proj"  # type: ignore[attr-defined]
+        assert mod.DEFAULT_REGION == "us-central1"  # type: ignore[attr-defined]
+        assert mod.DEFAULT_STATE_BUCKET == "test-state-bucket"  # type: ignore[attr-defined]
+    finally:
+        sys.modules.pop(temp_mod_name, None)
+
 
 # ---------------------------------------------------------------------------
 # __main__.py
