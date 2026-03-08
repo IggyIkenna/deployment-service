@@ -8,7 +8,6 @@ Handles loading:
 """
 
 import logging
-import os
 import re
 from pathlib import Path
 from typing import cast
@@ -16,6 +15,7 @@ from typing import cast
 import yaml
 
 from .config.base_config import BaseConfigLoader
+from .config.bootstrap_config import TopologyBootstrapConfig
 from .config.config_validator import ConfigurationError, ConfigValidator, ValidationUtils
 from .config.env_substitutor import (
     build_storage_path_variables,
@@ -81,19 +81,12 @@ class ConfigLoader(BaseConfigLoader):
         """Load runtime topology from PM (SSOT).
 
         Resolution order:
-        1. RUNTIME_TOPOLOGY_PATH env var (absolute path)
+        1. RUNTIME_TOPOLOGY_PATH (from TopologyBootstrapConfig)
         2. {WORKSPACE_ROOT}/unified-trading-pm/configs/runtime-topology.yaml
-
-        Bootstrap phase: direct os.environ access for RUNTIME_TOPOLOGY_PATH and
-        WORKSPACE_ROOT is intentional here. These are filesystem path variables that
-        locate the topology file that feeds into the config system itself.
-        UnifiedCloudConfig cannot be used to resolve these values — it has not yet
-        been initialized at this point in the startup sequence.
-        See: unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception
         """
-        topology_path_env = os.environ.get("RUNTIME_TOPOLOGY_PATH")
-        if topology_path_env:
-            path = Path(topology_path_env)
+        bootstrap = TopologyBootstrapConfig.from_env()
+        if bootstrap.runtime_topology_path:
+            path = Path(bootstrap.runtime_topology_path)
             if path.exists():
                 cache_key = "runtime-topology"
                 if cache_key in self._cache:
@@ -102,12 +95,16 @@ class ConfigLoader(BaseConfigLoader):
                     content = cast(dict[str, object], yaml.safe_load(f) or {})
                 self._cache[cache_key] = content
                 return content
-            logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", topology_path_env)
+            logger.warning(
+                "RUNTIME_TOPOLOGY_PATH=%s does not exist", bootstrap.runtime_topology_path
+            )
 
-        workspace_root = os.environ.get("WORKSPACE_ROOT")
-        if workspace_root:
+        if bootstrap.workspace_root:
             pm_path = (
-                Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
+                Path(bootstrap.workspace_root)
+                / "unified-trading-pm"
+                / "configs"
+                / "runtime-topology.yaml"
             )
             if pm_path.exists():
                 cache_key = "runtime-topology"
