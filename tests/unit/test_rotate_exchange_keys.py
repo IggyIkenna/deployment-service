@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import flask as _flask
+
+# Ensure the Cloud Function's directory is on sys.path so `import main` works
+# across all pytest-xdist worker processes regardless of execution order.
+_CF_DIR = str(Path(__file__).parent.parent.parent / "functions" / "rotate-exchange-keys")
+if _CF_DIR not in sys.path:
+    sys.path.insert(0, _CF_DIR)
 
 # Flask app used to provide application context for flask.make_response() calls
 # inside the rotate_exchange_keys Cloud Function during unit tests.

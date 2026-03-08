@@ -4,13 +4,9 @@ Shard Combinatorics Smoke Test Framework
 This module provides a reusable framework for running smoke tests that verify
 all valid shard dimension combinations (category x venue x date) produce output.
 
-Usage:
-    from deployment_service.smoke_test_framework import (
-        ShardCombinatoricsGenerator,
-        GCSTestBucketManager,
-        SmokeTestRunner,
-    )
+Usage example::
 
+    # from deployment_service.smoke_test_framework import ShardCombinatoricsGenerator
     # Generate all valid shards for a single test date
     generator = ShardCombinatoricsGenerator(config_dir)
     shards = generator.get_smoke_test_shards(
@@ -32,6 +28,7 @@ from datetime import date
 from typing import TypedDict
 from typing import cast as _cast
 
+from unified_cloud_interface import StorageClient
 from unified_trading_library import get_storage_client
 
 from .config_loader import ConfigLoader
@@ -231,10 +228,10 @@ class GCSTestBucketManager:
         self.project_id = _pid
 
         # Import GCS client lazily to avoid dependency issues in tests
-        self._storage_client = None
+        self._storage_client: StorageClient | None = None
 
     @property
-    def storage_client(self):
+    def storage_client(self) -> StorageClient:
         """Lazy initialization of GCS client."""
         if self._storage_client is None:
             self._storage_client = get_storage_client(project_id=self.project_id)
@@ -264,10 +261,6 @@ class GCSTestBucketManager:
         Returns:
             Number of objects deleted
         """
-        if self.storage_client is None:
-            logger.info("Mock mode: Would clean bucket %s/%s", bucket_name, prefix)
-            return 0
-
         try:
             bucket = self.storage_client.bucket(bucket_name)
             blobs = list(bucket.list_blobs(prefix=prefix))
@@ -298,10 +291,6 @@ class GCSTestBucketManager:
         Returns:
             List of file paths (gs:// format)
         """
-        if self.storage_client is None:
-            logger.info("Mock mode: Would list files in %s/%s", bucket_name, prefix)
-            return []
-
         try:
             bucket = self.storage_client.bucket(bucket_name)
             blobs = list(bucket.list_blobs(prefix=prefix))

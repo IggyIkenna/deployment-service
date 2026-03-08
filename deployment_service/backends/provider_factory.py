@@ -27,7 +27,7 @@ from pathlib import Path
 _repo_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from unified_config_interface.topology_reader import get_deployment_target
+from unified_config_interface import get_deployment_target
 
 from deployment_service.deployment_config import DeploymentConfig
 
@@ -220,7 +220,7 @@ def get_backend_for_service(
     )
 
 
-def list_available_backends(provider: str | None = None) -> dict[str, object]:
+def list_available_backends(provider: str | None = None) -> dict[str, list[str]]:
     """
     List available backends for a provider or all providers.
 

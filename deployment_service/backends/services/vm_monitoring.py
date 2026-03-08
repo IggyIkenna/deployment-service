@@ -305,7 +305,7 @@ class VMMonitoringManager:
         """Get the zone for a job from context or try to find it."""
         if job_context and job_id in job_context:
             context = job_context[job_id]
-            if len(context) >= 3:
+            if len(context) >= 3 and context[2] is not None:
                 return context[2]  # (deployment_id, shard_id, zone)
         return self.zones[0]  # Fallback to primary zone
 

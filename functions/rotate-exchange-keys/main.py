@@ -179,7 +179,10 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
                     "secret": secret_name,
                     "project": _PROJECT_ID,
                     "timestamp": today.isoformat(),
-                    "message": f"Secret {secret_name!r} has no last_rotated label. Add label or rotate immediately.",
+                    "message": (
+                        f"Secret {secret_name!r} has no last_rotated label."
+                        " Add label or rotate immediately."
+                    ),
                     "severity": "WARNING",
                 },
             )

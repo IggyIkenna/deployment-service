@@ -31,23 +31,7 @@ from .provider_factory import (
 )
 from .vm import VMBackend
 
-
-# AWS backends (lazy import to avoid boto3 requirement when using GCP)
-def _get_aws_batch_backend():
-    from .aws_batch import AWSBatchBackend
-
-    return AWSBatchBackend
-
-
-def _get_aws_ec2_backend():
-    from .aws_ec2 import AWSEC2Backend
-
-    return AWSEC2Backend
-
-
 __all__ = [
-    # GCP backends
-    "CloudRunBackend",
     # Base classes
     "ComputeBackend",
     "JobInfo",

@@ -17,8 +17,10 @@ warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 
 import click  # noqa: E402
 from unified_events_interface import setup_events  # noqa: E402
-from unified_trading_library import setup_tracing  # noqa: E402
-from unified_trading_library.core.signal_handler import GracefulShutdownHandler  # noqa: E402
+from unified_trading_library import (
+    GracefulShutdownHandler,  # noqa: E402
+    setup_tracing,  # noqa: E402
+)
 
 from ..deployment_config import DeploymentConfig  # noqa: E402
 
@@ -84,7 +86,7 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
     global _shutdown_handler
 
     # Event logging for UTD v2 progress/observability (before any log_event)
-    setup_events(service_name="deployment-service", mode="batch")
+    setup_events(service_name="deployment-service", mode="batch", sink=None)
     setup_tracing("deployment-service")
 
     # Initialize graceful shutdown handler (handles SIGTERM/SIGINT)

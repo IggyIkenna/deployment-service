@@ -8,8 +8,12 @@ Handles loading:
 """
 
 import logging
+import os
 import re
+from pathlib import Path
 from typing import cast
+
+import yaml
 
 from .config.base_config import BaseConfigLoader
 from .config.config_validator import ConfigurationError, ConfigValidator, ValidationUtils
@@ -80,9 +84,6 @@ class ConfigLoader(BaseConfigLoader):
         1. RUNTIME_TOPOLOGY_PATH env var (absolute path)
         2. {WORKSPACE_ROOT}/unified-trading-pm/configs/runtime-topology.yaml
         """
-        import os
-        from pathlib import Path
-
         topology_path_env = os.environ.get(
             "RUNTIME_TOPOLOGY_PATH"
         )  # config-bootstrap: topology file location
@@ -91,14 +92,8 @@ class ConfigLoader(BaseConfigLoader):
             if path.exists():
                 cache_key = "runtime-topology"
                 if cache_key in self._cache:
-                    from typing import cast
-
                     return cast(dict[str, object], self._cache[cache_key])
-                import yaml
-
                 with open(path) as f:
-                    from typing import cast
-
                     content = cast(dict[str, object], yaml.safe_load(f) or {})
                 self._cache[cache_key] = content
                 return content
@@ -114,14 +109,8 @@ class ConfigLoader(BaseConfigLoader):
             if pm_path.exists():
                 cache_key = "runtime-topology"
                 if cache_key in self._cache:
-                    from typing import cast
-
                     return cast(dict[str, object], self._cache[cache_key])
-                import yaml
-
                 with open(pm_path) as f:
-                    from typing import cast
-
                     content = cast(dict[str, object], yaml.safe_load(f) or {})
                 self._cache[cache_key] = content
                 return content

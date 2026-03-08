@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic.
 warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 
 from unified_events_interface import setup_events  # noqa: E402
-from unified_trading_library.core.signal_handler import GracefulShutdownHandler  # noqa: E402
+from unified_trading_library import GracefulShutdownHandler  # noqa: E402
 
 # Import modular handlers
 from .cli.handlers.calculation_handler import CalculationHandler  # noqa: E402
@@ -94,7 +94,7 @@ def cli(
     global _shutdown_handler
 
     # Event logging for deployment observability
-    setup_events(service_name="deployment-service", mode="batch")
+    setup_events(service_name="deployment-service", mode="batch", sink=None)
 
     # Initialize graceful shutdown handler (handles SIGTERM/SIGINT)
     _shutdown_handler = GracefulShutdownHandler()
@@ -115,7 +115,7 @@ def cli(
             ctx.obj["config_dir"] = None
 
     # Set cloud provider
-    env_cloud = cast(str, _cli_config.cloud_provider or "gcp").lower()
+    env_cloud = (_cli_config.cloud_provider or "gcp").lower()
     cloud_provider: str = cloud or env_cloud or "gcp"
     ctx.obj["cloud"] = cloud_provider
 
