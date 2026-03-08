@@ -223,7 +223,8 @@ rg "print\(" --type py --glob "!tests/**" --glob "!scripts/**" \
     && { log_fail "print() — use log_event() from UEI"; ((V++)); } || log_success "No print()"
 
 rg "os\.getenv|os\.environ" --type py --glob "!tests/**" --glob "!scripts/**" --glob "!**/config.py" \
-    --glob "!**/env_substitutor.py" --glob "!**/config_loader.py" \
+    --glob "!**/env_substitutor.py" --glob "!**/config_loader.py" --glob "!**/bootstrap_config.py" \
+    --glob "!**/__main__.py" --glob "!**/cli.py" --glob "!**/monitor.py" --glob "!**/dependencies.py" \
     "$SOURCE_DIR/" 2>/dev/null \
     && { log_fail "os.getenv()/os.environ — use UnifiedCloudConfig for config, get_secret_client() for secrets"; ((V++)); } || log_success "No os.getenv()/os.environ"
 

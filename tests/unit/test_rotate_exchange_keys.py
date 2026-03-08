@@ -21,12 +21,15 @@ if _CF_DIR not in sys.path:
 _TEST_APP = _flask.Flask(__name__)
 
 
-def _make_secret(name: str, labels: dict[str, str]) -> MagicMock:
-    """Helper to create a mock Secret Manager secret."""
-    secret = MagicMock()
-    secret.name = f"projects/test-project/secrets/{name}"
-    secret.labels = labels
-    return secret
+def _make_secret(name: str, labels: dict[str, str]) -> tuple[str, MagicMock]:
+    """Helper to create a (secret_name, metadata_mock) pair.
+
+    Returns a tuple of (name: str, metadata: MagicMock with .labels) for use
+    with the UCI-aware _run_function mock setup.
+    """
+    metadata = MagicMock()
+    metadata.labels = labels
+    return name, metadata
 
 
 class TestMaxAgeDays:
@@ -100,34 +103,41 @@ class TestPublishAlert:
         import main as m
 
         mock_publisher = MagicMock()
-        mock_future = MagicMock()
-        mock_publisher.publish.return_value = mock_future
-        mock_publisher.topic_path.return_value = "projects/proj/topics/topic"
+        mock_publisher.publish.return_value = MagicMock()
 
         payload = {"event_type": "SECRET_ROTATION_REQUIRED", "secret": "binance-api-key"}
-        m._publish_alert(mock_publisher, "proj", "topic", payload)
+        # _publish_alert(pubsub_client, topic, payload) — 3 args (UCI style)
+        m._publish_alert(mock_publisher, "secret-rotation-alerts", payload)
 
         mock_publisher.publish.assert_called_once()
         call_args = mock_publisher.publish.call_args
-        assert call_args[0][0] == "projects/proj/topics/topic"
-        data = json.loads(call_args[1]["data"].decode("utf-8"))
+        # pubsub_client.publish(topic, data) — topic is positional arg 0
+        assert call_args[0][0] == "secret-rotation-alerts"
+        # data is positional arg 1 — raw bytes
+        data = json.loads(call_args[0][1].decode("utf-8"))
         assert data["event_type"] == "SECRET_ROTATION_REQUIRED"
-        mock_future.result.assert_called_once_with(timeout=10)
 
     def test_does_not_raise_on_publish_failure(self):
         import main as m
 
         mock_publisher = MagicMock()
-        mock_publisher.topic_path.return_value = "projects/proj/topics/topic"
         mock_publisher.publish.side_effect = Exception("pubsub down")
 
         # Should not raise
-        m._publish_alert(mock_publisher, "proj", "topic", {"key": "value"})
+        m._publish_alert(mock_publisher, "secret-rotation-alerts", {"key": "value"})
 
 
 class TestRotateExchangeKeys:
-    def _run_function(self, secrets: list[MagicMock], env_overrides: dict | None = None):
-        """Run the Cloud Function with mocked dependencies."""
+    def _run_function(
+        self,
+        secrets: list[tuple[str, MagicMock]],
+        env_overrides: dict | None = None,
+    ):
+        """Run the Cloud Function with mocked UCI dependencies.
+
+        secrets: list of (secret_name, metadata_mock) tuples from _make_secret().
+        All UCI clients are replaced with MagicMock via patch.object after reload.
+        """
         import sys
 
         sys.path.insert(
@@ -139,31 +149,34 @@ class TestRotateExchangeKeys:
         if env_overrides:
             env.update(env_overrides)
 
-        with (
-            patch.dict("os.environ", env),
-            patch("main.secretmanager.SecretManagerServiceClient") as mock_sm_cls,
-            patch("main.pubsub_v1.PublisherClient") as mock_pub_cls,
-        ):
-            mock_sm = MagicMock()
-            mock_sm.list_secrets.return_value = secrets
-            mock_sm_cls.return_value = mock_sm
+        # Build name→metadata lookup for get_secret_metadata side_effect
+        secret_names = [name for name, _ in secrets]
+        metadata_map = {name: meta for name, meta in secrets}
 
-            mock_pub = MagicMock()
-            mock_future = MagicMock()
-            mock_pub.publish.return_value = mock_future
-            mock_pub.topic_path.return_value = "projects/test-project/topics/secret-rotation-alerts"
-            mock_pub_cls.return_value = mock_pub
+        mock_sm = MagicMock()
+        mock_sm.list_secrets.return_value = secret_names
+        mock_sm.get_secret_metadata.side_effect = lambda name: metadata_map.get(name)
 
+        mock_pub = MagicMock()
+        mock_pub.publish.return_value = MagicMock()
+
+        with patch.dict("os.environ", env):
             import importlib
 
             import main as m
 
             importlib.reload(m)
 
-            mock_request = MagicMock()
-            with _TEST_APP.app_context():
-                response = m.rotate_exchange_keys(mock_request)
-            return response, mock_pub
+            # Patch AFTER reload: reload re-runs `from unified_cloud_interface import ...`
+            # which rebinds module-level names, so patches must be applied post-reload.
+            with (
+                patch.object(m, "get_secret_client", return_value=mock_sm),
+                patch.object(m, "get_pubsub_client", return_value=mock_pub),
+            ):
+                mock_request = MagicMock()
+                with _TEST_APP.app_context():
+                    response = m.rotate_exchange_keys(mock_request)
+                return response, mock_pub
 
     def test_returns_500_without_project_id(self):
         import sys
