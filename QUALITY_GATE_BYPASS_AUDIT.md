@@ -317,6 +317,11 @@ with its current third-party dependency set.
 
 ## 2.4 os.environ Exceptions
 
+For `config_loader.py` specifically, see also:
+**`unified-trading-codex/06-coding-standards/README.md#bootstrap-phase-exception`**
+The `load_runtime_topology_config()` method carries the required inline bootstrap-phase
+docstring and codex cross-reference. All other exceptions in this section are documented below.
+
 ### GROUP A — Architectural Necessity (JUSTIFIED)
 
 These files use `os.environ` because their core responsibility is environment-variable management at the process or infrastructure layer. `UnifiedCloudConfig` cannot substitute here because the operations either predate config initialisation, manipulate the process environment for child processes, or constitute the validation of the pre-config state.
