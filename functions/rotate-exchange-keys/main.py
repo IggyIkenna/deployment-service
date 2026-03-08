@@ -40,20 +40,33 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import UTC, date, datetime
 
 import flask
 import functions_framework
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from unified_cloud_interface import get_pubsub_client, get_secret_client
 
 logger = logging.getLogger(__name__)
 
-_TRADE_MAX_DAYS = int(os.environ.get("TRADE_KEY_MAX_AGE_DAYS", "90"))
-_DATA_MAX_DAYS = int(os.environ.get("DATA_KEY_MAX_AGE_DAYS", "180"))
-_WARN_BEFORE = int(os.environ.get("WARN_BEFORE_DAYS", "14"))
-_PROJECT_ID = os.environ.get("PROJECT_ID", "")
-_ALERT_TOPIC = os.environ.get("ALERT_TOPIC", "secret-rotation-alerts")
+
+class _RotationConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_file=None, extra="ignore")
+
+    trade_key_max_age_days: int = Field(default=90, validation_alias="TRADE_KEY_MAX_AGE_DAYS")
+    data_key_max_age_days: int = Field(default=180, validation_alias="DATA_KEY_MAX_AGE_DAYS")
+    warn_before_days: int = Field(default=14, validation_alias="WARN_BEFORE_DAYS")
+    project_id: str = Field(default="", validation_alias="PROJECT_ID")
+    alert_topic: str = Field(default="secret-rotation-alerts", validation_alias="ALERT_TOPIC")
+
+
+_config = _RotationConfig()
+_TRADE_MAX_DAYS = _config.trade_key_max_age_days
+_DATA_MAX_DAYS = _config.data_key_max_age_days
+_WARN_BEFORE = _config.warn_before_days
+_PROJECT_ID = _config.project_id
+_ALERT_TOPIC = _config.alert_topic
 
 # Exchange keys that require mandatory 90-day rotation (PCI DSS §8.3.9)
 # Data vendor / read-only keys are lower risk → 180-day window

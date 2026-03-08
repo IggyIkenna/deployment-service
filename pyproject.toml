@@ -51,7 +51,7 @@ target-version = "py313"
 select = ["E", "F", "I", "UP", "B", "SIM", "G",
 "C90",]
 ignore = ["E402", "G003", "G004", "G201", "G202", "SIM103", "B905"]
-per-file-ignores = { "deployment_service/deployment/quota_broker_client.py" = ["E402"], "deployment_service/backends/provider_factory.py" = ["E402"], "deployment_service/backends/aws_batch.py" = ["E501", "C901"], "deployment_service/backends/aws_ec2.py" = ["E501", "C901"], "deployment_service/calculators/shard_dimensions.py" = ["C901"], "deployment_service/calculators/shard_distribution.py" = ["C901"], "tests/**/*.py" = ["E501", "C901", "B007", "SIM102"], "tests/*.py" = ["E501", "C901", "B007", "SIM102"] }
+per-file-ignores = { "deployment_service/deployment/quota_broker_client.py" = ["E402"], "deployment_service/backends/provider_factory.py" = ["E402"], "deployment_service/backends/aws_batch.py" = ["E501", "C901"], "deployment_service/backends/aws_ec2.py" = ["E501", "C901"], "deployment_service/calculators/shard_dimensions.py" = ["C901"], "deployment_service/calculators/shard_distribution.py" = ["C901"], "scripts/**/*.py" = ["E501", "C901"], "tests/**/*.py" = ["E501", "C901", "B007", "SIM102"], "tests/*.py" = ["E501", "C901", "B007", "SIM102"] }
 
 
 [tool.ruff.lint.mccabe]

@@ -35,6 +35,24 @@ class DeploymentConfig(UnifiedCloudConfig):
         description="Deployment environment (development, staging, production)",
     )
 
+    gcp_project_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("GCP_PROJECT_ID", "PROJECT_ID"),
+        description="GCP project ID (PROJECT_ID for Cloud Functions)",
+    )
+
+    gcs_region: str = Field(
+        default="asia-northeast1",
+        validation_alias=AliasChoices("GCS_REGION", "GOOGLE_CLOUD_REGION"),
+        description="Default GCS region for deployment scripts",
+    )
+
+    aws_region: str = Field(
+        default="ap-northeast-1",
+        validation_alias=AliasChoices("AWS_REGION", "AWS_DEFAULT_REGION"),
+        description="Default AWS region for deployment scripts",
+    )
+
     state_bucket: str = Field(
         default="",
         validation_alias=AliasChoices("STATE_BUCKET"),
@@ -373,6 +391,54 @@ class DeploymentConfig(UnifiedCloudConfig):
         default="",
         validation_alias=AliasChoices("WORKSPACE_ROOT"),
         description="Absolute path to the workspace root (mono/multi-repo root). Used for local dev pyproject.toml lookups.",  # noqa: E501
+    )
+
+    shard_index: int = Field(
+        default=0,
+        validation_alias=AliasChoices("SHARD_INDEX"),
+        description="Shard index for parallel script execution",
+    )
+
+    graph_secret_name: str = Field(
+        default="thegraph-api-key",
+        validation_alias=AliasChoices("GRAPH_SECRET_NAME", "THEGRAPH_SECRET_NAME"),
+        description="Secret name for The Graph API key",
+    )
+
+    instrument_download_workers: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("INSTRUMENT_DOWNLOAD_WORKERS"),
+        description="Override for instrument download worker count (scripts)",
+    )
+
+    instrument_list_workers: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("INSTRUMENT_LIST_WORKERS"),
+        description="Override for instrument list worker count (scripts)",
+    )
+
+    trade_key_max_age_days: int = Field(
+        default=90,
+        validation_alias=AliasChoices("TRADE_KEY_MAX_AGE_DAYS"),
+        description="Max age in days for trade/execution keys (PCI DSS rotation)",
+    )
+
+    data_key_max_age_days: int = Field(
+        default=180,
+        validation_alias=AliasChoices("DATA_KEY_MAX_AGE_DAYS"),
+        description="Max age in days for data vendor keys",
+    )
+
+    warn_before_days: int = Field(
+        default=14,
+        validation_alias=AliasChoices("WARN_BEFORE_DAYS"),
+        description="Warn this many days before key expiry",
+    )
+
+    alert_topic: str = Field(
+        default="secret-rotation-alerts",
+        validation_alias=AliasChoices("ALERT_TOPIC"),
+        description="PubSub topic for secret rotation alerts",
     )
 
     # =========================================================================
