@@ -79,6 +79,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "smoke: mark test as smoke test",
     "unit: mark test as unit test",
+    "cli: mark test as CLI test",
 ]
 
 [tool.coverage.report]
