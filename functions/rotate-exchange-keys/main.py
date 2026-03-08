@@ -45,7 +45,7 @@ from datetime import UTC, date, datetime
 
 import flask
 import functions_framework
-from google.cloud import pubsub_v1, secretmanager
+from unified_cloud_interface import get_pubsub_client, get_secret_client
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +123,11 @@ def _days_since_rotation(labels: dict[str, str]) -> int | None:
         return None
 
 
-def _publish_alert(
-    publisher: pubsub_v1.PublisherClient, project_id: str, topic: str, payload: dict[str, object]
-) -> None:
+def _publish_alert(pubsub_client, topic: str, payload: dict[str, object]) -> None:
     """Publish rotation alert to PubSub topic (non-blocking on failure)."""
-    topic_path = publisher.topic_path(project_id, topic)
     try:
         data = json.dumps(payload).encode("utf-8")
-        publisher.publish(topic_path, data=data).result(timeout=10)
+        pubsub_client.publish(topic, data)
     except Exception as e:  # noqa: BLE001
         logger.warning("Failed to publish rotation alert: %s", e)
 
@@ -141,10 +138,8 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
     if not _PROJECT_ID:
         return flask.make_response(json.dumps({"error": "PROJECT_ID not set"}), 500)
 
-    sm_client = secretmanager.SecretManagerServiceClient()
-    publisher = pubsub_v1.PublisherClient()
-
-    parent = f"projects/{_PROJECT_ID}"
+    sm_client = get_secret_client(provider="gcp", project_id=_PROJECT_ID)
+    pubsub_client = get_pubsub_client(provider="gcp", project_id=_PROJECT_ID)
     today = date.today()
 
     overdue: list[dict[str, object]] = []
@@ -153,16 +148,15 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
     ok_count = 0
     scanned = 0
 
-    for secret in sm_client.list_secrets(request={"parent": parent}):
-        secret_name = secret.name.split("/")[-1]
-
+    for secret_name in sm_client.list_secrets():
         # Only process known exchange/api key secrets
         all_patterns = _TRADE_KEY_PATTERNS | _DATA_KEY_PATTERNS
         if not any(p in secret_name for p in all_patterns):
             continue
 
         scanned += 1
-        labels: dict[str, str] = dict(secret.labels)
+        metadata = sm_client.get_secret_metadata(secret_name)
+        labels: dict[str, str] = (metadata.labels or {}) if metadata else {}
         category = labels.get("key_category")
         max_age = _max_age_days(secret_name, category)
         days_old = _days_since_rotation(labels)
@@ -171,8 +165,7 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
             # No rotation date tracked — flag for manual inspection
             unknown_age.append(secret_name)
             _publish_alert(
-                publisher,
-                _PROJECT_ID,
+                pubsub_client,
                 _ALERT_TOPIC,
                 {
                     "event_type": "SECRET_ROTATION_UNKNOWN_AGE",
@@ -204,8 +197,7 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
                 max_age,
             )
             _publish_alert(
-                publisher,
-                _PROJECT_ID,
+                pubsub_client,
                 _ALERT_TOPIC,
                 {
                     "event_type": "SECRET_ROTATION_REQUIRED",
@@ -226,8 +218,7 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
             warning.append(record)
             logger.info("SECRET_ROTATION_WARNING: %s due in %d days", secret_name, days_until_due)
             _publish_alert(
-                publisher,
-                _PROJECT_ID,
+                pubsub_client,
                 _ALERT_TOPIC,
                 {
                     "event_type": "SECRET_ROTATION_WARNING",
