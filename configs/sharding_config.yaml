@@ -16,16 +16,60 @@ services:
   instruments-service:
     batch:
       dimensions: [category, venue, date]
-      category_values: [cefi, defi, tradfi]
+      category_values: [cefi, defi, tradfi, sports]
+      sports_notes: >-
+        Sports instruments: league, fixture, and team instruments following InstrumentId
+        conventions. category=sports; venue = bookmaker key or "api_football" for metadata.
     live:
       dimensions: [venue]
       notes: Poll ~15min, publish PubSub for adds/removes/status
 
+  features-sports-service:
+    batch:
+      dimensions: [league, feature_group, date]
+      league_values:
+        [
+          EPL,
+          LA_LIGA,
+          BUNDESLIGA,
+          SERIE_A,
+          LIGUE_1,
+          CHAMPIONSHIP,
+          EREDIVISIE,
+          PRIMEIRA_LIGA,
+        ]
+      feature_group_values:
+        [
+          team_form,
+          h2h,
+          league_stats,
+          halftime,
+          goal_timing,
+          season_context,
+          venue_context,
+          referee,
+          player_lineup,
+          odds,
+          xg,
+          advanced_stats,
+          weather,
+        ]
+      notes: >-
+        Sports features are sharded by league (not by cefi/tradfi/defi category).
+        Each league is an independent shard. Detail: sharding.features-sports-service.yaml.
+    live:
+      dimensions: [league]
+      notes: >-
+        Live mode subscribes to LIVE_ODDS_RECEIVED Pub/Sub topic, calls
+        compute_for_fixture(), broadcasts LIVE_FEATURES_COMPUTED.
+        Calculators: odds, progressive_stats, goal_timing, halftime (team_form cached).
+        Ref: B3.3 LIVE_CALCULATORS subset.
+
   market-tick-data-service:
     batch:
       dimensions: [category, venue, instrument_type, data_type, date]
-      category_values: [cefi, defi, tradfi]
-      instrument_type_values: [spot, perpetual, future, option]
+      category_values: [cefi, defi, tradfi, sports]
+      instrument_type_values: [spot, perpetual, future, option, odds]
       data_type_values:
         [
           trades,
@@ -35,10 +79,18 @@ services:
           incremental_book_l2,
           opra_options,
           cme_options,
+          odds_tick,
+          book_update,
         ]
+      sports_notes: >-
+        Sports category: venue = bookmaker/exchange key (betfair, pinnacle, odds_api, etc.);
+        instrument_type = odds; data_type = odds_tick or book_update.
+        Tier 1 (odds_api) uses REST polling; Tier 3 (scrapers) uses Playwright.
     live:
       dimensions: [venue, instrument_type, data_type]
-      notes: One WebSocket per stream, multiplexed internally per venue
+      notes: >-
+        One stream per (venue, data_type). For sports: Tier 1 = Odds API REST poll;
+        Tier 3 = USEI scraper polling loop. All normalize to CanonicalOdds.
 
   market-data-processing-service:
     batch:
@@ -152,14 +204,20 @@ services:
       dimensions: [strategy_id, client, date]
     live:
       dimensions: [strategy_id, client]
-      notes: NOT sharded by venue - strategy may span venues (arb, spread)
+      notes: >-
+        NOT sharded by venue - strategy may span venues (arb, spread).
+        Sports arb strategy type: consumes live sports features, emits BettingSignal
+        when ArbitrageStatus.FREE_MONEY. Uses same strategy_id/client sharding as TradFi.
 
   execution-service:
     batch:
       dimensions: [client, subaccount, date]
     live:
       dimensions: [client, subaccount]
-      notes: Default subaccount used in batch for uniform implementation
+      notes: >-
+        Default subaccount used in batch for uniform implementation.
+        Sports live: routes BettingSignal to USEI exchange adapters (Betfair, Smarkets, etc.)
+        via category=sports in signal. Validates freshness (<5s), checks MarketStatus.ACTIVE.
 
   position-balance-monitor-service:
     batch:
