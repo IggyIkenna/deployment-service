@@ -18,13 +18,12 @@ from .base import ComputeBackend, JobInfo, JobStatus
 
 if TYPE_CHECKING:
     import boto3 as _boto3_module
-    from botocore.exceptions import ClientError
 
 # Deferred botocore — only imported when AWS EC2 is actually used.
 if importlib.util.find_spec("botocore") is not None:
-    from botocore.exceptions import ClientError  # type: ignore[assignment]
+    from botocore.exceptions import ClientError
 else:
-    ClientError = Exception  # type: ignore[assignment,misc]
+    ClientError = Exception  # noqa: N818
 
 logger = logging.getLogger(__name__)
 

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import boto3 as _boto3_module
-    from botocore.exceptions import ClientError
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
@@ -25,11 +24,11 @@ logger = logging.getLogger(__name__)
 # ClientError is referenced in except clauses; we provide a stub when botocore
 # is not installed so that the module can be imported on non-AWS deployments.
 if importlib.util.find_spec("botocore") is not None:
-    from botocore.exceptions import ClientError  # type: ignore[assignment]
+    from botocore.exceptions import ClientError
 else:
     # Stub: unreachable at runtime unless botocore is installed, but satisfies
     # the module-level name so except-clauses don't raise NameError on import.
-    ClientError = Exception  # type: ignore[assignment,misc]
+    ClientError = Exception  # noqa: N818
 
 
 def _ensure_boto3() -> "types.ModuleType":
