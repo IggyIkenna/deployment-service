@@ -64,9 +64,13 @@ from google.cloud.storage import (
 from unified_cloud_interface import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
+import logging
+
 from _common import get_project_id
 
 from deployment_service.deployment_config import DeploymentConfig
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # CONFIGURATION
@@ -103,7 +107,7 @@ DEFAULT_LIST_WORKERS = int(_dl_config.instrument_list_workers or _computed_list)
 
 def log(msg: str) -> None:
     """Print timestamped log message."""
-    print(
+    logger.info(
         f"[{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
         flush=True,
     )
@@ -173,25 +177,25 @@ def prompt_date_range_confirmation(
 
     days_count = (end_date - start_date).days + 1
 
-    print()
-    print("=" * 60)
-    print("INSTRUMENT DEFINITIONS DOWNLOAD")
-    print("=" * 60)
-    print()
-    print(f"  Last aggregated date:  {start_date - timedelta(days=1)}")
-    print(f"  Download range:        {start_date} to {end_date}")
-    print(f"  Days to download:      {days_count}")
-    print()
-    print("NOTE: Instrument definitions must be generated before they can be")
-    print("      downloaded and aggregated. If definitions for these dates")
-    print("      don't exist, the download will find no files.")
-    print()
+    logger.info()
+    logger.info("=" * 60)
+    logger.info("INSTRUMENT DEFINITIONS DOWNLOAD")
+    logger.info("=" * 60)
+    logger.info()
+    logger.info(f"  Last aggregated date:  {start_date - timedelta(days=1)}")
+    logger.info(f"  Download range:        {start_date} to {end_date}")
+    logger.info(f"  Days to download:      {days_count}")
+    logger.info()
+    logger.info("NOTE: Instrument definitions must be generated before they can be")
+    logger.info("      downloaded and aggregated. If definitions for these dates")
+    logger.info("      don't exist, the download will find no files.")
+    logger.info()
 
     try:
         response = input("Proceed with download? [Y/n]: ").strip().lower()
         return response in ("", "y", "yes")
     except (EOFError, KeyboardInterrupt):
-        print()
+        logger.info()
         return False
 
 
@@ -453,6 +457,7 @@ class InstrumentAggregator:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Download instrument definitions from GCS",
         formatter_class=argparse.RawDescriptionHelpFormatter,

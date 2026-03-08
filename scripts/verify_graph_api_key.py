@@ -25,13 +25,18 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import logging
+
 from _common import get_graph_secret_name, get_project_id, get_shard_index
 from unified_trading_library import TheGraphBaseClient, clear_thegraph_api_key_cache
+
+logger = logging.getLogger(__name__)
 
 _NUM_KEYS = 9  # thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Verify The Graph API key and round-robin")
     parser.add_argument("--dry-run", action="store_true", help="Only show which key would be used")
     parser.add_argument("--project-id", default=None, help="GCP project ID (default: from env)")
@@ -41,23 +46,23 @@ def main() -> int:
     project_id = args.project_id or get_project_id()
     secret_env = get_graph_secret_name()
 
-    print("=" * 60)
-    print("The Graph API Key Verification")
-    print("=" * 60)
-    print(f"SHARD_INDEX: {shard_index}")
-    print(f"GCP_PROJECT_ID: {project_id}")
-    print(f"GRAPH_SECRET_NAME / THEGRAPH_SECRET_NAME: {secret_env}")
-    print()
+    logger.info("=" * 60)
+    logger.info("The Graph API Key Verification")
+    logger.info("=" * 60)
+    logger.info(f"SHARD_INDEX: {shard_index}")
+    logger.info(f"GCP_PROJECT_ID: {project_id}")
+    logger.info(f"GRAPH_SECRET_NAME / THEGRAPH_SECRET_NAME: {secret_env}")
+    logger.info()
 
     # Round-robin formula (matches UCS TheGraphBaseClient)
     key_number = (shard_index % _NUM_KEYS) + 1
     secret_name = "thegraph-api-key" if key_number == 1 else f"thegraph-api-key-{key_number}"
-    print(f"Round-robin: key_number={key_number} → secret={secret_name}")
-    print("(9 keys total: thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9)")
-    print()
+    logger.info(f"Round-robin: key_number={key_number} → secret={secret_name}")
+    logger.info("(9 keys total: thegraph-api-key, thegraph-api-key-2 ... thegraph-api-key-9)")
+    logger.info()
 
     if args.dry_run:
-        print("Dry-run: skipping actual API key fetch and query.")
+        logger.info("Dry-run: skipping actual API key fetch and query.")
         return 0
 
     # Full verification: run from instruments-service or market-tick-data-handler
@@ -66,15 +71,15 @@ def main() -> int:
         client = TheGraphBaseClient(project_id=project_id)
         api_key = client.api_key
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"❌ Failed to load API key: {e}")
-        print("   Ensure GCP auth (gcloud auth application-default login) and secret exists.")
+        logger.info(f"❌ Failed to load API key: {e}")
+        logger.info("   Ensure GCP auth (gcloud auth application-default login) and secret exists.")
         return 1
 
     if not api_key:
-        print("❌ No API key found. Set THEGRAPH_API_KEY in env or create secret in GCP.")
+        logger.info("❌ No API key found. Set THEGRAPH_API_KEY in env or create secret in GCP.")
         return 1
 
-    print(f"✅ API key {key_number} loaded successfully")
+    logger.info(f"✅ API key {key_number} loaded successfully")
 
     # Minimal GraphQL query to verify key works
     subgraph_id = "Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g"  # AAVE V3
@@ -91,13 +96,13 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = json.loads(resp.read().decode())
             if "data" in body:
-                print("✅ GraphQL query succeeded (key is valid)")
+                logger.info("✅ GraphQL query succeeded (key is valid)")
             else:
-                print(f"⚠️ Unexpected response: {body}")
+                logger.info(f"⚠️ Unexpected response: {body}")
     except urllib.error.HTTPError as e:
-        print(f"⚠️ Query failed {e.code}: {e.read().decode()[:200]}")
+        logger.info(f"⚠️ Query failed {e.code}: {e.read().decode()[:200]}")
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"⚠️ Query failed: {e}")
+        logger.info(f"⚠️ Query failed: {e}")
 
     return 0
 

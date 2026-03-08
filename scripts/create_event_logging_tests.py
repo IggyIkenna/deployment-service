@@ -2,6 +2,9 @@
 """Create test_event_logging.py for each service with service-specific events."""
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 
 SERVICE_EVENTS = {
@@ -96,6 +99,8 @@ import re
 from pathlib import Path
 
 import pytest
+import logging
+logger = logging.getLogger(__name__)
 
 REQUIRED_COMMON_EVENTS = [
     "STARTED",
@@ -179,7 +184,7 @@ def main():
         content = TEMPLATE.replace("{events_json}", json.dumps(events_dict, indent=4))
         content = content.replace("{{", "{").replace("}}", "}")
         (test_dir / "test_event_logging.py").write_text(content)
-        print(f"Created {service_name}/tests/unit/test_event_logging.py")
+        logger.info(f"Created {service_name}/tests/unit/test_event_logging.py")
 
 
 if __name__ == "__main__":

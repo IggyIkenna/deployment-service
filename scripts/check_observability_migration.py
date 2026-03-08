@@ -45,6 +45,7 @@ SERVICE_REPOS = [
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO)
     violations = []
     for repo_name in SERVICE_REPOS:
         repo_dir = REPO_ROOT / repo_name
@@ -70,11 +71,13 @@ def main() -> int:
                     violations.append((str(rel), "unified_trading_library.observability"))
 
     if violations:
-        print("ERROR: Only deployment-service may use setup_cloud_logging or unified_trading_library.observability")
-        print("Use unified_events_interface (setup_events, log_event) instead.")
-        print()
+        logger.info(
+            "ERROR: Only deployment-service may use setup_cloud_logging or unified_trading_library.observability"
+        )
+        logger.info("Use unified_events_interface (setup_events, log_event) instead.")
+        logger.info()
         for path, pattern in violations:
-            print(f"  {path}: {pattern}")
+            logger.info(f"  {path}: {pattern}")
         return 1
     return 0
 

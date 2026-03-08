@@ -39,7 +39,7 @@ DEFI_VENUES = [
 
 
 def log(msg):
-    print(
+    logger.info(
         f"[{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
         flush=True,
     )
@@ -114,10 +114,14 @@ def process_date_folder(date_folder, dry_run=False, parallel_threads=20):
 
     # Get list of data_type folders
     try:
-        result = subprocess.run(["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["gsutil", "ls", date_prefix], capture_output=True, text=True, timeout=30
+        )
         if result.returncode != 0:
             return 0
-        data_type_folders = [f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f]
+        data_type_folders = [
+            f.strip() for f in result.stdout.strip().split("\n") if "data_type-" in f
+        ]
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return 0
 
@@ -126,10 +130,14 @@ def process_date_folder(date_folder, dry_run=False, parallel_threads=20):
     for dt_folder in data_type_folders:
         # Get list of instrument_type subfolders (pool, a_token, debt_token, lst, etc.)
         try:
-            result = subprocess.run(["gsutil", "ls", dt_folder], capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                ["gsutil", "ls", dt_folder], capture_output=True, text=True, timeout=30
+            )
             if result.returncode != 0:
                 continue
-            inst_type_folders = [f.strip() for f in result.stdout.strip().split("\n") if f.strip().endswith("/")]
+            inst_type_folders = [
+                f.strip() for f in result.stdout.strip().split("\n") if f.strip().endswith("/")
+            ]
         except (subprocess.TimeoutExpired, OSError, ValueError) as e:
             logger.debug("Skipping item due to %s: %s", type(e).__name__, e)
             continue
@@ -172,7 +180,9 @@ def process_date_wrapper(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fast GCS reorganization for DEFI with parallel moves")
+    parser = argparse.ArgumentParser(
+        description="Fast GCS reorganization for DEFI with parallel moves"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
     parser.add_argument(
         "--workers",
@@ -180,7 +190,9 @@ def main():
         default=20,
         help="Parallel file moves per folder (default: 20)",
     )
-    parser.add_argument("--date-workers", type=int, default=3, help="Parallel date folders (default: 3)")
+    parser.add_argument(
+        "--date-workers", type=int, default=3, help="Parallel date folders (default: 3)"
+    )
     parser.add_argument(
         "--cpu-cores",
         type=int,
@@ -250,7 +262,9 @@ def main():
 
     # Process date folders in parallel batches
     with ThreadPoolExecutor(max_workers=args.date_workers) as executor:
-        tasks = [(df, args.dry_run, args.workers, i + 1, total) for i, df in enumerate(date_folders)]
+        tasks = [
+            (df, args.dry_run, args.workers, i + 1, total) for i, df in enumerate(date_folders)
+        ]
         results = list(executor.map(process_date_wrapper, tasks))
         total_moved = sum(results)
 

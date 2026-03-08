@@ -17,11 +17,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from dataclasses import dataclass, field
 from typing import Literal
 
 from unified_cloud_interface import get_secret_client, get_storage_client
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Required resources
@@ -158,22 +161,22 @@ def _print_report(report: VerifyReport) -> None:
     fail_count = sum(1 for r in report.results if r.status == "FAIL")
     total = len(report.results)
 
-    print(f"\nBootstrap Verification — {pass_count}/{total} passed")
-    print("-" * 50)
+    logger.info(f"\nBootstrap Verification — {pass_count}/{total} passed")
+    logger.info("-" * 50)
 
     for result in report.results:
         label = f"[{result.resource_type:8}]"
         status = result.status
-        print(f"  {status}  {label}  {result.name}")
+        logger.info(f"  {status}  {label}  {result.name}")
         if result.detail:
-            print(f"            {result.detail}")
+            logger.info(f"            {result.detail}")
 
-    print("-" * 50)
+    logger.info("-" * 50)
     if report.passed:
-        print(f"RESULT: PASS  ({pass_count} resources verified)")
+        logger.info(f"RESULT: PASS  ({pass_count} resources verified)")
     else:
-        print(f"RESULT: FAIL  ({fail_count} resource(s) not accessible)")
-    print()
+        logger.info(f"RESULT: FAIL  ({fail_count} resource(s) not accessible)")
+    logger.info()
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +185,7 @@ def _print_report(report: VerifyReport) -> None:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Verify UCI bootstrap resources (buckets + secrets) exist."
     )
