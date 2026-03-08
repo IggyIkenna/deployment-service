@@ -186,7 +186,9 @@ class ShardCombinatoricsGenerator:
 
         if has_venue_dim:
             for category in category_values:
-                categories_dict = _cast(dict[str, dict[str, object]], venues_config.get("categories") or {})
+                categories_dict = _cast(
+                    dict[str, dict[str, object]], venues_config.get("categories") or {}
+                )
                 cat_config = categories_dict.get(str(category)) or {}
                 venues = _cast(list[object], cat_config.get("venues") or [])
                 for venue in venues:
@@ -306,7 +308,9 @@ class GCSTestBucketManager:
 
             # Filter by pattern (simple suffix match)
             suffix = pattern.replace("*", "")
-            files = [f"gs://{bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith(suffix)]
+            files = [
+                f"gs://{bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith(suffix)
+            ]
 
             return files
         except (OSError, PermissionError) as e:

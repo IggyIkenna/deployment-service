@@ -23,7 +23,11 @@ class DeploymentCLI(BaseCLI):
         self.hard_limit = _cfg.max_concurrent_hard_limit
 
     def deploy_service(
-        self, service: str, environment: str = "production", dry_run: bool = False, max_shards: int | None = None
+        self,
+        service: str,
+        environment: str = "production",
+        dry_run: bool = False,
+        max_shards: int | None = None,
     ) -> bool:
         """Deploy a service to the specified environment.
 
@@ -126,7 +130,9 @@ class DeploymentCLI(BaseCLI):
         if len(shards) > 5:
             logger.info("  ... and %s more shards", len(shards) - 5)
 
-    def _execute_deployment(self, service: str, shards: list[dict[str, object]], environment: str) -> bool:
+    def _execute_deployment(
+        self, service: str, shards: list[dict[str, object]], environment: str
+    ) -> bool:
         """Execute the actual deployment.
 
         Args:

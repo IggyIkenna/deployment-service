@@ -28,8 +28,12 @@ class TestTotalMissingFallback:
         # Simulate the calculation from data_status.py
         def calculate_total_missing(results, total_venue_expected, total_venue_found):
             """Replicate the fixed logic from data_status.py."""
-            total_expected_category = sum(r.get("dates_expected", 0) for r in results.values() if "error" not in r)
-            total_found_category = sum(r.get("dates_found", 0) for r in results.values() if "error" not in r)
+            total_expected_category = sum(
+                r.get("dates_expected", 0) for r in results.values() if "error" not in r
+            )
+            total_found_category = sum(
+                r.get("dates_found", 0) for r in results.values() if "error" not in r
+            )
 
             if total_venue_expected > 0:
                 # Use venue-weighted
@@ -99,7 +103,9 @@ class TestExcludeDatesFiltering:
             return filtered
 
         # Apply filtering
-        filtered = filter_shards_by_exclude_dates(test_data["input_shards"], test_data["exclude_dates"])
+        filtered = filter_shards_by_exclude_dates(
+            test_data["input_shards"], test_data["exclude_dates"]
+        )
 
         # Convert to comparable format
         remaining = [(s["category"], s["date"]) for s in filtered]
@@ -243,7 +249,9 @@ class TestExpectedMissingCalculation:
         expected_missing = 0
         venues = cat_result.get("venues", {})
         for _venue_name, venue_info in venues.items():
-            venue_expected = venue_info.get("dates_expected_venue", venue_info.get("dates_expected", 0))
+            venue_expected = venue_info.get(
+                "dates_expected_venue", venue_info.get("dates_expected", 0)
+            )
             venue_found = venue_info.get("dates_found", 0)
             is_expected = venue_info.get("is_expected", True)
             if is_expected:

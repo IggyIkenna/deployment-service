@@ -64,7 +64,9 @@ def get_config_dir() -> Path:
         if parent.name == "deployment-service":
             return parent / "configs"
 
-    raise click.ClickException("Could not find configs directory. Run from deployment-service or specify --config-dir")
+    raise click.ClickException(
+        "Could not find configs directory. Run from deployment-service or specify --config-dir"
+    )
 
 
 @click.group()
@@ -78,7 +80,9 @@ def get_config_dir() -> Path:
 )
 @click.option("--project-id", help="GCP Project ID for operations requiring cloud access")
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, config_dir: str | None, cloud: str, project_id: str | None):
+def cli(
+    ctx: click.Context, verbose: bool, config_dir: str | None, cloud: str, project_id: str | None
+):
     """Unified Trading Deployment - Shard Calculator
 
     Multi-cloud deployment CLI supporting both GCP and AWS.

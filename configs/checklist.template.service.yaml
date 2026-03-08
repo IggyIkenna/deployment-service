@@ -61,17 +61,16 @@ owner: ""
 # AUTH SETUP (SSOT for auth_smoke_test.py — see 07-security/service-to-service-auth.md)
 # =============================================================================
 auth_setup:
-  local_auth_method: "adc"  # adc | sa_key_file | none
-  github_secret_name: "GH_PAT"  # Secret name for GitHub Actions (clone private deps)
-  cloudbuild_sa_roles: []  # IAM roles required for Cloud Build service account
-  inter_service_auth: "none"  # none | oauth | mtls
-  aws_secret_name: null  # AWS Secrets Manager secret name (mirrors GCP Secret Manager)
+  local_auth_method: "adc" # adc | sa_key_file | none
+  github_secret_name: "GH_PAT" # Secret name for GitHub Actions (clone private deps)
+  cloudbuild_sa_roles: [] # IAM roles required for Cloud Build service account
+  inter_service_auth: "none" # none | oauth | mtls
+  aws_secret_name: null # AWS Secrets Manager secret name (mirrors GCP Secret Manager)
 
 # =============================================================================
 # PHASE 1: Repository Foundation (Items 1-6)
 # =============================================================================
 phase_1_repository_foundation:
-
   item_01_repository_exists:
     description: "Service repo is present in workspace"
     status: pending
@@ -373,7 +372,6 @@ phase_1_repository_foundation:
 # PHASE 2: Testing and Quality (Items 7-12)
 # =============================================================================
 phase_2_testing_and_quality:
-
   item_07_unit_tests_exist:
     description: "tests/unit/ directory with meaningful coverage"
     status: pending
@@ -502,7 +500,6 @@ phase_2_testing_and_quality:
 # PHASE 3: Deployment Infrastructure (Items 13-18)
 # =============================================================================
 phase_3_deployment_infrastructure:
-
   item_13_sharding_config:
     description: "configs/sharding.{service}.yaml defines dimensions, CLI args, compute recommendations"
     status: pending
@@ -603,11 +600,11 @@ phase_3_deployment_infrastructure:
       output_buckets: "From dependencies.yaml outputs section"
       input_buckets: "From dependencies.yaml upstream.check sections"
     gcp_buckets:
-      outputs: []  # Populated per-service from dependencies.yaml
-      inputs: []   # Populated per-service from dependencies.yaml
+      outputs: [] # Populated per-service from dependencies.yaml
+      inputs: [] # Populated per-service from dependencies.yaml
     aws_buckets:
-      outputs: []  # Populated per-service from cloud-providers.yaml
-      inputs: []   # Populated per-service from cloud-providers.yaml
+      outputs: [] # Populated per-service from cloud-providers.yaml
+      inputs: [] # Populated per-service from cloud-providers.yaml
 
   item_18_deploy_cli_works:
     description: "python deploy.py deploy --service {service} executes without errors"
@@ -623,7 +620,6 @@ phase_3_deployment_infrastructure:
 # PHASE 4: Local Validation (Items 19-22)
 # =============================================================================
 phase_4_local_validation:
-
   item_19_code_runs_locally:
     description: "Can execute with valid args, no import errors"
     status: pending
@@ -700,7 +696,6 @@ phase_4_local_validation:
 # PHASE 5: Production Deployment (Items 23-25)
 # =============================================================================
 phase_5_production_deployment:
-
   item_23_image_builds:
     description: "Cloud Build produces image in Artifact Registry after quality gates pass"
     status: pending
@@ -757,7 +752,6 @@ phase_5_production_deployment:
 # PHASE 6: Documentation (Items 26-33)
 # =============================================================================
 phase_6_documentation:
-
   item_26_readme_complete:
     description: "README.md at repo root with status, overview, quick start, and doc links"
     status: pending
@@ -857,7 +851,6 @@ phase_6_documentation:
 # PHASE 7: Data Catalogue Readiness (Items 34-37)
 # =============================================================================
 phase_7_data_catalogue_readiness:
-
   item_34_data_catalogue_exists:
     description: "configs/data-catalogue.{service}.yaml enumerates all shard combinations with instrument_type/data_type where applicable"
     status: pending

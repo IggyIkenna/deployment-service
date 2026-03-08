@@ -79,7 +79,11 @@ class DeploymentOrchestrator:
         # Default: 50/sec = 3,000/min (50% headroom under 6,000/min quota)
         # Conservative limit helps avoid SSL failures when running many parallel operations
         self.rate_limiter = RateLimiter(requests_per_second=api_rate_limit)
-        logger.info("[RATE_LIMITER] Initialized at %s requests/sec (%.0f/min)", api_rate_limit, api_rate_limit * 60)
+        logger.info(
+            "[RATE_LIMITER] Initialized at %s requests/sec (%.0f/min)",
+            api_rate_limit,
+            api_rate_limit * 60,
+        )
 
         # Optional centralized admissions/quota broker (Cloud Run IAM)
         self.quota_broker = QuotaBrokerClient() if QuotaBrokerClient else None
@@ -270,7 +274,9 @@ class DeploymentOrchestrator:
 
             if no_wait:
                 # Fire and forget - return immediately after launching
-                logger.info("Launched %s shards, returning without waiting", len(state.running_shards))
+                logger.info(
+                    "Launched %s shards, returning without waiting", len(state.running_shards)
+                )
                 self.progress_display.display_progress(state)
                 return state
 
@@ -313,7 +319,9 @@ class DeploymentOrchestrator:
             shard.error_message = None
             shard.retries += 1
 
-        logger.info("Resuming deployment %s with %s shards", deployment_id, len(state.pending_shards))
+        logger.info(
+            "Resuming deployment %s with %s shards", deployment_id, len(state.pending_shards)
+        )
 
         # Get backend
         config = state.config
@@ -405,7 +413,9 @@ class DeploymentOrchestrator:
         # Also cancel pending shards that haven't started yet
         # Rate limit delete operations to avoid hitting GCP API quotas
         cancelled_count = 0
-        shards_to_cancel = [s for s in state.shards if s.status in [ShardStatus.RUNNING, ShardStatus.PENDING]]
+        shards_to_cancel = [
+            s for s in state.shards if s.status in [ShardStatus.RUNNING, ShardStatus.PENDING]
+        ]
 
         if shards_to_cancel:
             logger.info(
@@ -421,7 +431,10 @@ class DeploymentOrchestrator:
 
                 # Has a VM - try to delete it
                 logger.info(
-                    "Cancelling shard %s (status=%s, job_id=%s)", shard.shard_id, shard.status.value, shard.job_id
+                    "Cancelling shard %s (status=%s, job_id=%s)",
+                    shard.shard_id,
+                    shard.status.value,
+                    shard.job_id,
                 )
                 if backend.cancel_job(shard.job_id):
                     cancelled_count += 1

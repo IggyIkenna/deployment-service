@@ -86,7 +86,12 @@ pipeline_order:
 
     - order: 8
       service: ml-training-service
-      depends_on: [features-delta-one-service, features-volatility-service, features-onchain-service]
+      depends_on:
+        [
+          features-delta-one-service,
+          features-volatility-service,
+          features-onchain-service,
+        ]
       action: "NOT IN SPRINT SCOPE -- blocked until all features populated"
 
     - order: 9
@@ -101,7 +106,8 @@ pipeline_order:
 
     - order: 11
       service: execution-service
-      depends_on: [strategy-service, market-tick-data-service, instruments-service]
+      depends_on:
+        [strategy-service, market-tick-data-service, instruments-service]
       action: "NOT IN SPRINT SCOPE"
 
 # =============================================================================

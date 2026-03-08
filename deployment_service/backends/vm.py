@@ -59,7 +59,7 @@ class VMBackend(ComputeBackend):
                    If not provided, defaults to all zones in the region (a, b, c).
             status_bucket: GCS bucket for status files
             status_prefix: Prefix for status files in bucket
-        """
+        """  # noqa: E501
         super().__init__(project_id, region, service_account_email)
 
         # Initialize configuration manager
@@ -71,7 +71,9 @@ class VMBackend(ComputeBackend):
         elif zone:
             # Single zone specified - use it as primary with fallback to others
             suffixes = self._config_manager.get_zone_suffixes(region)
-            self.zones = [zone] + [f"{region}-{suffix}" for suffix in suffixes if f"{region}-{suffix}" != zone]
+            self.zones = [zone] + [
+                f"{region}-{suffix}" for suffix in suffixes if f"{region}-{suffix}" != zone
+            ]
         else:
             # Default: try all zones in the region
             self.zones = self._config_manager.get_zones_for_region(region)

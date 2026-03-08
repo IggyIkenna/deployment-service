@@ -50,7 +50,12 @@ class MonitoringCLI(BaseCLI):
             "uptime": "72h 15m",
             "last_check": datetime.now(UTC).isoformat(),
             "endpoints": {"api": "healthy", "database": "healthy", "cache": "healthy"},
-            "metrics": {"cpu_usage": "45%", "memory_usage": "62%", "request_rate": "1250 req/s", "error_rate": "0.02%"},
+            "metrics": {
+                "cpu_usage": "45%",
+                "memory_usage": "62%",
+                "request_rate": "1250 req/s",
+                "error_rate": "0.02%",
+            },
         }
 
         self._log_health_status(health_status)
@@ -83,7 +88,9 @@ class MonitoringCLI(BaseCLI):
                 unhealthy_count += 1
 
         if unhealthy_count > 0:
-            health_report["overall_status"] = "degraded" if unhealthy_count < len(services) / 2 else "unhealthy"
+            health_report["overall_status"] = (
+                "degraded" if unhealthy_count < len(services) / 2 else "unhealthy"
+            )
 
         return health_report
 
@@ -94,7 +101,13 @@ class MonitoringCLI(BaseCLI):
             List of service names
         """
         # This would normally query service registry
-        return ["instruments-service", "market-data-service", "execution-service", "risk-service", "strategy-service"]
+        return [
+            "instruments-service",
+            "market-data-service",
+            "execution-service",
+            "risk-service",
+            "strategy-service",
+        ]
 
     def _log_health_status(self, status: dict[str, object]):
         """Log health status in readable format.
@@ -199,7 +212,9 @@ class MonitoringCLI(BaseCLI):
 
         return sample_logs[-lines:]
 
-    def set_alert(self, service: str, metric: str, threshold: float, action: str = "notify") -> bool:
+    def set_alert(
+        self, service: str, metric: str, threshold: float, action: str = "notify"
+    ) -> bool:
         """Set up an alert for a service metric.
 
         Args:

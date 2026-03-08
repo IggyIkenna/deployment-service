@@ -93,7 +93,7 @@ class VMLifecycleManager:
 
         return zones_to_try
 
-    def deploy_shard(
+    def deploy_shard(  # noqa: C901
         self,
         shard_id: str,
         docker_image: str,
@@ -143,7 +143,9 @@ class VMLifecycleManager:
         use_gcs_fuse = bool(gcsfuse_buckets)
         if use_gcs_fuse:
             env_vars_for_container = {
-                k: v for k, v in environment_variables.items() if k.upper() != "UNIFIED_CLOUD_SERVICES_USE_DIRECT_GCS"
+                k: v
+                for k, v in environment_variables.items()
+                if k.upper() != "UNIFIED_CLOUD_SERVICES_USE_DIRECT_GCS"
             }
             env_vars_for_container["GCS_FUSE_MOUNT_PATH"] = "/mnt/gcs"
         else:
@@ -165,7 +167,11 @@ class VMLifecycleManager:
             assert gcsfuse_buckets is not None
             resolved_buckets = []
             for b in gcsfuse_buckets:
-                name = str(b).replace("{project_id}", self.project_id).replace("${GCP_PROJECT_ID}", self.project_id)
+                name = (
+                    str(b)
+                    .replace("{project_id}", self.project_id)
+                    .replace("${GCP_PROJECT_ID}", self.project_id)
+                )
                 if name and name not in resolved_buckets:
                     resolved_buckets.append(name)
             gcsfuse_buckets_str = " ".join(resolved_buckets)
@@ -206,7 +212,9 @@ class VMLifecycleManager:
                 template_context["gcsfuse_buckets_str"] = gcsfuse_buckets_str
 
             # Generate cloud-init with current zone
-            cloud_init = self._config_manager.render_cloud_init_template(template_context, use_gcs_fuse)
+            cloud_init = self._config_manager.render_cloud_init_template(
+                template_context, use_gcs_fuse
+            )
 
             # Build the instance configuration for this zone
             instance_labels = {
@@ -244,7 +252,9 @@ class VMLifecycleManager:
                     # Wait for operation to complete
                     operation.result()
 
-                    logger.info("Created VM %s in zone %s for shard %s", instance_name, zone, shard_id)
+                    logger.info(
+                        "Created VM %s in zone %s for shard %s", instance_name, zone, shard_id
+                    )
                     successful_zone = zone
                     break  # Success, exit retry loop
 
@@ -256,7 +266,7 @@ class VMLifecycleManager:
                     if self._config_manager.is_zone_exhausted_error(error_str):
                         exhaustion_count = self._zone_exhaustion_counts.get(zone, 0) + 1
                         logger.warning(
-                            "[ZONE_EXHAUSTED] Zone %s exhausted for shard %s (exhaustion #%s for this zone), trying next zone. Error: %s",
+                            "[ZONE_EXHAUSTED] Zone %s exhausted for shard %s (exhaustion #%s for this zone), trying next zone. Error: %s",  # noqa: E501
                             zone,
                             shard_id,
                             exhaustion_count,
@@ -278,7 +288,7 @@ class VMLifecycleManager:
                             quota_type = "SSD"
 
                         logger.warning(
-                            "[REGIONAL_QUOTA_EXHAUSTED] %s quota exhausted in region %s for shard %s, trying next zone. Error: %s",
+                            "[REGIONAL_QUOTA_EXHAUSTED] %s quota exhausted in region %s for shard %s, trying next zone. Error: %s",  # noqa: E501
                             quota_type,
                             self.region,
                             shard_id,
@@ -295,7 +305,7 @@ class VMLifecycleManager:
                         if attempt < max_retries:
                             delay = retry_delays[attempt]
                             logger.warning(
-                                "[RATE_LIMITED] VM creation rate limited for shard %s, retrying in %ss (attempt %s/%s)",
+                                "[RATE_LIMITED] VM creation rate limited for shard %s, retrying in %ss (attempt %s/%s)",  # noqa: E501
                                 shard_id,
                                 delay,
                                 attempt + 1,
@@ -305,7 +315,10 @@ class VMLifecycleManager:
                             continue  # Retry same zone
                         else:
                             # Exhausted retries for rate limit - try next zone
-                            logger.warning("[RATE_LIMITED] Rate limit persists in zone %s, trying next zone", zone)
+                            logger.warning(
+                                "[RATE_LIMITED] Rate limit persists in zone %s, trying next zone",
+                                zone,
+                            )
                             break  # Try next zone
                     else:
                         # Other error - re-raise to be handled below
@@ -389,9 +402,7 @@ class VMLifecycleManager:
                 f"Original error: {error_str}"
             )
         else:
-            error_msg = (
-                f"Failed to create VM for shard {shard_id} in any zone. Tried zones: {tried_zones}. Error: {error_str}"
-            )
+            error_msg = f"Failed to create VM for shard {shard_id} in any zone. Tried zones: {tried_zones}. Error: {error_str}"  # noqa: E501
 
         logger.error(error_msg)
         return JobInfo(
@@ -489,7 +500,7 @@ class VMLifecycleManager:
                 continue
         logger.debug("[FIRE_AND_FORGET] %s not found in any zone", job_id)
 
-    def cleanup_zombie_vms(self, deployment_id: str, shard_ids: list[str]) -> dict[str, bool]:
+    def cleanup_zombie_vms(self, deployment_id: str, shard_ids: list[str]) -> dict[str, bool]:  # noqa: C901
         """
         Detect and delete ZOMBIE VMs (failed to self-delete but marked in GCS).
 
@@ -505,7 +516,9 @@ class VMLifecycleManager:
         for shard_id in shard_ids:
             try:
                 # Check if shard has ZOMBIE marker
-                monitoring = VMMonitoringManager(self.project_id, self.zones, self.status_bucket, self.status_prefix)
+                monitoring = VMMonitoringManager(
+                    self.project_id, self.zones, self.status_bucket, self.status_prefix
+                )
 
                 gcs_status = monitoring.check_gcs_status(deployment_id, shard_id)
                 if gcs_status != "ZOMBIE":
@@ -532,7 +545,9 @@ class VMLifecycleManager:
                 if success:
                     logger.warning("✅ Cleaned up ZOMBIE VM %s", job_id)
                 else:
-                    logger.warning("❌ Failed to cleanup ZOMBIE VM %s (may have already shut down)", job_id)
+                    logger.warning(
+                        "❌ Failed to cleanup ZOMBIE VM %s (may have already shut down)", job_id
+                    )
 
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning("Error cleaning up zombie for %s: %s", shard_id, e)
@@ -566,7 +581,9 @@ class VMLifecycleManager:
         """Get job context (deployment_id, shard_id, zone) for a job."""
         return self._job_context.get(job_id)
 
-    def set_job_context(self, job_id: str, deployment_id: str, shard_id: str, zone: str | None = None) -> None:
+    def set_job_context(
+        self, job_id: str, deployment_id: str, shard_id: str, zone: str | None = None
+    ) -> None:
         """Set job context for external monitoring."""
         zone = zone or self.zones[0]
         self._job_context[job_id] = (deployment_id, shard_id, zone)

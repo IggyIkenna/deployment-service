@@ -83,7 +83,9 @@ class ConfigLoader(BaseConfigLoader):
         import os
         from pathlib import Path
 
-        topology_path_env = os.environ.get("RUNTIME_TOPOLOGY_PATH")  # config-bootstrap: topology file location
+        topology_path_env = os.environ.get(
+            "RUNTIME_TOPOLOGY_PATH"
+        )  # config-bootstrap: topology file location
         if topology_path_env:
             path = Path(topology_path_env)
             if path.exists():
@@ -106,7 +108,9 @@ class ConfigLoader(BaseConfigLoader):
             "WORKSPACE_ROOT", ""
         )  # config-bootstrap: workspace root for topology resolution
         if workspace_root:
-            pm_path = Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
+            pm_path = (
+                Path(workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
+            )
             if pm_path.exists():
                 cache_key = "runtime-topology"
                 if cache_key in self._cache:
@@ -123,7 +127,9 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("PM topology not found at %s", pm_path)
 
-        logger.warning("runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT.")
+        logger.warning(
+            "runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT."
+        )
         return {}
 
     def list_available_services(self) -> list[str]:
@@ -156,7 +162,7 @@ class ConfigLoader(BaseConfigLoader):
             return str(val) if val is not None else None
         return None
 
-    def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:
+    def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:  # noqa: C901
         """Get the expected start date for a specific venue."""
         config = self.load_expected_start_dates()
         if not config:
@@ -192,17 +198,19 @@ class ConfigLoader(BaseConfigLoader):
 
         return None
 
-    def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:
+    def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:  # noqa: C901
         """Get the expected data types for a specific venue on a given date."""
         venues_config = self.load_venues_config()
 
         # Validate required structure
         try:
             categories = cast(
-                dict[str, object], ValidationUtils.get_required(venues_config, "categories", "venues config")
+                dict[str, object],
+                ValidationUtils.get_required(venues_config, "categories", "venues config"),
             )
             category_config = cast(
-                dict[str, object], ValidationUtils.get_required(categories, category, "venues categories")
+                dict[str, object],
+                ValidationUtils.get_required(categories, category, "venues categories"),
             )
         except ConfigurationError:
             logger.warning("Category '%s' not found in venues config", category)
@@ -214,7 +222,9 @@ class ConfigLoader(BaseConfigLoader):
             # Fallback to category-level data types
             default_types_raw = category_config.get("data_types")
             return (
-                [str(x) for x in cast(list[object], default_types_raw)] if isinstance(default_types_raw, list) else []
+                [str(x) for x in cast(list[object], default_types_raw)]
+                if isinstance(default_types_raw, list)
+                else []
             )
 
         venue_data_types_dict = cast(dict[str, object], venue_data_types_raw)
@@ -223,7 +233,9 @@ class ConfigLoader(BaseConfigLoader):
             # Fallback to category-level data types
             default_types_raw = category_config.get("data_types")
             return (
-                [str(x) for x in cast(list[object], default_types_raw)] if isinstance(default_types_raw, list) else []
+                [str(x) for x in cast(list[object], default_types_raw)]
+                if isinstance(default_types_raw, list)
+                else []
             )
 
         venue_types_dict = cast(dict[str, object], venue_types_raw)
@@ -260,7 +272,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return list(expected)
 
-    def is_data_type_expected_for_venue(
+    def is_data_type_expected_for_venue(  # noqa: C901
         self, category: str, venue: str, data_type: str, date_str: str | None = None
     ) -> bool:
         """Check if a data_type is expected for a specific venue."""
@@ -302,15 +314,21 @@ class ConfigLoader(BaseConfigLoader):
                                     else:
                                         default_val = data_types_dict.get("default")
                                         resolved_types = (
-                                            cast(list[object], default_val) if isinstance(default_val, list) else None
+                                            cast(list[object], default_val)
+                                            if isinstance(default_val, list)
+                                            else None
                                         )
                                 else:
                                     default_val = data_types_dict.get("default")
                                     resolved_types = (
-                                        cast(list[object], default_val) if isinstance(default_val, list) else None
+                                        cast(list[object], default_val)
+                                        if isinstance(default_val, list)
+                                        else None
                                     )
 
-                                data_types_raw = resolved_types if resolved_types is not None else []
+                                data_types_raw = (
+                                    resolved_types if resolved_types is not None else []
+                                )
 
                             if isinstance(data_types_raw, list):
                                 return data_type in cast(list[object], data_types_raw)
@@ -332,16 +350,20 @@ class ConfigLoader(BaseConfigLoader):
         chain_config = venue_config.get("chain_data_types")
         return cast(dict[str, object], chain_config) if isinstance(chain_config, dict) else {}
 
-    def get_all_venue_data_type_expectations(self, category: str, date_str: str) -> dict[str, list[str]]:
+    def get_all_venue_data_type_expectations(
+        self, category: str, date_str: str
+    ) -> dict[str, list[str]]:
         """Get expected data types for ALL venues in a category for a given date."""
         venues_config = self.load_venues_config()
 
         try:
             categories = cast(
-                dict[str, object], ValidationUtils.get_required(venues_config, "categories", "venues config")
+                dict[str, object],
+                ValidationUtils.get_required(venues_config, "categories", "venues config"),
             )
             category_config = cast(
-                dict[str, object], ValidationUtils.get_required(categories, category, "venues categories")
+                dict[str, object],
+                ValidationUtils.get_required(categories, category, "venues categories"),
             )
         except ConfigurationError:
             logger.warning("Category '%s' not found in venues config", category)
@@ -361,7 +383,9 @@ class ConfigLoader(BaseConfigLoader):
         return result
 
     # Compute configuration methods
-    def get_compute_recommendation(self, service: str, compute_type: str = "vm") -> dict[str, object]:
+    def get_compute_recommendation(
+        self, service: str, compute_type: str = "vm"
+    ) -> dict[str, object]:
         """Get compute recommendations for a service."""
         config = self.load_service_config(service)
         compute = config.get("compute")
@@ -374,13 +398,15 @@ class ConfigLoader(BaseConfigLoader):
             elif compute_type == "cloud_run":
                 return {"memory": "4Gi", "cpu": 2, "timeout_seconds": 3600}
             else:
-                raise ConfigurationError(f"Unknown compute type '{compute_type}' for service '{service}'")
+                raise ConfigurationError(
+                    f"Unknown compute type '{compute_type}' for service '{service}'"
+                )
 
         compute_dict = cast(dict[str, object], compute)
         compute_config = compute_dict[compute_type]
         if not isinstance(compute_config, dict):
             raise ConfigurationError(
-                f"Invalid compute config for {service}.{compute_type} - expected dict, got {type(compute_config)}"
+                f"Invalid compute config for {service}.{compute_type} - expected dict, got {type(compute_config)}"  # noqa: E501
             )
 
         return cast(dict[str, object], compute_config)
@@ -508,7 +534,9 @@ class ConfigLoader(BaseConfigLoader):
         return config
 
     # Cloud provider methods
-    def get_docker_image(self, service: str, tag: str = "latest", provider: str | None = None) -> str:
+    def get_docker_image(
+        self, service: str, tag: str = "latest", provider: str | None = None
+    ) -> str:
         """Get the Docker image URL for a service based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()
@@ -521,7 +549,9 @@ class ConfigLoader(BaseConfigLoader):
 
         provider_config_raw = cloud_config.get(provider)
         if not isinstance(provider_config_raw, dict):
-            logger.warning("Provider '%s' not found in cloud config, falling back to service config", provider)
+            logger.warning(
+                "Provider '%s' not found in cloud config, falling back to service config", provider
+            )
             service_config = self.load_service_config(service)
             raw = str(service_config.get("docker_image") or f"{service}:{tag}")
             return substitute_env_vars(raw)
@@ -529,7 +559,10 @@ class ConfigLoader(BaseConfigLoader):
         provider_config = cast(dict[str, object], provider_config_raw)
         registry_config_raw = provider_config.get("container_registry")
         if not isinstance(registry_config_raw, dict):
-            logger.warning("No container registry config for provider '%s', falling back to service config", provider)
+            logger.warning(
+                "No container registry config for provider '%s', falling back to service config",
+                provider,
+            )
             service_config = self.load_service_config(service)
             raw = str(service_config.get("docker_image") or f"{service}:{tag}")
             return substitute_env_vars(raw)
@@ -568,7 +601,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return substitute_env_vars(str(url_pattern)).format(**variables)
 
-    def get_bucket_name(self, domain: str, category: str = "", provider: str | None = None) -> str:
+    def get_bucket_name(self, domain: str, category: str = "", provider: str | None = None) -> str:  # noqa: C901
         """Get the bucket name for a domain/category based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()
@@ -609,7 +642,9 @@ class ConfigLoader(BaseConfigLoader):
             bucket_template = domain_config
 
         if not bucket_template:
-            logger.warning("No bucket template found for domain '%s', category '%s'", domain, category)
+            logger.warning(
+                "No bucket template found for domain '%s', category '%s'", domain, category
+            )
             return ""
 
         return substitute_env_vars(str(bucket_template))

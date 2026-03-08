@@ -18,7 +18,7 @@ DEFAULT_PROJECT_ID = _deployment_config.effective_project_id
 DEFAULT_REGION = _deployment_config.effective_region
 DEFAULT_SERVICE_ACCOUNT = (
     _deployment_config.service_account_email
-    or f"instruments-service-cloud-run@{_deployment_config.effective_project_id}.iam.gserviceaccount.com"
+    or f"instruments-service-cloud-run@{_deployment_config.effective_project_id}.iam.gserviceaccount.com"  # noqa: E501
 )
 DEFAULT_STATE_BUCKET = _deployment_config.effective_state_bucket
 

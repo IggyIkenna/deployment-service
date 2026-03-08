@@ -151,7 +151,13 @@ class ReportingCLI(BaseCLI):
 
     def _get_all_services(self) -> list[str]:
         """Get list of all services."""
-        return ["instruments-service", "market-data-service", "execution-service", "risk-service", "strategy-service"]
+        return [
+            "instruments-service",
+            "market-data-service",
+            "execution-service",
+            "risk-service",
+            "strategy-service",
+        ]
 
     def _get_service_deployment_info(self, service: str) -> dict[str, object]:
         """Get deployment information for a service."""
@@ -167,7 +173,9 @@ class ReportingCLI(BaseCLI):
             "resources": {"cpu": "4 cores", "memory": "8 GB", "storage": "50 GB"},
         }
 
-    def _get_service_performance_metrics(self, service: str, time_range: timedelta) -> dict[str, object]:
+    def _get_service_performance_metrics(
+        self, service: str, time_range: timedelta
+    ) -> dict[str, object]:
         """Get performance metrics for a service."""
         # This would query actual metrics
         return {
@@ -196,7 +204,9 @@ class ReportingCLI(BaseCLI):
             "total": daily_cost * days,
         }
 
-    def _calculate_deployment_summary(self, services: dict[str, dict[str, object]]) -> dict[str, object]:
+    def _calculate_deployment_summary(
+        self, services: dict[str, dict[str, object]]
+    ) -> dict[str, object]:
         """Calculate deployment summary statistics."""
         total_services = len(services)
         deployed = sum(1 for s in services.values() if s["status"] == "deployed")
@@ -211,22 +221,32 @@ class ReportingCLI(BaseCLI):
             "deployment_success_rate": f"{(deployed / total_services) * 100:.1f}%",
         }
 
-    def _calculate_aggregate_performance(self, services: dict[str, dict[str, object]]) -> dict[str, object]:
+    def _calculate_aggregate_performance(
+        self, services: dict[str, dict[str, object]]
+    ) -> dict[str, object]:
         """Calculate aggregate performance metrics."""
-        total_requests = sum(int(cast(int, s.get("requests_processed") or 0)) for s in services.values())
+        total_requests = sum(
+            int(cast(int, s.get("requests_processed") or 0)) for s in services.values()
+        )
         total_errors = sum(int(cast(int, s.get("errors") or 0)) for s in services.values())
 
-        avg_uptime = sum(float(str(s.get("uptime") or "0%").rstrip("%")) for s in services.values()) / len(services)
+        avg_uptime = sum(
+            float(str(s.get("uptime") or "0%").rstrip("%")) for s in services.values()
+        ) / len(services)
 
         result: dict[str, object] = {
             "total_requests": total_requests,
             "total_errors": total_errors,
-            "overall_error_rate": f"{(total_errors / total_requests) * 100:.3f}%" if total_requests > 0 else "0%",
+            "overall_error_rate": f"{(total_errors / total_requests) * 100:.3f}%"
+            if total_requests > 0
+            else "0%",
             "average_uptime": f"{avg_uptime:.2f}%",
         }
         return result
 
-    def _calculate_cost_breakdown(self, services: dict[str, dict[str, object]]) -> dict[str, object]:
+    def _calculate_cost_breakdown(
+        self, services: dict[str, dict[str, object]]
+    ) -> dict[str, object]:
         """Calculate cost breakdown by category."""
         breakdown: dict[str, float] = {"compute": 0.0, "storage": 0.0, "network": 0.0, "other": 0.0}
 
@@ -251,7 +271,7 @@ class ReportingCLI(BaseCLI):
 
         logger.info("Report saved to %s", output_path)
 
-    def _save_markdown_report(self, report: dict[str, object], output_path: Path):
+    def _save_markdown_report(self, report: dict[str, object], output_path: Path):  # noqa: C901
         """Save report as markdown."""
         with open(output_path, "w") as f:
             f.write(f"# {report['title']}\n\n")

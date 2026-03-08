@@ -18,7 +18,9 @@ from tests.mocks import make_mock_path_combinatorics
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "integration: mark test as integration test (requires external services)")
+    config.addinivalue_line(
+        "markers", "integration: mark test as integration test (requires external services)"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -347,7 +349,9 @@ def expected_start_dates_config():
 
 
 @pytest.fixture
-def temp_config_with_start_dates(temp_config_dir, hierarchical_service_config, expected_start_dates_config):
+def temp_config_with_start_dates(
+    temp_config_dir, hierarchical_service_config, expected_start_dates_config
+):
     """Create a temp config dir with service config and expected_start_dates.yaml."""
     # Write the service config
     with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:

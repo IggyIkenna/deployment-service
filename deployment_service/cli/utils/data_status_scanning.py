@@ -1,7 +1,7 @@
 """Scanning functions for data status display.
 
 This module contains all the scanning-related helper functions used by the data status display modules.
-"""
+"""  # noqa: E501
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,7 +11,7 @@ import click
 logger = logging.getLogger(__name__)
 
 
-def scan_venues_fast_mode(
+def scan_venues_fast_mode(  # noqa: C901
     categories: list[str],
     bucket_info: dict[str, object],
     category_valid_dates: dict[str, object],
@@ -33,7 +33,9 @@ def scan_venues_fast_mode(
             continue
         info = bucket_info[cat]
         all_cat_venues = (
-            list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+            list(venue)
+            if venue
+            else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
         )
 
         # Filter venues by their start dates - exclude venues launched AFTER the date range
@@ -51,7 +53,9 @@ def scan_venues_fast_mode(
                     cat_venues.append(v)
 
             if excluded_venues:
-                click.echo(f"  {cat}: Excluding {len(excluded_venues)} venues launched after {first_date}:")
+                click.echo(
+                    f"  {cat}: Excluding {len(excluded_venues)} venues launched after {first_date}:"
+                )
                 for v, start_dt in excluded_venues:
                     click.echo(click.style(f"    - {v} (launched {start_dt})", dim=True))
 
@@ -80,7 +84,9 @@ def scan_venues_fast_mode(
             )
         elif "{venue}" in path_template:
             # General venue-based checking
-            prefix_template = path_template.replace("{date}", "{date}").replace("{venue}", "{venue}")
+            prefix_template = path_template.replace("{date}", "{date}").replace(
+                "{venue}", "{venue}"
+            )
             click.echo(f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates...")
 
             valid_dates = category_valid_dates.get(cat, all_dates)
@@ -161,7 +167,11 @@ def scan_buckets_batch_mode(
         info = bucket_info[cat]
         path_template = info["path_template"]
 
-        prefix = path_template.split("{date}")[0] if "{date}" in path_template else path_template.split("/")[0] + "/"
+        prefix = (
+            path_template.split("{date}")[0]
+            if "{date}" in path_template
+            else path_template.split("/")[0] + "/"
+        )
 
         gcs_path = f"gs://{info['bucket']}/{prefix}"
         bucket_paths.append(gcs_path)
@@ -181,7 +191,7 @@ def scan_buckets_batch_mode(
     return bucket_indexes
 
 
-def check_timeframes_for_venues(
+def check_timeframes_for_venues(  # noqa: C901
     cat: str,
     cat_venues: list[str],
     category_valid_dates: dict[str, object],
@@ -194,7 +204,9 @@ def check_timeframes_for_venues(
     _deployment_config,
 ) -> dict[str, object]:
     """Check timeframes for market-data-processing-service venues."""
-    expected_timeframes = gcs_config.get("expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"])
+    expected_timeframes = gcs_config.get(
+        "expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"]
+    )
     expected_data_types_by_cat = gcs_config.get("expected_data_types") or {}
     expected_data_types = expected_data_types_by_cat.get(cat, [])
     total_tf = len(expected_timeframes)
@@ -202,10 +214,12 @@ def check_timeframes_for_venues(
 
     if detailed and expected_data_types:
         click.echo(
-            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes x {total_dt} data_types..."
+            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes x {total_dt} data_types..."  # noqa: E501
         )
     else:
-        click.echo(f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes...")
+        click.echo(
+            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes..."  # noqa: E501
+        )
 
     venue_results = {}
     valid_dates = category_valid_dates.get(cat, all_dates)
@@ -218,7 +232,7 @@ def check_timeframes_for_venues(
     first_date = valid_dates[0] if valid_dates else all_dates[0]
     venue_expected_dt = loader.get_all_venue_data_type_expectations(cat, first_date)
 
-    def check_venue_timeframes_detailed(venue_name):
+    def check_venue_timeframes_detailed(venue_name):  # noqa: C901
         """Check all timeframes (and optionally data_types) for a venue across dates."""
         date_results = {}
         venue_tf_stats = dict.fromkeys(expected_timeframes, 0)  # tf -> days complete
@@ -228,7 +242,7 @@ def check_timeframes_for_venues(
         venue_specific_dt = venue_expected_dt.get(venue_name, expected_data_types)
         bucket = cloud_client.client.bucket(info["bucket"])
 
-        def check_single_date(date_str):
+        def check_single_date(date_str):  # noqa: C901
             """Check all timeframes for a single date (runs in parallel)."""
             tf_found = 0
             tf_details = {}  # tf -> bool
@@ -259,15 +273,28 @@ def check_timeframes_for_venues(
                     # Failed to list blobs - likely network or permissions issue
                     # Log and continue with next timeframe
                     logger.warning(
-                        "Failed to list blobs for venue %s on %s timeframe %s: %s", venue_name, date_str, tf, e
+                        "Failed to list blobs for venue %s on %s timeframe %s: %s",
+                        venue_name,
+                        date_str,
+                        tf,
+                        e,
                     )
                 except (ValueError, KeyError) as e:
                     # Invalid bucket configuration or path template
-                    logger.warning("Invalid bucket configuration for venue %s on %s: %s", venue_name, date_str, e)
+                    logger.warning(
+                        "Invalid bucket configuration for venue %s on %s: %s",
+                        venue_name,
+                        date_str,
+                        e,
+                    )
                 except RuntimeError as e:
                     # Other unexpected errors - log but continue
                     logger.warning(
-                        "Unexpected error checking venue %s on %s timeframe %s: %s", venue_name, date_str, tf, e
+                        "Unexpected error checking venue %s on %s timeframe %s: %s",
+                        venue_name,
+                        date_str,
+                        tf,
+                        e,
                     )
 
                 tf_details[tf] = tf_exists
@@ -346,7 +373,7 @@ def check_data_types_for_venues(
         prefix_template = path_template.split("{date}")[0] + "day={date}/"
 
     click.echo(
-        f"  Checking {cat}: {len(cat_venues)} venues x {len(category_valid_dates.get(cat, []))} dates (venue-specific search)..."
+        f"  Checking {cat}: {len(cat_venues)} venues x {len(category_valid_dates.get(cat, []))} dates (venue-specific search)..."  # noqa: E501
     )
 
     venue_results = {}

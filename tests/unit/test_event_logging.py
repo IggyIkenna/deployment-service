@@ -35,7 +35,11 @@ def get_service_name() -> str:
 
 def find_python_files(service_dir: Path) -> list[Path]:
     exclude = {"tests", ".venv", "venv", "__pycache__", ".git", "examples"}
-    return [p for p in service_dir.rglob("*.py") if not any(x in p.relative_to(service_dir).parts for x in exclude)]
+    return [
+        p
+        for p in service_dir.rglob("*.py")
+        if not any(x in p.relative_to(service_dir).parts for x in exclude)
+    ]
 
 
 def find_event_markers(file_path: Path) -> set[str]:
@@ -59,7 +63,9 @@ def test_required_common_events_exist(all_event_markers: set[str]) -> None:
     missing = set(REQUIRED_COMMON_EVENTS) - all_event_markers
     if missing:
         pytest.fail(f"Missing required common events: {sorted(missing)}")
-    assert not (set(REQUIRED_COMMON_EVENTS) - all_event_markers), "Some required common events missing"
+    assert not (set(REQUIRED_COMMON_EVENTS) - all_event_markers), (
+        "Some required common events missing"
+    )
 
 
 def test_service_specific_events_exist(all_event_markers: set[str]) -> None:

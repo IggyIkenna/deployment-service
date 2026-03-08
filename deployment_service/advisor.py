@@ -55,7 +55,7 @@ class AdvisorRecommendation:
         return asdict(self)
 
 
-def recommend_deployment_settings(
+def recommend_deployment_settings(  # noqa: C901
     *,
     service: str,
     compute_type: str,
@@ -102,14 +102,14 @@ def recommend_deployment_settings(
     if compute_type == "cloud_run":
         if total_shards > CLOUD_RUN_MAX_RUNNING_EXECUTIONS_PER_REGION:
             warnings.append(
-                f"Cloud Run has a hard cap of {CLOUD_RUN_MAX_RUNNING_EXECUTIONS_PER_REGION} running executions per region. "
-                f"Use max_concurrent ≤ {CLOUD_RUN_SAFE_MAX_CONCURRENT} and expect rolling scheduling."
+                f"Cloud Run has a hard cap of {CLOUD_RUN_MAX_RUNNING_EXECUTIONS_PER_REGION} running executions per region. "  # noqa: E501
+                f"Use max_concurrent ≤ {CLOUD_RUN_SAFE_MAX_CONCURRENT} and expect rolling scheduling."  # noqa: E501
             )
 
         if skip_venue_sharding:
             warnings.append(
                 "skip_venue_sharding can greatly increase per-shard workload. "
-                "For Cloud Run this may OOM unless your Job template is sized appropriately; consider using VM."
+                "For Cloud Run this may OOM unless your Job template is sized appropriately; consider using VM."  # noqa: E501
             )
 
         if compute_config:
@@ -123,17 +123,17 @@ def recommend_deployment_settings(
 
             if mem_gib and mem_gib > CLOUD_RUN_MAX_MEMORY_GIB:
                 warnings.append(
-                    f"Cloud Run max memory is {CLOUD_RUN_MAX_MEMORY_GIB}Gi, but compute config requests {mem_gib}Gi. "
+                    f"Cloud Run max memory is {CLOUD_RUN_MAX_MEMORY_GIB}Gi, but compute config requests {mem_gib}Gi. "  # noqa: E501
                     "Ensure the Cloud Run Job template is within limits or switch to VM."
                 )
             if cpu_int and cpu_int > CLOUD_RUN_MAX_CPU:
                 warnings.append(
-                    f"Cloud Run max CPU is {CLOUD_RUN_MAX_CPU}, but compute config requests {cpu_int}. "
+                    f"Cloud Run max CPU is {CLOUD_RUN_MAX_CPU}, but compute config requests {cpu_int}. "  # noqa: E501
                     "Ensure the Cloud Run Job template is within limits or switch to VM."
                 )
 
         notes.append(
-            f"Cloud Run run_job write quota is typically {CLOUD_RUN_DEFAULT_RUN_JOB_QUOTA_PER_MIN}/min/region; "
+            f"Cloud Run run_job write quota is typically {CLOUD_RUN_DEFAULT_RUN_JOB_QUOTA_PER_MIN}/min/region; "  # noqa: E501
             "auto-scheduler throttles launch requests (~2--3/sec) to avoid 429s."
         )
 
@@ -141,11 +141,13 @@ def recommend_deployment_settings(
     if max_workers and max_workers > 8:
         notes.append(
             "High container max_workers increases upstream vendor/API pressure. "
-            "If you see hanging RUNNING shards, reduce max_workers and/or enable key rotation via SHARD_INDEX/TOTAL_SHARDS."
+            "If you see hanging RUNNING shards, reduce max_workers and/or enable key rotation via SHARD_INDEX/TOTAL_SHARDS."  # noqa: E501
         )
 
     if skip_feature_group_sharding:
-        notes.append("skip_feature_group_sharding reduces shard count but increases per-shard work.")
+        notes.append(
+            "skip_feature_group_sharding reduces shard count but increases per-shard work."
+        )
 
     return AdvisorRecommendation(
         recommended_date_granularity=recommended_granularity,

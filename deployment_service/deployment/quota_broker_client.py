@@ -78,7 +78,9 @@ class QuotaBrokerClient:
             payload_b64 = token.split(".")[1]
             # Pad base64url string
             payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8"))
+            payload = json.loads(
+                base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+            )
             exp = float(payload.get("exp") or 0.0)
         except (OSError, ValueError, RuntimeError):
             exp = now + 300.0

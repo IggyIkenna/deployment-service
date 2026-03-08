@@ -53,5 +53,7 @@ class RateLimiter:
             # Log every 100 requests for visibility
             if self._request_count % 100 == 0:
                 logger.debug(
-                    "[RATE_LIMITER] %s API requests made at %s/sec", self._request_count, self.requests_per_second
+                    "[RATE_LIMITER] %s API requests made at %s/sec",
+                    self._request_count,
+                    self.requests_per_second,
                 )

@@ -13,8 +13,12 @@ from deployment_service.backends.vm import VMBackend
 
 def _make_vm_backend(**kwargs):
     """Create a VMBackend with mocked GCP auth to avoid credential errors in unit tests."""
-    with patch("deployment_service.backends.services.vm_config.get_images_client") as mock_images, \
-         patch("deployment_service.backends.services.vm_config.get_instances_client") as mock_instances:
+    with (
+        patch("deployment_service.backends.services.vm_config.get_images_client") as mock_images,
+        patch(
+            "deployment_service.backends.services.vm_config.get_instances_client"
+        ) as mock_instances,
+    ):
         mock_images.return_value = MagicMock()
         mock_instances.return_value = MagicMock()
         return VMBackend(**kwargs)

@@ -186,7 +186,9 @@ class TestCloudBuildIntegration:
     def test_cloudbuild_client_init(self, project_id):
         """Test Cloud Build client can be initialized."""
         if not has_cloudbuild_module():
-            pytest.skip("google-cloud-build not installed (install with: pip install google-cloud-build)")
+            pytest.skip(
+                "google-cloud-build not installed (install with: pip install google-cloud-build)"
+            )
         from google.cloud.devtools import cloudbuild_v1
 
         client = cloudbuild_v1.CloudBuildClient()
@@ -196,7 +198,9 @@ class TestCloudBuildIntegration:
     def test_cloudbuild_list_builds(self, project_id, region):
         """Test listing recent builds (requires roles/cloudbuild.builds.viewer)."""
         if not has_cloudbuild_module():
-            pytest.skip("google-cloud-build not installed (install with: pip install google-cloud-build)")
+            pytest.skip(
+                "google-cloud-build not installed (install with: pip install google-cloud-build)"
+            )
         from google.cloud.devtools import cloudbuild_v1
 
         client = cloudbuild_v1.CloudBuildClient()
@@ -219,7 +223,9 @@ class TestCloudBuildIntegration:
     def test_cloudbuild_list_triggers(self, project_id, region):
         """Test listing build triggers."""
         if not has_cloudbuild_module():
-            pytest.skip("google-cloud-build not installed (install with: pip install google-cloud-build)")
+            pytest.skip(
+                "google-cloud-build not installed (install with: pip install google-cloud-build)"
+            )
         from google.cloud.devtools import cloudbuild_v1
 
         client = cloudbuild_v1.CloudBuildClient()
@@ -320,7 +326,9 @@ class TestArtifactRegistryIntegration:
         import google.auth
         import google.auth.transport.requests
 
-        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
 
         request = google.auth.transport.requests.Request()
         credentials.refresh(request)
@@ -336,7 +344,9 @@ class TestArtifactRegistryIntegration:
         import requests
 
         # Get auth token
-        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
         request_obj = google.auth.transport.requests.Request()
         credentials.refresh(request_obj)
 
@@ -367,7 +377,9 @@ class TestArtifactRegistryIntegration:
         from deployment_api.utils.artifact_registry import get_image_info
 
         # Test with a known image (instruments-service)
-        image_url = f"{region}-docker.pkg.dev/{project_id}/unified-services/instruments-service:latest"
+        image_url = (
+            f"{region}-docker.pkg.dev/{project_id}/unified-services/instruments-service:latest"
+        )
 
         result = asyncio.run(get_image_info(image_url))
 
@@ -403,7 +415,9 @@ class TestLogsEndpointIntegration:
         # Find an execution with logs
         execution_name = None
         for job in jobs[:5]:  # Check first 5 jobs
-            executions = list(executions_client.list_executions(run_v2.ListExecutionsRequest(parent=job.name)))
+            executions = list(
+                executions_client.list_executions(run_v2.ListExecutionsRequest(parent=job.name))
+            )
             if executions:
                 execution_name = executions[0].name.split("/")[-1]
                 job_name = job.name.split("/")[-1]

@@ -116,7 +116,9 @@ class TestServiceFilteringFix:
         service = None
 
         # When service is None, don't filter
-        filtered_prefixes = [f for f in all_prefixes if service in f] if service is not None else all_prefixes
+        filtered_prefixes = (
+            [f for f in all_prefixes if service in f] if service is not None else all_prefixes
+        )
 
         assert len(filtered_prefixes) == 2
 

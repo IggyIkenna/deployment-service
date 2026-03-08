@@ -24,7 +24,9 @@ def _get_env_snapshot() -> dict[str, str]:
     """
     import os
 
-    return dict(os.environ)  # config-bootstrap: intentional full env snapshot for template substitution
+    return dict(
+        os.environ
+    )  # config-bootstrap: intentional full env snapshot for template substitution
 
 
 def get_cloud_provider() -> str:
@@ -94,7 +96,9 @@ def parse_storage_path(storage_path: str) -> tuple[str, str]:
     if storage_path.startswith("gs://") or storage_path.startswith("s3://"):
         path = storage_path[5:]
     else:
-        raise ValueError(f"Invalid storage path: {storage_path}. Must start with 'gs://' or 's3://'")
+        raise ValueError(
+            f"Invalid storage path: {storage_path}. Must start with 'gs://' or 's3://'"
+        )
 
     parts = path.split("/", 1)
     bucket = parts[0]

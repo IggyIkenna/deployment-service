@@ -24,7 +24,7 @@ _config = DeploymentConfig()
 logger = logging.getLogger(__name__)
 
 
-def launch_shards_parallel(
+def launch_shards_parallel(  # noqa: C901
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -58,7 +58,7 @@ def launch_shards_parallel(
         compute_type: "vm" or "cloud_run" for applying overrides
         auto_retry_failed: If True, automatically retry shards that failed during launch (default True)
         max_launch_retry_rounds: Maximum number of retry rounds for failed launch shards (default 3)
-    """
+    """  # noqa: E501
     labels = {
         "service": state.service,
         "deployment_id": state.deployment_id,
@@ -73,11 +73,13 @@ def launch_shards_parallel(
         if venue and venue in venue_overrides:
             venue_config = cast("dict[str, object]", venue_overrides[venue].get(compute_type, {}))
             if venue_config:
-                logger.info("[%s] Applying venue override for %s: %s", shard.shard_id, venue, venue_config)
+                logger.info(
+                    "[%s] Applying venue override for %s: %s", shard.shard_id, venue, venue_config
+                )
                 return {**compute_config, **venue_config}
         return compute_config
 
-    def launch_single_shard(
+    def launch_single_shard(  # noqa: C901
         shard_with_index: tuple[int, ShardState],
         max_launch_retries: int = 3,
         base_delay: float = 1.0,
@@ -113,7 +115,9 @@ def launch_shards_parallel(
                 ttl_override = None
             else:
                 resources = {"RUNNING_EXECUTIONS": 1.0}
-                timeout_s = int(cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600))
+                timeout_s = int(
+                    cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600)
+                )
                 ttl_override = max(300, min(timeout_s, 6 * 3600))
 
             started_wait = time.time()
@@ -185,13 +189,23 @@ def launch_shards_parallel(
                 # Release admission lease on failed launch (best-effort)
                 if job_info.status == JobStatus.FAILED:
                     try:
-                        if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
+                        if (
+                            quota_broker
+                            and quota_broker.enabled()
+                            and (lease_id or shard.quota_lease_id)
+                        ):
                             quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                             shard.quota_lease_id = None
                     except (ConnectionError, TimeoutError) as e:
-                        logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+                        logger.warning(
+                            "Failed to release quota lease for %s (connection issue): %s",
+                            shard.shard_id,
+                            e,
+                        )
                     except (OSError, ValueError, RuntimeError) as e:
-                        logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
+                        logger.warning(
+                            "Failed to release quota lease for %s: %s", shard.shard_id, e
+                        )
 
                 # Log success after retries
                 if attempt > 0:
@@ -233,7 +247,7 @@ def launch_shards_parallel(
                     total_delay: float = delay + jitter
 
                     logger.warning(
-                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s), retrying in %.1fs. Error: %s",
+                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s), retrying in %.1fs. Error: %s",  # noqa: E501
                         shard.shard_id,
                         attempt + 1,
                         max_launch_retries + 1,
@@ -245,30 +259,49 @@ def launch_shards_parallel(
                     # Non-retryable error or max retries reached
                     if attempt >= max_launch_retries:
                         logger.error(
-                            "[LAUNCH_FAILED] Shard %s failed after %s attempt(s): %s", shard.shard_id, attempt + 1, e
+                            "[LAUNCH_FAILED] Shard %s failed after %s attempt(s): %s",
+                            shard.shard_id,
+                            attempt + 1,
+                            e,
                         )
                     else:
-                        logger.error("[LAUNCH_FAILED] Shard %s failed (non-retryable): %s", shard.shard_id, e)
+                        logger.error(
+                            "[LAUNCH_FAILED] Shard %s failed (non-retryable): %s", shard.shard_id, e
+                        )
                     # Release admission lease on ultimate failure (best-effort)
                     try:
-                        if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
+                        if (
+                            quota_broker
+                            and quota_broker.enabled()
+                            and (lease_id or shard.quota_lease_id)
+                        ):
                             quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                             shard.quota_lease_id = None
                     except (ConnectionError, TimeoutError) as e:
-                        logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+                        logger.warning(
+                            "Failed to release quota lease for %s (connection issue): %s",
+                            shard.shard_id,
+                            e,
+                        )
                     except (OSError, ValueError, RuntimeError) as e:
-                        logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
+                        logger.warning(
+                            "Failed to release quota lease for %s: %s", shard.shard_id, e
+                        )
                     return (shard, None)
 
         # Should not reach here, but just in case
-        logger.error("[LAUNCH_FAILED] Shard %s failed after all retries: %s", shard.shard_id, last_error)
+        logger.error(
+            "[LAUNCH_FAILED] Shard %s failed after all retries: %s", shard.shard_id, last_error
+        )
         # Release admission lease on ultimate failure (best-effort)
         try:
             if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
                 quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                 shard.quota_lease_id = None
         except (ConnectionError, TimeoutError) as e:
-            logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
+            logger.warning(
+                "Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e
+            )
         except (OSError, ValueError, RuntimeError) as e:
             logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
         return (shard, None)
@@ -285,7 +318,7 @@ def launch_shards_parallel(
 
     total_mini_batches = (len(indexed_shards) + mini_batch_size - 1) // mini_batch_size
     logger.info(
-        "Launching %s shards with %s parallel workers (mini-batches of %s with %ss delay, %s batches)...",
+        "Launching %s shards with %s parallel workers (mini-batches of %s with %ss delay, %s batches)...",  # noqa: E501
         len(pending_shards),
         max_workers,
         mini_batch_size,
@@ -309,7 +342,8 @@ def launch_shards_parallel(
 
         with ThreadPoolExecutor(max_workers=min(max_workers, len(mini_batch))) as executor:
             futures: dict[Future[tuple[ShardState, JobInfo | None]], ShardState] = {
-                executor.submit(launch_single_shard, indexed_shard): indexed_shard[1] for indexed_shard in mini_batch
+                executor.submit(launch_single_shard, indexed_shard): indexed_shard[1]
+                for indexed_shard in mini_batch
             }
 
             for future in as_completed(futures):
@@ -342,7 +376,9 @@ def launch_shards_parallel(
 
         # Delay between mini-batches to let GCP provision VMs
         if mini_batch_idx + mini_batch_size < len(indexed_shards):
-            logger.debug("[MINI_BATCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds)
+            logger.debug(
+                "[MINI_BATCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds
+            )
             time.sleep(mini_batch_delay_seconds)
 
     # Recalculate overall deployment status after launch
@@ -372,8 +408,14 @@ def launch_shards_parallel(
 
             # Exponential backoff between retry rounds
             if retry_round > 0:
-                round_delay: float = min(30.0 * (2.0 ** (retry_round - 1)), 120.0)  # 30s, 60s, 120s max
-                logger.info("[AUTO_RETRY] Waiting %ss before retry round %s...", round_delay, retry_round + 1)
+                round_delay: float = min(
+                    30.0 * (2.0 ** (retry_round - 1)), 120.0
+                )  # 30s, 60s, 120s max
+                logger.info(
+                    "[AUTO_RETRY] Waiting %ss before retry round %s...",
+                    round_delay,
+                    retry_round + 1,
+                )
                 time.sleep(round_delay)
 
             logger.info(
@@ -408,7 +450,9 @@ def launch_shards_parallel(
 
                     if job_info is None or job_info.status == JobStatus.FAILED:
                         shard.status = ShardStatus.FAILED
-                        shard.error_message = job_info.error_message if job_info else "Launch failed"
+                        shard.error_message = (
+                            job_info.error_message if job_info else "Launch failed"
+                        )
                         shard.end_time = datetime.now(UTC).isoformat()
                     else:
                         shard.status = ShardStatus.RUNNING
@@ -445,7 +489,11 @@ def launch_shards_parallel(
         succeeded = sum(1 for s in state.shards if s.status == ShardStatus.SUCCEEDED)
 
         if failed > 0:
-            logger.warning("[AUTO_RETRY] %s shards still failed after %s retry rounds", failed, max_launch_retry_rounds)
+            logger.warning(
+                "[AUTO_RETRY] %s shards still failed after %s retry rounds",
+                failed,
+                max_launch_retry_rounds,
+            )
 
     # Set final deployment status
     if failed == len(state.shards):
@@ -471,7 +519,7 @@ def launch_shards_parallel(
     )
 
 
-def launch_shards_rolling(
+def launch_shards_rolling(  # noqa: C901
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -547,7 +595,9 @@ def launch_shards_rolling(
             # Hide non-wave pending shards so launch_shards_parallel only processes this wave
             wave_ids = {s.shard_id for s in wave}
             non_wave_pending = [
-                s for s in state.shards if s.status == ShardStatus.PENDING and s.shard_id not in wave_ids
+                s
+                for s in state.shards
+                if s.status == ShardStatus.PENDING and s.shard_id not in wave_ids
             ]
             # Temporarily mark non-wave pending shards as QUEUED to hide from parallel launcher
             # We use FAILED as a safe sentinel (will be restored immediately after)
@@ -581,7 +631,7 @@ def launch_shards_rolling(
             if no_wait and wave_number == 1:
                 # Fire and forget — launch first wave only, leave rest pending
                 logger.info(
-                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards, %s remain pending",
+                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards, %s remain pending",  # noqa: E501
                     len(wave),
                     len(all_pending),
                 )

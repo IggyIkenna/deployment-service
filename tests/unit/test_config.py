@@ -38,7 +38,9 @@ def test_no_os_getenv_in_production(production_files: list[Path]) -> None:
         content = fpath.read_text(encoding="utf-8")
         for lineno, line in enumerate(content.splitlines(), start=1):
             if pattern.search(line) and not line.strip().startswith("#"):
-                violations.append(f"{fpath.relative_to(SOURCE_DIR.parent)}:{lineno}: {line.strip()}")
+                violations.append(
+                    f"{fpath.relative_to(SOURCE_DIR.parent)}:{lineno}: {line.strip()}"
+                )
     assert not violations, "os.getenv() found in production source:\n" + "\n".join(violations)
 
 
@@ -75,5 +77,9 @@ def test_no_hardcoded_project_id_in_production(production_files: list[Path]) -> 
         content = fpath.read_text(encoding="utf-8")
         for lineno, line in enumerate(content.splitlines(), start=1):
             if hardcoded_id in line and not line.strip().startswith("#"):
-                violations.append(f"{fpath.relative_to(SOURCE_DIR.parent)}:{lineno}: {line.strip()}")
-    assert not violations, "Hardcoded project ID found in production source:\n" + "\n".join(violations)
+                violations.append(
+                    f"{fpath.relative_to(SOURCE_DIR.parent)}:{lineno}: {line.strip()}"
+                )
+    assert not violations, "Hardcoded project ID found in production source:\n" + "\n".join(
+        violations
+    )

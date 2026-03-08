@@ -80,7 +80,9 @@ class BaseConfigLoader:
         try:
             return self._load_yaml_file(filename, cache_key)
         except FileNotFoundError:
-            logger.warning("%s not found at %s, using defaults", filename, self.config_dir / filename)
+            logger.warning(
+                "%s not found at %s, using defaults", filename, self.config_dir / filename
+            )
             return default or {}
 
     def clear_cache(self):

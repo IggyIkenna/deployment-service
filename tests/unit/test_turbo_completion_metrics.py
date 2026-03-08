@@ -160,7 +160,9 @@ class TestDimensionWeightedCompletion:
 
         # New (fixed) category calculation: uses dimension-weighted values
         new_found = sum(
-            v.get("_dim_weighted_found", v["dates_found"]) for v in venues.values() if v.get("is_expected", True)
+            v.get("_dim_weighted_found", v["dates_found"])
+            for v in venues.values()
+            if v.get("is_expected", True)
         )
         new_expected = sum(
             v.get("_dim_weighted_expected", v["dates_expected_venue"])
@@ -217,8 +219,14 @@ class TestDimensionWeightedCompletion:
             },
         }
 
-        total_found = sum(v.get("_dim_weighted_found", 0) for v in venues.values() if v.get("is_expected", True))
-        total_expected = sum(v.get("_dim_weighted_expected", 0) for v in venues.values() if v.get("is_expected", True))
+        total_found = sum(
+            v.get("_dim_weighted_found", 0) for v in venues.values() if v.get("is_expected", True)
+        )
+        total_expected = sum(
+            v.get("_dim_weighted_expected", 0)
+            for v in venues.values()
+            if v.get("is_expected", True)
+        )
         pct = round(total_found / total_expected * 100, 1)
 
         # Only EXPECTED-VENUE counts: 50/60 = 83.3%
@@ -261,7 +269,10 @@ class TestMetricConsistency:
         }
 
         # Verify consistency
-        assert response["total_missing"] == response["overall_dates_expected"] - response["overall_dates_found"]
+        assert (
+            response["total_missing"]
+            == response["overall_dates_expected"] - response["overall_dates_found"]
+        )
 
         # If completion is not 100%, total_missing should be > 0
         if response["overall_completion_pct"] < 100:
@@ -326,5 +337,7 @@ class TestMetricConsistency:
 
         # The ratio gives approximate venue count
         if response["overall_dates_expected_category"] > 0:
-            approx_venues = response["overall_dates_expected"] / response["overall_dates_expected_category"]
+            approx_venues = (
+                response["overall_dates_expected"] / response["overall_dates_expected_category"]
+            )
             assert approx_venues >= 1  # At least 1 venue

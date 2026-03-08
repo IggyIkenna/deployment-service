@@ -41,7 +41,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import flask
 import functions_framework
@@ -57,36 +57,40 @@ _ALERT_TOPIC = os.environ.get("ALERT_TOPIC", "secret-rotation-alerts")
 
 # Exchange keys that require mandatory 90-day rotation (PCI DSS §8.3.9)
 # Data vendor / read-only keys are lower risk → 180-day window
-_TRADE_KEY_PATTERNS = frozenset([
-    "binance-api-key",
-    "binance-api-secret",
-    "bybit-api-key",
-    "bybit-api-secret",
-    "deribit-api-key",
-    "deribit-api-secret",
-    "kraken-api-key",
-    "kraken-api-secret",
-    "okx-api-key",
-    "okx-api-secret",
-    "coinbase-api-key",
-    "coinbase-api-secret",
-    "betfair-session-token",
-    "kalshi-api-key",
-    "bloxroute-api-key",
-])
+_TRADE_KEY_PATTERNS = frozenset(
+    [
+        "binance-api-key",
+        "binance-api-secret",
+        "bybit-api-key",
+        "bybit-api-secret",
+        "deribit-api-key",
+        "deribit-api-secret",
+        "kraken-api-key",
+        "kraken-api-secret",
+        "okx-api-key",
+        "okx-api-secret",
+        "coinbase-api-key",
+        "coinbase-api-secret",
+        "betfair-session-token",
+        "kalshi-api-key",
+        "bloxroute-api-key",
+    ]
+)
 
-_DATA_KEY_PATTERNS = frozenset([
-    "tardis-api-key",
-    "databento-api-key",
-    "glassnode-api-key",
-    "thegraph-api-key",
-    "alchemy-api-key",
-    "coinglass-api-key",
-    "arkham-api-key",
-    "odds-api-key",
-    "pinnacle-api-key",
-    "aws-hyperliquid-s3",
-])
+_DATA_KEY_PATTERNS = frozenset(
+    [
+        "tardis-api-key",
+        "databento-api-key",
+        "glassnode-api-key",
+        "thegraph-api-key",
+        "alchemy-api-key",
+        "coinglass-api-key",
+        "arkham-api-key",
+        "odds-api-key",
+        "pinnacle-api-key",
+        "aws-hyperliquid-s3",
+    ]
+)
 
 
 def _max_age_days(secret_name: str, category_label: str | None) -> int:
@@ -119,7 +123,9 @@ def _days_since_rotation(labels: dict[str, str]) -> int | None:
         return None
 
 
-def _publish_alert(publisher: pubsub_v1.PublisherClient, project_id: str, topic: str, payload: dict[str, object]) -> None:
+def _publish_alert(
+    publisher: pubsub_v1.PublisherClient, project_id: str, topic: str, payload: dict[str, object]
+) -> None:
     """Publish rotation alert to PubSub topic (non-blocking on failure)."""
     topic_path = publisher.topic_path(project_id, topic)
     try:
@@ -164,14 +170,19 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
         if days_old is None:
             # No rotation date tracked — flag for manual inspection
             unknown_age.append(secret_name)
-            _publish_alert(publisher, _PROJECT_ID, _ALERT_TOPIC, {
-                "event_type": "SECRET_ROTATION_UNKNOWN_AGE",
-                "secret": secret_name,
-                "project": _PROJECT_ID,
-                "timestamp": today.isoformat(),
-                "message": f"Secret {secret_name!r} has no last_rotated label. Add label or rotate immediately.",
-                "severity": "WARNING",
-            })
+            _publish_alert(
+                publisher,
+                _PROJECT_ID,
+                _ALERT_TOPIC,
+                {
+                    "event_type": "SECRET_ROTATION_UNKNOWN_AGE",
+                    "secret": secret_name,
+                    "project": _PROJECT_ID,
+                    "timestamp": today.isoformat(),
+                    "message": f"Secret {secret_name!r} has no last_rotated label. Add label or rotate immediately.",
+                    "severity": "WARNING",
+                },
+            )
             continue
 
         if days_old >= max_age:
@@ -185,14 +196,21 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
             overdue.append(record)
             logger.warning(
                 "SECRET_ROTATION_REQUIRED: %s is %d days old (max %d)",
-                secret_name, days_old, max_age
+                secret_name,
+                days_old,
+                max_age,
             )
-            _publish_alert(publisher, _PROJECT_ID, _ALERT_TOPIC, {
-                "event_type": "SECRET_ROTATION_REQUIRED",
-                "severity": "ERROR",
-                "timestamp": today.isoformat(),
-                **record,
-            })
+            _publish_alert(
+                publisher,
+                _PROJECT_ID,
+                _ALERT_TOPIC,
+                {
+                    "event_type": "SECRET_ROTATION_REQUIRED",
+                    "severity": "ERROR",
+                    "timestamp": today.isoformat(),
+                    **record,
+                },
+            )
         elif days_old >= (max_age - _WARN_BEFORE):
             days_until_due = max_age - days_old
             record = {
@@ -203,16 +221,18 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
                 "category": category or "inferred",
             }
             warning.append(record)
-            logger.info(
-                "SECRET_ROTATION_WARNING: %s due in %d days",
-                secret_name, days_until_due
+            logger.info("SECRET_ROTATION_WARNING: %s due in %d days", secret_name, days_until_due)
+            _publish_alert(
+                publisher,
+                _PROJECT_ID,
+                _ALERT_TOPIC,
+                {
+                    "event_type": "SECRET_ROTATION_WARNING",
+                    "severity": "WARNING",
+                    "timestamp": today.isoformat(),
+                    **record,
+                },
             )
-            _publish_alert(publisher, _PROJECT_ID, _ALERT_TOPIC, {
-                "event_type": "SECRET_ROTATION_WARNING",
-                "severity": "WARNING",
-                "timestamp": today.isoformat(),
-                **record,
-            })
         else:
             ok_count += 1
 
@@ -231,7 +251,11 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
 
     logger.info(
         "SECRET_ROTATION_SCAN_COMPLETE: scanned=%d ok=%d warning=%d overdue=%d unknown=%d",
-        scanned, ok_count, len(warning), len(overdue), len(unknown_age)
+        scanned,
+        ok_count,
+        len(warning),
+        len(overdue),
+        len(unknown_age),
     )
 
     status_code = 200 if not overdue else 207  # 207 Multi-Status signals partial issues

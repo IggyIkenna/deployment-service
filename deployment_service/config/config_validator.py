@@ -35,14 +35,16 @@ class ValidationUtils:
         return value
 
     @staticmethod
-    def get_with_default(config: dict[str, object], key: str, default: object, context: str = "") -> object:
+    def get_with_default(
+        config: dict[str, object], key: str, default: object, context: str = ""
+    ) -> object:
         """Get a value from config with a sensible non-empty default."""
         value = config.get(key)
         if value is None or (isinstance(value, str) and value.strip() == ""):
             if isinstance(default, str) and default == "":
                 context_msg = f" in {context}" if context else ""
                 logger.warning(
-                    "Using empty string default for '%s'%s - consider using ValidationUtils.get_required() instead",
+                    "Using empty string default for '%s'%s - consider using ValidationUtils.get_required() instead",  # noqa: E501
                     key,
                     context_msg,
                 )
@@ -76,9 +78,13 @@ class ConfigValidator:
                 raise ValueError(f"Service config for {service} missing required key: {key}")
 
         if config["service"] != service:
-            raise ValueError(f"Service name mismatch: config says '{config['service']}' but loaded as '{service}'")
+            raise ValueError(
+                f"Service name mismatch: config says '{config['service']}' but loaded as '{service}'"  # noqa: E501
+            )
 
-        ConfigValidator._validate_dimensions(cast(list[dict[str, object]], config["dimensions"]), service)
+        ConfigValidator._validate_dimensions(
+            cast(list[dict[str, object]], config["dimensions"]), service
+        )
 
     @staticmethod
     def _validate_dimensions(dimensions: list[dict[str, object]], service: str) -> None:
@@ -99,7 +105,9 @@ class ConfigValidator:
             ]
 
             if dim_type not in valid_types:
-                raise ValueError(f"Dimension '{dim['name']}' has invalid type '{dim_type}'. Valid types: {valid_types}")
+                raise ValueError(
+                    f"Dimension '{dim['name']}' has invalid type '{dim_type}'. Valid types: {valid_types}"  # noqa: E501
+                )
 
             ConfigValidator._validate_dimension_type(dim, service)
 
@@ -120,7 +128,7 @@ class ConfigValidator:
             valid_granularities = ["daily", "weekly", "monthly", "none"]
             if granularity not in valid_granularities:
                 raise ValueError(
-                    f"Dimension '{dim_name}' has invalid granularity '{granularity}'. Valid: {valid_granularities}"
+                    f"Dimension '{dim_name}' has invalid granularity '{granularity}'. Valid: {valid_granularities}"  # noqa: E501
                 )
 
     @staticmethod
@@ -135,14 +143,18 @@ class ConfigValidator:
                 if "container_registry" in provider_config:
                     registry = provider_config["container_registry"]
                     if "url_pattern" not in registry:
-                        logger.warning("Provider '%s' container registry missing url_pattern", provider)
+                        logger.warning(
+                            "Provider '%s' container registry missing url_pattern", provider
+                        )
 
     @staticmethod
-    def validate_expected_start_dates_config(config: dict[str, object]) -> None:
+    def validate_expected_start_dates_config(config: dict[str, object]) -> None:  # noqa: C901
         """Validate expected start dates configuration."""
         for service, service_config in config.items():
             if not isinstance(service_config, dict):
-                logger.warning("Service '%s' in expected_start_dates.yaml should be a dict", service)
+                logger.warning(
+                    "Service '%s' in expected_start_dates.yaml should be a dict", service
+                )
                 continue
 
             for category, category_config in service_config.items():
@@ -152,14 +164,23 @@ class ConfigValidator:
                 if "category_start" in category_config:
                     date_str = category_config["category_start"]
                     if not ConfigValidator._is_valid_date_string(date_str):
-                        logger.warning("Invalid date format in %s.%s.category_start: %s", service, category, date_str)
+                        logger.warning(
+                            "Invalid date format in %s.%s.category_start: %s",
+                            service,
+                            category,
+                            date_str,
+                        )
 
                 venues = category_config.get("venues", {})
                 if isinstance(venues, dict):
                     for venue, venue_date in venues.items():
                         if not ConfigValidator._is_valid_date_string(venue_date):
                             logger.warning(
-                                "Invalid date format in %s.%s.venues.%s: %s", service, category, venue, venue_date
+                                "Invalid date format in %s.%s.venues.%s: %s",
+                                service,
+                                category,
+                                venue,
+                                venue_date,
                             )
 
     @staticmethod
