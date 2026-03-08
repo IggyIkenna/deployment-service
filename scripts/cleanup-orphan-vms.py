@@ -41,11 +41,10 @@ def main() -> int:
         GCP_PROJECT_ID,
         STATE_BUCKET,
     )
-    from google.cloud import compute_v1
+    from unified_cloud_interface import get_compute_engine_client, get_storage_client
 
     base_prefix = f"deployments.{DEPLOYMENT_ENV}/"
     from deployment.orchestrator import DeploymentOrchestrator
-    from unified_cloud_interface import get_storage_client
 
     # List deployment state files (narrow prefix when --service given)
     list_prefix = f"{base_prefix}{args.service}-" if args.service else base_prefix
@@ -66,12 +65,14 @@ def main() -> int:
 
     prefix = base_prefix
     if args.service:
-        logger.info("Checking %s %s deployment(s) for orphan VMs...", len(deployment_ids), args.service)
+        logger.info(
+            "Checking %s %s deployment(s) for orphan VMs...", len(deployment_ids), args.service
+        )
     else:
         logger.info("Checking %s deployment(s) for orphan VMs...", len(deployment_ids))
     terminated = 0
 
-    instances_client = compute_v1.InstancesClient()
+    ce_client = get_compute_engine_client(project_id=GCP_PROJECT_ID)
 
     for deployment_id in deployment_ids:
         try:
@@ -117,14 +118,11 @@ def main() -> int:
             # Get vm_map
             vm_map = {}
             try:
-                agg_request = compute_v1.AggregatedListInstancesRequest(
-                    project=GCP_PROJECT_ID,
-                    filter=f"name:{service_name}-*",
+                instances = ce_client.aggregated_list_instances(
+                    GCP_PROJECT_ID, f"name:{service_name}-*"
                 )
-                agg_list = instances_client.aggregated_list(request=agg_request)
-                for _zone_scope, response in agg_list:
-                    for inst in response.instances or []:
-                        vm_map[inst.name] = inst.status
+                for inst in instances:
+                    vm_map[inst["name"]] = inst["status"]
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning("  %s: aggregatedList failed: %s", deployment_id, e)
                 continue
@@ -148,9 +146,13 @@ def main() -> int:
                             state_prefix=f"deployments.{DEPLOYMENT_ENV}",
                         )
                         try:
-                            job_name = ValidationUtils.get_required(config, "job_name", "VM backend for orphan cleanup")
+                            job_name = ValidationUtils.get_required(
+                                config, "job_name", "VM backend for orphan cleanup"
+                            )
                         except ConfigurationError as e:
-                            logger.error("Configuration error for deployment %s: %s", deployment_id, e)
+                            logger.error(
+                                "Configuration error for deployment %s: %s", deployment_id, e
+                            )
                             continue
 
                         backend = orch.get_backend(
@@ -171,7 +173,13 @@ def main() -> int:
                             else:
                                 backend.cancel_job(job_id)
                                 terminated += 1
-                                logger.info("  Terminated %s (%s/%s, GCS=%s)", job_id, deployment_id, shard_id, st)
+                                logger.info(
+                                    "  Terminated %s (%s/%s, GCS=%s)",
+                                    job_id,
+                                    deployment_id,
+                                    shard_id,
+                                    st,
+                                )
                     except (OSError, ValueError, RuntimeError) as e:
                         logger.warning("  Failed to terminate %s: %s", job_id, e)
 

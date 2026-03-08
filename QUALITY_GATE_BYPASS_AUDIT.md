@@ -480,3 +480,19 @@ cloud dependencies installed.
 
 **Status: JUSTIFIED** — the `backends/` directory is the cloud-SDK boundary layer; deferred
 imports are the correct pattern for optional multi-cloud SDK loading.
+
+## 2.2a Direct Cloud SDK Import Exceptions (2026-03-08)
+
+### RESOLVED — Migrated to UCI
+
+| File                          | Cloud API  | Resolution                |
+| ----------------------------- | ---------- | ------------------------- |
+| scripts/cleanup-orphan-vms.py | compute_v1 | get_compute_engine_client |
+| scripts/verify_infra.py       | pubsub_v1  | get_pubsub_client         |
+
+### JUSTIFIED — No UCI equivalent
+
+| File                                     | Cloud API          | Justification               |
+| ---------------------------------------- | ------------------ | --------------------------- |
+| scripts/download_instruments.py          | transfer_manager   | UCI has no transfer_manager |
+| deployment_service/backends/\_gcp_sdk.py | compute_v1, run_v2 | Internal backend boundary   |
