@@ -6,11 +6,8 @@ Provides reusable mock builders for GCS, PathCombinatorics, etc.
 
 from unittest.mock import MagicMock
 
-# Import CombinatoricEntry from deployment-api if available (installed as editable dep in venv)
-try:
-    from deployment_api.utils.path_combinatorics import CombinatoricEntry as _CombinatoricEntry
-except ImportError:
-    _CombinatoricEntry = None  # type: ignore[assignment,misc]
+# deployment-api is required (editable dep in venv)
+from deployment_api.utils.path_combinatorics import CombinatoricEntry as _CombinatoricEntry
 
 # Minimal SERVICE_PATH_TEMPLATES mirror (instruments-service only) so that
 # make_mock_path_combinatorics can generate realistic prefixes without loading
