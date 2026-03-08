@@ -155,7 +155,7 @@ upstream_dependencies:
     required_data_types:
       CEFI: [trades, book_snapshot_5]
       TRADFI: [ohlcv_1m]
-    check_method: representative  # Only check representative instruments
+    check_method: representative # Only check representative instruments
 
   features-volatility-service:
     # Volatility features need options chain data from market-tick-data-service
@@ -163,4 +163,4 @@ upstream_dependencies:
     required_data_types:
       CEFI: [options_chain, derivative_ticker]
       TRADFI: [ohlcv_1m]
-    check_method: representative  # Only check representative instruments
+    check_method: representative # Only check representative instruments

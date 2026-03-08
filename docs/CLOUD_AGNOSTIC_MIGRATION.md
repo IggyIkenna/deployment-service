@@ -6,14 +6,14 @@ This guide explains how deployment-service achieves cloud-agnostic design for th
 
 ## Migration Status
 
-| Component | Status | Priority |
-|-----------|--------|----------|
-| storage_facade | Complete | - |
-| api/routes/data_status.py | Migrated | P1 |
-| api/routes/deployments.py | Migrated | P1 |
-| api/routes/service_status.py | Partial | P1 |
-| backends/* | **Complete (GCP + AWS)** | ✅ |
-| scripts/* | GCP-Only | P3 |
+| Component                    | Status                   | Priority |
+| ---------------------------- | ------------------------ | -------- |
+| storage_facade               | Complete                 | -        |
+| api/routes/data_status.py    | Migrated                 | P1       |
+| api/routes/deployments.py    | Migrated                 | P1       |
+| api/routes/service_status.py | Partial                  | P1       |
+| backends/\*                  | **Complete (GCP + AWS)** | ✅       |
+| scripts/\*                   | GCP-Only                 | P3       |
 
 ## Architecture Layers
 

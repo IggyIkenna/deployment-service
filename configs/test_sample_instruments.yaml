@@ -344,7 +344,7 @@ defi:
 
   LIDO:
     instrument_types: [PROTOCOL]
-    data_types: [oracle_prices]  # yields REMOVED - derive from oracle_prices (price change over time)
+    data_types: [oracle_prices] # yields REMOVED - derive from oracle_prices (price change over time)
     instruments:
       - instrument_key: "LIDO:LST:STETH@ETHEREUM"
         base_asset: stETH

@@ -14,12 +14,14 @@
 → See **[ADAPTIVE_MAX_WORKERS_DESIGN.md](ADAPTIVE_MAX_WORKERS_DESIGN.md)**
 
 **Adaptive benefits:**
+
 - ✅ Auto-detects I/O vs CPU bound
 - ✅ Monitors RAM and prevents OOM
 - ✅ Machine-agnostic (works on any C2 size)
 - ✅ No manual tuning needed
 
 **This document is still useful for:**
+
 - Understanding core MAX_WORKERS concept
 - Static approach if preferred
 - Deployment orchestrator integration (applies to both)
@@ -57,6 +59,7 @@ Service Execution:
 ```
 
 **Special Case (only 16 days, MAX_WORKERS=16):**
+
 ```
 Deployment Orchestrator Creates:
   Shard 1: --start-date 2024-01-01 --end-date 2024-01-16, MAX_WORKERS=16
@@ -74,6 +77,7 @@ Deployment Orchestrator Creates:
 **File:** `deployment-service/api/routes/deployments.py` (or wherever shard creation happens)
 
 **Current (Before):**
+
 ```python
 def create_shards(start_date, end_date, shard_by, **kwargs):
     if shard_by == "date":
@@ -88,6 +92,7 @@ def create_shards(start_date, end_date, shard_by, **kwargs):
 ```
 
 **Updated (After):**
+
 ```python
 def create_shards(start_date, end_date, shard_by, max_workers=1, service_name=None, **kwargs):
     """
@@ -137,6 +142,7 @@ def get_service_default_max_workers(service_name: str) -> int:
 ```
 
 **Impact:**
+
 - instruments-service: 365 days → 23 shards (16 dates each)
 - features-calendar: 365 days → 23 shards
 - ml-inference: 365 days → 122 shards (3 dates each)
@@ -171,6 +177,7 @@ def deploy_service(service_name, start_date, end_date, max_workers, ...):
 ```
 
 **Examples:**
+
 ```bash
 # Default (service-specific)
 deploy instruments-service --start-date 2024-01-01 --end-date 2024-12-31
@@ -246,6 +253,7 @@ def main():
 ```
 
 **Key Changes:**
+
 1. Extract single-date logic into standalone function
 2. Read MAX_WORKERS from environment
 3. Use ParallelDateProcessor if MAX_WORKERS > 1
@@ -258,10 +266,12 @@ def main():
 ### 1. Paradise Batching Compatibility
 
 **What is Paradise?**
+
 - Groups multiple small jobs into batches to reduce startup overhead
 - Example: 100 jobs × 2 min each = 200 min serial, or batch into 10 groups of 10
 
 **Interaction with MAX_WORKERS:**
+
 ```
 Scenario: 365 days, MAX_WORKERS=16
 
@@ -293,6 +303,7 @@ Compatibility: ✅ NO CONFLICT
 **Challenge:** If shard covers 4 dates, how to track which dates succeeded/failed?
 
 **Current Status Model:**
+
 ```python
 # Shard status is atomic
 {
@@ -303,6 +314,7 @@ Compatibility: ✅ NO CONFLICT
 ```
 
 **Enhanced Status Model (NEW):**
+
 ```python
 {
     "shard_id": "instruments-20240101-20240104",
@@ -322,6 +334,7 @@ Compatibility: ✅ NO CONFLICT
 **How to Capture Per-Date Status:**
 
 **Option A: Parse Logs**
+
 ```python
 # Service logs per-date completion
 logger.info(f"Date {date} completed", extra={"date_status": "success", "date": str(date)})
@@ -331,6 +344,7 @@ date_statuses = parse_logs_for_date_statuses(deployment_id)
 ```
 
 **Option B: Exit Code + GCS Marker Files**
+
 ```python
 # Service writes marker file per successful date
 def process_single_date(date):
@@ -344,6 +358,7 @@ date_statuses = check_success_markers(date_range)
 ```
 
 **Option C: Structured Output JSON**
+
 ```python
 # Service writes final summary JSON to GCS
 results_summary = {
@@ -364,6 +379,7 @@ results = read_from_gcs(f"gs://metadata/{shard_id}/results.json")
 **Recommendation:** **Option C** (most reliable and structured)
 
 **Files to Update:**
+
 - `unified-trading-library/core/parallel_date_processor.py` - Write results JSON
 - `deployment-service/api/routes/deployments.py` - Read results JSON
 - `deployment-service/ui/src/components/ShardDetails.tsx` - Display per-date status
@@ -373,6 +389,7 @@ results = read_from_gcs(f"gs://metadata/{shard_id}/results.json")
 ### 3. Dependency Checking (Multi-Date Shards)
 
 **Current Dependency Model:**
+
 ```python
 # Check if upstream data exists for ONE date
 def check_dependencies(service, date, category):
@@ -382,6 +399,7 @@ def check_dependencies(service, date, category):
 ```
 
 **With Multi-Date Shards:**
+
 ```python
 def check_dependencies(service, start_date, end_date, category):
     """Check if upstream data exists for ALL dates in range"""
@@ -405,6 +423,7 @@ def check_dependencies(service, start_date, end_date, category):
 ```
 
 **Optimization:** Batch GCS existence checks
+
 ```python
 def check_dependencies_batch(service, date_range, category):
     """Check dependencies for multiple dates in one GCS operation"""
@@ -429,6 +448,7 @@ def check_dependencies_batch(service, date_range, category):
 ```
 
 **Files to Update:**
+
 - `deployment-service/api/utils/dependency_checker.py` (or equivalent)
 - Support date range instead of single date
 - Batch GCS checks for efficiency
@@ -440,6 +460,7 @@ def check_dependencies_batch(service, date_range, category):
 **Scenarios:**
 
 **Scenario A: All dates in shard failed**
+
 ```python
 Shard: dates [2024-01-01, 2024-01-02, 2024-01-03, 2024-01-04]
 Result: All 4 failed (upstream data missing)
@@ -448,6 +469,7 @@ Action: Retry entire shard
 ```
 
 **Scenario B: Some dates failed**
+
 ```python
 Shard: dates [2024-01-01, 2024-01-02, 2024-01-03, 2024-01-04]
 Result: Date 3 failed (API timeout), others succeeded
@@ -457,6 +479,7 @@ Action: Create new shard with only failed date
 ```
 
 **Scenario C: Shard timed out**
+
 ```python
 Shard: dates [2024-01-01 ... 2024-01-16], MAX_WORKERS=16
 Result: Timeout after 2 hours (only 12 dates completed)
@@ -513,6 +536,7 @@ def create_retry_shards(failed_shard):
 ```
 
 **Files to Update:**
+
 - `deployment-service/api/routes/deployments.py` - Retry logic
 - `deployment-service/ui/src/components/ShardDetails.tsx` - Show retry info
 
@@ -521,6 +545,7 @@ def create_retry_shards(failed_shard):
 ### 5. UI Display for Multi-Date Shards
 
 **Current Shard Display:**
+
 ```
 Shard ID: instruments-20240101-20240101
 Status: Completed ✅
@@ -529,6 +554,7 @@ Duration: 2h 15m
 ```
 
 **Updated Display (Multi-Date Shard):**
+
 ```
 Shard ID: instruments-20240101-20240116
 Status: Completed ✅
@@ -550,6 +576,7 @@ Resource Usage:
 ```
 
 **Components to Update:**
+
 - `ShardCard.tsx` - Show date range and parallelism
 - `ShardDetails.tsx` - Expand to show per-date status
 - `DeploymentSummary.tsx` - Aggregate across multi-date shards
@@ -559,6 +586,7 @@ Resource Usage:
 ### 6. Data Status Checker Compatibility
 
 **Current Data Status:**
+
 ```python
 # Check if data exists for specific date
 def check_data_status(service, category, date):
@@ -567,6 +595,7 @@ def check_data_status(service, category, date):
 ```
 
 **With Multi-Date Shards (No Change Needed!):**
+
 ```python
 # Data status is still per-date
 # Doesn't care about shard boundaries
@@ -591,6 +620,7 @@ Data status operates at date granularity, independent of shard boundaries.
 **Must ensure:** NO disk dumps on production VMs
 
 **Audit Commands:**
+
 ```bash
 # Find all to_csv calls
 cd unified-trading-system-repos
@@ -606,17 +636,20 @@ rg "ENABLE.*SAMPLE|DEBUG.*DUMP|WRITE.*CSV" --type py -g "!tests/" -g "!.venv/"
 **For Each Finding:**
 
 **Pattern 1: Guarded by Environment Check ✅**
+
 ```python
 if os.getenv("ENVIRONMENT") == "dev":
     df.to_csv('samples/debug.csv')  # OK - local only
 ```
 
 **Pattern 2: Always Enabled ❌**
+
 ```python
 df.to_csv('/tmp/debug.csv')  # BAD - runs on VMs!
 ```
 
 **Fix:**
+
 ```python
 # Add environment guard
 if os.getenv("ENVIRONMENT") == "dev" and os.getenv("ENABLE_SAMPLES") == "true":
@@ -624,17 +657,20 @@ if os.getenv("ENVIRONMENT") == "dev" and os.getenv("ENABLE_SAMPLES") == "true":
 ```
 
 **Pattern 3: Tardis Response Caching ⚠️**
+
 ```python
 # Cache Tardis responses to avoid re-downloading
 response.content.to_file('/tmp/tardis_cache/response.json')
 ```
 
 **Analysis:**
+
 - If cache is in memory: ✅ OK
 - If cache writes to disk: ⚠️ Check size and frequency
 - If thousands of small files: ❌ BAD for SSD
 
 **Fix:**
+
 - Use in-memory caching (Redis, Python dict with TTL)
 - Or write to GCS (not local disk)
 - Or disable caching on VMs
@@ -644,12 +680,14 @@ response.content.to_file('/tmp/tardis_cache/response.json')
 ### Expected Findings by Service
 
 **High Risk (Check First):**
+
 1. **market-tick-data-handler** - Tardis response caching, tick data samples
 2. **features-delta-one-service** - Intermediate feature dumps, TA-Lib debug output
 3. **ml-training-service** - Training data samples, model checkpoints to disk
 4. **execution-service** - Backtest intermediate states, order logs
 
 **Low Risk:**
+
 1. instruments-service - Simple API → parquet flow
 2. features-calendar-service - Minimal processing
 3. ml-inference-service - Simple inference flow
@@ -708,12 +746,14 @@ def check_dependencies_batch(service, date_range, category):
 ```
 
 **Benefits:**
+
 - ✅ 1 GCS API call instead of N
 - ✅ Faster dependency checking
 - ✅ Lower GCS operations cost
 - ✅ Scales with MAX_WORKERS
 
 **Files to Update:**
+
 - `deployment-service` dependency checker
 - Add `check_dependencies_batch()` function
 - Use for multi-date shards
@@ -745,6 +785,7 @@ def check_dependencies_batch(service, date_range, category):
 ### B. Service Updates (Priority Order)
 
 **Priority 1: instruments-service (32x improvement)**
+
 - [ ] Refactor `cli/main.py` to use ParallelDateProcessor
 - [ ] Extract `process_single_date()` function
 - [ ] Test locally with MAX_WORKERS=4
@@ -754,19 +795,23 @@ def check_dependencies_batch(service, date_range, category):
 - [ ] Validate: 16 dates in parallel, CPU 85-95%
 
 **Priority 2: features-calendar-service (30x improvement)**
+
 - [ ] Same steps as instruments-service
 - [ ] Default MAX_WORKERS=16
 
 **Priority 3: ml-inference-service (5x improvement)**
+
 - [ ] Same steps
 - [ ] Default MAX_WORKERS=3
 
 **Priority 4: market-data-processing-service (2x, optional)**
+
 - [ ] Same steps
 - [ ] Default MAX_WORKERS=2 (conservative)
 - [ ] Monitor RAM carefully
 
 **Skip (Memory-Bound):**
+
 - market-tick-data-handler (MAX_WORKERS=1)
 - features-delta-one-service (MAX_WORKERS=1)
 - ml-training-service (MAX_WORKERS=1)
@@ -829,6 +874,7 @@ def check_dependencies_batch(service, date_range, category):
 ### E. Terraform Updates
 
 - [ ] **Add MAX_WORKERS env var** to all service job templates
+
   ```hcl
   env {
     name  = "MAX_WORKERS"
@@ -837,6 +883,7 @@ def check_dependencies_batch(service, date_range, category):
   ```
 
 - [ ] **Define service-specific defaults**
+
   ```hcl
   variable "max_workers" {
     type = map(number)
@@ -891,6 +938,7 @@ After completing audits, document:
 **Create:** `CSV_DUMP_AUDIT_RESULTS.md`
 
 **For each service:**
+
 - Files checked
 - CSV/dump locations found
 - Whether guarded by ENVIRONMENT check
@@ -903,6 +951,7 @@ After completing audits, document:
 **Create:** `PARADISE_MAX_WORKERS_COMPATIBILITY.md`
 
 **Document:**
+
 - How Paradise batching works
 - How MAX_WORKERS works
 - Why they're compatible (different layers)
@@ -915,6 +964,7 @@ After completing audits, document:
 **Update:** `deployment-service/docs/DEPENDENCY_CHECKING.md`
 
 **Document:**
+
 - Batch dependency checking
 - Performance improvements (1 GCS call vs N)
 - Multi-date shard support
@@ -926,6 +976,7 @@ After completing audits, document:
 **Update:** `deployment-service/docs/RETRY_LOGIC.md` (or create)
 
 **Document:**
+
 - Per-date retry strategy
 - Partial shard completion handling
 - Timeout recovery
@@ -934,16 +985,16 @@ After completing audits, document:
 
 ## Timeline and Effort Estimate
 
-| Phase | Tasks | Effort | Owner |
-|-------|-------|--------|-------|
-| **A. Infrastructure** | ParallelDateProcessor, env vars | 4h | unified-trading-library |
-| **B. Service Updates** | 3 services × 2h | 6h | Per service |
-| **C. Orchestrator** | Shard logic, dependency, retry | 8h | deployment-service |
-| **D. UI** | Multi-date display, resource panel | 6h | UI components |
-| **E. Terraform** | Env vars, defaults | 2h | Terraform modules |
-| **F. Testing** | Unit, integration, E2E | 8h | All repos |
-| **G. Audits** | CSV dumps, compatibility docs | 4h | Documentation |
-| **Total** | | **38 hours** | |
+| Phase                  | Tasks                              | Effort       | Owner                   |
+| ---------------------- | ---------------------------------- | ------------ | ----------------------- |
+| **A. Infrastructure**  | ParallelDateProcessor, env vars    | 4h           | unified-trading-library |
+| **B. Service Updates** | 3 services × 2h                    | 6h           | Per service             |
+| **C. Orchestrator**    | Shard logic, dependency, retry     | 8h           | deployment-service      |
+| **D. UI**              | Multi-date display, resource panel | 6h           | UI components           |
+| **E. Terraform**       | Env vars, defaults                 | 2h           | Terraform modules       |
+| **F. Testing**         | Unit, integration, E2E             | 8h           | All repos               |
+| **G. Audits**          | CSV dumps, compatibility docs      | 4h           | Documentation           |
+| **Total**              |                                    | **38 hours** |                         |
 
 **Rollout:** 1-2 weeks with careful testing
 
@@ -953,13 +1004,13 @@ After completing audits, document:
 
 ### VM Count Reduction
 
-| Service | Current Shards | With MAX_WORKERS | Reduction |
-|---------|---------------|------------------|-----------|
-| instruments | 365 | 23 | 94% |
-| features-calendar | 365 | 23 | 94% |
-| ml-inference | 365 | 122 | 67% |
-| Others (MAX_WORKERS=1) | 365 × 4 = 1,460 | 1,460 | 0% |
-| **Total** | **2,555** | **1,628** | **36%** |
+| Service                | Current Shards  | With MAX_WORKERS | Reduction |
+| ---------------------- | --------------- | ---------------- | --------- |
+| instruments            | 365             | 23               | 94%       |
+| features-calendar      | 365             | 23               | 94%       |
+| ml-inference           | 365             | 122              | 67%       |
+| Others (MAX_WORKERS=1) | 365 × 4 = 1,460 | 1,460            | 0%        |
+| **Total**              | **2,555**       | **1,628**        | **36%**   |
 
 **Startup Time Saved:** 927 VMs × 4 min = 62 hours
 
@@ -967,11 +1018,11 @@ After completing audits, document:
 
 ### Completion Time Improvement
 
-| Service | Serial Time | Parallel Time | Speedup |
-|---------|------------|---------------|---------|
-| instruments (365 days) | 730 hours | 46 hours | **16x** |
-| features-calendar (365 days) | 365 hours | 23 hours | **16x** |
-| ml-inference (365 days) | 30 hours | 10 hours | **3x** |
+| Service                      | Serial Time | Parallel Time | Speedup |
+| ---------------------------- | ----------- | ------------- | ------- |
+| instruments (365 days)       | 730 hours   | 46 hours      | **16x** |
+| features-calendar (365 days) | 365 hours   | 23 hours      | **16x** |
+| ml-inference (365 days)      | 30 hours    | 10 hours      | **3x**  |
 
 **Total Time Saved:** 1,041 hours of compute time
 
@@ -982,6 +1033,7 @@ After completing audits, document:
 **Machine-hours saved:** 1,041 hours
 
 **Cost savings:**
+
 - Regular VMs: 1,041 × $0.2088 = **$217/year**
 - Preemptible VMs: 1,041 × $0.0418 = **$44/year**
 
@@ -994,6 +1046,7 @@ After completing audits, document:
 **Your Strategy:** ✅ Brilliant and Correct!
 
 **Key Points:**
+
 1. ✅ MAX_WORKERS defines both sharding (how dates batched) AND parallelism (processes per VM)
 2. ✅ Nested parallelism is fine (CPU queues naturally, just watch RAM)
 3. ✅ Must audit and disable CSV dumps on VMs
@@ -1001,6 +1054,7 @@ After completing audits, document:
 5. ✅ Example: 16 days, MAX_WORKERS=16 → 1 shard processing all 16 in parallel
 
 **Implementation Path:**
+
 1. Create ParallelDateProcessor in unified-trading-library
 2. Update deployment orchestrator shard creation (batch dates)
 3. Update 3 high-priority services to use date parallelism

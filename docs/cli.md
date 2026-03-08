@@ -8,10 +8,10 @@ Deployment CLI, sharding, data catalog, and dependencies.
 
 ## Entry Points
 
-| Context | Command |
-|---------|---------|
-| After `pip install` | `deploy-shards <subcommand>` |
-| From repo root | `python deploy.py <subcommand>` |
+| Context                   | Command                                         |
+| ------------------------- | ----------------------------------------------- |
+| After `pip install`       | `deploy-shards <subcommand>`                    |
+| From repo root            | `python deploy.py <subcommand>`                 |
 | Any directory (installed) | `python -m deployment_service.cli <subcommand>` |
 
 All three invoke the same CLI.
@@ -35,27 +35,29 @@ python deploy.py status <deployment-id>
 python deploy.py deploy -s SERVICE -c cloud_run|vm --start-date YYYY-MM-DD --end-date YYYY-MM-DD [OPTIONS]
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--category` | CEFI, TRADFI, DEFI |
-| `--venue` | Filter venues |
-| `--force` | Overwrite existing GCS data |
-| `--dry-run` | Preview only |
-| `--no-wait` | Fire-and-forget |
-| `--max-workers` | **NEW:** Dates per shard (parallel processing), default: service-specific |
-| `--max-concurrent` | VMs/jobs at once (default 2000, max 2500) |
-| `--max-threads` | Parallel API calls (default 50) |
+| Option             | Description                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
+| `--category`       | CEFI, TRADFI, DEFI                                                        |
+| `--venue`          | Filter venues                                                             |
+| `--force`          | Overwrite existing GCS data                                               |
+| `--dry-run`        | Preview only                                                              |
+| `--no-wait`        | Fire-and-forget                                                           |
+| `--max-workers`    | **NEW:** Dates per shard (parallel processing), default: service-specific |
+| `--max-concurrent` | VMs/jobs at once (default 2000, max 2500)                                 |
+| `--max-threads`    | Parallel API calls (default 50)                                           |
 
 ### NEW: MAX_WORKERS for Date Parallelism
 
 **Purpose:** Process multiple dates in parallel per VM (maximize C2 machine utilization)
 
 **How it works:**
+
 - Batches dates into multi-date shards
 - Each shard processes N dates in parallel (multiprocessing)
 - Reduces VM count OR speeds up completion
 
 **Service-specific defaults:**
+
 ```python
 instruments-service: 16      # 10% CPU → 90% CPU, 16x speedup
 features-calendar-service: 16
@@ -64,6 +66,7 @@ Others: 1 (memory-bound, no parallelism)
 ```
 
 **Examples:**
+
 ```bash
 # Use service default (instruments: 16)
 python deploy.py deploy -s instruments-service --start-date 2024-01-01 --end-date 2024-12-31
@@ -84,15 +87,15 @@ python deploy.py deploy -s instruments-service --start-date 2024-01-01 --end-dat
 
 ## Status and Management
 
-| Command | Description |
-|---------|-------------|
-| `status <deployment-id>` | Check deployment status |
-| `list [--service X] [--limit N]` | List recent deployments |
-| `logs <deployment-id>` | View aggregated errors/warnings |
-| `resume <deployment-id>` | Retry failed shards |
-| `retry-failed <deployment-id>` | Retry only failed shards |
-| `cancel <deployment-id>` | Cancel deployment |
-| `fix-stale [--service X] [--max-age-hours N]` | Fix stuck "running" state |
+| Command                                       | Description                     |
+| --------------------------------------------- | ------------------------------- |
+| `status <deployment-id>`                      | Check deployment status         |
+| `list [--service X] [--limit N]`              | List recent deployments         |
+| `logs <deployment-id>`                        | View aggregated errors/warnings |
+| `resume <deployment-id>`                      | Retry failed shards             |
+| `retry-failed <deployment-id>`                | Retry only failed shards        |
+| `cancel <deployment-id>`                      | Cancel deployment               |
+| `fix-stale [--service X] [--max-age-hours N]` | Fix stuck "running" state       |
 
 ---
 
@@ -134,10 +137,10 @@ gsutil ls gs://deployment-orchestration-test-project/deployments.development/
 
 ## Compute Backends
 
-| Backend | Best For |
-|---------|----------|
-| **Cloud Run** | Daily runs, quick jobs |
-| **VM** | Backfills, better logging |
+| Backend       | Best For                  |
+| ------------- | ------------------------- |
+| **Cloud Run** | Daily runs, quick jobs    |
+| **VM**        | Backfills, better logging |
 
 ### Zone Failover Strategy
 

@@ -38,6 +38,7 @@ status = backend.get_status(job.job_id)
 ### GCP Backends (Production)
 
 **1. VMBackend** (`vm.py` - 1,490 lines)
+
 - **Service**: Google Compute Engine
 - **Use Case**: Long-running computations, GPU workloads
 - **Features**:
@@ -48,6 +49,7 @@ status = backend.get_status(job.job_id)
   - Preemptible instance support
 
 **2. CloudRunBackend** (`cloud_run.py` - 566 lines)
+
 - **Service**: Cloud Run Jobs
 - **Use Case**: Serverless batch jobs, scheduled tasks
 - **Features**:
@@ -59,6 +61,7 @@ status = backend.get_status(job.job_id)
 ### AWS Backends (Production)
 
 **3. AWSEC2Backend** (`aws_ec2.py` - 383 lines)
+
 - **Service**: Amazon EC2
 - **Use Case**: Equivalent to GCP Compute Engine
 - **Features**:
@@ -68,6 +71,7 @@ status = backend.get_status(job.job_id)
   - Spot instance support
 
 **4. AWSBatchBackend** (`aws_batch.py` - 415 lines)
+
 - **Service**: AWS Batch with Fargate
 - **Use Case**: Equivalent to Cloud Run Jobs
 - **Features**:
@@ -128,12 +132,12 @@ provider = get_cloud_provider()  # Returns "gcp" or "aws"
 
 The factory automatically maps compute types between providers:
 
-| Generic Type | GCP Backend | AWS Backend |
-|-------------|-------------|-------------|
-| `cloud_run` | Cloud Run Jobs | AWS Batch (Fargate) |
-| `batch` | Cloud Run Jobs | AWS Batch (Fargate) |
-| `vm` | Compute Engine | EC2 |
-| `ec2` | Compute Engine | EC2 |
+| Generic Type | GCP Backend    | AWS Backend         |
+| ------------ | -------------- | ------------------- |
+| `cloud_run`  | Cloud Run Jobs | AWS Batch (Fargate) |
+| `batch`      | Cloud Run Jobs | AWS Batch (Fargate) |
+| `vm`         | Compute Engine | EC2                 |
+| `ec2`        | Compute Engine | EC2                 |
 
 ## Environment Variables
 

@@ -106,6 +106,7 @@ For quick validation, use a single day: `2024-01-15`
 **Categories:** CEFI, TRADFI, DEFI
 
 **Modes:**
+
 - `instruments` - Generate instrument definitions
 - `corporate_actions` - Fetch dividends/splits (TradFi only)
 
@@ -721,32 +722,32 @@ python -c "import pandas as pd; print(pd.read_parquet('/tmp/instruments.parquet'
 
 ## Quick Reference: Deployment Order
 
-| Order | Service | Depends On | Est. Time/Shard |
-|-------|---------|------------|-----------------|
-| 1 | instruments-service | (none) | ~5 min |
-| 2 | market-tick-data-handler | instruments | ~60 min |
-| 3 | market-data-processing-service | tick-data | ~30 min |
-| 4 | features-delta-one-service | candles | ~45 min |
-| 5 | features-volatility-service | tick-data | ~20 min |
-| 6 | features-onchain-service | candles | ~10 min |
-| 7 | ml-training-service | features | ~120 min |
-| 8 | ml-inference-service | models + features | ~15 min |
-| 9 | strategy-service | features | ~30 min |
-| 10 | execution-service | signals + tick-data | ~90 min |
+| Order | Service                        | Depends On          | Est. Time/Shard |
+| ----- | ------------------------------ | ------------------- | --------------- |
+| 1     | instruments-service            | (none)              | ~5 min          |
+| 2     | market-tick-data-handler       | instruments         | ~60 min         |
+| 3     | market-data-processing-service | tick-data           | ~30 min         |
+| 4     | features-delta-one-service     | candles             | ~45 min         |
+| 5     | features-volatility-service    | tick-data           | ~20 min         |
+| 6     | features-onchain-service       | candles             | ~10 min         |
+| 7     | ml-training-service            | features            | ~120 min        |
+| 8     | ml-inference-service           | models + features   | ~15 min         |
+| 9     | strategy-service               | features            | ~30 min         |
+| 10    | execution-service              | signals + tick-data | ~90 min         |
 
 ---
 
 ## Category Support Matrix
 
-| Service | CEFI | TRADFI | DEFI |
-|---------|------|--------|------|
-| instruments-service | Yes | Yes | Yes |
-| market-tick-data-handler | Yes | Yes | Yes |
-| market-data-processing-service | Yes | Yes | Yes |
-| features-delta-one-service | Yes | Yes | Yes |
-| features-volatility-service | Yes | Yes | No |
-| features-onchain-service | Yes | No | Yes |
-| ml-training-service | All (via instruments) | | |
-| ml-inference-service | All (via instruments) | | |
-| strategy-service | Yes | Yes | Yes |
-| execution-service | Yes | Yes | Yes |
+| Service                        | CEFI                  | TRADFI | DEFI |
+| ------------------------------ | --------------------- | ------ | ---- |
+| instruments-service            | Yes                   | Yes    | Yes  |
+| market-tick-data-handler       | Yes                   | Yes    | Yes  |
+| market-data-processing-service | Yes                   | Yes    | Yes  |
+| features-delta-one-service     | Yes                   | Yes    | Yes  |
+| features-volatility-service    | Yes                   | Yes    | No   |
+| features-onchain-service       | Yes                   | No     | Yes  |
+| ml-training-service            | All (via instruments) |        |      |
+| ml-inference-service           | All (via instruments) |        |      |
+| strategy-service               | Yes                   | Yes    | Yes  |
+| execution-service              | Yes                   | Yes    | Yes  |

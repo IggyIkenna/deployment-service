@@ -63,8 +63,8 @@ runtime:
 # Data dependencies (inputs)
 input_data:
   - service: execution-service
-    bucket_pattern: "execution-store-{project_id}"  # Single execution bucket for all categories
-    path_pattern: "results/date={date}/strategy_id=*/instruction_type=*/run_id=*/positions.parquet"  # Read positions from execution results
+    bucket_pattern: "execution-store-{project_id}" # Single execution bucket for all categories
+    path_pattern: "results/date={date}/strategy_id=*/instruction_type=*/run_id=*/positions.parquet" # Read positions from execution results
     required: true
 
   - service: instruments-service

@@ -18,7 +18,7 @@ cloud_run_job_name: features-onchain-service-job
 dimensions:
   - name: category
     type: fixed
-    values: [CEFI, DEFI]  # TRADFI not supported (no on-chain data)
+    values: [CEFI, DEFI] # TRADFI not supported (no on-chain data)
     description: Market category to process
 
   - name: feature_group
@@ -51,7 +51,7 @@ cli_flags:
 compute:
   vm:
     machine_type: c2-standard-4
-    disk_size_gb: 40  # >= 2x RAM (16GB) for swap
+    disk_size_gb: 40 # >= 2x RAM (16GB) for swap
     description: Light workload - mostly API aggregation
     gcsfuse_buckets: []
       # Disabled: Large buckets cause OOM; use GCS API instead

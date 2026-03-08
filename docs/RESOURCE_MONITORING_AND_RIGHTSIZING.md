@@ -11,11 +11,13 @@
 **GCP Quota Reality:** Only C2 machine types approved (c2-standard-4 minimum)
 
 **Impact on Optimization Strategy:**
+
 - ❌ Cannot downsize below c2-standard-4 (no e2/n2 options)
 - ✅ Can upsize within C2 family (c2-std-8, c2-std-16)
 - 🎯 **New strategy:** Parallelize dates within machines to maximize utilization
 
 **Solution:** Process multiple dates in parallel per machine (multiprocessing)
+
 - instruments-service: 10% CPU → 90% CPU (32 dates in parallel)
 - features-calendar: 10% CPU → 90% CPU (30 dates in parallel)
 - ml-inference: 40% CPU → 90% CPU (5 dates in parallel)
@@ -29,12 +31,14 @@
 **Current State:** ✅ Good foundation, ⚠️ gaps in visibility, 🎯 new optimization path
 
 **What Works:**
+
 - ✅ All services use `psutil` for cross-platform resource monitoring (macOS Intel/ARM, Linux, Windows)
 - ✅ 11/13 services enable `enable_resource_monitoring=True`
 - ✅ Metrics logged every 30 seconds (CPU, RAM, disk, network, process count)
 - ✅ Automatic alerts for high usage (CPU > 90%, Memory > 90%, Disk > 90%)
 
 **What's Missing:**
+
 - ❌ Metrics logged at DEBUG level (invisible in production)
 - ❌ No API endpoint to aggregate resource usage per job
 - ❌ No UI dashboard showing resource metrics
@@ -49,6 +53,7 @@
 **Your GCP quota setup only applies to C2 machine types.**
 
 **Available C2 Options:**
+
 - c2-standard-4: 4 vCPU, 16 GB RAM, $0.2088/hour ← **MINIMUM**
 - c2-standard-8: 8 vCPU, 32 GB RAM, $0.4176/hour
 - c2-standard-16: 16 vCPU, 64 GB RAM, $0.8352/hour
@@ -56,12 +61,14 @@
 - c2-standard-60: 60 vCPU, 240 GB RAM, $2.7144/hour (if available)
 
 **Implications:**
+
 - ❌ **Cannot downsize below c2-standard-4** (no e2/n2 options)
 - ✅ Can upsize within C2 family as needed
 - 📊 **Goal shifts:** Prevent under-provisioning (not reduce costs via downsizing)
 - 🎯 **Primary value:** Identify services needing MORE resources before failures occur
 
 **Cost Optimization Strategy:**
+
 - Storage: Use aggressive lifecycle policy (save $1,500-10,900/year) ✅
 - Compute: Use preemptible VMs (save 80% on batch jobs) ✅
 - Machine sizing: Within C2 family, focus on upsizing only when needed ✅
@@ -75,6 +82,7 @@
 **Location:** `unified-trading-library/unified_trading_library/core/performance_monitor.py`
 
 **Features:**
+
 ```python
 # Cross-platform monitoring (psutil)
 class PerformanceMonitor:
@@ -88,6 +96,7 @@ class PerformanceMonitor:
 ```
 
 **Metrics Collected:**
+
 - `cpu_percent`: Current CPU usage (0-100%)
 - `memory_percent`: RAM usage (0-100%)
 - `memory_available_mb`: Available RAM in MB
@@ -104,6 +113,7 @@ class PerformanceMonitor:
 | Windows | ✅ Yes | Full support |
 
 **Logging Behavior:**
+
 ```python
 # Regular metrics: DEBUG level (hidden in production)
 logger.debug(f"System metrics: CPU={cpu}%, Memory={mem}%")
@@ -122,21 +132,21 @@ if memory_percent > 90:
 
 **Services with Resource Monitoring Enabled:**
 
-| Service | Monitoring | Location |
-|---------|-----------|----------|
-| instruments-service | ✅ Yes | `cli/main.py:42-45` |
-| market-tick-data-handler | ✅ Yes | `cli/main.py:41-44` |
-| market-data-processing-service | ✅ Yes | `cli/main.py:34-37` |
-| features-delta-one-service | ✅ Yes | `cli/main.py:61-64` |
-| features-calendar-service | ✅ Yes | `cli/batch_handler.py:36-39` |
-| features-volatility-service | ✅ Yes | `cli/main.py:61-64` |
-| ml-training-service | ✅ Yes | `cli/main.py:73-76` |
-| ml-inference-service | ✅ Yes | `cli/main.py:32-35` |
-| strategy-service | ✅ Yes | `cli/main.py:26-29` |
-| execution-service | ✅ Yes | `cli/backtest.py` |
-| features-onchain-service | ✅ Yes | `cli/main.py:60-63` |
-| sports-betting-service | ❌ No | `cli/main.py:37` |
-| deployment-service (CLI) | ❌ No | `cli.py:38` |
+| Service                        | Monitoring | Location                     |
+| ------------------------------ | ---------- | ---------------------------- |
+| instruments-service            | ✅ Yes     | `cli/main.py:42-45`          |
+| market-tick-data-handler       | ✅ Yes     | `cli/main.py:41-44`          |
+| market-data-processing-service | ✅ Yes     | `cli/main.py:34-37`          |
+| features-delta-one-service     | ✅ Yes     | `cli/main.py:61-64`          |
+| features-calendar-service      | ✅ Yes     | `cli/batch_handler.py:36-39` |
+| features-volatility-service    | ✅ Yes     | `cli/main.py:61-64`          |
+| ml-training-service            | ✅ Yes     | `cli/main.py:73-76`          |
+| ml-inference-service           | ✅ Yes     | `cli/main.py:32-35`          |
+| strategy-service               | ✅ Yes     | `cli/main.py:26-29`          |
+| execution-service              | ✅ Yes     | `cli/backtest.py`            |
+| features-onchain-service       | ✅ Yes     | `cli/main.py:60-63`          |
+| sports-betting-service         | ❌ No      | `cli/main.py:37`             |
+| deployment-service (CLI)       | ❌ No      | `cli.py:38`                  |
 
 **Coverage:** 11/13 services (85%)
 
@@ -145,11 +155,13 @@ if memory_percent > 90:
 ### 3. Deployment UI Current State
 
 **Logs Display:**
+
 - ✅ Shows logs from Cloud Logging or GCS
 - ✅ Filters by severity (INFO, WARNING, ERROR)
 - ✅ Real-time streaming with "Follow" mode
 
 **Resource Metrics:**
+
 - ❌ No dedicated resource usage panel
 - ❌ No per-job resource summary
 - ❌ No average/peak resource tracking
@@ -157,6 +169,7 @@ if memory_percent > 90:
 - ⚠️ DEBUG metrics hidden (only visible if log level changed)
 
 **APIs:**
+
 - `GET /api/deployments/{id}/logs` - Returns log entries
 - `GET /api/deployments/{id}` - Returns deployment metadata
 - ❌ No `/api/deployments/{id}/resource-metrics` endpoint
@@ -170,6 +183,7 @@ if memory_percent > 90:
 **Current:** Metrics logged at DEBUG level every 30 seconds
 
 **Impact:**
+
 - Metrics invisible in production logs (log level = INFO)
 - Can't analyze resource usage after job completes
 - No historical data for rightsizing decisions
@@ -183,11 +197,13 @@ if memory_percent > 90:
 **Current:** Metrics logged as individual log entries
 
 **Impact:**
+
 - Can't query "average CPU usage for deployment X"
 - Can't compare resource usage across jobs
 - No structured metrics storage
 
 **Solution:**
+
 - Option A: Aggregate from Cloud Logging (query logs, parse metrics)
 - Option B: Write metrics to GCS/BigQuery (separate from logs)
 - Option C: Use Cloud Monitoring (GCP native metrics)
@@ -199,6 +215,7 @@ if memory_percent > 90:
 **Current:** Logs-only view in deployment details
 
 **Impact:**
+
 - Can't see resource trends over time
 - Can't identify over/under-provisioned jobs
 - Manual log analysis required
@@ -214,6 +231,7 @@ if memory_percent > 90:
 **Update unified-trading-library PerformanceMonitor:**
 
 1. **Log summary at INFO level:**
+
 ```python
 # At job start
 logger.info("Resource monitoring started", extra={
@@ -244,6 +262,7 @@ logger.info("Resource usage summary", extra={
 ```
 
 2. **Final summary at job completion:**
+
 ```python
 # In GracefulShutdownHandler or at main() exit
 logger.info("Job resource usage final", extra={
@@ -260,6 +279,7 @@ logger.info("Job resource usage final", extra={
 ```
 
 **Benefits:**
+
 - ✅ No changes to 11 services (only unified-trading-library)
 - ✅ Metrics visible in production logs
 - ✅ Structured JSON for easy parsing
@@ -319,6 +339,7 @@ async def get_deployment_resource_metrics(deployment_id: str):
 ```
 
 **Benefits:**
+
 - ✅ Structured API for resource data
 - ✅ Aggregation across all shards
 - ✅ Automatic rightsizing recommendations
@@ -411,6 +432,7 @@ const ResourceMetricsPanel = ({ deploymentId }) => {
 ```
 
 **Benefits:**
+
 - ✅ Visual resource usage per deployment
 - ✅ Clear rightsizing recommendations
 - ✅ Per-shard breakdown for targeted optimization
@@ -423,6 +445,7 @@ const ResourceMetricsPanel = ({ deploymentId }) => {
 ### Methodology
 
 For each service, validate machine specs against:
+
 1. **Data size** being processed
 2. **Memory requirements** (data in RAM + overhead)
 3. **CPU requirements** (computation intensity)
@@ -435,20 +458,24 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: API responses from exchanges (~10-50 MB per venue)
 - Output: Parquet files (~2-5 MB per instrument per day)
 - Peak memory: ~500 MB (API buffers + pandas DataFrame)
 
 **CPU Requirements:**
+
 - API calls (I/O-bound, minimal CPU)
 - JSON parsing (light)
 - Parquet serialization (light)
 
 **Validation:**
+
 - Peak memory: 500 MB / 16 GB = **3% RAM usage**
 - CPU: I/O-bound, likely **10-30% CPU usage**
 
 **Recommendation:** ⚠️ **OVER-PROVISIONED BUT CONSTRAINED**
+
 - **Ideal:** Would use e2-medium (1-2 vCPU, 4 GB RAM)
 - **Reality:** Must use c2-standard-4 (minimum C2 machine type)
 - **C2 quota constraint:** No smaller C2 option available
@@ -462,22 +489,26 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: Tardis API downloads (2-3 GB per day for BTC)
 - Processing: Parse, validate, partition by instrument type
 - Output: Parquet files (~2 GB per day)
 - Peak memory: ~8-10 GB (streaming buffers + pandas)
 
 **CPU Requirements:**
+
 - Network I/O (download from Tardis)
 - Decompression (gzip/zstd)
 - Parquet serialization
 - Rate limiting delays (idle time)
 
 **Validation:**
+
 - Peak memory: 10 GB / 16 GB = **63% RAM usage** ✅
 - CPU: Network + parsing, likely **40-60% CPU usage**
 
 **Recommendation:** ✅ **WELL-SIZED**
+
 - c2-standard-4 is appropriate
 - Consider c2-standard-8 (32 GB RAM) if processing multiple instruments in parallel
 - Current allocation optimal for single-instrument jobs
@@ -489,21 +520,25 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: 2-3 GB tick data per day
 - Processing: Aggregate to 7 timeframes (15s, 1m, 5m, 15m, 1h, 4h, 24h)
 - Output: ~432 MB candles per day
 - Peak memory: ~4-6 GB (hold full day ticks + candles)
 
 **CPU Requirements:**
+
 - Candle aggregation (compute-intensive)
 - OHLCV calculations
 - Parquet serialization
 
 **Validation:**
+
 - Peak memory: 6 GB / 16 GB = **38% RAM usage** ✅
 - CPU: Compute-intensive, likely **60-80% CPU usage**
 
 **Recommendation:** ✅ **WELL-SIZED**
+
 - c2-standard-4 is appropriate
 - Could use c2-standard-8 to halve runtime (cost-neutral if runtime < 50%)
 
@@ -514,21 +549,25 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: 432 MB candles per day per instrument
 - Processing: 20 feature groups with TA-Lib calculations
 - Output: ~217 MB features per day per instrument
 - Peak memory: ~8-12 GB (candles + intermediate features + TA-Lib buffers)
 
 **CPU Requirements:**
+
 - Heavy TA-Lib computations (RSI, MACD, Bollinger, etc.)
 - Rolling window calculations
 - Feature engineering transformations
 
 **Validation:**
+
 - Peak memory: 12 GB / 16 GB = **75% RAM usage** ✅
 - CPU: Very compute-intensive, likely **80-95% CPU usage**
 
 **Recommendation:** ✅ **WELL-SIZED** or ⚠️ **SLIGHTLY UNDER-PROVISIONED**
+
 - c2-standard-4 is at the limit
 - Consider c2-standard-8 (32 GB RAM) for:
   - Multiple feature groups in parallel
@@ -543,20 +582,24 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: Date/time inputs (minimal)
 - Processing: Generate temporal features (hour, day, week, etc.)
 - Output: ~6 MB per month
 - Peak memory: ~200-500 MB
 
 **CPU Requirements:**
+
 - Minimal (date/time calculations)
 - Some API calls for economic events
 
 **Validation:**
+
 - Peak memory: 500 MB / 16 GB = **3% RAM usage**
 - CPU: Light, likely **5-20% CPU usage**
 
 **Recommendation:** ⚠️ **HEAVILY OVER-PROVISIONED BUT CONSTRAINED**
+
 - **Ideal:** Would use e2-small (0.5-2 vCPU, 2 GB RAM)
 - **Reality:** Must use c2-standard-4 (minimum C2 machine type)
 - **C2 quota constraint:** No smaller C2 option available
@@ -570,6 +613,7 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-8 (8 vCPU, 32 GB RAM)
 
 **Data Processing:**
+
 - Input: 90-365 days of features (~5-20 GB)
 - Processing:
   - Stage 1: Correlation matrix, feature importance (memory-intensive)
@@ -579,15 +623,18 @@ For each service, validate machine specs against:
 - Peak memory: **15-25 GB** (feature matrices + cross-validation splits)
 
 **CPU Requirements:**
+
 - LightGBM training (multi-threaded, uses all vCPUs)
 - Feature correlation (NumPy/pandas operations)
 - Cross-validation (parallel model training)
 
 **Validation:**
+
 - Peak memory: 25 GB / 32 GB = **78% RAM usage** ✅
 - CPU: LightGBM uses all cores, likely **90-100% CPU usage**
 
 **Recommendation:** ✅ **WELL-SIZED**
+
 - c2-standard-8 is appropriate
 - Consider c2-standard-16 for larger training windows (365+ days)
 - Current allocation optimal for quarterly training
@@ -599,21 +646,25 @@ For each service, validate machine specs against:
 **Current Allocation:** c2-standard-4 (4 vCPU, 16 GB RAM)
 
 **Data Processing:**
+
 - Input: Features for 1 day (~50-100 MB)
 - Processing: Load model, run inference
 - Output: Predictions (~50 KB per day)
 - Peak memory: ~2-3 GB (model + features)
 
 **CPU Requirements:**
+
 - Model loading (I/O-bound)
 - LightGBM inference (CPU-bound, but fast)
 - Light computations
 
 **Validation:**
+
 - Peak memory: 3 GB / 16 GB = **19% RAM usage**
 - CPU: Inference is fast, likely **30-50% CPU usage**
 
 **Recommendation:** ⚠️ **SLIGHTLY OVER-PROVISIONED BUT KEEP AS-IS**
+
 - **Reality:** c2-standard-4 is minimum C2 machine type
 - **C2 quota constraint:** No smaller option available
 - **Action:** Keep c2-standard-4 (already at minimum)
@@ -626,23 +677,25 @@ For each service, validate machine specs against:
 **IMPORTANT:** Quota limits only apply to C2 machine types. All services must use C2 machines.
 
 **Available C2 Options:**
+
 - c2-standard-4: 4 vCPU, 16 GB RAM, $0.2088/hour
 - c2-standard-8: 8 vCPU, 32 GB RAM, $0.4176/hour
 - c2-standard-16: 16 vCPU, 64 GB RAM, $0.8352/hour
 
-| Service | Current | Allocated | Observed Usage | Status | Action |
-|---------|---------|-----------|----------------|--------|--------|
-| instruments | c2-std-4 | 4 vCPU, 16GB | ~10% CPU, 3% RAM | ⚠️ Over | ✅ Keep (minimum C2) |
-| market-tick | c2-std-4 | 4 vCPU, 16GB | ~50% CPU, 63% RAM | ✅ Good | ✅ Keep |
-| market-processing | c2-std-4 | 4 vCPU, 16GB | ~70% CPU, 38% RAM | ✅ Good | ✅ Keep |
+| Service            | Current  | Allocated    | Observed Usage    | Status  | Action                         |
+| ------------------ | -------- | ------------ | ----------------- | ------- | ------------------------------ |
+| instruments        | c2-std-4 | 4 vCPU, 16GB | ~10% CPU, 3% RAM  | ⚠️ Over | ✅ Keep (minimum C2)           |
+| market-tick        | c2-std-4 | 4 vCPU, 16GB | ~50% CPU, 63% RAM | ✅ Good | ✅ Keep                        |
+| market-processing  | c2-std-4 | 4 vCPU, 16GB | ~70% CPU, 38% RAM | ✅ Good | ✅ Keep                        |
 | features-delta-one | c2-std-4 | 4 vCPU, 16GB | ~90% CPU, 75% RAM | ⚠️ High | 🔍 Monitor (may need c2-std-8) |
-| features-calendar | c2-std-4 | 4 vCPU, 16GB | ~10% CPU, 3% RAM | ⚠️ Over | ✅ Keep (minimum C2) |
-| ml-training | c2-std-8 | 8 vCPU, 32GB | ~95% CPU, 78% RAM | ✅ Good | ✅ Keep |
-| ml-inference | c2-std-4 | 4 vCPU, 16GB | ~40% CPU, 19% RAM | ⚠️ Over | ✅ Keep (minimum C2) |
-| strategy | c2-std-4 | 4 vCPU, 16GB | ~20% CPU, 10% RAM | ⚠️ Over | ✅ Keep (minimum C2) |
-| execution | c2-std-8 | 8 vCPU, 32GB | ~80% CPU, 60% RAM | ✅ Good | ✅ Keep |
+| features-calendar  | c2-std-4 | 4 vCPU, 16GB | ~10% CPU, 3% RAM  | ⚠️ Over | ✅ Keep (minimum C2)           |
+| ml-training        | c2-std-8 | 8 vCPU, 32GB | ~95% CPU, 78% RAM | ✅ Good | ✅ Keep                        |
+| ml-inference       | c2-std-4 | 4 vCPU, 16GB | ~40% CPU, 19% RAM | ⚠️ Over | ✅ Keep (minimum C2)           |
+| strategy           | c2-std-4 | 4 vCPU, 16GB | ~20% CPU, 10% RAM | ⚠️ Over | ✅ Keep (minimum C2)           |
+| execution          | c2-std-8 | 8 vCPU, 32GB | ~80% CPU, 60% RAM | ✅ Good | ✅ Keep                        |
 
 **C2 Quota Constraint Impact:**
+
 - **No downsizing possible** - c2-standard-4 is the minimum
 - **Rightsizing savings:** $0/year (all services already at minimum or optimal)
 - **Focus shifts to:** Identifying services that need UPSIZING to prevent failures
@@ -650,6 +703,7 @@ For each service, validate machine specs against:
 **Key Insight:** With C2-only, the goal is **preventing under-provisioning**, not cost savings from downsizing.
 
 **Services to Watch:**
+
 - ⚠️ **features-delta-one** (75% RAM, 90% CPU) - May need c2-std-8 for larger datasets or parallel processing
 - ✅ All others: Well-sized or constrained at minimum
 
@@ -662,6 +716,7 @@ For each service, validate machine specs against:
 **File:** `unified_trading_library/core/performance_monitor.py`
 
 **Changes:**
+
 1. Add `log_summary_at_info()` method
 2. Call every 5 minutes during monitoring
 3. Call at shutdown with final summary
@@ -669,6 +724,7 @@ For each service, validate machine specs against:
 5. Add rightsizing recommendation logic
 
 **Test:**
+
 ```bash
 # Run any service locally, check logs for INFO-level summaries
 python -m instruments_service.cli.main --category CEFI --start-date 2024-01-15 --end-date 2024-01-15
@@ -686,10 +742,12 @@ python -m instruments_service.cli.main --category CEFI --start-date 2024-01-15 -
 **File:** `deployment-service/api/routes/deployments.py`
 
 **New endpoints:**
+
 1. `GET /api/deployments/{id}/resource-metrics` - Single deployment metrics
 2. `GET /api/deployments/resource-comparison` - Compare across deployments
 
 **Test:**
+
 ```bash
 curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ```
@@ -699,16 +757,19 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### Step 3: Add UI Component (3-4 hours)
 
 **Files:**
+
 - `deployment-service/ui/src/components/ResourceMetricsPanel.tsx` (new)
 - `deployment-service/ui/src/components/DeploymentDetails.tsx` (update)
 
 **Features:**
+
 - Resource usage summary cards
 - Per-shard resource breakdown
 - Time-series charts (if timeline data available)
 - Rightsizing recommendations with savings estimates
 
 **Test:**
+
 - Deploy locally, open deployment details
 - Navigate to "Resources" tab
 - Verify metrics display correctly
@@ -718,6 +779,7 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### Step 4: Validate with Real Deployments (1-2 days)
 
 **Process:**
+
 1. Run 5-10 representative deployments with resource monitoring
 2. Collect metrics via new API
 3. Analyze actual vs estimated usage
@@ -732,6 +794,7 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### Short-Term (After Implementation)
 
 **Visibility:**
+
 - ✅ See actual resource usage per job in UI
 - ✅ Identify services at risk of failure (high RAM/CPU usage)
 - ✅ Get automatic upsizing recommendations
@@ -739,6 +802,7 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 **Primary Goal:** **Prevent under-provisioning failures** (not cost savings)
 
 **C2-Only Reality:**
+
 - No downsizing possible (c2-standard-4 is minimum)
 - Focus on upsizing services at risk (e.g., features-delta-one at 90% CPU)
 - Monitor for OOM kills, timeouts, high resource warnings
@@ -748,11 +812,13 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### Long-Term (After 3 Months of Data)
 
 **Data-Driven Optimization:**
+
 - Identify services needing c2-standard-8 or c2-standard-16
 - Prevent production failures from under-provisioning
 - Optimize for reliability, not cost reduction
 
 **Example Optimization Loop:**
+
 ```
 1. Collect 30 days of resource metrics
 2. Analyze: "features-delta-one peak RAM = 92%"
@@ -775,11 +841,13 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### When to Downsize
 
 **Criteria:**
+
 - Average usage < 40% of allocated resources
 - Peak usage < 70% of allocated resources
 - No memory/CPU warnings in logs
 
 **Action:**
+
 - Try next smaller machine type
 - Monitor for failures
 - Rollback if jobs fail or timeout
@@ -789,12 +857,14 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### When to Upsize
 
 **Criteria:**
+
 - Peak usage > 85% RAM (risk of OOM)
 - Peak usage > 95% CPU (potential slowdowns)
 - Frequent memory warnings in logs
 - Jobs timing out
 
 **Action:**
+
 - Upsize to next larger machine type
 - Better to over-provision slightly than risk failures
 
@@ -803,11 +873,13 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### When to Keep Same
 
 **Criteria:**
+
 - Average usage 40-70%
 - Peak usage 70-85%
 - No warnings, consistent completion times
 
 **Action:**
+
 - Current allocation optimal
 - Monitor periodically for changes
 
@@ -818,6 +890,7 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ### 1. Enable DEBUG Logging for One Deployment
 
 **Test resource monitoring visibility:**
+
 ```bash
 # Run with DEBUG level
 export LOG_LEVEL=DEBUG
@@ -832,6 +905,7 @@ python -m features_delta_one_service.cli.main --category CEFI --start-date 2024-
 ### 2. Query Cloud Logging Manually
 
 **Get resource metrics for recent deployments:**
+
 ```bash
 # Query Cloud Logging for resource warnings
 gcloud logging read \
@@ -850,6 +924,7 @@ gcloud logging read \
 ### 3. Analyze Existing Logs
 
 **Check recent deployment logs for resource info:**
+
 ```python
 # In deployment-service
 from google.cloud import logging as cloud_logging
@@ -942,6 +1017,7 @@ for entry in entries:
 ## Summary
 
 **Current State:**
+
 - ✅ Resource monitoring infrastructure exists (psutil, PerformanceMonitor)
 - ✅ Cross-platform support (macOS Intel/ARM, Linux, Windows)
 - ✅ 85% of services enable monitoring
@@ -950,6 +1026,7 @@ for entry in entries:
 - ❌ No aggregation API
 
 **Proposed Solution:**
+
 1. Log summaries at INFO level (no service changes)
 2. Add API endpoint for metrics aggregation
 3. Add UI panel for resource visualization
@@ -957,6 +1034,7 @@ for entry in entries:
 5. Update Terraform for optimal allocations
 
 **Expected Benefits (C2-Only Constraint):**
+
 - **Primary:** Prevent under-provisioning failures (OOM, timeouts)
 - **Secondary:** Identify which services truly need c2-std-8 vs c2-std-4
 - **Tertiary:** Optimize for reliability, not downsizing cost savings

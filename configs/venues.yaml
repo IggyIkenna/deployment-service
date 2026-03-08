@@ -47,13 +47,13 @@ categories:
       - NYSE
       - ICE
       # External data providers (non-exchange)
-      - FX  # FX rates (KRW-USD, etc.) - ohlcv_24h (data via Yahoo Finance)
+      - FX # FX rates (KRW-USD, etc.) - ohlcv_24h (data via Yahoo Finance)
     # Global data_types list (for backward compatibility)
     data_types:
       - trades
       - ohlcv_1m
-      - ohlcv_15m  # VIX from CBOE/Barchart
-      - ohlcv_24h  # FX rates from FX venue (Yahoo Finance source)
+      - ohlcv_15m # VIX from CBOE/Barchart
+      - ohlcv_24h # FX rates from FX venue (Yahoo Finance source)
       - tbbo
     # Databento dataset mappings
     venue_to_databento:
@@ -98,12 +98,12 @@ categories:
         # VIX is special - uses Barchart external source, always 15m
         INDEX:
           default: [ohlcv_15m]
-          tick_window: [ohlcv_15m]  # No tick data for external source
+          tick_window: [ohlcv_15m] # No tick data for external source
       FX:
         # FX rates - daily OHLCV only (data via Yahoo Finance)
         SPOT_PAIR:
           default: [ohlcv_24h]
-          tick_window: [ohlcv_24h]  # No tick data for external source
+          tick_window: [ohlcv_24h] # No tick data for external source
     # Tick data windows (dates where we collect expensive tick data)
     tick_windows:
       - start: "2023-05-01"
@@ -136,10 +136,10 @@ categories:
       - rate_indices
       - oracle_prices
       - utilization
-      - liquidity               # AMM pool liquidity for slippage simulation (Uniswap)
-      - risk_params             # Governance parameters (LTV, liquidation thresholds)
+      - liquidity # AMM pool liquidity for slippage simulation (Uniswap)
+      - risk_params # Governance parameters (LTV, liquidation thresholds)
       - flash_loan_availability # Flash loan liquidity (Morpho)
-      - rewards                 # Protocol rewards (EtherFi EIGEN/ETHFI)
+      - rewards # Protocol rewards (EtherFi EIGEN/ETHFI)
       # REMOVED: yields (deprecated - derive from oracle_prices)
       # REMOVED: rates (redundant with rate_indices)
     # Per-venue data_type expectations
@@ -264,7 +264,7 @@ instrument_types:
   NASDAQ: [EQUITY, ETF]
   NYSE: [EQUITY, ETF]
   ICE: [FUTURE, OPTION]
-  FX: [SPOT_PAIR]  # FX rates (data via Yahoo Finance)
+  FX: [SPOT_PAIR] # FX rates (data via Yahoo Finance)
   HYPERLIQUID: [PERPETUAL]
   ASTER: [PERPETUAL]
   # DeFi protocols (instrument type = POOL or LST or YIELD_BEARING)

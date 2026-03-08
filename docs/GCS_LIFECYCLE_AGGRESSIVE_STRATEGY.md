@@ -9,6 +9,7 @@
 ## Key Insight
 
 **Your access pattern:**
+
 - MVP instruments (BTC, SPY): ~10-20% of data, accessed frequently
 - Non-MVP instruments: ~80% of data, rarely or never accessed
 - Historical data: Most queries focus on recent 30-90 days
@@ -21,12 +22,12 @@
 
 ### Timeline
 
-| Age | Storage Class | Cost per GB/month | Cumulative Savings |
-|-----|---------------|-------------------|-------------------|
-| 0-3 days | STANDARD | $0.023 | Baseline |
-| 3-14 days | NEARLINE | $0.013 | 43% cheaper |
-| 14-90 days | COLDLINE | $0.007 | 70% cheaper |
-| 90+ days | ARCHIVE | $0.0025 | 89% cheaper |
+| Age        | Storage Class | Cost per GB/month | Cumulative Savings |
+| ---------- | ------------- | ----------------- | ------------------ |
+| 0-3 days   | STANDARD      | $0.023            | Baseline           |
+| 3-14 days  | NEARLINE      | $0.013            | 43% cheaper        |
+| 14-90 days | COLDLINE      | $0.007            | 70% cheaper        |
+| 90+ days   | ARCHIVE       | $0.0025           | 89% cheaper        |
 
 ### Policy JSON
 
@@ -35,16 +36,16 @@
   "lifecycle": {
     "rule": [
       {
-        "action": {"type": "SetStorageClass", "storageClass": "NEARLINE"},
-        "condition": {"age": 3, "matchesStorageClass": ["STANDARD"]}
+        "action": { "type": "SetStorageClass", "storageClass": "NEARLINE" },
+        "condition": { "age": 3, "matchesStorageClass": ["STANDARD"] }
       },
       {
-        "action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
-        "condition": {"age": 14, "matchesStorageClass": ["NEARLINE"]}
+        "action": { "type": "SetStorageClass", "storageClass": "COLDLINE" },
+        "condition": { "age": 14, "matchesStorageClass": ["NEARLINE"] }
       },
       {
-        "action": {"type": "SetStorageClass", "storageClass": "ARCHIVE"},
-        "condition": {"age": 90, "matchesStorageClass": ["COLDLINE"]}
+        "action": { "type": "SetStorageClass", "storageClass": "ARCHIVE" },
+        "condition": { "age": 90, "matchesStorageClass": ["COLDLINE"] }
       }
     ]
   }
@@ -58,6 +59,7 @@
 ### Current State (All STANDARD)
 
 **Total Storage:** 7,133 GB
+
 - Instruments: 109 GB
 - Market Tick: 5,600 GB
 - Market Data Processing: 948 GB
@@ -71,6 +73,7 @@
 ### With Aggressive Lifecycle (Reality-Based)
 
 **Assumptions:**
+
 - **10% accessed in last 3 days** (STANDARD) - Recent MVP data
 - **10% accessed in last 14 days** (NEARLINE) - Recent analysis
 - **30% accessed in last 90 days** (COLDLINE) - Historical analysis
@@ -79,12 +82,12 @@
 **Storage Distribution:**
 
 | Storage Class | % of Data | Amount (GB) | Cost/GB/month | Monthly Cost |
-|---------------|-----------|-------------|---------------|--------------|
-| STANDARD | 10% | 713 GB | $0.023 | $16.40 |
-| NEARLINE | 10% | 713 GB | $0.013 | $9.27 |
-| COLDLINE | 30% | 2,140 GB | $0.007 | $14.98 |
-| ARCHIVE | 50% | 3,567 GB | $0.0025 | $8.92 |
-| **Total** | 100% | 7,133 GB | - | **$49.57** |
+| ------------- | --------- | ----------- | ------------- | ------------ |
+| STANDARD      | 10%       | 713 GB      | $0.023        | $16.40       |
+| NEARLINE      | 10%       | 713 GB      | $0.013        | $9.27        |
+| COLDLINE      | 30%       | 2,140 GB    | $0.007        | $14.98       |
+| ARCHIVE       | 50%       | 3,567 GB    | $0.0025       | $8.92        |
+| **Total**     | 100%      | 7,133 GB    | -             | **$49.57**   |
 
 **Annual Cost:** $595/year
 **Annual Savings:** $1,968 - $595 = **$1,373/year (70% reduction)**
@@ -94,6 +97,7 @@
 ### With Even More Realistic Distribution (80% Rarely Accessed)
 
 **Assumptions (More Aggressive):**
+
 - **5% accessed in last 3 days** (STANDARD) - Active MVP instruments only
 - **5% accessed in last 14 days** (NEARLINE) - Recent MVP + occasional lookback
 - **10% accessed in last 90 days** (COLDLINE) - Historical analysis on MVP
@@ -102,12 +106,12 @@
 **Storage Distribution:**
 
 | Storage Class | % of Data | Amount (GB) | Cost/GB/month | Monthly Cost |
-|---------------|-----------|-------------|---------------|--------------|
-| STANDARD | 5% | 357 GB | $0.023 | $8.21 |
-| NEARLINE | 5% | 357 GB | $0.013 | $4.64 |
-| COLDLINE | 10% | 713 GB | $0.007 | $4.99 |
-| ARCHIVE | 80% | 5,706 GB | $0.0025 | $14.27 |
-| **Total** | 100% | 7,133 GB | - | **$32.11** |
+| ------------- | --------- | ----------- | ------------- | ------------ |
+| STANDARD      | 5%        | 357 GB      | $0.023        | $8.21        |
+| NEARLINE      | 5%        | 357 GB      | $0.013        | $4.64        |
+| COLDLINE      | 10%       | 713 GB      | $0.007        | $4.99        |
+| ARCHIVE       | 80%       | 5,706 GB    | $0.0025       | $14.27       |
+| **Total**     | 100%      | 7,133 GB    | -             | **$32.11**   |
 
 **Annual Cost:** $385/year
 **Annual Savings:** $1,968 - $385 = **$1,583/year (80% reduction)**
@@ -121,6 +125,7 @@
 #### Scenario 1: Daily MVP Operations (BTC, SPY)
 
 **Access Pattern:**
+
 - Recent 7 days: STANDARD (free retrieval)
 - Occasional lookback 30 days: Mix of STANDARD/NEARLINE
 
@@ -134,10 +139,12 @@
 #### Scenario 2: Quarterly ML Retraining
 
 **Access Pattern:**
+
 - 90-day training window
 - Mix: 60% STANDARD/NEARLINE (free/$0.01), 30% COLDLINE ($0.02), 10% ARCHIVE ($0.05)
 
 **Data Retrieved:** 200 GB/quarter (800 GB/year)
+
 - 480 GB STANDARD/NEARLINE: $4.80
 - 240 GB COLDLINE: $4.80
 - 80 GB ARCHIVE: $4.00
@@ -150,10 +157,12 @@
 #### Scenario 3: Historical Backtest (Once per Year)
 
 **Access Pattern:**
+
 - Full 6 years of data for 2 instruments
 - 5% STANDARD, 5% NEARLINE, 10% COLDLINE, 80% ARCHIVE
 
 **Data Retrieved:** 1,000 GB once/year
+
 - 50 GB STANDARD: $0
 - 50 GB NEARLINE: $0.50
 - 100 GB COLDLINE: $2.00
@@ -166,13 +175,13 @@
 
 #### Combined Annual Retrieval Costs
 
-| Operation | Frequency | Cost/Year |
-|-----------|-----------|-----------|
-| Daily MVP operations | Daily | $6 |
-| Quarterly ML retraining | 4x/year | $14 |
-| Historical backtest | 1x/year | $43 |
-| Ad-hoc exploration | Occasional | $20 |
-| **Total Retrieval Costs** | - | **$83/year** |
+| Operation                 | Frequency  | Cost/Year    |
+| ------------------------- | ---------- | ------------ |
+| Daily MVP operations      | Daily      | $6           |
+| Quarterly ML retraining   | 4x/year    | $14          |
+| Historical backtest       | 1x/year    | $43          |
+| Ad-hoc exploration        | Occasional | $20          |
+| **Total Retrieval Costs** | -          | **$83/year** |
 
 **Net Annual Savings:** $1,583 - $83 = **$1,500/year (76% reduction)**
 
@@ -188,6 +197,7 @@
 ### With Aggressive Lifecycle (80% in ARCHIVE)
 
 **Storage Distribution:**
+
 - 5% STANDARD: 2.5 TB × $0.023 × 12 = $690/year
 - 5% NEARLINE: 2.5 TB × $0.013 × 12 = $390/year
 - 10% COLDLINE: 5 TB × $0.007 × 12 = $420/year
@@ -195,6 +205,7 @@
 - **Total:** $2,700/year
 
 **Retrieval Costs (Full Scale):**
+
 - Daily operations: $30/year
 - Quarterly retraining: $70/year
 - Historical backtests: $200/year
@@ -235,6 +246,7 @@
 ### 1. Data Access Reality
 
 **Most data is NEVER accessed after initial generation:**
+
 - Non-MVP instruments: Generated once, rarely queried
 - Historical tick data: Used for candle generation, then cold
 - Old candles: Used for feature generation, then cold
@@ -243,6 +255,7 @@
 ### 2. MVP Focus
 
 **Active use is concentrated:**
+
 - 2 instruments (BTC, SPY) out of hundreds
 - Recent 30-90 days for most analysis
 - Occasional historical backtests (1-2x/year)
@@ -250,6 +263,7 @@
 ### 3. Retrieval Is Infrequent
 
 **When you DO retrieve cold data:**
+
 - It's for specific, high-value operations (backtests, research)
 - Retrieval cost ($0.05/GB for ARCHIVE) is justified by storage savings
 - Example: $40 retrieval cost vs $1,500/year storage savings = 96% net savings
@@ -260,11 +274,11 @@
 
 ### 1. Minimum Storage Duration Charges
 
-| Storage Class | Minimum Duration | Impact |
-|---------------|------------------|--------|
-| NEARLINE | 30 days | Low risk - data stays ≥14 days before COLDLINE |
-| COLDLINE | 90 days | No risk - policy matches minimum |
-| ARCHIVE | 365 days | Caution - early deletion costly |
+| Storage Class | Minimum Duration | Impact                                         |
+| ------------- | ---------------- | ---------------------------------------------- |
+| NEARLINE      | 30 days          | Low risk - data stays ≥14 days before COLDLINE |
+| COLDLINE      | 90 days          | No risk - policy matches minimum               |
+| ARCHIVE       | 365 days         | Caution - early deletion costly                |
 
 **Mitigation:** Don't delete ARCHIVE objects unless absolutely necessary. If data must be deleted, wait until it's been in ARCHIVE for 365 days.
 
@@ -273,12 +287,14 @@
 **Trade-off Analysis:**
 
 For data older than 90 days in ARCHIVE:
+
 - **Option A:** Keep in ARCHIVE ($0.0025/GB/month)
 - **Option B:** Delete and regenerate when needed
 
 **Break-even:** If retrieval + regeneration compute cost > $0.0025/GB/month, keep in ARCHIVE.
 
 **For market tick data:**
+
 - Regeneration cost: ~$10-50 (Tardis API + compute)
 - 6 months of tick data: ~3 TB = $7.50/month in ARCHIVE = $90/year
 - **Verdict:** Keep in ARCHIVE (cheaper than regeneration)
@@ -288,6 +304,7 @@ For data older than 90 days in ARCHIVE:
 **Strategy:** Delete non-MVP instrument data after moving to ARCHIVE if NEVER accessed.
 
 **Potential Additional Savings:**
+
 - 70% of ARCHIVE data is non-MVP instruments
 - 70% × 5,706 GB = 3,994 GB can be safely deleted
 - Savings: 3,994 GB × $0.0025 × 12 = $120/year
@@ -356,6 +373,7 @@ done
 ### If Retrieval Costs Too High
 
 **Symptoms:**
+
 - Monthly retrieval costs > $50
 - Frequent need to access old data
 
@@ -365,9 +383,9 @@ done
 {
   "lifecycle": {
     "rule": [
-      {"action": {"storageClass": "NEARLINE"}, "condition": {"age": 7}},
-      {"action": {"storageClass": "COLDLINE"}, "condition": {"age": 30}},
-      {"action": {"storageClass": "ARCHIVE"}, "condition": {"age": 180}}
+      { "action": { "storageClass": "NEARLINE" }, "condition": { "age": 7 } },
+      { "action": { "storageClass": "COLDLINE" }, "condition": { "age": 30 } },
+      { "action": { "storageClass": "ARCHIVE" }, "condition": { "age": 180 } }
     ]
   }
 }
@@ -413,10 +431,12 @@ cd deployment-service
 ### 4. Optimize Further (Month 4+)
 
 **If retrieval costs < $50/month:**
+
 - Keep aggressive policy
 - Consider selective deletion of non-MVP data
 
 **If retrieval costs > $100/month:**
+
 - Adjust policy to less aggressive
 - Keep frequently-accessed data in NEARLINE longer
 
@@ -435,6 +455,7 @@ cd deployment-service
 **Recommendation:** ✅ **Apply immediately** - massive savings with minimal risk
 
 **Key Success Factors:**
+
 - 80% of data rarely accessed → perfect for aggressive tiering
 - MVP focus on 2 instruments → most data can go cold fast
 - Retrieval costs minimal compared to storage savings

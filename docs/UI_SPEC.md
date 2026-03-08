@@ -10,9 +10,11 @@ Complete specification for building a web-based deployment and monitoring UI for
 ## 1. Overview and Goals
 
 ### Purpose
+
 Replace manual CLI usage with a user-friendly web UI that eliminates the need to access Google Cloud Console for routine deployment and monitoring operations.
 
 ### Key Goals
+
 - **No Google Cloud Console Required:** Users should never need to log into GCP/AWS for routine operations
 - **Cloud-Agnostic:** Support both GCP and AWS via `CLOUD_PROVIDER` mode
 - **Human-Readable:** Job identifiers that humans can understand vs cryptic cloud-generated IDs
@@ -137,23 +139,29 @@ These args have been added to support UI functionality:
 | `--tail` | Show only last N lines (use with --follow) |
 
 **New command: `retry-failed`**
+
 ```bash
 retry-failed <deployment-id> [--category CEFI] [--dry-run]
 ```
+
 More targeted than `resume` - only retries failed shards.
 
 **New command: `report` (Infrastructure Reporting)**
+
 ```bash
 report <deployment-id> [--format json|csv|text] [--infra-issues] [--quota-issues] [--retries]
 report --service <service> --since <date> --summary
 ```
+
 Generates infrastructure reports for debugging, cloud provider tickets, and analytics integration.
 
 **New command: `rerun-command`**
+
 ```bash
 rerun-command <deployment-id> --failed-only
 rerun-command <deployment-id> --shard <shard-id>
 ```
+
 Outputs CLI commands to reconstruct and rerun failed shards.
 
 **Rule:** If the UI needs functionality the CLI doesn't have, add the CLI arg first.
@@ -177,12 +185,14 @@ The UI will be organized into **two main tabs**, each with **domain sub-tabs**:
 ```
 
 ### Tab 1: Deploy (Command Builder)
+
 - Sub-tabs by domain: Data I/O | Features | ML | Execution
 - Dropdown-based arg selection with validation
 - Each domain tab can have slightly different visualizations as needed
 - Builds and executes CLI commands under the hood
 
 ### Tab 2: Monitor (Job Tracking)
+
 - Sub-tabs by domain: Data I/O | Features | ML | Execution
 - Real-time job status, grouping, filtering, stop controls
 - Domain separation allows future customization per domain type
@@ -194,33 +204,38 @@ The UI will be organized into **two main tabs**, each with **domain sub-tabs**:
 Services are organized by their role in the data pipeline. This grouping comes from `configs/dependencies.yaml`.
 
 ### Data I/O Layer (Upstream - Data Ingestion)
-| Service | Description |
-|---------|-------------|
-| `instruments-service` | Generate instrument definitions from exchange APIs |
-| `market-tick-data-handler` | Download raw tick data from exchanges |
-| `market-data-processing-service` | Process raw tick data into candles |
+
+| Service                          | Description                                        |
+| -------------------------------- | -------------------------------------------------- |
+| `instruments-service`            | Generate instrument definitions from exchange APIs |
+| `market-tick-data-handler`       | Download raw tick data from exchanges              |
+| `market-data-processing-service` | Process raw tick data into candles                 |
 
 ### Features Layer (Feature Engineering)
-| Service | Description |
-|---------|-------------|
-| `features-calendar-service` | Generate calendar and temporal features |
-| `features-delta-one-service` | Generate delta-one features (technical indicators) |
-| `features-volatility-service` | Generate volatility features (IV, term structure) |
-| `features-onchain-service` | Generate on-chain features (TVL, sentiment) |
+
+| Service                       | Description                                        |
+| ----------------------------- | -------------------------------------------------- |
+| `features-calendar-service`   | Generate calendar and temporal features            |
+| `features-delta-one-service`  | Generate delta-one features (technical indicators) |
+| `features-volatility-service` | Generate volatility features (IV, term structure)  |
+| `features-onchain-service`    | Generate on-chain features (TVL, sentiment)        |
 
 ### ML Layer (Machine Learning)
-| Service | Description |
-|---------|-------------|
-| `ml-training-service` | Train ML models for predictions |
-| `ml-inference-service` | Generate ML predictions |
+
+| Service                | Description                     |
+| ---------------------- | ------------------------------- |
+| `ml-training-service`  | Train ML models for predictions |
+| `ml-inference-service` | Generate ML predictions         |
 
 ### Execution Layer (Strategy & Backtesting)
-| Service | Description |
-|---------|-------------|
-| `strategy-service` | Test trading signals and strategy logic |
-| `execution-service` | Backtest execution on tick-level data |
+
+| Service             | Description                             |
+| ------------------- | --------------------------------------- |
+| `strategy-service`  | Test trading signals and strategy logic |
+| `execution-service` | Backtest execution on tick-level data   |
 
 ### Execution Order (Dependency Chain)
+
 ```
 instruments-service
     └── market-tick-data-handler
@@ -243,22 +258,22 @@ instruments-service
 
 All dropdowns are validated against config files to prevent invalid selections.
 
-| Field | Source | Type | Required |
-|-------|--------|------|----------|
-| Service | `configs/sharding.*.yaml` | Dropdown | Yes |
-| Category | `dimensions[].values` in sharding config | Dropdown | Depends on service |
-| Compute Mode | Fixed: `cloud_run`, `vm` | Dropdown | Yes |
-| Cloud Provider | Fixed: `GCP`, `AWS` | Dropdown | Yes |
-| Start Date | Text input with validation | Date Picker | Yes |
-| End Date | Text input with validation | Date Picker | Yes |
-| Venue | `configs/venues.yaml` (filtered by category) | Dropdown | No |
-| Data Type | `configs/venues.yaml` | Dropdown | No |
-| Deployment Notes | User input | Text (max 200 chars) | No (encouraged) |
-| Force | Checkbox | Boolean | No |
-| Dry Run | Checkbox | Boolean | No |
-| Log Level | Fixed: `DEBUG`, `INFO`, `WARNING`, `ERROR` | Dropdown | No |
-| Max Workers | Number input | Integer | No |
-| Max Threads | Number input (default: 100) | Integer | No |
+| Field            | Source                                       | Type                 | Required           |
+| ---------------- | -------------------------------------------- | -------------------- | ------------------ |
+| Service          | `configs/sharding.*.yaml`                    | Dropdown             | Yes                |
+| Category         | `dimensions[].values` in sharding config     | Dropdown             | Depends on service |
+| Compute Mode     | Fixed: `cloud_run`, `vm`                     | Dropdown             | Yes                |
+| Cloud Provider   | Fixed: `GCP`, `AWS`                          | Dropdown             | Yes                |
+| Start Date       | Text input with validation                   | Date Picker          | Yes                |
+| End Date         | Text input with validation                   | Date Picker          | Yes                |
+| Venue            | `configs/venues.yaml` (filtered by category) | Dropdown             | No                 |
+| Data Type        | `configs/venues.yaml`                        | Dropdown             | No                 |
+| Deployment Notes | User input                                   | Text (max 200 chars) | No (encouraged)    |
+| Force            | Checkbox                                     | Boolean              | No                 |
+| Dry Run          | Checkbox                                     | Boolean              | No                 |
+| Log Level        | Fixed: `DEBUG`, `INFO`, `WARNING`, `ERROR`   | Dropdown             | No                 |
+| Max Workers      | Number input                                 | Integer              | No                 |
+| Max Threads      | Number input (default: 100)                  | Integer              | No                 |
 
 ### Validation Rules
 
@@ -279,11 +294,13 @@ All dropdowns are validated against config files to prevent invalid selections.
 Before deployment starts, validate the service against its checklist (`configs/checklist.{service}.yaml`):
 
 **Validation Steps:**
+
 1. Check if service passes minimum readiness threshold
 2. Show warning banner if blocking items exist
 3. Allow user to proceed with warning OR block deployment entirely
 
 **Warning Banner Example:**
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ ⚠️  Deployment Readiness Warning                                │
@@ -314,19 +331,27 @@ Before deployment starts, validate the service against its checklist (`configs/c
 GCP-first deployment strategy means AWS items can be addressed later without blocking production deployments.
 
 **API Endpoint:**
+
 ```
 GET /api/services/{service}/checklist/validate
 ```
 
 **Response:**
+
 ```json
 {
   "service": "instruments-service",
   "ready": false,
   "readiness_percent": 67,
   "blocking_items": [
-    {"id": "terraform-vm", "description": "Terraform module for VM not configured"},
-    {"id": "secret-tardis", "description": "Secret TARDIS_API_KEY not in Secret Manager"}
+    {
+      "id": "terraform-vm",
+      "description": "Terraform module for VM not configured"
+    },
+    {
+      "id": "secret-tardis",
+      "description": "Secret TARDIS_API_KEY not in Secret Manager"
+    }
   ],
   "warnings": ["Integration tests failing"],
   "can_proceed_with_acknowledgment": true
@@ -359,6 +384,7 @@ Abstract all Google Cloud IDs behind our own human-readable format. Store Google
 ```
 
 **Examples:**
+
 - `instruments-service-20260130-143022-a1b2c3`
 - `market-tick-data-handler-20260129-091500-b2c3d4`
 
@@ -417,7 +443,7 @@ IDs are flat in storage, but displayed in a **nested, expandable tree view** in 
   "shards": [
     {
       "shard_id": "CEFI-2024-01-15-a1b2c3d4",
-      "dimensions": {"category": "CEFI", "date": "2024-01-15"},
+      "dimensions": { "category": "CEFI", "date": "2024-01-15" },
       "internal_job_id": "projects/xxx/locations/xxx/jobs/xxx/executions/xxx",
       "status": "running"
     }
@@ -448,6 +474,7 @@ python deploy.py deploy -s instruments-service ... --tag "Fixed Curve MetaRegist
 ### UI Support
 
 Add a **"Deployment Notes"** text input field in the Deploy form:
+
 - Optional but encouraged
 - Max 200 characters recommended
 - Displayed prominently in deployment list and details
@@ -455,6 +482,7 @@ Add a **"Deployment Notes"** text input field in the Deploy form:
 ### Display in UI
 
 **In Deployment Details:**
+
 ```
 ▼ instruments-service-20260130-143022-a1b2c3
   │ Tag: "Fixed Curve adapter, added multi-region failover"
@@ -467,11 +495,12 @@ Add a **"Deployment Notes"** text input field in the Deploy form:
 |---------------|-----|--------|----------|
 | instruments-service-20260130-143022-a1b2c3 | Fixed Curve adapter | Running | 45% |
 | instruments-service-20260129-091500-b2c3d4 | Initial DEFI backfill | Completed | 100% |
-| instruments-service-20260128-140000-c3d4e5 | *(no tag)* | Failed | 23% |
+| instruments-service-20260128-140000-c3d4e5 | _(no tag)_ | Failed | 23% |
 
 ### Storage
 
 Save in `state.json` as `tag` field:
+
 ```json
 {
   "deployment_id": "instruments-service-20260130-143022-a1b2c3",
@@ -504,30 +533,31 @@ Deployment Group (e.g., "instruments-service-2025-01-28-14:30-ikenna")
 
 ### Display Fields per Deployment Group
 
-| Field | Description | Example |
-|-------|-------------|---------|
+| Field               | Description               | Example                                      |
+| ------------------- | ------------------------- | -------------------------------------------- |
 | Deployment Group ID | Human-readable identifier | `instruments-service-20250128-143022-a1b2c3` |
-| Tag | User-provided description | `"Fixed Curve adapter"` |
-| Service Name | Which service | `instruments-service` |
-| Triggered At | When deployment started | `2025-01-28 14:30:22 UTC` |
-| Total Shards | Number of jobs | `150` |
-| Progress | Completion percentage | `45% (67/150)` |
-| Status | Overall status | `Running`, `Completed`, `Failed`, `Partial` |
+| Tag                 | User-provided description | `"Fixed Curve adapter"`                      |
+| Service Name        | Which service             | `instruments-service`                        |
+| Triggered At        | When deployment started   | `2025-01-28 14:30:22 UTC`                    |
+| Total Shards        | Number of jobs            | `150`                                        |
+| Progress            | Completion percentage     | `45% (67/150)`                               |
+| Status              | Overall status            | `Running`, `Completed`, `Failed`, `Partial`  |
 
 ### Docker Image and Git Version Fields
 
 Each deployment should display the Docker image and code version information:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| Docker Image | Full image path with tag | `asia-northeast1-docker.pkg.dev/test-project/instruments-service/instruments-service:abc123` |
-| Image Tag | Short tag (git SHA or version) | `abc123` or `v1.2.3` or `latest` |
-| Git Commit | Full commit SHA the image was built from | `a1b2c3d4e5f6g7h8i9j0` |
-| Git Commit (Short) | First 8 characters | `a1b2c3d4` |
-| Git Branch | Branch name | `main` |
-| Build Time | When Docker image was built | `2026-01-30 12:00:22 UTC` |
+| Field              | Description                              | Example                                                                                      |
+| ------------------ | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Docker Image       | Full image path with tag                 | `asia-northeast1-docker.pkg.dev/test-project/instruments-service/instruments-service:abc123` |
+| Image Tag          | Short tag (git SHA or version)           | `abc123` or `v1.2.3` or `latest`                                                             |
+| Git Commit         | Full commit SHA the image was built from | `a1b2c3d4e5f6g7h8i9j0`                                                                       |
+| Git Commit (Short) | First 8 characters                       | `a1b2c3d4`                                                                                   |
+| Git Branch         | Branch name                              | `main`                                                                                       |
+| Build Time         | When Docker image was built              | `2026-01-30 12:00:22 UTC`                                                                    |
 
 **Source of Image Metadata:**
+
 - **Cloud Build labels** - Set during build via `--label` flags
 - **Artifact Registry API** - Query image metadata
 - **state.json** - Store when deployment is created
@@ -553,32 +583,33 @@ Each deployment should display the Docker image and code version information:
 ```
 
 **Links:**
+
 - **Artifact Registry link:** `https://console.cloud.google.com/artifacts/docker/{project}/{region}/{repo}/{image}?project={project}`
 - **GitHub commit link:** `https://github.com/{org}/{repo}/commit/{sha}`
 
 ### Display Fields per Individual Shard
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| Shard ID | Human-readable ID with dimensions | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4` |
-| Dimensions | All dimension values displayed | Category: CEFI, Venue: BINANCE-SPOT, Date: 2024-01-15 |
-| CLI Args | Full command args for this shard | `--category CEFI --venue BINANCE-SPOT --start-date 2024-01-15 --end-date 2024-01-15` |
-| Status | Job status with progress | `Pending`, `Building`, `Running (45%)`, `Completed`, `Failed` |
-| Duration | How long job took/is taking | `5m 32s` |
-| Started At | When job started | `14:32:15` |
-| Ended At | When job finished | `14:37:47` |
+| Field      | Description                       | Example                                                                              |
+| ---------- | --------------------------------- | ------------------------------------------------------------------------------------ |
+| Shard ID   | Human-readable ID with dimensions | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4`                                              |
+| Dimensions | All dimension values displayed    | Category: CEFI, Venue: BINANCE-SPOT, Date: 2024-01-15                                |
+| CLI Args   | Full command args for this shard  | `--category CEFI --venue BINANCE-SPOT --start-date 2024-01-15 --end-date 2024-01-15` |
+| Status     | Job status with progress          | `Pending`, `Building`, `Running (45%)`, `Completed`, `Failed`                        |
+| Duration   | How long job took/is taking       | `5m 32s`                                                                             |
+| Started At | When job started                  | `14:32:15`                                                                           |
+| Ended At   | When job finished                 | `14:37:47`                                                                           |
 
 **Note:** Cloud Job ID (GCP/AWS internal ID) is stored internally but **NOT displayed to users**. See Section 5.5 for ID abstraction rules.
 
 ### Shard ID Formats by Sharding Type
 
-| Sharding Type | Shard ID Format | Example |
-|---------------|-----------------|---------|
-| Daily by category | `{CATEGORY}-{DATE}-{hash}` | `CEFI-2024-01-15-a1b2c3d4` |
-| Daily by venue | `{CATEGORY}-{VENUE}-{DATE}-{hash}` | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4` |
-| Weekly | `{CATEGORY}-{YEAR}-W{WEEK}-{hash}` | `CEFI-2024-W03-a1b2c3d4` |
-| Monthly | `{CATEGORY}-{YEAR}-M{MONTH}-{hash}` | `CEFI-2024-M01-a1b2c3d4` |
-| Config-based (ML) | `{CONFIG_NAME}-{hash}` | `btc-momentum-config-a1b2c3d4` |
+| Sharding Type     | Shard ID Format                     | Example                                 |
+| ----------------- | ----------------------------------- | --------------------------------------- |
+| Daily by category | `{CATEGORY}-{DATE}-{hash}`          | `CEFI-2024-01-15-a1b2c3d4`              |
+| Daily by venue    | `{CATEGORY}-{VENUE}-{DATE}-{hash}`  | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4` |
+| Weekly            | `{CATEGORY}-{YEAR}-W{WEEK}-{hash}`  | `CEFI-2024-W03-a1b2c3d4`                |
+| Monthly           | `{CATEGORY}-{YEAR}-M{MONTH}-{hash}` | `CEFI-2024-M01-a1b2c3d4`                |
+| Config-based (ML) | `{CONFIG_NAME}-{hash}`              | `btc-momentum-config-a1b2c3d4`          |
 
 ### Date Range Shards
 
@@ -614,18 +645,19 @@ CEFI-2024-W03-a1b2c3d4
 
 ### Status Definitions
 
-| Status | Description | Color |
-|--------|-------------|-------|
-| `Pending` | Queued, not started | Gray |
-| `Building` | VM/container being provisioned | Blue |
+| Status         | Description                       | Color  |
+| -------------- | --------------------------------- | ------ |
+| `Pending`      | Queued, not started               | Gray   |
+| `Building`     | VM/container being provisioned    | Blue   |
 | `Running (X%)` | Actively processing with progress | Yellow |
-| `Completed` | Successfully finished | Green |
-| `Failed` | Error occurred | Red |
-| `Cancelled` | Manually stopped | Orange |
+| `Completed`    | Successfully finished             | Green  |
+| `Failed`       | Error occurred                    | Red    |
+| `Cancelled`    | Manually stopped                  | Orange |
 
 ### Failure Information
 
 For failed jobs, display:
+
 - **Failure Stage:** `Build` vs `Run` (did it fail during container build or during execution?)
 - **Error Message:** The actual error
 - **Stack Trace:** Full traceback (expandable)
@@ -633,38 +665,39 @@ For failed jobs, display:
 
 ### Filtering Options
 
-| Filter | Type | Options |
-|--------|------|---------|
-| Service | Dropdown | All services |
-| Category | Dropdown | CEFI, TRADFI, DEFI |
-| Date Range | Date pickers | Start date, End date |
-| Status | Multi-select | Pending, Building, Running, Completed, Failed, Cancelled |
-| Deployment Group | Dropdown | Recent deployment IDs |
+| Filter           | Type         | Options                                                  |
+| ---------------- | ------------ | -------------------------------------------------------- |
+| Service          | Dropdown     | All services                                             |
+| Category         | Dropdown     | CEFI, TRADFI, DEFI                                       |
+| Date Range       | Date pickers | Start date, End date                                     |
+| Status           | Multi-select | Pending, Building, Running, Completed, Failed, Cancelled |
+| Deployment Group | Dropdown     | Recent deployment IDs                                    |
 
 ### Grouping Options
 
-| Group By | Description |
-|----------|-------------|
-| Category | Group shards by CEFI/TRADFI/DEFI |
-| Date | Group shards by processing date |
-| Status | Group by completion status |
-| Deployment | Group by deployment group ID |
+| Group By   | Description                      |
+| ---------- | -------------------------------- |
+| Category   | Group shards by CEFI/TRADFI/DEFI |
+| Date       | Group shards by processing date  |
+| Status     | Group by completion status       |
+| Deployment | Group by deployment group ID     |
 
 ### Action Buttons
 
-| Action | Scope | CLI Equivalent |
-|--------|-------|----------------|
-| Stop | Single job | `cancel <job-id>` |
-| Stop All Filtered | All jobs matching current filter | `cancel --service <svc> --all` + filtering |
-| Stop Entire Deployment | All jobs in deployment group | `cancel <deployment-id>` |
-| Retry Failed | Re-run failed jobs | `resume <deployment-id>` |
-| View Logs | Open log viewer | (API call to fetch logs) |
+| Action                 | Scope                            | CLI Equivalent                             |
+| ---------------------- | -------------------------------- | ------------------------------------------ |
+| Stop                   | Single job                       | `cancel <job-id>`                          |
+| Stop All Filtered      | All jobs matching current filter | `cancel --service <svc> --all` + filtering |
+| Stop Entire Deployment | All jobs in deployment group     | `cancel <deployment-id>`                   |
+| Retry Failed           | Re-run failed jobs               | `resume <deployment-id>`                   |
+| View Logs              | Open log viewer                  | (API call to fetch logs)                   |
 
 ---
 
 ## 7. Log Viewer Integration
 
 ### Features
+
 - Real-time log streaming (while job is running)
 - Error highlighting with stack traces
 - Build stage vs Run stage log separation
@@ -672,11 +705,14 @@ For failed jobs, display:
 - Link to full logs in cloud console (as fallback)
 
 ### Log Sources
+
 - **GCP:** Cloud Logging
 - **AWS:** CloudWatch Logs
 
 ### Implementation
+
 The UI should call CLI commands to fetch logs:
+
 ```bash
 # Fetch logs for a specific job (CLI command to add if not exists)
 python -m deployment_service.cli logs <job-id> --lines 500
@@ -689,19 +725,20 @@ python -m deployment_service.cli logs <job-id> --follow  # Real-time streaming
 
 ### Granularity Levels
 
-| Level | Description | UI Action |
-|-------|-------------|-----------|
-| Single Shard | Stop one shard | Click stop on individual shard row |
-| By Filter | Stop all jobs matching filter criteria | Apply filters, click "Stop All Filtered" |
-| By Category | Stop all jobs for a category | Filter by category, stop all |
-| By Date Range | Stop all jobs for date range | Filter by dates, stop all |
-| Entire Deployment | Stop all jobs in a deployment group | Click stop on deployment group header |
+| Level             | Description                            | UI Action                                |
+| ----------------- | -------------------------------------- | ---------------------------------------- |
+| Single Shard      | Stop one shard                         | Click stop on individual shard row       |
+| By Filter         | Stop all jobs matching filter criteria | Apply filters, click "Stop All Filtered" |
+| By Category       | Stop all jobs for a category           | Filter by category, stop all             |
+| By Date Range     | Stop all jobs for date range           | Filter by dates, stop all                |
+| Entire Deployment | Stop all jobs in a deployment group    | Click stop on deployment group header    |
 
 ### Human-Readable ID Abstraction (Critical)
 
 **All stop/cancel operations use human-readable IDs. Google Cloud IDs are NEVER exposed to users.**
 
 **How it works:**
+
 1. User clicks "Stop" on shard `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4`
 2. UI sends: `POST /api/deployments/{deployment-id}/shards/{shard-id}/cancel`
 3. Backend looks up internal Google Cloud job ID from `state.json`
@@ -727,6 +764,7 @@ POST /api/cancel
 ```
 
 **NOT this (Google Cloud IDs - internal only):**
+
 ```bash
 # WRONG - never expose these to users
 POST /api/cancel?cloud_run_execution_id=projects/xxx/locations/xxx/jobs/xxx/executions/xxx
@@ -770,6 +808,7 @@ python -m deployment_service.cli cancel instruments-service-20260130-143022-a1b2
 ```
 
 ### Confirmation Requirements
+
 - Always show confirmation dialog before stopping jobs
 - Show count of jobs that will be stopped (running + pending)
 - Show which filters are applied
@@ -782,12 +821,12 @@ python -m deployment_service.cli cancel instruments-service-20260130-143022-a1b2
 
 The UI should read these configs to populate dropdowns and validate inputs:
 
-| Config File | Purpose |
-|-------------|---------|
-| `configs/sharding.*.yaml` | Service definitions, dimensions, CLI args |
-| `configs/dependencies.yaml` | Service dependencies and execution order |
+| Config File                         | Purpose                                            |
+| ----------------------------------- | -------------------------------------------------- |
+| `configs/sharding.*.yaml`           | Service definitions, dimensions, CLI args          |
+| `configs/dependencies.yaml`         | Service dependencies and execution order           |
 | `configs/expected_start_dates.yaml` | Data availability dates per service/category/venue |
-| `configs/venues.yaml` | Available venues per category |
+| `configs/venues.yaml`               | Available venues per category                      |
 
 ### Example: Reading Available Services
 
@@ -822,9 +861,11 @@ UI should prevent selecting dates before `category_start` or venue-specific star
 ## 10. Design Philosophy
 
 ### Goal
+
 A user should be able to use this DevOps infrastructure **without ever logging into Google Cloud Console**. Every reason you'd normally go to GCP should be covered by this UI in a user-friendly way.
 
 ### UX Requirements
+
 - **User-friendly:** Intuitive interface, minimal learning curve
 - **Pretty:** Modern, clean design
 - **Human-readable:** No dirty job numbers that don't help humans
@@ -832,13 +873,16 @@ A user should be able to use this DevOps infrastructure **without ever logging i
 - **Accessible:** Web-based, works from anywhere
 
 ### What to Avoid
+
 - Cryptic cloud-generated IDs as primary identifiers
 - Requiring users to know CLI syntax
 - Forcing users to go to GCP console for any routine operation
 - Complex interfaces that require training
 
 ### Design Proposal Required
+
 Before implementation:
+
 1. Create wireframes/mockups of proposed UI
 2. Show tab layout, dropdown arrangement, job list design
 3. Get approval before building
@@ -893,11 +937,13 @@ The UI needs a backend API that wraps CLI commands:
 ### Cloud Provider Mode
 
 Set via environment variable or UI toggle:
+
 ```bash
 CLOUD_PROVIDER=gcp  # or aws
 ```
 
 UI should:
+
 1. Show current cloud provider
 2. Allow switching (with confirmation)
 3. Adjust API calls accordingly
@@ -977,12 +1023,12 @@ Each service has its own checklist with items grouped by category (Infrastructur
 
 ### Status Badges
 
-| Status | Display | Description |
-|--------|---------|-------------|
-| `done` | [✓] Green | Item is complete |
-| `partial` | [~] Yellow | Item is partially complete |
-| `not_started` | [ ] Gray | Item not started |
-| `blocking` | ⚠️ Red highlight | Item blocks production deployment |
+| Status        | Display          | Description                       |
+| ------------- | ---------------- | --------------------------------- |
+| `done`        | [✓] Green        | Item is complete                  |
+| `partial`     | [~] Yellow       | Item is partially complete        |
+| `not_started` | [ ] Gray         | Item not started                  |
+| `blocking`    | ⚠️ Red highlight | Item blocks production deployment |
 
 ### API Endpoint
 
@@ -991,6 +1037,7 @@ GET /api/services/{service}/checklist
 ```
 
 **Response:**
+
 ```json
 {
   "service": "instruments-service",
@@ -1002,13 +1049,26 @@ GET /api/services/{service}/checklist
       "name": "Infrastructure",
       "percent": 80,
       "items": [
-        {"id": "dockerfile", "description": "Dockerfile exists", "status": "done"},
-        {"id": "terraform-vm", "description": "Terraform module for VM", "status": "not_started", "blocking": true}
+        {
+          "id": "dockerfile",
+          "description": "Dockerfile exists",
+          "status": "done"
+        },
+        {
+          "id": "terraform-vm",
+          "description": "Terraform module for VM",
+          "status": "not_started",
+          "blocking": true
+        }
       ]
     }
   ],
   "blocking_items": [
-    {"id": "terraform-vm", "description": "Terraform module for VM", "category": "Infrastructure"}
+    {
+      "id": "terraform-vm",
+      "description": "Terraform module for VM",
+      "category": "Infrastructure"
+    }
   ]
 }
 ```
@@ -1016,6 +1076,7 @@ GET /api/services/{service}/checklist
 ### Integration with Deploy Tab
 
 When user clicks Deploy:
+
 1. UI calls `/api/services/{service}/checklist/validate`
 2. If blocking items exist, show warning (see Section 5 Pre-Deploy Validation)
 3. User can acknowledge and proceed, or cancel to fix issues first
@@ -1040,21 +1101,22 @@ New tab **"Data Status"** in the Monitor section, or as a dedicated top-level ta
 
 ### Display Fields
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| Service | Which service | `market-tick-data-handler` |
-| Category | CEFI/TRADFI/DEFI | `CEFI` |
-| Venue | Exchange/Protocol | `BINANCE-SPOT` |
-| Expected Start | From `expected_start_dates.yaml` | `2017-07-14` |
-| Actual Start | First date with data in GCS | `2019-11-17` |
-| Latest Date | Most recent data | `2026-01-29` |
-| Coverage | Percentage of expected days with data | `98.5%` |
-| Missing Days | Count of gaps | `12 days` |
-| Status | Overall status | `Complete`, `Gaps`, `Missing` |
+| Field          | Description                           | Example                       |
+| -------------- | ------------------------------------- | ----------------------------- |
+| Service        | Which service                         | `market-tick-data-handler`    |
+| Category       | CEFI/TRADFI/DEFI                      | `CEFI`                        |
+| Venue          | Exchange/Protocol                     | `BINANCE-SPOT`                |
+| Expected Start | From `expected_start_dates.yaml`      | `2017-07-14`                  |
+| Actual Start   | First date with data in GCS           | `2019-11-17`                  |
+| Latest Date    | Most recent data                      | `2026-01-29`                  |
+| Coverage       | Percentage of expected days with data | `98.5%`                       |
+| Missing Days   | Count of gaps                         | `12 days`                     |
+| Status         | Overall status                        | `Complete`, `Gaps`, `Missing` |
 
 ### Visual Display
 
 **Option A: Table View**
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Data Status: market-tick-data-handler                                        │
@@ -1072,6 +1134,7 @@ New tab **"Data Status"** in the Monitor section, or as a dedicated top-level ta
 **Option B: Heatmap Calendar View**
 
 Show a calendar heatmap where:
+
 - Green = data exists
 - Red = data missing
 - Gray = before expected start date
@@ -1087,12 +1150,12 @@ Apr: █████████████████████████
 
 ### Filtering Options
 
-| Filter | Type | Description |
-|--------|------|-------------|
-| Service | Dropdown | Filter by service |
-| Category | Multi-select | CEFI, TRADFI, DEFI |
-| Status | Multi-select | Complete, Gaps, Missing |
-| Coverage Threshold | Slider | Show only venues below X% coverage |
+| Filter             | Type         | Description                        |
+| ------------------ | ------------ | ---------------------------------- |
+| Service            | Dropdown     | Filter by service                  |
+| Category           | Multi-select | CEFI, TRADFI, DEFI                 |
+| Status             | Multi-select | Complete, Gaps, Missing            |
+| Coverage Threshold | Slider       | Show only venues below X% coverage |
 
 ### API Endpoint
 
@@ -1101,6 +1164,7 @@ GET /api/data-status?service={service}&category={category}&venue={venue}
 ```
 
 **Response:**
+
 ```json
 {
   "service": "market-tick-data-handler",
@@ -1114,8 +1178,8 @@ GET /api/data-status?service={service}&category={category}&venue={venue}
       "coverage_percent": 98.5,
       "missing_days": 12,
       "missing_ranges": [
-        {"start": "2021-05-19", "end": "2021-05-21"},
-        {"start": "2023-01-01", "end": "2023-01-09"}
+        { "start": "2021-05-19", "end": "2021-05-21" },
+        { "start": "2023-01-01", "end": "2023-01-09" }
       ],
       "status": "gaps"
     }
@@ -1131,11 +1195,11 @@ GET /api/data-status?service={service}&category={category}&venue={venue}
 
 ### Action Buttons
 
-| Action | Description |
-|--------|-------------|
+| Action             | Description                                        |
+| ------------------ | -------------------------------------------------- |
 | **Deploy Missing** | Create deployment to fill gaps for selected venues |
-| **Export Report** | Download CSV of data status |
-| **Refresh** | Re-scan GCS for current data status |
+| **Export Report**  | Download CSV of data status                        |
+| **Refresh**        | Re-scan GCS for current data status                |
 
 ---
 
@@ -1144,12 +1208,14 @@ GET /api/data-status?service={service}&category={category}&venue={venue}
 ### Purpose
 
 Provide a unified view of each service's **temporal state** - showing the relationship between:
+
 1. When **data was actually updated** in storage (GCS/S3)
 2. When **code was pushed** to main branch
 3. When **Docker image was built** (Cloud Build/CodeBuild)
 4. When **deployment was executed**
 
 This helps answer critical questions like:
+
 - "Did this deployment actually update the data, or did it fail silently?"
 - "Is the data stale because we forgot to run with `--force`?"
 - "Which deployment produced the current data?"
@@ -1202,14 +1268,14 @@ New tab **"Service Status"** at the top level, showing all services at a glance.
 
 ### Key Timestamps to Track
 
-| Timestamp | Source | Description |
-|-----------|--------|-------------|
-| **Data Last Updated** | GCS/S3 file metadata (`updated` timestamp) | When output files were actually written |
-| **Deployment Completed** | Deployment state in GCS | When the deployment job finished |
-| **Deployment Started** | Deployment state in GCS | When the deployment job started |
-| **Image Built** | Cloud Build / Artifact Registry | When Docker image was created |
-| **Code Pushed** | GitHub API | When commit was pushed to main |
-| **Last Successful Build** | Cloud Build | When quality gates last passed |
+| Timestamp                 | Source                                     | Description                             |
+| ------------------------- | ------------------------------------------ | --------------------------------------- |
+| **Data Last Updated**     | GCS/S3 file metadata (`updated` timestamp) | When output files were actually written |
+| **Deployment Completed**  | Deployment state in GCS                    | When the deployment job finished        |
+| **Deployment Started**    | Deployment state in GCS                    | When the deployment job started         |
+| **Image Built**           | Cloud Build / Artifact Registry            | When Docker image was created           |
+| **Code Pushed**           | GitHub API                                 | When commit was pushed to main          |
+| **Last Successful Build** | Cloud Build                                | When quality gates last passed          |
 
 ### Anomaly Detection
 
@@ -1287,20 +1353,20 @@ Even when a deployment shows status "Completed", the UI MUST:
 
 Replace simple "Completed" status with nuanced display:
 
-| Actual Status | Display | Color | Meaning |
-|---------------|---------|-------|---------|
-| Completed, 0 errors, 0 warnings | ✅ **Clean** | Green | Perfect run |
-| Completed, 0 errors, N warnings | ⚠️ **Completed with Warnings** | Yellow | Review recommended |
-| Completed, N errors, M warnings | 🔴 **Completed with Errors** | Red | Data may be unreliable |
-| Failed | ❌ **Failed** | Red | Job crashed |
-| Running | 🔄 **Running** | Blue | In progress |
-| Pending | ⏳ **Pending** | Gray | Not started |
+| Actual Status                   | Display                        | Color  | Meaning                |
+| ------------------------------- | ------------------------------ | ------ | ---------------------- |
+| Completed, 0 errors, 0 warnings | ✅ **Clean**                   | Green  | Perfect run            |
+| Completed, 0 errors, N warnings | ⚠️ **Completed with Warnings** | Yellow | Review recommended     |
+| Completed, N errors, M warnings | 🔴 **Completed with Errors**   | Red    | Data may be unreliable |
+| Failed                          | ❌ **Failed**                  | Red    | Job crashed            |
+| Running                         | 🔄 **Running**                 | Blue   | In progress            |
+| Pending                         | ⏳ **Pending**                 | Gray   | Not started            |
 
 ### API Response Enhancement
 
 The `/api/deployments/{id}` response should include log analysis:
 
-```json
+````json
 {
   "deployment_id": "instruments-service-20260129-190000-a1b2c3",
   "status": "completed",
@@ -1346,9 +1412,10 @@ from google.cloud import storage
 blob = bucket.blob("path/to/output.parquet")
 blob.reload()  # Fetch metadata
 data_updated = blob.updated  # datetime
-```
+````
 
 **Cloud Build:**
+
 ```python
 # Get build history
 from google.cloud import cloudbuild_v1
@@ -1357,6 +1424,7 @@ builds = client.list_builds(project_id=PROJECT_ID, filter=f'substitutions.REPO_N
 ```
 
 **GitHub API:**
+
 ```python
 # Get latest commits
 import requests
@@ -1364,6 +1432,7 @@ commits = requests.get(f"https://api.github.com/repos/{org}/{repo}/commits?sha=m
 ```
 
 **AWS Equivalent (Cloud-Agnostic):**
+
 - S3: `head_object()` → `LastModified`
 - CodeBuild: `list_builds_for_project()`
 - CodeCommit/GitHub: Same GitHub API
@@ -1375,6 +1444,7 @@ GET /api/services/{service}/status
 ```
 
 **Response:**
+
 ```json
 {
   "service": "instruments-service",
@@ -1453,13 +1523,13 @@ Show a summary table for quick scanning:
 
 This dashboard pulls from multiple sources:
 
-| Data Point | GCP Source | AWS Source |
-|------------|------------|------------|
-| Data timestamps | GCS blob metadata | S3 object metadata |
-| Deployment state | GCS state bucket | S3 state bucket |
-| Build status | Cloud Build API | CodeBuild API |
-| Code commits | GitHub API | GitHub/CodeCommit API |
-| Image metadata | Artifact Registry | ECR |
+| Data Point       | GCP Source        | AWS Source            |
+| ---------------- | ----------------- | --------------------- |
+| Data timestamps  | GCS blob metadata | S3 object metadata    |
+| Deployment state | GCS state bucket  | S3 state bucket       |
+| Build status     | Cloud Build API   | CodeBuild API         |
+| Code commits     | GitHub API        | GitHub/CodeCommit API |
+| Image metadata   | Artifact Registry | ECR                   |
 
 ### Benefits
 
@@ -1476,6 +1546,7 @@ This dashboard pulls from multiple sources:
 This section tracks what is already built vs what needs to be implemented.
 
 ### Legend
+
 - ✅ **DONE** - Fully implemented and working
 - 🟡 **PARTIAL** - Partially implemented, needs enhancement
 - ❌ **TODO** - Not yet implemented
@@ -1484,200 +1555,201 @@ This section tracks what is already built vs what needs to be implemented.
 
 ### Deploy Tab
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Service dropdown | ✅ DONE | Populated from sharding configs |
-| Category multi-select | ✅ DONE | Dynamic based on service dimensions |
-| Venue multi-select (filtered by category) | ✅ DONE | Hierarchical validation works |
-| Date range pickers | ✅ DONE | With validation against `expected_start_dates.yaml` |
-| Compute mode toggle (Cloud Run/VM) | ✅ DONE | - |
-| Region selector | ✅ DONE | 8 regions available |
-| VM Zone selector | ✅ DONE | Auto-updates with region, shows failover note |
-| Force checkbox | ✅ DONE | - |
-| Dry Run checkbox | ✅ DONE | Defaults to true for safety |
-| Log Level selector | ✅ DONE | DEBUG/INFO/WARNING/ERROR |
-| Max Workers input | ✅ DONE | - |
-| Extra CLI args input | ✅ DONE | Free-form text for pass-through args |
-| CLI Preview | ✅ DONE | Shows command that will be executed |
-| Estimated shards counter | ✅ DONE | Real-time calculation |
-| **Deployment Notes/Tag field** | ✅ DONE | Added `--tag` to CLI and `tag` field to API |
-| **Pre-deploy checklist validation** | ✅ DONE | `/api/checklists/{service}/validate` + warning banner in DeployForm (Jan 31) |
+| Feature                                   | Status  | Notes                                                                        |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| Service dropdown                          | ✅ DONE | Populated from sharding configs                                              |
+| Category multi-select                     | ✅ DONE | Dynamic based on service dimensions                                          |
+| Venue multi-select (filtered by category) | ✅ DONE | Hierarchical validation works                                                |
+| Date range pickers                        | ✅ DONE | With validation against `expected_start_dates.yaml`                          |
+| Compute mode toggle (Cloud Run/VM)        | ✅ DONE | -                                                                            |
+| Region selector                           | ✅ DONE | 8 regions available                                                          |
+| VM Zone selector                          | ✅ DONE | Auto-updates with region, shows failover note                                |
+| Force checkbox                            | ✅ DONE | -                                                                            |
+| Dry Run checkbox                          | ✅ DONE | Defaults to true for safety                                                  |
+| Log Level selector                        | ✅ DONE | DEBUG/INFO/WARNING/ERROR                                                     |
+| Max Workers input                         | ✅ DONE | -                                                                            |
+| Extra CLI args input                      | ✅ DONE | Free-form text for pass-through args                                         |
+| CLI Preview                               | ✅ DONE | Shows command that will be executed                                          |
+| Estimated shards counter                  | ✅ DONE | Real-time calculation                                                        |
+| **Deployment Notes/Tag field**            | ✅ DONE | Added `--tag` to CLI and `tag` field to API                                  |
+| **Pre-deploy checklist validation**       | ✅ DONE | `/api/checklists/{service}/validate` + warning banner in DeployForm (Jan 31) |
 
 ---
 
 ### Monitor Tab (History)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| List deployments | ✅ DONE | Shows service, status, progress, shard counts |
-| Filter by service | ✅ DONE | - |
-| Polling for updates | ✅ DONE | Auto-refreshes every 10s |
-| View deployment details | ✅ DONE | Click to expand |
-| Delete deployment | ✅ DONE | Single and bulk delete |
-| Progress percentage | ✅ DONE | Shows X% (N/M shards) |
-| **Shows CLI deployments** | ✅ DONE | State stored in GCS, both UI and CLI deployments visible |
-| **Expandable tree view** (category → shards) | ✅ DONE | Grouped view with collapsible categories (Jan 27) |
-| **Human-readable deployment ID** | ✅ DONE | Uses `service-YYYYMMDD-HHMMSS-hash` format |
-| **Human-readable shard IDs** | ✅ DONE | Shows category-date format (e.g., CEFI-2025-06-01) |
-| **Deployment tag display** | ✅ DONE | Added `tag` field to API responses and PATCH endpoint |
-| **Docker image path display** | ✅ DONE | Shows image tag in deployment header |
-| **Docker image digest display** | ✅ DONE | Resolves :latest to actual sha256 digest via Artifact Registry API (Jan 27) |
-| **Git commit/branch display** | ✅ DONE | Shows commit SHA from Cloud Build, tags from Artifact Registry (Jan 31) |
+| Feature                                      | Status  | Notes                                                                       |
+| -------------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| List deployments                             | ✅ DONE | Shows service, status, progress, shard counts                               |
+| Filter by service                            | ✅ DONE | -                                                                           |
+| Polling for updates                          | ✅ DONE | Auto-refreshes every 10s                                                    |
+| View deployment details                      | ✅ DONE | Click to expand                                                             |
+| Delete deployment                            | ✅ DONE | Single and bulk delete                                                      |
+| Progress percentage                          | ✅ DONE | Shows X% (N/M shards)                                                       |
+| **Shows CLI deployments**                    | ✅ DONE | State stored in GCS, both UI and CLI deployments visible                    |
+| **Expandable tree view** (category → shards) | ✅ DONE | Grouped view with collapsible categories (Jan 27)                           |
+| **Human-readable deployment ID**             | ✅ DONE | Uses `service-YYYYMMDD-HHMMSS-hash` format                                  |
+| **Human-readable shard IDs**                 | ✅ DONE | Shows category-date format (e.g., CEFI-2025-06-01)                          |
+| **Deployment tag display**                   | ✅ DONE | Added `tag` field to API responses and PATCH endpoint                       |
+| **Docker image path display**                | ✅ DONE | Shows image tag in deployment header                                        |
+| **Docker image digest display**              | ✅ DONE | Resolves :latest to actual sha256 digest via Artifact Registry API (Jan 27) |
+| **Git commit/branch display**                | ✅ DONE | Shows commit SHA from Cloud Build, tags from Artifact Registry (Jan 31)     |
 
 ---
 
 ### Deployment Details Panel
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Shard list with status | ✅ DONE | Shows all shards with Running/Completed/Failed |
-| Shard dimensions display | ✅ DONE | Category, date, venue shown |
-| Error message display | ✅ DONE | Shows error for failed shards |
-| Retry count display | ✅ DONE | Shows retries per shard |
-| Region/Zone display | ✅ DONE | Shows in header |
-| Failover event highlighting | ✅ DONE | ZONE_EXHAUSTED, REGION_SWITCH badges |
-| **Refresh button** | ✅ DONE | Manual refresh of shard statuses |
-| **Cancel entire deployment** | ✅ DONE | `POST /api/deployments/{id}/cancel` |
-| **Cancel single shard** | ✅ DONE | `POST /api/deployments/{id}/shards/{shard-id}/cancel` |
-| **Resume deployment** | ✅ DONE | `POST /api/deployments/{id}/resume` |
-| **Retry failed shards** | ✅ DONE | `POST /api/deployments/{id}/retry-failed` |
+| Feature                      | Status  | Notes                                                 |
+| ---------------------------- | ------- | ----------------------------------------------------- |
+| Shard list with status       | ✅ DONE | Shows all shards with Running/Completed/Failed        |
+| Shard dimensions display     | ✅ DONE | Category, date, venue shown                           |
+| Error message display        | ✅ DONE | Shows error for failed shards                         |
+| Retry count display          | ✅ DONE | Shows retries per shard                               |
+| Region/Zone display          | ✅ DONE | Shows in header                                       |
+| Failover event highlighting  | ✅ DONE | ZONE_EXHAUSTED, REGION_SWITCH badges                  |
+| **Refresh button**           | ✅ DONE | Manual refresh of shard statuses                      |
+| **Cancel entire deployment** | ✅ DONE | `POST /api/deployments/{id}/cancel`                   |
+| **Cancel single shard**      | ✅ DONE | `POST /api/deployments/{id}/shards/{shard-id}/cancel` |
+| **Resume deployment**        | ✅ DONE | `POST /api/deployments/{id}/resume`                   |
+| **Retry failed shards**      | ✅ DONE | `POST /api/deployments/{id}/retry-failed`             |
 
 ---
 
 ### Log Viewer
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Fetch logs for deployment | ✅ DONE | Cloud Run and VM logs |
-| VM serial console output | ✅ DONE | Fetches from all zones |
-| Severity filtering | ✅ DONE | Filter by ERROR/WARNING/INFO |
-| Shard-specific logs | ✅ DONE | Filter by shard ID |
-| Error highlighting | ✅ DONE | Red for errors, yellow for warnings |
-| Failover event badges | ✅ DONE | ZONE_EXHAUSTED, REGION_SWITCH, QUOTA HIT |
-| **Search/grep in logs** | ✅ DONE | Search box filters logs by text/severity |
+| Feature                               | Status  | Notes                                                         |
+| ------------------------------------- | ------- | ------------------------------------------------------------- |
+| Fetch logs for deployment             | ✅ DONE | Cloud Run and VM logs                                         |
+| VM serial console output              | ✅ DONE | Fetches from all zones                                        |
+| Severity filtering                    | ✅ DONE | Filter by ERROR/WARNING/INFO                                  |
+| Shard-specific logs                   | ✅ DONE | Filter by shard ID                                            |
+| Error highlighting                    | ✅ DONE | Red for errors, yellow for warnings                           |
+| Failover event badges                 | ✅ DONE | ZONE_EXHAUSTED, REGION_SWITCH, QUOTA HIT                      |
+| **Search/grep in logs**               | ✅ DONE | Search box filters logs by text/severity                      |
 | **Real-time streaming (auto-follow)** | ✅ DONE | Polling every 2s with `after_line` incremental fetch (Jan 27) |
-| **Shard-level log popup** | ✅ DONE | Click any shard to view its logs in modal (Jan 27) |
-| **Optimized log fetching** | ✅ DONE | Prefers GCS logs over slow serial console (Jan 27) |
+| **Shard-level log popup**             | ✅ DONE | Click any shard to view its logs in modal (Jan 27)            |
+| **Optimized log fetching**            | ✅ DONE | Prefers GCS logs over slow serial console (Jan 27)            |
 
 ---
 
 ### Readiness Tab (IMPLEMENTED Jan 31)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Checklist dashboard | ✅ DONE | `ReadinessTab.tsx` component with service selector |
-| Read checklist YAML files | ✅ DONE | `GET /api/checklists/{service}` reads `configs/checklist.*.yaml` |
-| Progress bars by category | ✅ DONE | Per-category progress bars with done/partial/pending counts |
-| Blocking items highlight | ✅ DONE | Blocking items shown separately with red highlighting |
+| Feature                   | Status  | Notes                                                                                  |
+| ------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| Checklist dashboard       | ✅ DONE | `ReadinessTab.tsx` component with service selector                                     |
+| Read checklist YAML files | ✅ DONE | `GET /api/checklists/{service}` reads `configs/checklist.*.yaml`                       |
+| Progress bars by category | ✅ DONE | Per-category progress bars with done/partial/pending counts                            |
+| Blocking items highlight  | ✅ DONE | Blocking items shown separately with red highlighting                                  |
 | Pre-deploy validation API | ✅ DONE | `GET /api/checklists/{service}/validate` returns `ready`, `blocking_items`, `warnings` |
-| Pre-deploy warning banner | ✅ DONE | `DeployForm.tsx` shows warning if checklist not ready, requires acknowledgment |
-| All checklists summary | ✅ DONE | `GET /api/checklists` returns summary of all service checklists |
+| Pre-deploy warning banner | ✅ DONE | `DeployForm.tsx` shows warning if checklist not ready, requires acknowledgment         |
+| All checklists summary    | ✅ DONE | `GET /api/checklists` returns summary of all service checklists                        |
 
 ---
 
 ### Data Status Tab (NEW)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Data completeness view | ✅ DONE | New "Data Status" tab with category breakdown (Jan 31) |
-| data-status CLI integration | ✅ DONE | `GET /api/data-status` wraps CLI with caching (Jan 31) |
-| Table view of coverage | ✅ DONE | Category and venue-level coverage percentages (Jan 31) |
-| Heatmap calendar view | ✅ DONE | `HeatmapCalendar.tsx` with accurate per-date data from missing_dates API (Feb 1) |
-| Filter by service/category/venue | ✅ DONE | Date range, category multi-select (Jan 31) |
-| "Deploy Missing" button | ✅ DONE | Switches to Deploy tab with missing data params (Jan 31) |
-| **Venue coverage deep scan** | ✅ DONE | Check which venues exist inside parquet files (Jan 31) |
-| **Performance optimization** | ✅ DONE | Fast mode (60x faster), caching (220x faster) (Jan 31) |
+| Feature                          | Status  | Notes                                                                            |
+| -------------------------------- | ------- | -------------------------------------------------------------------------------- |
+| Data completeness view           | ✅ DONE | New "Data Status" tab with category breakdown (Jan 31)                           |
+| data-status CLI integration      | ✅ DONE | `GET /api/data-status` wraps CLI with caching (Jan 31)                           |
+| Table view of coverage           | ✅ DONE | Category and venue-level coverage percentages (Jan 31)                           |
+| Heatmap calendar view            | ✅ DONE | `HeatmapCalendar.tsx` with accurate per-date data from missing_dates API (Feb 1) |
+| Filter by service/category/venue | ✅ DONE | Date range, category multi-select (Jan 31)                                       |
+| "Deploy Missing" button          | ✅ DONE | Switches to Deploy tab with missing data params (Jan 31)                         |
+| **Venue coverage deep scan**     | ✅ DONE | Check which venues exist inside parquet files (Jan 31)                           |
+| **Performance optimization**     | ✅ DONE | Fast mode (60x faster), caching (220x faster) (Jan 31)                           |
 
 ---
 
 ### Service Status Dashboard (NEW - Temporal Audit Trail)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Per-service timeline view | ✅ DONE | New "Status" tab with 4 timestamps (Jan 31) |
-| GCS file metadata integration | ✅ DONE | Read `blob.updated` for data timestamps, category breakdown (Jan 31) |
-| Cloud Build integration | ✅ DONE | Cloud Build API for build status, commit SHA, duration (Jan 31) |
-| GitHub API integration | ✅ DONE | GitHub API working, `github-token-sa` service account created with permissions (Jan 31) |
-| Anomaly detection (temporal) | ✅ DONE | 4 anomaly types: stale data, deployment without data, code not built, no recent deployment (Jan 31) |
-| All services overview table | ✅ DONE | `GET /api/service-status/overview` returns all services health (Jan 31) |
-| AWS/S3 support | ❌ TODO | Cloud-agnostic via CLOUD_PROVIDER |
-| `/api/services/{service}/status` | ✅ DONE | `GET /api/service-status/{service}/status` (Jan 31) |
-| Health indicator | ✅ DONE | Green/yellow/red with issue count badge (Jan 31) |
-| Verbose details | ✅ DONE | Deployment ID, status, build details, commit info (Jan 31) |
+| Feature                          | Status  | Notes                                                                                               |
+| -------------------------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| Per-service timeline view        | ✅ DONE | New "Status" tab with 4 timestamps (Jan 31)                                                         |
+| GCS file metadata integration    | ✅ DONE | Read `blob.updated` for data timestamps, category breakdown (Jan 31)                                |
+| Cloud Build integration          | ✅ DONE | Cloud Build API for build status, commit SHA, duration (Jan 31)                                     |
+| GitHub API integration           | ✅ DONE | GitHub API working, `github-token-sa` service account created with permissions (Jan 31)             |
+| Anomaly detection (temporal)     | ✅ DONE | 4 anomaly types: stale data, deployment without data, code not built, no recent deployment (Jan 31) |
+| All services overview table      | ✅ DONE | `GET /api/service-status/overview` returns all services health (Jan 31)                             |
+| AWS/S3 support                   | ❌ TODO | Cloud-agnostic via CLOUD_PROVIDER                                                                   |
+| `/api/services/{service}/status` | ✅ DONE | `GET /api/service-status/{service}/status` (Jan 31)                                                 |
+| Health indicator                 | ✅ DONE | Green/yellow/red with issue count badge (Jan 31)                                                    |
+| Verbose details                  | ✅ DONE | Deployment ID, status, build details, commit info (Jan 31)                                          |
 
 ---
 
 ### Log Analysis & Warning/Error Surfacing (CRITICAL)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **Grep logs for ERROR/CRITICAL** | ✅ DONE | Scans VM serial console and Cloud Run logs |
-| **Grep logs for WARNING/WARN** | ✅ DONE | Surfaced in log_analysis response |
-| **Detect stack traces** | ✅ DONE | Python Traceback, JS at Object detection |
-| **Status: Completed with Warnings** | ✅ DONE | Yellow status badge in UI |
-| **Status: Completed with Errors** | ✅ DONE | Red status badge, prominent display |
-| **Error/warning summary panel** | ✅ DONE | Shows counts and sample messages in UI |
-| **Build pipeline anomaly detection** | ❌ TODO | Image built despite failures |
-| **Quality gates bypass detection** | ❌ TODO | GitHub Actions failed but image exists |
-| `log_analysis` in API response | ✅ DONE | Returns errors/warnings from `/api/deployments/{id}` |
-| `build_health` in API response | ❌ TODO | Return quality gate status |
+| Feature                              | Status  | Notes                                                |
+| ------------------------------------ | ------- | ---------------------------------------------------- |
+| **Grep logs for ERROR/CRITICAL**     | ✅ DONE | Scans VM serial console and Cloud Run logs           |
+| **Grep logs for WARNING/WARN**       | ✅ DONE | Surfaced in log_analysis response                    |
+| **Detect stack traces**              | ✅ DONE | Python Traceback, JS at Object detection             |
+| **Status: Completed with Warnings**  | ✅ DONE | Yellow status badge in UI                            |
+| **Status: Completed with Errors**    | ✅ DONE | Red status badge, prominent display                  |
+| **Error/warning summary panel**      | ✅ DONE | Shows counts and sample messages in UI               |
+| **Build pipeline anomaly detection** | ❌ TODO | Image built despite failures                         |
+| **Quality gates bypass detection**   | ❌ TODO | GitHub Actions failed but image exists               |
+| `log_analysis` in API response       | ✅ DONE | Returns errors/warnings from `/api/deployments/{id}` |
+| `build_health` in API response       | ❌ TODO | Return quality gate status                           |
 
 ---
 
 ### Infrastructure Reporting (CLI-First)
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **CLI args stored per deployment** | ✅ DONE | In state.json at deployment level |
-| **CLI args stored per shard** | ✅ DONE | In state.json at shard level |
-| **Retry count per shard** | ✅ DONE | `retries` field in state |
-| **Execution history per shard** | ✅ DONE | `execution_history` array with zone/region/failure per attempt |
-| **Failure category classification** | ✅ DONE | `FailureCategory` enum with auto-detection from error messages |
-| **Zone/region switches tracking** | ✅ DONE | `zone_switches`, `region_switches`, `final_zone`, `final_region` fields |
-| `report` CLI command | ✅ DONE | `python deploy.py report <deployment-id>` with all flags |
-| `--infra-issues` flag | ✅ DONE | Cloud provider ticket format |
-| `--quota-issues` flag | ✅ DONE | Quota increase justification |
-| `rerun-command` CLI command | ✅ DONE | Generate CLI to rerun failed shards |
-| `--failed-only` flag | ✅ DONE | Only show failed shards |
-| `/api/deployments/{id}/report` | ✅ DONE | API for infrastructure reports |
-| `/api/deployments/{id}/rerun-commands` | ✅ DONE | API for rerun commands |
-| JSON/CSV export for analytics | ✅ DONE | JSON format supported in CLI and API |
+| Feature                                | Status  | Notes                                                                   |
+| -------------------------------------- | ------- | ----------------------------------------------------------------------- |
+| **CLI args stored per deployment**     | ✅ DONE | In state.json at deployment level                                       |
+| **CLI args stored per shard**          | ✅ DONE | In state.json at shard level                                            |
+| **Retry count per shard**              | ✅ DONE | `retries` field in state                                                |
+| **Execution history per shard**        | ✅ DONE | `execution_history` array with zone/region/failure per attempt          |
+| **Failure category classification**    | ✅ DONE | `FailureCategory` enum with auto-detection from error messages          |
+| **Zone/region switches tracking**      | ✅ DONE | `zone_switches`, `region_switches`, `final_zone`, `final_region` fields |
+| `report` CLI command                   | ✅ DONE | `python deploy.py report <deployment-id>` with all flags                |
+| `--infra-issues` flag                  | ✅ DONE | Cloud provider ticket format                                            |
+| `--quota-issues` flag                  | ✅ DONE | Quota increase justification                                            |
+| `rerun-command` CLI command            | ✅ DONE | Generate CLI to rerun failed shards                                     |
+| `--failed-only` flag                   | ✅ DONE | Only show failed shards                                                 |
+| `/api/deployments/{id}/report`         | ✅ DONE | API for infrastructure reports                                          |
+| `/api/deployments/{id}/rerun-commands` | ✅ DONE | API for rerun commands                                                  |
+| JSON/CSV export for analytics          | ✅ DONE | JSON format supported in CLI and API                                    |
 
 ---
 
 ### Backend APIs
 
-| Endpoint | Status | Notes |
-|----------|--------|-------|
-| `GET /api/services` | ✅ DONE | - |
-| `GET /api/services/{service}/config` | ✅ DONE | Returns dimensions |
-| `GET /api/venues` | ✅ DONE | - |
-| `GET /api/expected-start-dates` | ✅ DONE | - |
-| `POST /api/deploy` | ✅ DONE | Includes `tag` field |
-| `GET /api/deployments` | ✅ DONE | Includes `tag` field |
-| `GET /api/deployments/{id}` | ✅ DONE | Includes `tag` field |
-| `GET /api/deployments/{id}/logs` | ✅ DONE | - |
-| `DELETE /api/deployments/{id}` | ✅ DONE | - |
-| `PATCH /api/deployments/{id}` | ✅ DONE | Update deployment tag |
-| `POST /api/deployments/bulk-delete` | ✅ DONE | - |
-| `POST /api/deployments/{id}/refresh` | ✅ DONE | - |
-| `POST /api/deployments/{id}/cancel` | ✅ DONE | Cancel all running shards |
-| `POST /api/deployments/{id}/resume` | ✅ DONE | Resume failed deployment |
-| `POST /api/deployments/{id}/retry-failed` | ✅ DONE | Retry only failed shards |
-| `POST /api/deployments/{id}/shards/{shard-id}/cancel` | ✅ DONE | Cancel single shard |
-| `GET /api/checklists/{service}` | ✅ DONE | Returns checklist YAML parsed with progress (Jan 31) |
-| `GET /api/checklists/{service}/validate` | ✅ DONE | Pre-deploy validation with blocking items (Jan 31) |
-| `GET /api/data-status` | ✅ DONE | Data completeness with caching, fast mode (Jan 31) |
-| `GET /api/service-status/{service}/status` | ✅ DONE | Temporal audit trail - data/deploy/build/code timestamps (Jan 31) |
-| `GET /api/service-status/overview` | ✅ DONE | All services status summary with health indicators (Jan 31) |
-| `GET /api/deployments/{id}/report` | ✅ DONE | Infrastructure report (retries, failures, quota issues) |
-| `GET /api/deployments/{id}/rerun-commands` | ✅ DONE | CLI commands to rerun failed shards |
+| Endpoint                                              | Status  | Notes                                                             |
+| ----------------------------------------------------- | ------- | ----------------------------------------------------------------- |
+| `GET /api/services`                                   | ✅ DONE | -                                                                 |
+| `GET /api/services/{service}/config`                  | ✅ DONE | Returns dimensions                                                |
+| `GET /api/venues`                                     | ✅ DONE | -                                                                 |
+| `GET /api/expected-start-dates`                       | ✅ DONE | -                                                                 |
+| `POST /api/deploy`                                    | ✅ DONE | Includes `tag` field                                              |
+| `GET /api/deployments`                                | ✅ DONE | Includes `tag` field                                              |
+| `GET /api/deployments/{id}`                           | ✅ DONE | Includes `tag` field                                              |
+| `GET /api/deployments/{id}/logs`                      | ✅ DONE | -                                                                 |
+| `DELETE /api/deployments/{id}`                        | ✅ DONE | -                                                                 |
+| `PATCH /api/deployments/{id}`                         | ✅ DONE | Update deployment tag                                             |
+| `POST /api/deployments/bulk-delete`                   | ✅ DONE | -                                                                 |
+| `POST /api/deployments/{id}/refresh`                  | ✅ DONE | -                                                                 |
+| `POST /api/deployments/{id}/cancel`                   | ✅ DONE | Cancel all running shards                                         |
+| `POST /api/deployments/{id}/resume`                   | ✅ DONE | Resume failed deployment                                          |
+| `POST /api/deployments/{id}/retry-failed`             | ✅ DONE | Retry only failed shards                                          |
+| `POST /api/deployments/{id}/shards/{shard-id}/cancel` | ✅ DONE | Cancel single shard                                               |
+| `GET /api/checklists/{service}`                       | ✅ DONE | Returns checklist YAML parsed with progress (Jan 31)              |
+| `GET /api/checklists/{service}/validate`              | ✅ DONE | Pre-deploy validation with blocking items (Jan 31)                |
+| `GET /api/data-status`                                | ✅ DONE | Data completeness with caching, fast mode (Jan 31)                |
+| `GET /api/service-status/{service}/status`            | ✅ DONE | Temporal audit trail - data/deploy/build/code timestamps (Jan 31) |
+| `GET /api/service-status/overview`                    | ✅ DONE | All services status summary with health indicators (Jan 31)       |
+| `GET /api/deployments/{id}/report`                    | ✅ DONE | Infrastructure report (retries, failures, quota issues)           |
+| `GET /api/deployments/{id}/rerun-commands`            | ✅ DONE | CLI commands to rerun failed shards                               |
 
 ---
 
 ### Priority Implementation Order
 
 **Phase 1 - Core Operations (High Priority)** ✅ COMPLETE
+
 1. ✅ Cancel deployment API
 2. ✅ Cancel single shard API
 3. ✅ Retry failed shards API
@@ -1685,18 +1757,21 @@ This section tracks what is already built vs what needs to be implemented.
 5. ✅ Deployment tag/description (CLI + API)
 
 **Phase 2 - Log Analysis & Error Surfacing (CRITICAL)** ✅ COMPLETE
+
 1. ✅ Grep logs for ERROR/WARNING on completed deployments
 2. ✅ "Completed with Warnings" / "Completed with Errors" status
 3. ✅ Error/warning summary panel in deployment details
 4. ✅ `log_analysis` and `status_detail` fields in API response
 
 **Phase 3 - Enhanced Visibility**
+
 1. ✅ Deployment tag/description (CLI + API + UI) - DONE
 2. ✅ Docker image and tag display - DONE
 3. ✅ Expandable tree view for shards by category - DONE
 4. ✅ Build pipeline health status - Cloud Build API integrated in ServiceStatusTab (Jan 31)
 
 **Phase 4 - Infrastructure Reporting (CLI-First)** ✅ COMPLETE
+
 1. ✅ Execution history tracking per shard (zone/region/failure per attempt)
 2. ✅ Failure category classification (zone_exhaustion, ip_quota, cpu_quota, etc.)
 3. ✅ `report` CLI command with --infra-issues, --quota-issues, --retries
@@ -1704,22 +1779,26 @@ This section tracks what is already built vs what needs to be implemented.
 5. ✅ JSON export for analytics (Datadog, Grafana)
 
 **Phase 5 - Service Status Dashboard** ✅ COMPLETE
+
 1. ✅ Per-service temporal timeline - `ServiceStatusTab.tsx`
 2. ✅ Anomaly detection (data/deploy/build timestamps)
 3. ✅ All services overview table - `ServicesOverviewTab.tsx`
 4. ❌ Quality gates bypass detection (requires Cloud Build webhook integration)
 
 **Phase 6 - New Features** ✅ COMPLETE
+
 1. ✅ Readiness/Checklist tab + API (Jan 31)
 2. ✅ Data Status tab + API (Jan 31)
 3. ✅ Pre-deploy validation with warnings (Jan 31)
 
 **Phase 7 - Polish** ✅ COMPLETE
+
 1. ✅ Human-readable shard IDs in UI - Shows CEFI-2025-06-01 format
 2. ✅ Log search/grep functionality - DONE
 3. ✅ Real-time log streaming (incremental fetch with auto-follow) (Jan 27)
 
 **Phase 8 - Performance & Scalability** ✅ COMPLETE (Jan 31)
+
 1. ✅ Multi-worker backend (4 workers, no blocking during large deployments)
 2. ✅ Deployment worker process (separate process isolation)
 3. ✅ Smart caching (Redis + in-memory, 220x speedup)
@@ -1727,6 +1806,7 @@ This section tracks what is already built vs what needs to be implemented.
 5. ✅ Increased timeouts and concurrency limits
 
 **Remaining Work (Future Enhancements)**
+
 1. ❌ **Real-time VM log streaming** - Currently logs are held in container and only available at exit (can take hours). Need to stream logs from running VMs to UI in real-time.
 2. ❌ **Quality gates bypass detection** - Detect when image was built despite GitHub Actions failures (requires Cloud Build webhook integration)
 3. ❌ **Build health in API response** - Return quality gate status in deployment API
@@ -1738,15 +1818,16 @@ This section tracks what is already built vs what needs to be implemented.
 
 ### Deployment Testing Summary
 
-| Service | Category | Dates | Shards | Result |
-|---------|----------|-------|--------|--------|
-| instruments-service | DEFI | Jan 2025 | 31 | ✅ SUCCESS |
-| instruments-service | CEFI | Jan 2025 | 31 | ✅ SUCCESS |
-| instruments-service | TRADFI | Jan 2025 | 31 | ✅ SUCCESS (with Databento rate limit delays) |
+| Service             | Category | Dates    | Shards | Result                                        |
+| ------------------- | -------- | -------- | ------ | --------------------------------------------- |
+| instruments-service | DEFI     | Jan 2025 | 31     | ✅ SUCCESS                                    |
+| instruments-service | CEFI     | Jan 2025 | 31     | ✅ SUCCESS                                    |
+| instruments-service | TRADFI   | Jan 2025 | 31     | ✅ SUCCESS (with Databento rate limit delays) |
 
 ### Issues Discovered and Fixed
 
 **1. Databento API Rate Limit Bottleneck**
+
 - **Issue**: TRADFI deployments appeared stuck due to Databento `batch.submit_job` rate limit (20/min per key)
 - **Root Cause**: Single API key shared across all shards
 - **Fix**: Implemented multi-key rotation in `unified-trading-library/clients/databento_base_client.py`
@@ -1755,11 +1836,13 @@ This section tracks what is already built vs what needs to be implemented.
   - Total capacity: 400 batch.submit_job/min
 
 **2. `--max-threads` Local Machine Overheating**
+
 - **Issue**: Setting `--max-threads=1500` overwhelmed local machines (CPU/thermal throttling)
 - **Root Cause**: `max-threads` controls local `ThreadPoolExecutor` threads, not cloud VM count
 - **Fix**: Changed default to 150, added warning if user sets > 200
 
 **3. market-tick-data-handler Databento Key Bypass**
+
 - **Issue**: market-tick-data-handler was passing explicit `api_key` to `DatabentoClient`, bypassing multi-key rotation
 - **Fix**: Modified `DatabentoClient(api_key=None)` to use SHARD_INDEX-based key selection
 
@@ -1767,10 +1850,10 @@ This section tracks what is already built vs what needs to be implemented.
 
 Both services now use multi-key rotation (via unified-trading-library):
 
-| Client | Keys | Secret Pattern | Total Capacity |
-|--------|------|----------------|----------------|
-| DatabentoBaseClient (TRADFI) | 20 | `databento-api-key-{1-20}` | 400 batch.submit_job/min |
-| TheGraphBaseClient (DEFI) | 9 | `thegraph-api-key-{1-9}` | 900 queries/min |
+| Client                       | Keys | Secret Pattern             | Total Capacity           |
+| ---------------------------- | ---- | -------------------------- | ------------------------ |
+| DatabentoBaseClient (TRADFI) | 20   | `databento-api-key-{1-20}` | 400 batch.submit_job/min |
+| TheGraphBaseClient (DEFI)    | 9    | `thegraph-api-key-{1-9}`   | 900 queries/min          |
 
 ### Cloud Build Verification
 
@@ -1778,21 +1861,23 @@ Both services now use multi-key rotation (via unified-trading-library):
 - Use: `gcloud builds list --region=asia-northeast1`
 - Documentation: `docs/CLOUD_BUILD_TRIGGERS.md`
 
-| Service | Build Status | Commit |
-|---------|-------------|--------|
-| instruments-service | ✅ SUCCESS | e17512d |
-| market-tick-data-handler | ✅ SUCCESS | d00a81e |
-| unified-trading-library | ✅ PUSHED | ddead0c |
+| Service                  | Build Status | Commit  |
+| ------------------------ | ------------ | ------- |
+| instruments-service      | ✅ SUCCESS   | e17512d |
+| market-tick-data-handler | ✅ SUCCESS   | d00a81e |
+| unified-trading-library  | ✅ PUSHED    | ddead0c |
 
 ### Symbol Batching Verification
 
 Both services batch symbols efficiently per day:
 
 **instruments-service:**
+
 - 1 batch job per symbol group (futures, options, ETFs) per dataset
 - ~4-6 batch jobs per category per day
 
 **market-tick-data-handler:**
+
 - Equities/ETFs: 1 batch per dataset
 - Futures chains: 1 batch per underlying (ES.FUT, NQ.FUT, etc.)
 - Options chains: 1 batch per underlying
@@ -1890,6 +1975,7 @@ Before UI is complete, verify all items above are ✅ DONE.
 ```
 
 **Key Points:**
+
 - `internal_job_id` is stored but NEVER returned to UI
 - All IDs exposed to UI are human-readable
 - `tag` is optional but encouraged
@@ -1905,6 +1991,7 @@ Before UI is complete, verify all items above are ✅ DONE.
 ### Principle: Every UI Feature Must Have a CLI Equivalent
 
 All reporting features must be available via CLI so they can:
+
 - Be run without UI access
 - Be plugged into other analytics systems (Datadog, PagerDuty, etc.)
 - Be scripted for automated monitoring
@@ -2035,18 +2122,18 @@ GET /api/deployments/{id}/rerun-commands?failed-only=true
 
 ### Failure Categories (Standardized)
 
-| Category | Description | Typical Resolution |
-|----------|-------------|-------------------|
-| `zone_exhaustion` | ZONE_RESOURCE_POOL_EXHAUSTED | Auto-failover to next zone/region |
-| `ip_quota` | IN_USE_ADDRESSES quota exceeded | Request quota increase |
-| `cpu_quota` | CPUS or C2_CPUS quota exceeded | Request quota increase |
-| `ssd_quota` | SSD_TOTAL_GB quota exceeded | Request quota increase |
-| `preemption` | VM preempted (preemptible only) | Auto-retry |
-| `timeout` | Job timed out | Increase timeout or investigate |
-| `application_error` | Error in service code | Fix code and redeploy |
-| `network_error` | Connection/DNS issues | Usually transient, auto-retry |
-| `auth_error` | Permission denied | Check service account permissions |
-| `unknown` | Unclassified error | Manual investigation |
+| Category            | Description                     | Typical Resolution                |
+| ------------------- | ------------------------------- | --------------------------------- |
+| `zone_exhaustion`   | ZONE_RESOURCE_POOL_EXHAUSTED    | Auto-failover to next zone/region |
+| `ip_quota`          | IN_USE_ADDRESSES quota exceeded | Request quota increase            |
+| `cpu_quota`         | CPUS or C2_CPUS quota exceeded  | Request quota increase            |
+| `ssd_quota`         | SSD_TOTAL_GB quota exceeded     | Request quota increase            |
+| `preemption`        | VM preempted (preemptible only) | Auto-retry                        |
+| `timeout`           | Job timed out                   | Increase timeout or investigate   |
+| `application_error` | Error in service code           | Fix code and redeploy             |
+| `network_error`     | Connection/DNS issues           | Usually transient, auto-retry     |
+| `auth_error`        | Permission denied               | Check service account permissions |
+| `unknown`           | Unclassified error              | Manual investigation              |
 
 ### Integration with Analytics Systems
 
@@ -2068,6 +2155,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 ### January 31, 2026
 
 **Readiness Tab (Production Checklist Dashboard)**
+
 - Added `ReadinessTab.tsx` component for displaying per-service production readiness checklists
 - Reads from `configs/checklist.{service}.yaml` files with 45-point template
 - Shows readiness percentage with color-coded progress bar (green ≥90%, cyan ≥70%, amber ≥50%, red <50%)
@@ -2080,12 +2168,14 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - instruments-service currently at 96% readiness (42/46 items complete)
 
 **instruments-service Bug Fixes (TRADFI Equities)**
+
 - Fixed: NYSE/NASDAQ equities not appearing in parquet files due to Databento empty `asset` column
 - Fixed: Spread filter incorrectly removing class B shares (BRK.B, BF.B) with periods in symbol
 - Fix location: `databento_adapter.py` lines 473, 1088-1095
 - Result: TRADFI venue coverage increased from 6% to expected 100%
 
 **UAT Testing Verification**
+
 - Verified all 4 UI tabs: Deploy, Readiness, Configuration, History
 - Tested all API endpoints via curl:
   - `GET /api/services` - service list working
@@ -2101,6 +2191,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - Note: Separate bug identified (TIMESTAMP_DATE_MISMATCH) - instruments use today's date in `available_from_datetime` instead of target date
 
 **Service Status Dashboard (Phase 5) - COMPLETED**
+
 - ✅ New "Status" tab showing temporal audit trail for each service
 - ✅ API: `GET /api/service-status/{service}/status` - comprehensive service health
 - ✅ API: `GET /api/service-status/overview` - all services summary
@@ -2119,6 +2210,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - Dependencies: `google-cloud-build`, `google-cloud-secret-manager`, `PyGithub`
 
 **Data Status Tab - Venue Coverage Check**
+
 - ✅ Added "Check Venue Coverage" toggle for instruments-service
 - ✅ Deep scan mode: Opens parquet files to verify which venues are present
 - ✅ Shows dates with missing venues (expandable by category/date)
@@ -2127,6 +2219,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - ✅ Performance: ~25s for 1 week deep scan vs instant for file-exists check
 
 **Performance & Architecture Improvements**
+
 - ✅ **Deployment Worker Process**: Deployments run in separate process (multiprocessing)
   - Large deployments (6000+ shards) no longer block API
   - 4-worker uvicorn mode for concurrent requests
@@ -2144,6 +2237,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - ✅ **Stale Data Prevention**: UI clears old data immediately on filter change
 
 **UI Improvements**
+
 - ✅ VM as default compute type everywhere (not Cloud Run)
 - ✅ Auto-fetch when date/service/category filters change (no manual refresh needed)
 - ✅ Better loading states with service name and date range
@@ -2151,6 +2245,7 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 - ✅ Debug logging for date changes (console.log)
 
 **Bug Fixes**
+
 - ✅ Fixed async/await event loop errors in cache invalidation
 - ✅ Fixed deployment state bucket name (deployment-orchestration-test-project)
 - ✅ Fixed Cloud Build API query (use trigger ID instead of name filter)
@@ -2160,23 +2255,27 @@ python deploy.py report $DEPLOYMENT_ID --format json | jq '.failure_breakdown.zo
 ### January 27, 2026
 
 **Real-Time Log Streaming**
+
 - Added `after_line` query parameter to `/api/deployments/{id}/logs` for incremental fetching
 - UI: Added "Follow" toggle button that polls every 2 seconds
 - UI: Auto-scrolls to bottom when new logs arrive
 - **Performance fix**: Logs tab now prefers GCS persisted logs over slow serial console (15s → 1s)
 
 **Docker Image Digest Resolution**
+
 - Created `api/utils/artifact_registry.py` - queries Docker Registry API to resolve `:latest` to actual sha256 digest
 - At deployment creation, resolves image and stores `image_digest`, `image_short_digest`, `image_all_tags` in state
 - UI: Displays short digest (e.g., `a1b2c3d4e5f6`) with tooltip showing full info
 - Shows other tags pointing to same image (useful if commit hash is tagged)
 
 **Shard-Level Features**
+
 - UI: Click any shard row to open log viewer modal for that specific shard
 - UI: Added grouped view toggle - shards grouped by category with collapsible sections
 - UI: Added log search/filter functionality
 
 **Bug Fixes & Performance**
+
 - Fixed: UI no longer freezes when switching tabs (stopped background polling)
 - Fixed: Cancel deployment now cancels ALL shards with job_id (handles race conditions)
 - Performance: `skip_logs` parameter for faster status polling

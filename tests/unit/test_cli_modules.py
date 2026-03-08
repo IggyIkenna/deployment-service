@@ -66,25 +66,38 @@ def test_base_cli_init_creates_config_dir(mock_loader_cls: MagicMock) -> None:
 
 @pytest.mark.unit
 def test_base_cli_setup_logging_info() -> None:
-    """setup_logging should call basicConfig with the correct level integer."""
-    with patch("deployment_service.cli_modules.base.logging.basicConfig") as mock_basic:
+    """setup_logging sets root logger level to INFO."""
+    root = logging.getLogger()
+    original = root.level
+    try:
         BaseCLI.setup_logging("INFO")
-    mock_basic.assert_called_once_with(level=logging.INFO, format="%(levelname)s: %(message)s")
+        assert root.level == logging.INFO
+    finally:
+        root.setLevel(original)
 
 
 @pytest.mark.unit
 def test_base_cli_setup_logging_debug() -> None:
-    with patch("deployment_service.cli_modules.base.logging.basicConfig") as mock_basic:
+    """setup_logging sets root logger level to DEBUG."""
+    root = logging.getLogger()
+    original = root.level
+    try:
         BaseCLI.setup_logging("DEBUG")
-    mock_basic.assert_called_once_with(level=logging.DEBUG, format="%(levelname)s: %(message)s")
+        assert root.level == logging.DEBUG
+    finally:
+        root.setLevel(original)
 
 
 @pytest.mark.unit
 def test_base_cli_setup_logging_invalid_level_defaults_to_info() -> None:
-    """Unknown level string should fall back to INFO (getattr returns None → INFO)."""
-    with patch("deployment_service.cli_modules.base.logging.basicConfig") as mock_basic:
+    """Unknown level string falls back to logging.INFO."""
+    root = logging.getLogger()
+    original = root.level
+    try:
         BaseCLI.setup_logging("NOTAVALIDLEVEL")
-    mock_basic.assert_called_once_with(level=logging.INFO, format="%(levelname)s: %(message)s")
+        assert root.level == logging.INFO
+    finally:
+        root.setLevel(original)
 
 
 @pytest.mark.unit

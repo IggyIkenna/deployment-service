@@ -8,15 +8,15 @@ This terraform configuration provides **cloud-agnostic infrastructure** for the 
 
 ### Provider Equivalents
 
-| GCP Service | AWS Service | Terraform Module | Status |
-|-------------|-------------|------------------|--------|
-| Cloud Run Jobs | AWS Batch (Fargate) | `modules/container-job` | ✅ Complete |
-| Cloud Workflows | Step Functions | `modules/workflow` | ✅ Complete |
-| Cloud Scheduler | EventBridge Scheduler | `modules/scheduler` | ✅ Complete (supports `*/15 * * * *` for 15-min intervals) |
-| Compute Engine VMs | EC2 Instances | `modules/compute-vm` | ✅ Complete (GCP) |
-| Artifact Registry | ECR | Image paths | ✅ Complete |
-| Cloud Storage | S3 | Service configs | ✅ Complete |
-| Secret Manager | Secrets Manager | Service configs | ✅ Complete |
+| GCP Service        | AWS Service           | Terraform Module        | Status                                                     |
+| ------------------ | --------------------- | ----------------------- | ---------------------------------------------------------- |
+| Cloud Run Jobs     | AWS Batch (Fargate)   | `modules/container-job` | ✅ Complete                                                |
+| Cloud Workflows    | Step Functions        | `modules/workflow`      | ✅ Complete                                                |
+| Cloud Scheduler    | EventBridge Scheduler | `modules/scheduler`     | ✅ Complete (supports `*/15 * * * *` for 15-min intervals) |
+| Compute Engine VMs | EC2 Instances         | `modules/compute-vm`    | ✅ Complete (GCP)                                          |
+| Artifact Registry  | ECR                   | Image paths             | ✅ Complete                                                |
+| Cloud Storage      | S3                    | Service configs         | ✅ Complete                                                |
+| Secret Manager     | Secrets Manager       | Service configs         | ✅ Complete                                                |
 
 ### Directory Structure
 
@@ -261,6 +261,7 @@ module "my_workflow" {
 All services use `unified-trading-library` config classes that automatically detect the provider via `CLOUD_PROVIDER` env var:
 
 ### GCP Deployment
+
 ```bash
 export CLOUD_PROVIDER=gcp
 export GCP_PROJECT_ID=test-project
@@ -268,6 +269,7 @@ export GCS_REGION=asia-northeast1
 ```
 
 ### AWS Deployment
+
 ```bash
 export CLOUD_PROVIDER=aws
 export AWS_ACCOUNT_ID=123456789012
@@ -349,16 +351,19 @@ Step Functions uses JSON syntax with state machine definition:
 ## Cost Comparison
 
 ### GCP
+
 - Cloud Run Jobs: $0.000024/vCPU-second + $0.0000025/GB-second
 - Cloud Workflows: $0.01 per 1,000 steps
 - Cloud Storage: $0.020/GB/month (Standard)
 
 ### AWS
+
 - Fargate: $0.04048/vCPU-hour + $0.004445/GB-hour
 - Step Functions: $0.025 per 1,000 state transitions
 - S3: $0.023/GB/month (Standard)
 
 **Estimate for daily job (4 vCPU, 8GB, 30 min runtime)**:
+
 - GCP: ~$0.12/day
 - AWS: ~$0.14/day
 
@@ -369,7 +374,7 @@ Each service has both GCP and AWS terraform configs that are functionally equiva
 1. **instruments-service**: Daily T+1, backfill, and live workflows (live: every 15 min via Cloud Scheduler `*/15 * * * *`, single-cycle Cloud Run to avoid wasting compute)
 2. **market-data-processing-service**: Sharded by category/date
 3. **market-tick-data-service**: Sharded by venue/date
-4. **features-*-service**: Feature engineering pipelines
+4. **features-\*-service**: Feature engineering pipelines
 5. **ml-training-service**: Model training workflows
 6. **ml-inference-service**: Prediction workflows
 7. **strategy-service**: Strategy backtesting
@@ -405,6 +410,7 @@ terraform destroy -auto-approve
 ### GCP Issues
 
 **Error: Permission denied**
+
 ```bash
 # Grant required roles
 gcloud projects add-iam-policy-binding YOUR_PROJECT \
@@ -413,6 +419,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT \
 ```
 
 **Error: Quota exceeded**
+
 ```bash
 # Request quota increase in Cloud Console
 # Navigation: IAM & Admin → Quotas → Filter by "Cloud Run"
@@ -421,12 +428,14 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT \
 ### AWS Issues
 
 **Error: No default VPC**
+
 ```bash
 # Create VPC, subnets, and security groups
 terraform apply -target=module.shared_infrastructure
 ```
 
 **Error: ECR image pull failed**
+
 ```bash
 # Authenticate Docker to ECR
 aws ecr get-login-password --region ap-northeast-1 | \

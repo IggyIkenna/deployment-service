@@ -8,20 +8,20 @@ Guide for creating and using a GitHub token so Cloud Build can clone private rep
 
 **Services using the market-tick-data-handler pattern do NOT need a GitHub token:**
 
-| Service | Pattern | GitHub Token? |
-|---------|---------|---------------|
-| market-tick-data-handler | test-in-image | No |
-| market-data-processing-service | test-in-image | No |
-| instruments-service | test-in-image | No |
-| execution-service | test-in-image | No |
-| unified-trading-library | base image only | No |
-| features-delta-one-service | test-in-image | No |
-| features-calendar-service | test-in-image | No |
-| features-onchain-service | test-in-image | No |
-| features-volatility-service | test-in-image | No |
-| ml-training-service | test-in-image | No |
-| ml-inference-service | test-in-image | No |
-| strategy-service | test-in-image | No |
+| Service                        | Pattern         | GitHub Token? |
+| ------------------------------ | --------------- | ------------- |
+| market-tick-data-handler       | test-in-image   | No            |
+| market-data-processing-service | test-in-image   | No            |
+| instruments-service            | test-in-image   | No            |
+| execution-service              | test-in-image   | No            |
+| unified-trading-library        | base image only | No            |
+| features-delta-one-service     | test-in-image   | No            |
+| features-calendar-service      | test-in-image   | No            |
+| features-onchain-service       | test-in-image   | No            |
+| features-volatility-service    | test-in-image   | No            |
+| ml-training-service            | test-in-image   | No            |
+| ml-inference-service           | test-in-image   | No            |
+| strategy-service               | test-in-image   | No            |
 
 **How it works:** Build the service image from `unified-trading-library:latest` (Artifact Registry), run quality gates inside the built image, push only if tests pass. No git clone. No token.
 
@@ -48,6 +48,7 @@ Services still using git clone need the token below. Migrate to test-in-image wh
 ## Version Consistency: Clone a Verified Ref, Not "Latest"
 
 **Problem**: Cloning `main` (or default branch) gives you whatever is on GitHub at build time. That can be:
+
 - Code that hasn't passed quality gates yet
 - A different commit than what unified-trading-library CI just verified
 - A version mismatch between the service image and what you intended to deploy
@@ -100,10 +101,10 @@ Publish unified-trading-library to Artifact Registry (Python) or private PyPI wh
    - Any other private repo Cloud Build needs to clone.
 6. **Permissions** (least privilege):
 
-   | Permission | Access level | Reason |
-   |------------|--------------|--------|
-   | **Contents** | Read-only | Clone and read repo contents |
-   | **Metadata** | Read-only | Required for git operations |
+   | Permission   | Access level | Reason                       |
+   | ------------ | ------------ | ---------------------------- |
+   | **Contents** | Read-only    | Clone and read repo contents |
+   | **Metadata** | Read-only    | Required for git operations  |
 
 7. **Generate token** and copy it once (it will not be shown again).
 
@@ -133,11 +134,11 @@ Your `cloudbuild.yaml` already uses Secret Manager correctly:
 
 ```yaml
 steps:
-  - name: 'gcr.io/cloud-builders/gcloud'
-    id: 'get-github-token'
-    entrypoint: 'bash'
+  - name: "gcr.io/cloud-builders/gcloud"
+    id: "get-github-token"
+    entrypoint: "bash"
     args:
-      - '-c'
+      - "-c"
       - |
         gcloud secrets versions access latest --secret=github-token > /workspace/github_token.txt
 ```
@@ -157,11 +158,11 @@ steps:
 ### In `cloudbuild.yaml` (build step):
 
 ```yaml
-- name: 'gcr.io/cloud-builders/docker'
-  id: 'build'
-  entrypoint: 'bash'
+- name: "gcr.io/cloud-builders/docker"
+  id: "build"
+  entrypoint: "bash"
   args:
-    - '-c'
+    - "-c"
     - |
       DOCKER_BUILDKIT=1 docker build \
         --secret id=ghpat,src=/workspace/github_token.txt \
@@ -202,15 +203,15 @@ gcloud secrets add-iam-policy-binding github-token \
 
 ## 6. Checklist
 
-| Item | Status |
-|------|--------|
-| Fine-grained PAT (Contents: Read, Metadata: Read) | Create |
-| PAT limited to required repos only | Configure |
-| Token stored in Secret Manager | `gcloud secrets` |
-| Cloud Build fetches at runtime | Already in cloudbuild.yaml |
-| Token not passed as `--build-arg` | Migrate to `--secret` |
-| Cleanup step removes token file | Already in cloudbuild.yaml |
-| `logging: CLOUD_LOGGING_ONLY` | Check options block |
+| Item                                              | Status                     |
+| ------------------------------------------------- | -------------------------- |
+| Fine-grained PAT (Contents: Read, Metadata: Read) | Create                     |
+| PAT limited to required repos only                | Configure                  |
+| Token stored in Secret Manager                    | `gcloud secrets`           |
+| Cloud Build fetches at runtime                    | Already in cloudbuild.yaml |
+| Token not passed as `--build-arg`                 | Migrate to `--secret`      |
+| Cleanup step removes token file                   | Already in cloudbuild.yaml |
+| `logging: CLOUD_LOGGING_ONLY`                     | Check options block        |
 
 ---
 

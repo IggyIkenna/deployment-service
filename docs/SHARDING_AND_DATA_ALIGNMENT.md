@@ -8,13 +8,13 @@
 
 ## 1. Alignment Matrix
 
-| Layer | Source | Granularity |
-|-------|--------|-------------|
-| **GCS paths** | `dependencies.yaml`, `catalog.py`, schema-change docs | Per service output path templates |
-| **Sharding** | `configs/sharding.*.yaml` | Dimensions: category, venue, date, feature_group, etc. |
-| **Data status** | `data_status.py`, `catalog.py` | Same as shard dimensions; checks down to final directory |
-| **Missing shards** | `POST /missing-shards` | Compares calculated shards vs existing data at (category, venue, date) |
-| **Service upload** | Each service's main/orchestrator | Must fail entire shard if ANY upload fails |
+| Layer              | Source                                                | Granularity                                                            |
+| ------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| **GCS paths**      | `dependencies.yaml`, `catalog.py`, schema-change docs | Per service output path templates                                      |
+| **Sharding**       | `configs/sharding.*.yaml`                             | Dimensions: category, venue, date, feature_group, etc.                 |
+| **Data status**    | `data_status.py`, `catalog.py`                        | Same as shard dimensions; checks down to final directory               |
+| **Missing shards** | `POST /missing-shards`                                | Compares calculated shards vs existing data at (category, venue, date) |
+| **Service upload** | Each service's main/orchestrator                      | Must fail entire shard if ANY upload fails                             |
 
 ---
 
@@ -29,13 +29,13 @@ All path templates must match across:
 
 ### Key Paths (Current Implementation)
 
-| Service | Path Template | Notes |
-|---------|---------------|-------|
-| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={data_type}/instrument_type={asset_class}/venue={venue}/{instrument}.parquet` | No `symbol=` in path; filename = `{instrument}.parquet` |
-| market-data-processing | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_class}/{venue}/{instrument}.parquet` | Chain: `options_chain/{venue}/`, `futures_chain/{venue}/` |
-| features-delta-one | `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet` | |
-| features-calendar | `calendar/category={category}/by_date/day={date}/features.parquet` or `events.parquet` | Shared bucket, no category |
-| features-volatility | `by_date/day={date}/feature_group={group}/timeframe={tf}/{underlying}.parquet` | |
+| Service                  | Path Template                                                                                                             | Notes                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={data_type}/instrument_type={asset_class}/venue={venue}/{instrument}.parquet` | No `symbol=` in path; filename = `{instrument}.parquet`   |
+| market-data-processing   | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_class}/{venue}/{instrument}.parquet`         | Chain: `options_chain/{venue}/`, `futures_chain/{venue}/` |
+| features-delta-one       | `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet`                                            |                                                           |
+| features-calendar        | `calendar/category={category}/by_date/day={date}/features.parquet` or `events.parquet`                                    | Shared bucket, no category                                |
+| features-volatility      | `by_date/day={date}/feature_group={group}/timeframe={tf}/{underlying}.parquet`                                            |                                                           |
 
 ---
 
@@ -43,12 +43,12 @@ All path templates must match across:
 
 Data status checks completion at the same granularity as shard dimensions:
 
-| Service | Shard Dimensions | Data Status Check |
-|----------|------------------|-------------------|
-| market-tick-data-handler | category, venue, date | category × venue × date; `--check-data-types` for TRADFI |
-| market-data-processing | category, venue, date | category × venue × date × timeframe × data_type |
-| features-delta-one | category, feature_group, date | category × feature_group × date |
-| features-calendar | feature_group (category), date | category × date (no domain) |
+| Service                  | Shard Dimensions               | Data Status Check                                        |
+| ------------------------ | ------------------------------ | -------------------------------------------------------- |
+| market-tick-data-handler | category, venue, date          | category × venue × date; `--check-data-types` for TRADFI |
+| market-data-processing   | category, venue, date          | category × venue × date × timeframe × data_type          |
+| features-delta-one       | category, feature_group, date  | category × feature_group × date                          |
+| features-calendar        | feature_group (category), date | category × date (no domain)                              |
 
 ---
 
@@ -121,19 +121,19 @@ Schema-change docs (`02_MARKET_TICK_DATA_HANDLER.md`, etc.) describe migration o
 
 ## 8. Per-Service Audit: "Any Data Means All Data"
 
-| Service | Status | Location | Notes |
-|---------|--------|----------|-------|
-| **instruments-service** | ✅ Aligned | `cloud_instrument_storage.py` | Returns `all_successful`; sets False on any venue upload failure. `generate_instruments_for_date` uses this (test: `store_instruments = Mock(return_value=False)` → status=error). |
-| **market-tick-data-handler** | ✅ Aligned | `download_handler.py`, `options_orchestrator.py` | download: `shard_success = len(failed_dates)==0 and error_count==0`. options: `all_succeeded = successful == total_underlyings` (fixed). |
-| **market-data-processing-service** | ✅ Aligned | `orchestration_service.py` | `success = len(errors) == 0 and len(processed_timeframes) == len(timeframes)`. Holidays (TRADFI): early-return writes closed-market candles for all timeframes. |
-| **features-delta-one-service** | ✅ Aligned | `orchestration_service.py`, `feature_writer.py` | orchestration: `success_count == len(instruments)` (CLI-filtered). feature_writer: `success_count == days_attempted` (holidays skipped). |
-| **features-calendar-service** | ✅ Aligned | `batch_handler.py` L197-210 | `if total_failed > 0: log_event("FAILED", ...); sys.exit(1)` — fails when any category/day fails. |
-| **features-volatility-service** | ✅ Aligned | `batch_handler.py` L199 | Returns `success_count == len(groups)` — all feature groups must succeed. |
-| **features-onchain-service** | ✅ Aligned | `batch_handler.py` L187 | Returns `success_count == len(groups)` — all groups must succeed. |
-| **ml-training-service** | ⚠️ Different model | Handlers return `HandlerResult(success=...)` | Shards by instrument/timeframe/target; each shard trains one model. Partial success (N-1 of N models) may be acceptable for training. Verify per-handler. |
-| **ml-inference-service** | ✅ Aligned | `cli/main.py` L168-173 | `if error_count > 0: log_event("FAILED", ...); sys.exit(1)` — fails on any error. |
-| **strategy-service** | ✅ Aligned | `batch_handler.py` L294 | `aggregated["success"] = len(errors) == 0` — no errors means success. |
-| **execution-service** | N/A | Live/backtest | Different model; writes results per run. Not sharded by date/venue in same way. |
+| Service                            | Status             | Location                                         | Notes                                                                                                                                                                              |
+| ---------------------------------- | ------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **instruments-service**            | ✅ Aligned         | `cloud_instrument_storage.py`                    | Returns `all_successful`; sets False on any venue upload failure. `generate_instruments_for_date` uses this (test: `store_instruments = Mock(return_value=False)` → status=error). |
+| **market-tick-data-handler**       | ✅ Aligned         | `download_handler.py`, `options_orchestrator.py` | download: `shard_success = len(failed_dates)==0 and error_count==0`. options: `all_succeeded = successful == total_underlyings` (fixed).                                           |
+| **market-data-processing-service** | ✅ Aligned         | `orchestration_service.py`                       | `success = len(errors) == 0 and len(processed_timeframes) == len(timeframes)`. Holidays (TRADFI): early-return writes closed-market candles for all timeframes.                    |
+| **features-delta-one-service**     | ✅ Aligned         | `orchestration_service.py`, `feature_writer.py`  | orchestration: `success_count == len(instruments)` (CLI-filtered). feature_writer: `success_count == days_attempted` (holidays skipped).                                           |
+| **features-calendar-service**      | ✅ Aligned         | `batch_handler.py` L197-210                      | `if total_failed > 0: log_event("FAILED", ...); sys.exit(1)` — fails when any category/day fails.                                                                                  |
+| **features-volatility-service**    | ✅ Aligned         | `batch_handler.py` L199                          | Returns `success_count == len(groups)` — all feature groups must succeed.                                                                                                          |
+| **features-onchain-service**       | ✅ Aligned         | `batch_handler.py` L187                          | Returns `success_count == len(groups)` — all groups must succeed.                                                                                                                  |
+| **ml-training-service**            | ⚠️ Different model | Handlers return `HandlerResult(success=...)`     | Shards by instrument/timeframe/target; each shard trains one model. Partial success (N-1 of N models) may be acceptable for training. Verify per-handler.                          |
+| **ml-inference-service**           | ✅ Aligned         | `cli/main.py` L168-173                           | `if error_count > 0: log_event("FAILED", ...); sys.exit(1)` — fails on any error.                                                                                                  |
+| **strategy-service**               | ✅ Aligned         | `batch_handler.py` L294                          | `aggregated["success"] = len(errors) == 0` — no errors means success.                                                                                                              |
+| **execution-service**              | N/A                | Live/backtest                                    | Different model; writes results per run. Not sharded by date/venue in same way.                                                                                                    |
 
 ### Gaps Fixed
 

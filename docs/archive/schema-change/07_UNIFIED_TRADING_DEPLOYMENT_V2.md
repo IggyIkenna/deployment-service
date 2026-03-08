@@ -49,6 +49,7 @@ SERVICE_GCS_CONFIGS = {
 ```
 
 **Changes:** Simple find/replace
+
 - `day-` → `day=`
 - `data_type-` → `data_type=`
 - `timeframe-` → `timeframe=`
@@ -70,9 +71,10 @@ SERVICE_GCS_CONFIGS = {
 **File:** `configs/dependencies.yaml` (path_template in check sections)
 
 **Update:**
+
 ```yaml
 check:
-  path_template: "by_date/day={date}/"  # Was: day-{date}
+  path_template: "by_date/day={date}/" # Was: day-{date}
 ```
 
 **Locations:** ~10 path templates
@@ -82,6 +84,7 @@ check:
 **File:** `deployment_service/cli.py`
 
 **Path construction in:**
+
 - `_display_fixed_service_status()` (~5 locations)
 - `_check_service_data()` (~3 locations)
 - `_fast_scan_service()` (~2 locations)
@@ -132,6 +135,7 @@ def check_data_exists(bucket, date, timeframe):
 ```
 
 **Allows:**
+
 - New services write new format
 - Old data still readable
 - Gradual migration
@@ -144,6 +148,7 @@ def check_data_exists(bucket, date, timeframe):
 **Severity:** HIGH (central orchestration system)
 
 **Impact:**
+
 - ALL service path checks
 - Missing data detection
 - Deploy missing functionality
@@ -152,6 +157,7 @@ def check_data_exists(bucket, date, timeframe):
 **Risk:** HIGH - if wrong, all data shows as missing
 
 **Mitigation:**
+
 - Dual-path support
 - Extensive testing
 - Gradual rollout per service

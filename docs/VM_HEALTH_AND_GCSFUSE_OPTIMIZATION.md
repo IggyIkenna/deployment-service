@@ -25,9 +25,11 @@ if "Out of memory: Killed process" count >= OOM_KILL_THRESHOLD (default: 5):
 ```
 
 **Settings:**
+
 - `OOM_KILL_THRESHOLD=5` (default) - terminate after 5 OOM kills in serial logs
 
 **When it triggers:**
+
 - Checks VMs that have been RUNNING > 60 seconds
 - Fetches last 8KB of serial console logs
 - Counts "Out of memory: Killed process" occurrences
@@ -50,14 +52,17 @@ if running_seconds > VM_STARTUP_TIMEOUT_SECONDS (default: 300):
 ```
 
 **Settings:**
+
 - `VM_STARTUP_TIMEOUT_SECONDS=300` (5 minutes) - terminate if no startup signal
 
 **When it triggers:**
+
 - After VM has been RUNNING > 5 minutes
 - If serial logs don't contain "SERVICE_STARTED" or "Starting processing"
 - Catches: dependency install failures, config errors, network issues, etc.
 
 **TODO:** Each service must emit startup marker:
+
 ```python
 # In service main():
 print("SERVICE_STARTED", flush=True)  # Goes to serial console
@@ -70,6 +75,7 @@ print("SERVICE_STARTED", flush=True)  # Goes to serial console
 ### Problem
 
 gcsfuse memory overhead caused OOM on VMs:
+
 - 6 mounts × ~30 MB per mount = ~180 MB overhead
 - Large buckets (market-data-tick: millions of files) → metadata cache bloat
 - Type cache grows with directory depth
@@ -78,18 +84,20 @@ gcsfuse memory overhead caused OOM on VMs:
 ### Solution: Disable gcsfuse for All Domain Services
 
 **Before:**
+
 ```yaml
 # market-tick-data-handler
 gcsfuse_buckets:
-  - instruments-store-cefi-{project_id}      # Input
-  - instruments-store-defi-{project_id}      # Input
-  - instruments-store-tradfi-{project_id}    # Input
-  - market-data-tick-cefi-{project_id}       # Output (no benefit!)
-  - market-data-tick-defi-{project_id}       # Output (no benefit!)
-  - market-data-tick-tradfi-{project_id}     # Output (no benefit!)
+  - instruments-store-cefi-{project_id} # Input
+  - instruments-store-defi-{project_id} # Input
+  - instruments-store-tradfi-{project_id} # Input
+  - market-data-tick-cefi-{project_id} # Output (no benefit!)
+  - market-data-tick-defi-{project_id} # Output (no benefit!)
+  - market-data-tick-tradfi-{project_id} # Output (no benefit!)
 ```
 
 **After:**
+
 ```yaml
 # All services: market-tick-data-handler, market-data-processing-service,
 # instruments-service, features-*, ml-*, strategy-service, execution-service
@@ -99,6 +107,7 @@ gcsfuse_buckets: []
 ```
 
 **Services updated (12 total):**
+
 - market-tick-data-handler
 - market-data-processing-service
 - instruments-service
@@ -113,6 +122,7 @@ gcsfuse_buckets: []
 - corporate-actions
 
 **Benefits:**
+
 - Eliminates ~180 MB gcsfuse overhead per VM
 - No more OOM death loops from gcsfuse
 - Simpler, more predictable memory usage
@@ -125,6 +135,7 @@ gcsfuse_buckets: []
 ### Problem
 
 UTD v2 API (Cloud Run) mounted **18 buckets**:
+
 - 3 instruments-store
 - 3 market-data-tick
 - 7 features
@@ -136,18 +147,21 @@ UTD v2 API (Cloud Run) mounted **18 buckets**:
 ### Solution: Mount Only STATE_BUCKET
 
 **Before (cloudbuild.yaml):**
+
 ```yaml
 # 18 volume mounts for domain service buckets + STATE_BUCKET
 ```
 
 **After:**
+
 ```yaml
 # Mount ONLY deployment-orchestration bucket for fast state reads
-- '--add-volume=name=vol-deployment,type=cloud-storage,bucket=deployment-orchestration-${PROJECT_ID},readonly=false'
-- '--add-volume-mount=volume=vol-deployment,mount-path=/mnt/gcs/deployment-orchestration-${PROJECT_ID}'
+- "--add-volume=name=vol-deployment,type=cloud-storage,bucket=deployment-orchestration-${PROJECT_ID},readonly=false"
+- "--add-volume-mount=volume=vol-deployment,mount-path=/mnt/gcs/deployment-orchestration-${PROJECT_ID}"
 ```
 
 **Benefits:**
+
 - Reduced from 18 mounts → 1 mount
 - STATE_BUCKET is small (~few thousand files max with TTL)
 - Fast state reads for deployment status
@@ -166,9 +180,11 @@ if deployment age > 48 hours:
 ```
 
 **Settings:**
+
 - `STATE_TTL_HOURS=48` (default) - keep last 48 hours of deployments
 
 **When it runs:**
+
 - Once per hour during auto_sync
 - Checks `state.json` updated timestamp
 - Deletes entire deployment directory (state.json + shard logs)
@@ -182,6 +198,7 @@ if deployment age > 48 hours:
 ### Problem
 
 Old orphan termination:
+
 - Deleted VMs one at a time (blocking)
 - Waited for each delete operation to complete
 - ~10 minutes to kill 20 VMs
@@ -204,11 +221,13 @@ if now - timestamp > 30 and VM still RUNNING:
 ```
 
 **Settings:**
+
 - `ORPHAN_DELETE_MAX_PARALLEL=20` - fire up to 20 deletes per sync
 - `ORPHAN_DELETE_RETRY_SECONDS=30` - retry if VM still RUNNING after 30s
 - `AUTO_SYNC_INTERVAL_ACTIVE=30` - sync every 30 seconds when active (reduced from 5s to avoid rate limits)
 
 **Benefits:**
+
 - Minimize billing window (fire quickly, don't wait)
 - Handle up to 20 orphans per 30-second cycle
 - Retry if delete didn't complete
@@ -220,14 +239,14 @@ if now - timestamp > 30 and VM still RUNNING:
 
 ### New Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VM_STARTUP_TIMEOUT_SECONDS` | 300 | Terminate if no startup signal after N seconds |
-| `OOM_KILL_THRESHOLD` | 5 | Terminate after N OOM kills in serial logs |
-| `STATE_TTL_HOURS` | 48 | Keep last N hours of deployment state |
-| `ORPHAN_DELETE_MAX_PARALLEL` | 20 | Max concurrent delete requests |
-| `ORPHAN_DELETE_RETRY_SECONDS` | 30 | Retry delete if VM still RUNNING after N seconds |
-| `AUTO_SYNC_INTERVAL_ACTIVE` | 30 | Seconds between syncs when active (was 5) |
+| Variable                      | Default | Description                                      |
+| ----------------------------- | ------- | ------------------------------------------------ |
+| `VM_STARTUP_TIMEOUT_SECONDS`  | 300     | Terminate if no startup signal after N seconds   |
+| `OOM_KILL_THRESHOLD`          | 5       | Terminate after N OOM kills in serial logs       |
+| `STATE_TTL_HOURS`             | 48      | Keep last N hours of deployment state            |
+| `ORPHAN_DELETE_MAX_PARALLEL`  | 20      | Max concurrent delete requests                   |
+| `ORPHAN_DELETE_RETRY_SECONDS` | 30      | Retry delete if VM still RUNNING after N seconds |
+| `AUTO_SYNC_INTERVAL_ACTIVE`   | 30      | Seconds between syncs when active (was 5)        |
 
 Add to `.env` / Cloud Run env vars as needed.
 
@@ -273,21 +292,25 @@ Add to `.env` / Cloud Run env vars as needed.
 ### Key Log Messages
 
 **OOM detection:**
+
 ```
 [AUTO_SYNC] VM health check killed {job_id}: oom_death_loop - 7 OOM kills detected
 ```
 
 **Startup timeout:**
+
 ```
 [AUTO_SYNC] VM health check killed {job_id}: startup_timeout - No startup signal after 315s
 ```
 
 **State TTL cleanup:**
+
 ```
 [AUTO_SYNC] TTL cleanup: deleted {deployment_id} (age: 3d)
 ```
 
 **Fire-and-forget orphan termination:**
+
 ```
 [AUTO_SYNC] Fired 18 orphan VM deletes (job done)
 [FIRE_AND_FORGET] Delete initiated for {job_id} (zone {zone})

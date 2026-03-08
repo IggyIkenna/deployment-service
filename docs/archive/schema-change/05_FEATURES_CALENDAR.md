@@ -47,6 +47,7 @@ gs://features-calendar-{project}/
 **Path Format:** `calendar/category={category}/by_date/day={date}/features.parquet`
 
 **Changes:**
+
 - Rename top-level folders: `temporal` → `category=temporal`
 - `day-` → `day=`
 
@@ -61,11 +62,13 @@ gs://features-calendar-{project}/
 **File:** `features_calendar_service/app/core/orchestration_service.py` line 174
 
 **Current:**
+
 ```python
 output_path = f"calendar/{category}/by_date/day-{date_str}/features.parquet"
 ```
 
 **New:**
+
 ```python
 output_path = f"calendar/category={category}/by_date/day={date_str}/features.parquet"
 ```
@@ -77,6 +80,7 @@ output_path = f"calendar/category={category}/by_date/day={date_str}/features.par
 ## Downstream Impact
 
 **Services that read calendar features:**
+
 - ml-training-service (merges with delta-one)
 - ml-inference-service (same)
 - deployment-service (missing data)
@@ -109,6 +113,7 @@ WHERE day = '2023-01-01'
 **Severity:** LOW (simple structure, few consumers)
 
 **Locations:** ~8
+
 - features-calendar output (1 line)
 - ml-training calendar merge (~3)
 - ml-inference calendar merge (~2)

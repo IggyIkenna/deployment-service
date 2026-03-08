@@ -33,9 +33,36 @@ shard_status:
     dates_found: 0
     dates_expected: 763
     bucket: "features-onchain-cefi-test-project"
-    macro_sentiment: { start_date: "2019-03-30", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Blocked on market-data-processing-service" }
-    lending_rates: { start_date: "2019-03-30", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Blocked on market-data-processing-service" }
-    lst_yields: { start_date: "2019-03-30", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "Blocked on market-data-processing-service" }
+    macro_sentiment:
+      {
+        start_date: "2019-03-30",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Blocked on market-data-processing-service",
+      }
+    lending_rates:
+      {
+        start_date: "2019-03-30",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Blocked on market-data-processing-service",
+      }
+    lst_yields:
+      {
+        start_date: "2019-03-30",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "Blocked on market-data-processing-service",
+      }
 
   TRADFI:
     _status: "N/A -- no on-chain data in TradFi"
@@ -46,6 +73,33 @@ shard_status:
     dates_found: 0
     dates_expected: 763
     bucket: "features-onchain-defi-test-project"
-    macro_sentiment: { start_date: "2020-05-18", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "" }
-    lending_rates: { start_date: "2020-05-18", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "AAVE, Morpho lending rates" }
-    lst_yields: { start_date: "2020-05-18", stage_1_has_run: false, stage_2_data_complete: false, completion_pct: 0.0, latest_data_date: null, assignee: "", notes: "LIDO, EtherFi, Ethena yields" }
+    macro_sentiment:
+      {
+        start_date: "2020-05-18",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "",
+      }
+    lending_rates:
+      {
+        start_date: "2020-05-18",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "AAVE, Morpho lending rates",
+      }
+    lst_yields:
+      {
+        start_date: "2020-05-18",
+        stage_1_has_run: false,
+        stage_2_data_complete: false,
+        completion_pct: 0.0,
+        latest_data_date: null,
+        assignee: "",
+        notes: "LIDO, EtherFi, Ethena yields",
+      }

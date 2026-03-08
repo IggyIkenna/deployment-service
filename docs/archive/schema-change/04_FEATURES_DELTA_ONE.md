@@ -24,6 +24,7 @@ gs://features-delta-one-{category}-{project}/
 **Path Format:** `by_date/day-{date}/feature_group-{group}/timeframe-{tf}/{inst}.parquet`
 
 **Query Pattern (Current):**
+
 - Read 140 files per instrument per day
 - Horizontal merge on timestamp
 - Filter to needed groups/timeframes
@@ -46,6 +47,7 @@ gs://features-delta-one-{category}-{project}/
 **Change:** Replace `-` with `=` in folder names (3 levels)
 
 **BigQuery External Table:**
+
 ```sql
 CREATE EXTERNAL TABLE features_all
 HIVE PARTITIONING:
@@ -64,11 +66,13 @@ WHERE day = '2023-01-01'
 ```
 
 **Benefits:**
+
 - ✅ External tables work ($0 extra storage)
 - ✅ Can query with SQL
 - ✅ Still 140 files (same read pattern)
 
 **Drawbacks:**
+
 - ❌ Code changes in features-delta-one
 - ❌ ML must update path construction
 - ❌ All existing data incompatible
@@ -93,6 +97,7 @@ Parquet Schema:
 **Change:** 140 files → 1 file per instrument per day
 
 **BigQuery:**
+
 ```sql
 PARTITION BY day
 CLUSTER BY instrument_id
@@ -105,12 +110,14 @@ WHERE day = '2023-01-01'
 ```
 
 **Benefits:**
+
 - ✅ Simplest BigQuery setup
 - ✅ 1 read per instrument per day (140x fewer operations)
 - ✅ No horizontal merge needed
 - ✅ Faster GCS reads
 
 **Drawbacks:**
+
 - ❌ Larger files (~50 MB vs ~500 KB each)
 - ❌ Major code changes in features-delta-one
 - ❌ All existing data incompatible
@@ -122,16 +129,19 @@ WHERE day = '2023-01-01'
 **No structure changes!**
 
 **Use:**
+
 - GCS parallel reader (works NOW, tested)
 - Manual ETL to BigQuery when needed
 - Centralized in unified-trading-library
 
 **Benefits:**
+
 - ✅ Zero code changes
 - ✅ Works immediately
 - ✅ No breaking changes
 
 **Drawbacks:**
+
 - ⚠️ No external tables (must use manual ETL)
 
 ---
@@ -150,14 +160,17 @@ WHERE day = '2023-01-01'
 ### Option 1 (key=value format)
 
 **features-delta-one-service:**
+
 - feature_writer.py: 1 line change
 - Tests: Update path expectations (~5 files)
 
 **ml-training-service:**
+
 - gcs_feature_reader.py: Update path construction (~3 lines)
 - Tests: Update paths (~3 files)
 
 **deployment-service:**
+
 - catalog.py: Update path templates (~1 line)
 
 **Total:** ~20 lines of code, ~10 test files
@@ -165,15 +178,18 @@ WHERE day = '2023-01-01'
 ### Option 2 (flatten)
 
 **features-delta-one-service:**
+
 - feature_writer.py: Major rewrite (merge logic)
 - orchestrator.py: Change output strategy
 - Tests: Complete rewrite
 
 **ml-training-service:**
+
 - gcs_feature_reader.py: Simplified (1 file read vs 140)
 - Tests: Simpler
 
 **deployment-service:**
+
 - catalog.py: Update path template
 
 **Total:** ~200 lines of code changes, simpler end result
@@ -183,16 +199,19 @@ WHERE day = '2023-01-01'
 ## Decision Factors
 
 **Choose Option 1 (key=value) if:**
+
 - Want BigQuery external tables ASAP
 - Don't mind regenerating data
 - Want minimal code changes
 
 **Choose Option 2 (flatten) if:**
+
 - Want simplest possible queries
 - Want 140x fewer GCS operations
 - OK with larger code changes upfront
 
 **Choose Option 3 (no change) if:**
+
 - Need system working NOW
 - Can live without BigQuery external tables
 - GCS reader + manual ETL is acceptable

@@ -97,7 +97,7 @@ aws:
 # =============================================================================
 service_repositories:
   instruments-service: instruments
-  corporate-actions: instruments  # Uses same image as instruments
+  corporate-actions: instruments # Uses same image as instruments
   market-tick-data-service: market-data-tick-handler
   market-data-processing-service: market-data-processing-service
   features-calendar-service: features-calendar-service

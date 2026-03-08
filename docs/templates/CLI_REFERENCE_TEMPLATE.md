@@ -40,35 +40,35 @@ Check service health status.
 
 ## Required Arguments
 
-| Argument | Description | Values |
-|----------|-------------|--------|
-| `--operation` | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
-| `--mode` | How to run | `batch`, `live` |
-| `--category` | Market category | `CEFI`, `TRADFI`, `DEFI` |
-| `--start-date` | Start date | `YYYY-MM-DD` |
-| `--end-date` | End date | `YYYY-MM-DD` |
+| Argument       | Description                    | Values                                |
+| -------------- | ------------------------------ | ------------------------------------- |
+| `--operation`  | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
+| `--mode`       | How to run                     | `batch`, `live`                       |
+| `--category`   | Market category                | `CEFI`, `TRADFI`, `DEFI`              |
+| `--start-date` | Start date                     | `YYYY-MM-DD`                          |
+| `--end-date`   | End date                       | `YYYY-MM-DD`                          |
 
 ## Optional Arguments
 
 ### Meta Arguments (Standardized)
 
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--force` | Force overwrite existing outputs | `false` |
-| `--log-level` | Logging level | `INFO` |
-| `--dry-run` | Write to local `data/sample/` instead of GCS | `false` |
-| `--max-workers` | Parallel processing workers | `4` |
-| `--max-results` | Limit output files per run | No limit |
+| Argument        | Description                                  | Default  |
+| --------------- | -------------------------------------------- | -------- |
+| `--force`       | Force overwrite existing outputs             | `false`  |
+| `--log-level`   | Logging level                                | `INFO`   |
+| `--dry-run`     | Write to local `data/sample/` instead of GCS | `false`  |
+| `--max-workers` | Parallel processing workers                  | `4`      |
+| `--max-results` | Limit output files per run                   | No limit |
 
 ### Service-Specific Arguments
 
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--venue` | Specific venue | All venues |
-| `--feature-group` | Feature group to process | All groups |
-| `--timeframe` | Base timeframe | Service default |
-| `--skip-dependency-check` | Skip upstream validation | `false` |
-| `--fail-on-missing-deps` | Fail if dependencies missing | `true` |
+| Argument                  | Description                  | Default         |
+| ------------------------- | ---------------------------- | --------------- |
+| `--venue`                 | Specific venue               | All venues      |
+| `--feature-group`         | Feature group to process     | All groups      |
+| `--timeframe`             | Base timeframe               | Service default |
+| `--skip-dependency-check` | Skip upstream validation     | `false`         |
+| `--fail-on-missing-deps`  | Fail if dependencies missing | `true`          |
 
 ## Examples
 
@@ -144,18 +144,19 @@ python deploy.py deploy --service {service-name} \
 ```
 
 Sharding dimensions (from `configs/sharding.{service-name}.yaml`):
+
 - `category`: CEFI, TRADFI, DEFI
 - `venue`: Exchange-specific (hierarchical)
 - `date`: Daily partitioning
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Error (check logs) |
-| 2 | Dependency check failed |
-| 130 | Interrupted (Ctrl+C) |
+| Code | Meaning                 |
+| ---- | ----------------------- |
+| 0    | Success                 |
+| 1    | Error (check logs)      |
+| 2    | Dependency check failed |
+| 130  | Interrupted (Ctrl+C)    |
 
 ## Environment Variables
 

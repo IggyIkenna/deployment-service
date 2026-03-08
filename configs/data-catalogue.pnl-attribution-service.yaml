@@ -94,7 +94,7 @@ shard_status:
 
   DEFI:
     AAVE_V3_ETH:
-      start_date: "2023-01-27"  # Aave V3 launch
+      start_date: "2023-01-27" # Aave V3 launch
       stage_1_has_run: false
       stage_2_data_complete: false
       latest_data_date: null

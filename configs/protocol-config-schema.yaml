@@ -39,7 +39,7 @@ PROTOCOL_DATA_SINK_BACKEND:
     Use "athena" for AWS S3+Glue-compatible batch writes.
 
 PROTOCOL_DATA_SINK_BUCKET:
-  required: false  # required when BACKEND != local and no routing-key overrides
+  required: false # required when BACKEND != local and no routing-key overrides
   default: ""
   description: >
     Default bucket / S3 bucket name for data writes.
@@ -147,7 +147,7 @@ PROTOCOL_ANALYTICS_DATASET:
 
 PROTOCOL_CONFIG_STORE_BACKEND:
   required: false
-  default: secretmanager  # inherits from UCI SECRET_PROVIDER by default
+  default: secretmanager # inherits from UCI SECRET_PROVIDER by default
   values: [secretmanager, ssm, local]
   description: >
     Secret/config backend. GCP uses "secretmanager"; AWS uses "ssm" (Parameter Store);
@@ -160,16 +160,15 @@ PROTOCOL_CONFIG_STORE_BACKEND:
 # =============================================================================
 
 services:
-
   instruments-service:
     mode: batch
     uses:
-      - PROTOCOL_DATA_SINK_BACKEND      # gcs / s3 / local
+      - PROTOCOL_DATA_SINK_BACKEND # gcs / s3 / local
       - PROTOCOL_DATA_SINK_BUCKET_CEFI
       - PROTOCOL_DATA_SINK_BUCKET_TRADFI
       - PROTOCOL_DATA_SINK_BUCKET_DEFI
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # instrument_availability/by_date
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # instrument_availability/by_date
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
       - PROTOCOL_EVENT_BUS_TOPIC_PREFIX # instruments
 
@@ -180,8 +179,8 @@ services:
       - PROTOCOL_DATA_SINK_BUCKET_CEFI
       - PROTOCOL_DATA_SINK_BUCKET_TRADFI
       - PROTOCOL_DATA_SINK_BUCKET_DEFI
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # tick_data/raw
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # tick_data/raw
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
       - PROTOCOL_EVENT_BUS_TOPIC_PREFIX # market_tick_data
 
@@ -193,18 +192,18 @@ services:
       - PROTOCOL_DATA_SINK_BUCKET_TRADFI
       - PROTOCOL_DATA_SINK_BUCKET_DEFI
       - PROTOCOL_DATA_SOURCE_BACKEND
-      - PROTOCOL_DATA_SOURCE_BUCKET     # upstream: market-data buckets
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # candles/{timeframe}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SOURCE_BUCKET # upstream: market-data buckets
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # candles/{timeframe}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
 
   execution-service:
     mode: live
     uses:
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # execution store (no category split)
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # trades/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # execution store (no category split)
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # trades/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
       - PROTOCOL_EVENT_BUS_TOPIC_PREFIX # execution
 
@@ -212,19 +211,19 @@ services:
     mode: batch
     uses:
       - PROTOCOL_DATA_SOURCE_BACKEND
-      - PROTOCOL_DATA_SOURCE_BUCKET     # features store
+      - PROTOCOL_DATA_SOURCE_BUCKET # features store
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # models store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # models/{model_id}/{version}
-      - PROTOCOL_ANALYTICS_BACKEND      # bigquery / athena / local
+      - PROTOCOL_DATA_SINK_BUCKET # models store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # models/{model_id}/{version}
+      - PROTOCOL_ANALYTICS_BACKEND # bigquery / athena / local
       - PROTOCOL_ANALYTICS_PROJECT
-      - PROTOCOL_ANALYTICS_DATASET      # features_data
+      - PROTOCOL_ANALYTICS_DATASET # features_data
 
   ml-inference-service:
     mode: live
     uses:
       - PROTOCOL_DATA_SOURCE_BACKEND
-      - PROTOCOL_DATA_SOURCE_BUCKET     # models store (read)
+      - PROTOCOL_DATA_SOURCE_BUCKET # models store (read)
       - PROTOCOL_EVENT_BUS_BACKEND
       - PROTOCOL_EVENT_BUS_TOPIC_PREFIX # ml_predictions
 
@@ -232,45 +231,45 @@ services:
     mode: batch
     uses:
       - PROTOCOL_DATA_SOURCE_BACKEND
-      - PROTOCOL_DATA_SOURCE_BUCKET     # features store (read)
+      - PROTOCOL_DATA_SOURCE_BUCKET # features store (read)
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # strategy store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # signals/{strategy_id}/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # strategy store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # signals/{strategy_id}/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
 
   features-calendar-service:
     mode: batch
     uses:
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # features store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # calendar/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # features store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # calendar/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
 
   features-onchain-service:
     mode: batch
     uses:
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # features store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # onchain/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # features store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # onchain/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
 
   pnl-attribution-service:
     mode: batch
     uses:
       - PROTOCOL_DATA_SOURCE_BACKEND
-      - PROTOCOL_DATA_SOURCE_BUCKET     # execution store (read)
+      - PROTOCOL_DATA_SOURCE_BUCKET # execution store (read)
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # pnl store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # pnl/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # pnl store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # pnl/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
 
   position-balance-monitor-service:
     mode: live
     uses:
       - PROTOCOL_DATA_SINK_BACKEND
-      - PROTOCOL_DATA_SINK_BUCKET       # positions store
-      - PROTOCOL_DATA_SINK_PATH_PREFIX  # positions/{date}
-      - PROTOCOL_DATA_SINK_FORMAT       # parquet
+      - PROTOCOL_DATA_SINK_BUCKET # positions store
+      - PROTOCOL_DATA_SINK_PATH_PREFIX # positions/{date}
+      - PROTOCOL_DATA_SINK_FORMAT # parquet
       - PROTOCOL_EVENT_BUS_BACKEND
       - PROTOCOL_EVENT_BUS_TOPIC_PREFIX # positions

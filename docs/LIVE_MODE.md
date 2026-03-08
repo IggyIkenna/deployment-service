@@ -10,15 +10,15 @@ Live mode is the deployment mode for **long-running services** (e.g. Cloud Run S
 
 ## Shared Code vs Mode-Specific Overrides
 
-| Component | Shared? | Notes |
-|-----------|--------|-------|
-| Config loader | ✅ Shared | Same `config_loader`, service configs, sharding YAML. |
-| Shard builder | ✅ Shared | Same `shard_builder`; `cli_flags` in config supply `--operation` and `--mode` per service. |
-| Catalog | ✅ Shared | Same `catalog` for bucket/path templates and dimensions. |
-| Backend selection | ✅ Shared | Same backends (Cloud Run, VM, etc.); only which API is called for status differs. |
-| Refresh loop structure | ✅ Shared | Same refresh endpoint and flow; branch only on `deployment_mode` to choose status source. |
-| **GCS path resolution** | ❌ Override | **Seam 1:** Batch = no prefix; live = `live/` prefix. Applied in CLI `data-status`, API `data_status.py` (and turbo), and cache key. |
-| **Status-fetch step** | ❌ Override | **Seam 2:** Batch = Jobs API (executions) or VM status; live = Cloud Run Services API (revisions, Ready condition). Applied in `api/routes/deployments.py` refresh path. |
+| Component               | Shared?     | Notes                                                                                                                                                                    |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Config loader           | ✅ Shared   | Same `config_loader`, service configs, sharding YAML.                                                                                                                    |
+| Shard builder           | ✅ Shared   | Same `shard_builder`; `cli_flags` in config supply `--operation` and `--mode` per service.                                                                               |
+| Catalog                 | ✅ Shared   | Same `catalog` for bucket/path templates and dimensions.                                                                                                                 |
+| Backend selection       | ✅ Shared   | Same backends (Cloud Run, VM, etc.); only which API is called for status differs.                                                                                        |
+| Refresh loop structure  | ✅ Shared   | Same refresh endpoint and flow; branch only on `deployment_mode` to choose status source.                                                                                |
+| **GCS path resolution** | ❌ Override | **Seam 1:** Batch = no prefix; live = `live/` prefix. Applied in CLI `data-status`, API `data_status.py` (and turbo), and cache key.                                     |
+| **Status-fetch step**   | ❌ Override | **Seam 2:** Batch = Jobs API (executions) or VM status; live = Cloud Run Services API (revisions, Ready condition). Applied in `api/routes/deployments.py` refresh path. |
 
 ---
 
@@ -79,12 +79,12 @@ Service name for live is taken from `state.config.service_name` or `state.servic
 
 ## Summary
 
-| Aspect | Batch | Live |
-|--------|--------|------|
-| **Data paths** | `by_date/day=...` (and service-specific) | `live/` + same structure |
-| **data-status** | `--mode batch` (default) | `--mode live` |
-| **Completion monitoring** | Jobs API (executions) or VM status | Cloud Run Services API (revisions, Ready) |
-| **State** | `deployment_mode: "batch"` | `deployment_mode: "live"` |
+| Aspect                    | Batch                                    | Live                                      |
+| ------------------------- | ---------------------------------------- | ----------------------------------------- |
+| **Data paths**            | `by_date/day=...` (and service-specific) | `live/` + same structure                  |
+| **data-status**           | `--mode batch` (default)                 | `--mode live`                             |
+| **Completion monitoring** | Jobs API (executions) or VM status       | Cloud Run Services API (revisions, Ready) |
+| **State**                 | `deployment_mode: "batch"`               | `deployment_mode: "live"`                 |
 
 Shared code (config loader, shard builder, catalog, backend selection, refresh loop structure) is reused; only path resolution and the status-fetch step are mode-specific.
 

@@ -14,6 +14,7 @@
 **Why:** C2-only quota constraint prevents downsizing → parallelize dates within machines instead
 
 **Impact:**
+
 - 36% fewer VMs needed (2,555 → 1,628)
 - 16x faster for low-utilization services
 - 85-95% CPU utilization (vs 10-40% before)
@@ -71,12 +72,14 @@ Service Execution:
 ### Key Insight: CPU vs RAM Over-Subscription
 
 **CPU Over-Subscription:** ✅ **SAFE**
+
 - Spawn more processes than vCPUs available
 - OS queues processes naturally
 - No crash, just natural scheduling
 - Example: 40 processes on 4 vCPUs → all complete, just queue
 
 **RAM Over-Subscription:** ❌ **FATAL**
+
 - Spawn processes that exceed available RAM
 - Linux OOM killer terminates process (exit 137)
 - Job fails, data lost, costly retry
@@ -89,6 +92,7 @@ Service Execution:
 #### Adaptive Strategy (RECOMMENDED)
 
 **How it works:**
+
 1. **Profile first date** - Detect I/O vs CPU bound, measure memory
 2. **Calculate safe workers** - Based on RAM availability
 3. **Monitor RAM in real-time** - Every 10 seconds
@@ -96,6 +100,7 @@ Service Execution:
 5. **Increase if RAM < 60%** - Maximize throughput (I/O-bound only)
 
 **Benefits:**
+
 - ✅ **Machine-agnostic** - Works on c2-std-4, c2-std-8, c2-std-16 automatically
 - ✅ **Data-agnostic** - Adapts if date sizes vary
 - ✅ **No manual tuning** - Service self-optimizes
@@ -104,6 +109,7 @@ Service Execution:
 - ✅ **CPU-bound safety** - Conservative matching (prevents context switching overhead)
 
 **Example: instruments-service (I/O-bound)**
+
 ```
 Machine: c2-standard-4 (4 vCPU, 16 GB)
 Task: 10% CPU, 0.5 GB RAM per worker
@@ -121,16 +127,19 @@ If one date uses 2 GB instead of 0.5 GB:
 #### Static Strategy (Fallback)
 
 **How it works:**
+
 1. Configure MAX_WORKERS in env/Terraform
 2. Service uses fixed worker count
 3. No runtime adaptation
 
 **Use when:**
+
 - Service has uniform, predictable memory usage
 - Already at resource limits (features-delta-one at 90% CPU, 75% RAM)
 - Prefer deterministic behavior over optimization
 
 **Drawback:**
+
 - Must manually tune per service per machine type
 - Risk of OOM if data size increases
 - Can't maximize I/O-bound tasks (limited to conservative workers)
@@ -144,42 +153,50 @@ If one date uses 2 GB instead of 0.5 GB:
 #### I/O-Bound Tasks (Network, Disk)
 
 **Examples:**
+
 - instruments-service (API calls, minimal computation)
 - market-tick-data-handler (download from Tardis)
 - ml-inference-service (load model, light inference)
 
 **Characteristics:**
+
 - Low CPU usage (~10-40% per worker)
 - Waiting on network/disk I/O
 - GIL not a bottleneck (I/O releases GIL)
 
 **Optimal Strategy:**
+
 - ✅ **Over-subscribe CPU heavily** (10-20x processes per vCPU)
 - While workers wait for I/O, CPU processes other workers
 - Example: 4 vCPUs, 10% usage → spawn 40 workers (100% CPU utilization)
 
 **RAM Constraint:**
+
 - Each worker needs buffers for API responses/downloads
 - Must monitor: 40 workers × buffer_size < available_RAM
 
 #### CPU-Bound Tasks (Computation)
 
 **Examples:**
+
 - features-delta-one-service (TA-Lib, pandas calculations)
 - ml-training-service (LightGBM training)
 - market-data-processing-service (candle aggregation)
 
 **Characteristics:**
+
 - High CPU usage (~80-100% per worker)
 - Minimal I/O waiting
 - GIL can be bottleneck (depends on library - NumPy/TA-Lib release GIL)
 
 **Optimal Strategy:**
+
 - ✅ **Match workers to vCPUs** (1-2x processes per vCPU)
 - Example: 4 vCPUs, 90% usage → spawn 4-8 workers max
 - More workers = context switching overhead
 
 **RAM Constraint:**
+
 - Each worker needs full dataset in memory
 - Must monitor: N workers × dataset_size < available_RAM
 
@@ -190,6 +207,7 @@ If one date uses 2 GB instead of 0.5 GB:
 #### Design
 
 **1. Start with Initial Workers**
+
 ```python
 # Initial MAX_WORKERS from config or env
 initial_workers = int(os.getenv("MAX_WORKERS", "4"))
@@ -207,6 +225,7 @@ max_workers = max(initial_workers, calculated_workers)
 ```
 
 **2. Monitor RAM During Execution**
+
 ```python
 import psutil
 from multiprocessing import Pool, Value, Lock
@@ -265,6 +284,7 @@ class AdaptiveParallelDateProcessor:
 ```
 
 **3. Dynamic Pool Sizing**
+
 ```python
 def process_dates_adaptive(self, dates, config):
     """Process dates with adaptive worker count"""
@@ -354,6 +374,7 @@ class AdaptiveParallelDateProcessor:
 ```
 
 **Example:**
+
 ```
 Machine: c2-standard-4 (4 vCPU, 16 GB)
 Task: instruments-service (10% CPU, 0.5 GB RAM per date)
@@ -456,6 +477,7 @@ def detect_task_type(self, sample_date, config):
 ```
 
 **Usage:**
+
 ```python
 def main():
     dates = generate_date_range(start_date, end_date)
@@ -532,6 +554,7 @@ def get_service_default_max_workers(service_name: str) -> int:
 ```
 
 **Impact:**
+
 - instruments-service: 365 days → 23 shards (16 dates each)
 - features-calendar: 365 days → 23 shards
 - ml-inference: 365 days → 122 shards (3 dates each)
@@ -594,6 +617,7 @@ def main():
 ```
 
 **Key Changes:**
+
 1. Extract single-date logic into standalone function
 2. Read MAX_WORKERS from environment
 3. Use ParallelDateProcessor if MAX_WORKERS > 1
@@ -605,27 +629,29 @@ def main():
 
 ### Resource Requirements Table
 
-| Service | Task Type | CPU/Worker | RAM/Worker | Safe Workers (c2-std-4) | MAX_WORKERS |
-|---------|-----------|------------|------------|-------------------------|-------------|
-| instruments | I/O | 10% | 0.5 GB | 22 | 16 |
-| market-tick | I/O | 15% | 10 GB | 1 | 1 |
-| market-processing | CPU | 70% | 6 GB | 1-2 | 1 |
-| features-delta-one | CPU | 90% | 12 GB | 1 | 1 |
-| features-calendar | I/O | 10% | 0.5 GB | 22 | 16 |
-| ml-training | CPU | 95% | 25 GB | 1 | 1 |
-| ml-inference | Mixed | 40% | 3 GB | 3-5 | 3 |
-| strategy-service | Mixed | 50% | 4 GB | 2 | 1 |
-| execution-service | Mixed | 60% | 5 GB | 2 | 1 |
+| Service            | Task Type | CPU/Worker | RAM/Worker | Safe Workers (c2-std-4) | MAX_WORKERS |
+| ------------------ | --------- | ---------- | ---------- | ----------------------- | ----------- |
+| instruments        | I/O       | 10%        | 0.5 GB     | 22                      | 16          |
+| market-tick        | I/O       | 15%        | 10 GB      | 1                       | 1           |
+| market-processing  | CPU       | 70%        | 6 GB       | 1-2                     | 1           |
+| features-delta-one | CPU       | 90%        | 12 GB      | 1                       | 1           |
+| features-calendar  | I/O       | 10%        | 0.5 GB     | 22                      | 16          |
+| ml-training        | CPU       | 95%        | 25 GB      | 1                       | 1           |
+| ml-inference       | Mixed     | 40%        | 3 GB       | 3-5                     | 3           |
+| strategy-service   | Mixed     | 50%        | 4 GB       | 2                       | 1           |
+| execution-service  | Mixed     | 60%        | 5 GB       | 2                       | 1           |
 
 ---
 
 ### 1. instruments-service
 
 **Main Date Loop:**
+
 - **File:** `instruments_service/cli/main.py`
 - **Pattern:** `for date in date_range: process_date(...)`
 
 **Single-Date Function:**
+
 ```python
 def process_instruments_for_date(date_obj: date, category: str) -> dict:
     """Process instruments for a single date (parallelizable)"""
@@ -636,6 +662,7 @@ def process_instruments_for_date(date_obj: date, category: str) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - Instruments fetched in parallel (per venue API calls)
 - No issue with date-level parallelism
 
@@ -651,10 +678,12 @@ def process_instruments_for_date(date_obj: date, category: str) -> dict:
 ### 2. market-tick-data-handler
 
 **Main Date Loop:**
+
 - **File:** `market_data_tick_handler/cli/main.py`
 - **Pattern:** `for date in date_range: orchestration_service.run_for_date(date)`
 
 **Single-Date Function:**
+
 ```python
 def process_tick_data_for_date(date_obj: date, config: dict) -> dict:
     """Process market tick data for a single date"""
@@ -665,6 +694,7 @@ def process_tick_data_for_date(date_obj: date, config: dict) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - Multiple data types fetched in parallel (trades, tbbo, ohlcv)
 - Instruments partitioned concurrently
 
@@ -678,10 +708,12 @@ def process_tick_data_for_date(date_obj: date, config: dict) -> dict:
 ### 3. market-data-processing-service
 
 **Main Date Loop:**
+
 - **File:** `market_data_processing_service/cli/main.py`
 - **Pattern:** `for date in date_range: orchestration_service.run_for_date(date)`
 
 **Single-Date Function:**
+
 ```python
 def process_candles_for_date(date_obj: date, config: dict) -> dict:
     """Process candles for a single date"""
@@ -692,6 +724,7 @@ def process_candles_for_date(date_obj: date, config: dict) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - 7 timeframes processed in parallel
 - Instruments processed in parallel per timeframe
 
@@ -707,10 +740,12 @@ def process_candles_for_date(date_obj: date, config: dict) -> dict:
 ### 4. features-delta-one-service
 
 **Main Date Loop:**
+
 - **File:** `features_delta_one_service/cli/main.py`
 - **Pattern:** `for date in date_range: batch_handler.run_for_date(date)`
 
 **Single-Date Function:**
+
 ```python
 def process_features_for_date(date_obj: date, config: dict) -> dict:
     """Process features for a single date"""
@@ -721,6 +756,7 @@ def process_features_for_date(date_obj: date, config: dict) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - 20 feature groups processed in parallel (each group is a separate calculator)
 - Multiple instruments processed concurrently
 
@@ -734,10 +770,12 @@ def process_features_for_date(date_obj: date, config: dict) -> dict:
 ### 5. features-calendar-service
 
 **Main Date Loop:**
+
 - **File:** `features_calendar_service/cli/batch_handler.py`
 - **Pattern:** `for date in date_range: process_date(...)`
 
 **Single-Date Function:**
+
 ```python
 def process_calendar_for_date(date_obj: date, config: dict) -> dict:
     """Process calendar features for a single date"""
@@ -748,6 +786,7 @@ def process_calendar_for_date(date_obj: date, config: dict) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - Minimal (independent calculations)
 - No instrument-level loops
 
@@ -765,6 +804,7 @@ def process_calendar_for_date(date_obj: date, config: dict) -> dict:
 **Main Loop:** Training periods (quarters), not dates
 
 **Pattern:**
+
 ```python
 # Not date-based!
 for training_period in ["2023-Q1", "2023-Q2", ...]:
@@ -784,10 +824,12 @@ for training_period in ["2023-Q1", "2023-Q2", ...]:
 ### 7. ml-inference-service
 
 **Main Date Loop:**
+
 - **File:** `ml_inference_service/cli/main.py`
 - **Pattern:** `for date in date_range: run_inference(date)`
 
 **Single-Date Function:**
+
 ```python
 def process_inference_for_date(date_obj: date, config: dict) -> dict:
     """Run inference for a single date"""
@@ -799,6 +841,7 @@ def process_inference_for_date(date_obj: date, config: dict) -> dict:
 ```
 
 **Nested Parallelism:**
+
 - Multiple instruments inferred concurrently
 - Multiple target types in parallel
 
@@ -820,6 +863,7 @@ def process_inference_for_date(date_obj: date, config: dict) -> dict:
 **Must ensure:** NO disk dumps on production VMs
 
 **Audit Commands:**
+
 ```bash
 # Find all to_csv calls
 cd unified-trading-system-repos
@@ -835,17 +879,20 @@ rg "ENABLE.*SAMPLE|DEBUG.*DUMP|WRITE.*CSV" --type py -g "!tests/" -g "!.venv/"
 **For Each Finding:**
 
 **Pattern 1: Guarded by Environment Check ✅**
+
 ```python
 if os.getenv("ENVIRONMENT") == "dev":
     df.to_csv('samples/debug.csv')  # OK - local only
 ```
 
 **Pattern 2: Always Enabled ❌**
+
 ```python
 df.to_csv('/tmp/debug.csv')  # BAD - runs on VMs!
 ```
 
 **Fix:**
+
 ```python
 # Add environment guard
 if os.getenv("ENVIRONMENT") == "dev" and os.getenv("ENABLE_SAMPLES") == "true":
@@ -853,17 +900,20 @@ if os.getenv("ENVIRONMENT") == "dev" and os.getenv("ENABLE_SAMPLES") == "true":
 ```
 
 **Pattern 3: Tardis Response Caching ⚠️**
+
 ```python
 # Cache Tardis responses to avoid re-downloading
 response.content.to_file('/tmp/tardis_cache/response.json')
 ```
 
 **Analysis:**
+
 - If cache is in memory: ✅ OK
 - If cache writes to disk: ⚠️ Check size and frequency
 - If thousands of small files: ❌ BAD for SSD
 
 **Fix:**
+
 - Use in-memory caching (Redis, Python dict with TTL)
 - Or write to GCS (not local disk)
 - Or disable caching on VMs
@@ -874,6 +924,7 @@ response.content.to_file('/tmp/tardis_cache/response.json')
 **Line:** 406
 
 **Current (BAD):**
+
 ```python
 enable_csv_sampling: bool = Field(
     default_factory=lambda: get_config("ENABLE_CSV_SAMPLING", "true").lower() == "true",
@@ -883,6 +934,7 @@ enable_csv_sampling: bool = Field(
 ```
 
 **Fixed:**
+
 ```python
 enable_csv_sampling: bool = Field(
     default_factory=lambda: get_config("ENABLE_CSV_SAMPLING", "false").lower() == "true",
@@ -892,6 +944,7 @@ enable_csv_sampling: bool = Field(
 ```
 
 **Why Critical:**
+
 - Current default enables CSV dumps on production VMs
 - With MAX_WORKERS=4, creates 280+ CSV files per shard
 - Kills SSD performance
@@ -904,6 +957,7 @@ enable_csv_sampling: bool = Field(
 #### Multi-Date Shard Validation
 
 **Current Dependency Model:**
+
 ```python
 # Check if upstream data exists for ONE date
 def check_dependencies(service, date, category):
@@ -913,6 +967,7 @@ def check_dependencies(service, date, category):
 ```
 
 **With Multi-Date Shards:**
+
 ```python
 def check_dependencies(service, start_date, end_date, category):
     """Check if upstream data exists for ALL dates in range"""
@@ -975,6 +1030,7 @@ def check_dependencies_batch(service, date_range, category):
 ```
 
 **Benefits:**
+
 - ✅ 1 GCS API call instead of N
 - ✅ Faster dependency checking
 - ✅ Lower GCS operations cost
@@ -987,6 +1043,7 @@ def check_dependencies_batch(service, date_range, category):
 #### Multi-Date Shard Retry Scenarios
 
 **Scenario A: All dates in shard failed**
+
 ```python
 Shard: dates [2024-01-01, 2024-01-02, 2024-01-03, 2024-01-04]
 Result: All 4 failed (upstream data missing)
@@ -995,6 +1052,7 @@ Action: Retry entire shard
 ```
 
 **Scenario B: Some dates failed**
+
 ```python
 Shard: dates [2024-01-01, 2024-01-02, 2024-01-03, 2024-01-04]
 Result: Date 3 failed (API timeout), others succeeded
@@ -1004,6 +1062,7 @@ Action: Create new shard with only failed date
 ```
 
 **Scenario C: Shard timed out**
+
 ```python
 Shard: dates [2024-01-01 ... 2024-01-16], MAX_WORKERS=16
 Result: Timeout after 2 hours (only 12 dates completed)
@@ -1068,6 +1127,7 @@ def create_retry_shards(failed_shard):
 **File:** `deployment-service/api/routes/deployments.py` (or equivalent)
 
 **Current (Before):**
+
 ```python
 def create_shards(start_date, end_date, shard_by, **kwargs):
     if shard_by == "date":
@@ -1082,6 +1142,7 @@ def create_shards(start_date, end_date, shard_by, **kwargs):
 ```
 
 **Updated (After):**
+
 ```python
 def create_shards(start_date, end_date, shard_by, max_workers=1, service_name=None, **kwargs):
     """
@@ -1142,6 +1203,7 @@ def deploy_service(service_name, start_date, end_date, max_workers, ...):
 ```
 
 **Examples:**
+
 ```bash
 # Default (service-specific)
 deploy instruments-service --start-date 2024-01-01 --end-date 2024-12-31
@@ -1165,6 +1227,7 @@ deploy instruments-service --start-date 2024-01-01 --end-date 2024-01-05 --max-w
 ### Status Tracking (Multi-Date Shards)
 
 **Current Status Model:**
+
 ```python
 # Shard status is atomic
 {
@@ -1175,6 +1238,7 @@ deploy instruments-service --start-date 2024-01-01 --end-date 2024-01-05 --max-w
 ```
 
 **Enhanced Status Model (NEW):**
+
 ```python
 {
     "shard_id": "instruments-20240101-20240104",
@@ -1194,6 +1258,7 @@ deploy instruments-service --start-date 2024-01-01 --end-date 2024-01-05 --max-w
 **How to Capture Per-Date Status:**
 
 **Option: Structured Output JSON (RECOMMENDED)**
+
 ```python
 # Service writes final summary JSON to GCS
 results_summary = {
@@ -1217,49 +1282,50 @@ results = read_from_gcs(f"gs://metadata/{shard_id}/results.json")
 
 ### Unit Tests
 
-| Repository | Test File | Coverage |
-|------------|-----------|----------|
-| unified-trading-library | `tests/unit/test_parallel_date_processor.py` | ParallelDateProcessor class |
-| unified-trading-library | `tests/unit/test_adaptive_processor.py` | AdaptiveParallelDateProcessor class |
-| deployment-service | `tests/unit/test_shard_calculator_max_workers.py` | Multi-date shard batching |
-| deployment-service | `tests/unit/test_batch_dependencies.py` | Batch dependency checking |
-| instruments-service | `tests/unit/test_parallel_processing.py` | Service integration |
+| Repository              | Test File                                         | Coverage                            |
+| ----------------------- | ------------------------------------------------- | ----------------------------------- |
+| unified-trading-library | `tests/unit/test_parallel_date_processor.py`      | ParallelDateProcessor class         |
+| unified-trading-library | `tests/unit/test_adaptive_processor.py`           | AdaptiveParallelDateProcessor class |
+| deployment-service      | `tests/unit/test_shard_calculator_max_workers.py` | Multi-date shard batching           |
+| deployment-service      | `tests/unit/test_batch_dependencies.py`           | Batch dependency checking           |
+| instruments-service     | `tests/unit/test_parallel_processing.py`          | Service integration                 |
 
 ---
 
 ### Integration Tests
 
-| Test Name | Scope | Validation |
-|-----------|-------|------------|
-| `test_multi_date_shard_creation` | Orchestrator | 365 days, MW=16 → 23 shards |
-| `test_per_date_results` | Service + orchestrator | Results JSON written and readable |
-| `test_partial_shard_retry` | Retry logic | 2 failed dates out of 16 → 2 retry shards |
-| `test_dependency_batch_check` | Dependency checker | 1 GCS call for 16 dates |
-| `test_adaptive_ram_reduction` | Adaptive processor | RAM spike → worker reduction |
+| Test Name                        | Scope                  | Validation                                |
+| -------------------------------- | ---------------------- | ----------------------------------------- |
+| `test_multi_date_shard_creation` | Orchestrator           | 365 days, MW=16 → 23 shards               |
+| `test_per_date_results`          | Service + orchestrator | Results JSON written and readable         |
+| `test_partial_shard_retry`       | Retry logic            | 2 failed dates out of 16 → 2 retry shards |
+| `test_dependency_batch_check`    | Dependency checker     | 1 GCS call for 16 dates                   |
+| `test_adaptive_ram_reduction`    | Adaptive processor     | RAM spike → worker reduction              |
 
 ---
 
 ### E2E Tests
 
-| Test Scenario | Configuration | Expected Outcome |
-|---------------|---------------|------------------|
-| Small deployment | 5 dates, MAX_WORKERS=4 | 2 shards, all complete |
-| Medium deployment | 30 days, MAX_WORKERS=16 | 2 shards, CPU 85-95% |
-| Large deployment | 365 days, MAX_WORKERS=16 | 23 shards, 16x speedup |
-| Partial failure | 16 dates, 2 fail | Targeted retry for 2 dates |
-| Adaptive reduction | Variable date sizes | Workers adjust, no OOM |
+| Test Scenario      | Configuration            | Expected Outcome           |
+| ------------------ | ------------------------ | -------------------------- |
+| Small deployment   | 5 dates, MAX_WORKERS=4   | 2 shards, all complete     |
+| Medium deployment  | 30 days, MAX_WORKERS=16  | 2 shards, CPU 85-95%       |
+| Large deployment   | 365 days, MAX_WORKERS=16 | 23 shards, 16x speedup     |
+| Partial failure    | 16 dates, 2 fail         | Targeted retry for 2 dates |
+| Adaptive reduction | Variable date sizes      | Workers adjust, no OOM     |
 
 ---
 
 ### Test Matrix by Service
 
-| Service | MAX_WORKERS | Test Dates | Expected CPU | Expected Time |
-|---------|-------------|------------|--------------|---------------|
-| instruments | 16 | 20 days | 90-100% | 1.5 hours (vs 40h serial) |
-| features-calendar | 16 | 20 days | 90-100% | 1.5 hours (vs 20h serial) |
-| ml-inference | 3 | 15 days | 85-95% | 25 min (vs 75 min serial) |
+| Service           | MAX_WORKERS | Test Dates | Expected CPU | Expected Time             |
+| ----------------- | ----------- | ---------- | ------------ | ------------------------- |
+| instruments       | 16          | 20 days    | 90-100%      | 1.5 hours (vs 40h serial) |
+| features-calendar | 16          | 20 days    | 90-100%      | 1.5 hours (vs 20h serial) |
+| ml-inference      | 3           | 15 days    | 85-95%       | 25 min (vs 75 min serial) |
 
 **Validation Criteria:**
+
 - ✅ CPU utilization 85-100% (vs 10-40% before)
 - ✅ No OOM kills
 - ✅ No slowdowns from contention
@@ -1272,15 +1338,16 @@ results = read_from_gcs(f"gs://metadata/{shard_id}/results.json")
 
 ### Appendix A: Machine Type Matrix
 
-| Machine Type | vCPU | RAM | I/O-Bound Workers | CPU-Bound Workers | Cost/Hour |
-|--------------|------|-----|-------------------|-------------------|-----------|
-| c2-standard-4 | 4 | 16 GB | 22 | 4-6 | $0.2088 |
-| c2-standard-8 | 8 | 32 GB | 44 | 8-12 | $0.4176 |
-| c2-standard-16 | 16 | 64 GB | 89 | 16-24 | $0.8352 |
-| c2-standard-30 | 30 | 120 GB | 168 | 30-45 | $1.5660 |
-| c2-standard-60 | 60 | 240 GB | 336 | 60-90 | $3.1320 |
+| Machine Type   | vCPU | RAM    | I/O-Bound Workers | CPU-Bound Workers | Cost/Hour |
+| -------------- | ---- | ------ | ----------------- | ----------------- | --------- |
+| c2-standard-4  | 4    | 16 GB  | 22                | 4-6               | $0.2088   |
+| c2-standard-8  | 8    | 32 GB  | 44                | 8-12              | $0.4176   |
+| c2-standard-16 | 16   | 64 GB  | 89                | 16-24             | $0.8352   |
+| c2-standard-30 | 30   | 120 GB | 168               | 30-45             | $1.5660   |
+| c2-standard-60 | 60   | 240 GB | 336               | 60-90             | $3.1320   |
 
 **Notes:**
+
 - I/O-bound workers calculated as: `(RAM_GB / 0.5) * 0.7`
 - CPU-bound workers calculated as: `vCPU * 1.5`
 - Adaptive approach automatically selects optimal workers for any machine type
@@ -1329,11 +1396,13 @@ memory_per_worker_gb = 12.0
 #### Issue: OOM Kills (Exit Code 137)
 
 **Symptoms:**
+
 - Jobs terminated with exit code 137
 - "Out of memory" errors in logs
 - Shard status: "failed"
 
 **Diagnosis:**
+
 ```bash
 # Check per-date memory usage in logs
 grep "RAM percent" deployment_logs.txt
@@ -1343,6 +1412,7 @@ grep "RAM high.*reducing workers" deployment_logs.txt
 ```
 
 **Solutions:**
+
 1. **Reduce MAX_WORKERS:** Set to 50% of current value
 2. **Enable adaptive:** Use AdaptiveParallelDateProcessor instead of static
 3. **Upsize machine:** Move from c2-std-4 to c2-std-8
@@ -1353,10 +1423,12 @@ grep "RAM high.*reducing workers" deployment_logs.txt
 #### Issue: Low CPU Utilization
 
 **Symptoms:**
+
 - CPU stays at 10-40% despite high MAX_WORKERS
 - Completion time not improved
 
 **Diagnosis:**
+
 ```bash
 # Check if workers are I/O bound
 grep "task_type" deployment_logs.txt
@@ -1366,6 +1438,7 @@ grep "context switches" deployment_logs.txt
 ```
 
 **Solutions:**
+
 1. **Verify task type:** Ensure I/O-bound tasks use high MAX_WORKERS
 2. **Check GIL release:** Ensure heavy compute releases GIL (NumPy, TA-Lib)
 3. **Increase workers:** For I/O-bound, can go higher (22+ on c2-std-4)
@@ -1375,11 +1448,13 @@ grep "context switches" deployment_logs.txt
 #### Issue: Data Quality Problems
 
 **Symptoms:**
+
 - Some dates missing output files
 - Partial data in GCS
 - Validation failures
 
 **Diagnosis:**
+
 ```bash
 # Check per-date results
 curl /api/deployments/{id}/shards/{shard_id}/results
@@ -1389,6 +1464,7 @@ grep "retry.*failed dates" deployment_logs.txt
 ```
 
 **Solutions:**
+
 1. **Check results.json:** Verify per-date status written correctly
 2. **Retry failed dates:** Use targeted retry shards
 3. **Validate dependencies:** Ensure upstream data exists for all dates
@@ -1410,6 +1486,7 @@ grep "retry.*failed dates" deployment_logs.txt
 #### Phase 1: Infrastructure (4 hours)
 
 **unified-trading-library:**
+
 - [ ] Create `core/parallel_date_processor.py`
 - [ ] Create `core/adaptive_parallel_processor.py`
 - [ ] Update `core/performance_monitor.py`
@@ -1422,6 +1499,7 @@ grep "retry.*failed dates" deployment_logs.txt
 #### Phase 2: High-Priority Services (6 hours)
 
 **For each service (instruments, features-calendar, ml-inference):**
+
 - [ ] Refactor CLI to use ParallelDateProcessor or AdaptiveParallelDateProcessor
 - [ ] Test locally with 5 dates, MAX_WORKERS=4
 - [ ] Add `MAX_WORKERS` to `.env.example`
@@ -1434,6 +1512,7 @@ grep "retry.*failed dates" deployment_logs.txt
 #### Phase 3: Deployment Orchestrator (8 hours)
 
 **deployment-service:**
+
 - [ ] Update `shard_calculator.py` with multi-date batching
 - [ ] Add `get_service_default_max_workers()`
 - [ ] Update `dependencies.py` with batch checking
@@ -1447,6 +1526,7 @@ grep "retry.*failed dates" deployment_logs.txt
 #### Phase 4: UI Updates (6 hours)
 
 **deployment-service:**
+
 - [ ] Update `ShardCard.tsx` for date ranges
 - [ ] Update `ShardDetails.tsx` with per-date table
 - [ ] Create `ResourceMetricsPanel.tsx`
@@ -1480,13 +1560,13 @@ grep "retry.*failed dates" deployment_logs.txt
 
 #### VM Count Reduction
 
-| Service | Current Shards | With MAX_WORKERS | Reduction |
-|---------|---------------|------------------|-----------|
-| instruments | 365 | 23 | 94% |
-| features-calendar | 365 | 23 | 94% |
-| ml-inference | 365 | 122 | 67% |
-| Others (MAX_WORKERS=1) | 365 × 4 = 1,460 | 1,460 | 0% |
-| **Total** | **2,555** | **1,628** | **36%** |
+| Service                | Current Shards  | With MAX_WORKERS | Reduction |
+| ---------------------- | --------------- | ---------------- | --------- |
+| instruments            | 365             | 23               | 94%       |
+| features-calendar      | 365             | 23               | 94%       |
+| ml-inference           | 365             | 122              | 67%       |
+| Others (MAX_WORKERS=1) | 365 × 4 = 1,460 | 1,460            | 0%        |
+| **Total**              | **2,555**       | **1,628**        | **36%**   |
 
 **Startup Time Saved:** 927 VMs × 4 min = 62 hours
 
@@ -1494,11 +1574,11 @@ grep "retry.*failed dates" deployment_logs.txt
 
 #### Completion Time Improvement
 
-| Service | Serial Time | Parallel Time | Speedup |
-|---------|------------|---------------|---------|
-| instruments (365 days) | 730 hours | 46 hours | **16x** |
-| features-calendar (365 days) | 365 hours | 23 hours | **16x** |
-| ml-inference (365 days) | 30 hours | 10 hours | **3x** |
+| Service                      | Serial Time | Parallel Time | Speedup |
+| ---------------------------- | ----------- | ------------- | ------- |
+| instruments (365 days)       | 730 hours   | 46 hours      | **16x** |
+| features-calendar (365 days) | 365 hours   | 23 hours      | **16x** |
+| ml-inference (365 days)      | 30 hours    | 10 hours      | **3x**  |
 
 **Total Time Saved:** 1,041 hours of compute time
 
@@ -1509,6 +1589,7 @@ grep "retry.*failed dates" deployment_logs.txt
 **Machine-hours saved:** 1,041 hours
 
 **Cost savings:**
+
 - Regular VMs: 1,041 × $0.2088 = **$217/year**
 - Preemptible VMs: 1,041 × $0.0418 = **$44/year**
 
@@ -1523,6 +1604,7 @@ grep "retry.*failed dates" deployment_logs.txt
 **Documentation Complete:** All 4 source documents merged
 
 **Critical Path:**
+
 1. 🔥 Fix CSV sampling default (30 min) - **BLOCKER**
 2. 🎯 Create ParallelDateProcessor (4h)
 3. 🎯 Update shard creation (4h)
@@ -1532,12 +1614,14 @@ grep "retry.*failed dates" deployment_logs.txt
 **Total Effort:** 31 hours over 2-3 weeks
 
 **Impact:**
+
 - ✅ 36% fewer VMs
 - ✅ 16x faster for low-utilization services
 - ✅ 85-95% CPU utilization
 - ✅ $387/year savings OR 16x speed
 
 **Adaptive Strategy:** ⭐ **RECOMMENDED**
+
 - Self-regulating parallelism
 - Machine-agnostic
 - No manual tuning

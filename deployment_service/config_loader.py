@@ -472,7 +472,7 @@ class ConfigLoader(BaseConfigLoader):
             logger.info("Venue sharding skipped - applying 2x scaling factor")
 
         if scale_factor > 1.0:
-            logger.info("Scaling compute by %..1fx", scale_factor)
+            logger.info("Scaling compute by %.1fx", scale_factor)
             base_config = self._scale_machine_type(base_config, scale_factor, compute_type)
 
         return base_config

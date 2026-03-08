@@ -36,7 +36,7 @@ Terraform `container-job` module supports `gcs_volumes`. Each of the 10 GCP serv
 
 ## Part C: Deployment API Service (Cloud Run)
 
-The deployment dashboard mounts all required buckets in **cloudbuild.yaml**: instruments-store, market-data-tick, features-*, ml-*, strategy-store, execution-store, deployment-orchestration. **storage_facade.py** uses FUSE when `DEPLOYMENT_ENV=production`. Local dev (`DEPLOYMENT_ENV=development`) uses the GCS API.
+The deployment dashboard mounts all required buckets in **cloudbuild.yaml**: instruments-store, market-data-tick, features-_, ml-_, strategy-store, execution-store, deployment-orchestration. **storage_facade.py** uses FUSE when `DEPLOYMENT_ENV=production`. Local dev (`DEPLOYMENT_ENV=development`) uses the GCS API.
 
 ---
 
@@ -56,6 +56,7 @@ Add `CLOUD_INIT_GCSFUSE_TEMPLATE` in `backends/vm.py`:
 The template (Jinja2) installs gcsfuse, mounts each bucket at `/mnt/gcs/{bucket}`, and runs the container with `-v /mnt/gcs:/mnt/gcs`. The `gcsfuse_buckets` variable is a comma-separated list of bucket names (with `{project_id}` already substituted).
 
 **gcsfuse install (Ubuntu 22.04):**
+
 ```bash
 # Ubuntu 22.04 (Jammy)
 export GCSFUSE_REPO=gcsfuse-$(lsb_release -c -s)  # -> gcsfuse-jammy
@@ -68,13 +69,13 @@ sudo apt-get update && sudo apt-get install -y gcsfuse
 
 unified-trading-library looks for paths in this order:
 
-| Priority | Path | When used |
-|----------|------|-----------|
-| 1 | `GCS_FUSE_MOUNT_PATH` env var | If set, `{GCS_FUSE_MOUNT_PATH}/{gcs_path}` |
-| 2 | `/mnt/gcs/{bucket}/{gcs_path}` | Linux standard |
-| 3 | `/gcs/{bucket}/{gcs_path}` | Alternative |
-| 4 | `~/gcs/{bucket}/{gcs_path}` | User home |
-| 5 | `/mnt/disks/gcs/{bucket}/{gcs_path}` | GCE default |
+| Priority | Path                                 | When used                                  |
+| -------- | ------------------------------------ | ------------------------------------------ |
+| 1        | `GCS_FUSE_MOUNT_PATH` env var        | If set, `{GCS_FUSE_MOUNT_PATH}/{gcs_path}` |
+| 2        | `/mnt/gcs/{bucket}/{gcs_path}`       | Linux standard                             |
+| 3        | `/gcs/{bucket}/{gcs_path}`           | Alternative                                |
+| 4        | `~/gcs/{bucket}/{gcs_path}`          | User home                                  |
+| 5        | `/mnt/disks/gcs/{bucket}/{gcs_path}` | GCE default                                |
 
 With the bind mount `-v /mnt/gcs:/mnt/gcs`, the container sees `/mnt/gcs/{bucket}/...`. UCS builds paths as `/mnt/gcs/{bucket}/{gcs_path}` when checking `_check_gcs_fuse_mount`. So it will find the files.
 
@@ -89,6 +90,7 @@ The VM service account needs `roles/storage.objectViewer` (or equivalent) on the
 ## Quick Reference: gcsfuse Installation (Official Google Docs)
 
 **Ubuntu/Debian (apt) - from https://cloud.google.com/storage/docs/gcsfuse-install:**
+
 ```bash
 # 1. Install prerequisites
 sudo apt-get update
@@ -106,22 +108,26 @@ sudo apt-get update && sudo apt-get install -y gcsfuse
 ```
 
 **If Ubuntu 22.04 (jammy) returns 404**, try the bionic repo:
+
 ```bash
 export GCSFUSE_REPO=gcsfuse-bionic
 ```
 
 **Mount a bucket:**
+
 ```bash
 mkdir -p /mnt/gcs/my-bucket
 gcsfuse --implicit-dirs my-bucket /mnt/gcs/my-bucket
 ```
 
 **Mount with options (recommended for production):**
+
 ```bash
 gcsfuse --implicit-dirs --foreground=false my-bucket /mnt/gcs/my-bucket
 ```
 
 **Troubleshooting (foreground + trace logs):**
+
 ```bash
 gcsfuse --foreground --log-severity=TRACE my-bucket /mnt/gcs/my-bucket
 ```
@@ -136,10 +142,10 @@ For VM jobs without `gcsfuse_buckets`, deployment sets `UNIFIED_CLOUD_SERVICES_U
 
 ## Summary
 
-| Target | Approach | Setup | Benefit |
-|--------|----------|-------|---------|
-| **VM Jobs** | GCS FUSE | Ubuntu + gcsfuse cloud-init + `gcsfuse_buckets` in sharding | 10–100x faster parquet reads |
-| **Cloud Run Jobs** | GCS FUSE | Terraform `gcs_volumes` in container-job module | Fast parquet reads |
-| **Deployment API** | FUSE (production) | cloudbuild.yaml volume mounts | Faster queries, fewer API calls |
+| Target             | Approach          | Setup                                                       | Benefit                         |
+| ------------------ | ----------------- | ----------------------------------------------------------- | ------------------------------- |
+| **VM Jobs**        | GCS FUSE          | Ubuntu + gcsfuse cloud-init + `gcsfuse_buckets` in sharding | 10–100x faster parquet reads    |
+| **Cloud Run Jobs** | GCS FUSE          | Terraform `gcs_volumes` in container-job module             | Fast parquet reads              |
+| **Deployment API** | FUSE (production) | cloudbuild.yaml volume mounts                               | Faster queries, fewer API calls |
 
 **DEPLOYMENT_ENV**: `production` → FUSE when mounted; `development` → GCS API (local dev).

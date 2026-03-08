@@ -14,7 +14,7 @@ ml-training-service:
   api_status: "ERROR -- API returned parse error (no JSON in CLI output)"
   bucket_scanned: "gs://ml-configs-store-test-project/training/grid_configs/"
   bucket_result: "0 files, 0 dates found"
-  categories: {}  # No categories returned -- bucket empty
+  categories: {} # No categories returned -- bucket empty
   depends_on:
     - features-delta-one-service (required)
     - features-volatility-service (optional)
@@ -52,8 +52,9 @@ strategy-service:
   api_status: "ERROR -- API returned parse error (no JSON in CLI output)"
   bucket_scanned: "gs://strategy-store-test-project/configs_grid/"
   bucket_result: "0 files, 0 dates found"
-  categories: {}  # No categories returned -- bucket empty
-  depends_on: [ml-inference-service, features-delta-one-service, instruments-service]
+  categories: {} # No categories returned -- bucket empty
+  depends_on:
+    [ml-inference-service, features-delta-one-service, instruments-service]
   dimensions: [category, config, date]
   notes: "Uses GCS dynamic configs. Strategy config grid bucket exists but is empty -- no strategy configs deployed yet."
 
@@ -66,7 +67,7 @@ execution-service:
   api_status: "ERROR -- API returned parse error (no JSON in CLI output)"
   bucket_scanned: "gs://execution-store-test-project/configs/"
   bucket_result: "4443 files found, but 0 dates matched expected pattern"
-  categories: {}  # No categories returned -- date pattern mismatch
+  categories: {} # No categories returned -- date pattern mismatch
   depends_on: [strategy-service, market-tick-data-service, instruments-service]
   dimensions: [config, date]
   notes: "Uses GCS dynamic configs. Currently running DeFi backtest locally. Bucket has 4443 files but none match the date-partitioned pattern expected by data-status API."

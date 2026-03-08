@@ -3,6 +3,7 @@
 ## Overview
 
 This document defines the **standardized event logging system** for all services in the unified trading system. Events enable:
+
 - **Real-time status tracking** beyond "RUNNING" (validation, ingestion, processing stages)
 - **Performance analysis** (measure duration of each stage)
 - **Debugging** (know exactly where a job failed or stalled)
@@ -17,6 +18,7 @@ Events are logged to `stderr` and captured by Cloud Logging. The **deployment-se
 **Format:** `SERVICE_EVENT: {event_name}` (logged to stderr for immediate capture)
 
 **Python Example:**
+
 ```python
 import sys
 import logging
@@ -41,22 +43,23 @@ log_event("VALIDATION_STARTED")
 
 These events are **required for ALL services** and must be present to pass quality gates.
 
-| Event | When to Log | Example |
-|-------|------------|---------|
-| `STARTED` | Immediately after event setup (`setup_events()` or `setup_service()`), before any I/O | First thing in `main()` after setup_events() / setup_service() |
-| `VALIDATION_STARTED` | Before preflight/dependency checks | Before calling dependency checker |
-| `VALIDATION_COMPLETED` | After successful validation | After preflight checks pass |
-| `VALIDATION_FAILED` | If validation fails (before exit) | Catch validation errors, log event, then exit |
-| `DATA_INGESTION_STARTED` | Before reading from GCS/APIs/BigQuery | Before GCS list/read operations |
-| `DATA_INGESTION_COMPLETED` | After data loaded into memory | After all input data fetched |
-| `PROCESSING_STARTED` | Before main computation/transformation | Before feature generation, model training, etc. |
-| `PROCESSING_COMPLETED` | After main computation finished | After all processing logic done |
-| `UPLOAD_STARTED` | Before writing to GCS/BigQuery | Before save_to_gcs() calls |
-| `UPLOAD_COMPLETED` | After successful upload | After all outputs written |
-| `STOPPED` | Before exit(0) for successful completion | Final log before graceful shutdown |
-| `FAILED` | Before exit(1) for failures | Log in except block before re-raising |
+| Event                      | When to Log                                                                           | Example                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `STARTED`                  | Immediately after event setup (`setup_events()` or `setup_service()`), before any I/O | First thing in `main()` after setup_events() / setup_service() |
+| `VALIDATION_STARTED`       | Before preflight/dependency checks                                                    | Before calling dependency checker                              |
+| `VALIDATION_COMPLETED`     | After successful validation                                                           | After preflight checks pass                                    |
+| `VALIDATION_FAILED`        | If validation fails (before exit)                                                     | Catch validation errors, log event, then exit                  |
+| `DATA_INGESTION_STARTED`   | Before reading from GCS/APIs/BigQuery                                                 | Before GCS list/read operations                                |
+| `DATA_INGESTION_COMPLETED` | After data loaded into memory                                                         | After all input data fetched                                   |
+| `PROCESSING_STARTED`       | Before main computation/transformation                                                | Before feature generation, model training, etc.                |
+| `PROCESSING_COMPLETED`     | After main computation finished                                                       | After all processing logic done                                |
+| `UPLOAD_STARTED`           | Before writing to GCS/BigQuery                                                        | Before save_to_gcs() calls                                     |
+| `UPLOAD_COMPLETED`         | After successful upload                                                               | After all outputs written                                      |
+| `STOPPED`                  | Before exit(0) for successful completion                                              | Final log before graceful shutdown                             |
+| `FAILED`                   | Before exit(1) for failures                                                           | Log in except block before re-raising                          |
 
 **Exit Status Convention:**
+
 - `exit(0)`: Success (must be preceded by `STOPPED` event)
 - `exit(1)`: Failure (must be preceded by `FAILED` event)
 
@@ -86,6 +89,7 @@ Each service has domain-specific events documented in the **unified-trading-code
 - [strategy-service](../../unified-trading-codex/03-observability/live/per-service/strategy-service.md) - Live signal generation and order instructions
 
 **Note:** Each per-service doc includes:
+
 - Unique observability characteristics
 - Complete domain-specific events table
 - Example event flow
@@ -97,6 +101,7 @@ Each service has domain-specific events documented in the **unified-trading-code
 ## Implementation: test_event_logging.py
 
 All services MUST include `tests/unit/test_event_logging.py` that validates:
+
 1. All 11 lifecycle events are present in source code
 2. Service-specific events match the codex per-service documentation
 
@@ -233,6 +238,7 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
 Use **unified-events-interface** or **unified-trading-library** (top-level `log_event`). Do not use `unified_trading_library.observability` (module deleted).
 
 Import in services:
+
 ```python
 from unified_events_interface import setup_events, log_event
 # or with sink config:
@@ -335,6 +341,7 @@ Event logging compliance is enforced through:
 3. **Diff checker**: `run-diff-checker.py` creates GitHub issues for missing or incomplete event enforcement
 
 Services cannot merge to main without:
+
 - All 11 lifecycle events present in source code
 - Service-specific events matching codex documentation (if documented)
 - `test_event_logging.py` passing

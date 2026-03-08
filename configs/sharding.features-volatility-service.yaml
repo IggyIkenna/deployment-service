@@ -14,7 +14,7 @@ cloud_run_job_name: features-volatility-service-job
 dimensions:
   - name: category
     type: fixed
-    values: [CEFI, TRADFI]  # DEFI not supported (no options data)
+    values: [CEFI, TRADFI] # DEFI not supported (no options data)
     description: Market category to process
 
   - name: feature_group

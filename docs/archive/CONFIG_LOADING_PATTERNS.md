@@ -23,7 +23,7 @@ service_max_workers:
 
   # Moderate parallelism
   ml-inference-service: 3
-  market-data-processing-service: 2  # Conservative, can go to 1 if RAM issues
+  market-data-processing-service: 2 # Conservative, can go to 1 if RAM issues
 
   # No parallelism (memory-bound or already well-utilized)
   market-tick-data-handler: 1
@@ -131,6 +131,7 @@ def get_service_default_max_workers(service_name: str) -> int:
 ```
 
 **Usage in calculate_shards():**
+
 ```python
 def calculate_shards(
     service: str,
@@ -206,6 +207,7 @@ def get_deployment_config() -> DeploymentConfig:
 ```
 
 **Usage:**
+
 ```python
 from deployment_service.config import get_deployment_config
 
@@ -265,6 +267,7 @@ async def create_deployment(request: DeploymentRequest):
 ### From Deployment Orchestrator to Service
 
 **In shard creation:**
+
 ```python
 def create_shard_config(shard: Dict, deployment: Deployment) -> Dict:
     """Build shard configuration with env vars"""
@@ -440,6 +443,7 @@ def validate_max_workers(service: str, max_workers: int, machine_type: str) -> N
 ```
 
 **Call before creating deployment:**
+
 ```python
 # In create_deployment()
 validate_max_workers(
@@ -655,6 +659,7 @@ def test_max_workers_override():
 8. ✅ **Testing** - Unit tests for config loading
 
 **File Locations:**
+
 - Config: `deployment-service-v2/configs/service_max_workers.yaml`
 - Loading: `deployment_service/shard_calculator.py`
 - Alternative: `deployment_service/config.py` (if using pydantic)

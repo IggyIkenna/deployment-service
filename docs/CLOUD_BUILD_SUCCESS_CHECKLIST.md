@@ -16,8 +16,7 @@ This document tracks Cloud Build pipeline health for all 13 repositories. Succes
 All services (except deployment-service) follow this pattern:
 
 ```yaml
-steps:
-  1. Configure Docker auth
+steps: 1. Configure Docker auth
   2. Ensure artifact repos exist
   3. Pull UCS base image (asia-northeast1-docker.pkg.dev/$PROJECT_ID/unified-trading-library/unified-trading-library:latest)
   4. Build service image
@@ -26,6 +25,7 @@ steps:
 ```
 
 **Critical Requirements:**
+
 - Ruff version: `ruff==0.15.0` (pyproject.toml, .pre-commit-config.yaml, GitHub Actions)
 - Python version: `3.13`
 - Environment variables: `CLOUD_BUILD=true`, `CLOUD_MOCK_MODE=true`, `GCP_PROJECT_ID=$PROJECT_ID`
@@ -37,23 +37,24 @@ steps:
 
 All cloudbuild.yaml files follow the test-in-image pattern correctly:
 
-| Repo | Artifact Repo | Image Name | Timeout | Notes |
-|------|--------------|------------|---------|-------|
-| execution-service | execution | execution-service | 1800s | E2_HIGHCPU_8 |
-| features-calendar-service | features | calendar-service | 1800s | E2_HIGHCPU_8 |
-| features-delta-one-service | features | delta-one-service | 1200s | E2_MEDIUM |
-| features-onchain-service | features | onchain-service | 1800s | E2_HIGHCPU_8 |
-| features-volatility-service | features | volatility-service | 1200s | E2_MEDIUM |
-| instruments-service | instruments | instruments-service | 1800s | E2_HIGHCPU_8 |
-| market-data-processing-service | market-data | market-data-processing-service | 1800s | E2_HIGHCPU_8 |
-| market-tick-data-handler | market-data | market-tick-data-handler | 1800s | E2_HIGHCPU_8 |
-| ml-inference-service | ml-inference-service | ml-inference-service | 1200s | E2_MEDIUM |
-| ml-training-service | ml-training-service | ml-training-service | 1200s | E2_MEDIUM |
-| strategy-service | strategy-service | strategy-service | 1200s | E2_MEDIUM |
-| unified-trading-library | unified-trading-library | unified-trading-library | 900s | E2_MEDIUM, Dockerfile.ci |
-| deployment-service | deployment-dashboard | deployment-dashboard | 1800s | E2_HIGHCPU_32, Cloud Run deploy |
+| Repo                           | Artifact Repo           | Image Name                     | Timeout | Notes                           |
+| ------------------------------ | ----------------------- | ------------------------------ | ------- | ------------------------------- |
+| execution-service              | execution               | execution-service              | 1800s   | E2_HIGHCPU_8                    |
+| features-calendar-service      | features                | calendar-service               | 1800s   | E2_HIGHCPU_8                    |
+| features-delta-one-service     | features                | delta-one-service              | 1200s   | E2_MEDIUM                       |
+| features-onchain-service       | features                | onchain-service                | 1800s   | E2_HIGHCPU_8                    |
+| features-volatility-service    | features                | volatility-service             | 1200s   | E2_MEDIUM                       |
+| instruments-service            | instruments             | instruments-service            | 1800s   | E2_HIGHCPU_8                    |
+| market-data-processing-service | market-data             | market-data-processing-service | 1800s   | E2_HIGHCPU_8                    |
+| market-tick-data-handler       | market-data             | market-tick-data-handler       | 1800s   | E2_HIGHCPU_8                    |
+| ml-inference-service           | ml-inference-service    | ml-inference-service           | 1200s   | E2_MEDIUM                       |
+| ml-training-service            | ml-training-service     | ml-training-service            | 1200s   | E2_MEDIUM                       |
+| strategy-service               | strategy-service        | strategy-service               | 1200s   | E2_MEDIUM                       |
+| unified-trading-library        | unified-trading-library | unified-trading-library        | 900s    | E2_MEDIUM, Dockerfile.ci        |
+| deployment-service             | deployment-dashboard    | deployment-dashboard           | 1800s   | E2_HIGHCPU_32, Cloud Run deploy |
 
 **Notes:**
+
 - `unified-trading-library` is the base image - doesn't pull another base
 - `deployment-service` deploys to Cloud Run, has Python + Node.js quality gates
 
@@ -74,6 +75,7 @@ All cloudbuild.yaml files follow the test-in-image pattern correctly:
 - [ ] Image pushed to registry with both tags (:latest, :$SHORT_SHA)
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/execution/execution-service \
@@ -95,6 +97,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/features/calendar-service \
@@ -116,6 +119,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/features/delta-one-service \
@@ -137,6 +141,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/features/onchain-service \
@@ -158,6 +163,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/features/volatility-service \
@@ -179,6 +185,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/instruments/instruments-service \
@@ -200,6 +207,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/market-data/market-data-processing-service \
@@ -221,6 +229,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/market-data/market-tick-data-handler \
@@ -242,6 +251,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/ml-inference-service/ml-inference-service \
@@ -263,6 +273,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/ml-training-service/ml-training-service \
@@ -284,6 +295,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/strategy-service/strategy-service \
@@ -307,6 +319,7 @@ gcloud artifacts docker images list \
 - [ ] Image pushed to registry with both tags
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/unified-trading-library/unified-trading-library \
@@ -333,6 +346,7 @@ gcloud artifacts docker images list \
 - [ ] Cloud Run service deployed: `gcloud run services describe deployment-dashboard --region=asia-northeast1`
 
 **Verify image:**
+
 ```bash
 gcloud artifacts docker images list \
   asia-northeast1-docker.pkg.dev/test-project/deployment-dashboard/deployment-dashboard \
@@ -340,6 +354,7 @@ gcloud artifacts docker images list \
 ```
 
 **Verify Cloud Run:**
+
 ```bash
 gcloud run services describe deployment-dashboard --region=asia-northeast1
 ```
@@ -355,6 +370,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** UCS base image doesn't exist or wasn't pushed.
 
 **Fix:**
+
 1. Check if UCS image exists: `gcloud artifacts docker images list asia-northeast1-docker.pkg.dev/test-project/unified-trading-library --include-tags`
 2. If missing, trigger a build for `unified-trading-library` repo first
 3. Ensure UCS Cloud Build completes successfully before building dependent services
@@ -366,6 +382,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** Quality gates pass locally but fail in Cloud Build.
 
 **Fix:**
+
 1. Run quality gates locally first: `cd {service} && bash scripts/quality-gates.sh --no-fix --quick`
 2. If local passes but Cloud Build fails, check:
    - Dockerfile includes test files: `COPY tests/ tests/`
@@ -386,6 +403,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** Artifact Registry repository doesn't exist.
 
 **Fix:**
+
 1. Check if repo exists: `gcloud artifacts repositories describe {repo-name} --location=asia-northeast1`
 2. Create manually: `gcloud artifacts repositories create {repo-name} --repository-format=docker --location=asia-northeast1`
 3. Or let Cloud Build create it (ensure-repo step should handle this)
@@ -397,6 +415,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** Tests are too slow, or machine type is too small.
 
 **Fix:**
+
 1. Check timeout in cloudbuild.yaml: `timeout: '1800s'`
 2. Increase timeout if needed (max 4h = 14400s)
 3. Upgrade machine type:
@@ -415,6 +434,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** Cloud Build trigger was never created for this repo.
 
 **Fix:**
+
 1. Create trigger manually via GCP Console or Terraform
 2. Trigger name format: `{repo-name}-build`
 3. Trigger on push to `main` branch
@@ -428,6 +448,7 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 **Root Cause:** Different ruff versions between local and Cloud Build.
 
 **Fix:**
+
 1. Verify versions match: `cd deployment-service && ./scripts/check-ruff-versions.sh`
 2. Update all to `ruff==0.15.0`:
    - `pyproject.toml`: `"ruff==0.15.0"`
@@ -440,31 +461,37 @@ gcloud run services describe deployment-dashboard --region=asia-northeast1
 ## Quick Reference Commands
 
 ### List all Cloud Build triggers
+
 ```bash
 gcloud builds triggers list --region=asia-northeast1 --format="table(name,createTime,github.name,github.push.branch)"
 ```
 
 ### Get recent builds for a trigger
+
 ```bash
 gcloud builds list --region=asia-northeast1 --filter="trigger_id=TRIGGER_ID" --limit=5
 ```
 
 ### Stream logs for a build
+
 ```bash
 gcloud builds log BUILD_ID --region=asia-northeast1 --stream
 ```
 
 ### List all Artifact Registry repositories
+
 ```bash
 gcloud artifacts repositories list --location=asia-northeast1
 ```
 
 ### List images in a repository
+
 ```bash
 gcloud artifacts docker images list asia-northeast1-docker.pkg.dev/test-project/{repo-name} --include-tags
 ```
 
 ### Monitor all builds (use the monitoring script)
+
 ```bash
 bash scripts/monitor-cloud-builds.sh
 ```
@@ -482,6 +509,7 @@ All 13 repos pass when:
 - ✅ Quality gates passed inside image (all steps green)
 
 **Next Steps:**
+
 1. Run monitoring script: `bash scripts/monitor-cloud-builds.sh`
 2. For any failures, check logs: `gcloud builds log BUILD_ID --region=asia-northeast1`
 3. Fix root cause (see Troubleshooting Guide)
