@@ -10,6 +10,7 @@ Handles:
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -20,6 +21,7 @@ from unified_trading_library import get_storage_client
 
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig
+from .metrics import PROCESSING_LATENCY, RECORDS_PROCESSED
 from .monitor import DeploymentMonitor
 from .shard_calculator import ShardCalculator
 
@@ -266,6 +268,7 @@ class T1Orchestrator:
             requested_services=services,
         )
 
+        _plan_start = time.monotonic()
         plan = OrchestrationPlan(date=target_date, category=category)
 
         # Get execution order from dependency graph
@@ -363,6 +366,9 @@ class T1Orchestrator:
             services_included=len(execution_order),
             execution_tiers=len(self.get_execution_tiers(plan)),
         )
+
+        PROCESSING_LATENCY.observe(time.monotonic() - _plan_start)
+        RECORDS_PROCESSED.labels(status="success").inc(plan.total_jobs)
 
         return plan
 

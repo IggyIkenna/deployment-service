@@ -8,6 +8,7 @@ dependencies = [
     "unified-cloud-interface>=0.11.6,<1.0.0",
     "unified-config-interface>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
+    "prometheus-client>=0.20.0,<1.0.0",
 ]
 
 [project.optional-dependencies]
