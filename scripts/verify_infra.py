@@ -29,7 +29,10 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from unified_cloud_interface import StorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +86,10 @@ class InfraVerificationResult:
         }
 
 
-def _verify_gcs_bucket(storage_client: object, bucket_name: str) -> CheckResult:
+def _verify_gcs_bucket(storage_client: StorageClient, bucket_name: str) -> CheckResult:
     """Check a single GCS bucket exists and is accessible."""
     try:
-        bucket = storage_client.bucket(bucket_name)  # type: ignore[attr-defined]
+        bucket = storage_client.bucket(bucket_name)
         bucket.reload()
         return CheckResult(
             name=f"gcs/{bucket_name}",

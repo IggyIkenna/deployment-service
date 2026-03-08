@@ -20,11 +20,24 @@ import argparse
 import logging
 import sys
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 
 from unified_cloud_interface import get_secret_client, get_storage_client
 
 logger = logging.getLogger(__name__)
+
+
+class _BucketCheckable(Protocol):
+    """Protocol for storage clients that support bucket_exists()."""
+
+    def bucket_exists(self, bucket_name: str) -> bool: ...
+
+
+class _SecretReadable(Protocol):
+    """Protocol for secret clients that support get_secret()."""
+
+    def get_secret(self, secret_name: str) -> str | None: ...
+
 
 # ---------------------------------------------------------------------------
 # Required resources
@@ -74,10 +87,10 @@ class VerifyReport:
 # ---------------------------------------------------------------------------
 
 
-def _check_bucket(storage_client: object, bucket_name: str) -> ResourceResult:
+def _check_bucket(storage_client: _BucketCheckable, bucket_name: str) -> ResourceResult:
     """Return PASS if bucket exists and is accessible, FAIL otherwise."""
     try:
-        storage_client.bucket_exists(bucket_name)  # type: ignore[attr-defined]
+        storage_client.bucket_exists(bucket_name)
         return ResourceResult(
             resource_type="bucket",
             name=bucket_name,
@@ -92,10 +105,10 @@ def _check_bucket(storage_client: object, bucket_name: str) -> ResourceResult:
         )
 
 
-def _check_secret(secret_client: object, secret_name: str) -> ResourceResult:
+def _check_secret(secret_client: _SecretReadable, secret_name: str) -> ResourceResult:
     """Return PASS if secret is accessible, FAIL otherwise."""
     try:
-        secret_client.get_secret(secret_name)  # type: ignore[attr-defined]
+        secret_client.get_secret(secret_name)
         return ResourceResult(
             resource_type="secret",
             name=secret_name,
