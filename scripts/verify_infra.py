@@ -126,33 +126,31 @@ def verify_gcs_buckets(project_id: str, bucket_names: list[str]) -> list[CheckRe
 def verify_pubsub_topics(project_id: str, topic_names: list[str]) -> list[CheckResult]:
     """Verify Pub/Sub topics exist."""
     results: list[CheckResult] = []
-    if importlib.util.find_spec("google.cloud.pubsub_v1") is None:
-        for topic in topic_names:
-            results.append(
-                CheckResult(
-                    name=f"pubsub/{topic}",
-                    status="skip",
-                    message="google-cloud-pubsub not installed — skipping Pub/Sub checks",
-                    resource=f"projects/{project_id}/topics/{topic}",
-                )
-            )
-        return results
+    from unified_cloud_interface import get_pubsub_client
 
-    from google.cloud import pubsub_v1  # type: ignore[import-untyped]
-
-    publisher = pubsub_v1.PublisherClient()
+    pubsub = get_pubsub_client(project_id=project_id)
     for topic in topic_names:
         full_name = f"projects/{project_id}/topics/{topic}"
         try:
-            publisher.get_topic(request={"topic": full_name})
-            results.append(
-                CheckResult(
-                    name=f"pubsub/{topic}",
-                    status="ok",
-                    message="Topic exists",
-                    resource=full_name,
+            if pubsub.topic_exists(topic):
+                results.append(
+                    CheckResult(
+                        name=f"pubsub/{topic}",
+                        status="ok",
+                        message="Topic exists",
+                        resource=full_name,
+                    )
                 )
-            )
+            else:
+                results.append(
+                    CheckResult(
+                        name=f"pubsub/{topic}",
+                        status="error",
+                        message="Topic not found or not accessible",
+                        resource=full_name,
+                        error="Topic does not exist",
+                    )
+                )
         except (OSError, ValueError, RuntimeError) as exc:
             results.append(
                 CheckResult(
@@ -267,7 +265,9 @@ def _build_default_resources(project_id: str) -> tuple[list[str], list[str], lis
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Verify infrastructure connectivity for deployment-service")
+    parser = argparse.ArgumentParser(
+        description="Verify infrastructure connectivity for deployment-service"
+    )
     parser.add_argument(
         "--project-id",
         required=True,
