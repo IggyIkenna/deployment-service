@@ -29,13 +29,26 @@
 service_name: "{LIBRARY_NAME}"
 last_updated: "YYYY-MM-DD"
 owner: ""
-tier: null  # 0 | 1 | 2 | 3
+tier: null # 0 | 1 | 2 | 3
 
 # =============================================================================
 # PHASE 1: Repository Foundation (Items 1-6)
 # =============================================================================
-phase_1_repository_foundation:
+auth_setup:
+  local_auth_method: "adc" # adc | sa_key_file | none
+  github_secret_name: "GH_PAT"
+  cloudbuild_sa_roles: []
+  inter_service_auth: "none" # none | oauth | mtls
+  aws_secret_name: null
+  # Venue credential secrets (Tranche B execution clients only)
+  # Pattern: exec-{client}-{venue}-{account_type}
+  # Resolved via CredentialsRegistry.exec_secret_for_client() in UCI
+  exec_credentials_pattern: "exec-{client}-{venue}-{account_type}"
+  # Service account secret (used for S2S auth Phase 0)
+  # Pattern: {service}-service-account
+  service_account_secret: null # e.g. execution-service-service-account
 
+phase_1_repository_foundation:
   item_01_repository_exists:
     description: "Library repo is present in workspace"
     status: pending
@@ -106,7 +119,6 @@ phase_1_repository_foundation:
 # PHASE 2: Exports and API Surface (Items 7-10)
 # =============================================================================
 phase_2_exports_and_api_surface:
-
   item_07_top_level_exports:
     description: "All public API exported from package __init__.py"
     status: pending
@@ -155,7 +167,6 @@ phase_2_exports_and_api_surface:
 # PHASE 3: Tier Compliance (Items 11-14)
 # =============================================================================
 phase_3_tier_compliance:
-
   item_11_tier_assignment:
     description: "Library assigned to correct tier (T0/T1/T2/T3) in workspace manifest"
     status: pending
@@ -203,7 +214,6 @@ phase_3_tier_compliance:
 # PHASE 4: Type Safety (Items 15-19)
 # =============================================================================
 phase_4_type_safety:
-
   item_15_no_any_types:
     description: "No Any types in public or internal API; reportAny is BLOCKING"
     status: pending
@@ -263,7 +273,6 @@ phase_4_type_safety:
 # PHASE 5: Testing (Items 20-24)
 # =============================================================================
 phase_5_testing:
-
   item_20_unit_tests:
     description: "tests/unit/ directory with comprehensive coverage of public API"
     status: pending
@@ -325,7 +334,6 @@ phase_5_testing:
 # PHASE 6: Documentation (Items 25-28)
 # =============================================================================
 phase_6_documentation:
-
   item_25_docstrings:
     description: "All public classes, functions, and modules have docstrings"
     status: pending

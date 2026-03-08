@@ -32,8 +32,21 @@ owner: ""
 # =============================================================================
 # PHASE 1: Repository Foundation (Items 1-6)
 # =============================================================================
-phase_1_repository_foundation:
+auth_setup:
+  local_auth_method: "adc" # adc | sa_key_file | none
+  github_secret_name: "GH_PAT"
+  cloudbuild_sa_roles: []
+  inter_service_auth: "none" # none | oauth | mtls
+  aws_secret_name: null
+  # Venue credential secrets (Tranche B execution clients only)
+  # Pattern: exec-{client}-{venue}-{account_type}
+  # Resolved via CredentialsRegistry.exec_secret_for_client() in UCI
+  exec_credentials_pattern: "exec-{client}-{venue}-{account_type}"
+  # Service account secret (used for S2S auth Phase 0)
+  # Pattern: {service}-service-account
+  service_account_secret: null # e.g. execution-service-service-account
 
+phase_1_repository_foundation:
   item_01_repository_exists:
     description: "API service repo is present in workspace"
     status: pending
@@ -104,7 +117,6 @@ phase_1_repository_foundation:
 # PHASE 2: API Endpoints (Items 7-12)
 # =============================================================================
 phase_2_api_endpoints:
-
   item_07_fastapi_app:
     description: "FastAPI application with proper lifespan, CORS, and middleware"
     status: pending
@@ -179,7 +191,6 @@ phase_2_api_endpoints:
 # PHASE 3: Authentication (Items 13-16)
 # =============================================================================
 phase_3_authentication:
-
   item_13_auth_middleware:
     description: "Authentication middleware validates tokens on protected endpoints"
     status: pending
@@ -229,14 +240,13 @@ phase_3_authentication:
 # PHASE 4: Health Probes (Items 17-19)
 # =============================================================================
 phase_4_health_probes:
-
   item_17_health_endpoint:
     description: "/health endpoint returns 200 when service is alive"
     status: pending
     notes: ""
     verified_date: null
     validation:
-      - "GET /health returns 200 with {\"status\": \"healthy\"}"
+      - 'GET /health returns 200 with {"status": "healthy"}'
       - "Responds within 1 second"
       - "No authentication required"
       - "No dependency checks (liveness only)"
@@ -268,7 +278,6 @@ phase_4_health_probes:
 # PHASE 5: Event Logging (Items 20-23)
 # =============================================================================
 phase_5_event_logging:
-
   item_20_lifecycle_events:
     description: "Service logs all required lifecycle events via log_event()"
     status: pending
@@ -319,7 +328,6 @@ phase_5_event_logging:
 # PHASE 6: Error Handling (Items 24-27)
 # =============================================================================
 phase_6_error_handling:
-
   item_24_structured_errors:
     description: "All error responses follow a consistent JSON structure"
     status: pending

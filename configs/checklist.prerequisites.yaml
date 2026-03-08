@@ -46,7 +46,6 @@ auth_setup_prerequisites:
 # GCP Prerequisites
 # =============================================================================
 gcp_prerequisites:
-
   authentication:
     description: "GCP authentication and access configured"
     items:
@@ -284,7 +283,6 @@ gcp_prerequisites:
 # AWS Prerequisites
 # =============================================================================
 aws_prerequisites:
-
   authentication:
     description: "AWS authentication and access configured"
     items:
@@ -509,7 +507,6 @@ aws_prerequisites:
 # PHASE 7: Data Catalogue Readiness (Items 34-37)
 # =============================================================================
 phase_7_data_catalogue_readiness:
-
   item_34_data_catalogue_exists:
     description: "configs/data-catalogue.prerequisites.yaml enumerates all shard combinations"
     status: n/a
