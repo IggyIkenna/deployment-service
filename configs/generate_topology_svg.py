@@ -14,7 +14,11 @@ Design principles (from RUNTIME_TOPOLOGY_DECISIONS.md):
 - API auth: all APIs note [OAuth]
 """
 
+import logging
+
 import graphviz
+
+logger = logging.getLogger(__name__)
 
 PLANNED_COLOR = "#ca8a04"
 
@@ -960,10 +964,11 @@ def _add_edges(g: graphviz.Digraph) -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     import os
 
     outdir = os.path.dirname(os.path.abspath(__file__))
     g = build()
     outpath = os.path.join(outdir, "RUNTIME_DEPLOYMENT_TOPOLOGY_DAG")
     g.render(outpath, cleanup=True)
-    print(f"Generated: {outpath}.svg")
+    logger.info("Generated: %s.svg", outpath)

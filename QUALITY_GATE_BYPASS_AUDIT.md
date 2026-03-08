@@ -501,7 +501,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 
 ### JUSTIFIED — No UCI equivalent
 
-| File                                     | Cloud API          | Justification               |
-| ---------------------------------------- | ------------------ | --------------------------- |
-| scripts/download_instruments.py          | transfer_manager   | UCI has no transfer_manager |
-| deployment_service/backends/\_gcp_sdk.py | compute_v1, run_v2 | Internal backend boundary   |
+| File                                     | Cloud API          | Justification                                                                |
+| ---------------------------------------- | ------------------ | ---------------------------------------------------------------------------- |
+| scripts/download_instruments.py          | transfer_manager   | UCI has no transfer_manager                                                  |
+| deployment_service/backends/\_gcp_sdk.py | compute_v1, run_v2 | UCI has no Cloud Run or GCE Compute abstractions; internal backend boundary. |
