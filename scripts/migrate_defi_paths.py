@@ -151,10 +151,18 @@ def parse_flat_defi_filename(filename: str) -> dict | None:
         return None
 
     # Last part is typically chain (ETHEREUM)
-    chain = remaining[-1] if remaining[-1] in ("ETHEREUM", "ARBITRUM", "OPTIMISM", "BASE", "POLYGON") else "ETHEREUM"
+    chain = (
+        remaining[-1]
+        if remaining[-1] in ("ETHEREUM", "ARBITRUM", "OPTIMISM", "BASE", "POLYGON")
+        else "ETHEREUM"
+    )
 
     # Symbol is everything between inst_type and chain
-    symbol = "-".join(remaining[:-1]) if remaining[-1] == chain and len(remaining) > 1 else "-".join(remaining)
+    symbol = (
+        "-".join(remaining[:-1])
+        if remaining[-1] == chain and len(remaining) > 1
+        else "-".join(remaining)
+    )
 
     return {
         "venue": venue,
@@ -243,7 +251,9 @@ def migrate_blob(
 
         # Check if source exists
         if not source_blob.exists():
-            return MigrationResult(old_path, new_path, "skip_not_found", False, "Source blob not found")
+            return MigrationResult(
+                old_path, new_path, "skip_not_found", False, "Source blob not found"
+            )
 
         # Check if destination already exists
         dest_blob = bucket.blob(new_path)
@@ -345,7 +355,8 @@ def process_date(
     # Execute migration in parallel
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, bucket_name, old, new, False): (old, new) for old, new in migrations
+            executor.submit(migrate_blob, client, bucket_name, old, new, False): (old, new)
+            for old, new in migrations
         }
 
         for future in as_completed(futures):
@@ -376,7 +387,9 @@ def generate_date_range(start_date: str, end_date: str) -> list[str]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Migrate DeFi GCS data from flat structure to folder/venue hierarchy")
+    parser = argparse.ArgumentParser(
+        description="Migrate DeFi GCS data from flat structure to folder/venue hierarchy"
+    )
     parser.add_argument(
         "--date",
         help="Single date to migrate (YYYY-MM-DD)",
@@ -483,7 +496,9 @@ def main():
     logger.info("  Already correct:        %s", total_stats["skipped_already_correct"])
     logger.info("  Skipped (deprecated):   %s", total_stats["skipped_deprecated"])
     logger.info("  Skipped (unknown):      %s", total_stats["skipped_unknown"])
-    logger.info("  %s:       %s", "Would migrate" if dry_run else "Migrated", total_stats["migrated"])
+    logger.info(
+        "  %s:       %s", "Would migrate" if dry_run else "Migrated", total_stats["migrated"]
+    )
     if total_stats["failed"] > 0:
         logger.info("  Failed:                 %s", total_stats["failed"])
     logger.info("=" * 60)

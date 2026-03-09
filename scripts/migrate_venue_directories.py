@@ -161,7 +161,10 @@ def is_misplaced_underlying_structure(blob_name: str) -> bool:
     # AND parent is NOT a valid venue (so it's likely an underlying)
     # AND filename has a venue prefix that IS a valid venue
     # Then this file is in the wrong structure
-    if grandparent_dir in ("futures_chain", "options_chain") and parent_dir not in VALID_CEFI_VENUES:
+    if (
+        grandparent_dir in ("futures_chain", "options_chain")
+        and parent_dir not in VALID_CEFI_VENUES
+    ):
         venue = extract_venue_from_filename(filename)
         if venue and venue in VALID_CEFI_VENUES:
             return True
@@ -272,7 +275,12 @@ def migrate_date(
         )
         return stats
 
-    logger.info("  %s: %s files to migrate out of %s scanned", date_str, stats["needs_migration"], stats["scanned"])
+    logger.info(
+        "  %s: %s files to migrate out of %s scanned",
+        date_str,
+        stats["needs_migration"],
+        stats["scanned"],
+    )
 
     if dry_run:
         # Just show what would be migrated
@@ -286,7 +294,8 @@ def migrate_date(
     # Execute migration in parallel
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, bucket_name, old, new, dry_run): (old, new) for old, new in to_migrate
+            executor.submit(migrate_blob, client, bucket_name, old, new, dry_run): (old, new)
+            for old, new in to_migrate
         }
 
         for future in as_completed(futures):

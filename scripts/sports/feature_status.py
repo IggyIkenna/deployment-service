@@ -158,11 +158,15 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="View sports feature development status")
-    parser.add_argument("--tracking-dir", type=str, required=True, help="Path to tracking directory")
+    parser.add_argument(
+        "--tracking-dir", type=str, required=True, help="Path to tracking directory"
+    )
     parser.add_argument("--detailed", action="store_true", help="Show every feature")
     parser.add_argument("--category", type=str, default="", help="Filter by category name")
     parser.add_argument("--export", choices=["csv"], default="", help="Export format")
-    parser.add_argument("--output", type=str, default="feature_status.csv", help="Export output path")
+    parser.add_argument(
+        "--output", type=str, default="feature_status.csv", help="Export output path"
+    )
     args = parser.parse_args()
 
     tracking_dir = Path(args.tracking_dir)

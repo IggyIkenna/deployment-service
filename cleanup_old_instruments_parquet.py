@@ -40,7 +40,9 @@ def _get_buckets(project_id: str) -> list[str]:
 # Pattern to match date-level instruments.parquet files (NOT venue-level)
 # Match: instrument_availability/by_date/day-YYYY-MM-DD/instruments.parquet
 # Don't match: instrument_availability/by_date/day-YYYY-MM-DD/venue-*/instruments.parquet
-DATE_LEVEL_PATTERN = re.compile(r"^instrument_availability/by_date/day-\d{4}-\d{2}-\d{2}/instruments\.parquet$")
+DATE_LEVEL_PATTERN = re.compile(
+    r"^instrument_availability/by_date/day-\d{4}-\d{2}-\d{2}/instruments\.parquet$"
+)
 
 
 def find_date_level_files(bucket_name: str, client: StorageClient) -> list[str]:
@@ -59,7 +61,9 @@ def find_date_level_files(bucket_name: str, client: StorageClient) -> list[str]:
     return date_level_files
 
 
-def delete_blob(bucket_name: str, blob_name: str, client: StorageClient, dry_run: bool) -> tuple[str, bool, str]:
+def delete_blob(
+    bucket_name: str, blob_name: str, client: StorageClient, dry_run: bool
+) -> tuple[str, bool, str]:
     """Delete a single blob. Returns (blob_name, success, error_message)."""
     try:
         if dry_run:
@@ -75,7 +79,9 @@ def delete_blob(bucket_name: str, blob_name: str, client: StorageClient, dry_run
         return (blob_name, False, error_msg)
 
 
-def cleanup_bucket(bucket_name: str, client: StorageClient, dry_run: bool, max_workers: int) -> dict:
+def cleanup_bucket(
+    bucket_name: str, client: StorageClient, dry_run: bool, max_workers: int
+) -> dict:
     """Cleanup a single bucket using parallel workers."""
     logger.info("\n%s", "=" * 60)
     logger.info("Processing bucket: %s", bucket_name)
@@ -125,7 +131,9 @@ def cleanup_bucket(bucket_name: str, client: StorageClient, dry_run: bool, max_w
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Delete old date-level instruments.parquet files from GCS")
+    parser = argparse.ArgumentParser(
+        description="Delete old date-level instruments.parquet files from GCS"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -165,7 +173,10 @@ def main():
     logger.info("\n%s", "=" * 60)
     logger.info("GCS Cleanup: Old Date-Level instruments.parquet Files")
     logger.info("%s", "=" * 60)
-    logger.info("Mode: %s", "DRY-RUN (no files will be deleted)" if args.dry_run else "LIVE (files will be deleted)")
+    logger.info(
+        "Mode: %s",
+        "DRY-RUN (no files will be deleted)" if args.dry_run else "LIVE (files will be deleted)",
+    )
     logger.info("Workers: %s", args.workers)
     logger.info("Buckets: %s", len(buckets_to_clean))
 

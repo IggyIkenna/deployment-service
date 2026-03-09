@@ -33,16 +33,28 @@ EXTERNAL_PACKAGES = {
 }
 
 # Patterns for detecting deep imports
-DEEP_IMPORT_PATTERN = re.compile(r"^from\s+(" + "|".join(EXTERNAL_PACKAGES) + r")\.(\w+(?:\.\w+)*)\s+import")
+DEEP_IMPORT_PATTERN = re.compile(
+    r"^from\s+(" + "|".join(EXTERNAL_PACKAGES) + r")\.(\w+(?:\.\w+)*)\s+import"
+)
 
 # Pattern for from imports
-FROM_IMPORT_PATTERN = re.compile(r"^(\s*)from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+import\s+(.+)$")
+FROM_IMPORT_PATTERN = re.compile(
+    r"^(\s*)from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+import\s+(.+)$"
+)
 
 
 class ImportViolation:
     """Represents an import pattern violation."""
 
-    def __init__(self, file_path: str, line_no: int, original: str, package: str, module_path: str, imports: str):
+    def __init__(
+        self,
+        file_path: str,
+        line_no: int,
+        original: str,
+        package: str,
+        module_path: str,
+        imports: str,
+    ):
         self.file_path = file_path
         self.line_no = line_no
         self.original = original
@@ -57,7 +69,9 @@ class ImportViolation:
         return f"{indent}from {self.package} import {self.imports}"
 
     def __str__(self) -> str:
-        return f"{self.file_path}:{self.line_no}: Deep import from {self.package}.{self.module_path}"
+        return (
+            f"{self.file_path}:{self.line_no}: Deep import from {self.package}.{self.module_path}"
+        )
 
 
 class ImportChecker:
@@ -102,7 +116,10 @@ class ImportChecker:
         """Recursively check all Python files in a directory."""
         for file_path in directory.rglob("*.py"):
             # Skip certain directories
-            if any(part in file_path.parts for part in [".venv", "venv", "__pycache__", ".git", "node_modules"]):
+            if any(
+                part in file_path.parts
+                for part in [".venv", "venv", "__pycache__", ".git", "node_modules"]
+            ):
                 continue
 
             self.files_checked += 1
@@ -187,8 +204,12 @@ class ImportChecker:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Check and fix import patterns for external dependencies")
-    parser.add_argument("paths", nargs="*", default=["."], help="Paths to check (default: current directory)")
+    parser = argparse.ArgumentParser(
+        description="Check and fix import patterns for external dependencies"
+    )
+    parser.add_argument(
+        "paths", nargs="*", default=["."], help="Paths to check (default: current directory)"
+    )
     parser.add_argument("--fix", action="store_true", help="Automatically fix violations")
     parser.add_argument("--verbose", action="store_true", help="Show detailed output")
     parser.add_argument("--quiet", action="store_true", help="Only show errors")

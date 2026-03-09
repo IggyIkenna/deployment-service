@@ -107,7 +107,11 @@ EXPECTED_FROM_DOC: dict[int, LeagueExpectation] = {
     107: {"tier": 2, "odds_api": None, "classification": "Features"},
     108: {"tier": None, "odds_api": None, "classification": "Reference"},
     # Argentina
-    128: {"tier": 1, "odds_api": "soccer_argentina_primera_division", "classification": "Prediction"},
+    128: {
+        "tier": 1,
+        "odds_api": "soccer_argentina_primera_division",
+        "classification": "Prediction",
+    },
     129: {"tier": 2, "odds_api": None, "classification": "Features"},
     130: {"tier": None, "odds_api": None, "classification": "Reference"},
     131: {"tier": None, "odds_api": None, "classification": "Reference"},
@@ -140,7 +144,11 @@ EXPECTED_FROM_DOC: dict[int, LeagueExpectation] = {
     2: {"tier": None, "odds_api": "soccer_uefa_champs_league", "classification": "Reference"},
     3: {"tier": None, "odds_api": "soccer_uefa_europa_league", "classification": "Reference"},
     848: {"tier": None, "odds_api": None, "classification": "Reference"},
-    5: {"tier": None, "odds_api": "soccer_conmebol_copa_libertadores", "classification": "Reference"},
+    5: {
+        "tier": None,
+        "odds_api": "soccer_conmebol_copa_libertadores",
+        "classification": "Reference",
+    },
     6: {"tier": None, "odds_api": None, "classification": "Reference"},
 }
 
@@ -301,7 +309,9 @@ def _print_text_report(
         for idx, extra in enumerate(extra_in_config, 1):
             logger.info("%d. League ID: %s (PLACEHOLDER)", idx, extra["league_id"])
             logger.info("   League: %s (%s)", extra.get("league_name"), extra.get("country"))
-            logger.info("   Classification: %s, Tier: %s", extra.get("classification"), extra.get("tier"))
+            logger.info(
+                "   Classification: %s, Tier: %s", extra.get("classification"), extra.get("tier")
+            )
             logger.info("   Note: %s", extra.get("note"))
 
     # Known conflicts
