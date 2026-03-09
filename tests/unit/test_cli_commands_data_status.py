@@ -442,9 +442,7 @@ def test_data_status_output_json_format() -> None:
 
 @pytest.mark.unit
 def test_data_status_output_summary_format() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status"):
         runner = CliRunner()
         result = runner.invoke(
             data_status,
