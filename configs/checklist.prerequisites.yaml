@@ -258,6 +258,15 @@ gcp_prerequisites:
         notes: "TODO - needed for economic event actuals"
         verification: "gcloud secrets describe fred-api-key"
 
+      ibkr_account_credentials:
+        description: "IBKR account credentials for TradFi live trading (ibkr-gateway-infra)"
+        status: pending
+        notes: >
+          Required for TradFi: execution-service, market-tick-data-service,
+          instruments-service, position-balance-monitor-service. Create with:
+          bash ibkr-gateway-infra/scripts/create_ibkr_secret.sh
+        verification: "gcloud secrets describe ibkr-account-credentials"
+
   ci_cd:
     description: "CI/CD infrastructure configured"
     items:
