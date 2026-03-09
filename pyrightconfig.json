@@ -2,7 +2,7 @@
   "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
   "include": ["deployment_service"],
-  "reportAny": "none",
+  "reportAny": "error",
   "reportMissingTypeStubs": false,
   "reportUnknownMemberType": "none",
   "reportUnknownVariableType": "none",
