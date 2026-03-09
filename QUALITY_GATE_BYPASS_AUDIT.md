@@ -7,6 +7,27 @@
 These directories contain test scaffolding, generated SVG build tooling, and Cloud Function
 entrypoints — not service source code. The `scripts/` directory was already excluded.
 
+**Date:** 2026-03-09 — QG script updated to enforce the `configs/` exclusion that was previously
+documented here but not implemented in the `find` commands. Both file-size and function-size
+checks now include `! -path "./configs/*"`.
+
+### Specific File: `configs/generate_topology_svg.py` (974 lines)
+
+**Date:** 2026-03-09
+**File:** `configs/generate_topology_svg.py`
+**Lines:** 974 (limit: 900)
+**Status:** JUSTIFIED — NOT production service code
+
+This file is a standalone developer tooling script (`python3 generate_topology_svg.py`) that
+generates the `RUNTIME_DEPLOYMENT_TOPOLOGY_DAG.svg` diagram using graphviz. It is not imported
+by any production module and is not part of the `deployment_service/` package. Its length is
+driven by the large number of Graphviz node attribute objects, long tooltip strings (required for
+SVG hover text), and the complete topology edge list — all of which are inherently data-dense and
+cannot be decomposed without splitting semantically related node/edge definitions across files.
+
+Splitting it would not reduce complexity; it would only scatter the topology definition across
+multiple files that must be kept in sync. The `configs/` directory exclusion in §2.1 applies.
+
 ## 2.2 Ruff Exceptions
 
 None.
