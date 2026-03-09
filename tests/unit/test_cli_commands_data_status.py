@@ -22,7 +22,7 @@ Covers:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import click
 import pytest
@@ -463,12 +463,8 @@ def test_data_status_output_summary_format() -> None:
 @pytest.mark.unit
 def test_data_status_benchmark_flag_calls_format_benchmark() -> None:
     with (
-        patch(
-            "deployment_service.cli.commands.data_status.display_fixed_service_status"
-        ),
-        patch(
-            "deployment_service.cli.commands.data_status.format_benchmark_info"
-        ) as mock_bench,
+        patch("deployment_service.cli.commands.data_status.display_fixed_service_status"),
+        patch("deployment_service.cli.commands.data_status.format_benchmark_info") as mock_bench,
     ):
         runner = CliRunner()
         result = runner.invoke(

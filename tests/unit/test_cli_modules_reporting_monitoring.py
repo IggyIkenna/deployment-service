@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +11,6 @@ import pytest
 
 from deployment_service.cli_modules.monitoring import MonitoringCLI
 from deployment_service.cli_modules.reporting import ReportingCLI
-
 
 # ---------------------------------------------------------------------------
 # ReportingCLI
@@ -73,7 +71,9 @@ def test_generate_deployment_report_saves_json(reporting_cli: ReportingCLI, tmp_
 
 
 @pytest.mark.unit
-def test_generate_deployment_report_saves_markdown(reporting_cli: ReportingCLI, tmp_path: Path) -> None:
+def test_generate_deployment_report_saves_markdown(
+    reporting_cli: ReportingCLI, tmp_path: Path
+) -> None:
     output = str(tmp_path / "report.md")
     reporting_cli.generate_deployment_report(output_file=output, format="markdown")
     content = Path(output).read_text()
@@ -122,7 +122,9 @@ def test_generate_performance_report_aggregate(reporting_cli: ReportingCLI) -> N
 
 
 @pytest.mark.unit
-def test_generate_performance_report_saves_file(reporting_cli: ReportingCLI, tmp_path: Path) -> None:
+def test_generate_performance_report_saves_file(
+    reporting_cli: ReportingCLI, tmp_path: Path
+) -> None:
     output = str(tmp_path / "perf.json")
     reporting_cli.generate_performance_report(output_file=output)
     assert Path(output).exists()
@@ -140,7 +142,9 @@ def test_generate_cost_report_all_services(reporting_cli: ReportingCLI) -> None:
 
 @pytest.mark.unit
 def test_generate_cost_report_single_service(reporting_cli: ReportingCLI) -> None:
-    report = reporting_cli.generate_cost_report(service="risk-service", time_range=timedelta(days=7))
+    report = reporting_cli.generate_cost_report(
+        service="risk-service", time_range=timedelta(days=7)
+    )
     services = report["services"]
     assert isinstance(services, dict)
     assert "risk-service" in services
@@ -251,7 +255,9 @@ def test_calculate_cost_breakdown(reporting_cli: ReportingCLI) -> None:
 
 
 @pytest.mark.unit
-def test_save_report_unsupported_format_no_error(reporting_cli: ReportingCLI, tmp_path: Path) -> None:
+def test_save_report_unsupported_format_no_error(
+    reporting_cli: ReportingCLI, tmp_path: Path
+) -> None:
     """Unknown format: no file written, no exception."""
     output = str(tmp_path / "report.xml")
     reporting_cli._save_report({"title": "Test"}, output, format="xml")
@@ -340,7 +346,12 @@ def test_log_health_status_healthy(monitoring_cli: MonitoringCLI) -> None:
     status: dict[str, object] = {
         "service": "instruments-service",
         "status": "healthy",
-        "metrics": {"cpu_usage": "30%", "memory_usage": "50%", "request_rate": "100/s", "error_rate": "0%"},
+        "metrics": {
+            "cpu_usage": "30%",
+            "memory_usage": "50%",
+            "request_rate": "100/s",
+            "error_rate": "0%",
+        },
     }
     # Should not raise
     monitoring_cli._log_health_status(status)
@@ -452,7 +463,9 @@ def test_set_alert_success(monitoring_cli: MonitoringCLI) -> None:
 
 @pytest.mark.unit
 def test_set_alert_with_action(monitoring_cli: MonitoringCLI) -> None:
-    result = monitoring_cli.set_alert("risk-service", "memory_usage", threshold=90.0, action="scale")
+    result = monitoring_cli.set_alert(
+        "risk-service", "memory_usage", threshold=90.0, action="scale"
+    )
     assert result is True
 
 

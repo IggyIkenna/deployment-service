@@ -48,7 +48,6 @@ import pytest
 from deployment_service.cli_modules.monitoring import MonitoringCLI
 from deployment_service.cli_modules.reporting import ReportingCLI
 
-
 # ===========================================================================
 # Helpers
 # ===========================================================================
@@ -350,9 +349,7 @@ def test_reporting_get_service_deployment_info(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_reporting_get_service_performance_metrics(tmp_path: Path) -> None:
     reporting = _make_reporting_cli(tmp_path)
-    metrics = reporting._get_service_performance_metrics(
-        "instruments-service", timedelta(days=7)
-    )
+    metrics = reporting._get_service_performance_metrics("instruments-service", timedelta(days=7))
     assert "uptime" in metrics
     assert "avg_response_time" in metrics
     assert "error_rate" in metrics
@@ -639,7 +636,5 @@ def test_reporting_generate_performance_report_with_output_file(tmp_path: Path) 
 def test_reporting_generate_cost_report_with_output_file(tmp_path: Path) -> None:
     reporting = _make_reporting_cli(tmp_path)
     output_file = str(tmp_path / "cost.json")
-    reporting.generate_cost_report(
-        service="risk-service", format="json", output_file=output_file
-    )
+    reporting.generate_cost_report(service="risk-service", format="json", output_file=output_file)
     assert Path(output_file).exists()

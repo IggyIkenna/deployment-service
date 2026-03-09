@@ -19,13 +19,11 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
-
-import pytest
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 from deployment_service.cloud.query_client import BucketIndex, QueryClient
-from deployment_service.cloud.storage_client import BucketStats, StorageClient
+from deployment_service.cloud.storage_client import StorageClient
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,8 +41,8 @@ def _make_blob(name: str, size: int = 100) -> MagicMock:
     blob = MagicMock()
     blob.name = name
     blob.size = size
-    blob.updated = datetime(2024, 1, 10, tzinfo=timezone.utc)
-    blob.time_created = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    blob.updated = datetime(2024, 1, 10, tzinfo=UTC)
+    blob.time_created = datetime(2024, 1, 1, tzinfo=UTC)
     return blob
 
 
@@ -113,8 +111,8 @@ class TestBucketIndex:
         assert stats.total_size_bytes == 0
 
     def test_get_stats_populated(self) -> None:
-        now = datetime(2024, 1, 15, tzinfo=timezone.utc)
-        early = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2024, 1, 15, tzinfo=UTC)
+        early = datetime(2024, 1, 1, tzinfo=UTC)
         idx = BucketIndex(
             bucket_name="b",
             prefix="",
@@ -239,9 +237,7 @@ class TestCheckDatesExist:
         qc = QueryClient(storage)
 
         # .csv doesn't match *.parquet
-        result = qc.check_dates_exist(
-            "bucket", "p/", ["2024-01-05"], file_pattern="*.parquet"
-        )
+        result = qc.check_dates_exist("bucket", "p/", ["2024-01-05"], file_pattern="*.parquet")
         assert result["2024-01-05"] is False
 
 
@@ -363,7 +359,9 @@ class TestCheckVenueDataTypesDetailed:
         storage = _make_storage(mock_mode=True)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_data_types_detailed("bucket", "p/{date}/", "BINANCE", ["2024-01-01"])
+        result = qc.check_venue_data_types_detailed(
+            "bucket", "p/{date}/", "BINANCE", ["2024-01-01"]
+        )
         assert result == {}
 
     def test_data_type_extracted_from_path(self) -> None:
