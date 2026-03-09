@@ -87,14 +87,18 @@ def find_files_to_migrate(bucket: StorageBucket) -> list[tuple[str, str]]:
         if "/data_type-options_chain/options_chain/" in blob.name:
             old_path = blob.name
             # Remove the duplicate options_chain
-            new_path = old_path.replace("/data_type-options_chain/options_chain/", "/data_type-options_chain/")
+            new_path = old_path.replace(
+                "/data_type-options_chain/options_chain/", "/data_type-options_chain/"
+            )
             to_migrate.append((old_path, new_path))
 
     return to_migrate
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Migrate options_chain from double-nested to single-nested structure")
+    parser = argparse.ArgumentParser(
+        description="Migrate options_chain from double-nested to single-nested structure"
+    )
     parser.add_argument(
         "--bucket",
         required=True,
@@ -155,7 +159,8 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = {
-            executor.submit(migrate_blob, client, args.bucket, old, new, dry_run): (old, new) for old, new in to_migrate
+            executor.submit(migrate_blob, client, args.bucket, old, new, dry_run): (old, new)
+            for old, new in to_migrate
         }
 
         for i, future in enumerate(as_completed(futures)):

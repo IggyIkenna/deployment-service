@@ -322,7 +322,9 @@ def validate_test_sample(
         category_report["instruments_check"] = instruments_result
 
         if instruments_result.get("missing_dates"):
-            report["summary"]["missing_instruments_data"] += len(instruments_result["missing_dates"])
+            report["summary"]["missing_instruments_data"] += len(
+                instruments_result["missing_dates"]
+            )
 
         # Check market data bucket (sample check - first few instruments only)
         logger.info("Checking market data bucket for %s...", category.upper())
@@ -410,7 +412,9 @@ def print_report(report: ValidationReportDict) -> None:
             if check.get("missing_data"):
                 logger.warning("  Missing market data: %s files", len(check["missing_data"]))
                 for item in check["missing_data"][:5]:
-                    logger.warning("      - %s: %s (%s)", item["date"], item["instrument"], item["data_type"])
+                    logger.warning(
+                        "      - %s: %s (%s)", item["date"], item["instrument"], item["data_type"]
+                    )
             else:
                 logger.info(
                     "  Market data check: %s/%s files found",

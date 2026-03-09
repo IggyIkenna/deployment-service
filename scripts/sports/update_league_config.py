@@ -266,7 +266,10 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Update league classification config")
     parser.add_argument(
-        "--dry-run", action="store_true", default=True, help="Preview changes without writing (default)"
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Preview changes without writing (default)",
     )
     parser.add_argument("--apply", action="store_true", help="Apply changes to the config")
     args = parser.parse_args()

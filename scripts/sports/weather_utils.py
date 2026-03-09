@@ -88,10 +88,18 @@ def get_historical_weather(
         "date": date_str,
         "temp_max": daily["temperature_2m_max"][0] if daily.get("temperature_2m_max") else None,
         "temp_min": daily["temperature_2m_min"][0] if daily.get("temperature_2m_min") else None,
-        "apparent_temp_max": daily["apparent_temperature_max"][0] if daily.get("apparent_temperature_max") else None,
-        "humidity_mean": daily["relative_humidity_2m_mean"][0] if daily.get("relative_humidity_2m_mean") else None,
-        "wind_speed_max": daily["wind_speed_10m_max"][0] if daily.get("wind_speed_10m_max") else None,
-        "precipitation_mm": daily["precipitation_sum"][0] if daily.get("precipitation_sum") else None,
+        "apparent_temp_max": daily["apparent_temperature_max"][0]
+        if daily.get("apparent_temperature_max")
+        else None,
+        "humidity_mean": daily["relative_humidity_2m_mean"][0]
+        if daily.get("relative_humidity_2m_mean")
+        else None,
+        "wind_speed_max": daily["wind_speed_10m_max"][0]
+        if daily.get("wind_speed_10m_max")
+        else None,
+        "precipitation_mm": daily["precipitation_sum"][0]
+        if daily.get("precipitation_sum")
+        else None,
         "weather_code": daily["weather_code"][0] if daily.get("weather_code") else None,
     }
 
@@ -139,9 +147,15 @@ def main() -> None:
     parser.add_argument("--lat", type=float, help="Latitude of venue")
     parser.add_argument("--lon", type=float, help="Longitude of venue")
     parser.add_argument("--date", type=str, help="Date (YYYY-MM-DD)")
-    parser.add_argument("--days-back", type=int, default=2, help="Number of days back from --date (default 2)")
-    parser.add_argument("--venues-bucket", type=str, default="", help="GCS bucket with venues Parquet")
-    parser.add_argument("--venues-prefix", type=str, default="sports/venues", help="GCS prefix for venues data")
+    parser.add_argument(
+        "--days-back", type=int, default=2, help="Number of days back from --date (default 2)"
+    )
+    parser.add_argument(
+        "--venues-bucket", type=str, default="", help="GCS bucket with venues Parquet"
+    )
+    parser.add_argument(
+        "--venues-prefix", type=str, default="sports/venues", help="GCS prefix for venues data"
+    )
     parser.add_argument("--demo", action="store_true", help="Run with example stadiums")
     args = parser.parse_args()
 
@@ -176,7 +190,9 @@ def main() -> None:
 
     if args.demo:
         logger.info("Demo mode: fetching weather for example stadiums")
-        end_date = datetime.now(UTC) - timedelta(days=3)  # Use 3 days ago to ensure archive availability
+        end_date = datetime.now(UTC) - timedelta(
+            days=3
+        )  # Use 3 days ago to ensure archive availability
         start_date = end_date - timedelta(days=args.days_back)
 
         for stadium in EXAMPLE_STADIUMS:

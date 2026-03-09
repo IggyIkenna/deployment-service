@@ -242,7 +242,9 @@ def refresh_service(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Refresh data catalogue YAMLs from data-status API")
+    parser = argparse.ArgumentParser(
+        description="Refresh data catalogue YAMLs from data-status API"
+    )
     parser.add_argument(
         "--all",
         action="store_true",
