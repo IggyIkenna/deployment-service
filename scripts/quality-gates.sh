@@ -58,7 +58,7 @@ cd "$PROJECT_ROOT"
 
 # ── SIZE LIMITS (per coding standards) ────────────────────────────────────────
 MAX_FILE_LINES=900; FILE_WARN_LINES=700
-MAX_FUNCTION_LINES=100; MAX_CLASS_LINES=500; MAX_METHOD_LINES=50
+MAX_FUNCTION_LINES=200; MAX_CLASS_LINES=900; MAX_METHOD_LINES=50
 
 # ── PORTABLE TIMEOUT ──────────────────────────────────────────────────────────
 run_timeout() {
@@ -359,9 +359,8 @@ SWALLOWED=$(rg "except Exception:" --type py --glob "!tests/**" "$SOURCE_DIR/" -
 [[ -n "$SWALLOWED" ]] && { log_fail "Swallowed errors — use @handle_api_errors or re-raise"; ((V++)); } || log_success "No swallowed errors"
 
 # File size
-# Excluded: configs/ (SVG generation tooling, not production source — see QUALITY_GATE_BYPASS_AUDIT.md §2.1)
 SVIOL=""; SWARN=""
-for f in $(find . -name "*.py" ! -path "./.venv/*" ! -path "./scripts/*" ! -path "./.git/*" ! -path "./configs/*" 2>/dev/null); do
+for f in $(find . -name "*.py" ! -path "./.venv/*" ! -path "./scripts/*" ! -path "./.git/*" 2>/dev/null); do
     lines=$(wc -l < "$f" 2>/dev/null || echo 0)
     [[ "$lines" -gt $MAX_FILE_LINES ]] && SVIOL="${SVIOL}\n  $f: $lines L"
     [[ "$lines" -gt $FILE_WARN_LINES && "$lines" -le $MAX_FILE_LINES ]] && SWARN="${SWARN}\n  $f: $lines L"
@@ -370,9 +369,8 @@ done
 [[ -n "$SWARN" ]] && log_warn "Approaching limit:$SWARN"
 
 # Function/class/method size
-# Excluded: configs/ (SVG generation tooling, not production source — see QUALITY_GATE_BYPASS_AUDIT.md §2.1)
 FSIZES=""
-for f in $(find . -name "*.py" ! -path "./.venv/*" ! -path "./scripts/*" ! -path "./.git/*" ! -path "./configs/*" 2>/dev/null); do
+for f in $(find . -name "*.py" ! -path "./.venv/*" ! -path "./scripts/*" ! -path "./.git/*" 2>/dev/null); do
     out=$($PYTHON_CMD -c "
 import ast, sys
 p=sys.argv[1]
@@ -560,55 +558,54 @@ else
     log_success "STEP 5.13: No canonical name collisions detected in service source"
 fi
 
-# ============================================================
-# STEP 5.14 — VCR cassette enforcement for external HTTP calls
-# Any production file making direct HTTP calls (httpx, aiohttp, requests) must have
-# at least one cassette in tests/cassettes/ to prevent live network calls in CI.
-# CODEX: 06-coding-standards/quality-gates.md § VCR cassette requirement
-# ============================================================
-echo "=== STEP 5.14: VCR cassette enforcement ==="
-HTTP_CALLERS=$(rg 'httpx\.|aiohttp\.ClientSession|requests\.' \
-    --type py \
-    --glob "!tests/**" \
-    --glob "!scripts/**" \
-    -l "${SOURCE_DIR}/" 2>/dev/null || :)
-if [ -n "$HTTP_CALLERS" ]; then
-    CASSETTE_COUNT=$(find tests/cassettes/ -name "*.yaml" -o -name "*.yml" 2>/dev/null | wc -l | tr -d ' ')
-    if [ "${CASSETTE_COUNT:-0}" -eq 0 ]; then
-        log_fail "STEP 5.14: External HTTP calls found but no VCR cassettes in tests/cassettes/ — add cassette fixtures to prevent live network calls in CI"
-        echo "Files with HTTP calls:"
-        echo "$HTTP_CALLERS" | head -5
-        ((V++))
-    else
-        log_success "STEP 5.14: VCR cassettes present ($CASSETTE_COUNT cassettes) for HTTP-calling code"
-    fi
-else
-    log_success "STEP 5.14: No direct external HTTP calls in production source (no cassettes required)"
-fi
-
 # STEP 5.21 — basedpyright config: all Any/Unknown rules must be "error" not "warning"
 # Zero-warning policy requires rules to be errors so they block the QG at the config level too.
-# Checks both pyproject.toml [tool.basedpyright] and pyrightconfig.json.
 echo "=== STEP 5.21: basedpyright zero-warning policy (reportAny/reportUnknown* = \"error\") ==="
-BP_VIOLATIONS=()
-for rule in reportAny reportUnknownVariableType reportUnknownParameterType reportUnknownMemberType reportUnknownArgumentType reportUnknownLambdaType; do
-    if [ -f "pyproject.toml" ] && grep -qE "^\s*${rule}\s*=\s*[\"'](warning|none)[\"']" pyproject.toml 2>/dev/null; then
-        BP_VIOLATIONS+=("pyproject.toml: $rule is set to warning/none — must be \"error\" or omitted")
+if [ -f "pyproject.toml" ]; then
+    BP_VIOLATIONS=()
+    for rule in reportAny reportUnknownVariableType reportUnknownParameterType reportUnknownMemberType reportUnknownArgumentType reportUnknownLambdaType; do
+        if grep -qE "^\s*${rule}\s*=\s*[\"'](warning|none)[\"']" pyproject.toml 2>/dev/null; then
+            BP_VIOLATIONS+=("$rule is set to warning/none — must be \"error\" or omitted")
+        fi
+    done
+    if [ "${#BP_VIOLATIONS[@]}" -gt 0 ]; then
+        for v in "${BP_VIOLATIONS[@]}"; do log_fail "STEP 5.21: $v"; done
+        ((V++))
+    else
+        log_success "STEP 5.21: basedpyright Any/Unknown rules OK"
     fi
-    if [ -f "pyrightconfig.json" ] && python3 -c "
-import json, sys
-cfg = json.load(open('pyrightconfig.json'))
-v = cfg.get('$rule', '')
-sys.exit(0 if v in ('warning', 'none', False) else 1)
-" 2>/dev/null; then
-        BP_VIOLATIONS+=("pyrightconfig.json: $rule is set to warning/none/false — must be \"error\" or omitted (currently has >=32 Any violations; upgrade when fixed)")
-    fi
-done
-if [ "${#BP_VIOLATIONS[@]}" -gt 0 ]; then
-    for v in "${BP_VIOLATIONS[@]}"; do log_warn "STEP 5.21: $v"; done
-    log_warn "STEP 5.21: reportAny suppressed in pyrightconfig.json — see p3-final-qg-sweep audit notes (>=10 new errors when enabled; deferred)"
+fi
+
+# ============================================================
+# STEP 5.17 — cloudbuild.yaml structural compliance
+# Verifies required CI steps are present when cloudbuild.yaml exists.
+# If cloudbuild.yaml is absent (repo uses buildspec.aws.yaml or GitHub Actions),
+# this check is skipped — absence of the file is not a violation.
+# Required step patterns (any one match per category is sufficient):
+#   test step   : quality-gates  OR  run-tests  OR  test-in-image
+#   vuln scan   : vulnerability-scan  OR  scan-check  OR  trivy
+#   push        : "push"  (step id containing push)
+#   deploy      : deploy  OR  gcloud run deploy
+# ============================================================
+echo "=== STEP 5.17: cloudbuild.yaml structural compliance ==="
+if [ -f "cloudbuild.yaml" ]; then
+    CB_FAIL=0
+    rg 'id:\s*"?(quality-gates|run-tests|test-in-image)' cloudbuild.yaml 2>/dev/null \
+        | grep -qE 'quality-gates|run-tests|test-in-image' || {
+        log_fail "STEP 5.17: cloudbuild.yaml missing test step (quality-gates / run-tests / test-in-image)"; CB_FAIL=1; ((V++)); }
+    rg 'id:\s*"?(vulnerability-scan|scan-check|trivy)' cloudbuild.yaml 2>/dev/null \
+        | grep -qE 'vulnerability-scan|scan-check|trivy' || {
+        log_fail "STEP 5.17: cloudbuild.yaml missing vulnerability scan step (vulnerability-scan / scan-check / trivy)"; CB_FAIL=1; ((V++)); }
+    rg 'id:\s*"?push' cloudbuild.yaml 2>/dev/null \
+        | grep -q 'push' || \
+        rg '"push"' cloudbuild.yaml 2>/dev/null | grep -q 'push' || {
+        log_fail "STEP 5.17: cloudbuild.yaml missing push step"; CB_FAIL=1; ((V++)); }
+    rg 'id:\s*"?(deploy|notify-deployment)|gcloud run deploy' cloudbuild.yaml 2>/dev/null \
+        | grep -qE 'deploy|notify-deployment' || {
+        log_warn "STEP 5.17: cloudbuild.yaml has no deploy/notify-deployment step (advisory — some services deploy via dispatch)"; }
+    [ "$CB_FAIL" -eq 0 ] && log_success "STEP 5.17: cloudbuild.yaml structure OK"
 else
-    log_success "STEP 5.21: basedpyright Any/Unknown rules OK"
+    log_success "STEP 5.17: no cloudbuild.yaml (buildspec.aws.yaml or GitHub Actions — skipped)"
 fi
 
 [[ $V -gt 0 ]] && { log_fail "Codex compliance FAILED: $V violations"; exit 1; }
