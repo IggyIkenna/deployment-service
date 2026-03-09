@@ -35,6 +35,9 @@ class DeploymentConfig(UnifiedCloudConfig):
         description="Deployment environment (development, staging, production)",
     )
 
+    # AliasChoices bootstrap exception: GCP_PROJECT_ID read only at DeploymentConfig init time
+    # via pydantic AliasChoices. This is NOT os.environ.get() — the value is owned by
+    # UnifiedCloudConfig after init. Documented bootstrap exception per codex §bootstrap-phase.
     gcp_project_id: str = Field(
         default="",
         validation_alias=AliasChoices("GCP_PROJECT_ID", "PROJECT_ID"),

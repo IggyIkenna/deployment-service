@@ -358,6 +358,13 @@ These files use `os.environ` because their core responsibility is environment-va
 
 ### GROUP B — CLOUD_MOCK_MODE / GCP_PROJECT_ID (JUSTIFIED — pre-config bootstrap)
 
+**`DeploymentConfig.gcp_project_id` field (deployment_config.py:38-42):** Uses
+`AliasChoices("GCP_PROJECT_ID", "PROJECT_ID")` as a pydantic `validation_alias`. This is a
+grep-visible mention of `GCP_PROJECT_ID` but is NOT `os.environ.get("GCP_PROJECT_ID")` — pydantic
+reads the env var at model init time and wraps it in the `UnifiedCloudConfig` owned field. This is
+a documented bootstrap exception (AliasChoices bootstrap exception per codex §bootstrap-phase).
+Status: JUSTIFIED — no os.environ direct access; pydantic AliasChoices pattern only.
+
 These reads occur before `UnifiedCloudConfig` is instantiated. `UnifiedCloudConfig.cloud_mock_mode` exists and is the canonical source once config is live, but the code below runs in the initialisation path that creates or decides whether to create the config object.
 
 | File                                         | Lines    | Purpose                                                                                                                                                                                                                                            | Status    |
