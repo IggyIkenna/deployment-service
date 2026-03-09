@@ -58,9 +58,6 @@ from pathlib import Path
 from typing import Optional
 
 import polars as pl
-from google.cloud.storage import (
-    transfer_manager,  # TODO(uci): transfer_manager not yet in UCI — tracked in uci_cloud_abstraction_complete.plan.md
-)
 from unified_cloud_interface import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -288,7 +285,7 @@ class InstrumentDownloader:
         dest_dir: str,
         skip_existing: bool = False,
     ) -> dict[str, dict]:
-        """Download all blobs using transfer_manager with process pool."""
+        """Download all blobs in parallel using UCI StorageClient (ThreadPoolExecutor)."""
         stats = {"total": 0, "success": 0, "failed": 0, "skipped": 0}
         dest_path = Path(dest_dir)
 
@@ -323,19 +320,25 @@ class InstrumentDownloader:
                 f"  {category}: Downloading {len(blob_names)} files with {self.download_workers} workers..."
             )
 
+            def _download_one(args: tuple[str, object, Path]) -> Exception | None:
+                """Download a single blob to its local destination path."""
+                blob_name, _bkt, _dest = args
+                dest_file = _dest / blob_name
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    blob = _bkt.blob(blob_name)
+                    blob.download_to_filename(str(dest_file))
+                    return None
+                except (OSError, ValueError, RuntimeError) as exc:
+                    return exc
+
             try:
-                # transfer_manager.download_many_to_path handles parallelism internally
-                results = transfer_manager.download_many_to_path(
-                    bucket,
-                    blob_names,
-                    destination_directory=str(category_dest),
-                    max_workers=self.download_workers,
-                    # Use THREAD for I/O-bound (fast network)
-                    worker_type=transfer_manager.THREAD,
-                )
+                work_items = [(name, bucket, category_dest) for name in blob_names]
+                with ThreadPoolExecutor(max_workers=self.download_workers) as executor:
+                    download_results = list(executor.map(_download_one, work_items))
 
                 # Process results
-                for name, result in zip(blob_names, results):
+                for name, result in zip(blob_names, download_results):
                     if isinstance(result, Exception):
                         log(f"    FAILED: {name} - {result}")
                         stats["failed"] += 1
