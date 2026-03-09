@@ -42,3 +42,4 @@ logs/
 coverage.xml
 .coverage
 *.bak
+htmlcov/
