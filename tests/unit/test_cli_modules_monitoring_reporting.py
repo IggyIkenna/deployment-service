@@ -324,13 +324,14 @@ def test_reporting_cli_init_creates_report_dir(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_reporting_get_all_services() -> None:
-    cli = _make_reporting_cli.__wrapped__ if hasattr(_make_reporting_cli, "__wrapped__") else None
-    with patch.object(Path, "mkdir"):
-        with patch("deployment_service.cli_modules.reporting.Path") as mock_path_cls:
-            mock_cwd = MagicMock()
-            mock_path_cls.cwd.return_value = mock_cwd
-            mock_cwd.__truediv__ = MagicMock(return_value=MagicMock())
-            reporting = ReportingCLI()
+    with (
+        patch.object(Path, "mkdir"),
+        patch("deployment_service.cli_modules.reporting.Path") as mock_path_cls,
+    ):
+        mock_cwd = MagicMock()
+        mock_path_cls.cwd.return_value = mock_cwd
+        mock_cwd.__truediv__ = MagicMock(return_value=MagicMock())
+        reporting = ReportingCLI()
     services = reporting._get_all_services()
     assert isinstance(services, list)
     assert len(services) == 5
@@ -443,7 +444,7 @@ def test_reporting_generate_deployment_report_all_services(tmp_path: Path) -> No
 def test_reporting_generate_deployment_report_with_json_file(tmp_path: Path) -> None:
     reporting = _make_reporting_cli(tmp_path)
     output_file = str(tmp_path / "deployment_report.json")
-    report = reporting.generate_deployment_report(
+    reporting.generate_deployment_report(
         service="instruments-service", format="json", output_file=output_file
     )
     assert Path(output_file).exists()
