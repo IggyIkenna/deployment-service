@@ -20,6 +20,8 @@ import json
 import logging
 import sys
 
+from league_config import LEAGUE_CLASSIFICATION_DATA
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -343,20 +345,14 @@ def _print_text_report(
 
 
 def main() -> None:
-    """Run verification against the league classification config.
-
-    When used inside the UTD repo the LEAGUE_CLASSIFICATION dict should be
-    imported from the appropriate config module.  For now we demonstrate the
-    interface with an empty dict -- replace with a real import when available.
-    """
+    """Run verification against the league classification config."""
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Verify league classification config")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
-    # TODO: Replace with actual import from league config module when available
-    league_classification: dict[int, dict[str, object]] = {}
+    league_classification: dict[int, dict[str, object]] = dict(LEAGUE_CLASSIFICATION_DATA)
 
     discrepancies, extra_in_config = verify_configuration(league_classification)
 
