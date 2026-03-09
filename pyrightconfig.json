@@ -29,5 +29,6 @@
   "reportImplicitRelativeImport": "none",
   "reportMissingImports": "none",
   "venvPath": ".",
-  "venv": ".venv"
+  "venv": ".venv",
+  "exclude": ["tests"]
 }
