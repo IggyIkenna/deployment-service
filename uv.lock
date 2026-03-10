@@ -2053,6 +2053,18 @@ wheels = [
 ]
 
 [[package]]
+name = "starlette"
+version = "0.52.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+]
+
+[[package]]
 name = "stevedore"
 version = "5.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2302,7 +2314,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "unified-trading-library"
-version = "0.3.161"
+version = "0.3.163"
 source = { editable = "../unified-trading-library" }
 dependencies = [
     { name = "fsspec" },
@@ -2317,6 +2329,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "starlette" },
     { name = "unified-internal-contracts" },
     { name = "web3" },
 ]
@@ -2362,6 +2375,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0,<2.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
+    { name = "starlette", specifier = ">=0.40.0,<1.0.0" },
     { name = "unified-cloud-interface", extras = ["gcp"], marker = "extra == 'gcp'", editable = "../unified-cloud-interface" },
     { name = "unified-cloud-interface", extras = ["gcp", "aws"], marker = "extra == 'all'", editable = "../unified-cloud-interface" },
     { name = "unified-config-interface", marker = "extra == 'all'", editable = "../unified-config-interface" },
