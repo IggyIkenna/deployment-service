@@ -27,12 +27,16 @@
 
 set -euo pipefail
 
-PROJECT_ID="${1:-${GCP_PROJECT_ID:-$(gcloud config get-value project)}}"
 DRY_RUN=false
-
+_POS_ARGS=()
 for arg in "$@"; do
-    [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        *) _POS_ARGS+=("$arg") ;;
+    esac
 done
+
+PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project)}}"
 
 INSTANCE_NAME="${CLOUDSQL_INSTANCE_NAME:-trading-order-state}"
 REGION="${CLOUDSQL_REGION:-${GCS_REGION:-asia-northeast1}}"
