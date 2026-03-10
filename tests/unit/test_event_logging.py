@@ -88,3 +88,60 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
             return
     pytest.fail("log_event not imported from unified_events_interface")
     assert True, "log_event import found"
+
+
+# -------------------------
+# Coverage boost: ShardEvent methods
+# -------------------------
+
+
+def test_shard_event_is_vm_event():
+    from datetime import UTC, datetime
+
+    from deployment_service.events import ShardEvent, VMEventType
+
+    evt = ShardEvent(
+        deployment_id="dep-1",
+        shard_id="shard-0",
+        event_type=VMEventType.VM_PREEMPTED,
+        message="preempted",
+        timestamp=datetime.now(UTC),
+        metadata={},
+    )
+    assert evt.is_vm_event
+
+
+def test_shard_event_to_jsonl_and_from_jsonl():
+    from datetime import UTC, datetime
+
+    from deployment_service.events import ShardEvent, VMEventType
+
+    evt = ShardEvent(
+        deployment_id="dep-1",
+        shard_id="shard-0",
+        event_type=VMEventType.VM_PREEMPTED,
+        message="preempted",
+        timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+        metadata={"key": "val"},
+    )
+    line = evt.to_jsonl()
+    assert isinstance(line, str)
+    evt2 = ShardEvent.from_jsonl(line)
+    assert evt2.deployment_id == "dep-1"
+    assert evt2.metadata == {"key": "val"}
+
+
+def test_shard_event_from_dict_no_metadata():
+    from datetime import UTC, datetime
+
+    from deployment_service.events import ShardEvent, VMEventType
+
+    data = {
+        "deployment_id": "dep-2",
+        "shard_id": "shard-1",
+        "event_type": str(VMEventType.VM_DELETED),
+        "message": "deleted",
+        "timestamp": datetime(2024, 1, 2, tzinfo=UTC).isoformat(),
+    }
+    evt = ShardEvent.from_dict(data)
+    assert evt.metadata == {}
