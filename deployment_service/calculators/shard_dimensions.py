@@ -79,7 +79,7 @@ class DimensionProcessor:
                 hierarchical_dims[dim_name] = str(dim["parent"])
             elif dim_type == "date_range":
                 values = self._get_date_values(dim, start_date, end_date, date_granularity_override)
-            elif dim_type == "cloud_dynamic":
+            elif dim_type == "cloud_dynamic" or dim_type == "gcs_dynamic":
                 values = self._get_gcs_values(dim, cloud_config_path, dimension_values)
             else:
                 raise ValueError(f"Unknown dimension type: {dim_type}")
