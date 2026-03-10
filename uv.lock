@@ -2129,7 +2129,7 @@ wheels = [
 
 [[package]]
 name = "unified-api-contracts"
-version = "0.1.225"
+version = "0.1.227"
 source = { editable = "../unified-api-contracts" }
 dependencies = [
     { name = "pydantic" },
@@ -2273,7 +2273,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "unified-internal-contracts"
-version = "0.1.60"
+version = "0.1.61"
 source = { editable = "../unified-internal-contracts" }
 dependencies = [
     { name = "pandas" },
