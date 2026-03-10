@@ -419,27 +419,25 @@ def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) 
 
 
 def bucket_exists_gcs(bucket_name: str) -> bool:
-    """Check if a GCS bucket exists."""
+    """Check if a GCS bucket exists via UCI get_storage_client."""
     try:
-        result = subprocess.run(
-            ["gsutil", "ls", "-b", f"gs://{bucket_name}"],
-            capture_output=True,
-            timeout=30,
-        )
-        return result.returncode == 0
+        from unified_cloud_interface import get_storage_client
+
+        client = get_storage_client(provider="gcp")
+        list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))
+        return True
     except (OSError, ValueError, RuntimeError):
         return False
 
 
 def bucket_exists_s3(bucket_name: str) -> bool:
-    """Check if an S3 bucket exists."""
+    """Check if an S3 bucket exists via UCI get_storage_client."""
     try:
-        result = subprocess.run(
-            ["aws", "s3api", "head-bucket", "--bucket", bucket_name],
-            capture_output=True,
-            timeout=30,
-        )
-        return result.returncode == 0
+        from unified_cloud_interface import get_storage_client
+
+        client = get_storage_client(provider="aws")
+        list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))
+        return True
     except (OSError, ValueError, RuntimeError):
         return False
 
