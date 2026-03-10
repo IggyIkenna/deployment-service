@@ -9,7 +9,8 @@ This is the new modularized version that delegates to service modules.
 
 import logging
 
-from .base import ComputeBackend, JobInfo
+from ..events import VMEventType
+from .base import ComputeBackend, JobInfo, JobStatus
 from .services.vm_config import VMConfigManager
 from .services.vm_lifecycle import VMLifecycleManager
 from .services.vm_monitoring import VMMonitoringManager
@@ -103,6 +104,22 @@ class VMBackend(ComputeBackend):
     def backend_type(self) -> str:
         return "vm"
 
+    @staticmethod
+    def _classify_vm_error(err: str) -> VMEventType:
+        """Map a VM error message to the most specific VMEventType."""
+        lower = err.lower()
+        if "zone" in lower and "exhaust" in lower:
+            return VMEventType.VM_ZONE_UNAVAILABLE
+        if "quota" in lower:
+            return VMEventType.VM_QUOTA_EXHAUSTED
+        if "preempt" in lower:
+            return VMEventType.VM_PREEMPTED
+        if "timeout" in lower:
+            return VMEventType.VM_TIMEOUT
+        if "oom" in lower or "out of memory" in lower:
+            return VMEventType.CONTAINER_OOM
+        return VMEventType.JOB_FAILED
+
     def deploy_shard(
         self,
         shard_id: str,
@@ -117,7 +134,7 @@ class VMBackend(ComputeBackend):
 
         Supports multi-zone failover: if a zone is exhausted, tries other zones in the region.
         """
-        return self._lifecycle_manager.deploy_shard(
+        job_info = self._lifecycle_manager.deploy_shard(
             shard_id=shard_id,
             docker_image=docker_image,
             args=args,
@@ -125,6 +142,25 @@ class VMBackend(ComputeBackend):
             compute_config=compute_config,
             labels=labels,
         )
+
+        # Emit VM lifecycle events based on result
+        if job_info.status == JobStatus.RUNNING:
+            self._emit_event(
+                shard_id,
+                VMEventType.JOB_STARTED,
+                f"VM created: {job_info.job_id}",
+                {"instance": job_info.job_id, "region": self.region},
+            )
+        elif job_info.status == JobStatus.FAILED:
+            err = job_info.error_message or ""
+            self._emit_event(
+                shard_id,
+                self._classify_vm_error(err),
+                err[:300] if err else "VM deployment failed",
+                {"region": self.region},
+            )
+
+        return job_info
 
     def get_status_with_context(
         self,

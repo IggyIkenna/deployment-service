@@ -240,6 +240,26 @@ SERVICE_GCS_CONFIGS = {
 }
 
 
+@dataclass
+class ExecutionConfigStatus:
+    """
+    Data status for a single execution-service config file.
+
+    Used by get_execution_data_status() to report config-based (not date-based)
+    completion for execution-service and strategy-service.
+    """
+
+    config_path: str
+    present_dates: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "config_path": self.config_path,
+            "present_dates": self.present_dates,
+            "present_count": len(self.present_dates),
+        }
+
+
 class DataCatalog:
     """
     Data Catalog for tracking service output completion.
@@ -568,3 +588,99 @@ class DataCatalog:
         lines.append("\n" + "=" * 60)
 
         return "\n".join(lines)
+
+    # ── Instrument search ──────────────────────────────────────────────────
+
+    def search_instruments(self, service: str, query: str) -> list[str]:
+        """
+        Search for instruments under a service's data path in GCS.
+
+        Performs a prefix listing using the service's bucket template and returns
+        paths/names that contain the query string (case-insensitive).
+
+        Args:
+            service: Service name (used to resolve the GCS bucket prefix).
+            query: Search term (matched against path segment, case-insensitive).
+
+        Returns:
+            List of matching instrument identifiers (up to 200 results).
+        """
+        gcs_config = SERVICE_GCS_CONFIGS.get(service)
+        if not gcs_config or not gcs_config.get("bucket_template"):
+            logger.debug("search_instruments: no GCS config for %s", service)
+            return []
+
+        try:
+            bucket_template = str(gcs_config["bucket_template"])
+            # Use a neutral template fill for listing (category=cefi as fallback)
+            bucket = bucket_template.format(
+                category_lower="cefi",
+                project_id=self.project_id,
+            )
+            prefix = "instrument_availability/"
+            all_files = self.cloud_client.list_files(f"gs://{bucket}/{prefix}", "*")
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            logger.debug("search_instruments: GCS error for %s: %s", service, exc)
+            return []
+
+        query_lower = query.lower()
+        results: list[str] = []
+        for path in all_files:
+            # Extract the last path segment as the instrument identifier
+            segment = path.rstrip("/").split("/")[-1]
+            if query_lower in segment.lower() or query_lower in path.lower():
+                results.append(segment)
+            if len(results) >= 200:
+                break
+        return sorted(set(results))
+
+    # ── Execution data status ──────────────────────────────────────────────
+
+    def get_execution_data_status(
+        self,
+        service: str = "execution-service",
+    ) -> list["ExecutionConfigStatus"]:
+        """
+        Return config-based data status for execution-service or strategy-service.
+
+        Instead of a date-heatmap view (used by batch services), execution services
+        are partitioned by *config file* (strategy + mode + timeframe + algo).
+
+        Lists config files from the service's GCS results bucket and summarises
+        which dates have results vs which are missing.
+
+        Args:
+            service: Service name (default "execution-service").
+
+        Returns:
+            List of ExecutionConfigStatus, one per config file found.
+        """
+        # Execution services store results under: execution-results-{project_id}/
+        bucket_name = f"execution-results-{self.project_id}"
+        prefix = f"{service}/"
+
+        try:
+            all_files = self.cloud_client.list_files(f"gs://{bucket_name}/{prefix}", "*.parquet")
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.debug("get_execution_data_status: GCS error for %s: %s", service, exc)
+            return []
+
+        # Group files by config path (strip date segment at the end)
+        config_dates: dict[str, list[str]] = {}
+        for path in all_files:
+            parts = path.split("/")
+            # Expected: execution-service/config_path.../day=YYYY-MM-DD/file.parquet
+            day_part = next((p for p in parts if p.startswith("day=")), None)
+            if day_part:
+                date_str = day_part.replace("day=", "")
+                day_idx = parts.index(day_part)
+                config_key = "/".join(parts[1:day_idx])  # strip bucket name + day= suffix
+                config_dates.setdefault(config_key, []).append(date_str)
+
+        return [
+            ExecutionConfigStatus(
+                config_path=config_key,
+                present_dates=sorted(dates),
+            )
+            for config_key, dates in sorted(config_dates.items())
+        ]

@@ -7,6 +7,7 @@ Tracks:
 - Data completeness per service/date
 """
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from unified_trading_library import get_storage_client
 from .config_loader import ConfigLoader
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig
+from .events import VM_EVENT_TYPES, ShardEvent
 
 logger = logging.getLogger(__name__)
 
@@ -417,6 +419,105 @@ class DeploymentMonitor:
         )
 
         return "\n".join(lines)
+
+    # ── Event stream API ───────────────────────────────────────────────────
+
+    def _events_bucket_name(self) -> str:
+        return f"deployment-status-{self.project_id}"
+
+    def _events_blob_path(self, deployment_id: str, shard_id: str) -> str:
+        return f"deployments/{deployment_id}/shards/{shard_id}/events.jsonl"
+
+    def record_event(self, event: ShardEvent) -> None:
+        """
+        Append a ShardEvent to GCS as a JSONL line.
+
+        GCS path: deployments/{deployment_id}/shards/{shard_id}/events.jsonl
+        If GCS is unavailable (mock mode / unit tests), logs and returns silently.
+        """
+        if not self.gcs_client:
+            logger.debug("[EVENTS] GCS unavailable — event not persisted: %s", event.event_type)
+            return
+        try:
+            bucket = self.gcs_client.bucket(self._events_bucket_name())
+            blob_path = self._events_blob_path(event.deployment_id, event.shard_id)
+            blob = bucket.blob(blob_path)
+
+            existing = ""
+            with contextlib.suppress(Exception):
+                existing = blob.download_as_text()
+
+            new_content = existing + event.to_jsonl() + "\n"
+            upload_fn = cast(object, getattr(blob, "upload_from_string", None))
+            if callable(upload_fn):
+                upload_fn(new_content, content_type="application/x-ndjson")
+
+            logger.debug(
+                "[EVENTS] Recorded %s for shard %s in deployment %s",
+                event.event_type,
+                event.shard_id,
+                event.deployment_id,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("[EVENTS] Failed to record event %s: %s", event.event_type, exc)
+
+    def _parse_events_blob(self, blob: object) -> list[ShardEvent]:
+        """Parse a single events.jsonl GCS blob into ShardEvent objects."""
+        results: list[ShardEvent] = []
+        try:
+            download_fn = cast(object, getattr(blob, "download_as_text", None))
+            if not callable(download_fn):
+                return results
+            content: str = cast(str, download_fn())
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped:
+                    results.append(ShardEvent.from_jsonl(stripped))
+        except (OSError, ValueError, RuntimeError) as exc:
+            blob_name: object = getattr(blob, "name", "<unknown>")
+            logger.debug("[EVENTS] Skipping blob %s: %s", blob_name, exc)
+        return results
+
+    def get_events(
+        self,
+        deployment_id: str,
+        shard_id: str | None = None,
+    ) -> list[ShardEvent]:
+        """
+        Return all shard events for a deployment, sorted by timestamp ascending.
+
+        Args:
+            deployment_id: The deployment to query.
+            shard_id: If provided, return only events for that specific shard.
+        """
+        if not self.gcs_client:
+            return []
+
+        events: list[ShardEvent] = []
+        try:
+            bucket = self.gcs_client.bucket(self._events_bucket_name())
+
+            if shard_id:
+                blobs: list[object] = [bucket.blob(self._events_blob_path(deployment_id, shard_id))]
+            else:
+                prefix = f"deployments/{deployment_id}/shards/"
+                raw_blobs = list(bucket.list_blobs(prefix=prefix))
+                blobs = [
+                    b for b in raw_blobs if str(getattr(b, "name", "")).endswith("events.jsonl")
+                ]
+
+            for blob in blobs:
+                events.extend(self._parse_events_blob(blob))
+
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("[EVENTS] Failed to retrieve events for %s: %s", deployment_id, exc)
+
+        events.sort(key=lambda e: e.timestamp)
+        return events
+
+    def get_vm_events(self, deployment_id: str) -> list[ShardEvent]:
+        """Return only VM-level events for a deployment (subset of get_events)."""
+        return [e for e in self.get_events(deployment_id) if e.event_type in VM_EVENT_TYPES]
 
 
 class VersionRegistry:
