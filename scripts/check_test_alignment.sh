@@ -134,12 +134,15 @@ check_repo() {
     fi
 
     # [5] cloudbuild.yaml — warn only if present but non-canonical
-    #     Acceptable: calls "scripts/quality-gates.sh" (service pattern)
-    #     Acceptable: inline pytest with "--cov-fail-under" (library pattern — cannot use QG stub in Cloud Build)
+    #     Acceptable patterns:
+    #       - calls "scripts/quality-gates.sh"        (service/Python pattern)
+    #       - has "--cov-fail-under"                   (library inline pytest pattern)
+    #       - has "npm test" or "npm run test"         (UI vitest pattern — QG runs before docker build)
     if [[ -f "$cloudbuild" ]]; then
         if ! grep -q "scripts/quality-gates.sh" "$cloudbuild" 2>/dev/null && \
-           ! grep -q "\-\-cov-fail-under" "$cloudbuild" 2>/dev/null; then
-            repo_warns+=("cloudbuild.yaml: does not call quality-gates.sh or enforce --cov-fail-under (coverage unenforced in Cloud Build)")
+           ! grep -q "\-\-cov-fail-under" "$cloudbuild" 2>/dev/null && \
+           ! grep -qE "npm (run )?test" "$cloudbuild" 2>/dev/null; then
+            repo_warns+=("cloudbuild.yaml: no recognized QG pattern (quality-gates.sh / --cov-fail-under / npm test)")
         fi
     else
         repo_warns+=("no cloudbuild.yaml (warn only — not all repos need it)")
