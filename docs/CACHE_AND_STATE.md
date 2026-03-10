@@ -149,7 +149,6 @@ vm_config:
   self_delete: true
   delete_batch_delay_seconds: 45 # Default
 
-
 # VM 1: deletes immediately
 # VM 2: waits 45 seconds
 # VM 3: waits 90 seconds

@@ -737,7 +737,6 @@ service_max_workers:
   strategy-service: 1 # Conservative default
   execution-service: 1 # Conservative default
 
-
 # Notes:
 # - Services with MAX_WORKERS=1 are memory-bound or already well-utilized
 # - Services with MAX_WORKERS>1 can benefit from date parallelism

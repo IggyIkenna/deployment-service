@@ -33,7 +33,6 @@ service_max_workers:
   execution-service: 1
   features-volatility-service: 1
   features-onchain-service: 1
-
 # Rationale by service:
 # - instruments: 10% CPU, 3% RAM → can run 16 dates in parallel (90% CPU)
 # - features-calendar: Similar profile to instruments
