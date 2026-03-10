@@ -100,6 +100,13 @@ services:
           - category
           - timeframe
           - date
+      - name: candles
+        bucket_template: market-data-candles-{category_lower}-{project_id}
+        path_template: by_date/day={date}/timeframe={timeframe}/{asset_class}/{instrument}.parquet
+        required_dimensions:
+          - category
+          - timeframe
+          - date
     external_dependencies: []
   features-calendar-service:
     description: Generate calendar and temporal features (batch service)
@@ -580,10 +587,10 @@ services:
     outputs:
       - name: pnl_attribution
         bucket_template: pnl-store-{project_id}-{category_lower}
-        path_template: pnl/{venue}/{date}/pnl_attribution_*.parquet
+        path_template: pnl/{client_id}/{date}/pnl_attribution_*.parquet
         required_dimensions:
           - category
-          - venue
+          - client_id
           - date
     external_dependencies: []
   features-sports-service:

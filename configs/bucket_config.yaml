@@ -13,6 +13,7 @@ defaults:
 shared_bucket_services:
   - features-calendar-service
   - features-onchain-service
+  - features-sports-service
   - ml-training-service
   - ml-inference-service
   - strategy-service
@@ -49,6 +50,10 @@ infrastructure_buckets:
       category: ALL
     - name_template: "positions-store-{project_id}"
       service: position-balance-monitor-service
+      type: infrastructure
+      category: ALL
+    - name_template: "ml-configs-store-{project_id}"
+      service: ml-training-service
       type: infrastructure
       category: ALL
 
