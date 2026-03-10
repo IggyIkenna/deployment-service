@@ -2129,7 +2129,7 @@ wheels = [
 
 [[package]]
 name = "unified-api-contracts"
-version = "0.1.192"
+version = "0.1.194"
 source = { editable = "../unified-api-contracts" }
 dependencies = [
     { name = "pydantic" },
@@ -2177,6 +2177,7 @@ gcp = [
     { name = "google-cloud-pubsub" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
+    { name = "pyjwt" },
 ]
 
 [package.metadata]
@@ -2202,6 +2203,7 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'gcp'", specifier = ">=3.8.0,<4.0.0" },
     { name = "pandas", marker = "extra == 'dev'", specifier = ">=2.3.0,<3.0.0" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.0,<3.0.0" },
+    { name = "pyjwt", marker = "extra == 'gcp'", specifier = ">=2.8.0,<3.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1,<10.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0,<2.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0,<8.0.0" },
@@ -2271,7 +2273,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "unified-internal-contracts"
-version = "0.1.45"
+version = "0.1.46"
 source = { editable = "../unified-internal-contracts" }
 dependencies = [
     { name = "pandas" },

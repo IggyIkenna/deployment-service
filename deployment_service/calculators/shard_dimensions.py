@@ -79,7 +79,7 @@ class DimensionProcessor:
                 hierarchical_dims[dim_name] = str(dim["parent"])
             elif dim_type == "date_range":
                 values = self._get_date_values(dim, start_date, end_date, date_granularity_override)
-            elif dim_type == "gcs_dynamic":
+            elif dim_type == "cloud_dynamic":
                 values = self._get_gcs_values(dim, cloud_config_path, dimension_values)
             else:
                 raise ValueError(f"Unknown dimension type: {dim_type}")
@@ -247,7 +247,9 @@ class DimensionProcessor:
     ) -> list[str]:
         """List config files from cloud storage at runtime."""
         if cloud_config_path and (
-            cloud_config_path.startswith("gs://") or cloud_config_path.startswith("s3://")
+            cloud_config_path.startswith("gs://")
+            or cloud_config_path.startswith("s3://")
+            or cloud_config_path.startswith("az://")
         ):
             # User provided cloud config directory
             logger.info("[CLOUD_CONFIG] Discovering configs from: %s", cloud_config_path)
@@ -307,8 +309,10 @@ class DimensionProcessor:
                 logger.warning("Missing template variable: %s", e)
                 continue
 
-            # List files from cloud storage
-            cloud_path = f"gs://{bucket}/{prefix}"
+            # List files from cloud storage (cloud_client handles provider-specific URI)
+            storage_client = self.cloud_client
+            uri_prefix = getattr(storage_client, "uri_prefix", "gs://")
+            cloud_path = f"{uri_prefix}{bucket}/{prefix}"
             bucket_files: list[str] = self.cloud_client.list_files(cloud_path, file_pattern)
             all_configs.extend(bucket_files)
 

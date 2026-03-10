@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 _config = DeploymentConfig()
 
 
-class SmokeTestResultDict(TypedDict):
+class SmokeTestResultDict(TypedDict):  # CORRECT-LOCAL
     """Serialized smoke test result."""
 
     shard_dimensions: dict[str, object]
@@ -50,14 +50,14 @@ class SmokeTestResultDict(TypedDict):
     execution_time_seconds: float
 
 
-class FailedShardDict(TypedDict):
+class FailedShardDict(TypedDict):  # CORRECT-LOCAL
     """A failed shard entry in a test report."""
 
     dimensions: dict[str, object]
     error: str | None
 
 
-class SmokeTestReportDict(TypedDict):
+class SmokeTestReportDict(TypedDict):  # CORRECT-LOCAL
     """Summary report from smoke test results."""
 
     service: str
