@@ -62,6 +62,15 @@ jobs:
           [ -d "../unified-config-interface" ] && uv pip install --python .venv/bin/python -e ../unified-config-interface 2>/dev/null || :
           uv pip install --python .venv/bin/python -e ".[dev]" || uv pip install --python .venv/bin/python -e .
           uv pip install --python .venv/bin/python ruff==0.15.0 pytest pytest-cov pytest-asyncio pytest-timeout pytest-xdist basedpyright bandit pip-audit
+      - name: Clone build scripts
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          DEP_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          BRANCH="${DEP_BRANCH:-main}"
+          (git clone -b "$BRANCH" "https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-pm.git" ../unified-trading-pm 2>/dev/null \
+            || git clone -b main "https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-pm.git" ../unified-trading-pm 2>/dev/null) || true
+          echo "✅ unified-trading-pm cloned for quality-gates base scripts"
 
       - name: Run quality gates
         run: |
