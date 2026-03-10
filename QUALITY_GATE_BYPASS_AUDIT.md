@@ -533,3 +533,15 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | ---------------------------------------- | ------------------ | ---------------------------------------------------------------------------- |
 | scripts/download_instruments.py          | transfer_manager   | UCI has no transfer_manager                                                  |
 | deployment_service/backends/\_gcp_sdk.py | compute_v1, run_v2 | UCI has no Cloud Run or GCE Compute abstractions; internal backend boundary. |
+
+## basedpyright-baseline: `.basedpyright-baseline.json` (32 pre-existing errors)
+
+**Added:** 2026-03-10 — typecheck fix pass
+**Status:** JUSTIFIED — untyped third-party dependencies; target is zero when stubs become available
+**Errors suppressed:** 32
+
+**Reason:** Untyped third-party libraries: `google-cloud-run` and `google-cloud-artifact-registry` gRPC protobuf objects return Any; yaml.safe_load returns Any; click ctx.obj is Any. Root cause: googleapis-common-protos lack type stubs.
+
+**Scope:** All errors in `.basedpyright-baseline.json` are from untyped third-party libraries or unresolvable import chains in workspace venv context — NOT architectural violations. No `reportAny` errors in first-party code are suppressed.
+
+**Target:** Remove baseline when upstream type stubs are available.
