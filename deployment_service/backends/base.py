@@ -6,10 +6,14 @@ deployment orchestration.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from ..events import ShardEvent, VMEventType
 
 
 class JobStatus(Enum):
@@ -84,6 +88,39 @@ class ComputeBackend(ABC):
         self.project_id = project_id
         self.region = region
         self.service_account_email = service_account_email
+
+        # Optional event recorder — wire via set_event_recorder()
+        self._event_recorder: Callable[[ShardEvent], None] | None = None
+        self._current_deployment_id: str | None = None
+
+    def set_event_recorder(
+        self,
+        deployment_id: str,
+        recorder: Callable[["ShardEvent"], None],
+    ) -> None:
+        """Wire event recording for a deployment run (called by orchestrator)."""
+        self._current_deployment_id = deployment_id
+        self._event_recorder = recorder
+
+    def _emit_event(
+        self,
+        shard_id: str,
+        event_type: "VMEventType",
+        message: str,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        """Emit a ShardEvent if a recorder is wired. No-op otherwise."""
+        if self._event_recorder and self._current_deployment_id:
+            from ..events import ShardEvent  # late import — events.py has no circular deps
+
+            event = ShardEvent(
+                deployment_id=self._current_deployment_id,
+                shard_id=shard_id,
+                event_type=event_type,
+                message=message,
+                metadata=metadata or {},
+            )
+            self._event_recorder(event)
 
     @property
     @abstractmethod

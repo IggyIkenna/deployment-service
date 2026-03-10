@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from typing import cast
 
+from ..events import VMEventType
 from ._gcp_sdk import google_exceptions, run_v2
 from .base import ComputeBackend, JobInfo, JobStatus
 
@@ -265,6 +266,12 @@ class CloudRunBackend(ComputeBackend):
                     execution_id = f"{shard_id}-{datetime.now(UTC).strftime('%H%M%S%f')[:10]}"
                     execution_name = f"{self.job_path}/executions/{execution_id}"
 
+                self._emit_event(
+                    shard_id,
+                    VMEventType.JOB_STARTED,
+                    f"Cloud Run job triggered in {self.region}",
+                    {"execution_id": execution_id or "", "region": self.region},
+                )
                 return JobInfo(
                     job_id=execution_name,
                     shard_id=shard_id,
@@ -283,6 +290,12 @@ class CloudRunBackend(ComputeBackend):
                 error_str = str(e)
 
                 if self._is_quota_exhausted_error(e):
+                    self._emit_event(
+                        shard_id,
+                        VMEventType.VM_QUOTA_EXHAUSTED,
+                        f"Cloud Run quota exhausted in {self.region}: {error_str[:200]}",
+                        {"region": self.region, "attempt": str(attempt + 1)},
+                    )
                     logger.warning(
                         "[QUOTA_EXHAUSTED] Cloud Run quota exhausted in %s for shard %s: %s",
                         self.region,
@@ -309,6 +322,12 @@ class CloudRunBackend(ComputeBackend):
                         self.region,
                         e,
                     )
+                    self._emit_event(
+                        shard_id,
+                        VMEventType.JOB_FAILED,
+                        f"Rate limit/quota exceeded after {max_retries} retries in {self.region}",
+                        {"region": self.region, "retries": str(max_retries)},
+                    )
                     return JobInfo(
                         job_id=f"failed-{shard_id}",
                         shard_id=shard_id,
@@ -319,6 +338,12 @@ class CloudRunBackend(ComputeBackend):
             except google_exceptions.NotFound:
                 logger.error(
                     "[JOB_NOT_FOUND] Cloud Run Job %s not found in %s", self.job_name, self.region
+                )
+                self._emit_event(
+                    shard_id,
+                    VMEventType.CLOUD_RUN_REVISION_FAILED,
+                    f"Cloud Run Job {self.job_name} not found in {self.region}",
+                    {"region": self.region, "job_name": self.job_name},
                 )
                 return JobInfo(
                     job_id=f"failed-{shard_id}",
@@ -331,6 +356,12 @@ class CloudRunBackend(ComputeBackend):
                 error_str = str(e)
 
                 if self._is_quota_exhausted_error(e):
+                    self._emit_event(
+                        shard_id,
+                        VMEventType.VM_QUOTA_EXHAUSTED,
+                        f"Cloud Run quota error in {self.region}: {error_str[:200]}",
+                        {"region": self.region, "attempt": str(attempt + 1)},
+                    )
                     logger.warning(
                         "[QUOTA_ERROR] Cloud Run error in %s for shard %s: %s",
                         self.region,
@@ -339,6 +370,12 @@ class CloudRunBackend(ComputeBackend):
                     )
 
                 logger.error("Failed to trigger job for shard %s: %s", shard_id, e)
+                self._emit_event(
+                    shard_id,
+                    VMEventType.JOB_FAILED,
+                    f"Cloud Run error: {error_str[:200]}",
+                    {"region": self.region},
+                )
                 return JobInfo(
                     job_id=f"failed-{shard_id}",
                     shard_id=shard_id,
