@@ -60,7 +60,7 @@ class TestInstrumentTypeExtraction:
         mock_get_path_combinatorics_utils,
         mock_get_path_combinatorics_engine,
         mock_path_combinatorics,
-        mock_gcs_blob_listing,
+        mock_turbo_list_blobs,
     ):
         """Test instrument_type extraction for market-tick-data-handler.
 
@@ -73,14 +73,12 @@ class TestInstrumentTypeExtraction:
         mock_get_path_combinatorics_utils.return_value = mock_path_combinatorics
         mock_get_path_combinatorics_engine.return_value = mock_path_combinatorics
 
-        # Mock GCS storage client and bucket
+        # Mock GCS storage client — use UCI API (list_blobs called on client directly)
         mock_storage_client = MagicMock()
         mock_get_storage_client.return_value = mock_storage_client
-        mock_bucket = MagicMock()
-        mock_storage_client.bucket.return_value = mock_bucket
 
-        # Use the shared mock blob listing
-        mock_bucket.list_blobs.side_effect = mock_gcs_blob_listing
+        # Use the shared mock blob listing (UCI API: client.list_blobs(bucket, prefix=...))
+        mock_storage_client.list_blobs.side_effect = mock_turbo_list_blobs
 
         # Run turbo query with sub_dimensions (which enables venue extraction)
         result = asyncio.run(

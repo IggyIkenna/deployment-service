@@ -122,15 +122,13 @@ class TestInstrumentTypeExtraction:
         mock_get_path_combinatorics_utils.return_value = mock_path_combinatorics
         mock_get_path_combinatorics_engine.return_value = mock_path_combinatorics
 
-        # Mock GCS storage client and bucket
+        # Mock GCS storage client — UCI API (list_blobs called on client directly)
         mock_storage_client = MagicMock()
         mock_get_storage_client.return_value = mock_storage_client
-        mock_bucket = MagicMock()
-        mock_storage_client.bucket.return_value = mock_bucket
 
         # Mock list_blobs to return date folders, data_type folders, inst_type folders, and venue folders.
-        # For venue-level prefixes (used by query_specific_prefixes_for_category), return a mock blob.
-        def mock_list_blobs(prefix, delimiter="/", max_results=None):
+        # UCI StorageClient API: list_blobs(bucket_name, prefix=..., delimiter=..., max_results=...)
+        def mock_list_blobs(bucket_name_arg, prefix=None, delimiter="/", max_results=None):
             iterator = MagicMock()
 
             if "day=2024-01" in prefix and prefix.endswith("/"):
@@ -193,7 +191,7 @@ class TestInstrumentTypeExtraction:
 
             return iterator
 
-        mock_bucket.list_blobs.side_effect = mock_list_blobs
+        mock_storage_client.list_blobs.side_effect = mock_list_blobs
 
         # Run turbo query with sub_dimensions (which enables venue extraction)
         result = asyncio.run(
