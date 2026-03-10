@@ -109,8 +109,8 @@ for repo in "${REPOS[@]}"; do
             gcloud artifacts docker images list "$image" \
                 --project="$PROJECT_ID" \
                 --include-tags \
-                --format="csv[no-heading](digest,tags,createTime)" 2>/dev/null | \
-            awk -F',' '$2 == "" { print $1 "," $3 }' | \
+                --format="csv[no-heading](version,tags,createTime)" 2>/dev/null | \
+            awk -F',' '$2 == "" { print $1 "," $NF }' | \
             sort -t',' -k2 -r  # newest first
         )
 
