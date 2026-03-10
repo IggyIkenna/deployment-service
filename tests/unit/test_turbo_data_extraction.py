@@ -40,11 +40,11 @@ class TestInstrumentTypeExtraction:
         mock_get_path_combinatorics_engine.return_value = mock_path_combinatorics
 
         # Mock GCS storage client and bucket
-        mock_storage_client, mock_bucket = mock_gcs_client
+        mock_storage_client, _mock_bucket = mock_gcs_client
         mock_get_storage_client.return_value = mock_storage_client
 
-        # Use the mock list_blobs function
-        mock_bucket.list_blobs.side_effect = mock_turbo_list_blobs
+        # Use the mock list_blobs function (UCI API: called directly on client, not bucket)
+        mock_storage_client.list_blobs.side_effect = mock_turbo_list_blobs
 
         # Run turbo query with sub_dimensions (which enables venue extraction)
         result = asyncio.run(

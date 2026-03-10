@@ -42,57 +42,29 @@ def build_instruments_mock(venues_with_data, dates, category="CEFI"):
         All dates that should appear as directories.
     """
     mock_storage_client = MagicMock()
-    mock_bucket = MagicMock()
-    mock_storage_client.bucket.return_value = mock_bucket
 
     base = "instrument_availability/by_date/"
 
-    def list_blobs(prefix, delimiter="/", max_results=None):
-        it = MagicMock()
-
-        # Month-level listing → return date directories
-        if prefix.startswith(base + "day=") and not prefix.endswith("/"):
-            # prefix like "instrument_availability/by_date/day=2024-05"
-            month_prefix = prefix  # e.g. day=2024-05
-            matching = [d for d in dates if d.startswith(month_prefix.split("day=")[1])]
-            it.prefixes = [f"{base}day={d}/" for d in matching]
-            it.__iter__ = lambda self: iter([])
-            return it
-
-        # Date-level listing → return venue directories
+    def list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
+        # Venue-level listing (used by query_generic_prefixes_for_category)
+        # → return a mock blob when this venue has data on this date
         for d in dates:
             date_prefix = f"{base}day={d}/"
-            if prefix == date_prefix:
-                venue_dirs = [
-                    f"{date_prefix}venue={v}/"
-                    for v, v_dates in venues_with_data.items()
-                    if d in v_dates
-                ]
-                it.prefixes = venue_dirs
-                it.__iter__ = lambda self: iter([])
-                return it
-
-            # Venue-level listing (used by query_generic_prefixes_for_category)
-            # → return a mock blob when this venue has data on this date
             for v, v_dates in venues_with_data.items():
                 venue_prefix = f"{date_prefix}venue={v}/"
-                if prefix == venue_prefix or prefix.startswith(venue_prefix):
+                if prefix == venue_prefix or (prefix and prefix.startswith(venue_prefix)):
                     if d in v_dates:
                         mock_blob = MagicMock()
                         mock_blob.name = f"{venue_prefix}instruments.parquet"
                         mock_blob.updated = None
                         mock_blob.size = 1024
                         mock_blob.time_created = None
-                        it.prefixes = []
-                        it.__iter__ = lambda self, _b=mock_blob: iter([_b])
-                        return it
+                        return [mock_blob]
 
-        # Default: nothing
-        it.prefixes = []
-        it.__iter__ = lambda self: iter([])
-        return it
+        # Default: nothing found
+        return []
 
-    mock_bucket.list_blobs.side_effect = list_blobs
+    mock_storage_client.list_blobs.side_effect = list_blobs
     return mock_storage_client
 
 
@@ -112,74 +84,30 @@ def build_market_tick_mock(venues_with_data, dates, data_types, category="CEFI")
         data_types present in GCS for the venues that have data.
     """
     mock_storage_client = MagicMock()
-    mock_bucket = MagicMock()
-    mock_storage_client.bucket.return_value = mock_bucket
 
     base = "raw_tick_data/by_date/"
 
-    def list_blobs(prefix, delimiter="/", max_results=None):
-        it = MagicMock()
-
-        # Month-level: date directories
-        if prefix.startswith(base + "day=") and not prefix.endswith("/"):
-            month_str = prefix.split("day=")[1]
-            matching = [d for d in dates if d.startswith(month_str)]
-            it.prefixes = [f"{base}day={d}/" for d in matching]
-            it.__iter__ = lambda self: iter([])
-            return it
-
-        # Date-level: data_type directories
+    def list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
+        # Venue-level listing (used by query_specific_prefixes_for_category)
+        # → return a mock blob when this venue+data_type+date has data
         for d in dates:
             date_prefix = f"{base}day={d}/"
-            if prefix == date_prefix:
-                # Only return data_type dirs for dates that have data
-                has_data = any(d in v_dates for v_dates in venues_with_data.values())
-                if has_data:
-                    it.prefixes = [f"{date_prefix}data_type={dt}/" for dt in data_types]
-                else:
-                    it.prefixes = []
-                it.__iter__ = lambda self: iter([])
-                return it
-
-            # data_type-level: instrument_type directories
             for dt in data_types:
                 dt_prefix = f"{date_prefix}data_type={dt}/"
-                if prefix == dt_prefix:
-                    it.prefixes = [f"{dt_prefix}instrument_type=spot/"]
-                    it.__iter__ = lambda self: iter([])
-                    return it
-
-                # inst_type-level: venue directories
-                if prefix == f"{dt_prefix}instrument_type=spot/":
-                    venue_dirs = [
-                        f"{dt_prefix}instrument_type=spot/venue={v}/"
-                        for v, v_dates in venues_with_data.items()
-                        if d in v_dates
-                    ]
-                    it.prefixes = venue_dirs
-                    it.__iter__ = lambda self: iter([])
-                    return it
-
-                # Venue-level listing (used by query_specific_prefixes_for_category)
-                # → return a mock blob when this venue+date_type+date has data
                 for v, v_dates in venues_with_data.items():
                     venue_prefix = f"{dt_prefix}instrument_type=spot/venue={v}/"
-                    if prefix == venue_prefix or prefix.startswith(venue_prefix):
+                    if prefix == venue_prefix or (prefix and prefix.startswith(venue_prefix)):
                         if d in v_dates:
                             mock_blob = MagicMock()
                             mock_blob.name = f"{venue_prefix}data.parquet"
                             mock_blob.updated = None
                             mock_blob.size = 1024
                             mock_blob.time_created = None
-                            it.prefixes = []
-                            it.__iter__ = lambda self, _b=mock_blob: iter([_b])
-                            return it
+                            return [mock_blob]
 
-        it.prefixes = []
-        it.__iter__ = lambda self: iter([])
-        return it
+        return []
 
-    mock_bucket.list_blobs.side_effect = list_blobs
+    mock_storage_client.list_blobs.side_effect = list_blobs
     return mock_storage_client
 
 
@@ -197,55 +125,28 @@ def build_features_mock(feature_groups_with_data, dates, category="CEFI"):
         All dates that should appear.
     """
     mock_storage_client = MagicMock()
-    mock_bucket = MagicMock()
-    mock_storage_client.bucket.return_value = mock_bucket
 
     base = "features/by_date/"
 
-    def list_blobs(prefix, delimiter="/", max_results=None):
-        it = MagicMock()
-
-        # Month-level: date directories
-        if prefix.startswith(base + "day=") and not prefix.endswith("/"):
-            month_str = prefix.split("day=")[1]
-            matching = [d for d in dates if d.startswith(month_str)]
-            it.prefixes = [f"{base}day={d}/" for d in matching]
-            it.__iter__ = lambda self: iter([])
-            return it
-
-        # Date-level: feature_group directories
+    def list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
+        # Feature_group-level listing (used by query_generic_prefixes_for_category)
+        # → return a mock blob when this feature_group has data on this date
         for d in dates:
             date_prefix = f"{base}day={d}/"
-            if prefix == date_prefix:
-                fg_dirs = [
-                    f"{date_prefix}feature_group={fg}/"
-                    for fg, fg_dates in feature_groups_with_data.items()
-                    if d in fg_dates
-                ]
-                it.prefixes = fg_dirs
-                it.__iter__ = lambda self: iter([])
-                return it
-
-            # Feature_group-level listing (used by query_generic_prefixes_for_category)
-            # → return a mock blob when this feature_group has data on this date
             for fg, fg_dates in feature_groups_with_data.items():
                 fg_prefix = f"{date_prefix}feature_group={fg}/"
-                if prefix == fg_prefix or prefix.startswith(fg_prefix):
+                if prefix == fg_prefix or (prefix and prefix.startswith(fg_prefix)):
                     if d in fg_dates:
                         mock_blob = MagicMock()
                         mock_blob.name = f"{fg_prefix}features.parquet"
                         mock_blob.updated = None
                         mock_blob.size = 1024
                         mock_blob.time_created = None
-                        it.prefixes = []
-                        it.__iter__ = lambda self, _b=mock_blob: iter([_b])
-                        return it
+                        return [mock_blob]
 
-        it.prefixes = []
-        it.__iter__ = lambda self: iter([])
-        return it
+        return []
 
-    mock_bucket.list_blobs.side_effect = list_blobs
+    mock_storage_client.list_blobs.side_effect = list_blobs
     return mock_storage_client
 
 
@@ -256,42 +157,26 @@ def build_corporate_actions_mock(dates_with_data, all_dates):
       corporate_actions/by_date/day={date}/
     """
     mock_storage_client = MagicMock()
-    mock_bucket = MagicMock()
-    mock_storage_client.bucket.return_value = mock_bucket
 
     base = "corporate_actions/by_date/"
 
-    def list_blobs(prefix, delimiter="/", max_results=None):
-        it = MagicMock()
-
-        if prefix.startswith(base + "day=") and not prefix.endswith("/"):
-            month_str = prefix.split("day=")[1]
-            matching = [d for d in all_dates if d.startswith(month_str)]
-            # Only return date dirs that have data
-            it.prefixes = [f"{base}day={d}/" for d in matching if d in dates_with_data]
-            it.__iter__ = lambda self: iter([])
-            return it
-
+    def list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
         # Date-level listing (used by query_generic_prefixes_for_category)
         # → return a mock blob when this date has data
         for d in all_dates:
             date_prefix = f"{base}day={d}/"
-            if prefix == date_prefix or prefix.startswith(date_prefix):
+            if prefix == date_prefix or (prefix and prefix.startswith(date_prefix)):
                 if d in dates_with_data:
                     mock_blob = MagicMock()
                     mock_blob.name = f"{date_prefix}corporate_actions.parquet"
                     mock_blob.updated = None
                     mock_blob.size = 1024
                     mock_blob.time_created = None
-                    it.prefixes = []
-                    it.__iter__ = lambda self, _b=mock_blob: iter([_b])
-                    return it
+                    return [mock_blob]
 
-        it.prefixes = []
-        it.__iter__ = lambda self: iter([])
-        return it
+        return []
 
-    mock_bucket.list_blobs.side_effect = list_blobs
+    mock_storage_client.list_blobs.side_effect = list_blobs
     return mock_storage_client
 
 

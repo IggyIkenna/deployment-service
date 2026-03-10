@@ -142,6 +142,7 @@ def make_mock_path_combinatorics(
     pc.get_combinatorics.side_effect = _get_combinatorics
     pc.is_in_tick_window.return_value = True
     pc._get_base_prefix.return_value = "raw_tick_data/by_date"
+    pc.get_base_prefix.return_value = "raw_tick_data/by_date"
 
     def _get_service_prefixes_for_date(
         service: str,
