@@ -28,8 +28,15 @@ def mock_turbo_list_blobs():
     direct venue-level existence checks (new query_specific_prefixes path).
     """
 
-    def mock_list_blobs(prefix, delimiter="/", max_results=None):
-        iterator = MagicMock()
+    def mock_list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
+        # UCI StorageClient API: list_blobs(bucket_name, prefix=..., max_results=..., delimiter=...)
+        # Returns an iterable of blobs with .name, .size, .updated attributes.
+        # The production code (list_objects → _list_objects_api) calls:
+        #   list(client.list_blobs(bucket_name, prefix=prefix, ...))
+        # and checks if the result is non-empty to determine data presence.
+
+        if prefix is None:
+            return []
 
         if "day=2024-01" in prefix and prefix.endswith("/"):
             # Direct existence check at venue level: return a mock blob
@@ -39,58 +46,9 @@ def mock_turbo_list_blobs():
                 blob.updated = None
                 blob.size = 1024
                 blob.time_created = None
-                iterator.prefixes = []
-                iterator.__iter__ = lambda self, _b=blob: iter([_b])
-                return iterator
+                return [blob]
 
-            # Return data_type folders for a date
-            if "data_type=" not in prefix:
-                iterator.prefixes = [
-                    f"{prefix}data_type=trades/",
-                    f"{prefix}data_type=options_chain/",
-                ]
-                iterator.__iter__ = lambda self: iter([])
-            # Return instrument_type folders for a data_type
-            elif (
-                "data_type=trades/" in prefix
-                and "instrument_type=perpetuals/" not in prefix
-                and "instrument_type=spot/" not in prefix
-            ):
-                iterator.prefixes = [
-                    f"{prefix}instrument_type=spot/",
-                    f"{prefix}instrument_type=perpetuals/",
-                ]
-                iterator.__iter__ = lambda self: iter([])
-            elif (
-                "data_type=options_chain/" in prefix
-                and "instrument_type=options_chain/"
-                not in prefix.split("data_type=options_chain/")[1]
-            ):
-                iterator.prefixes = [f"{prefix}instrument_type=options_chain/"]
-                iterator.__iter__ = lambda self: iter([])
-            # Return venue folders for inst_type
-            elif (
-                "/instrument_type=spot/" in prefix
-                or "/instrument_type=perpetuals/" in prefix
-                or "/instrument_type=options_chain/" in prefix
-            ):
-                iterator.prefixes = [f"{prefix}venue=BINANCE-FUTURES/"]
-                iterator.__iter__ = lambda self: iter([])
-            else:
-                iterator.prefixes = []
-                iterator.__iter__ = lambda self: iter([])
-        elif "day=2024-01" in prefix:
-            # Date folder listing
-            iterator.prefixes = [
-                f"{prefix.rsplit('day=', 1)[0]}day=2024-01-01/",
-                f"{prefix.rsplit('day=', 1)[0]}day=2024-01-02/",
-            ]
-            iterator.__iter__ = lambda self: iter([])
-        else:
-            iterator.prefixes = []
-            iterator.__iter__ = lambda self: iter([])
-
-        return iterator
+        return []
 
     return mock_list_blobs
 
