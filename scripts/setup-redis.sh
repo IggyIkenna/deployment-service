@@ -1,21 +1,118 @@
 #!/usr/bin/env bash
 #
-# setup-redis.sh — Set up Google Cloud Memorystore (Redis) for Unified Trading System
+# setup-redis.sh — Redis cache setup
 #
-# Creates a Redis instance in Google Cloud Memorystore and stores connection details
-# in Secret Manager. Idempotent — safe to run multiple times.
+# GCP: Cloud Memorystore (Redis 7.0) — stores connection in GCP Secret Manager
+# AWS: ElastiCache (Redis 7.x) — stores connection in AWS Secrets Manager
+#
+# Idempotent — safe to run multiple times.
 #
 # Usage:
-#   ./setup-redis.sh [project_id]
-#
-# Example:
-#   ./setup-redis.sh my-gcp-project
+#   GCP_PROJECT_ID=central-element-323112 ./setup-redis.sh [--cloud gcp|aws] [--dry-run]
+#   AWS_REGION=ap-northeast-1 ./setup-redis.sh --cloud aws [--dry-run]
 #
 
 set -euo pipefail
 
-# Parse arguments
-PROJECT_ID="${1:-$(gcloud config get-value project)}"
+# Parse arguments — cloud flag first, then positional
+CLOUD="gcp"
+DRY_RUN_REDIS=false
+_REDIS_POS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cloud) CLOUD="$2"; shift 2 ;;
+        --dry-run) DRY_RUN_REDIS=true; shift ;;
+        *) _REDIS_POS+=("$1"); shift ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# AWS ElastiCache implementation
+# ---------------------------------------------------------------------------
+if [[ "$CLOUD" == "aws" ]]; then
+    AWS_REGION="${AWS_REGION:-ap-northeast-1}"
+    ELASTICACHE_ID="${REDIS_INSTANCE_NAME:-trading-cache}"
+    ELASTICACHE_NODE="${ELASTICACHE_NODE_TYPE:-cache.t3.micro}"
+
+    echo "=============================================="
+    echo "Unified Trading System — ElastiCache Setup (AWS)"
+    echo "=============================================="
+    echo "Region:        $AWS_REGION"
+    echo "Cluster ID:    $ELASTICACHE_ID"
+    echo "Node type:     $ELASTICACHE_NODE"
+    echo "Dry-run:       $DRY_RUN_REDIS"
+    echo "=============================================="
+
+    if ! command -v aws &>/dev/null; then
+        echo "[BLOCKED] AWS CLI not installed."
+        exit 1
+    fi
+    if ! aws sts get-caller-identity &>/dev/null; then
+        echo "[BLOCKED] No AWS credentials. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY."
+        exit 1
+    fi
+
+    if [[ "$DRY_RUN_REDIS" == "true" ]]; then
+        echo "[DRY-RUN] Would create:"
+        echo "  aws elasticache create-replication-group \\"
+        echo "    --replication-group-id $ELASTICACHE_ID \\"
+        echo "    --replication-group-description 'Unified Trading Redis Cache' \\"
+        echo "    --engine redis --engine-version 7.0 \\"
+        echo "    --cache-node-type $ELASTICACHE_NODE \\"
+        echo "    --num-cache-clusters 1 --region $AWS_REGION"
+        echo "  aws secretsmanager create-secret --name elasticache-url ..."
+        exit 0
+    fi
+
+    if aws elasticache describe-replication-groups \
+            --replication-group-id "$ELASTICACHE_ID" \
+            --region "$AWS_REGION" &>/dev/null; then
+        echo "[SKIP] ElastiCache cluster '$ELASTICACHE_ID' already exists"
+        CACHE_ENDPOINT=$(aws elasticache describe-replication-groups \
+            --replication-group-id "$ELASTICACHE_ID" \
+            --region "$AWS_REGION" \
+            --output text --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address')
+    else
+        echo "[CREATE] ElastiCache cluster '$ELASTICACHE_ID' (takes ~5 min)..."
+        aws elasticache create-replication-group \
+            --replication-group-id "$ELASTICACHE_ID" \
+            --replication-group-description "Unified Trading Redis Cache" \
+            --engine redis \
+            --engine-version 7.0 \
+            --cache-node-type "$ELASTICACHE_NODE" \
+            --num-cache-clusters 1 \
+            --at-rest-encryption-enabled \
+            --transit-encryption-enabled \
+            --region "$AWS_REGION" \
+            --output text --query 'ReplicationGroup.ReplicationGroupId' 2>&1
+        echo "[WAIT] Waiting for cluster to become available..."
+        aws elasticache wait replication-group-available \
+            --replication-group-id "$ELASTICACHE_ID" \
+            --region "$AWS_REGION" || echo "[WARN] wait timed out — check console"
+        CACHE_ENDPOINT=$(aws elasticache describe-replication-groups \
+            --replication-group-id "$ELASTICACHE_ID" \
+            --region "$AWS_REGION" \
+            --output text --query 'ReplicationGroups[0].NodeGroups[0].PrimaryEndpoint.Address')
+        echo "[OK] ElastiCache cluster created at $CACHE_ENDPOINT"
+    fi
+
+    REDIS_URL="redis://${CACHE_ENDPOINT}:6379"
+    aws secretsmanager create-secret \
+        --name "elasticache-url" \
+        --secret-string "$REDIS_URL" \
+        --region "$AWS_REGION" &>/dev/null || \
+    aws secretsmanager update-secret \
+        --secret-id "elasticache-url" \
+        --secret-string "$REDIS_URL" \
+        --region "$AWS_REGION" &>/dev/null
+    echo "[OK] elasticache-url stored in AWS Secrets Manager"
+    echo ""
+    echo "Set in execution env: ELASTICACHE_URL=$REDIS_URL"
+    exit 0
+fi
+
+# GCP path — original args
+PROJECT_ID="${_REDIS_POS[0]:-${GCP_PROJECT_ID:-$(gcloud config get-value project)}}"
 # Align with deployment region (GCS_REGION=asia-northeast1). If primary has no capacity,
 # set REDIS_REGION=us-central1 (or europe-west1) before running.
 REGION="${REDIS_REGION:-${GCS_REGION:-asia-northeast1}}"

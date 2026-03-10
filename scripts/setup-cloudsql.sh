@@ -1,42 +1,39 @@
 #!/usr/bin/env bash
 #
-# setup-cloudsql.sh — Create GCP Cloud SQL (PostgreSQL) for execution-service order state
+# setup-cloudsql.sh — PostgreSQL database setup for execution-service order state
 #
-# Provisions a Cloud SQL PostgreSQL 15 instance for live order + position state persistence.
-# The execution-service optionally persists order/position state to PostgreSQL when
-# `use_database=true` is set in its config (database_url field).
+# GCP: Cloud SQL PostgreSQL 15 (trading-order-state, db-g1-small)
+# AWS: RDS PostgreSQL 15 (trading-order-state, db.t3.micro)
 #
+# Provisions instance + database + user + stores connection URL in Secret Manager.
 # Idempotent — safe to re-run. Skips already-existing instances/databases/users.
 #
 # Usage:
-#   GCP_PROJECT_ID=central-element-323112 ./setup-cloudsql.sh [--dry-run]
-#
-# Required env vars (or positional arg):
-#   GCP_PROJECT_ID    — GCP project ID
+#   GCP_PROJECT_ID=central-element-323112 ./setup-cloudsql.sh [--cloud gcp|aws] [--dry-run]
+#   AWS_REGION=ap-northeast-1 ./setup-cloudsql.sh --cloud aws [--dry-run]
 #
 # Optional env vars:
 #   CLOUDSQL_INSTANCE_NAME  — defaults to "trading-order-state"
-#   CLOUDSQL_REGION         — defaults to "asia-northeast1"
-#   CLOUDSQL_TIER           — defaults to "db-g1-small" (1 vCPU, 1.7 GB RAM)
+#   CLOUDSQL_REGION         — defaults to "asia-northeast1" (GCP) / "ap-northeast-1" (AWS)
+#   CLOUDSQL_TIER           — defaults to "db-g1-small" (GCP) / "db.t3.micro" (AWS)
 #   CLOUDSQL_DB_NAME        — defaults to "order_state"
 #   CLOUDSQL_USER           — defaults to "execution_svc"
-#   CLOUDSQL_PASSWORD       — auto-generated if not set; stored in Secret Manager
-#
-# AWS RDS equivalent: see setup-aws-rds.sh (blocked — no AWS creds)
 #
 
 set -euo pipefail
 
+CLOUD="gcp"
 DRY_RUN=false
 _POS_ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        --dry-run) DRY_RUN=true ;;
-        *) _POS_ARGS+=("$arg") ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cloud) CLOUD="$2"; shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        *) _POS_ARGS+=("$1"); shift ;;
     esac
 done
 
-PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project)}}"
+PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project 2>/dev/null || echo '')}}"
 
 INSTANCE_NAME="${CLOUDSQL_INSTANCE_NAME:-trading-order-state}"
 REGION="${CLOUDSQL_REGION:-${GCS_REGION:-asia-northeast1}}"
@@ -45,9 +42,9 @@ DB_NAME="${CLOUDSQL_DB_NAME:-order_state}"
 DB_USER="${CLOUDSQL_USER:-execution_svc}"
 
 echo "================================================="
-echo "Unified Trading System — Cloud SQL Setup"
+echo "Unified Trading System — Database Setup"
 echo "================================================="
-echo "Project:   $PROJECT_ID"
+echo "Cloud:     $CLOUD"
 echo "Instance:  $INSTANCE_NAME"
 echo "Region:    $REGION"
 echo "Tier:      $TIER"
@@ -57,6 +54,102 @@ echo "Dry-run:   $DRY_RUN"
 echo "================================================="
 echo
 
+# ---------------------------------------------------------------------------
+# AWS RDS implementation
+# ---------------------------------------------------------------------------
+if [[ "$CLOUD" == "aws" ]]; then
+    AWS_REGION="${AWS_REGION:-$REGION}"
+    RDS_TIER="${CLOUDSQL_TIER:-db.t3.micro}"
+    RDS_SECRET_URL="rds-execution-db-url"
+    RDS_SECRET_PWD="rds-execution-db-password"
+
+    if ! command -v aws &>/dev/null; then
+        echo "[BLOCKED] AWS CLI not installed."
+        exit 1
+    fi
+    if ! aws sts get-caller-identity &>/dev/null; then
+        echo "[BLOCKED] No AWS credentials. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY."
+        exit 1
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "[DRY-RUN] Would create:"
+        echo "  aws rds create-db-instance --db-instance-identifier $INSTANCE_NAME"
+        echo "    --db-instance-class $RDS_TIER --engine postgres --engine-version 15"
+        echo "    --master-username $DB_USER --allocated-storage 20 --db-name $DB_NAME"
+        echo "    --no-publicly-accessible --region $AWS_REGION"
+        echo "  aws secretsmanager create-secret --name $RDS_SECRET_URL ..."
+        echo "  aws secretsmanager create-secret --name $RDS_SECRET_PWD ..."
+        echo ""
+        echo "Connection string format:"
+        echo "  postgresql+asyncpg://$DB_USER:<password>@<rds-endpoint>:5432/$DB_NAME"
+        exit 0
+    fi
+
+    # Check if RDS instance exists
+    if aws rds describe-db-instances \
+            --db-instance-identifier "$INSTANCE_NAME" \
+            --region "$AWS_REGION" &>/dev/null; then
+        echo "[SKIP] RDS instance '$INSTANCE_NAME' already exists"
+    else
+        echo "[CREATE] RDS instance '$INSTANCE_NAME' (takes ~10 min)..."
+        DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+        aws rds create-db-instance \
+            --db-instance-identifier "$INSTANCE_NAME" \
+            --db-instance-class "$RDS_TIER" \
+            --engine postgres \
+            --engine-version 15 \
+            --master-username "$DB_USER" \
+            --master-user-password "$DB_PASSWORD" \
+            --allocated-storage 20 \
+            --db-name "$DB_NAME" \
+            --no-publicly-accessible \
+            --backup-retention-period 7 \
+            --region "$AWS_REGION" \
+            --output text --query 'DBInstance.DBInstanceIdentifier' 2>&1
+        echo "[OK] RDS instance created (status: creating — takes ~10 min)"
+
+        # Wait for available
+        echo "[WAIT] Waiting for RDS to become available..."
+        aws rds wait db-instance-available \
+            --db-instance-identifier "$INSTANCE_NAME" \
+            --region "$AWS_REGION" || echo "[WARN] wait timed out — check console"
+
+        # Get endpoint
+        RDS_ENDPOINT=$(aws rds describe-db-instances \
+            --db-instance-identifier "$INSTANCE_NAME" \
+            --region "$AWS_REGION" \
+            --output text --query 'DBInstances[0].Endpoint.Address')
+        DB_URL="postgresql+asyncpg://$DB_USER:$DB_PASSWORD@${RDS_ENDPOINT}:5432/$DB_NAME"
+
+        # Store in AWS Secrets Manager
+        aws secretsmanager create-secret \
+            --name "$RDS_SECRET_URL" \
+            --secret-string "$DB_URL" \
+            --region "$AWS_REGION" &>/dev/null || \
+        aws secretsmanager update-secret \
+            --secret-id "$RDS_SECRET_URL" \
+            --secret-string "$DB_URL" \
+            --region "$AWS_REGION" &>/dev/null
+        aws secretsmanager create-secret \
+            --name "$RDS_SECRET_PWD" \
+            --secret-string "$DB_PASSWORD" \
+            --region "$AWS_REGION" &>/dev/null || \
+        aws secretsmanager update-secret \
+            --secret-id "$RDS_SECRET_PWD" \
+            --secret-string "$DB_PASSWORD" \
+            --region "$AWS_REGION" &>/dev/null
+        echo "[OK] Secrets stored: $RDS_SECRET_URL, $RDS_SECRET_PWD"
+        echo ""
+        echo "execution-service config:"
+        echo "  AWS_DATABASE_URL=\$(aws secretsmanager get-secret-value --secret-id $RDS_SECRET_URL --query SecretString --output text)"
+        echo "  USE_DATABASE=true"
+    fi
+    exit 0
+fi
+
+# GCP path below
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "[DRY-RUN] Would create:"
     echo "  gcloud sql instances create $INSTANCE_NAME --tier=$TIER --region=$REGION ..."
