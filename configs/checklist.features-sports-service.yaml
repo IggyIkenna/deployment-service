@@ -1,6 +1,6 @@
 # Deployment readiness delta — canonical compliance checklist: unified-trading-codex/10-audit/batch/checklist.features-sports-service.yaml
 service_name: features-sports-service
-last_updated: "2026-03-01"
+last_updated: "2026-03-10"
 owner: ""
 execution_order: 20 # Post-commercialization — runs after all financial market services
 auth_setup:
@@ -20,17 +20,20 @@ auth_setup:
 phase_1_repository_foundation:
   item_06_dockerfile_exists:
     description: Containerization ready for Cloud Build
-    status: pending
-    notes:
-      Dockerfile not yet created. Service is post-commercialization (not part of
-      financial markets MVP).
-    verified_date: null
+    status: done
+    notes: >-
+      Dockerfile created 2026-03-10 (b6-deployment). Uses unified-trading-library base image
+      from Artifact Registry (asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library:latest).
+      pip.conf added for Artifact Registry access. No Playwright needed (FSS is batch/API only).
+    verified_date: "2026-03-10"
 phase_2_testing_and_quality:
   item_11_cloud_build_config:
     description: cloudbuild.yaml includes quality gates before Docker build
-    status: pending
-    notes: cloudbuild.yaml not yet created
-    verified_date: null
+    status: done
+    notes: >-
+      cloudbuild.yaml present — 7-step pipeline (configure-docker, ensure-repos, pull-base-image,
+      build, quality-gates, push, scan-check). Quality gates run inside image before push.
+    verified_date: "2026-03-10"
   item_12_quality_gates_pass:
     description: Pushing to main triggers quality gates; failure blocks image build
     status: pending
@@ -46,16 +49,19 @@ phase_3_deployment_infrastructure:
     verified_date: "2026-03-01"
   item_14_dependencies_entry:
     description: Entry in configs/dependencies.yaml
-    status: pending
-    notes:
-      "Upstream: none (root service with external API dependencies). Outputs to
-      features-sports bucket."
-    verified_date: null
+    status: done
+    notes: >-
+      Added 2026-03-10 (b6-deployment). Root service with no upstream. 5 external API deps
+      (api_football, footystats, odds_api, open_meteo, soccer_football_info).
+      Output: features-sports-{project_id} bucket. SPORTS category added to category_domain_mapping.
+    verified_date: "2026-03-10"
   item_15_expected_start_dates:
     description: Entry in configs/expected_start_dates.yaml
-    status: pending
-    notes: "SPORTS: 2020-08-01 (earliest reliable data from API-Football / FootyStats)"
-    verified_date: null
+    status: done
+    notes: >-
+      Added 2026-03-10. SPORTS category_start: 2020-08-01. All 8 leagues start 2020-08-01
+      (UEFA Covid restart date — earliest reliable API-Football / FootyStats coverage).
+    verified_date: "2026-03-10"
   item_16_venues_entry:
     description: Service's venues in configs/venues.yaml
     status: done
