@@ -11,9 +11,12 @@ deployment_service/config_loader.py
 deployment_service/dependencies.py
 deployment_service/deployment_commands.py
 deployment_service/deployment_config.py
+deployment_service/events.py
+deployment_service/live_deployment.py
 deployment_service/metrics.py
 deployment_service/monitor.py
 deployment_service/orchestrator.py
+deployment_service/py.typed
 deployment_service/runtime_topology_validator.py
 deployment_service/shard_builder.py
 deployment_service/shard_calculator.py
