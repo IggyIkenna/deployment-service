@@ -18,16 +18,20 @@
 
 set -euo pipefail
 
-PROJECT_ID="${1:-$(gcloud config get-value project)}"
+# Parse flags first; collect non-flag args for positional project_id
 DRY_RUN=false
 LIST_ONLY=false
-
+_POS_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --list-only) LIST_ONLY=true ;;
+        *) _POS_ARGS+=("$arg") ;;
     esac
 done
+
+# Project ID: env var > first positional arg > gcloud default
+PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project)}}"
 
 echo "================================================="
 echo "Unified Trading System — Pub/Sub Setup"
@@ -150,7 +154,6 @@ create_subscription_if_missing() {
         --project="$PROJECT_ID" \
         --ack-deadline=60 \
         --message-retention-duration="${retention_str}" \
-        --retain-acked-messages=false \
         --quiet 2>&1; then
         ((created_subs++)) || true
     else

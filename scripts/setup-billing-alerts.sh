@@ -54,7 +54,7 @@ echo "================================================="
 echo "Unified Trading System — Billing Alerts Setup"
 echo "================================================="
 echo "Cloud:          $CLOUD"
-echo "Monthly budget: \$$MONTHLY_BUDGET_USD USD"
+echo "Monthly budget: $MONTHLY_BUDGET_USD (account currency)"
 echo "Alert email:    ${ALERT_EMAIL:-<not set — will use Pub/Sub only>}"
 echo "Export to BQ:   $EXPORT_BQ"
 echo "Dry-run:        $DRY_RUN"
@@ -131,23 +131,29 @@ if [[ "$CLOUD" == "gcp" ]]; then
         "env=development"
     )
 
+    # Auto-detect billing account currency (avoids hardcoded USD assumption)
+    BILLING_CURRENCY=$(gcloud billing budgets list \
+        --billing-account="$BILLING_ACCOUNT" \
+        --format="value(amount.specifiedAmount.currencyCode)" 2>/dev/null | head -1)
+    BILLING_CURRENCY="${BILLING_CURRENCY:-USD}"
+
     for i in "${!BUDGET_NAMES[@]}"; do
         budget_name="${BUDGET_NAMES[$i]}"
         budget_amount="${BUDGET_AMOUNTS[$i]}"
         labels="${BUDGET_LABELS[$i]}"
 
         echo ""
-        echo "Budget: $budget_name (\$$budget_amount/month)"
+        echo "Budget: $budget_name (${budget_amount}${BILLING_CURRENCY}/month)"
 
         if [[ "$DRY_RUN" == "true" ]]; then
             echo "  [DRY] Would create budget via gcloud billing budgets create:"
             echo "    --billing-account=$BILLING_ACCOUNT"
             echo "    --display-name=$budget_name"
-            echo "    --budget-amount=${budget_amount}USD"
-            echo "    --threshold-rule=percent=0.5,basis=CURRENT_SPEND"
-            echo "    --threshold-rule=percent=0.8,basis=CURRENT_SPEND"
-            echo "    --threshold-rule=percent=1.0,basis=CURRENT_SPEND"
-            echo "    --threshold-rule=percent=1.2,basis=CURRENT_SPEND"
+            echo "    --budget-amount=${budget_amount}${BILLING_CURRENCY}"
+            echo "    --threshold-rule=percent=0.5,basis=current-spend"
+            echo "    --threshold-rule=percent=0.8,basis=current-spend"
+            echo "    --threshold-rule=percent=1.0,basis=current-spend"
+            echo "    --threshold-rule=percent=1.2,basis=current-spend"
             echo "    --notifications-rule-pubsub-topic=projects/$PROJECT_ID/topics/$BILLING_TOPIC"
             continue
         fi
@@ -176,11 +182,11 @@ if [[ "$CLOUD" == "gcp" ]]; then
         gcloud billing budgets create \
             --billing-account="$BILLING_ACCOUNT" \
             --display-name="$budget_name" \
-            --budget-amount="${budget_amount}USD" \
-            --threshold-rule=percent=0.5,basis=CURRENT_SPEND \
-            --threshold-rule=percent=0.8,basis=CURRENT_SPEND \
-            --threshold-rule=percent=1.0,basis=CURRENT_SPEND \
-            --threshold-rule=percent=1.2,basis=CURRENT_SPEND \
+            --budget-amount="${budget_amount}${BILLING_CURRENCY}" \
+            --threshold-rule=percent=0.5,basis=current-spend \
+            --threshold-rule=percent=0.8,basis=current-spend \
+            --threshold-rule=percent=1.0,basis=current-spend \
+            --threshold-rule=percent=1.2,basis=current-spend \
             "$PUBSUB_ARG" \
             $EMAIL_ARGS \
             --filter-projects="projects/$PROJECT_ID" \

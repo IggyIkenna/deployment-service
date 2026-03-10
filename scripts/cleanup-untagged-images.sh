@@ -57,7 +57,10 @@ gcloud config set project "$PROJECT_ID" --quiet
 if [[ -n "$REPO_FILTER" ]]; then
     REPOS=("$REPO_FILTER")
 else
-    mapfile -t REPOS < <(
+    REPOS=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && REPOS+=("$line")
+    done < <(
         gcloud artifacts repositories list \
             --project="$PROJECT_ID" \
             --location="$LOCATION" \
@@ -83,7 +86,10 @@ for repo in "${REPOS[@]}"; do
     echo "--- Repo: $repo ---"
 
     # List all images in the repo
-    mapfile -t images < <(
+    images=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && images+=("$line")
+    done < <(
         gcloud artifacts docker images list "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${repo}" \
             --project="$PROJECT_ID" \
             --format="value(package)" 2>/dev/null | sort -u
@@ -96,7 +102,10 @@ for repo in "${REPOS[@]}"; do
 
     for image in "${images[@]}"; do
         # List untagged versions (digest only, no tags)
-        mapfile -t untagged < <(
+        untagged=()
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && untagged+=("$line")
+        done < <(
             gcloud artifacts docker images list "$image" \
                 --project="$PROJECT_ID" \
                 --include-tags \
