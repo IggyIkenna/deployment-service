@@ -586,6 +586,39 @@ services:
           - venue
           - date
     external_dependencies: []
+  features-sports-service:
+    description: >-
+      Pre-match ML features for sports (team form, H2H, referee, venue, weather, market odds).
+      Post-commercialization service — not part of financial markets MVP.
+    upstream: []
+    outputs:
+      - name: sports_features
+        bucket_template: features-sports-{project_id}
+        path_template: by_date/day={date}/league={league}/feature_group={feature_group}/features.parquet
+        required_dimensions:
+          - league
+          - feature_group
+          - date
+    external_dependencies:
+      - name: api_football_api
+        description: API-Football (api-sports.io) for fixture data, team stats, lineups
+        required_for:
+          - SPORTS
+      - name: footystats_api
+        description: FootyStats for xG data, advanced stats, weather
+        required_for:
+          - SPORTS
+      - name: odds_api
+        description: The Odds API for cross-bookmaker odds aggregation
+        required_for:
+          - SPORTS
+      - name: open_meteo_api
+        description: Open-Meteo for weather forecasts (optional — free tier available)
+        required_for: []
+      - name: soccer_football_info_api
+        description: Soccer-Football-Info for referee data, additional stats
+        required_for:
+          - SPORTS
 execution_order:
   - instruments-service
   - corporate-actions
@@ -595,6 +628,7 @@ execution_order:
   - features-delta-one-service
   - features-volatility-service
   - features-onchain-service
+  - features-sports-service
   - ml-training-service
   - ml-inference-service
   - strategy-service
@@ -606,3 +640,4 @@ category_domain_mapping:
   CEFI: cefi
   TRADFI: tradfi
   DEFI: defi
+  SPORTS: sports

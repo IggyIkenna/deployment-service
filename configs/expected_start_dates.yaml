@@ -562,3 +562,31 @@ execution-service:
     DEFI_USDT_morpho-lending_SCE_1H_V1: "2024-07-01"
     DEFI_ETH_etherfi-staking_SCE_1H_V1: "2024-07-01"
     DEFI_USDE_ethena-yield_SCE_1H_V1: "2024-07-01" # Benchmark only
+
+# =============================================================================
+# FEATURES-SPORTS-SERVICE
+# =============================================================================
+# Post-commercialization service. Not part of financial markets MVP.
+# Sharded by league (EPL, LA_LIGA, BUNDESLIGA, SERIE_A, LIGUE_1, CHAMPIONSHIP,
+# EREDIVISIE, PRIMEIRA_LIGA) and feature_group.
+#
+# Start date 2020-08-01 is the earliest reliable data from API-Football /
+# FootyStats for the 8 configured leagues (UEFA Covid season restart).
+features-sports-service:
+  SPORTS:
+    # Earliest reliable fixture + odds + xG data across all 8 leagues.
+    # 2020-08-01 aligns with the restart of European football after Covid.
+    category_start: "2020-08-01"
+    leagues:
+      EPL: "2020-08-01" # English Premier League — Season 2020-21 start
+      LA_LIGA: "2020-08-01" # Spanish La Liga — Season 2020-21 start
+      BUNDESLIGA: "2020-08-01" # German Bundesliga — Season 2020-21 start
+      SERIE_A: "2020-08-01" # Italian Serie A — Season 2020-21 start
+      LIGUE_1: "2020-08-01" # French Ligue 1 — Season 2020-21 start
+      CHAMPIONSHIP: "2020-08-01" # English Championship — Season 2020-21 start
+      EREDIVISIE: "2020-08-01" # Dutch Eredivisie — Season 2020-21 start
+      PRIMEIRA_LIGA: "2020-08-01" # Portuguese Primeira Liga — Season 2020-21 start
+    notes: >-
+      API-Football coverage is comprehensive from 2020-08-01 for all 8 leagues.
+      FootyStats xG data available from 2020-08-01 for top 5 leagues;
+      EREDIVISIE and PRIMEIRA_LIGA xG may be partial before 2021-08-01.
