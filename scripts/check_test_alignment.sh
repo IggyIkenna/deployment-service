@@ -1,232 +1,220 @@
 #!/usr/bin/env bash
+# check_test_alignment.sh — Verify test infrastructure alignment across all workspace repos.
 #
-# Check test alignment across all repos
+# Checks (per active repo with testing_level != none):
+#   [1] scripts/quality-gates.sh exists (canonical stub)
+#   [2] quality-gates.sh sources base-service.sh or base-library.sh (not a custom reimplementation)
+#   [3] .github/workflows/quality-gates.yml exists
+#   [4] GH Actions workflow calls "bash scripts/quality-gates.sh" (not inlined pytest)
+#   [5] cloudbuild.yaml (if present) calls "bash scripts/quality-gates.sh"
+#   [6] No orphaned scripts/run_quality_gates.py (parallel reimplementation — delete these)
 #
-# Verifies that GitHub Actions, Cloud Build, and local scripts
-# run the same tests with the same commands.
+# Repos with testing_level=none are skipped entirely.
+# Reads workspace-manifest.json — no hardcoded repo list.
 #
 # Usage:
-#   ./scripts/check_test_alignment.sh [repo-name]
-#   ./scripts/check_test_alignment.sh  # Check all repos
-#
+#   bash deployment-service/scripts/check_test_alignment.sh          # all repos
+#   bash deployment-service/scripts/check_test_alignment.sh <repo>   # single repo
+#   bash deployment-service/scripts/check_test_alignment.sh --fix    # print fix hints
 
-set -e
+set -euo pipefail
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOYMENT_ROOT="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$(dirname "$DEPLOYMENT_ROOT")"
+WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+MANIFEST="${WORKSPACE_ROOT}/unified-trading-pm/workspace-manifest.json"
 
-# Repos to check (all repos with quality gates)
-REPOS=(
-    "instruments-service"
-    "market-tick-data-handler"
-    "market-data-processing-service"
-    "execution-services"
-    "features-onchain-service"
-    "features-volatility-service"
-    "features-calendar-service"
-    "features-delta-one-service"
-    "strategy-service"
-    "deployment-service"
-    "unified-trading-library"
-    "ml-inference-service"
-    "ml-training-service"
-    "sports-betting-service"
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+FIX_MODE=false
+REPO_FILTER=""
+for arg in "$@"; do
+    case "$arg" in
+        --fix) FIX_MODE=true ;;
+        --*) ;;  # ignore unknown flags
+        *) REPO_FILTER="$arg" ;;
+    esac
+done
+
+if [[ ! -f "$MANIFEST" ]]; then
+    echo -e "${RED}❌ Manifest not found: ${MANIFEST}${NC}"
+    echo "   Run from workspace root or any repo inside the workspace."
+    exit 2
+fi
+
+# ── Parse manifest with python3 ───────────────────────────────────────────────
+# Outputs: <name> <type> <status> <testing_level>  (tab-separated, one repo per line)
+REPO_LIST=$(python3 - "${MANIFEST}" "${REPO_FILTER}" <<'PYEOF'
+import json, sys
+manifest_path = sys.argv[1]
+repo_filter   = sys.argv[2] if len(sys.argv) > 2 else ""
+
+with open(manifest_path) as f:
+    data = json.load(f)
+
+repos = data.get("repositories", {})
+skip_statuses = {"deprecated", "archived", "deleted", "future", "scaffolded"}
+
+for name, info in sorted(repos.items()):
+    if repo_filter and name != repo_filter:
+        continue
+    status        = info.get("status", "active")
+    testing_level = info.get("testing_level", "unit")
+    repo_type     = info.get("type", "service")
+    if status in skip_statuses:
+        continue
+    print(f"{name}\t{repo_type}\t{status}\t{testing_level}")
+PYEOF
 )
 
-check_repo_alignment() {
-    local repo=$1
-    local repo_path="$REPO_ROOT/$repo"
+if [[ -z "$REPO_LIST" ]]; then
+    if [[ -n "$REPO_FILTER" ]]; then
+        echo -e "${RED}❌ Repo not found or skipped in manifest: ${REPO_FILTER}${NC}"
+        exit 2
+    fi
+    echo "No active repos found in manifest."
+    exit 0
+fi
 
-    echo -e "\n${BLUE}======================================================================${NC}"
-    echo -e "${BLUE}Checking: $repo${NC}"
-    echo -e "${BLUE}======================================================================${NC}"
+# ── Counters ──────────────────────────────────────────────────────────────────
+total=0; skipped=0; passed=0; warned=0; failed=0
 
-    if [ ! -d "$repo_path" ]; then
-        echo -e "${YELLOW}⚠️  Repo not found: $repo${NC}"
-        return 1
+declare -a fail_repos=()
+declare -a warn_repos=()
+
+# ── Per-repo check ────────────────────────────────────────────────────────────
+check_repo() {
+    local name="$1" repo_type="$2" testing_level="$3"
+    local repo_path="${WORKSPACE_ROOT}/${name}"
+    local issues=0 warnings=0
+
+    if [[ ! -d "$repo_path" ]]; then
+        echo -e "  ${YELLOW}[SKIP]${NC}  ${name} — directory not found at ${repo_path}"
+        ((skipped++)) || true
+        return
     fi
 
-    cd "$repo_path"
-
-    local issues=0
-
-    # Check if all three files exist
-    local gh_actions="$repo_path/.github/workflows/quality-gates.yml"
-    local cloudbuild="$repo_path/cloudbuild.yaml"
-    local local_script="$repo_path/scripts/quality-gates.sh"
-
-    if [ ! -f "$gh_actions" ]; then
-        echo -e "${RED}❌ Missing: .github/workflows/quality-gates.yml${NC}"
-        issues=$((issues + 1))
+    if [[ "$testing_level" == "none" ]]; then
+        echo -e "  ${CYAN}[SKIP]${NC}  ${name} — testing_level=none"
+        ((skipped++)) || true
+        return
     fi
 
-    if [ ! -f "$cloudbuild" ]; then
-        echo -e "${YELLOW}⚠️  Missing: cloudbuild.yaml${NC}"
-    fi
+    local qg_sh="${repo_path}/scripts/quality-gates.sh"
+    local gh_yml="${repo_path}/.github/workflows/quality-gates.yml"
+    local cloudbuild="${repo_path}/cloudbuild.yaml"
+    local orphan_py="${repo_path}/scripts/run_quality_gates.py"
 
-    if [ ! -f "$local_script" ]; then
-        echo -e "${YELLOW}⚠️  Missing: scripts/quality-gates.sh${NC}"
-    fi
+    local repo_issues=()
+    local repo_warns=()
 
-    # Check pytest command format
-    echo -e "\n${BLUE}Checking pytest commands...${NC}"
-
-    if [ -f "$gh_actions" ]; then
-        # Look for actual pytest execution commands (not pip install, not echo statements)
-        local gh_pytest=$(grep -E "python.*-m pytest|^[[:space:]]*pytest" "$gh_actions" | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v "pip install" | grep -v "echo" | grep -v "Running:" | head -1 || echo "")
-        if [ -n "$gh_pytest" ]; then
-            if echo "$gh_pytest" | grep -q "python -m pytest\|python3 -m pytest"; then
-                echo -e "${GREEN}✅ GitHub Actions: Uses python -m pytest${NC}"
-            else
-                echo -e "${RED}❌ GitHub Actions: Should use 'python -m pytest', found: $gh_pytest${NC}"
-                issues=$((issues + 1))
-            fi
-        else
-            echo -e "${YELLOW}⚠️  GitHub Actions: No pytest command found${NC}"
-        fi
-    fi
-
-    if [ -f "$cloudbuild" ]; then
-        # Look for actual pytest execution commands (not pip install, not echo statements)
-        local cb_pytest=$(grep -E "python.*-m pytest|^[[:space:]]*pytest" "$cloudbuild" | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v "pip install" | grep -v "echo" | grep -v "Running:" | head -1 || echo "")
-        if [ -n "$cb_pytest" ]; then
-            if echo "$cb_pytest" | grep -q "python -m pytest"; then
-                echo -e "${GREEN}✅ Cloud Build: Uses python -m pytest${NC}"
-            else
-                echo -e "${RED}❌ Cloud Build: Should use 'python -m pytest', found: $cb_pytest${NC}"
-                issues=$((issues + 1))
-            fi
-        else
-            echo -e "${YELLOW}⚠️  Cloud Build: No pytest command found${NC}"
-        fi
-    fi
-
-    if [ -f "$local_script" ]; then
-        # Look for actual pytest execution commands (not pip install, not echo statements)
-        local local_pytest=$(grep -E "python.*-m pytest|^[[:space:]]*pytest" "$local_script" | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v "pip install" | grep -v "echo" | grep -v "Running:" | head -1 || echo "")
-        if [ -n "$local_pytest" ]; then
-            if echo "$local_pytest" | grep -q "python.*-m pytest"; then
-                echo -e "${GREEN}✅ Local script: Uses python -m pytest${NC}"
-            else
-                echo -e "${YELLOW}⚠️  Local script: Should use 'python3 -m pytest', found: $local_pytest${NC}"
-            fi
-        else
-            echo -e "${YELLOW}⚠️  Local script: No pytest command found${NC}"
-        fi
-    fi
-
-    # Check environment variables
-    echo -e "\n${BLUE}Checking environment variables...${NC}"
-
-    local env_vars=("CLOUD_MOCK_MODE" "GCP_PROJECT_ID" "DEPLOYMENT_CONFIG_DIR")
-    for var in "${env_vars[@]}"; do
-        local gh_has=$(grep -c "$var" "$gh_actions" 2>/dev/null | tr -d '\n' || echo "0")
-        local cb_has=$(grep -c "$var" "$cloudbuild" 2>/dev/null | tr -d '\n' || echo "0")
-        local local_has=$(grep -c "$var" "$local_script" 2>/dev/null | tr -d '\n' || echo "0")
-
-        # Convert to integer (handle multi-line output from grep -c)
-        gh_has=$(echo "$gh_has" | head -1 | tr -d '\n')
-        cb_has=$(echo "$cb_has" | head -1 | tr -d '\n')
-        local_has=$(echo "$local_has" | head -1 | tr -d '\n')
-
-        if [ "${gh_has:-0}" -gt 0 ] && [ "${cb_has:-0}" -gt 0 ] && [ "${local_has:-0}" -gt 0 ]; then
-            echo -e "${GREEN}✅ $var: Set in all three${NC}"
-        elif [ "${gh_has:-0}" -gt 0 ] && [ "${cb_has:-0}" -gt 0 ]; then
-            echo -e "${YELLOW}⚠️  $var: Set in GitHub Actions and Cloud Build (missing in local)${NC}"
-        elif [ "${gh_has:-0}" -gt 0 ]; then
-            echo -e "${YELLOW}⚠️  $var: Only in GitHub Actions${NC}"
-        else
-            echo -e "${RED}❌ $var: Not found${NC}"
-            issues=$((issues + 1))
-        fi
-    done
-
-    # Check dependency installation order
-    echo -e "\n${BLUE}Checking dependency installation...${NC}"
-
-    if [ -f "$gh_actions" ]; then
-        local gh_ucs=$(grep -c "unified-trading-library" "$gh_actions" 2>/dev/null | head -1 | tr -d '\n' || echo "0")
-        if [ "${gh_ucs:-0}" -gt 0 ]; then
-            echo -e "${GREEN}✅ GitHub Actions: Installs unified-trading-library${NC}"
-        else
-            echo -e "${YELLOW}⚠️  GitHub Actions: unified-trading-library not found${NC}"
-        fi
-    fi
-
-    if [ -f "$cloudbuild" ]; then
-        local cb_ucs=$(grep -c "unified-trading-library" "$cloudbuild" 2>/dev/null | head -1 | tr -d '\n' || echo "0")
-        if [ "${cb_ucs:-0}" -gt 0 ]; then
-            echo -e "${GREEN}✅ Cloud Build: Installs unified-trading-library${NC}"
-        else
-            echo -e "${YELLOW}⚠️  Cloud Build: unified-trading-library not found${NC}"
-        fi
-    fi
-
-    # Check test timeouts match
-    echo -e "\n${BLUE}Checking test timeouts...${NC}"
-
-    local timeout_60=$(grep -c "timeout=60\|--timeout 60" "$gh_actions" "$cloudbuild" "$local_script" 2>/dev/null | awk '{sum+=$1} END {print sum}')
-    local timeout_120=$(grep -c "timeout=120\|--timeout 120" "$gh_actions" "$cloudbuild" "$local_script" 2>/dev/null | awk '{sum+=$1} END {print sum}')
-    local timeout_180=$(grep -c "timeout=180\|--timeout 180" "$gh_actions" "$cloudbuild" "$local_script" 2>/dev/null | awk '{sum+=$1} END {print sum}')
-
-    if [ "$timeout_60" -gt 0 ] && [ "$timeout_120" -gt 0 ] && [ "$timeout_180" -gt 0 ]; then
-        echo -e "${GREEN}✅ Test timeouts: 60s (unit), 120s (integration), 180s (e2e/smoke)${NC}"
+    # [1] scripts/quality-gates.sh exists
+    if [[ ! -f "$qg_sh" ]]; then
+        repo_issues+=("MISSING scripts/quality-gates.sh (canonical stub)")
     else
-        echo -e "${YELLOW}⚠️  Test timeouts may not match across all environments${NC}"
+        # [2] sources canonical base (not a custom reimplementation)
+        if ! grep -qE "base-service\.sh|base-library\.sh|base-ui\.sh" "$qg_sh" 2>/dev/null; then
+            repo_issues+=("quality-gates.sh does NOT source canonical base-service/library.sh")
+        fi
     fi
 
-    # Summary
-    if [ $issues -eq 0 ]; then
-        echo -e "\n${GREEN}✅ $repo: All checks passed${NC}"
-        return 0
+    # [3] .github/workflows/quality-gates.yml exists
+    if [[ ! -f "$gh_yml" ]]; then
+        repo_issues+=("MISSING .github/workflows/quality-gates.yml")
     else
-        echo -e "\n${RED}❌ $repo: Found $issues issue(s)${NC}"
-        return 1
+        # [4] GH Actions calls canonical bash scripts/quality-gates.sh
+        if ! grep -q "bash scripts/quality-gates.sh" "$gh_yml" 2>/dev/null; then
+            repo_issues+=("GH Actions does not call 'bash scripts/quality-gates.sh' — inlines pytest directly")
+        fi
     fi
+
+    # [5] cloudbuild.yaml — warn only if present but non-canonical
+    if [[ -f "$cloudbuild" ]]; then
+        if ! grep -q "bash scripts/quality-gates.sh" "$cloudbuild" 2>/dev/null; then
+            repo_warns+=("cloudbuild.yaml does not call 'bash scripts/quality-gates.sh'")
+        fi
+    else
+        repo_warns+=("no cloudbuild.yaml (warn only — not all repos need it)")
+    fi
+
+    # [6] Orphaned run_quality_gates.py
+    if [[ -f "$orphan_py" ]]; then
+        repo_warns+=("ORPHANED scripts/run_quality_gates.py — superseded by quality-gates.sh; delete it")
+    fi
+
+    issues=${#repo_issues[@]}
+    warnings=${#repo_warns[@]}
+
+    if [[ $issues -gt 0 ]]; then
+        echo -e "\n  ${RED}[FAIL]${NC}  ${BOLD}${name}${NC}  (type=${repo_type}, testing=${testing_level})"
+        for msg in "${repo_issues[@]}"; do
+            echo -e "          ${RED}✗${NC} ${msg}"
+        done
+        for msg in "${repo_warns[@]}"; do
+            echo -e "          ${YELLOW}⚠${NC} ${msg}"
+        done
+        if $FIX_MODE; then
+            echo -e "          ${CYAN}→ Fix: python3 unified-trading-pm/scripts/propagation/rollout-quality-gates-unified.py --repo ${name}${NC}"
+        fi
+        ((failed++)) || true
+        fail_repos+=("$name")
+    elif [[ $warnings -gt 0 ]]; then
+        echo -e "\n  ${YELLOW}[WARN]${NC}  ${BOLD}${name}${NC}  (type=${repo_type}, testing=${testing_level})"
+        for msg in "${repo_warns[@]}"; do
+            echo -e "          ${YELLOW}⚠${NC} ${msg}"
+        done
+        ((warned++)) || true
+        warn_repos+=("$name")
+    else
+        echo -e "  ${GREEN}[PASS]${NC}  ${name}"
+        ((passed++)) || true
+    fi
+    ((total++)) || true
 }
 
-# Main
-if [ $# -eq 1 ]; then
-    # Check single repo
-    check_repo_alignment "$1"
-else
-    # Check all repos
-    echo -e "${BLUE}======================================================================${NC}"
-    echo -e "${BLUE}TEST ALIGNMENT CHECK - ALL REPOS${NC}"
-    echo -e "${BLUE}======================================================================${NC}"
+# ── Main loop ─────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}━━━ Test Alignment Check ━━━${NC}"
+echo -e "${CYAN}Workspace:${NC} ${WORKSPACE_ROOT}"
+echo -e "${CYAN}Manifest:${NC}  ${MANIFEST}"
+if [[ -n "$REPO_FILTER" ]]; then
+    echo -e "${CYAN}Filter:${NC}    ${REPO_FILTER}"
+fi
+echo ""
 
-    total_issues=0
-    repos_checked=0
+while IFS=$'\t' read -r name repo_type _status testing_level; do
+    check_repo "$name" "$repo_type" "$testing_level"
+done <<< "$REPO_LIST"
 
-    for repo in "${REPOS[@]}"; do
-        if check_repo_alignment "$repo"; then
-            repos_checked=$((repos_checked + 1))
-        else
-            total_issues=$((total_issues + 1))
-            repos_checked=$((repos_checked + 1))
-        fi
-    done
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}━━━ Summary ━━━${NC}"
+echo -e "  Repos checked : $((total + skipped))"
+echo -e "  Skipped       : ${skipped}  (testing_level=none or not found)"
+echo -e "  ${GREEN}Passed${NC}        : ${passed}"
+echo -e "  ${YELLOW}Warned${NC}        : ${warned}"
+echo -e "  ${RED}Failed${NC}        : ${failed}"
 
-    echo -e "\n${BLUE}======================================================================${NC}"
-    echo -e "${BLUE}SUMMARY${NC}"
-    echo -e "${BLUE}======================================================================${NC}"
-    echo -e "Repos checked: $repos_checked"
-    echo -e "Repos with issues: $total_issues"
+if [[ ${#fail_repos[@]} -gt 0 ]]; then
+    echo -e "\n${RED}FAILs:${NC}"
+    for r in "${fail_repos[@]}"; do echo "  - $r"; done
+fi
+if [[ ${#warn_repos[@]} -gt 0 ]]; then
+    echo -e "\n${YELLOW}WARNs:${NC}"
+    for r in "${warn_repos[@]}"; do echo "  - $r"; done
+fi
 
-    if [ $total_issues -eq 0 ]; then
-        echo -e "\n${GREEN}✅ All repos are aligned!${NC}"
-        exit 0
-    else
-        echo -e "\n${RED}❌ $total_issues repo(s) need alignment fixes${NC}"
-        exit 1
+echo ""
+if [[ $failed -gt 0 ]]; then
+    echo -e "${RED}❌ ${failed} repo(s) have alignment failures.${NC}"
+    if ! $FIX_MODE; then
+        echo -e "   Re-run with --fix for remediation hints."
     fi
+    echo -e "   Fix script: python3 unified-trading-pm/scripts/propagation/rollout-quality-gates-unified.py"
+    exit 1
+else
+    echo -e "${GREEN}✅ All repos are aligned.${NC}"
+    exit 0
 fi
