@@ -6,8 +6,9 @@
 #   [2] quality-gates.sh sources base-service.sh or base-library.sh (not a custom reimplementation)
 #   [3] .github/workflows/quality-gates.yml exists
 #   [4] GH Actions workflow calls "bash scripts/quality-gates.sh" (not inlined pytest)
-#   [5] cloudbuild.yaml (if present) calls "bash scripts/quality-gates.sh"
+#   [5] cloudbuild.yaml (if present) calls "scripts/quality-gates.sh" OR has --cov-fail-under (lib inline)
 #   [6] No orphaned scripts/run_quality_gates.py (parallel reimplementation — delete these)
+#   [7] GH Actions workflow clones unified-trading-pm (required for quality-gates.sh to source base scripts)
 #
 # Repos with testing_level=none are skipped entirely.
 # Reads workspace-manifest.json — no hardcoded repo list.
@@ -133,9 +134,12 @@ check_repo() {
     fi
 
     # [5] cloudbuild.yaml — warn only if present but non-canonical
+    #     Acceptable: calls "scripts/quality-gates.sh" (service pattern)
+    #     Acceptable: inline pytest with "--cov-fail-under" (library pattern — cannot use QG stub in Cloud Build)
     if [[ -f "$cloudbuild" ]]; then
-        if ! grep -q "bash scripts/quality-gates.sh" "$cloudbuild" 2>/dev/null; then
-            repo_warns+=("cloudbuild.yaml does not call 'bash scripts/quality-gates.sh'")
+        if ! grep -q "scripts/quality-gates.sh" "$cloudbuild" 2>/dev/null && \
+           ! grep -q "\-\-cov-fail-under" "$cloudbuild" 2>/dev/null; then
+            repo_warns+=("cloudbuild.yaml: does not call quality-gates.sh or enforce --cov-fail-under (coverage unenforced in Cloud Build)")
         fi
     else
         repo_warns+=("no cloudbuild.yaml (warn only — not all repos need it)")
@@ -144,6 +148,13 @@ check_repo() {
     # [6] Orphaned run_quality_gates.py
     if [[ -f "$orphan_py" ]]; then
         repo_warns+=("ORPHANED scripts/run_quality_gates.py — superseded by quality-gates.sh; delete it")
+    fi
+
+    # [7] GH Actions must clone unified-trading-pm (quality-gates.sh sources base-*.sh from it)
+    if [[ -f "$gh_yml" ]]; then
+        if ! grep -q "unified-trading-pm" "$gh_yml" 2>/dev/null; then
+            repo_issues+=("GH Actions does not clone unified-trading-pm — 'bash scripts/quality-gates.sh' will fail (cannot source base-service/library.sh)")
+        fi
     fi
 
     issues=${#repo_issues[@]}
