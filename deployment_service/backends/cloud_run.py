@@ -90,18 +90,26 @@ class CloudRunBackend(ComputeBackend):
 
         try:
             job = self.jobs_client.get_job(name=self.job_path)
-            job_template = getattr(job, "template", None)
-            execution_template = getattr(job_template, "template", None) if job_template else None
-            containers = (
-                getattr(execution_template, "containers", None) if execution_template else None
+            # Use direct attribute access: run_v2 protobuf stubs have typed fields.
+            # job.template: ExecutionTemplate, .template: TaskTemplate, .containers: MutableSequence[Container]
+            job_template: run_v2.ExecutionTemplate | None = (
+                job.template if hasattr(job, "template") else None
+            )
+            execution_template: run_v2.TaskTemplate | None = (
+                job_template.template if job_template and hasattr(job_template, "template") else None
+            )
+            containers: list[run_v2.Container] | None = (
+                list(execution_template.containers)
+                if execution_template and hasattr(execution_template, "containers")
+                else None
             )
 
             env: list[run_v2.EnvVar] = []
-            if containers and len(containers) > 0:
+            if containers:
                 container = containers[0]
-                container_env = getattr(container, "env", None)
+                container_env: list[run_v2.EnvVar] = list(container.env) if hasattr(container, "env") else []
                 if container_env:
-                    env = list(container_env)
+                    env = container_env
 
             self._template_env_cache[self.region] = env
             return env
