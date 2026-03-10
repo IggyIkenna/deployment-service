@@ -1,0 +1,270 @@
+{
+  "files": {
+    "./deployment_service/backends/cloud_run.py": [
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 41,
+          "endColumn": 53,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 24,
+          "endColumn": 42,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 34,
+          "endColumn": 44,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 16,
+          "endColumn": 25,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 40,
+          "endColumn": 49,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 31,
+          "endColumn": 44,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 31,
+          "endColumn": 35,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 24,
+          "endColumn": 28,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 49,
+          "endColumn": 53,
+          "lineCount": 1
+        }
+      }
+    ],
+    "./deployment_service/backends/gcp.py": [
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 41,
+          "endColumn": 53,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 24,
+          "endColumn": 42,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 34,
+          "endColumn": 44,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 16,
+          "endColumn": 25,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 40,
+          "endColumn": 49,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 31,
+          "endColumn": 44,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 31,
+          "endColumn": 35,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 24,
+          "endColumn": 28,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 49,
+          "endColumn": 53,
+          "lineCount": 1
+        }
+      }
+    ],
+    "./deployment_service/cli.py": [
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 8,
+          "endColumn": 15,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 12,
+          "endColumn": 19,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 12,
+          "endColumn": 19,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 4,
+          "endColumn": 11,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 4,
+          "endColumn": 11,
+          "lineCount": 1
+        }
+      }
+    ],
+    "./deployment_service/deployment/quota_broker_client.py": [
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 12,
+          "endColumn": 19,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 24,
+          "endColumn": 35,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 15,
+          "endColumn": 26,
+          "lineCount": 1
+        }
+      }
+    ],
+    "./deployment_service/runtime_topology_validator.py": [
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 8,
+          "endColumn": 11,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 8,
+          "endColumn": 11,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 35,
+          "endColumn": 56,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 35,
+          "endColumn": 56,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 37,
+          "endColumn": 60,
+          "lineCount": 1
+        }
+      },
+      {
+        "code": "reportAny",
+        "range": {
+          "startColumn": 37,
+          "endColumn": 60,
+          "lineCount": 1
+        }
+      }
+    ]
+  }
+}
