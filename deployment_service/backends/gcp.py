@@ -90,19 +90,23 @@ class CloudRunBackend(ComputeBackend):
             return self._template_env_cache[self.region]
 
         try:
-            job = self.jobs_client.get_job(name=self.job_path)
-            job_template = getattr(job, "template", None)
-            execution_template = getattr(job_template, "template", None) if job_template else None
-            containers = (
+            job: object = self.jobs_client.get_job(name=self.job_path)
+            job_template: object = getattr(job, "template", None)
+            execution_template: object = (
+                getattr(job_template, "template", None) if job_template else None
+            )
+            containers: object = (
                 getattr(execution_template, "containers", None) if execution_template else None
             )
 
             env: list[run_v2.EnvVar] = []
-            if containers and len(containers) > 0:
-                container = containers[0]
-                container_env = getattr(container, "env", None)
-                if container_env:
-                    env = list(container_env)
+            if containers is not None:
+                containers_seq = cast(list[object], containers)
+                if containers_seq:
+                    container: object = containers_seq[0]
+                    container_env: object = getattr(container, "env", None)
+                    if container_env is not None:
+                        env = list(cast(list[run_v2.EnvVar], container_env))
 
             self._template_env_cache[self.region] = env
             return env
@@ -129,7 +133,7 @@ class CloudRunBackend(ComputeBackend):
 
         # Preserve template ordering; replace values when overridden.
         for env in template_env:
-            name = getattr(env, "name", None)
+            name: str | None = cast(str | None, getattr(env, "name", None))
             if not name:
                 continue
             template_names.add(name)

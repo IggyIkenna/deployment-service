@@ -22,7 +22,7 @@ def _load_yaml(path: Path) -> dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"Missing YAML file: {path}")
     with open(path) as handle:
-        raw = yaml.safe_load(handle)
+        raw = cast(object, yaml.safe_load(handle))
     if not isinstance(raw, dict):
         raise ValueError(f"Expected mapping in {path}")
     return cast(dict[str, object], raw)
@@ -32,7 +32,7 @@ def _load_json(path: Path) -> dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"Missing JSON file: {path}")
     with open(path) as handle:
-        raw = json.load(handle)
+        raw = cast(object, json.load(handle))
     if not isinstance(raw, dict):
         raise ValueError(f"Expected object in {path}")
     return cast(dict[str, object], raw)
@@ -199,8 +199,8 @@ def main() -> int:
     args = parser.parse_args()
 
     violations = validate_runtime_topology(
-        runtime_topology_path=Path(args.runtime_topology),
-        workspace_manifest_path=Path(args.workspace_manifest),
+        runtime_topology_path=Path(cast(str, args.runtime_topology)),
+        workspace_manifest_path=Path(cast(str, args.workspace_manifest)),
     )
 
     if violations:

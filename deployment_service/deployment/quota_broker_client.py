@@ -6,7 +6,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import requests
 from google.auth.transport.requests import Request
@@ -78,10 +78,11 @@ class QuotaBrokerClient:
             payload_b64 = token.split(".")[1]
             # Pad base64url string
             payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = json.loads(
-                base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+            payload: dict[str, object] = cast(
+                dict[str, object],
+                json.loads(base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")),
             )
-            exp = float(payload.get("exp") or 0.0)
+            exp = float(cast(float | str | None, payload.get("exp")) or 0.0)
         except (OSError, ValueError, RuntimeError):
             exp = now + 300.0
 
@@ -108,7 +109,7 @@ class QuotaBrokerClient:
             timeout=self.timeout_seconds,
         )
         resp.raise_for_status()
-        return resp.json()
+        return cast(dict[str, object], resp.json())
 
     def acquire(
         self,
