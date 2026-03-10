@@ -760,7 +760,7 @@ def main():
     test_buckets = [b for b in buckets if b.get("is_test", False)]
 
     # Print header
-    logger.info()
+    logger.info("")
     logger.info("=" * 70)
     logger.info("Unified Trading System - Bucket Setup")
     logger.info("=" * 70)
@@ -778,7 +778,7 @@ def main():
     elif args.include_test:
         logger.info("Mode: Production + Test Buckets")
     logger.info("=" * 70)
-    logger.info()
+    logger.info("")
 
     # List only mode
     if args.list_only:
@@ -786,35 +786,35 @@ def main():
             # Separate production and test buckets in output
             if prod_buckets and not args.test_only:
                 logger.info("Production buckets:")
-                logger.info()
+                logger.info("")
                 for bucket in prod_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     logger.info(f"  {prefix}{bucket['name']}")
                     logger.info(
                         f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
                     )
-                logger.info()
+                logger.info("")
 
             if test_buckets:
                 logger.info("Test buckets (for quality gates and CI/CD):")
-                logger.info()
+                logger.info("")
                 for bucket in test_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     logger.info(f"  {prefix}{bucket['name']}")
                     logger.info(
                         f"      Service: {bucket['service']}, Category: {bucket['category']}"
                     )
-                logger.info()
+                logger.info("")
         else:
             logger.info("Required buckets:")
-            logger.info()
+            logger.info("")
             for bucket in buckets:
                 prefix = "gs://" if args.cloud == "gcp" else "s3://"
                 logger.info(f"  {prefix}{bucket['name']}")
                 logger.info(
                     f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
                 )
-            logger.info()
+            logger.info("")
 
         # Print env var suggestions for services
         if args.include_test or args.test_only:
@@ -822,7 +822,7 @@ def main():
             logger.info("Environment Variables for Test Buckets")
             logger.info("=" * 70)
             logger.info("Add these to your .env files or CI/CD configuration:")
-            logger.info()
+            logger.info("")
             for bucket in test_buckets:
                 # Generate env var name from bucket name
                 service_name = bucket["service"].replace("-", "_").upper()
@@ -832,7 +832,7 @@ def main():
                 else:
                     env_var = f"{service_name.replace('_SERVICE', '')}_GCS_BUCKET_TEST"
                 logger.info(f"  {env_var}={bucket['name']}")
-            logger.info()
+            logger.info("")
 
         sys.exit(0)
 
@@ -892,7 +892,7 @@ def main():
             failed += 1
 
     # Print summary
-    logger.info()
+    logger.info("")
     logger.info("=" * 70)
     logger.info("Summary")
     logger.info("=" * 70)
@@ -902,7 +902,7 @@ def main():
         logger.info(f"  Created: {created}")
         logger.info(f"  Already existed: {skipped}")
         logger.info(f"  Failed: {failed}")
-    logger.info()
+    logger.info("")
 
     if failed > 0:
         logger.info("Some buckets failed to create. Check permissions and try again.")
