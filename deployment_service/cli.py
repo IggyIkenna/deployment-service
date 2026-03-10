@@ -102,28 +102,30 @@ def cli(
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    obj: dict[str, object] = cast(dict[str, object], ctx.obj)
+
     # Set configuration directory
     if config_dir:
-        ctx.obj["config_dir"] = config_dir
+        obj["config_dir"] = config_dir
     else:
         try:
-            ctx.obj["config_dir"] = str(get_config_dir())
+            obj["config_dir"] = str(get_config_dir())
         except click.ClickException:
             # Allow CLI to work without config dir for some commands
-            ctx.obj["config_dir"] = None
+            obj["config_dir"] = None
 
     # Set cloud provider
     env_cloud = (_cli_config.cloud_provider or "gcp").lower()
     cloud_provider: str = cloud or env_cloud or "gcp"
-    ctx.obj["cloud"] = cloud_provider
+    obj["cloud"] = cloud_provider
 
     # Set project ID
-    ctx.obj["project_id"] = project_id or cast(str | None, _cli_config.gcp_project_id)
+    obj["project_id"] = project_id or cast(str | None, _cli_config.gcp_project_id)
 
     if verbose:
         logger.info("Cloud provider: %s", cloud_provider)
-        logger.info("Config directory: %s", cast(dict[str, object], ctx.obj)["config_dir"])
-        logger.info("Project ID: %s", cast(dict[str, object], ctx.obj)["project_id"])
+        logger.info("Config directory: %s", obj["config_dir"])
+        logger.info("Project ID: %s", obj["project_id"])
 
 
 # =============================================================================
