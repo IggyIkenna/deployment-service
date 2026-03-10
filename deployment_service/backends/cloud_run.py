@@ -91,12 +91,15 @@ class CloudRunBackend(ComputeBackend):
         try:
             job = self.jobs_client.get_job(name=self.job_path)
             # Use direct attribute access: run_v2 protobuf stubs have typed fields.
-            # job.template: ExecutionTemplate, .template: TaskTemplate, .containers: MutableSequence[Container]
+            # job.template: ExecutionTemplate, .template: TaskTemplate,
+            # .containers: MutableSequence[Container]
             job_template: run_v2.ExecutionTemplate | None = (
                 job.template if hasattr(job, "template") else None
             )
             execution_template: run_v2.TaskTemplate | None = (
-                job_template.template if job_template and hasattr(job_template, "template") else None
+                job_template.template
+                if job_template and hasattr(job_template, "template")
+                else None
             )
             containers: list[run_v2.Container] | None = (
                 list(execution_template.containers)
@@ -107,7 +110,9 @@ class CloudRunBackend(ComputeBackend):
             env: list[run_v2.EnvVar] = []
             if containers:
                 container = containers[0]
-                container_env: list[run_v2.EnvVar] = list(container.env) if hasattr(container, "env") else []
+                container_env: list[run_v2.EnvVar] = (
+                    list(container.env) if hasattr(container, "env") else []
+                )
                 if container_env:
                     env = container_env
 
@@ -136,7 +141,7 @@ class CloudRunBackend(ComputeBackend):
 
         # Preserve template ordering; replace values when overridden.
         for env in template_env:
-            name = getattr(env, "name", None)
+            name: str | None = cast(str | None, getattr(env, "name", None))
             if not name:
                 continue
             template_names.add(name)
