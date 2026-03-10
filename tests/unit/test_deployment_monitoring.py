@@ -551,3 +551,13 @@ def test_final_status_failed_when_shards_fail() -> None:
         )
 
     assert state.status == DeploymentStatus.FAILED
+
+
+def test_rate_limiter_logs_every_100_requests() -> None:
+    """Cover the 'log every 100 requests' branch in RateLimiter."""
+    from deployment_service.deployment.rate_limiter import RateLimiter
+
+    rl = RateLimiter(requests_per_second=1_000_000.0)  # Very high rate so no sleep
+    for _ in range(100):
+        rl.acquire()
+    assert rl._request_count == 100

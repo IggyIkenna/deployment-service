@@ -416,3 +416,15 @@ class TestShardBuilderEdgeCases:
         id1 = build_shard_id(shard, index=0)
         id2 = build_shard_id(shard, index=0)
         assert id1 == id2
+
+
+def test_build_shard_args_shlex_fallback():
+    """Test that invalid shlex syntax falls back to simple split (lines 158-160)."""
+    from deployment_service.shard_builder import build_shard_args
+
+    shard = {"dimensions": {"date": "2024-01-01"}}
+    service_config: dict = {"cli_args": {}, "cli_flags": {}, "cli_defaults": {}}
+    # Unclosed quote causes shlex.split to raise ValueError → fallback to .split()
+    args = build_shard_args(shard, service_config, extra_options={"extra_args": '--flag "unclosed'})
+    # Falls back to split(" "), so args should contain the raw tokens
+    assert "--flag" in args
