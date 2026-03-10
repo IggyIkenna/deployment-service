@@ -1,45 +1,64 @@
 #!/usr/bin/env bash
 #
-# setup-pubsub.sh — Create all required GCP Pub/Sub topics and subscriptions
+# setup-pubsub.sh — Create all required messaging topics and subscriptions
+#
+# GCP: Pub/Sub topics + pull subscriptions (idempotent)
+# AWS: SNS topics + SQS queues + SNS→SQS subscriptions (idempotent)
 #
 # Topics are the system-of-record message bus for the unified trading platform.
 # Each service that publishes defines a topic; each downstream consumer gets
-# a pull subscription. Idempotent — existing topics/subscriptions are preserved.
+# a pull subscription.
 #
 # Usage:
-#   ./setup-pubsub.sh [project_id] [--dry-run] [--list-only]
+#   GCP_PROJECT_ID=central-element-323112 ./setup-pubsub.sh [--cloud gcp|aws] [--dry-run]
+#   AWS_REGION=ap-northeast-1 ./setup-pubsub.sh --cloud aws [--dry-run]
 #
 # Options:
-#   --dry-run     Print what would be created without creating anything
-#   --list-only   List existing topics in the project
-#
-# AWS SNS/SQS equivalents: see setup-aws-messaging.sh (blocked — no AWS creds)
+#   --cloud gcp|aws   Cloud provider (default: gcp)
+#   --dry-run         Print what would be created without creating anything
+#   --list-only       List existing topics in the project (GCP only)
 #
 
 set -euo pipefail
 
 # Parse flags first; collect non-flag args for positional project_id
+CLOUD="gcp"
 DRY_RUN=false
 LIST_ONLY=false
 _POS_ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        --dry-run) DRY_RUN=true ;;
-        --list-only) LIST_ONLY=true ;;
-        *) _POS_ARGS+=("$arg") ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cloud) CLOUD="$2"; shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        --list-only) LIST_ONLY=true; shift ;;
+        *) _POS_ARGS+=("$1"); shift ;;
     esac
 done
 
-# Project ID: env var > first positional arg > gcloud default
-PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project)}}"
+# Project / region
+PROJECT_ID="${GCP_PROJECT_ID:-${_POS_ARGS[0]:-$(gcloud config get-value project 2>/dev/null || echo '')}}"
+AWS_REGION="${AWS_REGION:-ap-northeast-1}"
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'UNKNOWN')}"
 
 echo "================================================="
-echo "Unified Trading System — Pub/Sub Setup"
+echo "Unified Trading System — Messaging Setup"
 echo "================================================="
-echo "Project:   $PROJECT_ID"
+echo "Cloud:     $CLOUD"
+if [[ "$CLOUD" == "gcp" ]]; then
+    echo "Project:   $PROJECT_ID"
+else
+    echo "Region:    $AWS_REGION"
+    echo "Account:   $AWS_ACCOUNT_ID"
+fi
 echo "Dry-run:   $DRY_RUN"
 echo "================================================="
 echo
+
+# Route to cloud-specific implementation
+if [[ "$CLOUD" == "aws" ]]; then
+    _run_aws_messaging
+    exit $?
+fi
 
 gcloud config set project "$PROJECT_ID" --quiet
 
@@ -94,6 +113,79 @@ TOPIC_REGISTRY=(
     "system-health-events|7|system-health-alerting,system-health-monitor|7"
     "audit-log-events|30|audit-log-sink|30"
 )
+
+# ---------------------------------------------------------------------------
+# AWS SNS + SQS implementation
+# ---------------------------------------------------------------------------
+_run_aws_messaging() {
+    if ! command -v aws &>/dev/null; then
+        echo "[BLOCKED] AWS CLI not installed. Install: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html"
+        return 1
+    fi
+    if ! aws sts get-caller-identity &>/dev/null; then
+        echo "[BLOCKED] No AWS credentials. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY."
+        return 1
+    fi
+
+    local created_topics=0 skipped_topics=0 created_queues=0 skipped_queues=0 errors=0
+
+    for entry in "${TOPIC_REGISTRY[@]}"; do
+        IFS='|' read -r topic_name _retention subscriptions _sub_retention <<< "$entry"
+        local sns_name="trading-${topic_name}"
+        echo "Topic: $sns_name"
+
+        # Create SNS topic (idempotent — returns existing ARN if exists)
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo "  [DRY]  sns topic: $sns_name"
+        else
+            local topic_arn
+            topic_arn=$(aws sns create-topic \
+                --name "$sns_name" \
+                --region "$AWS_REGION" \
+                --output text --query 'TopicArn' 2>&1) || { echo "  [ERROR] sns create-topic $sns_name"; ((errors++)) || true; continue; }
+            echo "  [OK] sns: $topic_arn"
+            ((created_topics++)) || true
+
+            # Create SQS queue per subscriber and subscribe to SNS
+            IFS=',' read -ra sub_list <<< "$subscriptions"
+            for sub in "${sub_list[@]}"; do
+                [[ -z "$sub" ]] && continue
+                local queue_name="trading-${sub}"
+                local queue_url
+                queue_url=$(aws sqs create-queue \
+                    --queue-name "$queue_name" \
+                    --region "$AWS_REGION" \
+                    --output text --query 'QueueUrl' 2>&1) || { echo "    [ERROR] sqs create-queue $queue_name"; ((errors++)) || true; continue; }
+                local queue_arn
+                queue_arn=$(aws sqs get-queue-attributes \
+                    --queue-url "$queue_url" \
+                    --attribute-names QueueArn \
+                    --region "$AWS_REGION" \
+                    --output text --query 'Attributes.QueueArn' 2>&1)
+                aws sqs set-queue-attributes \
+                    --queue-url "$queue_url" \
+                    --attributes "{\"Policy\":\"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":{\\\"Service\\\":\\\"sns.amazonaws.com\\\"},\\\"Action\\\":\\\"sqs:SendMessage\\\",\\\"Resource\\\":\\\"$queue_arn\\\",\\\"Condition\\\":{\\\"ArnEquals\\\":{\\\"aws:SourceArn\\\":\\\"$topic_arn\\\"}}}]}\"}" \
+                    --region "$AWS_REGION" &>/dev/null || true
+                aws sns subscribe \
+                    --topic-arn "$topic_arn" \
+                    --protocol sqs \
+                    --notification-endpoint "$queue_arn" \
+                    --region "$AWS_REGION" &>/dev/null || true
+                echo "    [OK] sqs: $queue_name → $sns_name"
+                ((created_queues++)) || true
+            done
+        fi
+        echo
+    done
+
+    echo "================================================="
+    echo "Summary (AWS)"
+    echo "================================================="
+    echo "SNS Topics: created=$created_topics"
+    echo "SQS Queues: created=$created_queues"
+    echo "Errors:     $errors"
+    [[ "$errors" -gt 0 ]] && return 1 || return 0
+}
 
 created_topics=0
 skipped_topics=0
