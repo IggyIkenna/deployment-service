@@ -217,7 +217,7 @@ class MaintenanceHandler:
         failed_count = 0
 
         for deployment in stale_deployments:
-            deployment_id = cast(str, deployment.get("deployment_id", ""))
+            deployment_id = cast(str, deployment.get("deployment_id") or "")
             try:
                 success = self._perform_stale_fix(deployment_id)
                 if success:
@@ -264,7 +264,7 @@ class MaintenanceHandler:
 
             # Get service configuration
             service_info = self.deployment_service.get_service_info(service)
-            config = service_info.get("config", {})
+            config = service_info.get("config") or {}
 
             # Find bucket configurations
             bucket_configs = self._extract_bucket_configs(
@@ -518,7 +518,7 @@ class MaintenanceHandler:
         """
         # Get failed shards
         status = self.status_service.get_deployment_status(deployment_id)
-        shards = cast("list[dict[str, object]]", status.get("shards", []))
+        shards = cast("list[dict[str, object]]", status.get("shards") or [])
         failed_shards = [s for s in shards if s.get("status") == "failed"]
 
         if not failed_shards:
@@ -529,7 +529,7 @@ class MaintenanceHandler:
 
         success_count = 0
         for shard in failed_shards:
-            shard_id = cast(str, shard.get("shard_id", ""))
+            shard_id = cast(str, shard.get("shard_id") or "")
 
             for _attempt in range(max_retries):
                 success = self._perform_shard_retry(deployment_id, shard_id)

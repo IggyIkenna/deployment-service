@@ -396,7 +396,7 @@ def check_feature_groups_detailed(  # noqa: C901
             click.echo(f"Scanning {cat}...")
 
         # Build bucket name from SERVICE_GCS_CONFIGS
-        bucket_template = gcs_config.get("bucket_template", "")
+        bucket_template = gcs_config.get("bucket_template") or ""
 
         try:
             bucket = bucket_template.format(

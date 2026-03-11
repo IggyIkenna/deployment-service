@@ -39,7 +39,7 @@ def _load_json(path: Path) -> dict[str, object]:
 
 
 def _get_manifest_entities(workspace_manifest: dict[str, object]) -> dict[str, str]:
-    repositories = workspace_manifest.get("repositories", {})
+    repositories = workspace_manifest.get("repositories") or {}
     if not isinstance(repositories, dict):
         return {}
     entities: dict[str, str] = {}
@@ -71,7 +71,7 @@ def validate_runtime_topology(  # noqa: C901
         if section not in topology:
             violations.append(f"Missing required section '{section}' in runtime-topology.yaml")
 
-    services = topology.get("services", {})
+    services = topology.get("services") or {}
     if not isinstance(services, dict):
         violations.append("Section 'services' must be a mapping")
         services = {}
@@ -82,7 +82,7 @@ def validate_runtime_topology(  # noqa: C901
                 f"Unknown service in runtime topology: '{service_name}' not found in workspace-manifest"  # noqa: E501
             )
 
-    deployment_profiles = topology.get("deployment_profiles", {})
+    deployment_profiles = topology.get("deployment_profiles") or {}
     if not isinstance(deployment_profiles, dict):
         deployment_profiles = {}
     valid_transports = set()
@@ -90,7 +90,7 @@ def validate_runtime_topology(  # noqa: C901
         if not isinstance(profile_cfg, dict):
             violations.append(f"deployment_profiles.{profile_name} must be a mapping")
             continue
-        allowed = profile_cfg.get("allowed_transports", [])
+        allowed = profile_cfg.get("allowed_transports") or []
         if not isinstance(allowed, list):
             violations.append(
                 f"deployment_profiles.{profile_name}.allowed_transports must be a list"
@@ -98,7 +98,7 @@ def validate_runtime_topology(  # noqa: C901
             continue
         valid_transports.update(str(item) for item in allowed)
 
-    service_flows = topology.get("service_flows", [])
+    service_flows = topology.get("service_flows") or []
     if not isinstance(service_flows, list):
         violations.append("Section 'service_flows' must be a list")
         service_flows = []
@@ -107,14 +107,14 @@ def validate_runtime_topology(  # noqa: C901
         if not isinstance(flow, dict):
             violations.append(f"service_flows[{idx}] must be a mapping")
             continue
-        producer = str(flow.get("producer", ""))
-        consumer = str(flow.get("consumer", ""))
+        producer = str(flow.get("producer") or "")
+        consumer = str(flow.get("consumer") or "")
         if producer not in entities:
             violations.append(f"service_flows[{idx}] unknown producer '{producer}'")
         if consumer not in entities:
             violations.append(f"service_flows[{idx}] unknown consumer '{consumer}'")
 
-        modes = flow.get("modes", {})
+        modes = flow.get("modes") or {}
         if not isinstance(modes, dict):
             violations.append(f"service_flows[{idx}].modes must be a mapping")
             continue
@@ -140,7 +140,7 @@ def validate_runtime_topology(  # noqa: C901
                             f"service_flows[{idx}].modes.{mode_name}.{profile_name} must be a mapping"  # noqa: E501
                         )
                         continue
-                    transport = str(profile_cfg.get("transport", ""))
+                    transport = str(profile_cfg.get("transport") or "")
                     allowed = deployment_profiles.get(profile_name, {}).get(
                         "allowed_transports", []
                     )
@@ -149,7 +149,7 @@ def validate_runtime_topology(  # noqa: C901
                             f"service_flows[{idx}] transport '{transport}' is not allowed in profile '{profile_name}'"  # noqa: E501
                         )
 
-    api_interactions = topology.get("api_interactions", [])
+    api_interactions = topology.get("api_interactions") or []
     if not isinstance(api_interactions, list):
         violations.append("Section 'api_interactions' must be a list")
         api_interactions = []
@@ -157,8 +157,8 @@ def validate_runtime_topology(  # noqa: C901
         if not isinstance(edge, dict):
             violations.append(f"api_interactions[{idx}] must be a mapping")
             continue
-        caller = str(edge.get("caller", ""))
-        callee = str(edge.get("callee", ""))
+        caller = str(edge.get("caller") or "")
+        callee = str(edge.get("callee") or "")
         if caller not in entities:
             violations.append(f"api_interactions[{idx}] unknown caller '{caller}'")
         if callee not in entities:
@@ -168,9 +168,9 @@ def validate_runtime_topology(  # noqa: C901
                 f"api_interactions[{idx}] callee '{callee}' must be type 'api-service'"
             )
 
-    storage_systems = topology.get("storage_systems", {})
+    storage_systems = topology.get("storage_systems") or {}
     valid_stores = set(storage_systems.keys()) if isinstance(storage_systems, dict) else set()
-    storage_flows = topology.get("storage_flows", [])
+    storage_flows = topology.get("storage_flows") or []
     if not isinstance(storage_flows, list):
         violations.append("Section 'storage_flows' must be a list")
         storage_flows = []
@@ -178,8 +178,8 @@ def validate_runtime_topology(  # noqa: C901
         if not isinstance(flow, dict):
             violations.append(f"storage_flows[{idx}] must be a mapping")
             continue
-        actor = str(flow.get("actor", ""))
-        store = str(flow.get("store", ""))
+        actor = str(flow.get("actor") or "")
+        store = str(flow.get("store") or "")
         if actor and actor not in entities and actor != "unified-domain-client":
             violations.append(f"storage_flows[{idx}] unknown actor '{actor}'")
         if store not in valid_stores:

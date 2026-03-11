@@ -20,6 +20,9 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import httpx
+from unified_config_interface import UnifiedCloudConfig
+
+from deployment_service.backends import _gcp_sdk as _gcp_sdk_mod
 
 from .deployment_config import DeploymentConfig
 from .events import ShardEvent, VMEventType
@@ -44,8 +47,6 @@ class LiveDeploymentRequest:
 
     def __post_init__(self) -> None:
         if not self.region:
-            from unified_config_interface import UnifiedCloudConfig
-
             cfg = UnifiedCloudConfig()
             self.region = str(cfg.gcs_region) if hasattr(cfg, "gcs_region") else "us-central1"
         if not (0 <= self.traffic_split_pct <= 100):
@@ -277,14 +278,13 @@ class LiveDeployer:
         Falls back to a standard Cloud Run URL pattern if API unavailable.
         """
         try:
-            from deployment_service.backends._gcp_sdk import run_v2  # type: ignore[import]
-
+            run_v2 = _gcp_sdk_mod.run_v2
             client = run_v2.ServicesClient()
             name = f"projects/{self._project_id}/locations/{region}/services/{service}"
             svc: object = client.get_service(name=name)
             uri: object = getattr(svc, "uri", None)
             return str(uri) if uri is not None else ""
-        except Exception:
+        except (AttributeError, RuntimeError, OSError, ValueError, TypeError):
             # Fallback: return empty string — health gate will be skipped
             return ""
 
@@ -302,7 +302,7 @@ class LiveDeployer:
         Raises OSError / RuntimeError on failure.
         """
         try:
-            from deployment_service.backends._gcp_sdk import run_v2  # type: ignore[import]
+            run_v2 = _gcp_sdk_mod.run_v2
         except ImportError as exc:
             raise RuntimeError(f"GCP SDK not available: {exc}") from exc
 
@@ -354,7 +354,7 @@ class LiveDeployer:
     ) -> str | None:
         """Route 100% traffic back to target_revision."""
         try:
-            from deployment_service.backends._gcp_sdk import run_v2  # type: ignore[import]
+            run_v2 = _gcp_sdk_mod.run_v2
         except ImportError as exc:
             raise RuntimeError(f"GCP SDK not available: {exc}") from exc
 

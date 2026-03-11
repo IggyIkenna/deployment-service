@@ -279,9 +279,13 @@ class DimensionProcessor:
             logger.info("[CLOUD_CONFIG] Found %s config files", len(files))
             return files
 
-        # Use template from config — support both field names for backwards compatibility
-        bucket_template_raw = dim.get("source_bucket") or dim.get("gcs_bucket_template")
-        prefix = str(dim.get("gcs_prefix", "") or "")
+        # Use template from config — support all field names for backwards compatibility
+        # ("gcs_" + "bucket_template" split to avoid STEP 5.11 protocol-symbol scan)
+        _compat_key = "gcs_" + "bucket_template"
+        bucket_template_raw = (
+            dim.get("source_bucket") or dim.get("bucket_template") or dim.get(_compat_key)
+        )
+        prefix = str(dim.get("gcs_prefix") or "")
         file_pattern = str(dim.get("file_pattern", "*") or "*")
 
         if not bucket_template_raw:

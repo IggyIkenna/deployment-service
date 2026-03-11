@@ -674,7 +674,7 @@ class StateManager:
                     "service": cast(str, data.get("service", "unknown")),
                     "compute_type": cast(str, data.get("compute_type", "unknown")),
                     "status": effective_status,
-                    "created_at": cast(str, data.get("created_at", "")),
+                    "created_at": cast(str, data.get("created_at") or ""),
                     "total_shards": cast(int, data.get("total_shards", 0)),
                     "progress": f"{len([s for s in shards if s.get('status') == 'succeeded'])}/{cast(int, data.get('total_shards', 0))}",  # noqa: E501
                     "tag": cast("str | None", data.get("tag")),  # Human-readable description
@@ -695,7 +695,7 @@ class StateManager:
                     deployments.append(result)
 
         # Sort by creation time (newest first)
-        deployments.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
+        deployments.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
 
         return deployments[:limit]
 
