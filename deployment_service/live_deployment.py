@@ -301,11 +301,7 @@ class LiveDeployer:
         Returns the name of the previous revision (for rollback).
         Raises OSError / RuntimeError on failure.
         """
-        try:
-            run_v2 = _gcp_sdk_mod.run_v2
-        except ImportError as exc:
-            raise RuntimeError(f"GCP SDK not available: {exc}") from exc
-
+        run_v2 = _gcp_sdk_mod.run_v2
         client = run_v2.ServicesClient()
         name = f"projects/{self._project_id}/locations/{region}/services/{service}"
 
@@ -354,11 +350,7 @@ class LiveDeployer:
         target_revision: str | None,
     ) -> str | None:
         """Route 100% traffic back to target_revision."""
-        try:
-            run_v2 = _gcp_sdk_mod.run_v2
-        except ImportError as exc:
-            raise RuntimeError(f"GCP SDK not available: {exc}") from exc
-
+        run_v2 = _gcp_sdk_mod.run_v2
         client = run_v2.ServicesClient()
         name = f"projects/{self._project_id}/locations/{region}/services/{service}"
         svc: object = client.get_service(name=name)
