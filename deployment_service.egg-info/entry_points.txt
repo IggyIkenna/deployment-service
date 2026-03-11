@@ -1,2 +1,0 @@
-[console_scripts]
-deploy-shards = deployment_service.cli:main
