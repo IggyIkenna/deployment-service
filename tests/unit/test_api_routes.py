@@ -83,7 +83,7 @@ class TestShardsCalculateRoute:
     def test_returns_500_on_calculator_error(self, client):
         # Patch the source module class (lazy import inside function)
         with patch(
-            "deployment_service.calculators.shard_calculator.ShardCalculator",
+            "deployment_service.shard_calculator.ShardCalculator",
             side_effect=OSError("config not found"),
         ):
             resp = client.post(
@@ -95,9 +95,9 @@ class TestShardsCalculateRoute:
 
     def test_returns_shards_on_success(self, client):
         mock_calc = MagicMock()
-        mock_calc.calculate.return_value = [{"date": "2024-01-01"}]
+        mock_calc.calculate_shards.return_value = [{"date": "2024-01-01"}]
         with patch(
-            "deployment_service.calculators.shard_calculator.ShardCalculator",
+            "deployment_service.shard_calculator.ShardCalculator",
             return_value=mock_calc,
         ):
             resp = client.post(
@@ -178,7 +178,7 @@ class TestDeploymentsRoute:
 class TestDataStatusRoute:
     def test_data_status_error_returns_500(self, client):
         with patch(
-            "deployment_service.data_status.checker.DataStatusChecker",
+            "deployment_service.catalog.DataCatalog",
             side_effect=OSError("db error"),
         ):
             resp = client.get(
@@ -188,11 +188,11 @@ class TestDataStatusRoute:
         assert resp.status_code == 500
 
     def test_data_status_success(self, client):
-        mock_checker = MagicMock()
-        mock_checker.check.return_value = {"completeness": 0.95}
+        mock_catalog = MagicMock()
+        mock_catalog.catalog_service.return_value.to_dict.return_value = {"completeness": 0.95}
         with patch(
-            "deployment_service.data_status.checker.DataStatusChecker",
-            return_value=mock_checker,
+            "deployment_service.catalog.DataCatalog",
+            return_value=mock_catalog,
         ):
             resp = client.get(
                 "/api/v1/data-status",

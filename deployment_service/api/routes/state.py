@@ -117,13 +117,11 @@ class RollbackRequest(BaseModel):
 async def calculate_shards(request: CalculateShardsRequest) -> dict[str, object]:
     """Calculate deployment shards for a service."""
     try:
-        from deployment_service.calculators.shard_calculator import ShardCalculator
+        from deployment_service.shard_calculator import ShardCalculator
 
-        calculator = ShardCalculator(
-            service=request.service,
-            config_dir=request.config_dir,
-        )
+        calculator = ShardCalculator(config_dir=request.config_dir)
         kwargs: dict[str, object] = {
+            "service": request.service,
             "max_shards": request.max_shards,
             "respect_start_dates": request.respect_start_dates,
             "skip_existing": request.skip_existing,
@@ -140,7 +138,7 @@ async def calculate_shards(request: CalculateShardsRequest) -> dict[str, object]
         if request.extra_filters:
             kwargs.update(request.extra_filters)
 
-        shards = calculator.calculate(**kwargs)
+        shards = calculator.calculate_shards(**kwargs)
         return {"shards": shards}
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("calculate_shards failed for %s: %s", request.service, e)
@@ -205,22 +203,15 @@ async def get_data_status(
 ) -> dict[str, object]:
     """Query data status for a service."""
     try:
-        from deployment_service.data_status.checker import DataStatusChecker
+        from deployment_service.catalog import DataCatalog
 
-        checker = DataStatusChecker(service=service)
-        result = checker.check(
-            start_date=start_date,
-            end_date=end_date,
-            mode=mode,
-            show_missing=show_missing,
-            check_venues=check_venues,
-            check_data_types=check_data_types,
-            check_feature_groups=check_feature_groups,
-            check_timeframes=check_timeframes,
-            categories=categories,
-            venues=venues,
+        catalog = DataCatalog()
+        result = catalog.catalog_service(
+            service=service,
+            start_date=start_date,  # type: ignore[arg-type]
+            end_date=end_date,  # type: ignore[arg-type]
         )
-        return cast(dict[str, object], result)
+        return cast(dict[str, object], result.to_dict())
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_data_status failed for %s: %s", service, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
