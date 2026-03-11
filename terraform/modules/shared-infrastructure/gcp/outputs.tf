@@ -92,14 +92,14 @@ output "deployment_orchestration_bucket" {
 # Service Account Outputs
 # =============================================================================
 
-output "batch_processing_service_account_email" {
-  description = "Email of the batch processing service account"
-  value       = var.create_service_accounts ? google_service_account.batch_processing[0].email : ""
+output "env_service_account_email" {
+  description = "Email of the environment-specific data service account"
+  value       = var.create_service_accounts ? google_service_account.env_sa[0].email : ""
 }
 
-output "batch_processing_service_account_name" {
-  description = "Name of the batch processing service account"
-  value       = var.create_service_accounts ? google_service_account.batch_processing[0].name : ""
+output "env_service_account_name" {
+  description = "Name of the environment-specific data service account"
+  value       = var.create_service_accounts ? google_service_account.env_sa[0].name : ""
 }
 
 # =============================================================================

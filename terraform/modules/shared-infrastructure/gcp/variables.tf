@@ -56,3 +56,20 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "env" {
+  description = "Deployment environment used in bucket names (staging, prod, or development)"
+  type        = string
+  default     = "prod"
+
+  validation {
+    condition     = contains(["staging", "prod", "development"], var.env)
+    error_message = "env must be one of: staging, prod, development"
+  }
+}
+
+variable "cross_env_read_sa_emails" {
+  description = "Service account emails granted objectViewer on this env's data buckets. Used to give staging-sa read access to prod buckets without duplicating data."
+  type        = list(string)
+  default     = []
+}

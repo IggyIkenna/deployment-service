@@ -161,6 +161,7 @@ def get_all_required_buckets(
     config_dir: Path,
     cloud: str,
     project_id: str,
+    env: str = "prod",
     service_filter: str | None = None,
     include_test: bool = False,
     test_only: bool = False,
@@ -208,7 +209,7 @@ def get_all_required_buckets(
             if not categories:
                 # Shared bucket - resolve without category
                 bucket_name = resolve_bucket_name(
-                    bucket_template, "", project_id, cloud, cloud_config
+                    bucket_template, "", project_id, cloud, cloud_config, env
                 )
 
                 if bucket_name and bucket_name not in seen_buckets:
@@ -243,7 +244,7 @@ def get_all_required_buckets(
                 # Category-specific buckets
                 for category in categories:
                     bucket_name = resolve_bucket_name(
-                        bucket_template, category, project_id, cloud, cloud_config
+                        bucket_template, category, project_id, cloud, cloud_config, env
                     )
 
                     if bucket_name and bucket_name not in seen_buckets:
@@ -290,7 +291,7 @@ def get_all_required_buckets(
 
             for category in categories:
                 bucket_name = resolve_bucket_name(
-                    bucket_template, category, project_id, cloud, cloud_config
+                    bucket_template, category, project_id, cloud, cloud_config, env
                 )
 
                 if bucket_name and bucket_name not in seen_buckets:
@@ -360,7 +361,7 @@ def get_service_categories(service_name: str) -> list[str]:
 
 
 def resolve_bucket_name(
-    template: str, category: str, project_id: str, cloud: str, cloud_config: dict
+    template: str, category: str, project_id: str, cloud: str, cloud_config: dict, env: str = "prod"
 ) -> str | None:
     """Resolve a bucket name from template."""
     cat_lower = category.lower()
@@ -375,14 +376,15 @@ def resolve_bucket_name(
         name = template.replace("{category_lower}", cat_lower)
         name = name.replace("{project_id}", project_id)
         name = name.replace("{domain}", cat_lower)
+        name = name.replace("{env}", env)
         return name
     else:  # aws
         # Convert GCP naming to AWS naming
-        return convert_to_aws_bucket_name(template, cat_lower, project_id, cloud_config)
+        return convert_to_aws_bucket_name(template, cat_lower, project_id, cloud_config, env)
 
 
 def convert_to_aws_bucket_name(
-    gcp_template: str, category: str, account_id: str, cloud_config: dict
+    gcp_template: str, category: str, account_id: str, cloud_config: dict, env: str = "prod"
 ) -> str:
     """Convert a GCP bucket template to AWS S3 bucket name."""
     config = load_bucket_config(get_config_dir())
@@ -391,11 +393,15 @@ def convert_to_aws_bucket_name(
     # Find matching pattern in mappings
     for pattern, template in mappings.items():
         if pattern in gcp_template:
-            return template.replace("{category}", category).replace("{account_id}", account_id)
+            return (
+                template.replace("{category}", category)
+                .replace("{account_id}", account_id)
+                .replace("{env}", env)
+            )
 
     # Fallback: replace default project with account_id
     defaults = config["defaults"]["gcp"]
-    return gcp_template.replace(defaults["project_id"], account_id)
+    return gcp_template.replace(defaults["project_id"], account_id).replace("{env}", env)
 
 
 def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) -> list[dict]:
@@ -674,6 +680,12 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--cloud", choices=["gcp", "aws"], required=True, help="Cloud provider")
+    parser.add_argument(
+        "--env",
+        choices=["staging", "prod", "development"],
+        default=None,
+        help="Deployment environment for bucket naming (default: DEPLOYMENT_ENV env var or 'prod')",
+    )
     parser.add_argument("--service", help="Only create buckets for specific service")
     parser.add_argument("--project-id", help="GCP project ID or AWS account ID")
     parser.add_argument("--region", help="Region for bucket creation")
@@ -700,6 +712,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Resolve env: CLI arg > DEPLOYMENT_ENV env var > default "prod"
+    from deployment_service.deployment_config import DeploymentConfig
+
+    env = args.env or DeploymentConfig().deployment_env
 
     # Validate mutually exclusive options
     if args.test_only and not args.include_test:
@@ -746,7 +763,8 @@ def main():
         config_dir,
         args.cloud,
         project_id,
-        args.service,
+        env=env,
+        service_filter=args.service,
         include_test=args.include_test or args.test_only,
         test_only=args.test_only,
     )
