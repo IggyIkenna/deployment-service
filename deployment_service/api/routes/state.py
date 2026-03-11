@@ -211,7 +211,7 @@ async def get_data_status(
             start_date=start_date,  # type: ignore[arg-type]
             end_date=end_date,  # type: ignore[arg-type]
         )
-        return cast(dict[str, object], result.to_dict())
+        return result.to_dict()
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_data_status failed for %s: %s", service, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
