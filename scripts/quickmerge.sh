@@ -11,15 +11,21 @@
 # Usage:
 #   ./scripts/quickmerge.sh "commit message"
 #   ./scripts/quickmerge.sh "commit message" --files "path1 path2 path3"
-#   ./scripts/quickmerge.sh "commit message" --dep-branch "my-feature"
+#   ./scripts/quickmerge.sh "commit message" --dep-branch "my-feature"  # human-only; overrides manifest branch
 #   ./scripts/quickmerge.sh "commit message" --to-staging
+#
+# Branch resolution (no --dep-branch):
+#   1. Read active_feature_branch from unified-trading-pm/workspace-manifest.json
+#   2. Fallback to auto/YYYYMMDD-HHMMSS-$$ if manifest has no entry
+#   Currently: active_feature_branch = live-defi-rollout (set in manifest)
 #   ./scripts/quickmerge.sh "commit message" --quick
 #   ./scripts/quickmerge.sh "commit message" --skip-tests
 #   ./scripts/quickmerge.sh "commit message" --skip-typecheck
 #
 # Flags:
 #   --files "p1 p2"    Stage only these paths (multi-agent: avoid committing other agents' work)
-#   --dep-branch NAME  Branch isolation when dependencies have uncommitted changes (feature mode)
+#   --dep-branch NAME  HUMAN-ONLY. Branch isolation when deps have uncommitted changes that aren't yet
+#                      on main. Agents MUST NOT use this — they use active_feature_branch from manifest.
 #   --to-staging       Breaking change path: PR targets staging instead of main; checks staging lock.
 #                      dep-branch auto-derived from current git branch. Mutually exclusive with --dep-branch.
 #   --quick            Skip only act simulation (Stage 4); all other checks run
@@ -27,6 +33,8 @@
 #   --skip-typecheck   Pass --skip-typecheck to quality-gates.sh (skips basedpyright only)
 #   --skip-codex       Skip codex compliance check (Stage 3 §5). Human-only escape hatch; never use with --agent.
 #   --skip-preflight   Skip pre-flight audit (Stage 2). Human-only escape hatch; never use with --agent.
+#   --user-approved    Deprecated — Stage 0.3 is advisory-only; no gate to bypass.
+#                      Version bumps are GHA-only (semver-agent.yml). Kept for backwards compat.
 #
 # When to use --to-staging:
 #   feat!: / BREAKING CHANGE: commits that break downstream API contracts.
@@ -78,6 +86,8 @@ QUICK=false
 NO_PR=false
 SKIP_CODEX=""
 SKIP_PREFLIGHT=false
+USER_APPROVED=false
+AGENT_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -122,6 +132,14 @@ while [[ $# -gt 0 ]]; do
       SKIP_PREFLIGHT=true
       shift
       ;;
+    --user-approved)
+      USER_APPROVED=true
+      shift
+      ;;
+    --agent)
+      AGENT_MODE=true
+      shift
+      ;;
     *)
       COMMIT_MSG="$1"
       shift
@@ -129,7 +147,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# --agent implicitly skips tests (lightweight: lint+format+typecheck+codex only)
+[ "$AGENT_MODE" = true ] && SKIP_TESTS="--skip-tests"
+
 # ── FLAG VALIDATION ────────────────────────────────────────────────────────────
+# --dep-branch is HUMAN-ONLY. Agents must never pass it — they rely on active_feature_branch
+# from workspace-manifest.json. Fail loud so agents don't silently use the wrong branch.
+if [ "$AGENT_MODE" = true ] && [ -n "$DEP_BRANCH" ]; then
+  echo "❌ --dep-branch is not allowed in --agent mode."
+  echo "   Agents use active_feature_branch from workspace-manifest.json automatically."
+  echo "   Remove --dep-branch from your quickmerge call."
+  exit 1
+fi
+
 if [ "$TO_STAGING" = true ] && [ -n "$DEP_BRANCH" ]; then
   echo "❌ --to-staging and --dep-branch are mutually exclusive."
   echo "   --to-staging auto-derives the dep-branch from your current git branch."
@@ -159,7 +189,7 @@ if [ "$TO_STAGING" = false ] && [ "$NO_PR" = false ]; then
 fi
 
 # NOTE: Cursor rules sync was previously done here as Stage 0 (copy-based).
-# Rules are now symlinked (.cursor/rules/ -> unified-trading-pm/cursor-rules/)
+# Rules are now symlinked (.cursor/rules/ -> unified-trading-pm/.cursor/rules/)
 # so no sync step is needed — edits go directly to the git-tracked source.
 
 REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo "$REPO_ROOT")"
@@ -330,6 +360,56 @@ if [ "$NO_PR" != "true" ] && [ -z "$(git status --porcelain)" ] && git diff orig
 fi
 
 # ============================================================================
+# --- Stage 0.3: Major bump advisory (informational only — no blocking) ---
+# Version bumps are GHA-only. semver-agent.yml is the sole authority for
+# classifying PATCH/MINOR/MAJOR after QG passes on staging.
+# quickmerge.sh NEVER bumps versions and NEVER blocks on version concerns.
+# This stage only prints an advisory so the author is aware that semver-agent
+# will classify this commit as a potential MAJOR bump and may open an approval
+# issue if the repo is post-1.0.0.
+# ============================================================================
+echo "=========================================="
+echo "STAGE 0.3: Semver Advisory (informational — no blocking)"
+echo "=========================================="
+
+_FIRST_LINE_MSG=$(printf '%s' "$COMMIT_MSG" | head -n1)
+_IS_FEAT_BREAKING=false
+if printf '%s' "$_FIRST_LINE_MSG" | grep -qiE "^feat!(\(.*\))?:"; then
+  _IS_FEAT_BREAKING=true
+fi
+
+if [ "$_IS_FEAT_BREAKING" = "true" ]; then
+  # Read current version for informational display only
+  _CURRENT_VERSION=""
+  _REPO_LABEL="$REPO_NAME"
+  if [ -f "pyproject.toml" ]; then
+    _CURRENT_VERSION=$(grep -E '^version = ' pyproject.toml | head -1 | sed 's/version = "//;s/"//' 2>/dev/null || echo "")
+    _REPO_LABEL=$(grep -E '^name = ' pyproject.toml | head -1 | sed 's/name = "//;s/"//' 2>/dev/null || echo "$REPO_NAME")
+  elif [ -f "package.json" ] && command -v node &>/dev/null; then
+    _CURRENT_VERSION=$(node -e "console.log(require('./package.json').version)" 2>/dev/null || echo "")
+    _REPO_LABEL=$(node -e "console.log(require('./package.json').name)" 2>/dev/null || echo "$REPO_NAME")
+  fi
+
+  if [ -n "$_CURRENT_VERSION" ]; then
+    _MAJOR_COMPONENT=$(printf '%s' "$_CURRENT_VERSION" | cut -d. -f1)
+    if [ -n "$_MAJOR_COMPONENT" ] && [ "$_MAJOR_COMPONENT" -ge 1 ] 2>/dev/null; then
+      echo "[$REPO_NAME] ℹ️  Stage 0.3: feat!: on post-1.0.0 repo detected (current: $_CURRENT_VERSION)"
+      echo "[$REPO_NAME]    NOTE: Version bumps are handled by semver-agent.yml after QG passes on staging."
+      echo "[$REPO_NAME]    semver-agent will open a major-bump-approval issue for human sign-off."
+      echo "[$REPO_NAME]    No manual version changes needed — do NOT edit pyproject.toml version manually."
+    else
+      echo "[$REPO_NAME] ℹ️  Stage 0.3: feat!: on pre-1.0.0 repo ($_CURRENT_VERSION) — semver-agent will bump MINOR"
+    fi
+  else
+    echo "[$REPO_NAME] ℹ️  Stage 0.3: feat!: commit — semver-agent will classify version bump after QG on staging"
+  fi
+else
+  echo "[$REPO_NAME] ✅ Stage 0.3: not a feat!: commit — semver-agent will classify as MINOR or PATCH"
+fi
+
+echo ""
+
+# ============================================================================
 # STAGE 0.5: PM MANIFEST STALENESS CHECK
 # Fetches origin/main of unified-trading-pm; warns if local PM is behind remote.
 # In CI auto-pulls (ff-only); interactive mode warns and continues.
@@ -407,10 +487,16 @@ if [ -f "$MANIFEST_PATH" ]; then
       echo "Dependencies differ from main, but no --dep-branch specified."
       echo "Your local dependency changes are intentional — do NOT discard them."
       echo ""
-      echo "Use --dep-branch NAME to create a branch for your dependency changes,"
-      echo "then proceed. Quickmerge will cascade changes to the named branch:"
+      echo "── If you are a HUMAN developer ──────────────────────────────────────"
+      echo "Use --dep-branch NAME (human-only flag) to create a feature branch for"
+      echo "your dependency changes. Quickmerge will cascade to that named branch:"
       echo ""
       echo "  bash scripts/quickmerge.sh \"$COMMIT_MSG\" --dep-branch \"my-feature\""
+      echo ""
+      echo "── If you are an AGENT ────────────────────────────────────────────────"
+      echo "Do NOT use --dep-branch. Commit the dependency changes first (in the"
+      echo "dep repo) using the active_feature_branch from workspace-manifest.json,"
+      echo "then re-run quickmerge in this repo."
       echo ""
       echo "═══════════════════════════════════════════════════════"
       exit 1
@@ -627,137 +713,23 @@ fi
 echo ""
 
 # ============================================================================
-# STAGE 3.5: D3 CLOUD-AGNOSTIC GATE — STEP 5.10 + 5.11 (always runs)
-#
-# Inline re-enforcement of STEP 5.10 (direct cloud SDK imports) and STEP 5.11
-# (protocol-specific symbols) from quality-gates.sh.  Runs even when a repo
-# has no scripts/quality-gates.sh so the checks can never be silently skipped.
-# Hard-fails quickmerge if violations are found in Python source.
-# Allowed exceptions must carry a "# noqa: UCI-direct-sdk" comment and be
-# tracked in QUALITY_GATE_BYPASS_AUDIT.md at the workspace root.
-# ============================================================================
-echo "=========================================="
-echo "STAGE 3.5: D3 Cloud-Agnostic Gate (STEP 5.10 + 5.11)"
-echo "=========================================="
-echo ""
-
-# ── STEP 5.10 — No direct cloud SDK imports outside UCI providers ─────────────
-echo "[$REPO_NAME] STEP 5.10: Checking for direct cloud SDK imports..."
-CLOUD_SDK_VIOLATIONS=$(rg "^from google\.cloud|^import boto3|^import botocore" \
-  --type py \
-  --glob '!.venv*' --glob '!**/.venv*/**' \
-  --glob '!tests' --glob '!tests/**' \
-  --glob '!unified_cloud_interface/providers/**' \
-  -l . 2>/dev/null || :)
-if [ -n "$CLOUD_SDK_VIOLATIONS" ]; then
-  echo "[$REPO_NAME] ❌ STEP 5.10 FAILED — Direct cloud SDK imports detected."
-  echo "   Route all cloud access through unified_cloud_interface (UCI)."
-  echo "   Approved exceptions require '# noqa: UCI-direct-sdk' + entry in QUALITY_GATE_BYPASS_AUDIT.md."
-  echo "   Violating files:"
-  echo "$CLOUD_SDK_VIOLATIONS" | sed 's/^/     /'
-  exit 1
-else
-  echo "[$REPO_NAME] ✅ STEP 5.10: No direct cloud SDK imports"
-fi
-
-echo ""
-
-# ── STEP 5.11 — No protocol-specific symbols in service code ──────────────────
-echo "[$REPO_NAME] STEP 5.11: Checking for protocol-specific symbols..."
-PROTOCOL_VIOLATIONS=$(rg "CloudTarget|upload_to_gcs_batch|gcs_bucket|bigquery_dataset|StandardizedDomainCloudService" \
-  --type py \
-  --glob '!.venv*' --glob '!**/.venv*/**' \
-  --glob '!tests' --glob '!tests/**' \
-  -l . 2>/dev/null || :)
-if [ -n "$PROTOCOL_VIOLATIONS" ]; then
-  echo "[$REPO_NAME] ❌ STEP 5.11 FAILED — Protocol-specific symbols detected in service code."
-  echo "   Use get_data_sink() / get_event_bus() from UCI instead."
-  echo "   These symbols (CloudTarget, StandardizedDomainCloudService, etc.) are deleted; any"
-  echo "   match indicates re-introduction. Fix before merging."
-  echo "   Violating files:"
-  echo "$PROTOCOL_VIOLATIONS" | sed 's/^/     /'
-  exit 1
-else
-  echo "[$REPO_NAME] ✅ STEP 5.11: No protocol-specific symbols in service code"
-fi
-
-echo ""
-
-# ============================================================================
 # STAGE 4: ACT SIMULATION (skip with --quick)
 # ============================================================================
 echo "=========================================="
 echo "STAGE 4: Act Simulation"
 echo "=========================================="
 
-if [ "$QUICK" = true ]; then
-  echo "[$REPO_NAME] --quick: Skipping act simulation"
-else
-  # Auto-install act if not present (Linux or macOS)
-  if ! command -v act &>/dev/null; then
-    OS="$(uname -s)"
-    echo "[$REPO_NAME] act not found — installing for $OS..."
-    if [ "$OS" = "Darwin" ]; then
-      if command -v brew &>/dev/null; then
-        brew install act
-      else
-        echo "[$REPO_NAME] ❌ Homebrew not found. Install it first: https://brew.sh" >&2
-        exit 1
-      fi
-    elif [ "$OS" = "Linux" ]; then
-      INSTALL_DIR="${HOME}/.local/bin"
-      mkdir -p "$INSTALL_DIR"
-      curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$INSTALL_DIR"
-      export PATH="$INSTALL_DIR:$PATH"
-    else
-      echo "[$REPO_NAME] ❌ Unsupported OS ($OS) — install act manually: https://github.com/nektos/act" >&2
-      exit 1
-    fi
-  fi
-
-  if ! command -v act &>/dev/null; then
-    echo "[$REPO_NAME] ❌ act installation failed — cannot run CI simulation" >&2
-    exit 1
-  fi
-
-  ACT_SECRETS=""
-  RESOLVED_SECRETS_PATH=""
-  if [ -n "${ACT_SECRETS_FILE:-}" ] && [ -f "${ACT_SECRETS_FILE}" ]; then
-    ACT_SECRETS="--secret-file ${ACT_SECRETS_FILE}"
-    RESOLVED_SECRETS_PATH="${ACT_SECRETS_FILE}"
-  elif [ -f "${WORKSPACE_ROOT}/.act-secrets" ]; then
-    ACT_SECRETS="--secret-file ${WORKSPACE_ROOT}/.act-secrets"
-    RESOLVED_SECRETS_PATH="${WORKSPACE_ROOT}/.act-secrets"
-  elif [ -f ~/.secrets ]; then
-    ACT_SECRETS="--secret-file ~/.secrets"
-    RESOLVED_SECRETS_PATH="$HOME/.secrets"
-  fi
-  if act -j quality-gates --container-architecture linux/amd64 $ACT_SECRETS; then
+if [ "$QUICK" = true ] || [ "$AGENT_MODE" = true ]; then
+  echo "[$REPO_NAME] $([ "$AGENT_MODE" = true ] && echo '--agent' || echo '--quick'): Skipping act simulation"
+elif [ -f "scripts/quality-gates.sh" ]; then
+  if bash scripts/quality-gates.sh --act; then
     echo "[$REPO_NAME] ✅ Act simulation PASSED"
   else
-    echo "" >&2
-    echo "[$REPO_NAME] ❌ Act simulation FAILED — quickmerge aborted" >&2
-    echo "" >&2
-    echo "Act needs GH_PAT to clone sibling repos (e.g. unified-trading-codex). Without it, CI simulation cannot run." >&2
-    echo "" >&2
-    echo "Secrets lookup: ACT_SECRETS_ROOT=${ACT_SECRETS_ROOT:-$WORKSPACE_ROOT} (uses UNIFIED_TRADING_WORKSPACE_ROOT when set)" >&2
-    if [ -n "$RESOLVED_SECRETS_PATH" ]; then
-      echo "  Used: $RESOLVED_SECRETS_PATH" >&2
-    else
-      echo "  Checked: ${ACT_SECRETS_ROOT:-$WORKSPACE_ROOT}/.act-secrets (not found)" >&2
-      echo "  Checked: ${HOME}/.secrets (not found)" >&2
-      echo "  Set UNIFIED_TRADING_WORKSPACE_ROOT or export ACT_SECRETS_FILE=/path/to/.act-secrets" >&2
-    fi
-    echo "" >&2
-    echo "Fix:" >&2
-    echo "  1. bash unified-trading-pm/scripts/workspace/generate-act-secrets.sh" >&2
-    echo "  2. Edit <workspace-root>/.act-secrets and add:  GH_PAT=ghp_xxxxxxxxxxxx" >&2
-    echo "  3. Re-run quickmerge" >&2
-    echo "" >&2
-    echo "SSOT: unified-trading-pm/docs/repo-management/act-secrets-setup.md" >&2
-    echo "" >&2
+    echo "[$REPO_NAME] ❌ Act simulation FAILED" >&2
     exit 1
   fi
+else
+  echo "[$REPO_NAME] ⚠️  No scripts/quality-gates.sh — skipping act simulation"
 fi
 
 echo ""
@@ -800,9 +772,26 @@ if [ -n "$DEP_BRANCH" ]; then
     git checkout -b "$BRANCH" origin/main --quiet 2>/dev/null || git checkout "$BRANCH" --quiet
   fi
 else
-  BRANCH="auto/$(TZ=UTC date +%Y%m%d-%H%M%S)-$$"
-  echo "[$REPO_NAME] Creating auto-generated branch: $BRANCH"
-  git checkout -b "$BRANCH" origin/main --quiet
+  # Read active_feature_branch from PM manifest (SSOT for feature branch name)
+  MANIFEST_PATH="$WORKSPACE_ROOT/unified-trading-pm/workspace-manifest.json"
+  MANIFEST_BRANCH=""
+  if [ -f "$MANIFEST_PATH" ]; then
+    MANIFEST_BRANCH=$(python3 -c "import json; m=json.load(open('$MANIFEST_PATH')); print(m.get('active_feature_branch',''))" 2>/dev/null || echo "")
+  fi
+  if [ -n "$MANIFEST_BRANCH" ]; then
+    BRANCH="$MANIFEST_BRANCH"
+    echo "[$REPO_NAME] Using active_feature_branch from manifest: $BRANCH"
+  else
+    BRANCH="auto/$(TZ=UTC date +%Y%m%d-%H%M%S)-$$"
+    echo "[$REPO_NAME] Creating auto-generated branch: $BRANCH"
+  fi
+  if git show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null; then
+    git checkout "$BRANCH" --quiet
+  elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH" 2>/dev/null; then
+    git checkout -B "$BRANCH" "origin/$BRANCH" --quiet
+  else
+    git checkout -b "$BRANCH" origin/main --quiet 2>/dev/null || git checkout "$BRANCH" --quiet
+  fi
 fi
 echo ""
 
@@ -866,6 +855,21 @@ ISSUE_REFS=$(echo "$COMMIT_MSG" | grep -oE "(Fixes|Closes|Resolves) [^#]*#[0-9]+
 PR_BODY="Automated PR. Will auto-merge once quality gates pass.
 
 ${ISSUE_REFS}"
+
+# Check staging lock status and inform user (do not abort — GitHub auto-merge queue will hold the PR)
+if [ "$TO_STAGING" = true ]; then
+  MANIFEST_PATH="${WORKSPACE_ROOT}/unified-trading-pm/workspace-manifest.json"
+  if [ -f "$MANIFEST_PATH" ]; then
+    LOCKED=$(python3 -c "import json; m=json.load(open('$MANIFEST_PATH')); print(str(m.get('staging_status', {}).get('locked', False)).lower())" 2>/dev/null || echo "false")
+    if [ "$LOCKED" = "true" ]; then
+      LOCK_REASON=$(python3 -c "import json; m=json.load(open('$MANIFEST_PATH')); print(m.get('staging_status', {}).get('locked_reason', 'unknown'))" 2>/dev/null || echo "unknown")
+      LOCK_SINCE=$(python3 -c "import json; m=json.load(open('$MANIFEST_PATH')); print(m.get('staging_status', {}).get('locked_since', 'unknown'))" 2>/dev/null || echo "unknown")
+      echo "⚠️  [$REPO_NAME] Staging is locked: \"${LOCK_REASON}\" (since ${LOCK_SINCE})."
+      echo "⚠️  [$REPO_NAME] Your --to-staging PR will queue automatically via GitHub's staging-gate check."
+      echo "⚠️  [$REPO_NAME] PR creation will proceed — GitHub will hold it until SIT completes."
+    fi
+  fi
+fi
 
 # Determine PR base branch
 if [ "$TO_STAGING" = true ]; then
