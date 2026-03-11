@@ -271,7 +271,7 @@ def info(ctx: click.Context, service: str):  # noqa: C901
             elif dim["type"] == "gcs_dynamic":
                 bucket = dim.get("source_bucket")
                 click.echo(f"    Bucket: {bucket}")
-                click.echo(f"    Prefix: {dim.get('gcs_prefix', '')}")
+                click.echo(f"    Prefix: {dim.get('gcs_prefix') or ''}")
                 click.echo(f"    Pattern: {dim.get('file_pattern', '*')}")
 
             if "description" in dim:
@@ -324,7 +324,7 @@ def venues(ctx: click.Context):
             dict[str, dict[str, object]], config.get("categories") or {}
         ).items():
             click.echo(click.style(f"  {category}", fg="green", bold=True))
-            click.echo(f"    {cat_config.get('description', '')}")
+            click.echo(f"    {cat_config.get('description') or ''}")
             click.echo()
 
             click.echo("    Venues:")

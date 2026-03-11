@@ -325,7 +325,7 @@ class GCSTestBucketManager:
         """
         # Build prefix from shard dimensions
         date_val = shard.dimensions.get("date") or {}
-        date_str = date_val.get("start", "") if isinstance(date_val, dict) else str(date_val)
+        date_str = date_val.get("start") or "" if isinstance(date_val, dict) else str(date_val)
 
         prefix = f"by_date/day-{date_str}/"
 

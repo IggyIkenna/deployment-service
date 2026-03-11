@@ -163,9 +163,9 @@ class LogService:
         Returns:
             Formatted log string
         """
-        timestamp = entry.get("timestamp", "")
+        timestamp = entry.get("timestamp") or ""
         severity = entry.get("severity", "INFO")
-        message = entry.get("textPayload", entry.get("jsonPayload", {}))
+        message = entry.get("textPayload", entry.get("jsonPayload") or {})
 
         if isinstance(message, dict):
             message = json.dumps(message, indent=2)

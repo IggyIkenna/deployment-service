@@ -123,7 +123,7 @@ class StatusService:
         """
         try:
             status = self.get_deployment_status(deployment_id)
-            current_status = status.get("status", "")
+            current_status = status.get("status") or ""
 
             if current_status in ("completed", "failed", "cancelled") and not force:
                 raise click.ClickException(

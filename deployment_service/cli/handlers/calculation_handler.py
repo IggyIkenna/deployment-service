@@ -119,8 +119,8 @@ class CalculationHandler:
         result = calculator.calculate(**params)
 
         # Extract shards and summary
-        shards = result.get("shards", [])
-        summary = result.get("summary", {})
+        shards = result.get("shards") or []
+        summary = result.get("summary") or {}
 
         return shards, summary
 
@@ -223,7 +223,7 @@ class CalculationHandler:
 
         for shard in shards:
             shard_id = shard.get("shard_id", "unknown")
-            args = shard.get("args", {})
+            args = shard.get("args") or {}
 
             # Build command
             cmd_parts = [f"deploy --service {service}"]
@@ -271,13 +271,13 @@ class CalculationHandler:
             click.echo(f"Service: {service}")
 
             # Display service configuration
-            config = info.get("config", {})
+            config = info.get("config") or {}
             if config:
                 click.echo("Configuration:")
                 click.echo(json.dumps(config, indent=2))
 
             # Display metadata
-            metadata = info.get("metadata", {})
+            metadata = info.get("metadata") or {}
             if metadata:
                 click.echo("Metadata:")
                 for key, value in metadata.items():

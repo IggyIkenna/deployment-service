@@ -73,7 +73,7 @@ def display_dynamic_service_status(  # noqa: C901
     bucket_to_domain = {}
 
     for domain in domains_or_categories:
-        bucket_template = gcs_dim.get("source_bucket", "")
+        bucket_template = gcs_dim.get("source_bucket") or ""
         try:
             bucket = bucket_template.format(
                 domain=domain.lower(),
@@ -82,7 +82,7 @@ def display_dynamic_service_status(  # noqa: C901
         except KeyError:
             bucket = bucket_template
 
-        prefix = gcs_dim.get("gcs_prefix", "")
+        prefix = gcs_dim.get("gcs_prefix") or ""
         if mode == "live":
             prefix = "live/" + prefix
         gcs_path = f"gs://{bucket}/{prefix}"
@@ -106,7 +106,7 @@ def display_dynamic_service_status(  # noqa: C901
 
         for domain in domains_or_categories:
             # Results are in the same bucket under results/ prefix
-            bucket_template = gcs_dim.get("source_bucket", "")
+            bucket_template = gcs_dim.get("source_bucket") or ""
             try:
                 bucket = bucket_template.format(
                     domain=domain.lower(),

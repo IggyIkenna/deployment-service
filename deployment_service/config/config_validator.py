@@ -171,7 +171,7 @@ class ConfigValidator:
                             date_str,
                         )
 
-                venues = category_config.get("venues", {})
+                venues = category_config.get("venues") or {}
                 if isinstance(venues, dict):
                     for venue, venue_date in venues.items():
                         if not ConfigValidator._is_valid_date_string(venue_date):

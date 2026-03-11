@@ -267,7 +267,7 @@ class CombinationCalculator:
             """Check if data exists for a shard combination."""
             try:
                 # Extract dimensions for path construction
-                category = str(combo.get("category", "") or "")
+                category = str(combo.get("category") or "")
                 date_val = combo.get("date")
                 venue = str(combo.get("venue") or "") or None
                 data_type = str(combo.get("data_type") or "") or None
@@ -276,7 +276,7 @@ class CombinationCalculator:
 
                 # Extract date string
                 if isinstance(date_val, dict):
-                    date_str = str(cast(dict[str, str], date_val).get("start", "") or "")
+                    date_str = str(cast(dict[str, str], date_val).get("start") or "")
                 else:
                     date_str = str(date_val) if date_val else ""
 

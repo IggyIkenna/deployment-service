@@ -144,7 +144,7 @@ class ReportingHandler:
 
         for deployment in all_deployments:
             # Parse deployment date
-            created_str = deployment.get("created_at", "")
+            created_str = deployment.get("created_at") or ""
             try:
                 created_date = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
                 created_date = created_date.replace(tzinfo=None)  # Remove timezone for comparison
@@ -157,7 +157,7 @@ class ReportingHandler:
 
             # Check service filter
             if service_filter:
-                deployment_service = deployment.get("service", "")
+                deployment_service = deployment.get("service") or ""
                 if deployment_service != service_filter:
                     continue
 
@@ -276,7 +276,7 @@ class ReportingHandler:
             day_deployments = []
 
             for deployment in deployments:
-                created_str = deployment.get("created_at", "")
+                created_str = deployment.get("created_at") or ""
                 try:
                     created_date = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
                     if created_date.date() == current_date:
@@ -473,8 +473,8 @@ class ReportingHandler:
             for service in services:
                 try:
                     info = self.deployment_service.get_service_info(service)
-                    config = info.get("config", {})
-                    metadata = info.get("metadata", {})
+                    config = info.get("config") or {}
+                    metadata = info.get("metadata") or {}
 
                     version = metadata.get("version", config.get("version", "unknown"))
                     status = "available"
@@ -562,7 +562,7 @@ class ReportingHandler:
             if "filtered_services" in flow_data:
                 click.echo(f"Filtered Services: {flow_data['filtered_services']}")
 
-            services = cast("list[str]", flow_data.get("services", []))
+            services = cast("list[str]", flow_data.get("services") or [])
             if services:
                 click.echo("\nServices:")
                 for service in services:
