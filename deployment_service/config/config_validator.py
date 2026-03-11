@@ -44,7 +44,8 @@ class ValidationUtils:
             if isinstance(default, str) and default == "":
                 context_msg = f" in {context}" if context else ""
                 logger.warning(
-                    "Using empty string default for '%s'%s - consider using ValidationUtils.get_required() instead",  # noqa: E501
+                    "Using empty string default for '%s'%s"
+                    " - consider using ValidationUtils.get_required() instead",
                     key,
                     context_msg,
                 )
@@ -79,7 +80,8 @@ class ConfigValidator:
 
         if config["service"] != service:
             raise ValueError(
-                f"Service name mismatch: config says '{config['service']}' but loaded as '{service}'"  # noqa: E501
+                f"Service name mismatch: config says '{config['service']}'"
+                f" but loaded as '{service}'"
             )
 
         ConfigValidator._validate_dimensions(
@@ -106,7 +108,8 @@ class ConfigValidator:
 
             if dim_type not in valid_types:
                 raise ValueError(
-                    f"Dimension '{dim['name']}' has invalid type '{dim_type}'. Valid types: {valid_types}"  # noqa: E501
+                    f"Dimension '{dim['name']}' has invalid type '{dim_type}'."
+                    f" Valid types: {valid_types}"
                 )
 
             ConfigValidator._validate_dimension_type(dim, service)
@@ -128,7 +131,8 @@ class ConfigValidator:
             valid_granularities = ["daily", "weekly", "monthly", "none"]
             if granularity not in valid_granularities:
                 raise ValueError(
-                    f"Dimension '{dim_name}' has invalid granularity '{granularity}'. Valid: {valid_granularities}"  # noqa: E501
+                    f"Dimension '{dim_name}' has invalid granularity '{granularity}'."
+                    f" Valid: {valid_granularities}"
                 )
 
     @staticmethod
@@ -148,7 +152,7 @@ class ConfigValidator:
                         )
 
     @staticmethod
-    def validate_expected_start_dates_config(config: dict[str, object]) -> None:  # noqa: C901
+    def validate_expected_start_dates_config(config: dict[str, object]) -> None:
         """Validate expected start dates configuration."""
         for service, service_config in config.items():
             if not isinstance(service_config, dict):

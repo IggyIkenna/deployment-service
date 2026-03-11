@@ -33,7 +33,7 @@ from .data_status_scanning import (
 logger = logging.getLogger(__name__)
 
 
-def display_fixed_service_status(  # noqa: C901
+def display_fixed_service_status(
     service: str,
     start_date,
     end_date,

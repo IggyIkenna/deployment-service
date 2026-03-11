@@ -27,7 +27,8 @@ def _ensure_boto3() -> "types.ModuleType":
     """Deferred boto3 import — deployment AWS control-plane boundary."""
     if importlib.util.find_spec("boto3") is None:
         raise ImportError(
-            "boto3 is required for AWS Batch functionality. Install with: uv pip install 'deployment-service[aws]'"  # noqa: E501
+            "boto3 is required for AWS Batch functionality."
+            " Install with: uv pip install 'deployment-service[aws]'"
         )
     import boto3  # Deferred — deployment AWS control-plane boundary
 
@@ -67,7 +68,8 @@ class AWSBatchBackend(ComputeBackend):
         self._job_definition = job_definition
 
         # Initialize Batch client
-        # cast: _ensure_boto3() returns ModuleType at runtime; boto3-stubs provide .client() overloads  # noqa: E501
+        # cast: _ensure_boto3() returns ModuleType at runtime;
+        # boto3-stubs provide .client() overloads
         _boto3 = cast("_boto3_module", _ensure_boto3())
         self._client = _boto3.client("batch", region_name=region)
         self._logs_client = _boto3.client("logs", region_name=region)
@@ -78,7 +80,7 @@ class AWSBatchBackend(ComputeBackend):
     def backend_type(self) -> str:
         return "aws_batch"
 
-    def deploy_shard(  # noqa: C901
+    def deploy_shard(
         self,
         shard_id: str,
         docker_image: str,
@@ -213,7 +215,10 @@ class AWSBatchBackend(ComputeBackend):
                         {"type": "VCPU", "value": str(vcpu)},
                         {"type": "MEMORY", "value": str(memory)},
                     ],
-                    "executionRoleArn": f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role",  # noqa: E501
+                    "executionRoleArn": (
+                        f"arn:aws:iam::{self._account_id}"
+                        f":role/unified-trading-batch-execution-role"
+                    ),
                     "networkConfiguration": {
                         "assignPublicIp": "ENABLED",
                     },
@@ -294,7 +299,7 @@ class AWSBatchBackend(ComputeBackend):
         }
         return status_map.get(batch_status, JobStatus.UNKNOWN)
 
-    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:  # noqa: C901
+    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:
         """Get status for multiple jobs in a single API call."""
         if not job_ids:
             return {}

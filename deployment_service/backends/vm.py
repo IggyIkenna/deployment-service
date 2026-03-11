@@ -56,11 +56,12 @@ class VMBackend(ComputeBackend):
             region: GCP region (single region for zone failover)
             service_account_email: Service account for VMs
             zone: Primary GCP zone (defaults to region-a). Deprecated, use zones instead.
-            zones: List of zones to try in order (e.g., ["asia-northeast1-a", "asia-northeast1-b", "asia-northeast1-c"]).
-                   If not provided, defaults to all zones in the region (a, b, c).
+            zones: List of zones to try in order
+                (e.g., ["asia-northeast1-a", "asia-northeast1-b", "asia-northeast1-c"]).
+                If not provided, defaults to all zones in the region (a, b, c).
             status_bucket: GCS bucket for status files
             status_prefix: Prefix for status files in bucket
-        """  # noqa: E501
+        """
         super().__init__(project_id, region, service_account_email)
 
         # Initialize configuration manager

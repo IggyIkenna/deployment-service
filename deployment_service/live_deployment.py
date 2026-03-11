@@ -325,11 +325,12 @@ class LiveDeployer:
                 containers_list[0].image = f"{service}:{image_tag}"
 
         # Set initial traffic split
+        _latest = run_v2.TrafficTargetAllocationType.TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST
         traffic = [
             run_v2.TrafficTarget(
-                type_=run_v2.TrafficTargetAllocationType.TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST,
+                type_=_latest,
                 percent=traffic_split_pct,
-            ),  # noqa: E501
+            ),
         ]
         if traffic_split_pct < 100 and previous_revision:
             traffic.append(

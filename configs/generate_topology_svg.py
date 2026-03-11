@@ -1,4 +1,3 @@
-# ruff: noqa: E501
 """Generate RUNTIME_DEPLOYMENT_TOPOLOGY_DAG.svg using Graphviz.
 
 Run: python3 generate_topology_svg.py

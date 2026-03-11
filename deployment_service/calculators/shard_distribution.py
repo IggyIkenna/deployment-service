@@ -254,7 +254,7 @@ class CombinationCalculator:
 
         try:
             storage_client = get_storage_client(project_id=str(_config.gcp_project_id or ""))
-        except Exception as e:  # noqa: BLE001 — storage init failure is non-fatal; degrade gracefully
+        except (OSError, ValueError, RuntimeError) as e:  # non-fatal; degrade gracefully
             logger.warning(
                 "Storage client unavailable for skip_existing check on service %s; "
                 "treating all shards as not existing: %s",

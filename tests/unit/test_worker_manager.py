@@ -655,7 +655,7 @@ def test_launch_shards_rolling_all_in_one_wave_when_under_limit(mock_cfg: MagicM
 
     call_count = 0
 
-    def fake_parallel(state: DeploymentState, **kwargs) -> None:  # noqa: ANN001
+    def fake_parallel(state: DeploymentState, **kwargs) -> None:
         nonlocal call_count
         call_count += 1
         # Mark all pending shards as RUNNING
@@ -701,7 +701,7 @@ def test_launch_shards_rolling_polls_running_shard_status(
 
     wave_count = [0]
 
-    def fake_parallel(state: DeploymentState, **kwargs) -> None:  # noqa: ANN001
+    def fake_parallel(state: DeploymentState, **kwargs) -> None:
         wave_count[0] += 1
         if wave_count[0] == 1:
             # First wave: mark all current pending (wave of 2) as RUNNING
@@ -763,7 +763,7 @@ def test_launch_shards_rolling_poll_failure_logged_not_raised(
 
     poll_call_count = [0]
 
-    def fake_parallel(state: DeploymentState, **kwargs) -> None:  # noqa: ANN001
+    def fake_parallel(state: DeploymentState, **kwargs) -> None:
         # After poll, mark remaining pending as RUNNING so loop can exit
         for s in state.pending_shards:
             s.status = ShardStatus.RUNNING

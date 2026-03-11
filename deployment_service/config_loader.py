@@ -151,7 +151,7 @@ class ConfigLoader(BaseConfigLoader):
             return str(val) if val is not None else None
         return None
 
-    def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:  # noqa: C901
+    def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:
         """Get the expected start date for a specific venue."""
         config = self.load_expected_start_dates()
         if not config:
@@ -187,7 +187,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return None
 
-    def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:  # noqa: C901
+    def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:
         """Get the expected data types for a specific venue on a given date."""
         venues_config = self.load_venues_config()
 
@@ -261,7 +261,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return list(expected)
 
-    def is_data_type_expected_for_venue(  # noqa: C901
+    def is_data_type_expected_for_venue(
         self, category: str, venue: str, data_type: str, date_str: str | None = None
     ) -> bool:
         """Check if a data_type is expected for a specific venue."""
@@ -395,7 +395,8 @@ class ConfigLoader(BaseConfigLoader):
         compute_config = compute_dict[compute_type]
         if not isinstance(compute_config, dict):
             raise ConfigurationError(
-                f"Invalid compute config for {service}.{compute_type} - expected dict, got {type(compute_config)}"  # noqa: E501
+                f"Invalid compute config for {service}.{compute_type}"
+                f" - expected dict, got {type(compute_config)}"
             )
 
         return cast(dict[str, object], compute_config)
@@ -590,7 +591,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return substitute_env_vars(str(url_pattern)).format(**variables)
 
-    def get_bucket_name(self, domain: str, category: str = "", provider: str | None = None) -> str:  # noqa: C901
+    def get_bucket_name(self, domain: str, category: str = "", provider: str | None = None) -> str:
         """Get the bucket name for a domain/category based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()

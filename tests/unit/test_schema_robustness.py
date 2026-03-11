@@ -12,17 +12,17 @@ class TestDeploymentStateEnums:
     """Verify status enum values are well-formed."""
 
     def test_deployment_status_importable(self) -> None:
-        from deployment_service.deployment.state import DeploymentStatus  # noqa: F401
+        from deployment_service.deployment.state import DeploymentStatus
 
         assert DeploymentStatus is not None
 
     def test_shard_status_importable(self) -> None:
-        from deployment_service.deployment.state import ShardStatus  # noqa: F401
+        from deployment_service.deployment.state import ShardStatus
 
         assert ShardStatus is not None
 
     def test_failure_category_importable(self) -> None:
-        from deployment_service.deployment.state import FailureCategory  # noqa: F401
+        from deployment_service.deployment.state import FailureCategory
 
         assert FailureCategory is not None
 

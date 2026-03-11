@@ -96,7 +96,8 @@ def format_tree_output(
         excluded_note = click.style(f" [{overall_excluded} pre-launch days excluded]", dim=True)
 
     click.echo(
-        f"\n{overall_icon} Overall: {overall_pct:.1f}% ({overall_complete}/{overall_total}){excluded_note}"  # noqa: E501
+        f"\n{overall_icon} Overall: {overall_pct:.1f}%"
+        f" ({overall_complete}/{overall_total}){excluded_note}"
     )
 
     for cat in sorted(hierarchy.keys()):
@@ -113,7 +114,8 @@ def format_tree_output(
 
         click.echo()
         click.echo(
-            f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)} ({cat_pct:.1f}%){cat_excluded_note}"  # noqa: E501
+            f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)}"
+            f" ({cat_pct:.1f}%){cat_excluded_note}"
         )
 
         venues_sorted = sorted(hierarchy[cat].keys())
@@ -142,11 +144,12 @@ def format_tree_output(
                 timestamp_info = f" [updated: {oldest} - {newest}]"
 
             click.echo(
-                f"│   {prefix} {icon} {click.style(v, fg=style)}: {d_complete}/{d_total} days ({pct:.0f}%){timestamp_info}"  # noqa: E501
+                f"│   {prefix} {icon} {click.style(v, fg=style)}:"
+                f" {d_complete}/{d_total} days ({pct:.0f}%){timestamp_info}"
             )
 
 
-def format_detailed_breakdown(fast_results: dict[str, object]) -> None:  # noqa: C901
+def format_detailed_breakdown(fast_results: dict[str, object]) -> None:
     """Format and display detailed breakdown for timeframes and data types."""
     tf_breakdown = cast(
         dict[str, dict[str, dict[str, int]]], fast_results.get("_tf_breakdown") or {}
@@ -175,7 +178,8 @@ def format_detailed_breakdown(fast_results: dict[str, object]) -> None:  # noqa:
                         icon = "✅" if pct == 100 else ("⏳" if pct > 0 else "❌")
                         bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
                         click.echo(
-                            f"    {tf:>5}: {icon} {bar} {pct:5.1f}% ({data['complete']}/{data['total']})"  # noqa: E501
+                            f"    {tf:>5}: {icon} {bar}"
+                            f" {pct:5.1f}% ({data['complete']}/{data['total']})"
                         )
 
             # Data type breakdown
@@ -188,14 +192,15 @@ def format_detailed_breakdown(fast_results: dict[str, object]) -> None:  # noqa:
                         icon = "✅" if pct == 100 else ("⏳" if pct > 0 else "❌")
                         bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
                         click.echo(
-                            f"    {dt:>20}: {icon} {bar} {pct:5.1f}% ({data['complete']}/{data['total']})"  # noqa: E501
+                            f"    {dt:>20}: {icon} {bar}"
+                            f" {pct:5.1f}% ({data['complete']}/{data['total']})"
                         )
 
         click.echo()
         click.echo("-" * 70)
 
 
-def format_missing_dates_output(hierarchy: dict[str, dict[str, dict[str, object]]]) -> None:  # noqa: C901
+def format_missing_dates_output(hierarchy: dict[str, dict[str, dict[str, object]]]) -> None:
     """Format and display missing dates information."""
     click.echo()
     click.echo(click.style("MISSING DATES:", fg="red", bold=True))
@@ -253,7 +258,8 @@ def format_backfill_hint(
         click.echo(click.style("Missing data detected. To backfill:", fg="yellow"))
         click.echo(f"  python deploy.py deploy -s {service} \\")
         click.echo(
-            f"      --start-date {start_date.strftime('%Y-%m-%d')} --end-date {end_date.strftime('%Y-%m-%d')}"  # noqa: E501
+            f"      --start-date {start_date.strftime('%Y-%m-%d')}"
+            f" --end-date {end_date.strftime('%Y-%m-%d')}"
         )
 
 
@@ -279,7 +285,8 @@ def format_fixed_service_header(
     click.echo()
     click.echo(f"DATA COMPLETION STATUS: {click.style(service, fg='cyan', bold=True)}")
     click.echo(
-        f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({total_requested_days} days)"  # noqa: E501
+        f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+        f" ({total_requested_days} days)"
     )
     click.echo("=" * 70)
 
@@ -311,7 +318,7 @@ def format_venue_coverage_header(start_date: datetime, end_date: datetime) -> No
     click.echo()
 
 
-def format_venue_coverage_results(  # noqa: C901
+def format_venue_coverage_results(
     results: dict[str, dict[str, object]],
     output: str,
     start_date: datetime,
@@ -359,7 +366,8 @@ def format_venue_coverage_results(  # noqa: C901
             cat_style = "green" if pct_ok == 100 else ("yellow" if pct_ok > 80 else "red")
 
             click.echo(
-                f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)} ({pct_ok:.0f}% complete venue coverage)"  # noqa: E501
+                f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)}"
+                f" ({pct_ok:.0f}% complete venue coverage)"
             )
 
             if dates_with_issues > 0:
@@ -375,7 +383,8 @@ def format_venue_coverage_results(  # noqa: C901
                 ):
                     date_range = f"{min(dates)} to {max(dates)}" if len(dates) > 1 else dates[0]
                     click.echo(
-                        f"│   ├── ⚠️  {click.style(venue, fg='yellow')}: missing in {len(dates)} dates ({date_range})"  # noqa: E501
+                        f"│   ├── ⚠️  {click.style(venue, fg='yellow')}:"
+                        f" missing in {len(dates)} dates ({date_range})"
                     )
 
             click.echo("│")

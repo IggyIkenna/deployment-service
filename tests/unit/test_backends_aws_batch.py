@@ -377,7 +377,7 @@ class TestBatchRegisterJobDefinition:
         mock_client.register_job_definition.side_effect = _make_client_error("ThrottlingException")
 
         # The exception should propagate out (not be swallowed)
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(_BotoCoreClientError):
             backend._register_job_definition(IMAGE, {}, {})  # type: ignore[attr-defined]
 
     def test_execution_role_includes_account_id(self) -> None:

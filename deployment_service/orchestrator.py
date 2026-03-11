@@ -115,7 +115,7 @@ class OrchestrationPlan:
         """Get all jobs in a given state."""
         return [j for j in self.jobs.values() if j.state == state]
 
-    def get_ready_jobs(self) -> list[OrchestratedJob]:  # noqa: C901
+    def get_ready_jobs(self) -> list[OrchestratedJob]:
         """Get jobs that are ready to run (dependencies met)."""
         ready: list[OrchestratedJob] = []
         for job in self.jobs.values():
@@ -244,7 +244,7 @@ class T1Orchestrator:
                 )
         return self._gcs_client
 
-    def create_daily_plan(  # noqa: C901
+    def create_daily_plan(
         self,
         target_date: str,
         category: str,
@@ -372,7 +372,7 @@ class T1Orchestrator:
 
         return plan
 
-    def get_execution_tiers(self, plan: OrchestrationPlan) -> list[list[str]]:  # noqa: C901
+    def get_execution_tiers(self, plan: OrchestrationPlan) -> list[list[str]]:
         """
         Get services grouped by execution tier.
 
@@ -460,7 +460,7 @@ class T1Orchestrator:
 
         return skipped
 
-    def generate_execution_report(self, plan: OrchestrationPlan) -> str:  # noqa: C901
+    def generate_execution_report(self, plan: OrchestrationPlan) -> str:
         """Generate a human-readable execution report."""
         lines: list[str] = []
 
@@ -595,7 +595,7 @@ class T1Orchestrator:
             )
             return False
 
-    def load_plan(self, target_date: str, category: str) -> OrchestrationPlan | None:  # noqa: C901
+    def load_plan(self, target_date: str, category: str) -> OrchestrationPlan | None:
         """Load an existing orchestration plan from GCS."""
         if not self.gcs_client:
             return None

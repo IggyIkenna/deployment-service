@@ -207,7 +207,10 @@ class DeploymentConfig(UnifiedCloudConfig):
     write_quota_buffer: int = Field(
         default=1000,
         validation_alias=AliasChoices("WRITE_QUOTA_BUFFER"),
-        description="Reserve for other workloads; effective = WRITE_QUOTA_PER_MINUTE - WRITE_QUOTA_BUFFER",  # noqa: E501
+        description=(
+            "Reserve for other workloads;"
+            " effective = WRITE_QUOTA_PER_MINUTE - WRITE_QUOTA_BUFFER"
+        ),
     )
 
     # =========================================================================
@@ -393,7 +396,10 @@ class DeploymentConfig(UnifiedCloudConfig):
     workspace_root: str = Field(
         default="",
         validation_alias=AliasChoices("WORKSPACE_ROOT"),
-        description="Absolute path to the workspace root (mono/multi-repo root). Used for local dev pyproject.toml lookups.",  # noqa: E501
+        description=(
+            "Absolute path to the workspace root (mono/multi-repo root)."
+            " Used for local dev pyproject.toml lookups."
+        ),
     )
 
     shard_index: int = Field(

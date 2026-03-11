@@ -143,7 +143,8 @@ class CloudRunBackend(ComputeBackend):
                 value_source = getattr(env, "value_source", None)
                 if value_source:
                     logger.warning(
-                        "[CLOUD_RUN_ENV] Overriding secret-backed env var '%s' for execution overrides",  # noqa: E501
+                        "[CLOUD_RUN_ENV] Overriding secret-backed env var '%s'"
+                        " for execution overrides",
                         name,
                     )
                 merged.append(run_v2.EnvVar(name=name, value=str(overrides[name])))
@@ -182,7 +183,7 @@ class CloudRunBackend(ComputeBackend):
 
         return any(indicator in error_str for indicator in quota_indicators)
 
-    def deploy_shard(  # noqa: C901
+    def deploy_shard(
         self,
         shard_id: str,
         docker_image: str,
@@ -213,9 +214,10 @@ class CloudRunBackend(ComputeBackend):
 
         # Build container overrides.
         #
-        # Cloud Run Jobs container overrides replace the container spec fields for the execution. If we  # noqa: E501
-        # override env vars without including the template env, we can accidentally drop Secret Manager  # noqa: E501
-        # env vars. To stay safe, we fetch the job template env once per region and merge it with the  # noqa: E501
+        # Cloud Run Jobs container overrides replace the container spec fields for the execution.
+        # If we override env vars without including the template env, we can accidentally drop
+        # Secret Manager env vars. To stay safe, we fetch the job template env once per region
+        # and merge it with the
         # per-shard env overrides (e.g., SHARD_INDEX / TOTAL_SHARDS).
         template_env = self._get_template_env()
         if template_env is None:
@@ -311,7 +313,8 @@ class CloudRunBackend(ComputeBackend):
                 if attempt < len(retry_delays):
                     delay = retry_delays[attempt]
                     logger.warning(
-                        "[RATE_LIMITED] Cloud Run rate limited for shard %s, retrying in %ss (attempt %s/%s)",  # noqa: E501
+                        "[RATE_LIMITED] Cloud Run rate limited for shard %s,"
+                        " retrying in %ss (attempt %s/%s)",
                         shard_id,
                         delay,
                         attempt + 1,
@@ -320,7 +323,8 @@ class CloudRunBackend(ComputeBackend):
                     time.sleep(delay)
                 else:
                     logger.error(
-                        "[RATE_LIMIT_EXCEEDED] Failed to trigger job for shard %s after %s retries in %s: %s",  # noqa: E501
+                        "[RATE_LIMIT_EXCEEDED] Failed to trigger job for shard %s"
+                        " after %s retries in %s: %s",
                         shard_id,
                         max_retries,
                         self.region,
@@ -336,7 +340,10 @@ class CloudRunBackend(ComputeBackend):
                         job_id=f"failed-{shard_id}",
                         shard_id=shard_id,
                         status=JobStatus.FAILED,
-                        error_message=f"Rate limit/quota exceeded after {max_retries} retries in {self.region}",  # noqa: E501
+                        error_message=(
+                            f"Rate limit/quota exceeded after {max_retries} retries"
+                            f" in {self.region}"
+                        ),
                     )
 
             except google_exceptions.NotFound:
@@ -395,7 +402,7 @@ class CloudRunBackend(ComputeBackend):
             error_message="Unknown error",
         )
 
-    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:  # noqa: C901
+    def get_status_batch(self, job_ids: list[str]) -> dict[str, JobInfo]:
         """
         Get status for multiple executions in a single API call.
 
@@ -485,7 +492,7 @@ class CloudRunBackend(ComputeBackend):
 
         return results
 
-    def get_status(self, job_id: str) -> JobInfo:  # noqa: C901
+    def get_status(self, job_id: str) -> JobInfo:
         """
         Get the current status of a Cloud Run execution.
 

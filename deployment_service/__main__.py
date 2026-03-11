@@ -9,7 +9,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # Now safe to import
-from deployment_service.cli import cli  # noqa: E402
+from deployment_service.cli import cli
 
 if __name__ == "__main__":
     cli()

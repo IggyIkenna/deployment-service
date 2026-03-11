@@ -110,7 +110,7 @@ def _output_commands(shards: list[Shard], summary: dict[str, object]) -> None:
     "Use --ignore-start-dates to include all date-venue combinations.",
 )
 @click.pass_context
-def calculate(  # noqa: C901
+def calculate(
     ctx: click.Context,
     service: str,
     start_date: datetime | None,
@@ -131,22 +131,28 @@ def calculate(  # noqa: C901
     Examples:
 
         # Calculate shards for instruments-service (all categories, daily)
-        python -m deployment_service.cli calculate -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
+        python -m deployment_service.cli calculate -s instruments-service
+          --start-date 2024-01-01 --end-date 2024-01-31
 
         # Calculate shards for market-tick-data-service (CEFI only)
-        python -m deployment_service.cli calculate -s market-tick-data-service --category CEFI --start-date 2024-01-01 --end-date 2024-01-07
+        python -m deployment_service.cli calculate -s market-tick-data-service
+          --category CEFI --start-date 2024-01-01 --end-date 2024-01-07
 
         # Show CLI commands for each shard
-        python -m deployment_service.cli calculate -s instruments-service --start-date 2024-01-01 --end-date 2024-01-03 -o commands
+        python -m deployment_service.cli calculate -s instruments-service
+          --start-date 2024-01-01 --end-date 2024-01-03 -o commands
 
         # Calculate execution-service shards from a config directory (dynamic discovery)
-        python -m deployment_service.cli calculate -s execution-service --start-date 2024-01-01 --end-date 2024-01-03 \\
-          --cloud-config-path gs://execution-store-{GCP_PROJECT_ID}/configs/V1/CEFI_BTC_momentum-macd/ -o table
+        python -m deployment_service.cli calculate -s execution-service
+          --start-date 2024-01-01 --end-date 2024-01-03 \\
+          --cloud-config-path gs://execution-store-{GCP_PROJECT_ID}/configs/
+            V1/CEFI_BTC_momentum-macd/ -o table
 
         # Show commands for execution-service (all configs in bucket)
-        python -m deployment_service.cli calculate -s execution-service --start-date 2024-01-01 --end-date 2024-01-01 \\
+        python -m deployment_service.cli calculate -s execution-service
+          --start-date 2024-01-01 --end-date 2024-01-01 \\
           --cloud-config-path gs://execution-store-{GCP_PROJECT_ID}/configs/ -o commands
-    """  # noqa: E501
+    """
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 
     try:
@@ -235,7 +241,7 @@ def list_services(ctx: click.Context):
 @click.command()
 @click.option("--service", "-s", required=True, help="Service to show info for")
 @click.pass_context
-def info(ctx: click.Context, service: str):  # noqa: C901
+def info(ctx: click.Context, service: str):
     """Show detailed information about a service's sharding config."""
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 

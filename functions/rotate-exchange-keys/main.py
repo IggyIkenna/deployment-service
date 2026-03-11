@@ -141,7 +141,7 @@ def _publish_alert(pubsub_client, topic: str, payload: dict[str, object]) -> Non
     try:
         data = json.dumps(payload).encode("utf-8")
         pubsub_client.publish(topic, data)
-    except Exception as e:  # noqa: BLE001
+    except (OSError, RuntimeError, ValueError) as e:
         logger.warning("Failed to publish rotation alert: %s", e)
 
 

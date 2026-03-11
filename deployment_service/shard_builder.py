@@ -16,7 +16,7 @@ from typing import cast
 logger = logging.getLogger(__name__)
 
 
-def build_shard_args(  # noqa: C901
+def build_shard_args(
     shard: object,
     service_config: dict[str, object],
     extra_options: dict[str, object] | None = None,
@@ -142,7 +142,9 @@ def build_shard_args(  # noqa: C901
         else:
             service_name = service_config.get("service", "unknown")
             logger.warning(
-                "--max-workers=%s requested but %s does not accept --max-workers in its cli_optional config. Ignoring. Add it to sharding.%s.yaml cli_optional if needed.",  # noqa: E501
+                "--max-workers=%s requested but %s does not accept --max-workers"
+                " in its cli_optional config. Ignoring."
+                " Add it to sharding.%s.yaml cli_optional if needed.",
                 extra_options["max_workers"],
                 service_name,
                 service_name,

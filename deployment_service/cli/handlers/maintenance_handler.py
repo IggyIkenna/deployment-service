@@ -243,7 +243,7 @@ class MaintenanceHandler:
         logger.info("Fixing stale deployment %s", deployment_id)
         return True
 
-    def handle_validate_buckets(  # noqa: C901
+    def handle_validate_buckets(
         self, service: str, categories: tuple[str, ...] = (), fix_issues: bool = False
     ) -> None:
         """Handle bucket validation command.

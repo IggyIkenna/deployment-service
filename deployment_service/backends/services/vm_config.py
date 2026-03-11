@@ -256,7 +256,7 @@ runcmd:
       fi
       {% endif %}
     ' >> /var/log/job-completion.log 2>&1 &
-"""  # noqa: E501
+"""
 
 # Cloud-init for Ubuntu + GCS FUSE (used when gcsfuse_buckets is in compute_config)
 # Mounts GCS buckets at /mnt/gcs/{bucket}, bind-mounts into container for faster parquet reads
@@ -407,7 +407,7 @@ runcmd:
       fi
       {% endif %}
     ' >> /var/log/job-completion.log 2>&1 &
-"""  # noqa: E501
+"""
 
 
 class VMConfigManager:
