@@ -9,6 +9,8 @@ Requires-Dist: unified-cloud-interface<1.0.0,>=0.11.6
 Requires-Dist: unified-config-interface<1.0.0,>=0.1.0
 Requires-Dist: pyyaml<7.0.0,>=6.0.1
 Requires-Dist: prometheus-client<1.0.0,>=0.20.0
+Requires-Dist: fastapi<1.0.0,>=0.110.0
+Requires-Dist: uvicorn[standard]<1.0.0,>=0.27.0
 Provides-Extra: dev
 Requires-Dist: pytest<10.0.0,>=9.0.1; extra == "dev"
 Requires-Dist: pytest-asyncio<2.0.0,>=0.25.0; extra == "dev"
