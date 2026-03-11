@@ -72,6 +72,14 @@ jobs:
             || git clone -b main "https://x-access-token:${GH_PAT}@github.com/IggyIkenna/unified-trading-pm.git" ../unified-trading-pm 2>/dev/null) || true
           echo "✅ unified-trading-pm cloned for quality-gates base scripts"
 
+      - name: Checkout unified-trading-codex (readiness checklists)
+        uses: actions/checkout@v4
+        with:
+          repository: IggyIkenna/unified-trading-codex
+          token: ${{ secrets.GH_PAT }}
+          path: ../unified-trading-codex # RELATIVE sibling path — works on GHA
+        continue-on-error: true
+
       - name: Run quality gates
         env:
           CLOUD_MOCK_MODE: "true"
