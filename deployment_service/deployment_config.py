@@ -208,8 +208,7 @@ class DeploymentConfig(UnifiedCloudConfig):
         default=1000,
         validation_alias=AliasChoices("WRITE_QUOTA_BUFFER"),
         description=(
-            "Reserve for other workloads;"
-            " effective = WRITE_QUOTA_PER_MINUTE - WRITE_QUOTA_BUFFER"
+            "Reserve for other workloads; effective = WRITE_QUOTA_PER_MINUTE - WRITE_QUOTA_BUFFER"
         ),
     )
 

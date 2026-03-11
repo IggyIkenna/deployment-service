@@ -216,8 +216,7 @@ class AWSBatchBackend(ComputeBackend):
                         {"type": "MEMORY", "value": str(memory)},
                     ],
                     "executionRoleArn": (
-                        f"arn:aws:iam::{self._account_id}"
-                        f":role/unified-trading-batch-execution-role"
+                        f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role"
                     ),
                     "networkConfiguration": {
                         "assignPublicIp": "ENABLED",
