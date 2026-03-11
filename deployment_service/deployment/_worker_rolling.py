@@ -11,6 +11,7 @@ from typing import cast
 
 from deployment_service.backends import ComputeBackend, JobInfo, JobStatus
 from deployment_service.deployment_config import DeploymentConfig
+from deployment_service.shard_builder import build_storage_env_vars
 
 from .quota_broker_client import ComputeType, QuotaBrokerClient
 from .rate_limiter import RateLimiter
@@ -158,6 +159,7 @@ def launch_shards_rolling(
             # Add SHARD_INDEX and TOTAL_SHARDS to environment for round-robin API key selection
             shard_env_vars = {
                 **environment_variables,
+                **build_storage_env_vars(state.service, shard.dimensions),
                 "SHARD_INDEX": str(shard_index),
                 "TOTAL_SHARDS": str(total_shards),
             }
