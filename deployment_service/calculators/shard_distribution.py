@@ -11,6 +11,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast
 
+from unified_events_interface import log_event
 from unified_trading_library import get_secret_client, get_storage_client
 
 from ..catalog import SERVICE_GCS_CONFIGS
@@ -367,6 +368,14 @@ class CombinationCalculator:
             try:
                 client = get_secret_client()
                 full_key = client.get_secret(full_secret_name)
+                log_event(
+                    "SECRET_ACCESSED",
+                    details={
+                        "secret_name": full_secret_name,
+                        "service": "deployment-service",
+                        "accessor": "CombinationCalculator._detect_tardis_mode",
+                    },
+                )
                 if full_key:
                     logger.info("Tardis mode auto-detected: full_access")
                     return "full_access"

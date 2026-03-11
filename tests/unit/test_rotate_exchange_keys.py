@@ -168,10 +168,13 @@ class TestRotateExchangeKeys:
             importlib.reload(m)
 
             # Patch AFTER reload: reload re-runs `from unified_cloud_interface import ...`
-            # which rebinds module-level names, so patches must be applied post-reload.
+            # and `from unified_events_interface import ...`, which rebinds module-level
+            # names, so patches must be applied post-reload.
             with (
                 patch.object(m, "get_secret_client", return_value=mock_sm),
                 patch.object(m, "get_pubsub_client", return_value=mock_pub),
+                patch.object(m, "setup_events"),
+                patch.object(m, "log_event"),
             ):
                 mock_request = MagicMock()
                 with _TEST_APP.app_context():
