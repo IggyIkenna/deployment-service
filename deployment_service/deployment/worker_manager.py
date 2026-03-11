@@ -14,6 +14,7 @@ from typing import cast
 
 from deployment_service.backends import ComputeBackend, JobInfo, JobStatus
 from deployment_service.deployment_config import DeploymentConfig
+from deployment_service.shard_builder import build_storage_env_vars
 
 from .quota_broker_client import ComputeType, QuotaBrokerClient
 from .rate_limiter import RateLimiter
@@ -160,6 +161,11 @@ def launch_shards_parallel(
                 total_shards = len(pending_shards)
                 shard_env_vars = {
                     **environment_variables,
+                    # Inject per-shard bucket names so containers resolve the right env's bucket
+                    # without hard-coding names. DEPLOYMENT_ENV in the template is substituted
+                    # from os.environ at launch time — staging containers get staging buckets,
+                    # prod containers get prod buckets, automatically.
+                    **build_storage_env_vars(state.service, shard.dimensions),
                     "SHARD_INDEX": str(shard_index),
                     "TOTAL_SHARDS": str(total_shards),
                 }
