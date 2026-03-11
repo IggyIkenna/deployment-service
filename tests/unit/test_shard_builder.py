@@ -7,11 +7,14 @@ Covers:
 - validate_shard_uniqueness: duplicate detection
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from deployment_service.shard_builder import (
     build_shard_args,
     build_shard_id,
+    build_storage_env_vars,
     validate_shard_uniqueness,
 )
 
@@ -428,3 +431,58 @@ def test_build_shard_args_shlex_fallback():
     args = build_shard_args(shard, service_config, extra_options={"extra_args": '--flag "unclosed'})
     # Falls back to split(" "), so args should contain the raw tokens
     assert "--flag" in args
+
+
+# ---------------------------------------------------------------------------
+# build_storage_env_vars
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStorageEnvVars:
+    """Tests for build_storage_env_vars — bucket env var injection at shard launch."""
+
+    def _mock_loader(self, bucket_name: str = "test-bucket") -> MagicMock:
+        loader = MagicMock()
+        loader.get_bucket_name.return_value = bucket_name
+        return loader
+
+    @pytest.mark.unit
+    def test_known_service_with_category_injects_bucket(self):
+        loader = self._mock_loader("features-delta-one-cefi-staging-myproject")
+        with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
+            result = build_storage_env_vars("features-delta-one-service", {"category": "CEFI"})
+        assert result == {
+            "FEATURES_DELTA_ONE_CEFI_GCS_BUCKET": "features-delta-one-cefi-staging-myproject"
+        }
+        loader.get_bucket_name.assert_called_once_with("features-delta-one", "CEFI")
+
+    @pytest.mark.unit
+    def test_unknown_service_returns_empty_dict(self):
+        with patch("deployment_service.shard_builder.ConfigLoader") as mock_cls:
+            result = build_storage_env_vars("unknown-service", {"category": "CEFI"})
+        mock_cls.assert_not_called()
+        assert result == {}
+
+    @pytest.mark.unit
+    def test_no_category_dimension_uses_shared_bucket_name(self):
+        loader = self._mock_loader("ml-models-store-staging-myproject")
+        with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
+            result = build_storage_env_vars("ml-training-service", {})
+        # ml-training-service has two domains; both injected with no category suffix
+        assert "ML_MODELS_STORE_GCS_BUCKET" in result
+        assert "ML_CONFIGS_STORE_GCS_BUCKET" in result
+
+    @pytest.mark.unit
+    def test_empty_bucket_name_from_loader_is_skipped(self):
+        loader = self._mock_loader("")
+        with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
+            result = build_storage_env_vars("features-delta-one-service", {"category": "CEFI"})
+        assert result == {}
+
+    @pytest.mark.unit
+    def test_category_uppercased_in_env_key(self):
+        loader = self._mock_loader("strategy-store-tradfi-prod-myproject")
+        with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
+            result = build_storage_env_vars("strategy-service", {"category": "tradfi"})
+        assert "STRATEGY_STORE_TRADFI_GCS_BUCKET" in result
+        loader.get_bucket_name.assert_called_once_with("strategy-store", "TRADFI")
