@@ -1,4 +1,5 @@
 functions-framework==3.*
 unified-cloud-interface[gcp]>=0.11.6,<1.0.0
+unified-events-interface>=0.1.0,<1.0.0
 flask>=3.0.0,<4.0.0
 pydantic-settings>=2.0.0

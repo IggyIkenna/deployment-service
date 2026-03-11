@@ -47,6 +47,7 @@ import functions_framework
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from unified_cloud_interface import get_pubsub_client, get_secret_client
+from unified_events_interface import log_event, setup_events
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,8 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
     if not _PROJECT_ID:
         return flask.make_response(json.dumps({"error": "PROJECT_ID not set"}), 500)
 
+    setup_events(service_name="rotate-exchange-keys", mode="batch", sink=None)
+
     sm_client = get_secret_client(provider="gcp", project_id=_PROJECT_ID)
     pubsub_client = get_pubsub_client(provider="gcp", project_id=_PROJECT_ID)
     today = date.today()
@@ -169,6 +172,15 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
 
         scanned += 1
         metadata = sm_client.get_secret_metadata(secret_name)
+        log_event(
+            "SECRET_ACCESSED",
+            details={
+                "secret_name": secret_name,
+                "service": "rotate-exchange-keys",
+                "accessor": "rotate_exchange_keys",
+                "project": _PROJECT_ID,
+            },
+        )
         labels: dict[str, str] = (metadata.labels or {}) if metadata else {}
         category = labels.get("key_category")
         max_age = _max_age_days(secret_name, category)

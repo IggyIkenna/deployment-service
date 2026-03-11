@@ -2,6 +2,7 @@
 Pytest configuration and fixtures for deployment-service tests.
 """
 
+import contextlib
 import json
 import os
 import subprocess
@@ -15,6 +16,23 @@ from google.auth.exceptions import DefaultCredentialsError
 from google.oauth2 import service_account
 
 from tests.mocks import make_mock_path_combinatorics
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register --block-network option used by quality-gates.sh.
+
+    pytest-socket (0.7.x) does not expose --block-network; we register it
+    here so the QG invocation `pytest --block-network` doesn't fail with
+    "unrecognised arguments". The option is a no-op in this repo — network
+    isolation is handled by mock_secret_client and CLOUD_MOCK_MODE=true.
+    """
+    with contextlib.suppress(ValueError):
+        parser.addoption(
+            "--block-network",
+            action="store_true",
+            default=False,
+            help="Block all socket connections to enforce credential-free CI runs.",
+        )
 
 
 @pytest.fixture(autouse=True)
