@@ -38,7 +38,7 @@ instruments-service
 
 # Part A: market-data-processing-service
 
-**Checklist:** `configs/checklist.market-data-processing-service.yaml`
+**Checklist:** `unified-trading-codex/10-audit/repos/market-data-processing-service.yaml` (codex v3.0)
 **Role:** Processes raw tick data into OHLCV candles (15s, 1m, 5m, 15m, 1h, 4h, 24h)
 
 ### Sharding
@@ -83,7 +83,7 @@ python -m deployment_service.cli data-status -s market-data-processing-service -
 
 # Part B: features-calendar-service
 
-**Checklist:** `configs/checklist.features-calendar-service.yaml`
+**Checklist:** `unified-trading-codex/10-audit/repos/features-calendar-service.yaml` (codex v3.0)
 **Role:** Root service — fetches from OpenBB/FRED, Alpha Vantage; outputs temporal, scheduled_events, event_actuals
 
 ### Sharding
