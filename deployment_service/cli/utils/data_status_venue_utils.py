@@ -15,7 +15,7 @@ from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results
 
 
-def check_instruments_venue_coverage(  # noqa: C901
+def check_instruments_venue_coverage(
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],

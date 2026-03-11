@@ -16,7 +16,7 @@ from ...deployment_config import DeploymentConfig
 logger = logging.getLogger(__name__)
 
 
-def check_data_types_detailed(  # noqa: C901
+def check_data_types_detailed(
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],
@@ -77,10 +77,12 @@ def check_data_types_detailed(  # noqa: C901
     if show_progress:
         click.echo()
         click.echo(
-            f"DETAILED DATA TYPE STATUS: {click.style('market-tick-data-handler', fg='cyan', bold=True)}"  # noqa: E501
+            "DETAILED DATA TYPE STATUS: "
+            + click.style("market-tick-data-handler", fg="cyan", bold=True)
         )
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
+            f"Date Range: {start_date.strftime('%Y-%m-%d')}"
+            f" to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
         )
         click.echo("=" * 70)
         click.echo()
@@ -309,7 +311,7 @@ def check_data_types_detailed(  # noqa: C901
         )
 
 
-def check_feature_groups_detailed(  # noqa: C901
+def check_feature_groups_detailed(
     service: str,
     start_date: datetime,
     end_date: datetime,
@@ -383,7 +385,8 @@ def check_feature_groups_detailed(  # noqa: C901
         click.echo()
         click.echo(f"FEATURE GROUP STATUS: {click.style(service, fg='cyan', bold=True)}")
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
+            f"Date Range: {start_date.strftime('%Y-%m-%d')}"
+            f" to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
         )
         click.echo(f"Expected Feature Groups: {len(expected_feature_groups)}")
         click.echo("=" * 70)
@@ -574,7 +577,7 @@ def check_feature_groups_detailed(  # noqa: C901
         )
 
 
-def check_timeframes_detailed(  # noqa: C901
+def check_timeframes_detailed(
     start_date: datetime,
     end_date: datetime,
     category: tuple[str, ...],
@@ -616,10 +619,12 @@ def check_timeframes_detailed(  # noqa: C901
     if show_progress:
         click.echo()
         click.echo(
-            f"TIMEFRAME STATUS: {click.style('market-data-processing-service', fg='cyan', bold=True)}"  # noqa: E501
+            "TIMEFRAME STATUS: "
+            + click.style("market-data-processing-service", fg="cyan", bold=True)
         )
         click.echo(
-            f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"  # noqa: E501
+            f"Date Range: {start_date.strftime('%Y-%m-%d')}"
+            f" to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
         )
         click.echo(f"Expected Timeframes: {', '.join(expected_timeframes)}")
         click.echo("=" * 70)

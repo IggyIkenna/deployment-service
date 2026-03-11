@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 if importlib.util.find_spec("botocore") is not None:
     from botocore.exceptions import ClientError
 else:
-    ClientError = Exception  # noqa: N818
+    ClientError = Exception
 
 logger = logging.getLogger(__name__)
 

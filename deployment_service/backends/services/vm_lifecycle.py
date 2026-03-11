@@ -93,7 +93,7 @@ class VMLifecycleManager:
 
         return zones_to_try
 
-    def deploy_shard(  # noqa: C901
+    def deploy_shard(
         self,
         shard_id: str,
         docker_image: str,
@@ -266,7 +266,8 @@ class VMLifecycleManager:
                     if self._config_manager.is_zone_exhausted_error(error_str):
                         exhaustion_count = self._zone_exhaustion_counts.get(zone, 0) + 1
                         logger.warning(
-                            "[ZONE_EXHAUSTED] Zone %s exhausted for shard %s (exhaustion #%s for this zone), trying next zone. Error: %s",  # noqa: E501
+                            "[ZONE_EXHAUSTED] Zone %s exhausted for shard %s"
+                            " (exhaustion #%s for this zone), trying next zone. Error: %s",
                             zone,
                             shard_id,
                             exhaustion_count,
@@ -288,7 +289,8 @@ class VMLifecycleManager:
                             quota_type = "SSD"
 
                         logger.warning(
-                            "[REGIONAL_QUOTA_EXHAUSTED] %s quota exhausted in region %s for shard %s, trying next zone. Error: %s",  # noqa: E501
+                            "[REGIONAL_QUOTA_EXHAUSTED] %s quota exhausted in region %s"
+                            " for shard %s, trying next zone. Error: %s",
                             quota_type,
                             self.region,
                             shard_id,
@@ -305,7 +307,8 @@ class VMLifecycleManager:
                         if attempt < max_retries:
                             delay = retry_delays[attempt]
                             logger.warning(
-                                "[RATE_LIMITED] VM creation rate limited for shard %s, retrying in %ss (attempt %s/%s)",  # noqa: E501
+                                "[RATE_LIMITED] VM creation rate limited for shard %s,"
+                                " retrying in %ss (attempt %s/%s)",
                                 shard_id,
                                 delay,
                                 attempt + 1,
@@ -402,7 +405,10 @@ class VMLifecycleManager:
                 f"Original error: {error_str}"
             )
         else:
-            error_msg = f"Failed to create VM for shard {shard_id} in any zone. Tried zones: {tried_zones}. Error: {error_str}"  # noqa: E501
+            error_msg = (
+                f"Failed to create VM for shard {shard_id} in any zone."
+                f" Tried zones: {tried_zones}. Error: {error_str}"
+            )
 
         logger.error(error_msg)
         return JobInfo(
@@ -500,7 +506,7 @@ class VMLifecycleManager:
                 continue
         logger.debug("[FIRE_AND_FORGET] %s not found in any zone", job_id)
 
-    def cleanup_zombie_vms(self, deployment_id: str, shard_ids: list[str]) -> dict[str, bool]:  # noqa: C901
+    def cleanup_zombie_vms(self, deployment_id: str, shard_ids: list[str]) -> dict[str, bool]:
         """
         Detect and delete ZOMBIE VMs (failed to self-delete but marked in GCS).
 

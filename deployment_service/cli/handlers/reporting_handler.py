@@ -209,7 +209,7 @@ class ReportingHandler:
             "status_breakdown": status_counts,
         }
 
-    def _generate_service_breakdown(  # noqa: C901
+    def _generate_service_breakdown(
         self, deployments: list[dict[str, object]]
     ) -> dict[str, object]:
         """Generate service breakdown statistics.
@@ -373,7 +373,8 @@ class ReportingHandler:
             for day in daily_stats:
                 if int(cast(int, day["total"])) > 0:  # Only show days with activity
                     click.echo(
-                        f"{day['date']:<12} {day['total']:<8} {day['successful']:<8} {day['failed']:<8}"  # noqa: E501
+                        f"{day['date']:<12} {day['total']:<8}"
+                        f" {day['successful']:<8} {day['failed']:<8}"
                     )
 
     def _output_json_report(self, report_data: dict[str, object]) -> None:

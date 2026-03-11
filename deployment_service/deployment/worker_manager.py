@@ -24,7 +24,7 @@ _config = DeploymentConfig()
 logger = logging.getLogger(__name__)
 
 
-def launch_shards_parallel(  # noqa: C901
+def launch_shards_parallel(
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -56,9 +56,11 @@ def launch_shards_parallel(  # noqa: C901
         max_workers: Maximum concurrent API calls
         venue_overrides: Per-venue compute overrides (e.g., COINBASE needs 256GB RAM)
         compute_type: "vm" or "cloud_run" for applying overrides
-        auto_retry_failed: If True, automatically retry shards that failed during launch (default True)
-        max_launch_retry_rounds: Maximum number of retry rounds for failed launch shards (default 3)
-    """  # noqa: E501
+        auto_retry_failed: If True, automatically retry shards that failed during launch
+            (default True)
+        max_launch_retry_rounds: Maximum number of retry rounds for failed launch shards
+            (default 3)
+    """
     labels = {
         "service": state.service,
         "deployment_id": state.deployment_id,
@@ -79,7 +81,7 @@ def launch_shards_parallel(  # noqa: C901
                 return {**compute_config, **venue_config}
         return compute_config
 
-    def launch_single_shard(  # noqa: C901
+    def launch_single_shard(
         shard_with_index: tuple[int, ShardState],
         max_launch_retries: int = 3,
         base_delay: float = 1.0,
@@ -247,7 +249,8 @@ def launch_shards_parallel(  # noqa: C901
                     total_delay: float = delay + jitter
 
                     logger.warning(
-                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s), retrying in %.1fs. Error: %s",  # noqa: E501
+                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s),"
+                        " retrying in %.1fs. Error: %s",
                         shard.shard_id,
                         attempt + 1,
                         max_launch_retries + 1,
@@ -318,7 +321,8 @@ def launch_shards_parallel(  # noqa: C901
 
     total_mini_batches = (len(indexed_shards) + mini_batch_size - 1) // mini_batch_size
     logger.info(
-        "Launching %s shards with %s parallel workers (mini-batches of %s with %ss delay, %s batches)...",  # noqa: E501
+        "Launching %s shards with %s parallel workers"
+        " (mini-batches of %s with %ss delay, %s batches)...",
         len(pending_shards),
         max_workers,
         mini_batch_size,
@@ -519,7 +523,7 @@ def launch_shards_parallel(  # noqa: C901
     )
 
 
-def launch_shards_rolling(  # noqa: C901
+def launch_shards_rolling(
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -631,7 +635,8 @@ def launch_shards_rolling(  # noqa: C901
             if no_wait and wave_number == 1:
                 # Fire and forget — launch first wave only, leave rest pending
                 logger.info(
-                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards, %s remain pending",  # noqa: E501
+                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards,"
+                    " %s remain pending",
                     len(wave),
                     len(all_pending),
                 )

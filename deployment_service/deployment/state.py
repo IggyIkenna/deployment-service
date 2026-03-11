@@ -72,7 +72,7 @@ class FailureCategory(Enum):
     UNKNOWN = "unknown"
 
     @classmethod
-    def from_error_message(cls, error_message: str) -> "FailureCategory":  # noqa: C901
+    def from_error_message(cls, error_message: str) -> "FailureCategory":
         """Classify failure from error message."""
         if not error_message:
             return cls.UNKNOWN
@@ -299,7 +299,8 @@ class DeploymentState:
     shards: list[ShardState] = field(default_factory=list)
     config: dict[str, object] = field(default_factory=dict)
     tag: str | None = None  # Human-readable description/annotation for this deployment
-    # "batch" = one-off jobs (Cloud Run Jobs / VMs); "live" = long-running services (Cloud Run Services)  # noqa: E501
+    # "batch" = one-off jobs (Cloud Run Jobs / VMs);
+    # "live" = long-running services (Cloud Run Services)
     deployment_mode: str = "batch"
 
     @property
@@ -549,7 +550,7 @@ class StateManager:
             logger.error("Failed to load state for %s: %s", deployment_id, e)
             return None
 
-    def update_shard_status(  # noqa: C901
+    def update_shard_status(
         self,
         deployment_id: str,
         shard_id: str,
@@ -594,7 +595,7 @@ class StateManager:
 
         self.save_state(state)
 
-    def list_deployments(  # noqa: C901
+    def list_deployments(
         self, service: str | None = None, limit: int = 20
     ) -> list[dict[str, object]]:
         """
@@ -632,7 +633,7 @@ class StateManager:
         # Only check the most recent folders (limit * 2 to account for service filtering)
         valid_prefixes = valid_prefixes[: limit * 2]
 
-        def fetch_deployment(folder: str) -> dict[str, object] | None:  # noqa: C901
+        def fetch_deployment(folder: str) -> dict[str, object] | None:
             """Fetch a single deployment's state."""
             folder_name = folder.rstrip("/").split("/")[-1]
             state_blob_name = f"{folder}state.json"
@@ -659,7 +660,8 @@ class StateManager:
                 running = sum(1 for s in shards if s.get("status") == "running")
                 pending = sum(1 for s in shards if s.get("status") == "pending")
                 failed = sum(1 for s in shards if s.get("status") == "failed")
-                # Derive status from shards so list view matches reality (not stale top-level status)  # noqa: E501
+                # Derive status from shards so list view matches reality
+                # (not stale top-level status)
                 if running > 0:
                     effective_status = "running"
                 elif pending > 0:
@@ -676,7 +678,10 @@ class StateManager:
                     "status": effective_status,
                     "created_at": cast(str, data.get("created_at") or ""),
                     "total_shards": cast(int, data.get("total_shards", 0)),
-                    "progress": f"{len([s for s in shards if s.get('status') == 'succeeded'])}/{cast(int, data.get('total_shards', 0))}",  # noqa: E501
+                    "progress": (
+                        f"{len([s for s in shards if s.get('status') == 'succeeded'])}"
+                        f"/{cast(int, data.get('total_shards', 0))}"
+                    ),
                     "tag": cast("str | None", data.get("tag")),  # Human-readable description
                 }
             except (ValueError, KeyError, TypeError, OSError) as e:
@@ -699,7 +704,7 @@ class StateManager:
 
         return deployments[:limit]
 
-    def force_status(  # noqa: C901
+    def force_status(
         self,
         deployment_id: str,
         new_status: DeploymentStatus,
@@ -765,7 +770,8 @@ class StateManager:
                         reason or "Marked as failed: shard was pending (never ran)"
                     )
                     logger.warning(
-                        "Shard %s was PENDING but attempted to mark as SUCCEEDED - marking as FAILED instead (shards that never ran cannot succeed)",  # noqa: E501
+                        "Shard %s was PENDING but attempted to mark as SUCCEEDED"
+                        " - marking as FAILED instead (shards that never ran cannot succeed)",
                         shard.shard_id,
                     )
                 # SAFETY: RUNNING shards without job_id should not be marked SUCCEEDED
@@ -777,7 +783,8 @@ class StateManager:
                     actual_shard_status = ShardStatus.FAILED
                     shard.error_message = reason or "Marked as failed: shard had no job_id"
                     logger.warning(
-                        "Shard %s was RUNNING but had no job_id - marking as FAILED instead of SUCCEEDED",  # noqa: E501
+                        "Shard %s was RUNNING but had no job_id"
+                        " - marking as FAILED instead of SUCCEEDED",
                         shard.shard_id,
                     )
                 elif actual_shard_status in (ShardStatus.FAILED, ShardStatus.CANCELLED):

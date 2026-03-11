@@ -5,6 +5,12 @@ Centralizes GCP SDK access so that backend modules import from here
 instead of from google.cloud directly. All SDK modules are loaded lazily
 on first access so that google.cloud libraries are not imported unless used.
 
+# gcp-sdk-boundary: This module IS the approved GCP SDK boundary for deployment-service.
+# All google.cloud imports are isolated here so the rest of the codebase never touches
+# the SDK directly. The TYPE_CHECKING imports below are the controlled entry point —
+# equivalent to UCI factory.py's config-bootstrap boundary pattern.
+# Do NOT add google.cloud imports elsewhere.
+
 TODO(GH-BACKLOG): Replace compute_v1/run_v2 access with UCI CloudComputeClient/
 CloudRunClient abstractions when those are added to unified-cloud-interface.
 """
@@ -15,15 +21,15 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from google.api_core import exceptions as google_exceptions  # noqa: cloud-sdk-direct
-    from google.auth import default as google_auth_default  # noqa: cloud-sdk-direct
-    from google.auth.transport import requests as google_auth_requests  # noqa: cloud-sdk-direct
-    from google.cloud import compute_v1, run_v2  # noqa: cloud-sdk-direct
+    from google.api_core import exceptions as google_exceptions
+    from google.auth import default as google_auth_default
+    from google.auth.transport import requests as google_auth_requests
+    from google.cloud import compute_v1, run_v2
     from google.cloud.compute_v1.services.images import (
-        transports as images_transports,  # noqa: cloud-sdk-direct
+        transports as images_transports,
     )
     from google.cloud.compute_v1.services.instances import (
-        transports as instances_transports,  # noqa: cloud-sdk-direct
+        transports as instances_transports,
     )
 
 __all__ = [

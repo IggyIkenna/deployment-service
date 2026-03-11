@@ -2,9 +2,11 @@
 CLI - Command-line interface for shard calculation and deployment
 
 Usage:
-    python -m src.cli calculate --service instruments-service --start-date 2024-01-01 --end-date 2024-12-31
-    python -m src.cli calculate --service market-tick-data-handler --category CEFI --max-shards 100
-"""  # noqa: E501
+    python -m src.cli calculate --service instruments-service
+        --start-date 2024-01-01 --end-date 2024-12-31
+    python -m src.cli calculate --service market-tick-data-handler
+        --category CEFI --max-shards 100
+"""
 
 import logging
 import warnings
@@ -15,14 +17,14 @@ from pathlib import Path
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic.*")
 warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 
-import click  # noqa: E402
-from unified_events_interface import setup_events  # noqa: E402
+import click
+from unified_events_interface import setup_events
 from unified_trading_library import (
-    GracefulShutdownHandler,  # noqa: E402
-    setup_tracing,  # noqa: E402
+    GracefulShutdownHandler,
+    setup_tracing,
 )
 
-from ..deployment_config import DeploymentConfig  # noqa: E402
+from ..deployment_config import DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +111,12 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
 
 
 # Import command modules after defining cli
-from .commands.analysis import analysis_commands  # noqa: E402
-from .commands.calculation import calculation_commands  # noqa: E402
-from .commands.deployment import deployment_commands  # noqa: E402
-from .commands.management import management_commands  # noqa: E402
-from .commands.reporting import reporting_commands  # noqa: E402
-from .commands.validation import validation_commands  # noqa: E402
+from .commands.analysis import analysis_commands
+from .commands.calculation import calculation_commands
+from .commands.deployment import deployment_commands
+from .commands.management import management_commands
+from .commands.reporting import reporting_commands
+from .commands.validation import validation_commands
 
 # Add command groups
 for command in (

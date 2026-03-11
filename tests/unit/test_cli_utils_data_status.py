@@ -855,7 +855,7 @@ class TestCheckDataTypesForVenues:
         # prefix_template should contain day={date}
         assert "day={date}" in call_args.kwargs.get(
             "prefix_template", call_args.args[1] if len(call_args.args) > 1 else ""
-        )  # noqa: E501
+        )
 
 
 # ===========================================================================

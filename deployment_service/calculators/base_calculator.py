@@ -12,7 +12,7 @@ from typing import cast
 logger = logging.getLogger(__name__)
 
 
-class ShardLimitExceeded(Exception):  # noqa: N818
+class ShardLimitExceeded(Exception):
     """Raised when calculated shards exceed the max_shards limit."""
 
     def __init__(

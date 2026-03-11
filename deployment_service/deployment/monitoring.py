@@ -19,7 +19,7 @@ from .state import DeploymentState, DeploymentStatus, ShardState, ShardStatus
 logger = logging.getLogger(__name__)
 
 
-def monitor_shards(  # noqa: C901
+def monitor_shards(
     state: DeploymentState,
     backend: ComputeBackend,
     state_manager: object,
@@ -132,7 +132,8 @@ def monitor_shards(  # noqa: C901
                     shard.end_time = datetime.now(UTC).isoformat()
                     completed_shards.append(shard_id)
                     logger.error(
-                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts (max retries reached): %s",  # noqa: E501
+                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts"
+                        " (max retries reached): %s",
                         shard_id,
                         shard.retries + 1,
                         job_info.error_message,

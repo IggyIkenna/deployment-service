@@ -1,7 +1,8 @@
 """Scanning functions for data status display.
 
-This module contains all the scanning-related helper functions used by the data status display modules.
-"""  # noqa: E501
+This module contains all the scanning-related helper functions used by the data status
+display modules.
+"""
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,7 +12,7 @@ import click
 logger = logging.getLogger(__name__)
 
 
-def scan_venues_fast_mode(  # noqa: C901
+def scan_venues_fast_mode(
     categories: list[str],
     bucket_info: dict[str, object],
     category_valid_dates: dict[str, object],
@@ -191,7 +192,7 @@ def scan_buckets_batch_mode(
     return bucket_indexes
 
 
-def check_timeframes_for_venues(  # noqa: C901
+def check_timeframes_for_venues(
     cat: str,
     cat_venues: list[str],
     category_valid_dates: dict[str, object],
@@ -214,11 +215,13 @@ def check_timeframes_for_venues(  # noqa: C901
 
     if detailed and expected_data_types:
         click.echo(
-            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes x {total_dt} data_types..."  # noqa: E501
+            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates"
+            f" x {total_tf} timeframes x {total_dt} data_types..."
         )
     else:
         click.echo(
-            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes..."  # noqa: E501
+            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates"
+            f" x {total_tf} timeframes..."
         )
 
     venue_results = {}
@@ -232,7 +235,7 @@ def check_timeframes_for_venues(  # noqa: C901
     first_date = valid_dates[0] if valid_dates else all_dates[0]
     venue_expected_dt = loader.get_all_venue_data_type_expectations(cat, first_date)
 
-    def check_venue_timeframes_detailed(venue_name):  # noqa: C901
+    def check_venue_timeframes_detailed(venue_name):
         """Check all timeframes (and optionally data_types) for a venue across dates."""
         date_results = {}
         venue_tf_stats = dict.fromkeys(expected_timeframes, 0)  # tf -> days complete
@@ -242,7 +245,7 @@ def check_timeframes_for_venues(  # noqa: C901
         venue_specific_dt = venue_expected_dt.get(venue_name, expected_data_types)
         bucket = cloud_client.client.bucket(info["bucket"])
 
-        def check_single_date(date_str):  # noqa: C901
+        def check_single_date(date_str):
             """Check all timeframes for a single date (runs in parallel)."""
             tf_found = 0
             tf_details = {}  # tf -> bool
@@ -373,7 +376,8 @@ def check_data_types_for_venues(
         prefix_template = path_template.split("{date}")[0] + "day={date}/"
 
     click.echo(
-        f"  Checking {cat}: {len(cat_venues)} venues x {len(category_valid_dates.get(cat, []))} dates (venue-specific search)..."  # noqa: E501
+        f"  Checking {cat}: {len(cat_venues)} venues"
+        f" x {len(category_valid_dates.get(cat, []))} dates (venue-specific search)..."
     )
 
     venue_results = {}

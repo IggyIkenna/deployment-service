@@ -13,7 +13,7 @@ from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_dynamic_service_header
 
 
-def display_dynamic_service_status(  # noqa: C901
+def display_dynamic_service_status(
     service: str,
     start_date,
     end_date,
@@ -140,7 +140,8 @@ def display_dynamic_service_status(  # noqa: C901
     # Header depends on whether we have results data
     if service == "execution-service" and results_by_domain:
         click.echo(
-            f"{'Domain/Category':<15} {'Configs':<10} {'Results':<10} {'Completion':<12} {'Oldest':<18} {'Newest':<18}"  # noqa: E501
+            f"{'Domain/Category':<15} {'Configs':<10} {'Results':<10}"
+            f" {'Completion':<12} {'Oldest':<18} {'Newest':<18}"
         )
         click.echo("-" * 90)
     else:
@@ -184,7 +185,8 @@ def display_dynamic_service_status(  # noqa: C901
             else:
                 completion_str = "N/A"
             click.echo(
-                f"{domain:<15} {stats.file_count:<10} {result_count:<10} {completion_str:<12} {oldest:<18} {newest:<18}"  # noqa: E501
+                f"{domain:<15} {stats.file_count:<10} {result_count:<10}"
+                f" {completion_str:<12} {oldest:<18} {newest:<18}"
             )
         else:
             click.echo(f"{domain:<20} {stats.file_count:<12} {oldest:<20} {newest:<20}")
@@ -196,13 +198,15 @@ def display_dynamic_service_status(  # noqa: C901
         if total_configs > 0:
             overall_pct = (total_results / total_configs) * 100
             click.echo(
-                f"Overall: {total_results}/{total_configs} configs have results ({overall_pct:.1f}%)"  # noqa: E501
+                f"Overall: {total_results}/{total_configs} configs have results"
+                f" ({overall_pct:.1f}%)"
             )
             if total_results < total_configs:
                 click.echo()
                 click.echo(click.style("To rerun missing configs:", fg="cyan"))
                 click.echo(
-                    "  python -m execution_service.cli.backtest --config-gcs <config_path> --start <date> --end <date>"  # noqa: E501
+                    "  python -m execution_service.cli.backtest"
+                    " --config-gcs <config_path> --start <date> --end <date>"
                 )
                 click.echo("  Add --force to overwrite existing results")
         else:

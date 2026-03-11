@@ -67,7 +67,7 @@ class VMMonitoringManager:
         combined_context = {**(job_context or {}), **temp_context}
         return self.get_status(job_id, combined_context)
 
-    def get_status(  # noqa: C901
+    def get_status(
         self, job_id: str, job_context: dict[str, tuple[str, str, str | None]] | None = None
     ) -> JobInfo:
         """
@@ -239,7 +239,8 @@ class VMMonitoringManager:
 
         if not self.status_bucket:
             # No status bucket configured - can't verify, assume FAILED (not success!)
-            # This is safer than assuming success - we should never mark succeeded without confirmation  # noqa: E501
+            # This is safer than assuming success - we should never mark succeeded
+            # without confirmation
             logger.warning(
                 "No status bucket configured, cannot verify VM %s completion - marking as FAILED",
                 job_id,

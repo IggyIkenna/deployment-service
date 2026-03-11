@@ -28,7 +28,7 @@ if importlib.util.find_spec("botocore") is not None:
 else:
     # Stub: unreachable at runtime unless botocore is installed, but satisfies
     # the module-level name so except-clauses don't raise NameError on import.
-    ClientError = Exception  # noqa: N818
+    ClientError = Exception
 
 
 def _ensure_boto3() -> "types.ModuleType":

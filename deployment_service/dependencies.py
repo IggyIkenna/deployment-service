@@ -419,7 +419,8 @@ class DependencyGraph:
 
         if dependency_check not in {"gcs", "none", "pubsub"}:
             raise ValueError(
-                f"Invalid dependency_check '{dependency_check}' for {service} <- {upstream_service} ({mode})"  # noqa: E501
+                f"Invalid dependency_check '{dependency_check}'"
+                f" for {service} <- {upstream_service} ({mode})"
             )
 
         return transport, dependency_check

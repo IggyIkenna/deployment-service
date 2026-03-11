@@ -7,7 +7,7 @@ import re
 from typing import cast
 
 
-def process_fast_results(  # noqa: C901
+def process_fast_results(
     fast_results: dict[str, object],
     categories: list[str],
     category_valid_dates: dict[str, object],
@@ -86,7 +86,7 @@ def process_fast_results(  # noqa: C901
     return overall_complete, overall_total, overall_excluded
 
 
-def process_batch_results(  # noqa: C901
+def process_batch_results(
     bucket_indexes: dict[str, object],
     categories: list[str],
     bucket_info: dict[str, object],
@@ -107,7 +107,14 @@ def process_batch_results(  # noqa: C901
     overall_excluded = 0
 
     bucket_to_category = {
-        f"gs://{bucket_info[cat]['bucket']}/{bucket_info[cat]['path_template'].split('{date}')[0] if '{date}' in bucket_info[cat]['path_template'] else ''}": cat  # noqa: E501
+        (
+            f"gs://{bucket_info[cat]['bucket']}/"
+            + (
+                bucket_info[cat]["path_template"].split("{date}")[0]
+                if "{date}" in bucket_info[cat]["path_template"]
+                else ""
+            )
+        ): cat
         for cat in categories
         if cat in bucket_info
     }

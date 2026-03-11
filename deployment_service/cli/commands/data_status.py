@@ -100,10 +100,13 @@ FIXED_DIMENSION_SERVICES = {
     "--mode",
     type=click.Choice(["batch", "live"], case_sensitive=False),
     default="batch",
-    help="Data path mode: batch (historical by_date/day=) or live (persisted live sink under live/ prefix).",  # noqa: E501
+    help=(
+        "Data path mode: batch (historical by_date/day=) or live"
+        " (persisted live sink under live/ prefix)."
+    ),
 )
 @click.pass_context
-def data_status(  # noqa: C901
+def data_status(
     ctx,
     service: str,
     start_date: datetime,
@@ -151,8 +154,9 @@ def data_status(  # noqa: C901
         data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-12-31 -b
 
         # Check venue coverage within instruments parquet files (instruments-service only)
-        data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31 --check-venues
-    """  # noqa: E501
+        data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
+          --check-venues
+    """
     config_dir = ctx.obj.get("config_dir", "configs")
     total_start = time.time()
 
@@ -193,7 +197,8 @@ def data_status(  # noqa: C901
             if service not in feature_services:
                 click.echo(
                     click.style(
-                        f"--check-feature-groups is only supported for: {', '.join(feature_services)}",  # noqa: E501
+                        "--check-feature-groups is only supported for:"
+                        f" {', '.join(feature_services)}",
                         fg="red",
                     ),
                     err=True,

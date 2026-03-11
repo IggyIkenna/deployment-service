@@ -138,7 +138,7 @@ def test_main_module_imports_cleanly() -> None:
         mod_name = "deployment_service.__main__"
         if mod_name in sys.modules:
             del sys.modules[mod_name]
-        import deployment_service.__main__ as main_mod  # noqa: F401
+        importlib.import_module("deployment_service.__main__")
 
 
 @pytest.mark.unit
@@ -163,7 +163,7 @@ def test_main_guard_calls_cli() -> None:
 
     warnings.filterwarnings("ignore")
     with patch("deployment_service.cli.cli", mock_cli2):
-        exec(  # noqa: S102
+        exec(
             compile(
                 "if __name__ == '__main__': cli()",
                 "<test>",

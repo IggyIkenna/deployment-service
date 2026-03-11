@@ -20,7 +20,7 @@ _config = DeploymentConfig()
 logger = logging.getLogger(__name__)
 
 
-def launch_shards_rolling(  # noqa: C901
+def launch_shards_rolling(
     state: DeploymentState,
     backend: ComputeBackend,
     docker_image: str,
@@ -89,7 +89,7 @@ def launch_shards_rolling(  # noqa: C901
     shard_index_counter = [0]
     shard_index_lock = threading.Lock()
 
-    def launch_single_shard(shard: ShardState) -> tuple[ShardState, JobInfo | None]:  # noqa: C901
+    def launch_single_shard(shard: ShardState) -> tuple[ShardState, JobInfo | None]:
         """Launch a single shard and return result."""
         lease_id: str | None = None
         try:
@@ -222,7 +222,8 @@ def launch_shards_rolling(  # noqa: C901
     mini_batch_delay_seconds = _config.vm_launch_mini_batch_delay_seconds
 
     logger.info(
-        "[ROLLING_LAUNCH] Launching initial batch of %s shards (mini-batches of %s with %ss delay)...",  # noqa: E501
+        "[ROLLING_LAUNCH] Launching initial batch of %s shards"
+        " (mini-batches of %s with %ss delay)...",
         len(initial_batch),
         mini_batch_size,
         mini_batch_delay_seconds,
@@ -368,7 +369,10 @@ def launch_shards_rolling(  # noqa: C901
                 if shard.unknown_polls >= unknown_threshold:
                     shard.status = ShardStatus.FAILED
                     shard.end_time = datetime.now(UTC).isoformat()
-                    shard.error_message = f"Backend status UNKNOWN for {shard.unknown_polls} polls; marking shard as failed"  # noqa: E501
+                    shard.error_message = (
+                        f"Backend status UNKNOWN for {shard.unknown_polls} polls;"
+                        f" marking shard as failed"
+                    )
                     completed_this_round += 1
                     # Release quota lease (best-effort)
                     try:
@@ -459,7 +463,8 @@ def launch_shards_rolling(  # noqa: C901
         pending = sum(1 for s in state.shards if s.status == ShardStatus.PENDING)
 
         logger.info(
-            "[ROLLING_LAUNCH] Progress: running=%s, succeeded=%s, failed=%s, pending=%s, remaining_to_launch=%s",  # noqa: E501
+            "[ROLLING_LAUNCH] Progress: running=%s, succeeded=%s, failed=%s,"
+            " pending=%s, remaining_to_launch=%s",
             running,
             succeeded,
             failed,

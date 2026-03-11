@@ -262,7 +262,7 @@ class DeploymentMonitor:
 
         return versions
 
-    def get_deployment_status(  # noqa: C901
+    def get_deployment_status(
         self,
         service: str,
         date: str,
@@ -336,7 +336,7 @@ class DeploymentMonitor:
 
         return statuses
 
-    def generate_status_report(  # noqa: C901
+    def generate_status_report(
         self,
         statuses: dict[str, ServiceHealthReport],
         include_deps: bool = True,
@@ -389,7 +389,8 @@ class DeploymentMonitor:
             lines.append("⏳ RUNNING:")
             for service, report in running:
                 lines.append(
-                    f"   {service}: {report.completion_percent:.0f}% ({report.completed}/{report.total_shards})"  # noqa: E501
+                    f"   {service}: {report.completion_percent:.0f}%"
+                    f" ({report.completed}/{report.total_shards})"
                 )
             lines.append("")
 

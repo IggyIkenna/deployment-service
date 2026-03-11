@@ -271,7 +271,7 @@ class ReportingCLI(BaseCLI):
 
         logger.info("Report saved to %s", output_path)
 
-    def _save_markdown_report(self, report: dict[str, object], output_path: Path):  # noqa: C901
+    def _save_markdown_report(self, report: dict[str, object], output_path: Path):
         """Save report as markdown."""
         with open(output_path, "w") as f:
             f.write(f"# {report['title']}\n\n")

@@ -50,7 +50,7 @@ def _get_manifest_entities(workspace_manifest: dict[str, object]) -> dict[str, s
     return entities
 
 
-def validate_runtime_topology(  # noqa: C901
+def validate_runtime_topology(
     runtime_topology_path: Path,
     workspace_manifest_path: Path,
 ) -> list[str]:
@@ -79,7 +79,8 @@ def validate_runtime_topology(  # noqa: C901
     for service_name in services:
         if service_name not in entities:
             violations.append(
-                f"Unknown service in runtime topology: '{service_name}' not found in workspace-manifest"  # noqa: E501
+                f"Unknown service in runtime topology:"
+                f" '{service_name}' not found in workspace-manifest"
             )
 
     deployment_profiles = topology.get("deployment_profiles") or {}
@@ -126,18 +127,21 @@ def validate_runtime_topology(  # noqa: C901
                 transport = str(mode_cfg["transport"])
                 if transport not in valid_transports:
                     violations.append(
-                        f"service_flows[{idx}] transport '{transport}' is not allowed by any deployment profile"  # noqa: E501
+                        f"service_flows[{idx}] transport '{transport}'"
+                        f" is not allowed by any deployment profile"
                     )
             else:
                 for profile_name, profile_cfg in mode_cfg.items():
                     if profile_name not in deployment_profiles:
                         violations.append(
-                            f"service_flows[{idx}] unknown deployment profile '{profile_name}' in mode '{mode_name}'"  # noqa: E501
+                            f"service_flows[{idx}] unknown deployment profile"
+                            f" '{profile_name}' in mode '{mode_name}'"
                         )
                         continue
                     if not isinstance(profile_cfg, dict):
                         violations.append(
-                            f"service_flows[{idx}].modes.{mode_name}.{profile_name} must be a mapping"  # noqa: E501
+                            f"service_flows[{idx}].modes.{mode_name}.{profile_name}"
+                            f" must be a mapping"
                         )
                         continue
                     transport = str(profile_cfg.get("transport") or "")
@@ -146,7 +150,8 @@ def validate_runtime_topology(  # noqa: C901
                     )
                     if transport and transport not in allowed:
                         violations.append(
-                            f"service_flows[{idx}] transport '{transport}' is not allowed in profile '{profile_name}'"  # noqa: E501
+                            f"service_flows[{idx}] transport '{transport}'"
+                            f" is not allowed in profile '{profile_name}'"
                         )
 
     api_interactions = topology.get("api_interactions") or []

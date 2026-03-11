@@ -148,7 +148,7 @@ class CalculationHandler:
         else:
             raise click.ClickException(f"Unknown output format: {output_format}")
 
-    def _output_table(  # noqa: C901
+    def _output_table(
         self, shards: list[dict[str, object]], summary: dict[str, object], dry_run: bool
     ) -> None:
         """Output results in table format.
@@ -259,7 +259,7 @@ class CalculationHandler:
             logger.exception("Unexpected error listing services: %s", e)
             raise click.ClickException(f"Failed to list services: {e}") from e
 
-    def handle_service_info(self, service: str) -> None:  # noqa: C901
+    def handle_service_info(self, service: str) -> None:
         """Handle service info command.
 
         Args:
@@ -298,7 +298,7 @@ class CalculationHandler:
             logger.exception("Unexpected error getting service info: %s", e)
             raise click.ClickException(f"Failed to get service info: {e}") from e
 
-    def handle_venues(self) -> None:  # noqa: C901
+    def handle_venues(self) -> None:
         """Handle venues command."""
         try:
             services = self.deployment_service.list_available_services()
