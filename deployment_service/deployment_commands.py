@@ -16,12 +16,9 @@ MAX_CONCURRENT_HARD_LIMIT = _deployment_config.max_concurrent_hard_limit
 # Default values from deployment config
 DEFAULT_PROJECT_ID = _deployment_config.effective_project_id
 DEFAULT_REGION = _deployment_config.effective_region
-DEFAULT_SERVICE_ACCOUNT = (
-    _deployment_config.service_account_email
-    or (
-        f"instruments-service-cloud-run"
-        f"@{_deployment_config.effective_project_id}.iam.gserviceaccount.com"
-    )
+DEFAULT_SERVICE_ACCOUNT = _deployment_config.service_account_email or (
+    f"instruments-service-cloud-run"
+    f"@{_deployment_config.effective_project_id}.iam.gserviceaccount.com"
 )
 DEFAULT_STATE_BUCKET = _deployment_config.effective_state_bucket
 

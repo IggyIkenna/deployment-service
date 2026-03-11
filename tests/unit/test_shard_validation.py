@@ -264,7 +264,7 @@ class TestSkipExistingFilter:
         """Test skip_existing handles storage errors gracefully."""
         # When storage raises an exception, each shard check returns False (not exists)
         # so all shards should be returned
-        mock_get_storage_client.side_effect = Exception("Storage unavailable")
+        mock_get_storage_client.side_effect = OSError("Storage unavailable")
 
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 

@@ -121,7 +121,7 @@ class TestPublishAlert:
         import main as m
 
         mock_publisher = MagicMock()
-        mock_publisher.publish.side_effect = Exception("pubsub down")
+        mock_publisher.publish.side_effect = OSError("pubsub down")
 
         # Should not raise
         m._publish_alert(mock_publisher, "secret-rotation-alerts", {"key": "value"})
