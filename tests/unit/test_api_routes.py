@@ -183,7 +183,11 @@ class TestDataStatusRoute:
         ):
             resp = client.get(
                 "/api/v1/data-status",
-                params={"service": "instruments-service", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                params={
+                    "service": "instruments-service",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
             )
         assert resp.status_code == 500
 
@@ -398,3 +402,132 @@ class TestCloudRunStatusBatchRoute:
                 },
             )
         assert resp.status_code == 200
+
+
+class TestVMEventsRoute:
+    def test_get_vm_events_not_found(self, client):
+        mock_sm = MagicMock()
+        mock_sm.load_state.return_value = None
+        with patch(
+            "deployment_service.api.routes.state._get_state_manager",
+            return_value=mock_sm,
+        ):
+            resp = client.get("/api/v1/deployments/dep-001/vm-events")
+        assert resp.status_code == 404
+
+    def test_get_vm_events_empty(self, client):
+        mock_sm = MagicMock()
+        mock_state = MagicMock()
+        mock_state.shards = []
+        mock_sm.load_state.return_value = mock_state
+        with patch(
+            "deployment_service.api.routes.state._get_state_manager",
+            return_value=mock_sm,
+        ):
+            resp = client.get("/api/v1/deployments/dep-001/vm-events")
+        assert resp.status_code == 200
+        assert resp.json() == {"events": []}
+
+    def test_get_vm_events_with_preemption(self, client):
+        mock_sm = MagicMock()
+        mock_state = MagicMock()
+        mock_attempt = MagicMock()
+        mock_attempt.failure_category = "VM_PREEMPTED"
+        mock_attempt.failure_reason = "preempted by GCP"
+        mock_attempt.ended_at = "2024-01-01T10:00:00Z"
+        mock_attempt.started_at = None
+        mock_attempt.zone = "us-central1-a"
+        mock_attempt.region = "us-central1"
+        mock_shard = MagicMock()
+        mock_shard.shard_id = "shard-0"
+        mock_shard.execution_history = [mock_attempt]
+        mock_state.shards = [mock_shard]
+        mock_sm.load_state.return_value = mock_state
+        with patch(
+            "deployment_service.api.routes.state._get_state_manager",
+            return_value=mock_sm,
+        ):
+            resp = client.get("/api/v1/deployments/dep-001/vm-events")
+        assert resp.status_code == 200
+        events = resp.json()["events"]
+        assert len(events) == 1
+        assert events[0]["event_type"] == "VM_PREEMPTED"
+
+
+class TestRollbackRoute:
+    def test_rollback_error(self, client):
+        with patch(
+            "unified_cloud_interface.get_compute_client",
+            side_effect=OSError("compute error"),
+        ):
+            resp = client.post(
+                "/api/v1/deployments/dep-001/rollback",
+                json={"service": "instruments-service", "region": "us-central1"},
+            )
+        assert resp.status_code == 500
+
+    def test_rollback_success(self, client):
+        mock_compute = MagicMock()
+        mock_compute.rollback_service.return_value = {"rolled_back": True}
+        with patch(
+            "unified_cloud_interface.get_compute_client",
+            return_value=mock_compute,
+        ):
+            resp = client.post(
+                "/api/v1/deployments/dep-001/rollback",
+                json={
+                    "service": "instruments-service",
+                    "region": "us-central1",
+                    "target_revision": "v42",
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deployment_id"] == "dep-001"
+        assert data["service"] == "instruments-service"
+
+
+class TestLiveHealthRoute:
+    def test_live_health_error(self, client):
+        with patch(
+            "unified_cloud_interface.get_compute_client",
+            side_effect=OSError("compute error"),
+        ):
+            resp = client.get(
+                "/api/v1/deployments/dep-001/live-health",
+                params={"service": "instruments-service", "region": "us-central1"},
+            )
+        assert resp.status_code == 500
+
+    def test_live_health_no_revisions(self, client):
+        mock_compute = MagicMock()
+        mock_compute.list_revisions.return_value = []
+        with patch(
+            "unified_cloud_interface.get_compute_client",
+            return_value=mock_compute,
+        ):
+            resp = client.get(
+                "/api/v1/deployments/dep-001/live-health",
+                params={"service": "instruments-service", "region": "us-central1"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["healthy"] is False
+
+    def test_live_health_service_healthy(self, client):
+        mock_compute = MagicMock()
+        mock_compute.list_revisions.return_value = [
+            {
+                "create_time": 1704067200.0,
+                "conditions": [{"type": "Ready", "state": "CONDITION_SUCCEEDED"}],
+            }
+        ]
+        with patch(
+            "unified_cloud_interface.get_compute_client",
+            return_value=mock_compute,
+        ):
+            resp = client.get(
+                "/api/v1/deployments/dep-001/live-health",
+                params={"service": "instruments-service", "region": "us-central1"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["healthy"] is True
