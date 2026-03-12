@@ -6,7 +6,12 @@
 #     --account-id  ACCOUNT \
 #     --region      REGION  \
 #     --env         ENV     \
-#     --bucket-prefix PREFIX
+#     --bucket-prefix PREFIX \
+#     [--redis]
+#
+# Flags:
+#   --redis   Also provision ElastiCache Redis (skips if already exists).
+#             Stores connection URL in Secrets Manager: unified-trading/{env}/redis-url
 #
 # Prerequisites:
 #   - AWS CLI configured (aws configure or IAM role via instance profile)
@@ -22,6 +27,7 @@ ACCOUNT_ID=""
 REGION=""
 ENV=""
 PREFIX=""
+ENABLE_REDIS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,9 +35,10 @@ while [[ $# -gt 0 ]]; do
     --region)        REGION="$2";     shift 2 ;;
     --env)           ENV="$2";        shift 2 ;;
     --bucket-prefix) PREFIX="$2";     shift 2 ;;
+    --redis)         ENABLE_REDIS=true; shift ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 --account-id ACCOUNT --region REGION --env ENV --bucket-prefix PREFIX" >&2
+      echo "Usage: $0 --account-id ACCOUNT --region REGION --env ENV --bucket-prefix PREFIX [--redis]" >&2
       exit 1
       ;;
   esac
@@ -112,12 +119,135 @@ terraform -chdir="$TF_DIR" init \
   -backend-config="region=${REGION}" \
   -reconfigure
 
+# ---------------------------------------------------------------------------
+# Idempotency: import Group A shared S3 buckets that already exist in AWS
+# but may be absent from a fresh terraform state for this environment.
+# Group A buckets (no env suffix) are shared across dev/staging/prod.
+# Without importing them first, terraform apply would fail with
+# "BucketAlreadyOwnedByYou" (E5 in the bootstrap audit log).
+# ---------------------------------------------------------------------------
+GROUP_A_BUCKETS=(
+  "unified-trading-instruments-cefi-${ACCOUNT_ID}"
+  "unified-trading-instruments-tradfi-${ACCOUNT_ID}"
+  "unified-trading-instruments-defi-${ACCOUNT_ID}"
+  "unified-trading-market-data-cefi-${ACCOUNT_ID}"
+  "unified-trading-market-data-tradfi-${ACCOUNT_ID}"
+  "unified-trading-market-data-tradfi-${ACCOUNT_ID}"
+  "unified-trading-market-data-defi-${ACCOUNT_ID}"
+  "unified-trading-features-calendar-${ACCOUNT_ID}"
+)
+
+echo "==> Checking Group A shared S3 buckets (idempotent import if needed)..."
+for bucket in "${GROUP_A_BUCKETS[@]}"; do
+  # Skip if already in state
+  if terraform -chdir="$TF_DIR" state list "aws_s3_bucket.unified_trading[\"${bucket}\"]" 2>/dev/null | grep -q .; then
+    echo "    [already in state] ${bucket}"
+    continue
+  fi
+  # Skip if bucket doesn't exist in AWS (new environment, terraform will create it)
+  if ! aws s3api head-bucket --bucket "$bucket" --region "$REGION" 2>/dev/null; then
+    echo "    [not in AWS yet]   ${bucket} — terraform will create"
+    continue
+  fi
+  echo "    [importing]        ${bucket}"
+  terraform -chdir="$TF_DIR" import \
+    -var="aws_account_id=${ACCOUNT_ID}" \
+    -var="aws_region=${REGION}" \
+    -var="environment=${ENV}" \
+    -var="bucket_prefix=${PREFIX}" \
+    "aws_s3_bucket.unified_trading[\"${bucket}\"]" \
+    "$bucket" || echo "    [WARN] Import failed for ${bucket} — continuing"
+
+  for sub_resource in \
+    "aws_s3_bucket_versioning.unified_trading" \
+    "aws_s3_bucket_server_side_encryption_configuration.unified_trading" \
+    "aws_s3_bucket_public_access_block.unified_trading"; do
+    if ! terraform -chdir="$TF_DIR" state list "${sub_resource}[\"${bucket}\"]" 2>/dev/null | grep -q .; then
+      terraform -chdir="$TF_DIR" import \
+        -var="aws_account_id=${ACCOUNT_ID}" \
+        -var="aws_region=${REGION}" \
+        -var="environment=${ENV}" \
+        -var="bucket_prefix=${PREFIX}" \
+        "${sub_resource}[\"${bucket}\"]" \
+        "$bucket" 2>/dev/null || echo "    [WARN] Import failed for ${sub_resource}[${bucket}]"
+    fi
+  done
+done
+
+# ---------------------------------------------------------------------------
+# Import Group A Glue databases if they already exist (same idempotency reason)
+# ---------------------------------------------------------------------------
+GROUP_A_GLUE_DBS=("instruments" "market_data" "features_calendar")
+for db in "${GROUP_A_GLUE_DBS[@]}"; do
+  glue_db_name="uts_${db}"
+  tf_addr="aws_glue_catalog_database.raw[\"${db}\"]"
+  if terraform -chdir="$TF_DIR" state list "$tf_addr" 2>/dev/null | grep -q .; then
+    continue
+  fi
+  if aws glue get-database --name "$glue_db_name" --region "$REGION" &>/dev/null; then
+    echo "    [importing glue db] ${glue_db_name}"
+    terraform -chdir="$TF_DIR" import \
+      -var="aws_account_id=${ACCOUNT_ID}" \
+      -var="aws_region=${REGION}" \
+      -var="environment=${ENV}" \
+      -var="bucket_prefix=${PREFIX}" \
+      "$tf_addr" "$glue_db_name" 2>/dev/null || echo "    [WARN] Import failed for glue db ${glue_db_name}"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Set up env file path early — used by both Athena export and Redis sections
+# ---------------------------------------------------------------------------
+ATHENA_BUCKET="${PREFIX}-${ENV}-deployment-state"
+ENV_FILE="$HOME/.aws/unified-trading-env"
+mkdir -p "$(dirname "$ENV_FILE")"
+
 echo "==> terraform apply"
 terraform -chdir="$TF_DIR" apply -auto-approve \
   -var="aws_account_id=${ACCOUNT_ID}" \
   -var="aws_region=${REGION}" \
   -var="environment=${ENV}" \
   -var="bucket_prefix=${PREFIX}"
+
+# ---------------------------------------------------------------------------
+# Redis (ElastiCache) — opt-in via --redis flag
+# ---------------------------------------------------------------------------
+if [[ "$ENABLE_REDIS" == "true" ]]; then
+  ELASTICACHE_ID="trading-cache-${ENV}"
+  echo "==> Checking ElastiCache Redis (id=${ELASTICACHE_ID})..."
+
+  if aws elasticache describe-replication-groups \
+      --replication-group-id "$ELASTICACHE_ID" \
+      --region "$REGION" &>/dev/null; then
+    echo "    ElastiCache already exists — skipping provision."
+    # Still read the secret and export it if available
+    REDIS_URL=$(aws secretsmanager get-secret-value \
+      --secret-id "unified-trading/${ENV}/redis-url" \
+      --region "$REGION" \
+      --query SecretString \
+      --output text 2>/dev/null || echo "")
+  else
+    echo "    Provisioning ElastiCache Redis (this takes ~10 min)..."
+    terraform -chdir="$TF_DIR" apply -auto-approve \
+      -var="aws_account_id=${ACCOUNT_ID}" \
+      -var="aws_region=${REGION}" \
+      -var="environment=${ENV}" \
+      -var="bucket_prefix=${PREFIX}" \
+      -var="enable_elasticache=true"
+
+    REDIS_URL=$(aws secretsmanager get-secret-value \
+      --secret-id "unified-trading/${ENV}/redis-url" \
+      --region "$REGION" \
+      --query SecretString \
+      --output text 2>/dev/null || echo "")
+    echo "    ElastiCache provisioned."
+  fi
+
+  if [[ -n "$REDIS_URL" ]]; then
+    echo "export REDIS_URL=${REDIS_URL}   # ${ENV} — set by bootstrap_aws.sh --redis" >> "$ENV_FILE"
+    echo "    REDIS_URL exported to: $ENV_FILE"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Service deployment helper — inject PROTOCOL_* env vars from configs/services/
@@ -196,16 +326,12 @@ print(json.dumps(td))
 # deploy_service "risk-and-exposure-service"         "risk-and-exposure-service"         "$CLUSTER" live
 
 # ---------------------------------------------------------------------------
-# Export ATHENA_OUTPUT_BUCKET — required by UCI get_athena_output_bucket()
+# Export ATHENA_OUTPUT_BUCKET and core env vars — required by UCI
 # ---------------------------------------------------------------------------
-ATHENA_BUCKET="${PREFIX}-${ENV}-deployment-state"
-ENV_FILE="$HOME/.aws/unified-trading-env"
-
-mkdir -p "$(dirname "$ENV_FILE")"
-
-# Remove stale entry for this env, then append fresh value
+# Remove stale entries for this env, then append fresh values
 if [[ -f "$ENV_FILE" ]]; then
-  grep -v "ATHENA_OUTPUT_BUCKET.*${ENV}" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+  grep -v "ATHENA_OUTPUT_BUCKET.*${ENV}\|DEPLOYMENT_ENV.*bootstrap_aws\|AWS_REGION.*bootstrap_aws\|AWS_ACCOUNT_ID.*bootstrap_aws\|REDIS_URL.*${ENV}" \
+    "$ENV_FILE" > "${ENV_FILE}.tmp" || true
   mv "${ENV_FILE}.tmp" "$ENV_FILE"
 fi
 

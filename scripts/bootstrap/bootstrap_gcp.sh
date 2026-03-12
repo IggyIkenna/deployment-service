@@ -6,7 +6,12 @@
 #     --project-id PROJECT \
 #     --region     REGION  \
 #     --env        ENV     \
-#     --bucket-prefix PREFIX
+#     --bucket-prefix PREFIX \
+#     [--redis]
+#
+# Flags:
+#   --redis   Also provision Cloud Memorystore Redis (skips if already exists).
+#             Stores connection URL in Secret Manager under secret ID: redis-url
 #
 # Prerequisites:
 #   - gcloud CLI authenticated (gcloud auth application-default login)
@@ -22,6 +27,7 @@ PROJECT_ID=""
 REGION=""
 ENV=""
 PREFIX=""
+ENABLE_REDIS=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,9 +35,10 @@ while [[ $# -gt 0 ]]; do
     --region)        REGION="$2";     shift 2 ;;
     --env)           ENV="$2";        shift 2 ;;
     --bucket-prefix) PREFIX="$2";     shift 2 ;;
+    --redis)         ENABLE_REDIS=true; shift ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 --project-id PROJECT --region REGION --env ENV --bucket-prefix PREFIX" >&2
+      echo "Usage: $0 --project-id PROJECT --region REGION --env ENV --bucket-prefix PREFIX [--redis]" >&2
       exit 1
       ;;
   esac
@@ -57,6 +64,7 @@ REQUIRED_APIS=(
   run.googleapis.com
   iam.googleapis.com
   cloudbuild.googleapis.com
+  redis.googleapis.com
 )
 
 echo "==> Enabling GCP APIs for project: $PROJECT_ID"
@@ -104,6 +112,38 @@ terraform -chdir="$TF_DIR" apply -auto-approve \
   -var="region=${REGION}" \
   -var="environment=${ENV}" \
   -var="bucket_prefix=${PREFIX}"
+
+# ---------------------------------------------------------------------------
+# Redis (Memorystore) — opt-in via --redis flag
+# ---------------------------------------------------------------------------
+if [[ "$ENABLE_REDIS" == "true" ]]; then
+  MEMORYSTORE_INSTANCE="trading-cache-${ENV}"
+  echo "==> Checking Cloud Memorystore Redis (instance=${MEMORYSTORE_INSTANCE})..."
+
+  if gcloud redis instances describe "$MEMORYSTORE_INSTANCE" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" &>/dev/null; then
+    echo "    Memorystore already exists — skipping provision."
+  else
+    echo "    Provisioning Cloud Memorystore Redis (this takes ~5 min)..."
+    terraform -chdir="$TF_DIR" apply -auto-approve \
+      -var="project_id=${PROJECT_ID}" \
+      -var="region=${REGION}" \
+      -var="environment=${ENV}" \
+      -var="bucket_prefix=${PREFIX}" \
+      -var="enable_memorystore=true"
+    echo "    Memorystore provisioned."
+  fi
+
+  # Retrieve and display the redis-url secret for reference
+  REDIS_URL=$(gcloud secrets versions access latest \
+    --secret="redis-url" \
+    --project="$PROJECT_ID" 2>/dev/null || echo "")
+  if [[ -n "$REDIS_URL" ]]; then
+    echo "    REDIS_URL is stored in Secret Manager (secret ID: redis-url)."
+    echo "    Inject into Cloud Run with: --set-secrets=REDIS_URL=redis-url:latest"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Service deployment helper — inject PROTOCOL_* env vars from configs/services/
