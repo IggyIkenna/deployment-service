@@ -150,22 +150,22 @@ resource "aws_s3_bucket" "unified_trading" {
 }
 
 resource "aws_s3_bucket_versioning" "unified_trading" {
-  for_each = aws_s3_bucket.unified_trading
-  bucket   = each.value.id
+  for_each = toset(local.all_buckets)
+  bucket   = each.value
   versioning_configuration { status = "Enabled" }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "unified_trading" {
-  for_each = aws_s3_bucket.unified_trading
-  bucket   = each.value.id
+  for_each = toset(local.all_buckets)
+  bucket   = each.value
   rule {
     apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "unified_trading" {
-  for_each = aws_s3_bucket.unified_trading
-  bucket   = each.value.id
+  for_each = toset(local.all_buckets)
+  bucket   = each.value
 
   block_public_acls       = true
   block_public_policy     = true
