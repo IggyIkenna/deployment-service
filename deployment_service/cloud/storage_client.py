@@ -119,7 +119,7 @@ class StorageClient:
             bucket = client.bucket(bucket_name)
             blobs = bucket.list_blobs(prefix=prefix, max_results=max_results)
             return [
-                f"gs://{bucket_name}/{blob.name}"
+                f"gs://{bucket_name}/{blob.name}"  # noqa: gs-uri — storage_client.py IS the cloud storage boundary
                 for blob in blobs
                 if self._matches_pattern(blob.name, pattern)
             ]
@@ -249,7 +249,7 @@ class StorageClient:
                         blob_updated = cast(datetime | None, getattr(blob, "updated", None))
                         result.append(
                             FileMetadata(
-                                path=f"gs://{bucket_name}/{blob.name}",
+                                path=f"gs://{bucket_name}/{blob.name}",  # noqa: gs-uri — storage_client.py IS the cloud storage boundary
                                 size_bytes=blob.size or 0,
                                 created_time=blob_created,
                                 updated_time=blob_updated,
@@ -270,10 +270,10 @@ class StorageClient:
 
     def _parse_cloud_path(self, cloud_path: str) -> tuple[str, str, str]:
         """Parse a cloud path into provider, bucket, and prefix/blob."""
-        if cloud_path.startswith("gs://"):
+        if cloud_path.startswith("gs://"):  # noqa: gs-uri — storage_client.py IS the cloud storage boundary
             provider = "gs"
             path = cloud_path[5:]
-        elif cloud_path.startswith("s3://"):
+        elif cloud_path.startswith("s3://"):  # noqa: gs-uri — storage_client.py IS the cloud storage boundary
             provider = "s3"
             path = cloud_path[5:]
         else:

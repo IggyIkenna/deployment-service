@@ -24,7 +24,10 @@ if TYPE_CHECKING:
     from google.api_core import exceptions as google_exceptions
     from google.auth import default as google_auth_default
     from google.auth.transport import requests as google_auth_requests
-    from google.cloud import compute_v1, run_v2
+    from google.cloud import (  # noqa: cloud-sdk-direct — _gcp_sdk.py IS the GCP SDK boundary; see QUALITY_GATE_BYPASS_AUDIT.md §2.5
+        compute_v1,
+        run_v2,
+    )
     from google.cloud.compute_v1.services.images import (
         transports as images_transports,
     )

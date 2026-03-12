@@ -185,6 +185,38 @@ def build_corporate_actions_mock(dates_with_data, all_dates):
 # ---------------------------------------------------------------------------
 
 
+_MOCK_VENUE_DATA_TYPES: dict[str, dict[str, object]] = {
+    "CEFI": {
+        "venues": {
+            "BINANCE-SPOT": {"data_types": ["trades", "book_snapshot_5"]},
+            "BINANCE-FUTURES": {"data_types": ["trades", "book_snapshot_5", "derivative_ticker"]},
+            "DERIBIT": {
+                "data_types": ["trades", "book_snapshot_5", "derivative_ticker"],
+                "instrument_types": ["PERPETUAL", "OPTION"],
+            },
+            "BYBIT": {"data_types": ["trades", "book_snapshot_5"]},
+            "OKX": {"data_types": ["trades", "book_snapshot_5"]},
+            "HYPERLIQUID": {"data_types": ["trades", "book_snapshot_5"]},
+        }
+    },
+    "TRADFI": {
+        "venues": {
+            "CME": {"data_types": ["ohlcv_1m"]},
+            "ICE": {"data_types": ["ohlcv_1m"]},
+            "NASDAQ": {"data_types": ["ohlcv_1m"]},
+            "NYSE": {"data_types": ["ohlcv_1m"]},
+            "CBOE": {"data_types": ["ohlcv_1m"]},
+            "FX": {"data_types": ["ohlcv_24h"]},
+        }
+    },
+    "DEFI": {
+        "venues": {
+            "UNISWAP-V3": {"data_types": ["swaps"]},
+        }
+    },
+}
+
+
 def _run_turbo(
     mock_storage_client,
     service,
@@ -197,6 +229,8 @@ def _run_turbo(
 
     Clears the data_status cache before each call to prevent cross-test
     contamination (earlier test results leaking into later tests).
+    Also mocks load_venue_data_types so expected-venue checks work
+    without a real venue_data_types.yaml on disk.
     """
     from deployment_api.routes.data_batch_processing import get_data_status_turbo_impl
     from deployment_api.utils.data_status_cache import clear_cache
@@ -210,12 +244,24 @@ def _run_turbo(
             return_value=mock_storage_client,
         ),
         patch(
+            "deployment_api.routes.data_batch_processing.get_path_combinatorics",
+            return_value=mock_pc,
+        ),
+        patch(
             "deployment_api.utils.path_combinatorics.get_path_combinatorics",
             return_value=mock_pc,
         ),
         patch(
             "deployment_api.routes.batch_query_engine.get_path_combinatorics",
             return_value=mock_pc,
+        ),
+        patch(
+            "deployment_api.routes.data_batch_processing.load_venue_data_types",
+            return_value=_MOCK_VENUE_DATA_TYPES,
+        ),
+        patch(
+            "deployment_api.routes.data_batch_processing.load_expected_start_dates",
+            return_value={},
         ),
     ):
         return asyncio.run(

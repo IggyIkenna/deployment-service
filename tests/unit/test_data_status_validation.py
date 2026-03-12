@@ -19,7 +19,7 @@ from fastapi import HTTPException
 class TestRequestSizeGuard:
     """Tests for the request-size guard that prevents 503 timeout on large turbo requests."""
 
-    @patch("deployment_api.utils.path_combinatorics.get_path_combinatorics")
+    @patch("deployment_api.routes.data_batch_processing.get_path_combinatorics")
     @patch("deployment_api.utils.storage_client.get_storage_client")
     def test_instruments_service_large_range_raises_400(
         self, mock_get_storage_client, mock_get_path_combinatorics, sample_request_size_guard_data

@@ -480,7 +480,7 @@ class VMConfigManager:
         """Generate GCS path for status file."""
         if not status_bucket:
             return ""
-        return f"gs://{status_bucket}/{status_prefix}/{deployment_id}/{shard_id}/status"
+        return f"gs://{status_bucket}/{status_prefix}/{deployment_id}/{shard_id}/status"  # noqa: gs-uri — VM config builds GCS paths for cloud-init status tracking
 
     def is_zone_exhausted_error(self, error_str: str) -> bool:
         """Check if error indicates zone resource exhaustion."""
