@@ -544,4 +544,93 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 
 **Scope:** All errors in `.basedpyright-baseline.json` are from untyped third-party libraries or unresolvable import chains in workspace venv context — NOT architectural violations. No `reportAny` errors in first-party code are suppressed.
 
+---
+
+## 2.11 QG Exclusion Config — PRINT_EXCLUDE_GLOBS
+
+**Date:** 2026-03-12
+
+| File                                                | Violation Pattern                    | Justification                                                                                                                                                                                                                           |
+| --------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_service/deployment/progress.py`         | `console.print(renderable)`          | Rich library `console.print()` — not Python built-in `print()`. Terminal progress display required for deployment UX; Rich is the canonical terminal UI library.                                                                        |
+| `deployment_service/backends/services/vm_config.py` | `print(...)` in bash heredoc strings | These `print()` calls are inside multi-line Python bash heredoc string templates (`python3 -c "import sys, json; print(...)"`) — they are bash command fragments rendered as strings, not Python `print()` calls in the service source. |
+
+**Variable:** `PRINT_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+
+---
+
+## 2.12 QG Exclusion Config — OS_ENV_EXCLUDE_GLOBS
+
+**Date:** 2026-03-12
+
+| File                                              | Usage                                                                         | Justification                                                                                                                                                                                                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_service/config/bootstrap_config.py`   | `os.environ.get("RUNTIME_TOPOLOGY_PATH")`, `os.environ.get("WORKSPACE_ROOT")` | Topology bootstrap phase — these env vars must be read before `UnifiedCloudConfig` is constructed. Documented bootstrap exception (see codex §bootstrap-phase-exception).                                                     |
+| `deployment_service/config/env_substitutor.py`    | `dict(os.environ)`                                                            | Intentional full env snapshot for template variable substitution (`${VAR}` → value rendering). This is the config substitution boundary layer — the entire purpose of this module is to read env vars for template rendering. |
+| `deployment_service/shard_builder.py`             | `os.environ` in docstring only                                                | The word "os.environ" appears only in a module docstring explaining env var injection. No actual `os.environ` call exists in this file. False positive from rg matching docstring text.                                       |
+| `deployment_service/deployment_config.py`         | `os.environ` in comment only                                                  | Comment reading "This is NOT os.environ.get() — the value is owned by..." — the rg pattern matches the comment, not an actual `os.environ` call. False positive.                                                              |
+| `deployment_service/deployment/worker_manager.py` | `os.environ` in comment only                                                  | Comment explaining that containers receive env vars "from os.environ at launch time". No actual `os.environ` call exists. False positive.                                                                                     |
+
+**Variable:** `OS_ENV_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+
+---
+
+## 2.13 QG Exclusion Config — IMPORT_INSIDE_EXCLUDE_GLOBS (extended)
+
+**Date:** 2026-03-12 (extends §2.10 which covered `backends/`)
+
+| File                                                 | Import                                                                                                   | Justification                                                                                                                                                                                                                                              |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_service/__main__.py`                     | `import uvicorn`, `from deployment_service.api.app import app`, `from deployment_service.cli import cli` | Deferred to avoid heavy FastAPI/uvicorn import cost in CLI-only mode. The `--serve` flag selects the import path at runtime; importing uvicorn unconditionally would add significant startup overhead to CLI invocations.                                  |
+| `deployment_service/api/routes/state.py`             | Multiple backend/calculator imports                                                                      | Deferred to avoid circular import chains at module load time. The route module initialises a global `StateManager`; importing all backends at module level would create import cycles through the backend registry.                                        |
+| `deployment_service/calculators/shard_dimensions.py` | `from ..cloud_client import CloudClient`, `from ..config_loader import ConfigLoader`                     | These are inside an `if TYPE_CHECKING:` block at module level — not inside a function. The rg pattern `^[[:space:]]+import` matches indented TYPE_CHECKING blocks as a false positive. TYPE_CHECKING blocks are standard Python typing practice (PEP 484). |
+| `deployment_service/backends/**`                     | boto3, google.cloud, botocore                                                                            | See §2.10 — the `backends/` directory is the multi-cloud SDK boundary layer; all SDK imports are intentionally deferred.                                                                                                                                   |
+
+**Variable:** `IMPORT_INSIDE_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+
+---
+
+## 2.14 QG Exclusion Config — EMPTY_STR_EXCLUDE_GLOBS
+
+**Date:** 2026-03-12
+
+| File                                  | Usage                            | Justification                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_service/shard_builder.py` | `dimensions.get("category", "")` | An absent `"category"` key in shard dimensions is a valid, expected state meaning "no per-category bucket suffix". An empty string is the correct sentinel value here — returning `None` would require additional None-checks in downstream string formatting. This is semantically correct, not a fail-fast violation. |
+
+**Variable:** `EMPTY_STR_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+
+---
+
+## 2.15 QG Exclusion Config — GCP_PROJECT_ID_EXCLUDE_GLOBS
+
+**Date:** 2026-03-12
+
+| File                                                   | Usage                                               | Justification                                                                                                                                                                                                                                           |
+| ------------------------------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment_service/smoke_test_framework.py`           | `GCP_PROJECT_ID` in docstring/error message         | Appears in a docstring ("defaults to GCP_PROJECT_ID env var") and an error message string — not an `os.getenv("GCP_PROJECT_ID")` call. False positive.                                                                                                  |
+| `deployment_service/deployment_config.py`              | `AliasChoices("GCP_PROJECT_ID", "PROJECT_ID")`      | Pydantic bootstrap exception: `GCP_PROJECT_ID` is read via `AliasChoices` at Pydantic model init time, not via `os.getenv`. This is the documented bootstrap exception (see codex §bootstrap-phase-exception and inline `# config-bootstrap:` comment). |
+| `deployment_service/dependencies.py`                   | `raise ValueError("GCP_PROJECT_ID must be set...")` | In a `ValueError` message string only. Not an env var access.                                                                                                                                                                                           |
+| `deployment_service/config_loader.py`                  | `substitute_env_vars("${GCP_PROJECT_ID}")`          | Template string for env var substitution. Routes through `env_substitutor.substitute_env_vars()`, not `os.getenv`.                                                                                                                                      |
+| `deployment_service/cloud_client.py`                   | `GCP_PROJECT_ID` in docstring                       | Appears only in a parameter docstring ("defaults to GCP_PROJECT_ID env var"). Not an env var access. False positive.                                                                                                                                    |
+| `deployment_service/shard_builder.py`                  | `${GCP_PROJECT_ID}` in docstring                    | Appears only in a docstring example showing template variable syntax. Not an env var access. False positive.                                                                                                                                            |
+| `deployment_service/cli/commands/calculation.py`       | `{GCP_PROJECT_ID}` in CLI help text                 | Appears in `--help` example text string. Not an env var access.                                                                                                                                                                                         |
+| `deployment_service/backends/services/vm_lifecycle.py` | `.replace("${GCP_PROJECT_ID}", self.project_id)`    | Template substitution — replaces the literal string `${GCP_PROJECT_ID}` in a VM startup script template. The value `self.project_id` comes from `UnifiedCloudConfig`; this is a string replacement, not an env var access.                              |
+| `deployment_service/backends/services/vm_config.py`    | `-e GCP_PROJECT_ID={{ project_id }}`                | Inside a bash heredoc template string. Sets a container env var from the already-resolved `project_id` Jinja2 variable (from config). Not an `os.getenv` call.                                                                                          |
+
+**Variable:** `GCP_PROJECT_ID_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+
+---
+
+## 2.16 QG Exclusion Config — FUNCTION_SIZE_EXTRA_EXCLUDES (extended)
+
+**Date:** 2026-03-12 (extends §2.1 which documented the rationale)
+
+The `FUNCTION_SIZE_EXTRA_EXCLUDES` variable in `scripts/quality-gates.sh` now explicitly excludes `./tests/*` and `./configs/*` from both file-size and function-size checks. This formalises the documented exception in §2.1:
+
+- `./tests/*`: Test scaffolding — long test methods are expected and do not indicate production code quality issues.
+- `./configs/*`: Developer tooling including `generate_topology_svg.py` (974 lines, justified in §2.1).
+
+**Variable:** `FUNCTION_SIZE_EXTRA_EXCLUDES` in `scripts/quality-gates.sh`
+
 **Target:** Remove baseline when upstream type stubs are available.
