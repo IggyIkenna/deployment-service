@@ -108,18 +108,18 @@ logs/
 *.odt
 *.odp
 
-# --- Optional: Terraform (uncomment if repo has Terraform) ---
-# **/.terraform/
-# *.tfstate
-# *.tfstate.*
-# *.tfplan
-# crash.log
-# crash.*.log
-# override.tf
-# override.tf.json
-# *_override.tf
-# *_override.tf.json
-# *.auto.tfvars
+# --- Terraform (active in this repo) ---
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.auto.tfvars
 
 # --- Optional: Jupyter (uncomment if repo has notebooks) ---
 # .ipynb_checkpoints/

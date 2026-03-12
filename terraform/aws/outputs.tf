@@ -23,10 +23,16 @@ output "athena_workgroup_arn" {
 
 output "glue_database_arns" {
   description = "Map of Glue catalog database name to ARN"
-  value = {
-    for k, db in aws_glue_catalog_database.unified_trading :
-    k => "arn:aws:glue:${var.aws_region}:${var.aws_account_id}:database/${db.name}"
-  }
+  value = merge(
+    {
+      for k, db in aws_glue_catalog_database.raw :
+      k => "arn:aws:glue:${var.aws_region}:${var.aws_account_id}:database/${db.name}"
+    },
+    {
+      for k, db in aws_glue_catalog_database.derived :
+      k => "arn:aws:glue:${var.aws_region}:${var.aws_account_id}:database/${db.name}"
+    }
+  )
 }
 
 output "ecs_cluster_arn" {
@@ -41,8 +47,16 @@ output "iam_role_arn" {
 
 output "secret_arns" {
   description = "Map of secret name to Secrets Manager ARN"
+  value = merge(
+    { for k, s in aws_secretsmanager_secret.static : k => s.arn },
+    { for k, s in aws_secretsmanager_secret.env_scoped : k => s.arn }
+  )
+}
+
+output "sqs_queue_urls" {
+  description = "Map of topic name to SQS queue URL"
   value = {
-    for k, s in aws_secretsmanager_secret.unified_trading :
-    k => s.arn
+    for k, q in aws_sqs_queue.unified_trading :
+    k => q.url
   }
 }
