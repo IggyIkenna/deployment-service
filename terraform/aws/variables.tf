@@ -6,7 +6,7 @@ variable "aws_account_id" {
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "us-east-1"
+  default     = "ap-northeast-1"  # Tokyo — closest to Binance exchange
 }
 
 variable "environment" {

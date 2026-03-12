@@ -151,7 +151,9 @@ deploy_service() {
     env_json+="{\"name\":\"${key}\",\"value\":\"${value}\"}"
     first=0
   done < <(grep -E '^[A-Z_]+=' "$env_file")
-  env_json+=",{\"name\":\"AWS_ACCOUNT_ID\",\"value\":\"${ACCOUNT_ID}\"}]"
+  env_json+=",{\"name\":\"AWS_ACCOUNT_ID\",\"value\":\"${ACCOUNT_ID}\"}"
+  env_json+=",{\"name\":\"DEPLOYMENT_ENV\",\"value\":\"${ENV}\"}"
+  env_json+=",{\"name\":\"AWS_REGION\",\"value\":\"${REGION}\"}]"
 
   echo "    Registering ECS task definition for $svc (mode=$mode)..."
   current_def=$(aws ecs describe-task-definition --task-definition "$task_family" \
@@ -193,12 +195,34 @@ print(json.dumps(td))
 # deploy_service "execution-service"                 "execution-service"                 "$CLUSTER" live
 # deploy_service "risk-and-exposure-service"         "risk-and-exposure-service"         "$CLUSTER" live
 
+# ---------------------------------------------------------------------------
+# Export ATHENA_OUTPUT_BUCKET — required by UCI get_athena_output_bucket()
+# ---------------------------------------------------------------------------
+ATHENA_BUCKET="${PREFIX}-${ENV}-deployment-state"
+ENV_FILE="$HOME/.aws/unified-trading-env"
+
+mkdir -p "$(dirname "$ENV_FILE")"
+
+# Remove stale entry for this env, then append fresh value
+if [[ -f "$ENV_FILE" ]]; then
+  grep -v "ATHENA_OUTPUT_BUCKET.*${ENV}" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+  mv "${ENV_FILE}.tmp" "$ENV_FILE"
+fi
+
+echo "export ATHENA_OUTPUT_BUCKET=${ATHENA_BUCKET}   # ${ENV}" >> "$ENV_FILE"
+echo "export DEPLOYMENT_ENV=${ENV}                     # set by bootstrap_aws.sh" >> "$ENV_FILE"
+echo "export AWS_REGION=${REGION}                      # set by bootstrap_aws.sh" >> "$ENV_FILE"
+echo "export AWS_ACCOUNT_ID=${ACCOUNT_ID}              # set by bootstrap_aws.sh" >> "$ENV_FILE"
+
 echo ""
 echo "==> AWS bootstrap complete."
 echo "    Account:  $ACCOUNT_ID"
 echo "    Region:   $REGION"
 echo "    Env:      $ENV"
 echo "    State:    s3://${STATE_BUCKET}/terraform/state"
+echo ""
+echo "    Environment vars written to: $ENV_FILE"
+echo "    Add to your shell profile:   source $ENV_FILE"
 echo ""
 echo "    To deploy services with PROTOCOL_* env vars, uncomment the"
 echo "    deploy_service() calls above or run them manually."

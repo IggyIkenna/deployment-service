@@ -1,6 +1,11 @@
 # Terraform bootstrap for GCP — UCI cloud abstraction layer (p3-terraform-gcp)
-# Provisions: GCS buckets, BigQuery datasets, Secret Manager stubs,
+# Provisions: GCS buckets (per cloud-providers.yaml SSOT), BigQuery datasets,
+#             Pub/Sub topics/subscriptions, Secret Manager stubs,
 #             unified-trading service account with least-privilege IAM.
+#
+# Bucket naming follows cloud-providers.yaml two-tier model:
+#   Group A (raw data)    — no env suffix; all envs share prod-level copy
+#   Group B (derived data)— {domain}-{category}-{env}-{project_id}
 #
 # NOTE: Cloud Run Job definitions are intentionally absent here.
 # See ARCHITECTURE.md "Deployment Model" section for rationale.
@@ -42,8 +47,11 @@ locals {
     "managed-by"  = "terraform"
   }
 
+  # ---------------------------------------------------------------------------
   # API key secrets — names only; values must be filled manually in Secret Manager
-  secret_names = [
+  # ---------------------------------------------------------------------------
+  # Static secrets (env-independent)
+  static_secret_names = [
     "tardis-api-key",
     "databento-api-key",
     "thegraph-api-key",
@@ -61,91 +69,373 @@ locals {
     # On-chain / CEX data secrets
     "coinglass-api-key",
     "hyblock-api-key",
+    "cryptoquant-api-key",
     # Write API keys
     "binance-write-api-key",
     "deribit-write-api-key",
+    # Alerting / agent secrets
+    "anthropic-api-key",
+    "pagerduty-api-key",
+  ]
+
+  # Env-scoped secrets — get suffix "-{environment}" appended
+  env_secret_names = [
+    "risk-api-key",
+    "position-monitor-api-key",
+  ]
+
+  # Canonical Pub/Sub topic names (from unified-internal-contracts InternalPubSubTopic enum)
+  pubsub_topic_names = [
+    "fill-events",
+    "order-requests",
+    "execution-results",
+    "position-updates",
+    "positions",
+    "risk-alerts",
+    "margin-warnings",
+    "market-ticks",
+    "order-book-updates",
+    "derivative-tickers",
+    "liquidations",
+    "feature-updates",
+    "strategy-signals",
+    "ml-predictions",
+    "service-lifecycle-events",
+    "health-alerts",
+    "circuit-breaker-events",
+    "eod-settlement",
+    # Additional service-to-service coordination topics
+    "cascade-predictions",
+    "features-mtf-ready",
+    "features-delta-one-ready",
+    "features-cross-instrument-ready",
+    "sports-odds-ready",
+    # Secret rotation alert (infrastructure)
+    "secret-rotation-alerts",
   ]
 }
 
 # =============================================================================
-# GCS Buckets
+# GCS Buckets — Group A: Raw data (no env suffix; all envs read from same copy)
+# Naming: {domain}-{category}-{project_id}
 # =============================================================================
 
-# Raw and normalized market tick data
-resource "google_storage_bucket" "market_data" {
-  name     = lower(replace("${local.env_prefix}-market-data", "_", "-"))
+resource "google_storage_bucket" "instruments_cefi" {
+  name     = "instruments-store-cefi-${var.project_id}"
   project  = var.project_id
   location = var.region
 
   uniform_bucket_level_access = true
   force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
+  versioning { enabled = true }
   lifecycle_rule {
-    condition {
-      age = 90
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
   }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "market-data"
-  })
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
-# ML model artifacts
-resource "google_storage_bucket" "models" {
-  name     = lower(replace("${local.env_prefix}-models", "_", "-"))
+resource "google_storage_bucket" "instruments_tradfi" {
+  name     = "instruments-store-tradfi-${var.project_id}"
   project  = var.project_id
   location = var.region
 
   uniform_bucket_level_access = true
   force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "ml-models"
-  })
-}
-
-# Computed feature store
-resource "google_storage_bucket" "features" {
-  name     = lower(replace("${local.env_prefix}-features", "_", "-"))
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
+  versioning { enabled = true }
   lifecycle_rule {
-    condition {
-      age = 365
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
   }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "feature-store"
-  })
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
-# Deployment config and state
+resource "google_storage_bucket" "instruments_defi" {
+  name     = "instruments-store-defi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_cefi" {
+  name     = "market-data-tick-cefi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_tradfi" {
+  name     = "market-data-tick-tradfi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi" {
+  name     = "market-data-tick-defi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+# Calendar data is shared across envs (no env suffix)
+resource "google_storage_bucket" "features_calendar" {
+  name     = "features-calendar-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
+}
+
+# =============================================================================
+# GCS Buckets — Group B: Derived data (per-env)
+# Naming: {domain}-{category}-{environment}-{project_id}
+# =============================================================================
+
+resource "google_storage_bucket" "features_delta_one_cefi" {
+  name     = "features-delta-one-cefi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_tradfi" {
+  name     = "features-delta-one-tradfi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_defi" {
+  name     = "features-delta-one-defi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_cefi" {
+  name     = "features-volatility-cefi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_tradfi" {
+  name     = "features-volatility-tradfi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_onchain_cefi" {
+  name     = "features-onchain-cefi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_onchain_defi" {
+  name     = "features-onchain-defi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "ml_models" {
+  name     = "ml-models-store-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "ml-models", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "ml_predictions" {
+  name     = "ml-predictions-store-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "ml-predictions", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "ml_configs" {
+  name     = "ml-configs-store-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "ml-configs", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "strategy_cefi" {
+  name     = "strategy-store-cefi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "strategy_tradfi" {
+  name     = "strategy-store-tradfi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "strategy_defi" {
+  name     = "strategy-store-defi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "execution_cefi" {
+  name     = "execution-store-cefi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "execution_tradfi" {
+  name     = "execution-store-tradfi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "execution_defi" {
+  name     = "execution-store-defi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+# Deployment config and state (per-env, used by Cloud Scheduler + audit)
 resource "google_storage_bucket" "deployment_state" {
   name     = lower(replace("${local.env_prefix}-deployment-state", "_", "-"))
   project  = var.project_id
@@ -153,24 +443,12 @@ resource "google_storage_bucket" "deployment_state" {
 
   uniform_bucket_level_access = true
   force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
+  versioning { enabled = true }
   lifecycle_rule {
-    condition {
-      age = 30
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
+    condition { age = 30 }
+    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
   }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "deployment-state"
-  })
+  labels = merge(local.common_labels, { "purpose" = "deployment-state", "tier" = "group-b" })
 }
 
 # =============================================================================
@@ -183,10 +461,16 @@ resource "google_bigquery_dataset" "market_data" {
   location                   = var.region
   description                = "Market data tables — raw ticks and normalized OHLCV"
   delete_contents_on_destroy = false
+  labels = merge(local.common_labels, { "purpose" = "market-data" })
+}
 
-  labels = merge(local.common_labels, {
-    "purpose" = "market-data"
-  })
+resource "google_bigquery_dataset" "market_data_hft" {
+  dataset_id                 = "market_data_hft"
+  project                    = var.project_id
+  location                   = var.region
+  description                = "HFT market data tables — high-frequency tick and order book data"
+  delete_contents_on_destroy = false
+  labels = merge(local.common_labels, { "purpose" = "market-data-hft" })
 }
 
 resource "google_bigquery_dataset" "features" {
@@ -195,22 +479,25 @@ resource "google_bigquery_dataset" "features" {
   location                   = var.region
   description                = "Computed feature tables for ML and strategy services"
   delete_contents_on_destroy = false
-
-  labels = merge(local.common_labels, {
-    "purpose" = "feature-store"
-  })
+  labels = merge(local.common_labels, { "purpose" = "feature-store" })
 }
 
-resource "google_bigquery_dataset" "ml_models" {
+resource "google_bigquery_dataset" "ml_models_bq" {
   dataset_id                 = "ml_models"
   project                    = var.project_id
   location                   = var.region
   description                = "Model metadata, hyperparameters, and evaluation metrics"
   delete_contents_on_destroy = false
+  labels = merge(local.common_labels, { "purpose" = "ml-models" })
+}
 
-  labels = merge(local.common_labels, {
-    "purpose" = "ml-models"
-  })
+resource "google_bigquery_dataset" "ml_predictions_bq" {
+  dataset_id                 = "ml_predictions"
+  project                    = var.project_id
+  location                   = var.region
+  description                = "ML model predictions and inference results"
+  delete_contents_on_destroy = false
+  labels = merge(local.common_labels, { "purpose" = "ml-predictions" })
 }
 
 resource "google_bigquery_dataset" "audit" {
@@ -219,29 +506,65 @@ resource "google_bigquery_dataset" "audit" {
   location                   = var.region
   description                = "Audit logs and compliance events"
   delete_contents_on_destroy = false
-
-  labels = merge(local.common_labels, {
-    "purpose" = "audit"
-  })
+  labels = merge(local.common_labels, { "purpose" = "audit" })
 }
 
 # =============================================================================
 # Secret Manager — stub secrets (names only; values filled manually)
 # =============================================================================
 
-resource "google_secret_manager_secret" "api_keys" {
-  for_each = toset(local.secret_names)
+resource "google_secret_manager_secret" "api_keys_static" {
+  for_each = toset(local.static_secret_names)
 
   secret_id = each.value
   project   = var.project_id
 
-  replication {
-    auto {}
+  replication { auto {} }
+  labels = merge(local.common_labels, { "purpose" = "api-credentials" })
+}
+
+resource "google_secret_manager_secret" "api_keys_env_scoped" {
+  for_each = toset(local.env_secret_names)
+
+  secret_id = "${each.value}-${var.environment}"
+  project   = var.project_id
+
+  replication { auto {} }
+  labels = merge(local.common_labels, { "purpose" = "api-credentials" })
+}
+
+# =============================================================================
+# Pub/Sub Topics + Subscriptions
+# =============================================================================
+
+resource "google_pubsub_topic" "unified_trading" {
+  for_each = toset(local.pubsub_topic_names)
+
+  name    = each.value
+  project = var.project_id
+
+  labels = merge(local.common_labels, { "purpose" = "event-bus" })
+}
+
+# Default pull subscriptions — one per topic ({topic}-sub)
+resource "google_pubsub_subscription" "unified_trading" {
+  for_each = toset(local.pubsub_topic_names)
+
+  name    = "${each.value}-sub"
+  topic   = google_pubsub_topic.unified_trading[each.value].id
+  project = var.project_id
+
+  # 7-day message retention
+  message_retention_duration = "604800s"
+  retain_acked_messages      = false
+
+  ack_deadline_seconds = 60
+
+  expiration_policy {
+    ttl = "" # never expire
   }
 
-  labels = merge(local.common_labels, {
-    "purpose" = "api-credentials"
-  })
+  labels = merge(local.common_labels, { "purpose" = "event-bus" })
 }
 
 # =============================================================================
@@ -276,5 +599,11 @@ resource "google_project_iam_member" "unified_trading_secret_accessor" {
 resource "google_project_iam_member" "unified_trading_run_invoker" {
   project = var.project_id
   role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_pubsub_editor" {
+  project = var.project_id
+  role    = "roles/pubsub.editor"
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
