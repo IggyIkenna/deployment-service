@@ -20,11 +20,12 @@ terraform {
   }
 
   backend "s3" {
-    # bucket is interpolated at init time via -backend-config or env vars.
+    # All three config values are passed at init time via -backend-config flags.
     # The bootstrap script passes:
     #   -backend-config="bucket=${BUCKET_PREFIX}-terraform-state-${ACCOUNT_ID}"
-    key    = "terraform/state"
-    region = "ap-northeast-1"  # Tokyo — closest to Binance exchange
+    #   -backend-config="key=terraform/state/${ENV}"   ← per-env isolation
+    #   -backend-config="region=${REGION}"
+    # Never hardcode key here — each environment must have its own state file.
   }
 }
 
@@ -303,10 +304,12 @@ data "aws_iam_policy_document" "glue_s3_access" {
     sid     = "S3BucketAccess"
     effect  = "Allow"
     actions = ["s3:GetObject", "s3:ListBucket"]
-    resources = concat(
-      [for b in aws_s3_bucket.unified_trading : b.arn],
-      [for b in aws_s3_bucket.unified_trading : "${b.arn}/*"],
-    )
+    resources = [
+      "arn:aws:s3:::unified-trading-*",
+      "arn:aws:s3:::unified-trading-*/*",
+      "arn:aws:s3:::uts-*",
+      "arn:aws:s3:::uts-*/*",
+    ]
   }
 }
 
@@ -414,7 +417,7 @@ resource "aws_iam_role" "unified_trading" {
 }
 
 data "aws_iam_policy_document" "unified_trading_permissions" {
-  # S3 access on all unified-trading buckets
+  # S3 access on all unified-trading buckets (wildcard — avoids 6144-char policy limit)
   statement {
     sid    = "S3UnifiedTradingBuckets"
     effect = "Allow"
@@ -424,10 +427,12 @@ data "aws_iam_policy_document" "unified_trading_permissions" {
       "s3:DeleteObject",
       "s3:ListBucket",
     ]
-    resources = concat(
-      [for b in aws_s3_bucket.unified_trading : b.arn],
-      [for b in aws_s3_bucket.unified_trading : "${b.arn}/*"],
-    )
+    resources = [
+      "arn:aws:s3:::unified-trading-*",
+      "arn:aws:s3:::unified-trading-*/*",
+      "arn:aws:s3:::uts-*",
+      "arn:aws:s3:::uts-*/*",
+    ]
   }
 
   # Athena query execution
@@ -456,7 +461,7 @@ data "aws_iam_policy_document" "unified_trading_permissions" {
     resources = ["*"]
   }
 
-  # SQS access
+  # SQS access — wildcard on unified-trading queues for this account/region
   statement {
     sid    = "SQSUnifiedTrading"
     effect = "Allow"
@@ -467,21 +472,20 @@ data "aws_iam_policy_document" "unified_trading_permissions" {
       "sqs:GetQueueAttributes",
       "sqs:GetQueueUrl",
     ]
-    resources = concat(
-      [for q in aws_sqs_queue.unified_trading : q.arn],
-      [for q in aws_sqs_queue.unified_trading_dlq : q.arn],
-    )
+    resources = [
+      "arn:aws:sqs:${var.aws_region}:${var.aws_account_id}:unified-trading-${var.environment}-*.fifo",
+      "arn:aws:sqs:${var.aws_region}:${var.aws_account_id}:unified-trading-${var.environment}-*-dlq.fifo",
+    ]
   }
 
-  # Secrets Manager — read unified-trading secrets only
+  # Secrets Manager — read all unified-trading secrets for this environment
   statement {
     sid     = "SecretsManagerUnifiedTrading"
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
-    resources = concat(
-      [for s in aws_secretsmanager_secret.static : s.arn],
-      [for s in aws_secretsmanager_secret.env_scoped : s.arn],
-    )
+    resources = [
+      "arn:aws:secretsmanager:${var.aws_region}:${var.aws_account_id}:secret:unified-trading/${var.environment}/*",
+    ]
   }
 }
 

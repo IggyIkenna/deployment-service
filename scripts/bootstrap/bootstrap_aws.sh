@@ -108,7 +108,7 @@ fi
 echo "==> terraform init ($TF_DIR)"
 terraform -chdir="$TF_DIR" init \
   -backend-config="bucket=${STATE_BUCKET}" \
-  -backend-config="key=terraform/state" \
+  -backend-config="key=terraform/state/${ENV}" \
   -backend-config="region=${REGION}" \
   -reconfigure
 
