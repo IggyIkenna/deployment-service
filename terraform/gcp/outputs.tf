@@ -4,19 +4,24 @@
 # GCS Bucket Names
 # =============================================================================
 
-output "market_data_bucket" {
-  description = "Name of the market data GCS bucket (raw and normalized tick data)"
-  value       = google_storage_bucket.market_data.name
+output "market_data_cefi_bucket" {
+  description = "Name of the market data CeFi GCS bucket (raw tick data)"
+  value       = google_storage_bucket.market_data_cefi.name
 }
 
-output "models_bucket" {
+output "instruments_cefi_bucket" {
+  description = "Name of the instruments CeFi GCS bucket"
+  value       = google_storage_bucket.instruments_cefi.name
+}
+
+output "features_calendar_bucket" {
+  description = "Name of the features calendar GCS bucket"
+  value       = google_storage_bucket.features_calendar.name
+}
+
+output "ml_models_bucket" {
   description = "Name of the ML model artifacts GCS bucket"
-  value       = google_storage_bucket.models.name
-}
-
-output "features_bucket" {
-  description = "Name of the computed feature store GCS bucket"
-  value       = google_storage_bucket.features.name
+  value       = google_storage_bucket.ml_models.name
 }
 
 output "deployment_state_bucket" {
@@ -40,7 +45,7 @@ output "features_dataset_id" {
 
 output "ml_models_dataset_id" {
   description = "BigQuery dataset ID for model metadata and metrics"
-  value       = google_bigquery_dataset.ml_models.dataset_id
+  value       = google_bigquery_dataset.ml_models_bq.dataset_id
 }
 
 output "audit_dataset_id" {

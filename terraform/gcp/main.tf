@@ -22,12 +22,15 @@ terraform {
   }
 
   # NOTE: Terraform backend blocks do not support variable interpolation.
-  # Set the bucket name at init time with:
-  #   terraform init -backend-config="bucket=<bucket_prefix>-terraform-state-<project_id>"
-  # Convention: <bucket_prefix>-terraform-state-<project_id>  (e.g. uts-terraform-state-my-project-123)
+  # Pass bucket and prefix at init time:
+  #   terraform init \
+  #     -backend-config="bucket=uts-terraform-state-<project_id>" \
+  #     -backend-config="prefix=terraform/state/<env>"
+  # Per-env state keys prevent one env's apply from destroying another env's resources.
+  # Convention: prefix=terraform/state/dev | terraform/state/staging | terraform/state/prod
   backend "gcs" {
-    bucket = "REPLACE_WITH_BUCKET_PREFIX-terraform-state-REPLACE_WITH_PROJECT_ID"
-    prefix = "terraform/state"
+    bucket = "uts-terraform-state-central-element-323112"
+    prefix = "terraform/state/dev"
   }
 }
 
@@ -110,8 +113,8 @@ locals {
     "features-delta-one-ready",
     "features-cross-instrument-ready",
     "sports-odds-ready",
-    # Secret rotation alert (infrastructure)
-    "secret-rotation-alerts",
+    # NOTE: secret-rotation-alerts is managed by google_pubsub_topic.secret_rotation_alerts
+    # in secret_rotation.tf — do NOT add it here to avoid duplicate resource conflict.
   ]
 }
 
@@ -130,7 +133,10 @@ resource "google_storage_bucket" "instruments_cefi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
@@ -145,7 +151,10 @@ resource "google_storage_bucket" "instruments_tradfi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
@@ -160,7 +169,10 @@ resource "google_storage_bucket" "instruments_defi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
@@ -175,7 +187,10 @@ resource "google_storage_bucket" "market_data_cefi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
@@ -190,7 +205,10 @@ resource "google_storage_bucket" "market_data_tradfi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
@@ -205,7 +223,10 @@ resource "google_storage_bucket" "market_data_defi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 90 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
@@ -221,7 +242,10 @@ resource "google_storage_bucket" "features_calendar" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
 }
@@ -241,7 +265,10 @@ resource "google_storage_bucket" "features_delta_one_cefi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
 }
@@ -256,7 +283,10 @@ resource "google_storage_bucket" "features_delta_one_tradfi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
 }
@@ -271,7 +301,10 @@ resource "google_storage_bucket" "features_delta_one_defi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
 }
@@ -286,7 +319,10 @@ resource "google_storage_bucket" "features_volatility_cefi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
 }
@@ -301,7 +337,10 @@ resource "google_storage_bucket" "features_volatility_tradfi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
 }
@@ -316,7 +355,10 @@ resource "google_storage_bucket" "features_onchain_cefi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
 }
@@ -331,7 +373,10 @@ resource "google_storage_bucket" "features_onchain_defi" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 365 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
 }
@@ -446,7 +491,10 @@ resource "google_storage_bucket" "deployment_state" {
   versioning { enabled = true }
   lifecycle_rule {
     condition { age = 30 }
-    action { type = "SetStorageClass"; storage_class = "NEARLINE" }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
   }
   labels = merge(local.common_labels, { "purpose" = "deployment-state", "tier" = "group-b" })
 }
@@ -467,10 +515,14 @@ resource "google_bigquery_dataset" "market_data" {
 resource "google_bigquery_dataset" "market_data_hft" {
   dataset_id                 = "market_data_hft"
   project                    = var.project_id
-  location                   = var.region
+  location                   = "US" # pre-existing dataset created in US — location is immutable
   description                = "HFT market data tables — high-frequency tick and order book data"
   delete_contents_on_destroy = false
   labels = merge(local.common_labels, { "purpose" = "market-data-hft" })
+
+  lifecycle {
+    ignore_changes = [description, labels]
+  }
 }
 
 resource "google_bigquery_dataset" "features" {
@@ -519,7 +571,9 @@ resource "google_secret_manager_secret" "api_keys_static" {
   secret_id = each.value
   project   = var.project_id
 
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   labels = merge(local.common_labels, { "purpose" = "api-credentials" })
 }
 
@@ -529,7 +583,9 @@ resource "google_secret_manager_secret" "api_keys_env_scoped" {
   secret_id = "${each.value}-${var.environment}"
   project   = var.project_id
 
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   labels = merge(local.common_labels, { "purpose" = "api-credentials" })
 }
 
@@ -651,7 +707,9 @@ resource "google_secret_manager_secret" "redis_url" {
   secret_id = "redis-url"
   project   = var.project_id
 
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 
   labels = { environment = var.environment }
 }

@@ -16,10 +16,24 @@
 #   04:00 — strategy-service
 #   06:00 — batch-live-reconciliation-service (orchestrator, after all upstream done)
 
+# Service account for T+1 batch Cloud Scheduler jobs — must exist before scheduler jobs are created
+resource "google_service_account" "t1_batch" {
+  account_id   = "${local.env_prefix}-batch-sa"
+  display_name = "T+1 Batch Scheduler SA (${var.environment})"
+  description  = "Service account used by Cloud Scheduler to trigger T+1 batch Cloud Run Jobs"
+  project      = var.project_id
+}
+
+resource "google_project_iam_member" "t1_batch_run_invoker" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 locals {
   # Cloud Run Job name convention: {env_prefix}-{service}-t1-recon
   # Cloud Scheduler job name convention: {env_prefix}-{service}-t1-schedule
-  t1_service_account_email = "${local.env_prefix}-batch-sa@${var.project_id}.iam.gserviceaccount.com"
+  t1_service_account_email = google_service_account.t1_batch.email
 
   t1_batch_services = {
     "execution-config-snapshot" = {
@@ -111,5 +125,4 @@ resource "google_cloud_scheduler_job" "t1_batch_schedule" {
     max_doublings        = 5
   }
 
-  labels = local.common_labels
 }

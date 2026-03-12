@@ -29,6 +29,12 @@ variable "enable_memorystore" {
   default     = false
 }
 
+variable "enable_secret_rotation" {
+  description = "Deploy the secret-rotation Cloud Function and its Cloud Scheduler trigger. Requires unified-cloud-interface to be published to GCP Artifact Registry Python repo. Off by default."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # PROTOCOL_* service environment variables
 # These are injected into Cloud Run service definitions at deploy time.
