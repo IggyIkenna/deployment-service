@@ -556,6 +556,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | `deployment_service/backends/services/vm_config.py` | `print(...)` in bash heredoc strings | These `print()` calls are inside multi-line Python bash heredoc string templates (`python3 -c "import sys, json; print(...)"`) — they are bash command fragments rendered as strings, not Python `print()` calls in the service source. |
 
 **Variable:** `PRINT_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 ---
 
@@ -572,6 +573,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | `deployment_service/deployment/worker_manager.py` | `os.environ` in comment only                                                  | Comment explaining that containers receive env vars "from os.environ at launch time". No actual `os.environ` call exists. False positive.                                                                                     |
 
 **Variable:** `OS_ENV_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 ---
 
@@ -587,6 +589,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | `deployment_service/backends/**`                     | boto3, google.cloud, botocore                                                                            | See §2.10 — the `backends/` directory is the multi-cloud SDK boundary layer; all SDK imports are intentionally deferred.                                                                                                                                   |
 
 **Variable:** `IMPORT_INSIDE_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 ---
 
@@ -599,6 +602,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | `deployment_service/shard_builder.py` | `dimensions.get("category", "")` | An absent `"category"` key in shard dimensions is a valid, expected state meaning "no per-category bucket suffix". An empty string is the correct sentinel value here — returning `None` would require additional None-checks in downstream string formatting. This is semantically correct, not a fail-fast violation. |
 
 **Variable:** `EMPTY_STR_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 ---
 
@@ -619,6 +623,7 @@ imports are the correct pattern for optional multi-cloud SDK loading.
 | `deployment_service/backends/services/vm_config.py`    | `-e GCP_PROJECT_ID={{ project_id }}`                | Inside a bash heredoc template string. Sets a container env var from the already-resolved `project_id` Jinja2 variable (from config). Not an `os.getenv` call.                                                                                          |
 
 **Variable:** `GCP_PROJECT_ID_EXCLUDE_GLOBS` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 ---
 
@@ -632,5 +637,6 @@ The `FUNCTION_SIZE_EXTRA_EXCLUDES` variable in `scripts/quality-gates.sh` now ex
 - `./configs/*`: Developer tooling including `generate_topology_svg.py` (974 lines, justified in §2.1).
 
 **Variable:** `FUNCTION_SIZE_EXTRA_EXCLUDES` in `scripts/quality-gates.sh`
+**Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 **Target:** Remove baseline when upstream type stubs are available.
