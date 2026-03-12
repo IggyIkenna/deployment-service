@@ -607,3 +607,65 @@ resource "google_project_iam_member" "unified_trading_pubsub_editor" {
   role    = "roles/pubsub.editor"
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
+
+# ---------------------------------------------------------------------------
+# Cloud Memorystore (Redis) — optional; guarded by var.enable_memorystore
+#
+# Not enabled by default because:
+#   1. Provisioning takes ~5-10 minutes
+#   2. 1 GB basic tier costs ~$35/month per env
+#   3. Requires VPC access — Memorystore is only reachable from same VPC
+#
+# To enable:
+#   terraform apply -var="enable_memorystore=true" ...
+#
+# After enabling, REDIS_URL is stored in Secret Manager under "redis-url".
+# Cloud Run services should inject it via:
+#   --set-secrets=REDIS_URL=redis-url:latest
+#
+# Equivalent setup script: scripts/setup-redis.sh
+# ---------------------------------------------------------------------------
+
+resource "google_redis_instance" "unified_trading" {
+  count  = var.enable_memorystore ? 1 : 0
+  name   = "trading-cache-${var.environment}"
+  region = var.region
+
+  tier           = "BASIC"
+  memory_size_gb = 1
+  redis_version  = "REDIS_7_0"
+  display_name   = "Unified Trading Cache (${var.environment})"
+
+  auth_enabled            = true
+  transit_encryption_mode = "SERVER_AUTHENTICATION"
+
+  labels = {
+    environment = var.environment
+    managed_by  = "terraform"
+  }
+}
+
+# Store Redis URL in Secret Manager so services read it via UCI
+resource "google_secret_manager_secret" "redis_url" {
+  count     = var.enable_memorystore ? 1 : 0
+  secret_id = "redis-url"
+  project   = var.project_id
+
+  replication { auto {} }
+
+  labels = { environment = var.environment }
+}
+
+resource "google_secret_manager_secret_version" "redis_url" {
+  count  = var.enable_memorystore ? 1 : 0
+  secret = google_secret_manager_secret.redis_url[0].id
+  # auth_string requires the instance to exist; this builds the rediss:// URL
+  secret_data = "rediss://:${google_redis_instance.unified_trading[0].auth_string}@${google_redis_instance.unified_trading[0].host}:${google_redis_instance.unified_trading[0].port}"
+}
+
+resource "google_project_iam_member" "unified_trading_redis_viewer" {
+  count   = var.enable_memorystore ? 1 : 0
+  project = var.project_id
+  role    = "roles/redis.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}

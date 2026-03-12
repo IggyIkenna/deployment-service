@@ -501,6 +501,102 @@ resource "aws_iam_role_policy_attachment" "unified_trading" {
 }
 
 # ---------------------------------------------------------------------------
+# ElastiCache (Redis) — optional; guarded by var.enable_elasticache
+#
+# Not enabled by default because:
+#   1. Provisioning takes ~5-10 minutes
+#   2. cache.t3.micro costs ~$13/month per env
+#   3. Requires a VPC subnet group — we use default VPC for now
+#
+# To enable:
+#   terraform apply -var="enable_elasticache=true" ...
+#
+# After enabling, REDIS_URL is stored in Secrets Manager under
+#   unified-trading/{env}/redis-url
+# ECS task definitions should inject it via:
+#   aws secretsmanager get-secret-value --secret-id unified-trading/{env}/redis-url
+# ---------------------------------------------------------------------------
+
+resource "aws_elasticache_subnet_group" "unified_trading" {
+  count      = var.enable_elasticache ? 1 : 0
+  name       = "unified-trading-${var.environment}"
+  subnet_ids = data.aws_subnets.default[0].ids
+
+  tags = { Environment = var.environment }
+}
+
+resource "aws_security_group" "elasticache" {
+  count       = var.enable_elasticache ? 1 : 0
+  name        = "unified-trading-${var.environment}-elasticache"
+  description = "ElastiCache Redis — allow inbound from ECS tasks in same VPC"
+  vpc_id      = data.aws_vpc.default[0].id
+
+  ingress {
+    from_port   = 6379
+    to_port     = 6379
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default[0].cidr_block]
+    description = "Redis from VPC"
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Environment = var.environment }
+}
+
+resource "aws_elasticache_replication_group" "unified_trading" {
+  count = var.enable_elasticache ? 1 : 0
+
+  replication_group_id = "trading-cache-${var.environment}"
+  description          = "Unified Trading Redis cache — ${var.environment}"
+
+  engine               = "redis"
+  engine_version       = "7.1"
+  node_type            = "cache.t3.micro"
+  num_cache_clusters   = 1
+  port                 = 6379
+
+  subnet_group_name  = aws_elasticache_subnet_group.unified_trading[0].name
+  security_group_ids = [aws_security_group.elasticache[0].id]
+
+  at_rest_encryption_enabled = true
+  transit_encryption_enabled = false  # requires TLS client config; add when services support it
+
+  tags = { Environment = var.environment, ManagedBy = "terraform" }
+}
+
+# Store Redis URL in Secrets Manager so services read it via UCI
+resource "aws_secretsmanager_secret" "redis_url" {
+  count = var.enable_elasticache ? 1 : 0
+  name  = "unified-trading/${var.environment}/redis-url"
+  tags  = { Name = "redis-url", Environment = var.environment }
+}
+
+resource "aws_secretsmanager_secret_version" "redis_url" {
+  count     = var.enable_elasticache ? 1 : 0
+  secret_id = aws_secretsmanager_secret.redis_url[0].id
+  secret_string = "redis://${aws_elasticache_replication_group.unified_trading[0].primary_endpoint_address}:6379"
+}
+
+# Data sources needed when ElastiCache is enabled
+data "aws_vpc" "default" {
+  count   = var.enable_elasticache ? 1 : 0
+  default = true
+}
+
+data "aws_subnets" "default" {
+  count = var.enable_elasticache ? 1 : 0
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default[0].id]
+  }
+}
+
+# ---------------------------------------------------------------------------
 # ECS cluster
 # ---------------------------------------------------------------------------
 

@@ -23,6 +23,12 @@ variable "bucket_prefix" {
   type        = string
 }
 
+variable "enable_elasticache" {
+  description = "Provision ElastiCache Redis (cache.t3.micro). Takes ~10 min. Off by default."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # PROTOCOL_* service environment variables
 # These are injected into ECS task definitions at deploy time.

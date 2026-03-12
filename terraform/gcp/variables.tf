@@ -23,6 +23,12 @@ variable "bucket_prefix" {
   type        = string
 }
 
+variable "enable_memorystore" {
+  description = "Provision Cloud Memorystore Redis instance (1 GB). Takes ~10 min. Off by default."
+  type        = bool
+  default     = false
+}
+
 # ---------------------------------------------------------------------------
 # PROTOCOL_* service environment variables
 # These are injected into Cloud Run service definitions at deploy time.
