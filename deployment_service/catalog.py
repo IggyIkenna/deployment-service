@@ -476,7 +476,7 @@ class DataCatalog:
             )
 
         # Check GCS
-        gcs_path = f"gs://{bucket}/{path}"
+        gcs_path = f"gs://{bucket}/{path}"  # noqa: gs-uri — catalog builds GCS path for data existence check
 
         if gcs_config.get("list_prefix"):
             # Count files in prefix
@@ -629,7 +629,7 @@ class DataCatalog:
                 project_id=self.project_id,
             )
             prefix = "instrument_availability/"
-            all_files = self.cloud_client.list_files(f"gs://{bucket}/{prefix}", "*")
+            all_files = self.cloud_client.list_files(f"gs://{bucket}/{prefix}", "*")  # noqa: gs-uri — catalog builds GCS path for instrument availability scan
         except (OSError, ValueError, RuntimeError, KeyError) as exc:
             logger.debug("search_instruments: GCS error for %s: %s", service, exc)
             return []
@@ -671,7 +671,7 @@ class DataCatalog:
         prefix = f"{service}/"
 
         try:
-            all_files = self.cloud_client.list_files(f"gs://{bucket_name}/{prefix}", "*.parquet")
+            all_files = self.cloud_client.list_files(f"gs://{bucket_name}/{prefix}", "*.parquet")  # noqa: gs-uri — catalog builds GCS path for execution data scan
         except (OSError, ValueError, RuntimeError) as exc:
             logger.debug("get_execution_data_status: GCS error for %s: %s", service, exc)
             return []

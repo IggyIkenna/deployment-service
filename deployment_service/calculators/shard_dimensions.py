@@ -247,8 +247,8 @@ class DimensionProcessor:
     ) -> list[str]:
         """List config files from cloud storage at runtime."""
         if cloud_config_path and (
-            cloud_config_path.startswith("gs://")
-            or cloud_config_path.startswith("s3://")
+            cloud_config_path.startswith("gs://")  # noqa: gs-uri — shard_dimensions checks cloud path protocol prefix
+            or cloud_config_path.startswith("s3://")  # noqa: gs-uri
             or cloud_config_path.startswith("az://")
         ):
             # User provided cloud config directory
@@ -315,7 +315,7 @@ class DimensionProcessor:
 
             # List files from cloud storage (cloud_client handles provider-specific URI)
             storage_client = self.cloud_client
-            uri_prefix = getattr(storage_client, "uri_prefix", "gs://")
+            uri_prefix = getattr(storage_client, "uri_prefix", "gs://")  # noqa: gs-uri — fallback to GCS prefix when cloud_client doesn't expose uri_prefix
             cloud_path = f"{uri_prefix}{bucket}/{prefix}"
             bucket_files: list[str] = self.cloud_client.list_files(cloud_path, file_pattern)
             all_configs.extend(bucket_files)

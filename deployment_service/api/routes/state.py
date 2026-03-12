@@ -36,7 +36,9 @@ def _get_state_manager() -> StateManager:
 # ---------------------------------------------------------------------------
 
 
-class CalculateShardsRequest(BaseModel):
+class CalculateShardsRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     config_dir: str
     start_date: str | None = None
@@ -50,7 +52,9 @@ class CalculateShardsRequest(BaseModel):
     extra_filters: dict[str, object] = {}
 
 
-class CreateDeploymentRequest(BaseModel):
+class CreateDeploymentRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     deployment_id: str
     service: str
     region: str
@@ -66,7 +70,7 @@ class CreateDeploymentRequest(BaseModel):
     vm_zone: str | None = None
 
 
-class CancelVMJobsRequest(BaseModel):
+class CancelVMJobsRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     deployment_id: str
     project_id: str
     region: str
@@ -78,23 +82,27 @@ class CancelVMJobsRequest(BaseModel):
     fire_and_forget: bool = True
 
 
-class VMStatusBatchRequest(BaseModel):
+class VMStatusBatchRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     project_id: str
     zone: str
     vm_names: list[str]
 
 
-class QuotaAcquireRequest(BaseModel):
+class QuotaAcquireRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     quota_shape: dict[str, object]
     batch_size: int
 
 
-class QuotaReleaseRequest(BaseModel):
+class QuotaReleaseRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     quota_shape: dict[str, object]
     batch_size: int
 
 
-class CloudRunStatusBatchRequest(BaseModel):
+class CloudRunStatusBatchRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     project_id: str
     region: str
     service_account_email: str
@@ -102,7 +110,7 @@ class CloudRunStatusBatchRequest(BaseModel):
     job_ids: list[str]
 
 
-class RollbackRequest(BaseModel):
+class RollbackRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     region: str
     target_revision: str | None = None

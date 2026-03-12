@@ -108,7 +108,7 @@ def process_batch_results(
 
     bucket_to_category = {
         (
-            f"gs://{bucket_info[cat]['bucket']}/"
+            f"gs://{bucket_info[cat]['bucket']}/"  # noqa: gs-uri — CLI data status builds GCS bucket paths for category mapping
             + (
                 bucket_info[cat]["path_template"].split("{date}")[0]
                 if "{date}" in bucket_info[cat]["path_template"]

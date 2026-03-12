@@ -20,7 +20,7 @@ def _run_server(port: int) -> None:
 
     from deployment_service.api.app import app
 
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)  # nosec B104 — intentional: containerized service must bind all interfaces
 
 
 def _run_cli() -> None:

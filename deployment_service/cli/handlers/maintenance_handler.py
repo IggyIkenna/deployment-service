@@ -81,7 +81,7 @@ class MaintenanceHandler:
         """
         try:
             # Use gsutil to list old files
-            cmd = ["gsutil", "ls", "-l", "-b", f"gs://{bucket}/**"]
+            cmd = ["gsutil", "ls", "-l", "-b", f"gs://{bucket}/**"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
 
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
@@ -373,9 +373,9 @@ class MaintenanceHandler:
         """
         try:
             if self.cloud_provider == "gcp":
-                cmd = ["gsutil", "ls", "-b", f"gs://{bucket_name}"]
+                cmd = ["gsutil", "ls", "-b", f"gs://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
             else:
-                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]
+                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes aws s3 directly for bucket ops
 
             result = subprocess.run(cmd, capture_output=True, text=True)
             return result.returncode == 0
@@ -394,9 +394,9 @@ class MaintenanceHandler:
         """
         try:
             if self.cloud_provider == "gcp":
-                cmd = ["gsutil", "ls", f"gs://{bucket_name}"]
+                cmd = ["gsutil", "ls", f"gs://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
             else:
-                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]
+                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes aws s3 directly for bucket ops
 
             result = subprocess.run(cmd, capture_output=True, text=True)
             return result.returncode == 0
@@ -455,9 +455,9 @@ class MaintenanceHandler:
         """
         try:
             if self.cloud_provider == "gcp":
-                cmd = ["gsutil", "mb", f"gs://{bucket_name}"]
+                cmd = ["gsutil", "mb", f"gs://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket creation
             else:
-                cmd = ["aws", "s3", "mb", f"s3://{bucket_name}"]
+                cmd = ["aws", "s3", "mb", f"s3://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes aws s3 directly for bucket creation
 
             subprocess.run(cmd, check=True, capture_output=True)
             click.echo(f"Created bucket: {bucket_name}")

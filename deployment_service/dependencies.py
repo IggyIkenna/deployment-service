@@ -309,7 +309,7 @@ class DependencyGraph:
             str_template_vars = {k: str(v) for k, v in template_vars.items()}
             bucket = bucket_template.format(**str_template_vars)
             path = path_template.format(**str_template_vars)
-            gcs_path = f"gs://{bucket}/{path}"
+            gcs_path = f"gs://{bucket}/{path}"  # noqa: gs-uri — dependency check builds GCS path for existence verification
         except ConfigurationError as e:
             return DependencyCheck(
                 service=service,

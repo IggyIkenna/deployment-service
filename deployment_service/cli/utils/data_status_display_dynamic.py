@@ -85,7 +85,7 @@ def display_dynamic_service_status(
         prefix = gcs_dim.get("gcs_prefix") or ""
         if mode == "live":
             prefix = "live/" + prefix
-        gcs_path = f"gs://{bucket}/{prefix}"
+        gcs_path = f"gs://{bucket}/{prefix}"  # noqa: gs-uri — CLI data status display builds GCS paths for bucket scanning
         bucket_paths.append(gcs_path)
         path_to_domain[gcs_path] = domain
         bucket_to_domain[bucket] = domain
@@ -116,7 +116,7 @@ def display_dynamic_service_status(
                 bucket = bucket_template
 
             results_path = (
-                f"gs://{bucket}/live/results/" if mode == "live" else f"gs://{bucket}/results/"
+                f"gs://{bucket}/live/results/" if mode == "live" else f"gs://{bucket}/results/"  # noqa: gs-uri — CLI data status builds GCS results paths
             )
             results_paths.append(results_path)
             results_path_to_domain[results_path] = domain

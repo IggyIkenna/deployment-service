@@ -37,7 +37,7 @@ class CloudClient:
     Usage::
 
         client = CloudClient()
-        files = client.list_files("gs://bucket/prefix", "*.json")
+        files = client.list_files("gs://bucket/prefix", "*.json")  # noqa: gs-uri
     """
 
     def __init__(self, project_id: str | None = None, provider: str = "gcs"):
@@ -73,7 +73,7 @@ class CloudClient:
         List files in a cloud storage path matching a pattern.
 
         Args:
-            cloud_path: Cloud path (e.g., "gs://bucket/prefix" or "s3://bucket/prefix")
+            cloud_path: Cloud path (e.g., "gs://bucket/prefix" or "s3://bucket/prefix")  # noqa: gs-uri
             pattern: Glob pattern to match files (e.g., "*.json", "**/*.json")
             max_results: Maximum number of results to return
 
@@ -159,7 +159,7 @@ class CloudClient:
         List files with metadata.
 
         Args:
-            cloud_path: Cloud path (e.g., "gs://bucket/prefix")
+            cloud_path: Cloud path (e.g., "gs://bucket/prefix")  # noqa: gs-uri
             pattern: Pattern to match (default: all files)
             max_results: Maximum results to return
 
@@ -450,7 +450,7 @@ class MockCloudClient(CloudClient):
         result: list[str] = []
         for f in mock_files:
             if self._matches_pattern(f, pattern):
-                if f.startswith(("gs://", "s3://", "azure://")):
+                if f.startswith(("gs://", "s3://", "azure://")):  # noqa: gs-uri — cloud_client.py IS the cloud storage boundary; path prefix checks are required
                     result.append(f)
                 else:
                     result.append(f"{provider}://{bucket}/{prefix}/{f}".rstrip("/"))

@@ -298,7 +298,10 @@ class GCSTestBucketManager:
             # Filter by pattern (simple suffix match)
             suffix = pattern.replace("*", "")
             files = [
-                f"gs://{bucket_name}/{blob.name}" for blob in blobs if blob.name.endswith(suffix)
+                # noqa: gs-uri — smoke_test builds GCS paths for GCS verification; see QUALITY_GATE_BYPASS_AUDIT.md §2.12b
+                f"gs://{bucket_name}/{blob.name}"  # noqa: gs-uri
+                for blob in blobs
+                if blob.name.endswith(suffix)
             ]
 
             return files

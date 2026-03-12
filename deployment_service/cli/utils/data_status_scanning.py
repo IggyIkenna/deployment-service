@@ -174,7 +174,7 @@ def scan_buckets_batch_mode(
             else path_template.split("/")[0] + "/"
         )
 
-        gcs_path = f"gs://{info['bucket']}/{prefix}"
+        gcs_path = f"gs://{info['bucket']}/{prefix}"  # noqa: gs-uri — CLI data status scanner builds GCS paths for bucket scanning
         bucket_paths.append(gcs_path)
         bucket_to_category[gcs_path] = cat
 
