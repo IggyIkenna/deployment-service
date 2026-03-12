@@ -211,10 +211,10 @@ resource "aws_sqs_queue" "unified_trading_dlq" {
 }
 
 resource "aws_sqs_queue_redrive_policy" "unified_trading" {
-  for_each  = aws_sqs_queue.unified_trading
-  queue_url = each.value.id
+  for_each  = toset(local.sqs_topic_names)
+  queue_url = aws_sqs_queue.unified_trading[each.value].id
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.unified_trading_dlq[each.key].arn
+    deadLetterTargetArn = aws_sqs_queue.unified_trading_dlq[each.value].arn
     maxReceiveCount     = 5
   })
 }
