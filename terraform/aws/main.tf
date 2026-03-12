@@ -10,7 +10,7 @@
 # See scripts/bootstrap/bootstrap_aws.sh for idempotent setup.
 
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.5"
 
   required_providers {
     aws = {

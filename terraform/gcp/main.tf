@@ -12,7 +12,7 @@
 # Cloud Run Jobs are deployed at runtime by backends/cloud_run.py.
 
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.5"
 
   required_providers {
     google = {
