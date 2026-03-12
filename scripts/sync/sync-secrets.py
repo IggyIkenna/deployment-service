@@ -221,7 +221,7 @@ def sync_secrets(
             else:  # dest == "gcp"
                 if not gcp_client.update_secret(diff.name, value):  # type: ignore[attr-defined]
                     gcp_client.create_secret(diff.name, value)  # type: ignore[attr-defined]
-                print(f"  [gcp] {diff.name}")
+                print(f"   {diff.name}")
             written += 1
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to sync {diff.name}: {e}")
