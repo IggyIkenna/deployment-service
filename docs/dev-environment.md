@@ -3,8 +3,9 @@
 **SSOT for how dev infrastructure is created in the `central-element-323112` GCP project.**
 
 Dev and prod resources live in the **same GCP project**, isolated by an environment suffix in every resource name:
+
 - Prod: `execution-store-defi-prod-central-element-323112`
-- Dev:  `execution-store-defi-dev-central-element-323112`
+- Dev: `execution-store-defi-dev-central-element-323112`
 
 This avoids a separate dev project, billing account, and IAM setup. GCP on-demand quotas (BigQuery, Pub/Sub, GCS) are not meaningfully competed between dev and prod at current scale.
 
@@ -25,6 +26,7 @@ terraform apply \
 ```
 
 This creates:
+
 - **GCS Group B buckets** (`{domain}-{category}-dev-central-element-323112`) — execution, strategy, ML, features
 - **Pub/Sub topics** with `-dev` suffix — e.g. `defi-onchain-features-ready-dev`
 - **Cloud Scheduler jobs** with `dev` prefix
@@ -90,16 +92,16 @@ FORK_MODE=tenderly  # service reads tenderly-fork-rpc-url from SM
 
 All in `central-element-323112` Secret Manager. Run `gcloud secrets list --project central-element-323112` to check current state.
 
-| Secret Name | Purpose | How to obtain | Required? |
-|---|---|---|---|
-| `alchemy-api-key` | Mainnet RPC (market data, always) | Existing ✅ | Required |
-| `thegraph-api-key` | The Graph gateway (DeFi market data) | Existing ✅ | Required |
-| `aavescan-api-key` | Aave analytics | Existing ✅ | Required |
-| `alchemy-api-key-testnet` | Sepolia RPC (tx-mechanics tests only) | dashboard.alchemy.com → create Sepolia app | Optional |
-| `tenderly-fork-rpc-url` | Tenderly VirtualTestNet RPC | app.tenderly.co | Required for Cloud Run dev |
-| `tenderly-api-key` | Tenderly API access | app.tenderly.co | Optional |
-| `hyperliquid-testnet-api-credentials` | Hyperliquid testnet orders | testnet.hyperliquid.xyz | Required for HL testing |
-| `wallet-dev-private-key` | Dev wallet for Sepolia txns | `cast wallet new` (Foundry) | Optional |
+| Secret Name                           | Purpose                               | How to obtain                              | Required?                  |
+| ------------------------------------- | ------------------------------------- | ------------------------------------------ | -------------------------- |
+| `alchemy-api-key`                     | Mainnet RPC (market data, always)     | Existing ✅                                | Required                   |
+| `thegraph-api-key`                    | The Graph gateway (DeFi market data)  | Existing ✅                                | Required                   |
+| `aavescan-api-key`                    | Aave analytics                        | Existing ✅                                | Required                   |
+| `alchemy-api-key-testnet`             | Sepolia RPC (tx-mechanics tests only) | dashboard.alchemy.com → create Sepolia app | Optional                   |
+| `tenderly-fork-rpc-url`               | Tenderly VirtualTestNet RPC           | app.tenderly.co                            | Required for Cloud Run dev |
+| `tenderly-api-key`                    | Tenderly API access                   | app.tenderly.co                            | Optional                   |
+| `hyperliquid-testnet-api-credentials` | Hyperliquid testnet orders            | testnet.hyperliquid.xyz                    | Required for HL testing    |
+| `wallet-dev-private-key`              | Dev wallet for Sepolia txns           | `cast wallet new` (Foundry)                | Optional                   |
 
 ---
 
@@ -107,11 +109,11 @@ All in `central-element-323112` Secret Manager. Run `gcloud secrets list --proje
 
 The following scripts in `unified-trading-pm/scripts/dev/` are **retired** (2026-03-13). Use Terraform above instead:
 
-| Retired script | Was doing |
-|---|---|
-| `setup-dev-bigquery.sh` | Created BigQuery dev datasets in `unified-trading-dev` project (wrong project) |
-| `setup-dev-pubsub.sh` | Created Pub/Sub topics in `unified-trading-dev` project (wrong project) |
-| `seed-dev-project.sh` | Seeded synthetic GBM data — replaced by VCR cassette playback + real batch data |
+| Retired script          | Was doing                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `setup-dev-bigquery.sh` | Created BigQuery dev datasets in `unified-trading-dev` project (wrong project)  |
+| `setup-dev-pubsub.sh`   | Created Pub/Sub topics in `unified-trading-dev` project (wrong project)         |
+| `seed-dev-project.sh`   | Seeded synthetic GBM data — replaced by VCR cassette playback + real batch data |
 
 These scripts reference `unified-trading-dev` as a separate GCP project, which was never created. The canonical provisioning path is `terraform apply -var="environment=dev"` against `central-element-323112`.
 
