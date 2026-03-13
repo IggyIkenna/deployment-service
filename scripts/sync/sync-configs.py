@@ -147,11 +147,11 @@ def diff_configs(
             if not files or path in (files or []):
                 try:
                     gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # type: ignore[attr-defined]
-                except Exception:  # noqa: BLE001
+                except (OSError, ValueError):  # noqa: BLE001
                     gcs_data = None
                 try:
                     s3_data = s3_client.download_bytes(s3_bucket, path)  # type: ignore[attr-defined]
-                except Exception:  # noqa: BLE001
+                except (OSError, ValueError):  # noqa: BLE001
                     s3_data = None
 
             if gcs_data is not None and s3_data is not None:
