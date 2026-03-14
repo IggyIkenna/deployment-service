@@ -6,7 +6,6 @@
 # in GCP Console (Cloud Build → Repositories → Link repository) before triggers can be created:
 #   alerting-service, client-reporting-api, execution-results-api, market-data-api,
 #   pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service,
-#   strategy-validation-service
 # Then re-run: terraform apply -var="project_id={project_id}" -auto-approve
 
 terraform {
@@ -104,10 +103,6 @@ locals {
     "alerting-service" = {
       github_repo            = "alerting-service"
       artifact_registry_repo = "alerting-service"
-    }
-    "strategy-validation-service" = {
-      github_repo            = "strategy-validation-service"
-      artifact_registry_repo = "strategy-validation-service"
     }
     # UI services (renamed from ml-deployment-ui 2026-02-28)
     "ml-training-ui" = {

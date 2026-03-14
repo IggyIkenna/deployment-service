@@ -30,7 +30,6 @@ See [TEMPLATE.md](TEMPLATE.md) for the document structure used in each profile.
 | [position-balance-monitor-service](position-balance-monitor-service.md)   | 1 vCPU   | 2 Gi    | 4 min   | both  | Small          | Polls every 5 min during live trading                      |
 | [risk-and-exposure-service](risk-and-exposure-service.md)                 | 4 vCPU   | 16 Gi   | 24 hr   | both  | Large          | Live min-instances=1; Monte Carlo VaR                      |
 | [strategy-service](strategy-service.md)                                   | 2 vCPU   | 8 Gi    | 24 hr   | both  | Medium         | Live min-instances=1; CascadeSubscriber                    |
-| [strategy-validation-service](strategy-validation-service.md)             | 2 vCPU   | 8 Gi    | 24 hr   | batch | Medium         | Safety gate before execution-service                       |
 
 ## Resource Classes
 
@@ -61,7 +60,7 @@ instruments-service
             └── market-data-processing-service
                     ├── features-delta-one-service  ──── (FEATURES_READY) ──► ml-inference-service
                     ├── features-volatility-service                               └── (PREDICTIONS_READY) ──► strategy-service
-                    ├── features-multi-timeframe-service                                                           └── strategy-validation-service
+                    ├── features-multi-timeframe-service
                     ├── features-onchain-service                                                                            └── execution-service
                     ├── features-calendar-service
                     ├── features-commodity-service

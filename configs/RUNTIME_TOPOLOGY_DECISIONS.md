@@ -698,14 +698,14 @@ Key principles: NETWORK gets most retries (transient). VALIDATION and AUTH never
 
 Two separate T+1 reconciliations, aggregated:
 
-**Strategy T+1** (`strategy-validation-service`):
+**Strategy T+1** (`batch-live-reconciliation-service`):
 
 - Validates: signals, strategy instructions, positions at snapshot points
 - Compares: live signals vs batch-replayed signals given same inputs
 - Output: strategy PnL = PnL assuming fills at benchmark price
 - ML signals should be identical (deterministic). Strategy instructions should be close (time-triggered).
 
-**Execution T+1** (`execution-service` or `strategy-validation-service`):
+**Execution T+1** (`execution-service` or `batch-live-reconciliation-service`):
 
 - Validates: order execution timing, fill quality, slippage
 - Compares: live fills vs benchmark (TWAP/VWAP/arrival price)
@@ -775,7 +775,6 @@ On connectivity loss:
 | **features-onchain-service**          | Cloud Run Job     | scale-to-zero                            | Batch only; periodic on-chain data fetch                                                      |
 | **pnl-attribution-service**           | Cloud Run Service | always-on                                | Continuous subscriber to execution + risk PubSub events; runs P&L attribution on every update |
 | **features-multi-timeframe-service**  | Cloud Run Service | always-on (live) / scale-to-zero (batch) | Mode-dependent: live subscribes to FDS completion events                                      |
-| **strategy-validation-service**       | Cloud Run Job     | scale-to-zero                            | Daily T+1 reconciliation run; not continuously needed                                         |
 | **execution-results-api**             | Cloud Run Service | auto-scale                               | Scales with HTTP/SSE connection count; min-instances configurable                             |
 | **market-data-api**                   | Cloud Run Service | auto-scale                               | Scales with HTTP/SSE connection count                                                         |
 | **deployment-api**                    | Cloud Run Service | auto-scale                               | Request-driven; SSE for health monitoring stream                                              |

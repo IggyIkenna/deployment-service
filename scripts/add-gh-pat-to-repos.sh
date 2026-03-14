@@ -60,7 +60,6 @@ REPOS=(
   sports-betting-services
   strategy-service
   strategy-ui
-  strategy-validation-service
   system-integration-tests
   trading-analytics-ui
   unified-api-contracts

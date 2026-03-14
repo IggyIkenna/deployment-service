@@ -46,7 +46,7 @@ Assumptions: 2 vCPU + 8 Gi; live mode billed continuously.
 
 - Upstream dependency (live): ml-inference-service must publish `PREDICTIONS_READY` first
 - CascadeSubscriber wired in live mode to consume upstream prediction events
-- Strategy validation performed by strategy-validation-service before signals are forwarded to execution-service
+- Strategy validation performed by batch-live-reconciliation-service (T+1) before signals are forwarded to execution-service
 
 ## Source References
 

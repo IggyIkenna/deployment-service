@@ -162,7 +162,6 @@ The following services have `Execution: Cloud Run Job` in their resource profile
 | features-cross-instrument-service | 1                    | 1–3 hr    | L4; depends on delta-one + volatility |
 | instruments-service               | 1                    | variable  | Pipeline DAG gate                     |
 | market-data-processing-service    | 1 per shard          | variable  | Some shards on VM                     |
-| strategy-validation-service       | on-demand            | variable  | Safety gate before execution          |
 
 ---
 
