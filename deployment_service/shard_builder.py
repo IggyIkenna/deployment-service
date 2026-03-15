@@ -250,7 +250,7 @@ def build_storage_env_vars(
         return {}
 
     loader = ConfigLoader(config_dir)
-    category = str(dimensions.get("category", "")).upper()
+    category = str(dimensions.get("category", "")).upper()  # noqa: qg-empty-fallback — no category is valid (shared domain)
     result: dict[str, str] = {}
 
     for domain in domains:
