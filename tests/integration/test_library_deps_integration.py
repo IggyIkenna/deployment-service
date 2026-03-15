@@ -36,3 +36,10 @@ def test_unified_cloud_interface_import() -> None:
     from unified_cloud_interface import get_storage_client
 
     assert callable(get_storage_client)
+
+
+@pytest.mark.integration
+def test_deployment_api_import() -> None:
+    import deployment_api
+
+    assert hasattr(deployment_api, "__version__")
