@@ -7,6 +7,7 @@ dependencies = [
     "unified-trading-library>=0.1.0,<1.0.0",
     "unified-cloud-interface>=0.11.6,<1.0.0",
     "unified-config-interface>=0.1.0,<1.0.0",
+    "deployment-api>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
     "prometheus-client>=0.20.0,<1.0.0",
     "fastapi>=0.110.0,<1.0.0",
@@ -46,6 +47,10 @@ editable = true
 
 [tool.uv.sources.unified-config-interface]
 path = "../unified-config-interface"
+editable = true
+
+[tool.uv.sources.deployment-api]
+path = "../deployment-api"
 editable = true
 
 [tool.ruff]
