@@ -10,7 +10,7 @@
 SERVICE_NAME="deployment-service"
 SOURCE_DIR="deployment_service"
 MIN_COVERAGE=76
-RUN_INTEGRATION=false
+RUN_INTEGRATION=true
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 LOCAL_DEPS=()
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
