@@ -14,6 +14,8 @@ from datetime import date, timedelta
 from itertools import product
 from typing import cast
 
+from unified_api_contracts import DATA_TYPES_BY_CATEGORY
+
 from .cloud_client import CloudClient
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
@@ -156,19 +158,9 @@ SERVICE_GCS_CONFIGS = {
         "list_prefix": True,
         # Expected timeframes - all 7 must be present for completion
         "expected_timeframes": ["15s", "1m", "5m", "15m", "1h", "4h", "24h"],
-        # Expected data types per category (default - can be overridden by venue_data_types.yaml)
-        "expected_data_types": {
-            "CEFI": [
-                "trades",
-                "book_snapshot_5",
-                "derivative_ticker",
-                "liquidations",
-                "options_chain",
-                "futures_chain",
-            ],
-            "TRADFI": ["trades", "ohlcv_1m", "ohlcv_15m", "ohlcv_24h", "tbbo"],
-            "DEFI": ["swaps", "rate_indices", "oracle_prices", "utilization", "yields"],
-        },
+        # Expected data types per category (SSOT: unified-api-contracts DATA_TYPES_BY_CATEGORY)
+        # Keys uppercased to match service config category convention (CEFI, TRADFI, DEFI, etc.)
+        "expected_data_types": {k.upper(): v for k, v in DATA_TYPES_BY_CATEGORY.items()},
         # Chain data types have special path structure
         "chain_data_types": ["options_chain", "futures_chain"],
         # Chain path templates - match market-data-processing implementation

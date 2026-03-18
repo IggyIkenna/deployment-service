@@ -14,6 +14,9 @@ from ...config_loader import ConfigLoader
 from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results
 
+# Earliest date for pre-launch data; used when a category has no explicit start date configured
+DEFAULT_CATEGORY_START_DATE = "2020-01-01"
+
 
 def check_instruments_venue_coverage(
     start_date: datetime,
@@ -103,7 +106,7 @@ def check_instruments_venue_coverage(
     tasks = []
     for cat in categories:
         cat_config = instruments_config.get(cat, {})
-        cat_start = cat_config.get("category_start", "2020-01-01")
+        cat_start = cat_config.get("category_start", DEFAULT_CATEGORY_START_DATE)
         expected_venues = set(cat_config.get("venues") or {}.keys())
 
         for date_str in all_dates:
