@@ -311,7 +311,7 @@ def test_t1_orchestrator_events_initialized_only_once() -> None:
 def test_gcs_client_returns_none_in_mock_mode() -> None:
     orch = _make_orchestrator()
     with patch("deployment_service.orchestrator._config") as mock_cfg:
-        mock_cfg.cloud_mock_mode = True
+        mock_cfg.is_mock_mode.return_value = True
         client = orch.gcs_client
     assert client is None
 
@@ -327,7 +327,7 @@ def test_gcs_client_connection_error_returns_none() -> None:
         ),
         patch("deployment_service.orchestrator.log_event"),
     ):
-        mock_cfg.cloud_mock_mode = False
+        mock_cfg.is_mock_mode.return_value = False
         orch._gcs_client = None
         client = orch.gcs_client
     assert client is None
@@ -344,7 +344,7 @@ def test_gcs_client_value_error_returns_none() -> None:
         ),
         patch("deployment_service.orchestrator.log_event"),
     ):
-        mock_cfg.cloud_mock_mode = False
+        mock_cfg.is_mock_mode.return_value = False
         orch._gcs_client = None
         client = orch.gcs_client
     assert client is None
@@ -361,7 +361,7 @@ def test_gcs_client_os_error_returns_none() -> None:
         ),
         patch("deployment_service.orchestrator.log_event"),
     ):
-        mock_cfg.cloud_mock_mode = False
+        mock_cfg.is_mock_mode.return_value = False
         orch._gcs_client = None
         client = orch.gcs_client
     assert client is None
@@ -697,7 +697,7 @@ def test_save_plan_returns_false_when_no_gcs_client() -> None:
     orch._gcs_client = None
 
     with patch("deployment_service.orchestrator._config") as mock_cfg:
-        mock_cfg.cloud_mock_mode = True
+        mock_cfg.is_mock_mode.return_value = True
         result = orch.save_plan(_make_plan())
 
     assert result is False
@@ -788,7 +788,7 @@ def test_load_plan_returns_none_when_no_gcs_client() -> None:
     orch._gcs_client = None
 
     with patch("deployment_service.orchestrator._config") as mock_cfg:
-        mock_cfg.cloud_mock_mode = True
+        mock_cfg.is_mock_mode.return_value = True
         result = orch.load_plan(_DATE, _CATEGORY)
 
     assert result is None

@@ -221,7 +221,7 @@ class DeploymentMonitor:
     @property
     def gcs_client(self):
         """Lazy-load GCS client."""
-        if self._gcs_client is None and not _config.cloud_mock_mode:
+        if self._gcs_client is None and not _config.is_mock_mode():
             try:
                 self._gcs_client = get_storage_client(project_id=self.project_id)
             except (OSError, ValueError, RuntimeError) as e:
@@ -537,7 +537,7 @@ class VersionRegistry:
 
     @property
     def client(self):
-        if self._client is None and not _config.cloud_mock_mode:
+        if self._client is None and not _config.is_mock_mode():
             try:
                 self._client = get_storage_client(project_id=self.project_id)
             except (OSError, ValueError, RuntimeError) as e:

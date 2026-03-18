@@ -340,7 +340,7 @@ class TestDeploymentMonitorGcsClient:
     def test_gcs_client_none_in_mock_mode(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
             monitor = DeploymentMonitor(project_id="test-project")
             assert monitor.gcs_client is None
 
@@ -351,7 +351,7 @@ class TestDeploymentMonitorGcsClient:
             patch("deployment_service.monitor.get_storage_client") as mock_gsc,
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
             mock_gsc.return_value = MagicMock()
 
             monitor = DeploymentMonitor(project_id="test-project")
@@ -368,7 +368,7 @@ class TestDeploymentMonitorGcsClient:
             ),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             monitor = DeploymentMonitor(project_id="test-project")
             assert monitor.gcs_client is None
@@ -379,7 +379,7 @@ class TestDeploymentMonitorGetServiceVersion:
     def test_returns_none_when_no_gcs_client(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
             monitor = DeploymentMonitor(project_id="test-project")
             result = monitor.get_service_version("instruments-service")
             assert result is None
@@ -388,7 +388,7 @@ class TestDeploymentMonitorGetServiceVersion:
     def test_returns_cached_version(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
             monitor = DeploymentMonitor(project_id="test-project")
             v = _make_version()
             monitor._version_cache["instruments-service"] = v
@@ -412,7 +412,7 @@ class TestDeploymentMonitorGetServiceVersion:
 
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             with patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs):
                 monitor = DeploymentMonitor(project_id="test-project")
@@ -434,7 +434,7 @@ class TestDeploymentMonitorGetServiceVersion:
 
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             with patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs):
                 monitor = DeploymentMonitor(project_id="test-project")
@@ -457,7 +457,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             patch("deployment_service.monitor.DependencyGraph", return_value=mock_graph),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             monitor = DeploymentMonitor(project_id="test-project")
             report = monitor.get_deployment_status("instruments-service", "2024-01-01", "CEFI")
@@ -487,7 +487,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             patch("deployment_service.monitor.DependencyGraph", return_value=mock_graph),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             monitor = DeploymentMonitor(project_id="test-project")
             report = monitor.get_deployment_status(
@@ -532,7 +532,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             monitor = DeploymentMonitor(project_id="test-project")
             report = monitor.get_deployment_status("instruments-service", "2024-01-01", "CEFI")
@@ -569,7 +569,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             monitor = DeploymentMonitor(project_id="test-project")
             report = monitor.get_deployment_status("instruments-service", "2024-01-01", "CEFI")
@@ -603,7 +603,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             monitor = DeploymentMonitor(project_id="test-project")
             report = monitor.get_deployment_status("instruments-service", "2024-01-01", "CEFI")
@@ -627,7 +627,7 @@ class TestDeploymentMonitorGetAllServiceStatus:
             patch("deployment_service.monitor.ConfigLoader") as MockCL,
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             mock_loader = MagicMock()
             mock_loader.list_available_services.return_value = [
@@ -651,7 +651,7 @@ class TestDeploymentMonitorGetAllServiceVersions:
             patch("deployment_service.monitor.ConfigLoader") as MockCL,
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             mock_loader = MagicMock()
             mock_loader.list_available_services.return_value = ["instruments-service"]
@@ -804,7 +804,7 @@ class TestVersionRegistry:
     def test_client_none_in_mock_mode(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             reg = VersionRegistry(project_id="test-project")
             assert reg.client is None
@@ -813,7 +813,7 @@ class TestVersionRegistry:
     def test_register_version_returns_false_when_no_client(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             reg = VersionRegistry(project_id="test-project")
             v = _make_version()
@@ -824,7 +824,7 @@ class TestVersionRegistry:
     def test_get_version_history_empty_when_no_client(self):
         with patch("deployment_service.monitor._config") as mock_cfg:
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = True
+            mock_cfg.is_mock_mode.return_value = True
 
             reg = VersionRegistry(project_id="test-project")
             result = reg.get_version_history("instruments-service")
@@ -849,7 +849,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             result = reg.register_version(v)
@@ -869,7 +869,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             v = _make_version()
@@ -901,7 +901,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             versions = reg.get_version_history("instruments-service", limit=10)
@@ -932,7 +932,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             versions = reg.get_version_history("instruments-service", limit=3)
@@ -961,7 +961,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             versions = reg.get_version_history("svc", limit=10)
@@ -979,7 +979,7 @@ class TestVersionRegistry:
             patch("deployment_service.monitor.get_storage_client", return_value=mock_gcs),
         ):
             mock_cfg.gcp_project_id = "test-project"
-            mock_cfg.cloud_mock_mode = False
+            mock_cfg.is_mock_mode.return_value = False
 
             reg = VersionRegistry(project_id="test-project")
             result = reg.get_version_history("instruments-service")

@@ -136,7 +136,7 @@ def mock_env_vars(monkeypatch):
     ]:
         try:
             mod = __import__(mod_path, fromlist=["_config"])
-            monkeypatch.setattr(mod._config, "cloud_mock_mode", True)
+            monkeypatch.setattr(mod._config, "is_mock_mode", lambda: True)
             monkeypatch.setattr(mod._config, "gcp_project_id", "test-project-123")
         except (ImportError, AttributeError):
             pass

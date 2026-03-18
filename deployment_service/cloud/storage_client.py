@@ -79,7 +79,7 @@ class StorageClient:
         self.project_id: str | None = project_id or cast(str | None, _config.gcp_project_id)
         self.provider = provider
         self._client: _UTLStorageClient | None = None
-        self._mock_mode: bool = bool(_config.cloud_mock_mode)
+        self._mock_mode: bool = _config.is_mock_mode()
 
     @property
     def mock_mode(self) -> bool:
