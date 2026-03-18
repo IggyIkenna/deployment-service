@@ -56,14 +56,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN id -u appuser >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /bin/bash appuser
 
 # Copy and install Python dependencies first (better caching)
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
-# Install production dependencies + gunicorn for process management
+# Install dependencies from lockfile
 # unified-trading-library already installed in base image
-RUN uv pip install --system --no-cache-dir \
-    gunicorn[gevent] \
-    gevent \
-    && uv pip install --system --no-cache-dir -e ".[ui,cache,monitoring]"
+RUN uv sync --frozen --no-dev --system \
+    && uv pip install --system --no-cache-dir gunicorn[gevent] gevent
 
 # Copy application code
 COPY deployment_service/ ./deployment_service/
@@ -100,6 +98,6 @@ FROM api AS api-dev
 USER root
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
-RUN uv pip install --system --no-cache-dir -e ".[dev]" \
+RUN uv sync --frozen --no-dev --system \
     && chown -R appuser:appuser /app
 USER appuser
