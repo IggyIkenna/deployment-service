@@ -27,7 +27,7 @@ from pathlib import Path
 _repo_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from unified_config_interface import get_deployment_target
+from unified_trading_library import get_deployment_target
 
 from deployment_service.deployment_config import DeploymentConfig
 
@@ -192,7 +192,7 @@ def get_backend_for_service(
     """
     Get a compute backend by resolving the deployment target from the topology SSOT.
 
-    Uses get_deployment_target(service_name) from unified_config_interface.topology_reader
+    Uses get_deployment_target(service_name) from unified_trading_library.topology
     to look up cloud_run vs vm (or ecs/batch for AWS) from runtime-topology.yaml.
 
     Args:

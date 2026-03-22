@@ -16,7 +16,6 @@ phases:
     runtime-versions:
       python: "3.13"
     commands:
-      - pip install uv
       - VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "//;s/"//') && export VERSION && echo "$VERSION" > VERSION
       - echo "Building version $VERSION"
       - export IMAGE_TAG=$VERSION

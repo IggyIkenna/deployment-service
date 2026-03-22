@@ -87,7 +87,6 @@ _TRADE_KEY_PATTERNS = frozenset(
         "coinbase-api-secret",
         "betfair-session-token",
         "kalshi-api-key",
-        "bloxroute-api-key",
     ]
 )
 
@@ -99,7 +98,6 @@ _DATA_KEY_PATTERNS = frozenset(
         "thegraph-api-key",
         "alchemy-api-key",
         "coinglass-api-key",
-        "arkham-api-key",
         "odds-api-key",
         "pinnacle-api-key",
         "aws-hyperliquid-s3",

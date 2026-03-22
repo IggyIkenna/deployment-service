@@ -1,48 +1,39 @@
-# Deployment Configuration Checklists
+# Deployment Configuration
 
-Two-checklist model:
+## Operational Config SSOT: `unified-trading-pm/configs/`
 
-- **Codex `unified-trading-codex/10-audit/`** = comprehensive codex compliance (100+ items, all 9 principle areas) ← CANONICAL
-- **`deployment-v3/configs/`** = deployment readiness delta (infrastructure-specific items only)
+All operational YAML configs (sharding, data-catalogue, venues, dependencies, expected start dates, data providers)
+are owned by `unified-trading-pm/configs/` as the single source of truth (as of 2026-03-11).
 
-The codex checklists are the source of truth for compliance. These deployment checklists only track infrastructure provisioning items not covered by the codex.
+**This directory contains symlinks** pointing to `../../unified-trading-pm/configs/` for all operational files.
+deployment-service code (ConfigLoader, tests) resolves configs from `deployment-service/configs/` via these symlinks.
+Never duplicate or copy these files locally -- always edit the PM original.
 
-## Infrastructure Items Tracked Here
+### Local-only files (NOT symlinked)
 
-Each `checklist.{service}.yaml` covers only:
+| File                             | Purpose                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `cloud-providers.yaml`           | Deployment-service-specific cloud config (GCP/AWS project, region, registry URLs) |
+| `README.md`                      | This file                                                                         |
+| `*.md`, `*.dot`, `*.svg`, `*.py` | Documentation, topology diagrams, scripts                                         |
 
-- Dockerfile / containerization readiness
-- Cloud Build config and trigger setup
-- GCS bucket provisioning and IAM
-- Terraform resource definitions
-- Sharding config, dependencies config, expected-start-dates config
-- Deployment CLI smoke-check
-- Image build verification
+### Symlinked from PM (operational SSOT)
 
-## Key Files
-
-| Pattern                         | Purpose                                                                                                        |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `checklist.{service}.yaml`      | Deployment readiness delta (infra-specific items only)                                                         |
-| `checklist.template.yaml`       | Template for new services                                                                                      |
-| `checklist.prerequisites.yaml`  | One-time infra setup (GCP/AWS project, IAM, networking)                                                        |
-| `sharding.{service}.yaml`       | Shard dimensions (category, venue, date, etc.)                                                                 |
-| `data-catalogue.{service}.yaml` | GCS paths, output structure                                                                                    |
-| `dependencies.yaml`             | Service dependency-readiness checks (derived readiness view, not primary SSOT).                                |
-| `runtime-topology.yaml`         | Runtime topology SSOT: transport selection by mode + deployment profile (e.g. co-located in-memory live path). |
-| `venues.yaml`                   | Canonical venue–category mappings                                                                              |
-| `cloud-providers.yaml`          | GCP/AWS project and region config                                                                              |
-
-## Checklist Usage
-
-1. Copy `checklist.template.yaml` to `checklist.{service}.yaml`
-2. Set `status` per item: `done`, `partial`, `pending`, `n/a`
-3. Add `verified_date` when complete
-4. For code-quality compliance tracking, use the canonical codex checklists at `unified-trading-codex/10-audit/`
+| Pattern                         | Purpose                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `sharding.{service}.yaml`       | Shard dimensions (category, venue, date, etc.)                                  |
+| `sharding_config.yaml`          | Global sharding configuration                                                   |
+| `data-catalogue.{service}.yaml` | GCS paths, output structure                                                     |
+| `dependencies.yaml`             | Service dependency-readiness checks (derived readiness view, not primary SSOT). |
+| `venues.yaml`                   | Canonical venue-category mappings                                               |
+| `venue_data_types.yaml`         | Per-venue data type expectations                                                |
+| `expected_start_dates.yaml`     | Per-service/category/venue expected start dates                                 |
+| `data-providers.yaml`           | Data provider configuration                                                     |
 
 ## Sharding Config
 
-Shard dimensions are defined in `sharding.{service}.yaml`. The deployment CLI uses these to compute combinatorics. See [docs/CLI.md](../docs/CLI.md).
+Shard dimensions are defined in `sharding.{service}.yaml` (SSOT: `unified-trading-pm/configs/`).
+The deployment CLI uses these to compute combinatorics. See [docs/CLI.md](../docs/CLI.md).
 
 ## Deployment Flexibility (dependencies.yaml)
 
