@@ -6,6 +6,13 @@ import contextlib
 import json
 import os
 import subprocess
+
+# Set mock environment BEFORE any deployment_service modules are imported.
+# Module-level singletons like _config = DeploymentConfig() run at import time
+# and need these env vars present to avoid Pydantic validation failures.
+os.environ.setdefault("CLOUD_MOCK_MODE", "true")
+os.environ.setdefault("CLOUD_PROVIDER", "local")
+os.environ.setdefault("GCP_PROJECT_ID", "test-project-123")
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -128,7 +135,9 @@ def mock_env_vars(monkeypatch):
     """Set mock environment variables for testing and patch module-level config singletons."""
     monkeypatch.setenv("CLOUD_MOCK_MODE", "true")
     monkeypatch.setenv("GCP_PROJECT_ID", "test-project-123")
-    # Patch module-level _config singletons that are already initialized at import time
+    # Patch module-level _config singletons that are already initialized at import time.
+    # Pydantic v2 models use __slots__ and validate on setattr, so we must bypass
+    # validation using object.__setattr__ for non-field attributes (methods).
     for mod_path in [
         "deployment_service.cloud.storage_client",
         "deployment_service.cloud_client",
@@ -136,8 +145,9 @@ def mock_env_vars(monkeypatch):
     ]:
         try:
             mod = __import__(mod_path, fromlist=["_config"])
-            monkeypatch.setattr(mod._config, "is_mock_mode", lambda: True)
-            monkeypatch.setattr(mod._config, "gcp_project_id", "test-project-123")
+            # Patch method via the class, not the instance (Pydantic v2 safe)
+            monkeypatch.setattr(type(mod._config), "is_mock_mode", lambda self: True)
+            object.__setattr__(mod._config, "gcp_project_id", "test-project-123")
         except (ImportError, AttributeError):
             pass
     try:

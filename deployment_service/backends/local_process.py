@@ -472,7 +472,7 @@ class LocalProcessBackend(ComputeBackend):
             return JobStatus.RUNNING
 
         try:
-            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as resp:
+            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as resp:  # nosec B310 — localhost health check, not user-controlled URL
                 if resp.status == 200:
                     return JobStatus.RUNNING
                 tracked.error_message = f"Health check returned {resp.status}"

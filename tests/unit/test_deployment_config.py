@@ -152,13 +152,17 @@ class TestDeploymentConfig:
 
     def test_cloud_provider_config(self):
         """Test cloud provider configuration."""
-        config = DeploymentConfig()
-
-        assert config.cloud_provider == "gcp"  # Default
+        with patch.dict(os.environ, {"CLOUD_PROVIDER": "gcp"}):
+            config = DeploymentConfig()
+            assert config.cloud_provider == "gcp"
 
         with patch.dict(os.environ, {"CLOUD_PROVIDER": "aws"}):
             config = DeploymentConfig()
             assert config.cloud_provider == "aws"
+
+        with patch.dict(os.environ, {"CLOUD_PROVIDER": "local"}):
+            config = DeploymentConfig()
+            assert config.cloud_provider == "local"
 
     def test_enforce_single_region(self):
         """Test enforce single region configuration."""

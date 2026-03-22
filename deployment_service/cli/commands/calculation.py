@@ -152,7 +152,7 @@ def calculate(
         python -m deployment_service.cli calculate -s execution-service
           --start-date 2024-01-01 --end-date 2024-01-01 \\
           --cloud-config-path gs://execution-store-{GCP_PROJECT_ID}/configs/ -o commands
-    """
+    """  # noqa: qg-gcp-project-id — {GCP_PROJECT_ID} is a docstring placeholder, not a code reference
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 
     try:

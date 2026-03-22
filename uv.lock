@@ -732,6 +732,7 @@ dependencies = [
     { name = "unified-api-contracts" },
     { name = "unified-cloud-interface" },
     { name = "unified-config-interface" },
+    { name = "unified-internal-contracts" },
     { name = "unified-trading-library" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -761,6 +762,7 @@ requires-dist = [
     { name = "unified-api-contracts", editable = "../unified-api-contracts" },
     { name = "unified-cloud-interface", editable = "../unified-cloud-interface" },
     { name = "unified-config-interface", editable = "../unified-config-interface" },
+    { name = "unified-internal-contracts", editable = "../unified-internal-contracts" },
     { name = "unified-trading-library", editable = "../unified-trading-library" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0,<1.0.0" },
 ]

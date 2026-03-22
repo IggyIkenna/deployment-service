@@ -7,6 +7,7 @@ dependencies = [
     "unified-trading-library>=0.1.0,<1.0.0",
     "unified-api-contracts>=0.2.0,<1.0.0",
     "unified-cloud-interface>=0.11.6,<1.0.0",
+    "unified-internal-contracts>=0.1.0,<1.0.0",
     "unified-config-interface>=0.1.0,<1.0.0",
     "deployment-api>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
@@ -48,6 +49,10 @@ editable = true
 
 [tool.uv.sources.unified-cloud-interface]
 path = "../unified-cloud-interface"
+editable = true
+
+[tool.uv.sources.unified-internal-contracts]
+path = "../unified-internal-contracts"
 editable = true
 
 [tool.uv.sources.unified-config-interface]

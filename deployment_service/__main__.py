@@ -16,16 +16,20 @@ warnings.filterwarnings("ignore")
 
 def _run_server(port: int) -> None:
     """Start the FastAPI HTTP server."""
-    import uvicorn
+    import uvicorn  # deferred: CLI entry point — import only the requested path
 
-    from deployment_service.api.app import app
+    from deployment_service.api.app import (
+        app,
+    )  # deferred: CLI entry point — import only the requested path
 
     uvicorn.run(app, host="0.0.0.0", port=port)  # nosec B104 — intentional: containerized service must bind all interfaces
 
 
 def _run_cli() -> None:
     """Run the existing CLI."""
-    from deployment_service.cli import cli
+    from deployment_service.cli import (
+        cli,
+    )  # deferred: CLI entry point — import only the requested path
 
     cli()
 

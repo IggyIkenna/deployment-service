@@ -683,9 +683,13 @@ class ClusterOrchestrator:
             env_overrides = {}
 
         try:
-            import os
+            # Inherit parent environment for subprocess; env=None inherits automatically.
+            # Only override when we have mock-mode-specific vars.
+            env: dict[str, str] | None = None
+            if env_overrides:
+                import os as _os  # subprocess env construction — not config access
 
-            env = {**os.environ, **env_overrides}
+                env = {**_os.environ, **env_overrides}
             process = subprocess.Popen(
                 cmd,
                 cwd=str(service_dir),

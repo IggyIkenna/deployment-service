@@ -7,11 +7,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import click
+from unified_internal_contracts import MarketCategory
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient
 from ...config_loader import ConfigLoader
 from ...deployment_config import DeploymentConfig
+
+# Canonical market categories for data status commands (excludes SPORTS/PREDICTION)
+_DATA_MARKET_CATEGORIES: list[str] = [
+    MarketCategory.CEFI.value,
+    MarketCategory.TRADFI.value,
+    MarketCategory.DEFI.value,
+]
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +346,7 @@ def check_feature_groups_detailed(
 
     # Get expected feature groups from sharding config
     expected_feature_groups = []
-    supported_categories = ["CEFI", "TRADFI", "DEFI"]
+    supported_categories = list(_DATA_MARKET_CATEGORIES)
 
     for dim in service_config.get("dimensions") or []:
         if dim["name"] == "feature_group" and dim["type"] == "fixed":
@@ -607,7 +615,7 @@ def check_timeframes_detailed(
     )
 
     # Filter categories
-    categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
+    categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
 
     # Generate date list
     all_dates = []

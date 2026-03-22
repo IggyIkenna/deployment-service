@@ -8,7 +8,8 @@ services:
   - features-calendar-service
   - features-onchain-service
   - strategy-service
-  - execution-service
+  - execution-service # LIVE operational mode (automated strategies)
+  - execution-service:manual # MANUAL operational mode (operator booking + backup)
   - position-balance-monitor-service
   - pnl-attribution-service
   - risk-and-exposure-service

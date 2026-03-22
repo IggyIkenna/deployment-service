@@ -1238,9 +1238,6 @@ class TestCheckInstrumentsVenueCoverage:
     def test_runs_with_mocked_io(self, capsys):
         """Smoke test: entire function runs without real GCS calls."""
         with (
-            patch(
-                "deployment_service.cli.utils.data_status_venue_utils.DeploymentConfig"
-            ) as MockDC,
             patch("deployment_service.cli.utils.data_status_venue_utils.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_venue_utils.gcsfs.GCSFileSystem"),
             patch("deployment_service.cli.utils.data_status_venue_utils.pq.read_table"),
@@ -1248,8 +1245,6 @@ class TestCheckInstrumentsVenueCoverage:
                 "deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor"
             ) as MockTPE,
         ):
-            MockDC.return_value = MagicMock(gcp_project_id="test-project")
-
             mock_loader = MagicMock()
             mock_loader.load_expected_start_dates.return_value = {
                 "instruments-service": {

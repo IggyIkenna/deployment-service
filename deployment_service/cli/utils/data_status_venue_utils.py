@@ -9,10 +9,17 @@ from typing import cast as _cast
 import click
 import gcsfs
 import pyarrow.parquet as pq
+from unified_internal_contracts import MarketCategory
 
 from ...config_loader import ConfigLoader
-from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results
+
+# Canonical market categories for data status commands (excludes SPORTS/PREDICTION)
+_DATA_MARKET_CATEGORIES: list[str] = [
+    MarketCategory.CEFI.value,
+    MarketCategory.TRADFI.value,
+    MarketCategory.DEFI.value,
+]
 
 # Earliest date for pre-launch data; used when a category has no explicit start date configured
 DEFAULT_CATEGORY_START_DATE = "2020-01-01"
@@ -35,8 +42,6 @@ def check_instruments_venue_coverage(
     indicates an issue with that venue's adapter (rate limits, API errors, etc.)
     rather than waiting for market-tick-data-handler to fail.
     """
-    _deployment_config = DeploymentConfig()
-
     scan_start = time.time()
     loader = ConfigLoader(config_dir)
 
@@ -47,7 +52,7 @@ def check_instruments_venue_coverage(
     expected_dates = loader.load_expected_start_dates()
     instruments_config = expected_dates.get("instruments-service") or {}
 
-    categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
+    categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
 
     format_venue_coverage_header(start_date, end_date)
     click.echo(
@@ -114,7 +119,7 @@ def check_instruments_venue_coverage(
             if date_str < cat_start:
                 continue
 
-            bucket = f"instruments-store-{cat.lower()}-{_deployment_config.gcp_project_id}"
+            bucket = loader.get_bucket_name("instruments-store", cat)
             # Path without gs:// prefix for gcsfs
             gcs_path = (
                 f"{bucket}/instrument_availability/by_date/day={date_str}/instruments.parquet"

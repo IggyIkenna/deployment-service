@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 import click
+from unified_internal_contracts import MarketCategory
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient
@@ -23,6 +24,13 @@ from .data_status_formatters import (
     format_summary_output,
     format_tree_output,
 )
+
+# Canonical market categories for data status commands (excludes SPORTS/PREDICTION)
+_DATA_MARKET_CATEGORIES: list[str] = [
+    MarketCategory.CEFI.value,
+    MarketCategory.TRADFI.value,
+    MarketCategory.DEFI.value,
+]
 from .data_status_processing import process_batch_results, process_fast_results
 from .data_status_scanning import (
     scan_buckets_batch_mode,
@@ -76,7 +84,7 @@ def display_fixed_service_status(
     has_venue_dimension = any(d["name"] == "venue" for d in service_config.get("dimensions") or [])
 
     # Build dimension values
-    categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
+    categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
 
     # Filter categories based on service config
     for dim in service_config.get("dimensions") or []:
