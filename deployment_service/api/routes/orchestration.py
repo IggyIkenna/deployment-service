@@ -6,8 +6,6 @@ and T+1 scheduling. Delegates to T1Orchestrator, LiveDeployer, and cluster
 config YAML files under configs/clusters/.
 """
 
-from __future__ import annotations
-
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
