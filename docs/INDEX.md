@@ -32,13 +32,17 @@
 
 ### Deployment & Operations
 
-| Task                                                        | Document                                 |
-| ----------------------------------------------------------- | ---------------------------------------- |
-| Deploy services, sharding, data catalog                     | [CLI.md](CLI.md)                         |
-| **Live mode:** data-status --mode live, live job monitoring | [LIVE_MODE.md](LIVE_MODE.md)             |
-| Backfill runbook, troubleshooting                           | [RUNBOOKS.md](RUNBOOKS.md)               |
-| Cache strategy, deployment state, VM self-deletion          | [CACHE_AND_STATE.md](CACHE_AND_STATE.md) |
-| Dashboard UI spec                                           | [UI_SPEC.md](UI_SPEC.md)                 |
+| Task                                                         | Document                                                                                                                |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **Runtime tiers (T0-T6) & cluster orchestration**            | [codex: runtime-tiers-and-deployment.md](../../unified-trading-codex/05-infrastructure/runtime-tiers-and-deployment.md) |
+| **Cluster configs** (cefi, tradfi, defi, sports, full)       | [configs/clusters/](../configs/clusters/)                                                                               |
+| **Cluster CLI** (bootstrap, teardown, batch, live, schedule) | See `deploy-shards cluster --help`                                                                                      |
+| **Deployment API** (for Deployment UI)                       | `POST /deployment/clusters/{name}/bootstrap`, `GET /deployment/live/status`, etc.                                       |
+| Deploy services, sharding, data catalog                      | [CLI.md](CLI.md)                                                                                                        |
+| **Live mode:** data-status --mode live, live job monitoring  | [LIVE_MODE.md](LIVE_MODE.md)                                                                                            |
+| Backfill runbook, troubleshooting                            | [RUNBOOKS.md](RUNBOOKS.md)                                                                                              |
+| Cache strategy, deployment state, VM self-deletion           | [CACHE_AND_STATE.md](CACHE_AND_STATE.md)                                                                                |
+| Dashboard UI spec                                            | [UI_SPEC.md](UI_SPEC.md)                                                                                                |
 
 ### Quality & Hardening
 

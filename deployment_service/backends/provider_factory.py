@@ -35,13 +35,14 @@ from .aws_batch import AWSBatchBackend
 from .aws_ec2 import AWSEC2Backend
 from .base import ComputeBackend
 from .cloud_run import CloudRunBackend
+from .local_process import LocalProcessBackend
 from .vm import VMBackend
 
 logger = logging.getLogger(__name__)
 
 
 # Compute type mapping between providers
-COMPUTE_TYPE_MAP = {
+COMPUTE_TYPE_MAP: dict[str, dict[str, str]] = {
     "gcp": {
         "cloud_run": "cloud_run",
         "vm": "vm",
@@ -51,6 +52,13 @@ COMPUTE_TYPE_MAP = {
         "batch": "batch",
         "vm": "ec2",
         "ec2": "ec2",
+    },
+    "local": {
+        "cloud_run": "local_process",
+        "vm": "local_process",
+        "batch": "local_process",
+        "ec2": "local_process",
+        "local_process": "local_process",
     },
 }
 
@@ -88,7 +96,9 @@ def get_backend_for_provider(
     # Normalize compute type for the provider
     normalized_type = COMPUTE_TYPE_MAP.get(provider, {}).get(compute_type, compute_type)
 
-    if provider == "gcp":
+    if provider == "local":
+        return _get_local_backend(**kwargs)
+    elif provider == "gcp":
         return _get_gcp_backend(
             normalized_type, project_id, region, service_account_email, **kwargs
         )
@@ -153,6 +163,23 @@ def _get_gcp_backend(
         )
     else:
         raise ValueError(f"Unsupported GCP compute type: {compute_type}")
+
+
+def _get_local_backend(**kwargs: object) -> ComputeBackend:
+    """Get a local subprocess backend for Tier 2 development."""
+    workspace_root = kwargs.get("workspace_root")
+    if not isinstance(workspace_root, str):
+        raise ValueError("workspace_root is required for local compute backend")
+    port_map: dict[str, int] | None = None
+    raw_port_map = kwargs.get("port_map")
+    if isinstance(raw_port_map, dict):
+        port_map = {str(k): int(v) for k, v in raw_port_map.items()}
+    batch_timeout = int(kwargs.get("batch_timeout", 600))
+    return LocalProcessBackend(
+        workspace_root=workspace_root,
+        port_map=port_map,
+        batch_timeout=batch_timeout,
+    )
 
 
 def _get_aws_backend(
@@ -230,9 +257,10 @@ def list_available_backends(provider: str | None = None) -> dict[str, list[str]]
     Returns:
         Dictionary mapping provider -> list of compute types
     """
-    all_backends = {
+    all_backends: dict[str, list[str]] = {
         "gcp": ["cloud_run", "vm"],
         "aws": ["batch", "ec2"],
+        "local": ["local_process"],
     }
 
     if provider:

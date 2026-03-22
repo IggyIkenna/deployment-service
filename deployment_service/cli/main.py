@@ -113,6 +113,7 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
 # Import command modules after defining cli
 from .commands.analysis import analysis_commands
 from .commands.calculation import calculation_commands
+from .commands.cluster import cluster_commands
 from .commands.deployment import deployment_commands
 from .commands.management import management_commands
 from .commands.reporting import reporting_commands
@@ -121,6 +122,7 @@ from .commands.validation import validation_commands
 # Add command groups
 for command in (
     calculation_commands
+    + cluster_commands
     + deployment_commands
     + management_commands
     + analysis_commands
