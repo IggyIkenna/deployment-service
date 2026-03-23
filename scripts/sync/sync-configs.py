@@ -116,8 +116,8 @@ def _list_blobs(storage_client: object, bucket: str, prefix: str) -> set[str]:
     try:
         blobs: list[str] = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[attr-defined]
         return set(blobs)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Failed to list {bucket}/{prefix}: {e}")
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.error("Failed to list %s/%s: %s", bucket, prefix, e)
         return set()
 
 
@@ -182,7 +182,7 @@ def diff_configs(
                         path=path, status="s3_only", s3_md5=_md5(s3_data), size_bytes=len(s3_data)
                     )
                 )
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError, RuntimeError) as e:
             diffs.append(BlobDiff(path=path, status="error", error=str(e)))
 
     return diffs
@@ -225,8 +225,8 @@ def sync_configs(
             dest_client.upload_bytes(dest_bucket, diff.path, data)  # type: ignore[attr-defined]
             print(f"  → {dest_label} ({len(data)} bytes)")
             written += 1
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to sync {diff.path}: {e}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error("Failed to sync %s: %s", diff.path, e)
 
     return written
 
@@ -282,7 +282,7 @@ def main() -> int:
 
         gcs_client = GCPStorageClient(project_id=args.gcp_project or None)
         s3_client = AWSStorageClient(region=args.aws_region)
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:
         print(f"ERROR: Failed to initialise storage clients: {e}", file=sys.stderr)
         return 1
 

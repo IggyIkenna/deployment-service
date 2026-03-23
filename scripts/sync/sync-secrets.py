@@ -182,7 +182,7 @@ def diff_secrets(
                     gcp_value=gcp_val,
                 )
             )
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError, RuntimeError) as e:
             diffs.append(SecretDiff(name=canonical, status="error", error=str(e)))
 
     return diffs
@@ -223,8 +223,8 @@ def sync_secrets(
                     gcp_client.create_secret(diff.name, value)  # type: ignore[attr-defined]
                 print(f"   {diff.name}")
             written += 1
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to sync {diff.name}: {e}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error("Failed to sync %s: %s", diff.name, e)
 
     return written
 
@@ -279,7 +279,7 @@ def main() -> int:
     try:
         aws_client = _make_aws_client(args.env, args.aws_region)
         gcp_client = _make_gcp_client(args.gcp_project)
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:
         print(f"ERROR: Failed to initialise secret clients: {e}", file=sys.stderr)
         return 1
 

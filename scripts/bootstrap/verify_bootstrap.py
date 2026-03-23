@@ -96,7 +96,7 @@ def _check_bucket(storage_client: _BucketCheckable, bucket_name: str) -> Resourc
             name=bucket_name,
             status="PASS",
         )
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return ResourceResult(
             resource_type="bucket",
             name=bucket_name,
@@ -114,7 +114,7 @@ def _check_secret(secret_client: _SecretReadable, secret_name: str) -> ResourceR
             name=secret_name,
             status="PASS",
         )
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return ResourceResult(
             resource_type="secret",
             name=secret_name,
