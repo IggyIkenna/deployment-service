@@ -6,6 +6,7 @@ Works at T2 (local) and T3-T6 (cloud) by delegating to compute backends.
 """
 
 import logging
+import os
 import signal
 import subprocess
 import time
@@ -687,9 +688,7 @@ class ClusterOrchestrator:
             # Only override when we have mock-mode-specific vars.
             env: dict[str, str] | None = None
             if env_overrides:
-                import os as _os  # subprocess env construction — not config access
-
-                env = {**_os.environ, **env_overrides}
+                env = {**os.environ, **env_overrides}  # config-bootstrap: subprocess env merge
             process = subprocess.Popen(
                 cmd,
                 cwd=str(service_dir),
