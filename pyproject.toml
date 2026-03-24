@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
-deploy-shards = "deployment_service.cli:main"
+deploy-shards = "deployment_service.cli.main:main"
 
 [tool.uv.sources.unified-trading-library]
 path = "../unified-trading-library"
