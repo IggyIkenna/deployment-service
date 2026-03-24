@@ -23,12 +23,21 @@ Never duplicate or copy these files locally -- always edit the PM original.
 | ------------------------------- | ------------------------------------------------------------------------------- |
 | `sharding.{service}.yaml`       | Shard dimensions (category, venue, date, etc.)                                  |
 | `sharding_config.yaml`          | Global sharding configuration                                                   |
-| `data-catalogue.{service}.yaml` | GCS paths, output structure                                                     |
+| `data-catalogue.{service}.yaml` | GCS paths, output structure (legacy YAML; see manifest note below)              |
 | `dependencies.yaml`             | Service dependency-readiness checks (derived readiness view, not primary SSOT). |
 | `venues.yaml`                   | Canonical venue-category mappings                                               |
 | `venue_data_types.yaml`         | Per-venue data type expectations                                                |
 | `expected_start_dates.yaml`     | Per-service/category/venue expected start dates                                 |
 | `data-providers.yaml`           | Data provider configuration                                                     |
+
+### Manifest-Based Data Catalogue
+
+The `data-status` CLI now supports reading from per-service Parquet manifests
+(`gs://data-catalogue-{project_id}/{service}/day={date}/manifest.parquet`) via DuckDB instead of
+scanning GCS blobs directly. Use `--source manifest` for fast queries, `--source gcs` for the
+original blob-scan behavior, or `--source auto` (default) to try manifests first with GCS fallback.
+The YAML catalogue files above remain the static reference for dataset definitions (schema_ref,
+retention, mvp_tier); the manifests track runtime status (row counts, freshness, completion).
 
 ## Sharding Config
 

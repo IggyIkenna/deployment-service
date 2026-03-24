@@ -1,0 +1,44 @@
+# GCS bucket lifecycle policies for the three-tier isolation model.
+# Applied via deployment-service provisioning scripts.
+#
+# Standard scenarios (default, stress, missing_data, corrupt_data) are exempt
+# from auto-expiry. Custom scenarios auto-expire after 30 days.
+# SSOT for standard scenario names: unified-trading-pm/configs/standard-scenarios.yaml
+
+policies:
+  mock_buckets:
+    description: "Auto-expire custom scenarios in mock-tier buckets after 30 days"
+    bucket_pattern: "*-mock-*"
+    rules:
+      - action: Delete
+        condition:
+          age_days: 30
+          matches_prefix:
+            exclude:
+              - "scenario=default/"
+              - "scenario=stress/"
+              - "scenario=missing_data/"
+              - "scenario=corrupt_data/"
+
+  dev_buckets:
+    description: "No auto-expiry for dev-tier buckets (realistic E2E data)"
+    bucket_pattern: "*-dev-*"
+    rules: []
+
+  prod_buckets:
+    description: "No auto-expiry for prod-tier buckets"
+    bucket_pattern: "*-prod-*"
+    rules: []
+
+  raw_buckets:
+    description: "No auto-expiry for raw data (Group A) — shared across all tiers"
+    bucket_pattern:
+      - "instruments-store-*"
+      - "market-data-tick-*"
+      - "features-calendar-*"
+    rules: []
+
+  catalogue_bucket:
+    description: "No auto-expiry for data catalogue manifests"
+    bucket_pattern: "data-catalogue-*"
+    rules: []

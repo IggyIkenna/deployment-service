@@ -117,10 +117,9 @@ def _add_edges(g: graphviz.Digraph) -> None:
     g.edge("STRAPI", "STUI", label="backtest results", **H, style="dashed")
     g.edge("CRS", "CRUI", label="reports", **H)
     g.edge("DEPAPI", "DEPUI", **H)
-    g.edge("DEPAPI", "LHMU", label="health SSE", **H)
-    g.edge("DEPAPI", "BAUI", **H)
-    g.edge("DEPAPI", "LGUI", **H)
-    g.edge("DEPAPI", "OBUI", **H)
+    g.edge("DEPAPI", "UTSUI", label="health SSE", **H)
+    g.edge("UTAPI", "UTSUI", label="domain + audit", **H)
+    g.edge("AUTHAPI", "UTSUI", label="auth", **H)
     g.edge("DEPAPI", "MLUI", label="deploy hook", **H)
     g.edge("DEPAPI", "STUI", label="deploy hook", **H)
 

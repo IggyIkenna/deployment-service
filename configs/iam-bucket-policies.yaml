@@ -1,0 +1,57 @@
+# IAM policies for bucket write-protection in the three-tier model.
+# Prod buckets deny writes from non-prod service accounts.
+# SSOT: unified-cloud-interface/constants.py (get_bucket_environment)
+
+policies:
+  prod_write_protection:
+    description: "Deny writes to prod buckets from non-prod identities"
+    bucket_pattern: "*-prod-*"
+    deny_permissions:
+      - storage.objects.create
+      - storage.objects.delete
+    denied_principals:
+      - "serviceAccount:*-dev@*.iam.gserviceaccount.com"
+      - "serviceAccount:*-staging@*.iam.gserviceaccount.com"
+      - "user:*"
+    allowed_principals:
+      - "serviceAccount:*-prod@*.iam.gserviceaccount.com"
+      - "serviceAccount:cloud-build@*.iam.gserviceaccount.com"
+
+  mock_open_access:
+    description: "Allow all service accounts to write to mock buckets"
+    bucket_pattern: "*-mock-*"
+    allow_permissions:
+      - storage.objects.create
+      - storage.objects.delete
+      - storage.objects.get
+      - storage.objects.list
+    allowed_principals:
+      - "serviceAccount:*@*.iam.gserviceaccount.com"
+
+  dev_open_access:
+    description: "Allow all service accounts to write to dev buckets"
+    bucket_pattern: "*-dev-*"
+    allow_permissions:
+      - storage.objects.create
+      - storage.objects.delete
+      - storage.objects.get
+      - storage.objects.list
+    allowed_principals:
+      - "serviceAccount:*@*.iam.gserviceaccount.com"
+
+  raw_shared_access:
+    description: "All tiers can read raw buckets; only prod writes"
+    bucket_pattern:
+      - "instruments-store-*"
+      - "market-data-tick-*"
+      - "features-calendar-*"
+    read_permissions:
+      - storage.objects.get
+      - storage.objects.list
+    read_principals:
+      - "serviceAccount:*@*.iam.gserviceaccount.com"
+    write_permissions:
+      - storage.objects.create
+    write_principals:
+      - "serviceAccount:*-prod@*.iam.gserviceaccount.com"
+      - "serviceAccount:cloud-build@*.iam.gserviceaccount.com"

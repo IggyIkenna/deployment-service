@@ -1,11 +1,13 @@
 """Data status command and related functions."""
 
+import json
 import logging
 import sys
 import time
 from datetime import datetime
 
 import click
+from unified_cloud_interface import ManifestReader
 
 from ..utils.data_status_checkers import (
     check_data_types_detailed,
@@ -105,6 +107,13 @@ FIXED_DIMENSION_SERVICES = {
         " (persisted live sink under live/ prefix)."
     ),
 )
+@click.option(
+    "--source",
+    type=click.Choice(["manifest", "gcs", "auto"], case_sensitive=False),
+    default="auto",
+    envvar="DATA_STATUS_SOURCE",
+    help="Data source: manifest (fast, from catalogue), gcs (slow, blob scanning), auto (try manifest first)",
+)
 @click.pass_context
 def data_status(
     ctx,
@@ -124,6 +133,7 @@ def data_status(
     detailed: bool,
     fast: bool,
     mode: str,
+    source: str,
 ):
     """
     Check data completion status for a service across a date range.
@@ -160,8 +170,38 @@ def data_status(
     config_dir = ctx.obj.get("config_dir", "configs")
     total_start = time.time()
 
+    resolved_source = source
+    used_manifest = False
+
+    is_specialized_check = (
+        check_venues or check_data_types or check_feature_groups or check_timeframes
+    )
+    if not is_specialized_check and resolved_source in ("manifest", "auto"):
+        used_manifest = _try_manifest_source(
+            service=service,
+            start_date=start_date,
+            end_date=end_date,
+            category=category,
+            output=output,
+            show_missing=show_missing,
+            resolved_source=resolved_source,
+            benchmark=benchmark,
+            total_start=total_start,
+        )
+        if used_manifest:
+            logger.info("Data status source: %s (resolved: manifest)", resolved_source)
+            return
+
+    if resolved_source == "manifest" and not used_manifest and not is_specialized_check:
+        click.echo(
+            click.style("Manifest source unavailable or returned no data", fg="red"),
+            err=True,
+        )
+        sys.exit(1)
+
+    logger.info("Data status source: %s (resolved: gcs)", resolved_source)
+
     try:
-        # Import specialized checking functions when needed
         if check_venues:
             if service != "instruments-service":
                 click.echo(
@@ -248,3 +288,124 @@ def data_status(
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         logger.exception("Data status check failed")
         sys.exit(1)
+
+
+def _try_manifest_source(
+    *,
+    service: str,
+    start_date: datetime,
+    end_date: datetime,
+    category: tuple[str, ...],
+    output: str,
+    show_missing: bool,
+    resolved_source: str,
+    benchmark: bool,
+    total_start: float,
+) -> bool:
+    """Attempt to get data status from the manifest catalogue.
+
+    Returns True if manifest data was successfully displayed, False to fall through to GCS.
+    """
+    reader = ManifestReader()
+    if not reader.is_available():
+        if resolved_source == "manifest":
+            click.echo(
+                click.style(
+                    "ManifestReader not available (duckdb or cloud access missing)", fg="red"
+                ),
+                err=True,
+            )
+        return False
+
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = end_date.strftime("%Y-%m-%d")
+
+    categories_to_check = list(category) if category else [None]
+    all_results: list[dict[str, object]] = []
+
+    for cat in categories_to_check:
+        result = reader.get_completion(
+            service=service,
+            category=cat or "",
+            start_date=sd,
+            end_date=ed,
+        )
+        if "error" in result:
+            logger.debug("Manifest query error for category=%s: %s", cat, result.get("error"))
+            continue
+        all_results.append(result)
+
+    if not all_results:
+        return False
+
+    if resolved_source == "auto" and all(r.get("overall_completion", 0) == 0 for r in all_results):
+        return False
+
+    _display_manifest_results(all_results, output, show_missing, service, sd, ed)
+
+    if benchmark:
+        format_benchmark_info(total_start, start_date, end_date)
+
+    return True
+
+
+def _display_manifest_results(
+    results: list[dict[str, object]],
+    output: str,
+    show_missing: bool,
+    service: str,
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Format and display manifest-based results to match GCS output style."""
+    click.echo(
+        click.style(
+            f"[source: manifest] {service} ({start_date} → {end_date})", fg="cyan", bold=True
+        )
+    )
+    click.echo()
+
+    if output == "json":
+        click.echo(json.dumps(results, indent=2, default=str))
+        return
+
+    for result in results:
+        cat = result.get("category", "unknown")
+        completion = result.get("overall_completion", 0)
+        days_complete = result.get("days_complete", 0)
+        days_total = result.get("days_total", 0)
+
+        color = "green" if completion == 100 else "yellow" if completion >= 50 else "red"  # type: ignore[operator]
+        click.echo(
+            f"  {cat}: "
+            + click.style(f"{completion}%", fg=color)
+            + f" ({days_complete}/{days_total} days)"
+        )
+
+        venues: dict[str, object] = result.get("venues", {})  # type: ignore[assignment]
+        if venues and output == "tree":
+            for venue_name, venue_info in venues.items():
+                v_info: dict[str, object] = venue_info  # type: ignore[assignment]
+                v_pct = v_info.get("completion_percent", 0)
+                v_days = v_info.get("days_with_data", 0)
+                v_rows = v_info.get("total_rows", 0)
+                v_color = "green" if v_pct == 100 else "yellow" if v_pct >= 50 else "red"  # type: ignore[operator]
+                click.echo(
+                    f"    └─ {venue_name}: "
+                    + click.style(f"{v_pct}%", fg=v_color)
+                    + f" ({v_days} days, {v_rows} rows)"
+                )
+
+        if show_missing:
+            missing: list[str] = result.get("missing_dates", [])  # type: ignore[assignment]
+            if missing:
+                click.echo(f"    Missing: {', '.join(missing[:10])}")
+                if len(missing) > 10:
+                    click.echo(f"    ... and {len(missing) - 10} more")
+
+    if output == "summary":
+        total_complete = sum(r.get("days_complete", 0) for r in results)  # type: ignore[arg-type]
+        total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]
+        overall = round(total_complete / total_days * 100, 1) if total_days > 0 else 0
+        click.echo()
+        click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} category-days)")

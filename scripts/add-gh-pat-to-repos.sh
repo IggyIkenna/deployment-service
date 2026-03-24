@@ -25,12 +25,13 @@ fi
 # All Unified Trading System repos (services, libraries, UIs)
 REPOS=(
   alerting-system
+  auth-api
   backtest-ui
-  batch-audit-ui
   client-reporting-api
   client-reporting-ui
   deployment-api
   deployment-service
+  deployment-ui
   execution-algo-library
   execution-results-api
   execution-services
@@ -43,8 +44,6 @@ REPOS=(
   features-volatility-service
   ibkr-gateway-infra
   instruments-service
-  live-health-monitor-ui
-  logs-dashboard-ui
   market-data-api
   market-data-processing-service
   market-tick-data-handler
@@ -52,7 +51,6 @@ REPOS=(
   ml-deployment-ui
   ml-inference-service
   ml-training-service
-  onboarding-ui
   pnl-attribution-service
   position-balance-monitor-service
   risk-and-exposure-service
@@ -63,6 +61,7 @@ REPOS=(
   system-integration-tests
   trading-analytics-ui
   unified-api-contracts
+  unified-trading-api
   unified-cloud-interface
   unified-config-interface
   unified-defi-execution-interface
@@ -82,6 +81,7 @@ REPOS=(
   unified-trading-deployment-v2
   unified-trading-library
   unified-trading-pm
+  unified-trading-system-ui
   unified-trading-ui-auth
 )
 

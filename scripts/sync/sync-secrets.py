@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 sync-secrets.py — Diff and optionally sync secrets between AWS Secrets Manager and GCP Secret Manager.
 

@@ -8,7 +8,6 @@ from typing import cast as _cast
 
 import click
 import gcsfs
-import pyarrow.parquet as pq
 from unified_internal_contracts import MarketCategory
 
 from ...config_loader import ConfigLoader
@@ -73,12 +72,30 @@ def check_instruments_venue_coverage(
     missing_files = 0
 
     def check_parquet_venues(cat: str, date_str: str, gcs_path: str, fs) -> dict[str, object]:
-        """Read venue column from a single parquet file using pyarrow."""
+        """Discover venues from the per-venue directory structure.
+
+        Instruments are stored at: {bucket}/instrument_availability/by_date/
+        day={date}/venue={venue}/instruments.parquet
+
+        gcs_path is the day-level prefix (without trailing slash).
+        We list venue= subdirectories to discover which venues are present.
+        """
         try:
-            # Use pyarrow with gcsfs for efficient column-only reads
-            # Path should be without gs:// prefix for gcsfs
-            table = pq.read_table(gcs_path, filesystem=fs, columns=["venue"])
-            found_venues = set(table.to_pandas()["venue"].unique())
+            # List venue=* subdirectories under the day prefix
+            entries = fs.ls(gcs_path, detail=False)
+            found_venues: set[str] = set()
+            for entry in entries:
+                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVE_V3_ETH
+                basename = entry.rstrip("/").rsplit("/", 1)[-1]
+                if basename.startswith("venue="):
+                    found_venues.add(basename[len("venue=") :])
+            if not found_venues:
+                return {
+                    "date": date_str,
+                    "cat": cat,
+                    "found_venues": set(),
+                    "error": "file_not_found",
+                }
             return {
                 "date": date_str,
                 "cat": cat,
@@ -87,7 +104,6 @@ def check_instruments_venue_coverage(
             }
         except (OSError, ValueError, RuntimeError) as e:
             error_msg = str(e)
-            # File not found is common for pre-launch dates
             if (
                 "404" in error_msg
                 or "NotFound" in error_msg
@@ -120,10 +136,9 @@ def check_instruments_venue_coverage(
                 continue
 
             bucket = loader.get_bucket_name("instruments-store", cat)
-            # Path without gs:// prefix for gcsfs
-            gcs_path = (
-                f"{bucket}/instrument_availability/by_date/day={date_str}/instruments.parquet"
-            )
+            # Day-level prefix (no trailing slash) — venue= subdirs live beneath this.
+            # Structure: {bucket}/instrument_availability/by_date/day={date}/venue={venue}/instruments.parquet
+            gcs_path = f"{bucket}/instrument_availability/by_date/day={date_str}"
 
             tasks.append((cat, date_str, gcs_path, expected_venues))
             total_files += 1

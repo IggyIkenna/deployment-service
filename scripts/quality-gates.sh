@@ -10,8 +10,8 @@
 SERVICE_NAME="deployment-service"
 SOURCE_DIR="deployment_service"
 MIN_COVERAGE=76
-RUN_INTEGRATION=false
-PYTEST_WORKERS=${PYTEST_WORKERS:-2}
+RUN_INTEGRATION=true
+PYTEST_WORKERS=${PYTEST_WORKERS:-}  # default: max(1, cpu_count//4) computed by base script
 LOCAL_DEPS=()
 # Deployment orchestration has inherently large functions:
 # - Cloud backends deploy_shard(): 90-324L (API calls, retries, error handling)
@@ -33,7 +33,6 @@ EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calcula
 EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py" --glob "!**/orchestrator.py")
 # GCP_PROJECT_ID: docstrings, template substitution strings, error messages, bash heredocs
 GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_framework.py" "!**/deployment_config.py" "!**/config_loader.py" "!**/cloud_client.py" "!**/backends/services/vm_config.py" "!**/dependencies.py" "!**/shard_builder.py" "!**/backends/services/vm_lifecycle.py")
-
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
 

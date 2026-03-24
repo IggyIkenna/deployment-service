@@ -5,7 +5,9 @@ Deployment orchestration engine for the unified trading system. Extracted from `
 ## What it does
 
 - Orchestrates T+1 batch jobs with dependency graph and cascade failure propagation
-- Tracks data completion across services via the data catalog
+- Tracks data completion across services via the data catalog (supports manifest-based Parquet queries
+  via `--source manifest` for fast lookups, or direct GCS blob scans via `--source gcs` -- see
+  [docs/cli.md](docs/cli.md#data-source-toggle))
 - Loads YAML sharding configuration (venues, services, cloud providers)
 - Provides cloud-agnostic storage operations
 - Verifies infrastructure connectivity (Layer 2 gate) before deployments

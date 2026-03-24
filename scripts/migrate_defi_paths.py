@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 #!/usr/bin/env python3
 """
 DeFi GCS Path Migration Script
@@ -50,14 +51,14 @@ BASE_PREFIX = "raw_tick_data/by_date"
 
 # Known DeFi venues
 DEFI_VENUES = {
-    "UNISWAPV2-ETH",
-    "UNISWAPV3-ETH",
-    "UNISWAPV4-ETH",
-    "AAVE_V3_ETH",
+    "UNISWAPV2-ETHEREUM",
+    "UNISWAPV3-ETHEREUM",
+    "UNISWAPV4-ETHEREUM",
+    "AAVEV3-ETHEREUM",
     "MORPHO-ETHEREUM",
-    "LIDO",
-    "ETHERFI",
-    "ETHENA",
+    "LIDO-ETHEREUM",
+    "ETHERFI-ETHEREUM",
+    "ETHENA-ETHEREUM",
 }
 
 # Instrument type to standardized folder mapping
@@ -100,8 +101,8 @@ def parse_flat_defi_filename(filename: str) -> dict | None:
     Format: VENUE-INST_TYPE-SYMBOL-CHAIN.parquet
 
     Examples:
-    - AAVE_V3_ETH-A_TOKEN-AUSDT-ETHEREUM.parquet
-    - UNISWAPV3-ETH-POOL-WETH-USDC-500-ETHEREUM.parquet
+    - AAVEV3-ETHEREUM-A_TOKEN-AUSDT-ETHEREUM.parquet
+    - UNISWAPV3-ETHEREUM-POOL-WETH-USDC-500-ETHEREUM.parquet
     - LIDO-LST-STETH-ETHEREUM.parquet
     - ETHENA-YIELD_BEARING-SUSDE-ETHEREUM.parquet
 

@@ -108,6 +108,10 @@ TOPIC_REGISTRY=(
     "strategy-sports-signals|7|strategy-sports-signals-execution,strategy-sports-signals-monitor|7"
     "strategy-signals|7|strategy-signals-execution,strategy-signals-risk|7"
 
+    # Reference data — instruments-service signals DATA_READY after each scheduled write
+    # Downstream consumers (strategy, ML, features) subscribe to reload their instrument cache
+    "instruments-data-ready|3|instruments-data-ready-strategy,instruments-data-ready-ml,instruments-data-ready-features,instruments-data-ready-monitor|3"
+
     # Config / ops
     "config-updates|14|config-updates-execution,config-updates-strategy,config-updates-risk,config-updates-features|14"
     "system-health-events|7|system-health-alerting,system-health-monitor|7"

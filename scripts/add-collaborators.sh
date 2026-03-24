@@ -30,8 +30,8 @@ COLLABORATORS=(
 # All Unified Trading System repos (services, libraries, UIs)
 REPOS=(
   alerting-system
+  auth-api
   backtest-ui
-  batch-audit-ui
   client-reporting-ui
   execution-algo-library
   execution-services
@@ -40,15 +40,12 @@ REPOS=(
   features-onchain-service
   features-volatility-service
   instruments-service
-  live-health-monitor-ui
-  logs-dashboard-ui
   market-data-processing-service
   market-tick-data-handler
   matching-engine-library
   ml-deployment-ui
   ml-inference-service
   ml-training-service
-  onboarding-ui
   pnl-attribution-service
   position-balance-monitor-service
   risk-and-exposure-service
@@ -63,6 +60,9 @@ REPOS=(
   unified-trade-execution-interface
   unified-trading-codex
   deployment-service
+  deployment-ui
+  unified-trading-api
+  unified-trading-system-ui
 )
 
 echo "Collaborators to add: ${COLLABORATORS[*]}"

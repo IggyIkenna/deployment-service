@@ -5,6 +5,10 @@ Tracks:
 - Image versions (git commit, build date, deployed version)
 - Deployment status (running, completed, failed)
 - Data completeness per service/date
+
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (DeploymentStatus,
+# ServiceHealthReport) model deployment-service–specific health aggregation.
+# Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 
 import contextlib

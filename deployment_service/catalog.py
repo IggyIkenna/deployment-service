@@ -5,6 +5,10 @@ This module provides functionality to:
 1. List GCS files for each combinatoric (category/venue/date)
 2. Calculate completion percentages
 3. Aggregate catalogs across services
+
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (CatalogEntry, ServiceCatalog,
+# ExecutionConfigStatus) model deployment-service–specific GCS file count tracking.
+# Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 
 import json
@@ -129,8 +133,10 @@ class ServiceCatalog:
 SERVICE_GCS_CONFIGS = {
     "instruments-service": {
         "bucket_template": "instruments-store-{category_lower}-{project_id}",
-        "path_template": "instrument_availability/by_date/day={date}/instruments.parquet",
+        # Each date has per-venue subdirectories: day={date}/venue={venue}/instruments.parquet
+        "path_template": "instrument_availability/by_date/day={date}/",
         "dimensions": ["category", "date"],
+        "list_prefix": True,
     },
     "corporate-actions": {
         "bucket_template": "instruments-store-{category_lower}-{project_id}",

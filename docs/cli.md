@@ -120,6 +120,22 @@ python -m deployment_service.cli data-status -s instruments-service --start-date
 python -m deployment_service.cli check-deps -s ml-training-service -d 2024-01-15 --category CEFI
 ```
 
+### Data Source Toggle
+
+The `data-status` command supports three data source modes:
+
+```
+--source manifest    Fast: reads from Parquet manifests via DuckDB
+--source gcs         Slow: scans GCS blobs directly (original behavior)
+--source auto        Default: tries manifest first, falls back to GCS
+```
+
+Environment variable: `DATA_STATUS_SOURCE=manifest|gcs|auto` (CLI flag overrides).
+
+Manifest-based mode is faster because it queries pre-written metadata instead of listing every GCS
+prefix. Use `--source gcs` for detailed checks (`--check-venues`, `--check-data-types`) that need
+blob-level granularity.
+
 ---
 
 ## State Bucket (Important)

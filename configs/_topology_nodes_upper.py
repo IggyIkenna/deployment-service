@@ -263,7 +263,7 @@ def _add_api_nodes(g: graphviz.Digraph) -> None:
                 tooltip=(
                     "Port 8001 | OAuth authenticated\\n"
                     "Endpoints: deployments, services, config, data-status, service-status, cloud-builds, checklists\\n"
-                    "Live: SSE endpoint for health monitoring events (-> live-health-monitor-ui)\\n"
+                    "Live: SSE endpoint for health monitoring events (-> unified-trading-system-ui)\\n"
                     "Kill switch: /kill-switch/{service}/activate (OAuth-gated, state in Secret Manager)"
                 ),
             ),
@@ -278,6 +278,29 @@ def _add_api_nodes(g: graphviz.Digraph) -> None:
                     "PLANNED - new repo: strategy-api\\n"
                     "Port 8004 | OAuth authenticated\\n"
                     "Thin FastAPI gateway over strategy-service batch outputs (signals_backtest_results GCS)"
+                ),
+            ),
+        )
+        s.node(
+            "UTAPI",
+            **svc(
+                "api",
+                "unified-trading-api  :8030  [CR Svc, OAuth]\\nconsolidated domain HTTP (archived batch-audit-api)\\nB+L: platform routes for unified-trading-system-ui",
+                tooltip=(
+                    "Port 8030 | OAuth authenticated\\n"
+                    "Consolidated API for unified-trading-system-ui (audit, domain surfaces)\\n"
+                    "SSOT: unified-trading-pm/configs/runtime-topology.yaml api_services"
+                ),
+            ),
+        )
+        s.node(
+            "AUTHAPI",
+            **svc(
+                "api",
+                "auth-api  :8200  [CR Svc, OAuth]\\nJWT, persona, OAuth token exchange",
+                tooltip=(
+                    "Port 8200 | Authentication service\\n"
+                    "Login flows from unified-trading-system-ui and other UIs"
                 ),
             ),
         )
@@ -343,14 +366,6 @@ def _add_ui_nodes(g: graphviz.Digraph) -> None:
                     tooltip="Consumes: execution-results-api (live fills SSE)",
                 ),
             )
-            t.node(
-                "LHMU",
-                **svc(
-                    "ui",
-                    "live-health-monitor-ui  [CR Svc]\\nSSE health + kill switch status\\n-> deployment-api :8001",
-                    tooltip="Consumes: deployment-api (SSE health events, kill switch status)",
-                ),
-            )
 
         with s.subgraph(name="cluster_ui_ops") as o:
             o.attr(
@@ -362,11 +377,18 @@ def _add_ui_nodes(g: graphviz.Digraph) -> None:
                     "ui", "deployment-ui  [CR Svc]\\nbatch vs live deploy\\n-> deployment-api :8001"
                 ),
             )
-            o.node("BAUI", **svc("ui", "batch-audit-ui  [CR Svc]\\n-> deployment-api :8001"))
-            o.node("LGUI", **svc("ui", "logs-dashboard-ui  [CR Svc]\\n-> deployment-api :8001"))
             o.node(
-                "OBUI",
-                **svc("ui", "onboarding-ui  [CR Svc]\\nclient wizard\\n-> deployment-api :8001"),
+                "UTSUI",
+                **svc(
+                    "ui",
+                    "unified-trading-system-ui  [CR Svc]\\n"
+                    "health SSE, batch audit, logs, onboarding (consolidated)\\n"
+                    "-> deployment-api + unified-trading-api :8030 + auth-api :8200",
+                    tooltip=(
+                        "Replaces archived: live-health-monitor-ui, batch-audit-ui, logs-dashboard-ui, onboarding-ui.\\n"
+                        "Consumes: deployment-api (SSE health, kill switch), unified-trading-api, auth-api"
+                    ),
+                ),
             )
 
         with s.subgraph(name="cluster_ui_client") as c:

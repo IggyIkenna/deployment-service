@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """Cluster orchestrator — manages deployment groups (cefi, tradfi, defi, sports, prediction, full).
 
 Loads cluster definitions from configs/clusters/*.yaml.

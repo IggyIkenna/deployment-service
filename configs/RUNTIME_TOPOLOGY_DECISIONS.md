@@ -1,5 +1,7 @@
 # Runtime Topology — Architectural Decisions
 
+**Legacy node names below:** Split UIs and APIs such as `live-health-monitor-ui`, `logs-dashboard-ui`, `batch-audit-ui`, `onboarding-ui`, `batch-audit-api`, and `odum-research-website` are archived or superseded by **`unified-trading-system-ui`**, **`deployment-ui`**, **`unified-trading-api`**, and **`auth-api`**. Canonical wiring: **`unified-trading-pm/configs/runtime-topology.yaml`** (SSOT).
+
 **SSOT:** `unified-trading-pm/configs/runtime-topology.yaml` (moved from `unified-trading-deployment-v3/configs/` — now owned by PM).
 **Companion:** `RUNTIME_DEPLOYMENT_TOPOLOGY_DAG.svg` (deployment-service/configs/) · `runtime-topology.yaml` (`unified-trading-pm/configs/`, machine-readable).
 **Readers:** `unified-trading-codex/04-architecture/` holds symlinks to these files for easy access.
@@ -47,7 +49,7 @@ The chain is always: **UI → API (HTTP/SSE) → Service (engine) → Storage/Me
 > | execution-analytics-ui, ml-training-ui | market-data-api :8003 | market-tick-data-service, market-data-processing-service |
 > | strategy-ui | strategy-api :8004 ⟪planned⟫ | strategy-service |
 > | ml-training-ui | deployment-api :8001 (deploy hook) + market-data-api :8003 (feature/candle plots) | ml-training-service |
-> | deployment-ui, live-health-monitor-ui, batch-audit-ui, logs-dashboard-ui, onboarding-ui | deployment-api :8001 | deployment-engine |
+> | deployment-ui, unified-trading-system-ui (health, audit, logs, onboarding) | deployment-api :8001, unified-trading-api, auth-api | deployment-engine |
 > | client-reporting-ui | client-reporting-api :8005 | pnl-attribution-service, risk-and-exposure-service, position-balance-monitor-service |
 
 ---
@@ -354,7 +356,7 @@ or operator would see/experience differently.
 - **Same endpoints in both modes.** The "mode" is a parameter on deployment requests, not a
   different set of endpoints. API handles: deployments, services, config, data-status,
   service-status, cloud-builds, checklists.
-- **Live-specific:** SSE endpoint for health monitoring events (consumed by live-health-monitor-ui).
+- **Live-specific:** SSE endpoint for health monitoring events (consumed by unified-trading-system-ui).
 
 ---
 
@@ -657,7 +659,7 @@ Why not enforce at publisher: enforcing ordering adds latency. Different consume
 - Propagates via PubSub topic `kill-switch-commands`
 - Target services: execution-service, strategy-service
 - State persisted in Secret Manager (few ms latency, survives restarts)
-- live-health-monitor-ui shows kill switch status per service
+- unified-trading-system-ui shows kill switch status per service (via deployment-api)
 
 ### Automated Circuit Breaker (alerting-initiated)
 
