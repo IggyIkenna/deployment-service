@@ -31,6 +31,14 @@ gcp:
       CEFI: "execution-store-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       TRADFI: "execution-store-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       DEFI: "execution-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # Sports pipeline buckets
+    features-sports: "features-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi)
+    instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
+    market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
+    features-prediction: "features-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    strategy-store-prediction: "strategy-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    execution-store-prediction: "execution-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -58,6 +66,14 @@ aws:
       CEFI: "unified-trading-execution-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-execution-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       DEFI: "unified-trading-execution-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Sports pipeline buckets
+    features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi)
+    instruments-store-prediction: "unified-trading-instruments-prediction-${AWS_ACCOUNT_ID}"
+    market-data-tick-prediction: "unified-trading-market-data-prediction-${AWS_ACCOUNT_ID}"
+    features-prediction: "unified-trading-features-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    strategy-store-prediction: "unified-trading-strategy-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    execution-store-prediction: "unified-trading-execution-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"

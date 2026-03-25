@@ -432,7 +432,8 @@ def bucket_exists_gcs(bucket_name: str) -> bool:
         client = get_storage_client(provider="gcp")
         list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))
         return True
-    except (OSError, ValueError, RuntimeError):
+    except Exception:
+        # NotFound (404), Forbidden (403), or any other error = bucket doesn't exist or inaccessible
         return False
 
 
@@ -444,7 +445,8 @@ def bucket_exists_s3(bucket_name: str) -> bool:
         client = get_storage_client(provider="aws")
         list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))
         return True
-    except (OSError, ValueError, RuntimeError):
+    except Exception:
+        # NoSuchBucket, AccessDenied, or any other error = bucket doesn't exist or inaccessible
         return False
 
 

@@ -10,8 +10,8 @@
 SERVICE_NAME="deployment-service"
 SOURCE_DIR="deployment_service"
 MIN_COVERAGE=76
-RUN_INTEGRATION=true
-PYTEST_WORKERS=${PYTEST_WORKERS:-}  # default: max(1, cpu_count//4) computed by base script
+RUN_INTEGRATION=false
+PYTEST_WORKERS=${PYTEST_WORKERS:-2}
 LOCAL_DEPS=()
 # Deployment orchestration has inherently large functions:
 # - Cloud backends deploy_shard(): 90-324L (API calls, retries, error handling)

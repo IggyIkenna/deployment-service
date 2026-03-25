@@ -1,0 +1,113 @@
+# Bucket Configuration — SSOT for setup-buckets.py
+#
+# Defines default categories, service restrictions, infrastructure buckets,
+# AWS naming mappings, bucket creation settings, test bucket naming, and
+# validation rules.
+#
+# See BUCKET_CONFIG_SCHEMA.md for documentation.
+
+defaults:
+  gcp:
+    project_id: test-project
+    region: asia-northeast1
+  aws:
+    region: ap-northeast-1
+
+shared_bucket_services:
+  - features-calendar-service
+  - ml-training-service
+  - ml-inference-service
+  - pnl-attribution-service
+  - risk-and-exposure-service
+  - alerting-service
+  - reconciliation-service
+
+service_categories:
+  restricted_categories:
+    volatility: [cefi, tradfi]
+    onchain: [cefi, defi]
+    sports: [sports]
+    prediction: [prediction]
+  default_categories: [cefi, tradfi, defi, sports, prediction]
+
+infrastructure_buckets:
+  gcp:
+    - name_template: "terraform-state-{project_id}"
+      service: infrastructure
+      type: infrastructure
+      category: ALL
+    - name_template: "deployment-orchestration-{project_id}"
+      service: deployment-service
+      type: infrastructure
+      category: ALL
+  aws:
+    - name_template: "unified-trading-terraform-state-{project_id}"
+      service: infrastructure
+      type: infrastructure
+      category: ALL
+
+aws_bucket_mappings:
+  instruments-store: "unified-trading-instruments-{category}-{account_id}"
+  market-data-tick: "unified-trading-market-data-{category}-{account_id}"
+  market-data-candles: "unified-trading-candles-{category}-{account_id}"
+  features-delta-one: "unified-trading-features-delta-one-{category}-{account_id}"
+  features-volatility: "unified-trading-features-volatility-{category}-{account_id}"
+  features-onchain: "unified-trading-features-onchain-{category}-{account_id}"
+  features-calendar: "unified-trading-features-calendar-{account_id}"
+  features-sports: "unified-trading-features-sports-{account_id}"
+  features-prediction: "unified-trading-features-prediction-{account_id}"
+
+bucket_settings:
+  gcp:
+    storage_class: STANDARD
+    uniform_bucket_access: true
+    versioning: true
+    lifecycle_rules:
+      production:
+        age_days: 365
+        action: SetStorageClass
+        storage_class: NEARLINE
+      test:
+        age_days: 30
+        action: SetStorageClass
+        storage_class: NEARLINE
+    labels:
+      managed_by: setup-buckets
+  aws:
+    versioning: true
+    encryption:
+      algorithm: AES256
+    tags:
+      ManagedBy: setup-buckets
+      Project: unified-trading-system
+
+test_buckets:
+  naming_pattern: "infix"
+  fallback_pattern: "suffix"
+
+validation:
+  invalid_combinations:
+    - template_contains: volatility
+      invalid_category: defi
+      reason: "No volatility features for DEFI category"
+    - template_contains: onchain
+      invalid_category: tradfi
+      reason: "No onchain features for TRADFI category"
+    - template_contains: sports
+      invalid_category: cefi
+      reason: "Sports buckets are sports-category only"
+    - template_contains: sports
+      invalid_category: tradfi
+      reason: "Sports buckets are sports-category only"
+    - template_contains: sports
+      invalid_category: defi
+      reason: "Sports buckets are sports-category only"
+    - template_contains: prediction
+      invalid_category: cefi
+      reason: "Prediction buckets are prediction-category only"
+    - template_contains: prediction
+      invalid_category: tradfi
+      reason: "Prediction buckets are prediction-category only"
+    - template_contains: prediction
+      invalid_category: defi
+      reason: "Prediction buckets are prediction-category only"

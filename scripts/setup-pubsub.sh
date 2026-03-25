@@ -116,6 +116,11 @@ TOPIC_REGISTRY=(
     "config-updates|14|config-updates-execution,config-updates-strategy,config-updates-risk,config-updates-features|14"
     "system-health-events|7|system-health-alerting,system-health-monitor|7"
     "audit-log-events|30|audit-log-sink|30"
+
+    # Prediction markets — Polymarket + Kalshi fill events (execution only, NOT domain data)
+    # Domain data (instruments, tick data) flows through GCS — no Pub/Sub needed
+    "fill-events-polymarket|3|fill-events-polymarket-pnl,fill-events-polymarket-risk,fill-events-polymarket-strategy|3"
+    "fill-events-kalshi|3|fill-events-kalshi-pnl,fill-events-kalshi-risk,fill-events-kalshi-strategy|3"
 )
 
 # ---------------------------------------------------------------------------
