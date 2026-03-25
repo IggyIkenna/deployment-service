@@ -156,7 +156,6 @@ def _add_reference_panels(g: graphviz.Digraph) -> None:
             "  instruments | features-calendar | features-onchain\\l"
             "  pnl-attribution | strategy-validation\\l"
             "Cloud Run Svc (auto-scale, OAuth):\\l"
-            "  execution-results-api :8002 | market-data-api :8003\\l"
             "  deployment-api :8001 | client-reporting-api :8005\\l"
             "Cloud Run Svc (auto-scale) - UIs:\\l"
             "  ALL UIs serve React static build\\l"
