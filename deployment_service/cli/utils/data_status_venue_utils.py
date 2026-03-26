@@ -8,7 +8,7 @@ from typing import cast as _cast
 
 import click
 import gcsfs
-from unified_internal_contracts import MarketCategory
+from unified_api_contracts.internal import MarketCategory
 
 from ...config_loader import ConfigLoader
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results

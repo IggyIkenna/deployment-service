@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import click
-from unified_internal_contracts import MarketCategory
+from unified_api_contracts.internal import MarketCategory
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient

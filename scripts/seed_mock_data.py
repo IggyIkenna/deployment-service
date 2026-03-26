@@ -20,8 +20,8 @@ import random
 import sys
 from datetime import UTC, datetime, timedelta
 
-from unified_internal_contracts.modes import MockScenario
-from unified_internal_contracts.testing.scenario_config import ScenarioConfig
+from unified_api_contracts.internal.modes import MockScenario
+from unified_api_contracts.internal.testing.scenario_config import ScenarioConfig
 from unified_trading_library import get_seed_writer
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

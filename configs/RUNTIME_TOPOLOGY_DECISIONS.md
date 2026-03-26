@@ -18,12 +18,12 @@ the principle wins — update the code, not the principle (unless explicitly ove
 
 Every repo falls into exactly one category. The name MUST reflect the category:
 
-| Category           | Naming Pattern                                    | Deploys?             | Owns Domain Data?                                     | Examples                                             |
-| ------------------ | ------------------------------------------------- | -------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
-| **library**        | `*-interface`, `*-library`, `unified-*-interface` | No                   | No — provides protocols, schemas, utilities           | `unified-market-interface`, `execution-algo-library` |
-| **service**        | `*-service`                                       | Yes (Cloud Run / VM) | Yes — produces and persists domain data to GCS        | `instruments-service`, `ml-training-service`         |
-| **ui**             | `*-ui`                                            | Yes (static hosting) | No — never reads GCS or PubSub directly               | `trading-analytics-ui`, `deployment-ui`              |
-| **infrastructure** | named by function                                 | Depends              | No                                                    | `ibkr-gateway-infra`, `deployment-engine`            |
+| Category           | Naming Pattern                                    | Deploys?             | Owns Domain Data?                              | Examples                                             |
+| ------------------ | ------------------------------------------------- | -------------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| **library**        | `*-interface`, `*-library`, `unified-*-interface` | No                   | No — provides protocols, schemas, utilities    | `unified-market-interface`, `execution-algo-library` |
+| **service**        | `*-service`                                       | Yes (Cloud Run / VM) | Yes — produces and persists domain data to GCS | `instruments-service`, `ml-training-service`         |
+| **ui**             | `*-ui`                                            | Yes (static hosting) | No — never reads GCS or PubSub directly        | `trading-analytics-ui`, `deployment-ui`              |
+| **infrastructure** | named by function                                 | Depends              | No                                             | `ibkr-gateway-infra`, `deployment-engine`            |
 
 **Rule:** If something doesn't fit a pattern, the architecture is wrong — restructure it, don't
 rename to hide the mismatch.
@@ -55,9 +55,9 @@ The chain is always: **UI → API (HTTP/SSE) → Service (engine) → Storage/Me
 
 Each tier of batch research work has its own dedicated UI. These are separate repos from their backing services.
 
-| Tier                   | Purpose                                                                                           | API Gateway                                       | Service engine      | UI repo                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| **Strategy backtest**  | Signal backtest; parameter tuning; strategy deployment                                            | strategy-api ⟪planned⟫                            | strategy-service    | **strategy-ui**                                                           |
+| Tier                  | Purpose                                                | API Gateway            | Service engine   | UI repo         |
+| --------------------- | ------------------------------------------------------ | ---------------------- | ---------------- | --------------- |
+| **Strategy backtest** | Signal backtest; parameter tuning; strategy deployment | strategy-api ⟪planned⟫ | strategy-service | **strategy-ui** |
 
 **Repo naming status:**
 
@@ -158,7 +158,6 @@ or operator would see/experience differently.
   Publishes processed data to PubSub. Persists to GCS.
 - **Data produced:** `processed_candles_ohlcv` (GCS), live candle stream (PubSub)
 - **Data consumed:** raw ticks from MTDH, instruments from instruments-service
-
 
 - **Batch:** Serves historical order book snapshots and candles via HTTP REST from GCS.
 - **Live:** Streams live order book via SSE (from MTDH PubSub), streams live candles via SSE (from MDPS PubSub).
