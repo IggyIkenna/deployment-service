@@ -17,8 +17,8 @@ import argparse
 import logging
 from pathlib import Path
 
-from unified_cloud_interface import StorageClient, get_storage_client
-from unified_config_interface import UnifiedCloudConfig
+from unified_trading_library.cloud_interface import StorageClient, get_storage_client
+from unified_trading_library.config_interface import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
 

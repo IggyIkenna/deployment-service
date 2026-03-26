@@ -17,8 +17,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import cast
 
-from unified_events_interface import log_event, setup_events
 from unified_trading_library import get_storage_client
+from unified_trading_library.events_interface import log_event, setup_events
 
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig

@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 
 import click
-from unified_cloud_interface import ManifestReader
+from unified_trading_library.cloud_interface import ManifestReader
 
 from ..utils.data_status_checkers import (
     check_data_types_detailed,

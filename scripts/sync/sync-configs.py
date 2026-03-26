@@ -274,10 +274,10 @@ def main() -> int:
 
     print("Connecting to GCS and S3 storage clients...")
     try:
-        from unified_cloud_interface.providers.aws import (
+        from unified_trading_library.cloud_interface.providers.aws import (
             AWSStorageClient,  # type: ignore[attr-defined]
         )
-        from unified_cloud_interface.providers.gcp import (
+        from unified_trading_library.cloud_interface.providers.gcp import (
             GCPStorageClient,  # type: ignore[attr-defined]
         )
 

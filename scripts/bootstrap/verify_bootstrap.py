@@ -3,7 +3,7 @@
 """Verify bootstrap: confirm all expected resources exist via UCI.
 
 Checks that required S3/GCS buckets exist and required secrets are accessible
-using the unified_cloud_interface factory. Provider is determined by the
+using the unified_trading_library.cloud_interface factory. Provider is determined by the
 CLOUD_PROVIDER environment variable (resolved via UCI's get_cloud_provider()).
 
 Exit codes:
@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from unified_cloud_interface import get_secret_client, get_storage_client
+from unified_trading_library.cloud_interface import get_secret_client, get_storage_client
 
 logger = logging.getLogger(__name__)
 

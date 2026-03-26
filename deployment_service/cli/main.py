@@ -18,11 +18,11 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic.
 warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 
 import click
-from unified_events_interface import setup_events
 from unified_trading_library import (
     GracefulShutdownHandler,
     setup_tracing,
 )
+from unified_trading_library.events_interface import setup_events
 
 from ..deployment_config import DeploymentConfig
 

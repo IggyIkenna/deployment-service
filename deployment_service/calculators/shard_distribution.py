@@ -11,8 +11,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast
 
-from unified_events_interface import log_event
 from unified_trading_library import get_secret_client, get_storage_client
+from unified_trading_library.events_interface import log_event
 
 from ..catalog import SERVICE_GCS_CONFIGS
 from ..cloud_client import CloudClient

@@ -448,7 +448,7 @@ async def get_vm_events(deployment_id: str) -> dict[str, object]:
 async def live_rollback(deployment_id: str, request: RollbackRequest) -> dict[str, object]:
     """Roll back a live Cloud Run Service to a previous revision."""
     try:
-        from unified_cloud_interface import get_compute_client
+        from unified_trading_library.cloud_interface import get_compute_client
 
         project_id = _config.gcp_project_id or ""
         compute = get_compute_client(project_id=project_id)
@@ -483,7 +483,7 @@ async def get_live_health(
     try:
         from datetime import UTC, datetime
 
-        from unified_cloud_interface import get_compute_client
+        from unified_trading_library.cloud_interface import get_compute_client
 
         project_id = _config.gcp_project_id or ""
         compute = get_compute_client(project_id=project_id)

@@ -87,9 +87,9 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
     if not all_event_markers:
         pytest.skip("No event markers found")
     for py in find_python_files(Path.cwd()):
-        if "from unified_events_interface import log_event" in py.read_text():
+        if "from unified_trading_library.events_interface import log_event" in py.read_text():
             return
-    pytest.fail("log_event not imported from unified_events_interface")
+    pytest.fail("log_event not imported from unified_trading_library.events_interface")
     assert True, "log_event import found"
 
 
