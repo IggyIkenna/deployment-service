@@ -5,7 +5,6 @@ requires-python = ">=3.13,<3.14"
 description = "Deployment orchestration engine (split from unified-trading-deployment-v3 2026-03-03)"
 dependencies = [
     "unified-trading-library>=0.1.0,<1.0.0",
-    "unified-internal-contracts>=0.1.0,<1.0.0",
     "unified-events-interface>=0.1.0,<1.0.0",
     "unified-config-interface>=0.1.0,<1.0.0",
     "unified-cloud-interface>=0.1.0,<1.0.0",
@@ -127,9 +126,6 @@ path = "../unified-events-interface"
 editable = true
 
 
-[tool.uv.sources.unified-internal-contracts]
-path = "../unified-internal-contracts"
-editable = true
 
 [tool.basedpyright]
 pythonVersion = "3.13"
