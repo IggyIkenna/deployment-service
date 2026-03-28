@@ -250,6 +250,42 @@ resource "google_storage_bucket" "features_calendar" {
   labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
 }
 
+resource "google_storage_bucket" "gas_fees" {
+  name     = "gas-fees-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "gas-fees-reference", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "gas_fees_test" {
+  name     = "gas-fees-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "gas-fees-test", "tier" = "group-a" })
+}
+
 # =============================================================================
 # GCS Buckets — Group B: Derived data (per-env)
 # Naming: {domain}-{category}-{environment}-{project_id}

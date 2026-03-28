@@ -56,6 +56,8 @@ locals {
     "unified-trading-market-data-tradfi-${var.aws_account_id}",
     "unified-trading-market-data-defi-${var.aws_account_id}",
     "unified-trading-features-calendar-${var.aws_account_id}",
+    "unified-trading-gas-fees-${var.aws_account_id}",
+    "unified-trading-gas-fees-test-${var.aws_account_id}",
   ]
 
   # Group B: derived data buckets — per-env

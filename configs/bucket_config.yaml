@@ -40,11 +40,27 @@ infrastructure_buckets:
       service: deployment-service
       type: infrastructure
       category: ALL
+    - name_template: "gas-fees-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "gas-fees-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
       service: infrastructure
       type: infrastructure
       category: ALL
+    - name_template: "unified-trading-gas-fees-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-gas-fees-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
@@ -56,6 +72,7 @@ aws_bucket_mappings:
   features-calendar: "unified-trading-features-calendar-{account_id}"
   features-sports: "unified-trading-features-sports-{account_id}"
   features-prediction: "unified-trading-features-prediction-{account_id}"
+  gas-fees: "unified-trading-gas-fees-{account_id}"
 
 bucket_settings:
   gcp:
