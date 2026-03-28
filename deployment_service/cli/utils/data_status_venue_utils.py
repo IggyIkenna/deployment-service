@@ -85,7 +85,7 @@ def check_instruments_venue_coverage(
             entries = fs.ls(gcs_path, detail=False)
             found_venues: set[str] = set()
             for entry in entries:
-                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVE_V3_ETH
+                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVEV3-ETHEREUM
                 basename = entry.rstrip("/").rsplit("/", 1)[-1]
                 if basename.startswith("venue="):
                     found_venues.add(basename[len("venue=") :])
