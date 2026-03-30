@@ -32,9 +32,7 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-from unified_trading_library import get_storage_client
-from unified_trading_library.cloud_interface import StorageClient
-from unified_trading_library.config_interface import UnifiedCloudConfig
+from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
 logging.basicConfig(
     level=logging.INFO,

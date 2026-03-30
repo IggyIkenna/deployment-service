@@ -97,7 +97,7 @@ def _aws_secret_path(env: str, name: str) -> str:
 
 
 def _make_aws_client(env: str, region: str) -> object:
-    from unified_trading_library.cloud_interface.providers.aws import (
+    from unified_trading_library import (
         AWSSecretClient,  # type: ignore[attr-defined]
     )
 
@@ -105,7 +105,7 @@ def _make_aws_client(env: str, region: str) -> object:
 
 
 def _make_gcp_client(project_id: str) -> object:
-    from unified_trading_library.cloud_interface.providers.gcp import (
+    from unified_trading_library import (
         GCPSecretClient,  # type: ignore[attr-defined]
     )
 

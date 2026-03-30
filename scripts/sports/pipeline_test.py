@@ -22,8 +22,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from unified_trading_library.cloud_interface import StorageClient, get_storage_client
-from unified_trading_library.config_interface import UnifiedCloudConfig
+from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
 logger = logging.getLogger(__name__)
 

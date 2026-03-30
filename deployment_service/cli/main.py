@@ -20,9 +20,9 @@ warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 import click
 from unified_trading_library import (
     GracefulShutdownHandler,
+    setup_events,
     setup_tracing,
 )
-from unified_trading_library.events_interface import setup_events
 
 from ..deployment_config import DeploymentConfig
 

@@ -46,8 +46,7 @@ import flask
 import functions_framework
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from unified_trading_library.cloud_interface import get_pubsub_client, get_secret_client
-from unified_trading_library.events_interface import log_event, setup_events
+from unified_trading_library import get_pubsub_client, get_secret_client, log_event, setup_events
 
 logger = logging.getLogger(__name__)
 

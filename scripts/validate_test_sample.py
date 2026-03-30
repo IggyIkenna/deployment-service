@@ -21,8 +21,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import yaml
-from unified_trading_library import get_storage_client
-from unified_trading_library.cloud_interface import StorageClient
+from unified_trading_library import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import get_project_id

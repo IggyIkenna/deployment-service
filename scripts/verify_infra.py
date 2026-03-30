@@ -33,7 +33,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from unified_trading_library.cloud_interface import StorageClient
+    from unified_trading_library import StorageClient
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ def verify_gcs_buckets(project_id: str, bucket_names: list[str]) -> list[CheckRe
             for b in bucket_names
         ]
 
-    from unified_trading_library.cloud_interface import get_storage_client
+    from unified_trading_library import get_storage_client
 
     storage_client = get_storage_client(project_id=project_id)
     return [_verify_gcs_bucket(storage_client, b) for b in bucket_names]
@@ -130,7 +130,7 @@ def verify_gcs_buckets(project_id: str, bucket_names: list[str]) -> list[CheckRe
 def verify_pubsub_topics(project_id: str, topic_names: list[str]) -> list[CheckResult]:
     """Verify Pub/Sub topics exist."""
     results: list[CheckResult] = []
-    from unified_trading_library.cloud_interface import get_pubsub_client
+    from unified_trading_library import get_pubsub_client
 
     pubsub = get_pubsub_client(project_id=project_id)
     for topic in topic_names:
@@ -183,7 +183,7 @@ def verify_secrets(project_id: str, secret_names: list[str]) -> list[CheckResult
             )
         return results
 
-    from unified_trading_library.cloud_interface import get_secret_client
+    from unified_trading_library import get_secret_client
 
     for secret_name in secret_names:
         try:

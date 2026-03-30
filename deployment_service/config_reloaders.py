@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from unified_trading_library import DomainConfigReloader
-from unified_trading_library.config_interface import InstrumentDomainConfig, VenueDomainConfig
-from unified_trading_library.events_interface import log_event
+from unified_trading_library import (
+    DomainConfigReloader,
+    InstrumentDomainConfig,
+    VenueDomainConfig,
+    log_event,
+)
 
 from deployment_service.deployment_config import DeploymentConfig
 

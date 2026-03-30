@@ -427,7 +427,7 @@ def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) 
 def bucket_exists_gcs(bucket_name: str) -> bool:
     """Check if a GCS bucket exists via UCI get_storage_client."""
     try:
-        from unified_trading_library.cloud_interface import get_storage_client
+        from unified_trading_library import get_storage_client
 
         client = get_storage_client(provider="gcp")
         list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))
@@ -440,7 +440,7 @@ def bucket_exists_gcs(bucket_name: str) -> bool:
 def bucket_exists_s3(bucket_name: str) -> bool:
     """Check if an S3 bucket exists via UCI get_storage_client."""
     try:
-        from unified_trading_library.cloud_interface import get_storage_client
+        from unified_trading_library import get_storage_client
 
         client = get_storage_client(provider="aws")
         list(client.list_blobs(bucket=bucket_name, prefix="", max_results=1))

@@ -7,7 +7,6 @@ import time
 from datetime import datetime
 
 import click
-from unified_trading_library.cloud_interface import ManifestReader
 
 from ..utils.data_status_checkers import (
     check_data_types_detailed,
@@ -18,6 +17,7 @@ from ..utils.data_status_display_dynamic import display_dynamic_service_status
 from ..utils.data_status_display_fixed import display_fixed_service_status
 from ..utils.data_status_formatters import format_benchmark_info
 from ..utils.data_status_venue_utils import check_instruments_venue_coverage
+from ..utils.manifest_reader import ManifestReader
 
 logger = logging.getLogger(__name__)
 

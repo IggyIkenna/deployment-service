@@ -29,8 +29,7 @@ from datetime import date
 from typing import TypedDict
 from typing import cast as _cast
 
-from unified_trading_library import get_storage_client
-from unified_trading_library.cloud_interface import StorageClient
+from unified_trading_library import StorageClient, get_storage_client
 
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig

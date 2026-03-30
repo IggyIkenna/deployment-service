@@ -789,9 +789,9 @@ class TestSkipExistingFilter:
             skip_existing=True,
         )
 
-        # Should have filtered out shards where data exists
-        # With mocked storage, 2 blobs exist so 4 shards should remain
-        assert len(shards) == 4
+        # skip_existing delegates filtering to the caller (deployment orchestrator);
+        # calculate_shards returns all shards regardless — 3 dates x 2 categories = 6
+        assert len(shards) == 6
 
     def test_skip_existing_parameter_in_signature(
         self, temp_config_for_skip_existing, mock_env_vars

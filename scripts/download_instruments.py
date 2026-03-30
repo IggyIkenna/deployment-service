@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Optional
 
 import polars as pl
-from unified_trading_library.cloud_interface import StorageClient, get_storage_client
+from unified_trading_library import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 import logging

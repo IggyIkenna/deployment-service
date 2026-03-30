@@ -32,7 +32,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
-from unified_trading_library.cloud_interface import get_storage_client
+from unified_trading_library import get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 import logging

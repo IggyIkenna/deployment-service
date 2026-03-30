@@ -1240,7 +1240,6 @@ class TestCheckInstrumentsVenueCoverage:
         with (
             patch("deployment_service.cli.utils.data_status_venue_utils.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_venue_utils.gcsfs.GCSFileSystem"),
-            patch("deployment_service.cli.utils.data_status_venue_utils.pq.read_table"),
             patch(
                 "deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor"
             ) as MockTPE,

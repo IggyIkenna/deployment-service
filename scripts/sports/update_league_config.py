@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from unified_trading_library.config_interface import UnifiedCloudConfig
+from unified_trading_library import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
 

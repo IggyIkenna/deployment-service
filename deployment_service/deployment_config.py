@@ -11,7 +11,7 @@ All direct environment variable access should be replaced with this config class
 """
 
 from pydantic import AliasChoices, Field
-from unified_trading_library.config_interface import UnifiedCloudConfig
+from unified_trading_library import UnifiedCloudConfig
 
 
 class DeploymentConfig(UnifiedCloudConfig):

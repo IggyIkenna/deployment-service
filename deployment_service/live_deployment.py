@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import httpx
-from unified_trading_library.config_interface import UnifiedCloudConfig
+from unified_trading_library import UnifiedCloudConfig
 
 from deployment_service.backends import _gcp_sdk as _gcp_sdk_mod
 

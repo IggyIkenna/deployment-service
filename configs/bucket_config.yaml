@@ -56,6 +56,14 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
+    - name_template: "evm-defi-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "evm-defi-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
       service: infrastructure
@@ -77,6 +85,14 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
+    - name_template: "unified-trading-evm-defi-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-evm-defi-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
@@ -90,6 +106,7 @@ aws_bucket_mappings:
   features-prediction: "unified-trading-features-prediction-{account_id}"
   gas-fees: "unified-trading-gas-fees-{account_id}"
   solana-defi: "unified-trading-solana-defi-{account_id}"
+  evm-defi: "unified-trading-evm-defi-{account_id}"
 
 bucket_settings:
   gcp:

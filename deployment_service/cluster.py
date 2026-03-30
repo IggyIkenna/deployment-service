@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import cast
 
 import yaml
-from unified_trading_library.events_interface import log_event, setup_events
+from unified_trading_library import log_event, setup_events
 
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig

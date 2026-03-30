@@ -322,6 +322,42 @@ resource "google_storage_bucket" "solana_defi_test" {
   labels = merge(local.common_labels, { "purpose" = "solana-defi-test", "tier" = "group-a" })
 }
 
+resource "google_storage_bucket" "evm_defi" {
+  name     = "evm-defi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "evm-defi-reference", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "evm_defi_test" {
+  name     = "evm-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "evm-defi-test", "tier" = "group-a" })
+}
+
 # =============================================================================
 # GCS Buckets — Group B: Derived data (per-env)
 # Naming: {domain}-{category}-{environment}-{project_id}

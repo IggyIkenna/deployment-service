@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from unified_trading_library.cloud_interface import get_secret_client, get_storage_client
+from unified_trading_library import get_secret_client, get_storage_client
 
 logger = logging.getLogger(__name__)
 
