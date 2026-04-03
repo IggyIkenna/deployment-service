@@ -111,6 +111,8 @@ TOPIC_REGISTRY=(
     # Reference data — instruments-service signals DATA_READY after each scheduled write
     # Downstream consumers (strategy, ML, features) subscribe to reload their instrument cache
     "instruments-data-ready|3|instruments-data-ready-strategy,instruments-data-ready-ml,instruments-data-ready-features,instruments-data-ready-monitor|3"
+    # Instruments service lifecycle + operational events (log_event via PubSubEventSink)
+    "instruments-service-events|7|instruments-service-events-monitor,instruments-service-events-audit|7"
 
     # Config / ops
     "config-updates|14|config-updates-execution,config-updates-strategy,config-updates-risk,config-updates-features|14"

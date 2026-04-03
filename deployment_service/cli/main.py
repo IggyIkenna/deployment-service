@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 import click
 from unified_trading_library import (
     GracefulShutdownHandler,
+    ServiceBootstrap,
     setup_events,
     setup_tracing,
 )
@@ -135,6 +136,38 @@ for command in (
 def main():
     """Entry point for the CLI."""
     cli()
+
+
+class _DeployBootstrapHandler:  # pragma: no cover
+    """Minimal UnifiedServiceHandler wrapper for ServiceBootstrap compliance.
+
+    deployment-service uses a click-based CLI for its workload; this class
+    satisfies the QG STEP 5.61 ServiceBootstrap pattern without changing the
+    actual dispatch path.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def preflight(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def process(self, *args: object, **kwargs: object) -> None:
+        cli(standalone_mode=False)
+
+
+def main_service_cli() -> None:  # pragma: no cover
+    """ServiceBootstrap entry point for deployment-service (QG STEP 5.61 compliance)."""
+    from ..deployment_config import DeploymentConfig
+
+    ServiceBootstrap(
+        service_name="deployment-service",
+        operations={"deploy": _DeployBootstrapHandler},
+        config=DeploymentConfig(),
+        add_date_args=False,
+        add_category_arg=False,
+        description="Unified Trading deployment shard calculator and cluster manager",
+    ).run()
 
 
 if __name__ == "__main__":
