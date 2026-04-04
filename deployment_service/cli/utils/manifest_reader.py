@@ -213,7 +213,20 @@ class ManifestReader:
         for cat in cat_list:
             cat_label = cat or "ALL"
             bucket = self._resolve_bucket(service, cat or "")
-            index = read_availability_index(bucket)
+            try:
+                index = read_availability_index(bucket)
+            except Exception:  # noqa: BLE001 — bucket or index may not exist yet
+                logger.debug("No manifest index in %s — treating as empty", bucket)
+                result_categories[cat_label] = {
+                    "category": cat_label,
+                    "bucket": bucket,
+                    "dates_expected": 0,
+                    "dates_found": 0,
+                    "dates_missing": 0,
+                    "completion_pct": 0,
+                    "missing_dates": [],
+                }
+                continue
 
             # Normalise venue aliases (e.g. bare "OKX" → "OKX-SPOT")
             if not index.empty and "venue" in index.columns:
