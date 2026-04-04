@@ -86,7 +86,8 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
     global _shutdown_handler
 
     # Event logging for UTD v2 progress/observability (before any log_event)
-    setup_events(service_name="deployment-service", mode="batch", sink=None)
+    # CLI tools use mode="local" — no event sink required (events logged to stdout)
+    setup_events(service_name="deployment-service", mode="local", sink=None)
     setup_tracing("deployment-service")
 
     # Initialize graceful shutdown handler (handles SIGTERM/SIGINT)

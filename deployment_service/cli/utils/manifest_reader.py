@@ -122,9 +122,12 @@ class ManifestReader:
         if self._available is not None:
             return self._available
         try:
-            # Probe with a known bucket pattern — if cloud access works the
-            # function returns a (possibly empty) DataFrame without raising.
-            read_availability_index("")
+            # Probe with a real bucket — instruments-store-cefi is the most
+            # common and always exists.  An empty string fails silently on
+            # some cloud backends, giving a false negative.
+            project_id = self._get_project_id()
+            probe_bucket = f"instruments-store-cefi-{project_id}"
+            read_availability_index(probe_bucket)
             self._available = True
         except Exception:  # noqa: BLE001 — broad catch is intentional for probe
             self._available = False
