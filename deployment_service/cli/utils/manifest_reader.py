@@ -7,12 +7,16 @@ CLI tooling (not a shared library type), so it lives here rather than in UTL.
 
 from __future__ import annotations
 
+import io
 import logging
 
 import pandas as pd
+import pyarrow.parquet as pq
 from unified_api_contracts import VenueMapping
-from unified_trading_library import read_availability_index
-from unified_trading_library.cloud_interface import get_project_id
+from unified_api_contracts.internal import MarketCategory  # noqa: qg-deep-import
+from unified_trading_library import get_project_id, get_storage_client, read_availability_index
+
+_ALL_CATEGORIES = [str(c) for c in MarketCategory]
 
 logger = logging.getLogger(__name__)
 
@@ -201,10 +205,7 @@ class ManifestReader:
         sub_dim_key = _SUB_DIMENSION_KEY.get(service)
 
         # For shared-bucket services, query once with category=None
-        if service in _SHARED_BUCKET_SERVICES:
-            cat_list = [None]
-        else:
-            cat_list = categories or ["CEFI", "TRADFI", "DEFI"]
+        cat_list = [None] if service in _SHARED_BUCKET_SERVICES else categories or _ALL_CATEGORIES
 
         for cat in cat_list:
             cat_label = cat or "ALL"
@@ -265,11 +266,25 @@ class ManifestReader:
 
                     venue_weighted_expected += v_expected
                     venue_weighted_found += v_dates
+
+                    # Per-venue date lists
+                    v_found_set = set(filtered.loc[v_mask, "date"].unique())
+                    v_all_dates = pd.date_range(effective_start, end_date, freq="D")
+                    v_missing = sorted(
+                        d.strftime("%Y-%m-%d")
+                        for d in v_all_dates
+                        if d.strftime("%Y-%m-%d") not in v_found_set
+                    )
+                    v_found_list = sorted(v_found_set)
+
                     sub_dims[venue_val] = {
                         "dates_found": v_dates,
                         "dates_expected": v_expected,
                         "completion_pct": round(v_dates / v_expected * 100, 2),
                         "venue_start_date": venue_start,
+                        "missing_dates": v_missing[:50],
+                        "dates_found_list": v_found_list[:50],
+                        "dates_missing": max(0, v_expected - v_dates),
                     }
 
             # Find missing dates (using clamped start so pre-pipeline dates excluded)
@@ -328,11 +343,15 @@ class ManifestReader:
 
         overall_pct = round(total_found / total_expected * 100, 2) if total_expected > 0 else 0
 
+        effective_start = max(start_date, _PIPELINE_START_DATE)
+        total_days = max(1, (pd.Timestamp(end_date) - pd.Timestamp(effective_start)).days + 1)
+
         return {
             "service": service,
             "date_range": {
                 "start": start_date,
                 "end": end_date,
+                "days": total_days,
                 "pipeline_start": _PIPELINE_START_DATE,
             },
             "mode": "manifest",
@@ -363,11 +382,6 @@ class ManifestReader:
         Returns counts per instrument_type and sample instruments.
         """
         try:
-            import io
-
-            import pyarrow.parquet as pq
-            from unified_trading_library.cloud_interface import get_storage_client
-
             bucket_name = self._resolve_bucket(service, category)
             storage_client = get_storage_client()
 
@@ -431,6 +445,108 @@ class ManifestReader:
         except Exception as exc:  # noqa: BLE001
             logger.debug("ManifestReader.get_venue_detail failed: %s", exc)
             return {"error": str(exc), "venue": venue}
+
+    # ------------------------------------------------------------------
+    # Coverage summary (manifest totals + latest-day instrument counts)
+    # ------------------------------------------------------------------
+
+    def get_coverage_summary(
+        self,
+        *,
+        service: str,
+        categories: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Return instrument coverage summary for the deployment UI.
+
+        For each category:
+        - Manifest totals: total shards, instrument-rows, unique dates, unique venues
+        - Latest-day unique instrument counts by instrument_type (from parquet files)
+
+        This is fast: reads 4 small manifest parquets + latest-day parquets only.
+        """
+        cat_list = categories or _ALL_CATEGORIES
+        result_categories: dict[str, dict[str, object]] = {}
+        grand_shards = 0
+        grand_rows = 0
+        grand_dates = 0
+        grand_latest_instruments = 0
+
+        for cat in cat_list:
+            bucket = self._resolve_bucket(service, cat)
+            index = read_availability_index(bucket)
+
+            if index.empty:
+                result_categories[cat] = {
+                    "total_shards": 0,
+                    "total_instrument_rows": 0,
+                    "unique_dates": 0,
+                    "unique_venues": 0,
+                    "date_range": None,
+                    "latest_day": None,
+                    "latest_day_instruments": {},
+                    "latest_day_total": 0,
+                }
+                continue
+
+            # Normalise venue aliases
+            if "venue" in index.columns:
+                index["venue"] = index["venue"].replace(_VENUE_ALIASES)
+
+            total_shards = len(index)
+            total_rows = (
+                int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
+            )
+            unique_dates = int(index["date"].nunique())
+            unique_venues = int(index["venue"].nunique()) if "venue" in index.columns else 0
+            date_min = str(index["date"].min())
+            date_max = str(index["date"].max())
+
+            # Latest-day instrument type breakdown from actual parquets
+            latest_day_counts: dict[str, int] = {}
+            latest_day_total = 0
+            latest_date = date_max
+            if "venue" in index.columns:
+                latest_venues = sorted(
+                    index.loc[index["date"] == latest_date, "venue"].unique().tolist()
+                )
+                for venue_name in latest_venues:
+                    detail = self.get_venue_detail(
+                        service=service,
+                        category=cat,
+                        venue=venue_name,
+                        date=latest_date,
+                    )
+                    if "error" not in detail:
+                        venue_total = int(detail.get("total_instruments", 0))
+                        latest_day_total += venue_total
+                        for itype, count in (detail.get("instrument_types") or {}).items():
+                            latest_day_counts[itype] = latest_day_counts.get(itype, 0) + int(count)
+
+            result_categories[cat] = {
+                "total_shards": total_shards,
+                "total_instrument_rows": total_rows,
+                "unique_dates": unique_dates,
+                "unique_venues": unique_venues,
+                "date_range": {"start": date_min, "end": date_max},
+                "latest_day": latest_date,
+                "latest_day_instruments": latest_day_counts,
+                "latest_day_total": latest_day_total,
+            }
+            grand_shards += total_shards
+            grand_rows += total_rows
+            grand_dates += unique_dates
+            grand_latest_instruments += latest_day_total
+
+        return {
+            "service": service,
+            "categories": result_categories,
+            "totals": {
+                "shards": grand_shards,
+                "instrument_rows": grand_rows,
+                "dates_across_categories": grand_dates,
+                "latest_day_instruments": grand_latest_instruments,
+            },
+        }
 
     # ------------------------------------------------------------------
     # Helpers

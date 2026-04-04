@@ -158,8 +158,6 @@ class _DeployBootstrapHandler:  # pragma: no cover
 
 def main_service_cli() -> None:  # pragma: no cover
     """ServiceBootstrap entry point for deployment-service (QG STEP 5.61 compliance)."""
-    from ..deployment_config import DeploymentConfig
-
     ServiceBootstrap(
         service_name="deployment-service",
         operations={"deploy": _DeployBootstrapHandler},

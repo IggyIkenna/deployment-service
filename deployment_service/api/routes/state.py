@@ -515,3 +515,33 @@ async def get_live_health(
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_live_health failed for deployment %s: %s", deployment_id, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ---------------------------------------------------------------------------
+# Data coverage summary  GET /api/v1/data-coverage-summary
+# ---------------------------------------------------------------------------
+
+
+@router.get("/data-coverage-summary")
+async def get_data_coverage_summary(
+    service: str = "instruments-service",
+    categories: str | None = None,
+) -> dict[str, object]:
+    """Return instrument coverage summary for the deployment UI.
+
+    Fast endpoint: reads manifest parquets (totals) + latest-day parquets
+    (unique instrument counts by type).
+
+    Query params:
+        service: service name (default: instruments-service)
+        categories: comma-separated category list (default: CEFI,TRADFI,DEFI,SPORTS)
+    """
+    try:
+        from deployment_service.cli.utils.manifest_reader import ManifestReader
+
+        reader = ManifestReader()
+        cat_list = [c.strip().upper() for c in categories.split(",")] if categories else None
+        return reader.get_coverage_summary(service=service, categories=cat_list)
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.error("get_data_coverage_summary failed for %s: %s", service, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
