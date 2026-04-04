@@ -290,8 +290,22 @@ class ManifestReader:
                         "dates_missing": max(0, v_expected - v_dates),
                     }
 
-            # Find missing dates (using clamped start so pre-pipeline dates excluded)
-            all_dates = pd.date_range(clamped_start, end_date, freq="D")
+            # Find missing dates — clamp to earliest venue launch so pre-protocol
+            # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
+            if sub_dims:
+                earliest_venue = min(
+                    (
+                        sd["venue_start_date"]
+                        for sd in sub_dims.values()
+                        if sd.get("venue_start_date")
+                    ),
+                    default=clamped_start,
+                )
+                cat_effective_start = max(clamped_start, str(earliest_venue))
+            else:
+                cat_effective_start = clamped_start
+
+            all_dates = pd.date_range(cat_effective_start, end_date, freq="D")
             found_dates = set(filtered["date"].unique())
             missing_dates = sorted(
                 d.strftime("%Y-%m-%d")
