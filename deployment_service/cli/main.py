@@ -115,6 +115,8 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
 from .commands.analysis import analysis_commands
 from .commands.calculation import calculation_commands
 from .commands.cluster import cluster_commands
+from .commands.data_status import data_status
+from .commands.deploy_missing import deploy_missing_commands
 from .commands.deployment import deployment_commands
 from .commands.management import management_commands
 from .commands.reporting import reporting_commands
@@ -129,6 +131,8 @@ for command in (
     + analysis_commands
     + validation_commands
     + reporting_commands
+    + deploy_missing_commands
+    + [data_status]
 ):
     cli.add_command(command)
 
