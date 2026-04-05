@@ -358,16 +358,16 @@ def _display_manifest_results(
     end_date: str,
 ) -> None:
     """Format and display manifest-based results to match GCS output style."""
+    if output == "json":
+        click.echo(json.dumps(results, indent=2, default=str))
+        return
+
     click.echo(
         click.style(
             f"[source: manifest] {service} ({start_date} → {end_date})", fg="cyan", bold=True
         )
     )
     click.echo()
-
-    if output == "json":
-        click.echo(json.dumps(results, indent=2, default=str))
-        return
 
     for result in results:
         cat = result.get("category", "unknown")
