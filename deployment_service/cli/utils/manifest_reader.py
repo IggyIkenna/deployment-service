@@ -62,6 +62,26 @@ _SHARED_BUCKET_SERVICES = {
     "alerting-service",
 }
 
+# MTDS DeFi operations write to additional buckets beyond the main category bucket.
+# These are scanned alongside the primary bucket when querying MTDS defi data.
+_EXTRA_BUCKETS: dict[str, dict[str, list[str]]] = {
+    "market-tick-data-service": {
+        "defi": [
+            "gas-fees-{project_id}",
+            "evm-defi-{project_id}",
+            "solana-defi-{project_id}",
+            "lending-indices-{project_id}",
+            "dex-pools-{project_id}",
+            "lst-rates-{project_id}",
+            "perp-funding-{project_id}",
+            "liquidations-{project_id}",
+            "dex-swaps-{project_id}",
+            "oracle-prices-{project_id}",
+            "eigenlayer-rewards-{project_id}",
+        ],
+    },
+}
+
 # Venue aliases — instruments-service sometimes writes bare exchange names
 # instead of the canonical EXCHANGE-PRODUCT format.  Fold them at read time.
 _VENUE_ALIASES: dict[str, str] = {
@@ -153,8 +173,16 @@ class ManifestReader:
         try:
             # Clamp start to pipeline start — no data expected before this
             effective_start_date = max(start_date, _PIPELINE_START_DATE)
-            bucket = self._resolve_bucket(service, category)
-            index = read_availability_index(bucket)
+            all_buckets = self._resolve_all_buckets(service, category)
+            frames: list[pd.DataFrame] = []
+            for bkt in all_buckets:
+                try:
+                    idx = read_availability_index(bkt)
+                    if not idx.empty:
+                        frames.append(idx)
+                except Exception:  # noqa: BLE001
+                    pass
+            index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if index.empty:
                 return {"category": category, "overall_completion": 0, "dates": []}
 
@@ -212,14 +240,22 @@ class ManifestReader:
 
         for cat in cat_list:
             cat_label = cat or "ALL"
-            bucket = self._resolve_bucket(service, cat or "")
-            try:
-                index = read_availability_index(bucket)
-            except Exception:  # noqa: BLE001 — bucket or index may not exist yet
-                logger.debug("No manifest index in %s — treating as empty", bucket)
+            all_buckets = self._resolve_all_buckets(service, cat or "")
+            frames: list[pd.DataFrame] = []
+            primary_bucket = all_buckets[0] if all_buckets else ""
+            for bkt in all_buckets:
+                try:
+                    idx = read_availability_index(bkt)
+                    if not idx.empty:
+                        frames.append(idx)
+                except Exception:  # noqa: BLE001 — bucket or index may not exist yet
+                    logger.debug("No manifest index in %s — treating as empty", bkt)
+            index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+            if not frames:
                 result_categories[cat_label] = {
                     "category": cat_label,
-                    "bucket": bucket,
+                    "bucket": primary_bucket,
                     "dates_expected": 0,
                     "dates_found": 0,
                     "dates_missing": 0,
@@ -235,7 +271,7 @@ class ManifestReader:
             if index.empty:
                 result_categories[cat_label] = {
                     "category": cat_label,
-                    "bucket": bucket,
+                    "bucket": primary_bucket,
                     "dates_expected": 0,
                     "dates_found": 0,
                     "dates_missing": 0,
@@ -293,14 +329,35 @@ class ManifestReader:
                     )
                     v_found_list = sorted(v_found_set)
 
+                    # Truncation + tail for long lists (same pattern as
+                    # category-level date lists)
+                    _MAX_LIST = 50
+                    _TAIL = 5
+                    v_found_truncated = len(v_found_list) > _MAX_LIST
+                    v_missing_truncated = len(v_missing) > _MAX_LIST
+
                     sub_dims[venue_val] = {
                         "dates_found": v_dates,
                         "dates_expected": v_expected,
+                        "dates_expected_venue": v_expected,
                         "completion_pct": round(v_dates / v_expected * 100, 2),
                         "venue_start_date": venue_start,
-                        "missing_dates": v_missing[:50],
-                        "dates_found_list": v_found_list[:50],
+                        # Available dates (green dropdown)
+                        "dates_found_count": len(v_found_list),
+                        "dates_found_list": v_found_list[:_MAX_LIST],
+                        "dates_found_truncated": v_found_truncated,
+                        "dates_found_list_tail": v_found_list[-_TAIL:]
+                        if v_found_truncated
+                        else None,
+                        # Missing dates (red dropdown)
                         "dates_missing": max(0, v_expected - v_dates),
+                        "dates_missing_count": len(v_missing),
+                        "dates_missing_list": v_missing[:_MAX_LIST],
+                        "dates_missing_truncated": v_missing_truncated,
+                        "dates_missing_list_tail": v_missing[-_TAIL:]
+                        if v_missing_truncated
+                        else None,
+                        "missing_dates": v_missing[:_MAX_LIST],
                     }
 
             # Find missing dates — clamp to earliest venue launch so pre-protocol
@@ -342,7 +399,7 @@ class ManifestReader:
 
             cat_result: dict[str, object] = {
                 "category": cat_label,
-                "bucket": bucket,
+                "bucket": primary_bucket,
                 "dates_expected": cat_expected,
                 "dates_found": cat_found,
                 "dates_missing": cat_missing,
@@ -366,6 +423,15 @@ class ManifestReader:
                 }
                 response_key = _SUB_DIM_RESPONSE_KEY.get(sub_dim_key or "", "venues")
                 cat_result[response_key] = sub_dims
+
+                # Override display label for categories where the manifest
+                # "venue" column doesn't represent trading venues.
+                _CATEGORY_SUB_DIM_LABEL: dict[str, str] = {
+                    "SPORTS": "Data Sources",
+                    "PREDICTIONS": "Market Category Shards",
+                }
+                if service == "instruments-service" and cat_label in _CATEGORY_SUB_DIM_LABEL:
+                    cat_result["sub_dimension_label"] = _CATEGORY_SUB_DIM_LABEL[cat_label]
 
             result_categories[cat_label] = cat_result
             total_found += cat_found
@@ -502,8 +568,17 @@ class ManifestReader:
         grand_latest_instruments = 0
 
         for cat in cat_list:
-            bucket = self._resolve_bucket(service, cat)
-            index = read_availability_index(bucket)
+            # Read primary bucket + any extra buckets (e.g. MTDS defi sub-buckets)
+            all_buckets = self._resolve_all_buckets(service, cat)
+            frames: list[pd.DataFrame] = []
+            for bkt in all_buckets:
+                try:
+                    idx = read_availability_index(bkt)
+                    if not idx.empty:
+                        frames.append(idx)
+                except Exception:  # noqa: BLE001 — extra buckets may not exist
+                    logger.debug("Extra bucket %s not found or empty", bkt)
+            index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
             if index.empty:
                 result_categories[cat] = {
@@ -557,6 +632,10 @@ class ManifestReader:
                 "total_instrument_rows": total_rows,
                 "unique_dates": unique_dates,
                 "unique_venues": unique_venues,
+                "sub_dimension_label": {
+                    "SPORTS": "Data Sources",
+                    "PREDICTIONS": "Market Category Shards",
+                }.get(cat, "Venues"),
                 "date_range": {"start": date_min, "end": date_max},
                 "latest_day": latest_date,
                 "latest_day_instruments": latest_day_counts,
@@ -583,7 +662,7 @@ class ManifestReader:
     # ------------------------------------------------------------------
 
     def _resolve_bucket(self, service: str, category: str) -> str:
-        """Resolve bucket name using real templates from SERVICE_GCS_CONFIGS."""
+        """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
         template = _BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
@@ -598,3 +677,14 @@ class ManifestReader:
             project_id=project_id,
             domain=cat_lower,  # execution-service uses {domain}
         )
+
+    def _resolve_all_buckets(self, service: str, category: str) -> list[str]:
+        """Resolve primary bucket + any extra buckets for the service/category pair."""
+        primary = self._resolve_bucket(service, category)
+        buckets = [primary]
+        extras = _EXTRA_BUCKETS.get(service, {}).get(category.lower(), [])
+        if extras:
+            project_id = self._get_project_id()
+            for tmpl in extras:
+                buckets.append(tmpl.format(project_id=project_id))
+        return buckets

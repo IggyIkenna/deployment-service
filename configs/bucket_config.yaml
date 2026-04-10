@@ -64,6 +64,70 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
+    - name_template: "lending-indices-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "lending-indices-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "dex-pools-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "dex-pools-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "lst-rates-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "lst-rates-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "perp-funding-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "perp-funding-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "liquidations-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "liquidations-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "dex-swaps-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "dex-swaps-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "oracle-prices-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "oracle-prices-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "eigenlayer-rewards-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "eigenlayer-rewards-test-{project_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
       service: infrastructure
@@ -93,6 +157,70 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
+    - name_template: "unified-trading-lending-indices-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-lending-indices-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-dex-pools-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-dex-pools-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-lst-rates-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-lst-rates-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-perp-funding-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-perp-funding-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-liquidations-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-liquidations-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-dex-swaps-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-dex-swaps-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-oracle-prices-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-oracle-prices-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
+    - name_template: "unified-trading-eigenlayer-rewards-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: defi
+    - name_template: "unified-trading-eigenlayer-rewards-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: defi
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
@@ -107,6 +235,14 @@ aws_bucket_mappings:
   gas-fees: "unified-trading-gas-fees-{account_id}"
   solana-defi: "unified-trading-solana-defi-{account_id}"
   evm-defi: "unified-trading-evm-defi-{account_id}"
+  lending-indices: "unified-trading-lending-indices-{account_id}"
+  dex-pools: "unified-trading-dex-pools-{account_id}"
+  lst-rates: "unified-trading-lst-rates-{account_id}"
+  perp-funding: "unified-trading-perp-funding-{account_id}"
+  liquidations: "unified-trading-liquidations-{account_id}"
+  dex-swaps: "unified-trading-dex-swaps-{account_id}"
+  oracle-prices: "unified-trading-oracle-prices-{account_id}"
+  eigenlayer-rewards: "unified-trading-eigenlayer-rewards-{account_id}"
 
 bucket_settings:
   gcp:
