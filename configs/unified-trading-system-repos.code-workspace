@@ -26,7 +26,6 @@
       "${workspaceFolder:unified-trading-system-repos}/unified-config-interface",
       "${workspaceFolder:unified-trading-system-repos}/unified-domain-client",
       "${workspaceFolder:unified-trading-system-repos}/unified-events-interface",
-      "${workspaceFolder:unified-trading-system-repos}/unified-market-interface",
       "${workspaceFolder:unified-trading-system-repos}/unified-trade-execution-interface"
     ],
     "python.analysis.autoSearchPaths": true

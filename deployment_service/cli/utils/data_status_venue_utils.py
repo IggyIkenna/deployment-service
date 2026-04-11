@@ -8,6 +8,7 @@ from typing import cast as _cast
 
 import click
 import gcsfs
+from unified_api_contracts import VenueMapping
 from unified_api_contracts.internal import MarketCategory
 
 from ...config_loader import ConfigLoader
@@ -47,9 +48,11 @@ def check_instruments_venue_coverage(
     # Create shared GCS filesystem instance
     gcs_fs = gcsfs.GCSFileSystem()
 
-    # Load expected start dates for venues
+    # YAML config for category-level start dates and bucket config only.
+    # Venue start dates come exclusively from UAC VenueMapping (SSOT).
     expected_dates = loader.load_expected_start_dates()
     instruments_config = expected_dates.get("instruments-service") or {}
+    _venue_mapping = VenueMapping()
 
     categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
 
@@ -179,13 +182,13 @@ def check_instruments_venue_coverage(
                 }
             else:
                 found = result["found_venues"]
-                cat_config = instruments_config.get(cat, {})
-                venues_config = cat_config.get("venues") or {}
 
-                # Calculate expected venues for this date (venue must have started)
+                # UAC VenueMapping is the SSOT for venue start dates.
+                # For each found venue, check if it should exist on this date.
                 expected_for_date = set()
-                for venue, venue_start in venues_config.items():
-                    if date_str >= venue_start:
+                for venue in found:
+                    uac_start = _venue_mapping.get_venue_start_date(venue)
+                    if uac_start and date_str >= uac_start:
                         expected_for_date.add(venue)
 
                 missing = expected_for_date - found

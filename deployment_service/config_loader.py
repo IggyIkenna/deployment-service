@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import cast
 
 import yaml
+from unified_api_contracts import VenueMapping
 
 from .config.base_config import BaseConfigLoader
 from .config.bootstrap_config import TopologyBootstrapConfig
@@ -152,40 +153,12 @@ class ConfigLoader(BaseConfigLoader):
         return None
 
     def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:
-        """Get the expected start date for a specific venue."""
-        config = self.load_expected_start_dates()
-        if not config:
-            return None
+        """Get the expected start date for a specific venue.
 
-        # Try the requested service first
-        if service in config and isinstance(config[service], dict):
-            service_config = cast(dict[str, object], config[service])
-            if category in service_config and isinstance(service_config[category], dict):
-                category_config = cast(dict[str, object], service_config[category])
-                venues = category_config.get("venues")
-                if isinstance(venues, dict) and venue in venues:
-                    val = cast(dict[str, object], venues)[venue]
-                    return str(val) if val is not None else None
-
-        # Fallback to canonical services
-        fallback_services = ["market-tick-data-service", "instruments-service"]
-        for fallback in fallback_services:
-            if fallback == service or fallback not in config:
-                continue
-
-            fallback_config_raw = config[fallback]
-            if not isinstance(fallback_config_raw, dict) or category not in fallback_config_raw:
-                continue
-
-            fallback_config_dict = cast(dict[str, object], fallback_config_raw)
-            category_config = fallback_config_dict[category]
-            if isinstance(category_config, dict):
-                venues = cast(dict[str, object], category_config).get("venues")
-                if isinstance(venues, dict) and venue in venues:
-                    val = cast(dict[str, object], venues)[venue]
-                    return str(val) if val is not None else None
-
-        return None
+        SSOT: UAC VenueMapping. No YAML fallback — venue start dates live in
+        one place so coverage page and manifest never drift.
+        """
+        return VenueMapping().get_venue_start_date(venue)
 
     def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:
         """Get the expected data types for a specific venue on a given date."""

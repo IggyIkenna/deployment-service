@@ -408,7 +408,9 @@ def format_venue_coverage_results(
             click.echo(
                 "  • Venue adapter errors (check logs with: logs <deployment-id> --severity ERROR)"
             )
-            click.echo("  • Venue not yet available on that date (check expected_start_dates.yaml)")
+            click.echo(
+                "  • Venue not yet available on that date (check UAC VenueMapping start dates)"
+            )
         else:
             click.echo()
             click.echo(

@@ -111,7 +111,9 @@ class CloudRunStatusBatchRequest(
     job_ids: list[str]
 
 
-class RollbackRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class DeploymentServiceRollbackRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     region: str
     target_revision: str | None = None
@@ -445,7 +447,9 @@ async def get_vm_events(deployment_id: str) -> dict[str, object]:
 
 
 @router.post("/deployments/{deployment_id}/rollback")
-async def live_rollback(deployment_id: str, request: RollbackRequest) -> dict[str, object]:
+async def live_rollback(
+    deployment_id: str, request: DeploymentServiceRollbackRequest
+) -> dict[str, object]:
     """Roll back a live Cloud Run Service to a previous revision."""
     try:
         from unified_trading_library import get_compute_client

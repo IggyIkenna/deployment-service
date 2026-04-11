@@ -313,20 +313,27 @@ class ManifestReader:
                         effective_start = clamped_start
                     v_expected = max(
                         1,
-                        (pd.Timestamp(end_date) - pd.Timestamp(effective_start)).days + 1,
+                        len(
+                            self._venue_mapping.get_expected_trading_dates(
+                                base_venue,
+                                effective_start,
+                                end_date,
+                            )
+                        ),
                     )
 
                     venue_weighted_expected += v_expected
                     venue_weighted_found += v_dates
 
-                    # Per-venue date lists
+                    # Per-venue date lists — use venue-specific trading schedule
+                    # (e.g. crypto=24/7, tradfi=weekdays-minus-holidays)
                     v_found_set = set(filtered.loc[v_mask, "date"].unique())
-                    v_all_dates = pd.date_range(effective_start, end_date, freq="D")
-                    v_missing = sorted(
-                        d.strftime("%Y-%m-%d")
-                        for d in v_all_dates
-                        if d.strftime("%Y-%m-%d") not in v_found_set
+                    v_expected_dates = self._venue_mapping.get_expected_trading_dates(
+                        base_venue,
+                        effective_start,
+                        end_date,
                     )
+                    v_missing = sorted(d for d in v_expected_dates if d not in v_found_set)
                     v_found_list = sorted(v_found_set)
 
                     # Truncation + tail for long lists (same pattern as
@@ -375,13 +382,34 @@ class ManifestReader:
             else:
                 cat_effective_start = clamped_start
 
-            all_dates = pd.date_range(cat_effective_start, end_date, freq="D")
+            # Use the most restrictive schedule among venues in this category
+            # to compute category-level missing dates (weekdays for tradfi, all for crypto)
+            _cat_schedule = "24_7"
+            if sub_dims:
+                schedules = {
+                    self._venue_mapping.get_venue_schedule(v.split(":")[0] if ":" in v else v)
+                    for v in sub_dims
+                }
+                if schedules == {"weekdays"} or schedules == {"weekdays", "weekdays_minus_cme"}:
+                    _cat_schedule = "weekdays"
+            if _cat_schedule == "weekdays":
+                # Use a representative venue to get expected dates
+                _rep_venue = next(
+                    (v.split(":")[0] if ":" in v else v for v in sub_dims),
+                    "",
+                )
+                _cat_expected = self._venue_mapping.get_expected_trading_dates(
+                    _rep_venue,
+                    cat_effective_start,
+                    end_date,
+                )
+            else:
+                _cat_expected = [
+                    d.strftime("%Y-%m-%d")
+                    for d in pd.date_range(cat_effective_start, end_date, freq="D")
+                ]
             found_dates = set(filtered["date"].unique())
-            missing_dates = sorted(
-                d.strftime("%Y-%m-%d")
-                for d in all_dates
-                if d.strftime("%Y-%m-%d") not in found_dates
-            )
+            missing_dates = sorted(d for d in _cat_expected if d not in found_dates)
 
             # Found dates
             found_dates_list = sorted(found_dates)

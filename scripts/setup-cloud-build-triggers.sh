@@ -31,7 +31,6 @@ LIBRARIES_ORDER=(
   unified-events-interface
   unified-trading-library
   unified-domain-client
-  unified-market-interface
   unified-trade-execution-interface
   execution-algo-library
 )
