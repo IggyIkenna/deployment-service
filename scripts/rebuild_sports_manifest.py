@@ -20,12 +20,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
 import logging
 import re
-from datetime import UTC, datetime
 
-import pyarrow.parquet as pq
 from unified_trading_library import (
     ManifestWriter,
     get_project_id,
@@ -103,7 +100,7 @@ def rebuild_manifest(
 
     logger.info("Found %d league-partitioned blobs in %s", len(league_blobs), bucket)
 
-    # Group by (date, venue, league_id)
+    # Group by (date, venue, league_id) — path-only scan, no parquet downloads
     entries: dict[tuple[str, str, str], int] = {}
     for path_str in league_blobs:
         if not path_str.endswith(".parquet"):
@@ -123,17 +120,9 @@ def rebuild_manifest(
         if date_str < start_date or date_str > end_date:
             continue
 
-        # Read row count from parquet
-        try:
-            raw_data = storage_client.download_bytes(bucket, path_str)  # type: ignore[union-attr]
-            table = pq.read_table(io.BytesIO(raw_data))
-            row_count = table.num_rows
-        except Exception as exc:
-            logger.warning("Failed to read %s: %s", path_str, exc)
-            row_count = 0
-
+        # Count blob presence (1 per blob) — avoids slow parquet downloads
         key = (date_str, venue, league_id)
-        entries[key] = entries.get(key, 0) + row_count
+        entries[key] = entries.get(key, 0) + 1
 
     logger.info("Found %d unique (date, venue, league) entries", len(entries))
 
@@ -154,17 +143,16 @@ def rebuild_manifest(
         catalogue_bucket=bucket,
     )
 
-    now = datetime.now(UTC).isoformat()
     for (date_str, venue, league_id), count in sorted(entries.items()):
         writer.add(
-            processing_date=now,
             row_count=count,
             venue=venue,
             league_id=league_id,
             date=date_str,
         )
 
-    writer.flush()
+    writer.write()  # Move records from instance buffer to module buffer
+    writer.flush()  # Force-flush module buffer to GCS
     logger.info("Wrote %d manifest entries to %s", len(entries), bucket)
     return len(entries)
 
