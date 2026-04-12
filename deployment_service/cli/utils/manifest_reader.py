@@ -14,6 +14,10 @@ import pandas as pd
 import pyarrow.parquet as pq
 from unified_api_contracts import VenueMapping
 from unified_api_contracts.internal import MarketCategory  # noqa: qg-deep-import
+from unified_api_contracts.sports import (
+    get_all_prediction_league_ids,
+    get_league_fixture_calendar,
+)
 from unified_trading_library import get_project_id, get_storage_client, read_availability_index
 
 _ALL_CATEGORIES = [str(c) for c in MarketCategory]
@@ -343,7 +347,7 @@ class ManifestReader:
                     v_found_truncated = len(v_found_list) > _MAX_LIST
                     v_missing_truncated = len(v_missing) > _MAX_LIST
 
-                    sub_dims[venue_val] = {
+                    venue_entry: dict[str, object] = {
                         "dates_found": v_dates,
                         "dates_expected": v_expected,
                         "dates_expected_venue": v_expected,
@@ -366,6 +370,20 @@ class ManifestReader:
                         else None,
                         "missing_dates": v_missing[:_MAX_LIST],
                     }
+
+                    # League sub-breakdown: when league_id column has non-empty
+                    # values, build per-league stats nested under this venue.
+                    if (
+                        "league_id" in filtered.columns
+                        and filtered.loc[v_mask, "league_id"].str.len().sum() > 0
+                    ):
+                        venue_entry["leagues"] = self._build_league_breakdown(
+                            filtered.loc[v_mask],
+                            clamped_start,
+                            end_date,
+                        )
+
+                    sub_dims[venue_val] = venue_entry
 
             # Find missing dates — clamp to earliest venue launch so pre-protocol
             # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
@@ -442,6 +460,7 @@ class ManifestReader:
                     "venue": "venues",
                     "data_type": "data_types",
                     "feature_group": "feature_groups",
+                    "league_id": "leagues",
                     "strategy_id": "strategies",
                     "model_id": "models",
                     "mode": "modes",
@@ -684,6 +703,67 @@ class ManifestReader:
                 "latest_day_instruments": grand_latest_instruments,
             },
         }
+
+    # ------------------------------------------------------------------
+    # League sub-breakdown (sports venues)
+    # ------------------------------------------------------------------
+
+    def _build_league_breakdown(
+        self,
+        venue_df: pd.DataFrame,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, dict[str, object]]:
+        """Build per-league stats for a sports venue.
+
+        Uses the UAC league fixture calendar as the per-league denominator
+        for expected dates.  Leagues present in UAC's prediction registry
+        but absent from the manifest appear at 0%.
+        """
+        leagues_in_data: set[str] = set()
+        if "league_id" in venue_df.columns:
+            leagues_in_data = {lid for lid in venue_df["league_id"].unique() if lid}
+
+        # All prediction leagues — ensures newly-added leagues show 0%
+        all_league_ids = set(get_all_prediction_league_ids())
+        all_leagues = sorted(leagues_in_data | all_league_ids)
+
+        result: dict[str, dict[str, object]] = {}
+        for lid in all_leagues:
+            expected_dates = get_league_fixture_calendar(lid, start_date, end_date)
+            expected_count = max(1, len(expected_dates)) if expected_dates else 1
+
+            if lid in leagues_in_data:
+                l_mask = venue_df["league_id"] == lid
+                found_set = set(venue_df.loc[l_mask, "date"].unique())
+                found_count = len(found_set)
+                missing = sorted(d for d in expected_dates if d not in found_set)
+            else:
+                found_count = 0
+                found_set = set()
+                missing = sorted(expected_dates) if expected_dates else []
+
+            _MAX_LIST = 50
+            _TAIL = 5
+            found_list = sorted(found_set)
+            found_truncated = len(found_list) > _MAX_LIST
+            missing_truncated = len(missing) > _MAX_LIST
+
+            result[lid] = {
+                "dates_found": found_count,
+                "dates_expected": expected_count,
+                "completion_pct": round(found_count / expected_count * 100, 2),
+                "dates_found_list": found_list[:_MAX_LIST],
+                "dates_found_truncated": found_truncated,
+                "dates_found_list_tail": found_list[-_TAIL:] if found_truncated else None,
+                "dates_missing": max(0, expected_count - found_count),
+                "dates_missing_count": len(missing),
+                "dates_missing_list": missing[:_MAX_LIST],
+                "dates_missing_truncated": missing_truncated,
+                "dates_missing_list_tail": missing[-_TAIL:] if missing_truncated else None,
+            }
+
+        return result
 
     # ------------------------------------------------------------------
     # Helpers
