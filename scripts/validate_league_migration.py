@@ -26,23 +26,35 @@ logger = logging.getLogger(__name__)
 _BUCKET_TEMPLATES: dict[str, str] = {
     "instruments": "instruments-store-sports-{project_id}",
     "mtds": "market-data-tick-sports-{project_id}",
-    "fss": "features-sports-sports-{project_id}",
 }
 
 _DAY_PATTERN = re.compile(r"/day=([^/]+)/")
 _LEAGUE_PATTERN = re.compile(r"/league=([^/]+)/")
 
+# Prefixes to scan per service
+_PREFIXES: dict[str, list[str]] = {
+    "instruments": [
+        "sports_reference/fixtures/",
+        "sports_reference/by_date/",
+        "instrument_availability/by_date/",
+    ],
+    "mtds": [
+        "raw_tick_data/by_date/",
+    ],
+}
+
 
 def _list_blobs(storage_client: object, bucket: str, prefix: str) -> list[str]:
     try:
-        return list(storage_client.list_blobs(bucket, prefix=prefix))  # type: ignore[union-attr]
+        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]
+        return [b.name if hasattr(b, "name") else str(b) for b in blobs]
     except Exception:
         return []
 
 
 def _count_rows(storage_client: object, bucket: str, blob_path: str) -> int:
     try:
-        raw = storage_client.download_bytes(bucket, str(blob_path))  # type: ignore[union-attr]
+        raw = storage_client.download_bytes(bucket, blob_path)  # type: ignore[union-attr]
         table = pq.read_table(io.BytesIO(raw))
         return table.num_rows
     except Exception:
@@ -59,15 +71,22 @@ def validate(
     bucket = _BUCKET_TEMPLATES[service].format(project_id=project_id)
     storage_client = get_storage_client()
 
-    all_blobs = _list_blobs(storage_client, bucket, "")
+    prefixes = _PREFIXES[service]
+
+    # Collect all blobs across all prefixes
+    all_blobs: list[str] = []
+    for prefix in prefixes:
+        all_blobs.extend(_list_blobs(storage_client, bucket, prefix))
+
+    # Filter to .parquet files only
+    all_blobs = [b for b in all_blobs if b.endswith(".parquet")]
 
     # Separate old (non-league) and new (league-partitioned) blobs
     old_blobs: dict[str, list[str]] = defaultdict(list)
     new_blobs: dict[str, list[str]] = defaultdict(list)
 
     for blob_path in all_blobs:
-        path_str = str(blob_path)
-        day_match = _DAY_PATTERN.search(path_str)
+        day_match = _DAY_PATTERN.search(blob_path)
         if not day_match:
             continue
 
@@ -75,10 +94,10 @@ def validate(
         if date_str < start_date or date_str > end_date:
             continue
 
-        if _LEAGUE_PATTERN.search(path_str):
-            new_blobs[date_str].append(path_str)
+        if _LEAGUE_PATTERN.search(blob_path):
+            new_blobs[date_str].append(blob_path)
         else:
-            old_blobs[date_str].append(path_str)
+            old_blobs[date_str].append(blob_path)
 
     all_dates = sorted(set(old_blobs.keys()) | set(new_blobs.keys()))
     mismatches = 0

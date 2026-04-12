@@ -4,6 +4,12 @@ Scans league-partitioned parquets in GCS and builds manifest entries with
 league_id populated and schema_version=3.  Replaces old entries for the
 same (date, venue) combinations.
 
+Actual GCS layout (after migration):
+  instruments: sports_reference/fixtures/day={date}/league={id}/fixtures.parquet
+               sports_reference/by_date/day={date}/entity={type}/league={id}/{type}.parquet
+               instrument_availability/by_date/day={date}/venue={venue}/league={id}/instruments.parquet
+  MTDS: raw_tick_data/by_date/day={date}/category=sports/venue=ODDS_API/.../league={id}/ticks.parquet
+
 Usage:
   python scripts/rebuild_sports_manifest.py \\
     --service instruments-service \\
@@ -31,13 +37,36 @@ logger = logging.getLogger(__name__)
 _BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-sports-{project_id}",
     "market-tick-data-service": "market-data-tick-sports-{project_id}",
-    "features-sports-service": "features-sports-sports-{project_id}",
 }
 
-# Regex to parse league partition from blob path
+# Regex to parse partitions from blob path
 _LEAGUE_PATTERN = re.compile(r"/league=([^/]+)/")
 _VENUE_PATTERN = re.compile(r"/venue=([^/]+)/")
 _DAY_PATTERN = re.compile(r"/day=([^/]+)/")
+_ENTITY_PATTERN = re.compile(r"/entity=([^/]+)/")
+
+# Map GCS path patterns to logical venue names for manifest
+_INSTRUMENTS_VENUE_MAPS = {
+    "sports_reference/fixtures/": "API_FOOTBALL_FIXTURES",
+    "sports_reference/by_date/": None,  # derives from entity= partition
+    "instrument_availability/by_date/": None,  # derives from venue= partition
+}
+
+
+def _derive_venue_from_path(path_str: str) -> str:
+    """Derive logical venue name from GCS blob path."""
+    if "sports_reference/fixtures/" in path_str:
+        return "API_FOOTBALL_FIXTURES"
+
+    venue_match = _VENUE_PATTERN.search(path_str)
+    if venue_match:
+        return venue_match.group(1)
+
+    entity_match = _ENTITY_PATTERN.search(path_str)
+    if entity_match:
+        return entity_match.group(1).upper()
+
+    return "UNKNOWN"
 
 
 def rebuild_manifest(
@@ -55,26 +84,40 @@ def rebuild_manifest(
     storage_client = get_storage_client()
 
     # Scan for all league-partitioned blobs
-    blobs = _list_date_blobs(storage_client, bucket, "")
-    league_blobs = [b for b in blobs if "/league=" in str(b)]
+    prefixes = []
+    if service == "instruments-service":
+        prefixes = [
+            "sports_reference/fixtures/",
+            "sports_reference/by_date/",
+            "instrument_availability/by_date/",
+        ]
+    elif service == "market-tick-data-service":
+        prefixes = [
+            "raw_tick_data/by_date/",
+        ]
+
+    league_blobs: list[str] = []
+    for prefix in prefixes:
+        blobs = _list_blobs(storage_client, bucket, prefix)
+        league_blobs.extend(b for b in blobs if "/league=" in b)
 
     logger.info("Found %d league-partitioned blobs in %s", len(league_blobs), bucket)
 
     # Group by (date, venue, league_id)
     entries: dict[tuple[str, str, str], int] = {}
-    for blob_path in league_blobs:
-        path_str = str(blob_path)
+    for path_str in league_blobs:
+        if not path_str.endswith(".parquet"):
+            continue
 
         day_match = _DAY_PATTERN.search(path_str)
-        venue_match = _VENUE_PATTERN.search(path_str)
         league_match = _LEAGUE_PATTERN.search(path_str)
 
-        if not (day_match and venue_match and league_match):
+        if not (day_match and league_match):
             continue
 
         date_str = day_match.group(1)
-        venue = venue_match.group(1)
         league_id = league_match.group(1)
+        venue = _derive_venue_from_path(path_str)
 
         # Filter to date range
         if date_str < start_date or date_str > end_date:
@@ -82,7 +125,7 @@ def rebuild_manifest(
 
         # Read row count from parquet
         try:
-            raw_data = storage_client.download_bytes(bucket, path_str)
+            raw_data = storage_client.download_bytes(bucket, path_str)  # type: ignore[union-attr]
             table = pq.read_table(io.BytesIO(raw_data))
             row_count = table.num_rows
         except Exception as exc:
@@ -126,14 +169,15 @@ def rebuild_manifest(
     return len(entries)
 
 
-def _list_date_blobs(
+def _list_blobs(
     storage_client: object,
     bucket: str,
     prefix: str,
 ) -> list[str]:
-    """List all blobs under a prefix."""
+    """List all blobs under a prefix, returning path strings."""
     try:
-        return list(storage_client.list_blobs(bucket, prefix=prefix))  # type: ignore[union-attr]
+        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]
+        return [b.name if hasattr(b, "name") else str(b) for b in blobs]
     except Exception:
         return []
 
