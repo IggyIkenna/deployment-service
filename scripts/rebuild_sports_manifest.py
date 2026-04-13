@@ -23,6 +23,16 @@ import argparse
 import logging
 import re
 
+from unified_api_contracts.canonical.domain.sports.league_classification_data_a import (
+    LEAGUE_CLASSIFICATION_DATA_A,
+)
+from unified_api_contracts.canonical.domain.sports.league_classification_data_b import (
+    LEAGUE_CLASSIFICATION_DATA_B,
+)
+from unified_api_contracts.canonical.domain.sports.provider_league_ids import (
+    ODDS_API_DISPLAY_TO_CANONICAL,
+)
+from unified_api_contracts.sports import get_league_by_api_football_id
 from unified_trading_library import (
     ManifestWriter,
     get_project_id,
@@ -30,6 +40,52 @@ from unified_trading_library import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _build_league_id_normalizer() -> dict[str, str]:
+    """Build a mapping from raw GCS league partition values to canonical IDs.
+
+    Handles three formats found in GCS data:
+    1. Odds API sport keys: soccer_epl -> EPL
+    2. Display names (uppercased): PREMIER_LEAGUE -> EPL
+    3. Already canonical: EPL -> EPL (identity)
+    """
+    mapping: dict[str, str] = {}
+
+    # Sport key -> AF ID -> canonical
+    for data in [LEAGUE_CLASSIFICATION_DATA_A, LEAGUE_CLASSIFICATION_DATA_B]:
+        for league_id_str, info in data.items():
+            if not isinstance(info, dict):
+                continue
+            odds_api_name = info.get("odds_api_league_name", "")
+            if not odds_api_name:
+                continue
+            try:
+                af_id = int(league_id_str)
+                league = get_league_by_api_football_id(af_id)
+                if league:
+                    mapping[odds_api_name] = league.league_id
+            except (ValueError, TypeError):
+                pass
+
+    # Display name (uppercased) -> canonical
+    for display_name, canonical_id in ODDS_API_DISPLAY_TO_CANONICAL.items():
+        upper_key = display_name.upper().replace(" ", "_")
+        mapping[upper_key] = canonical_id
+
+    return mapping
+
+
+_LEAGUE_NORMALIZER: dict[str, str] = {}
+
+
+def _normalize_league_id(raw_league_id: str) -> str:
+    """Normalize a raw league partition value to a canonical league ID."""
+    global _LEAGUE_NORMALIZER  # noqa: PLW0603
+    if not _LEAGUE_NORMALIZER:
+        _LEAGUE_NORMALIZER.update(_build_league_id_normalizer())
+    return _LEAGUE_NORMALIZER.get(raw_league_id, raw_league_id)
+
 
 _BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-sports-{project_id}",
@@ -113,7 +169,7 @@ def rebuild_manifest(
             continue
 
         date_str = day_match.group(1)
-        league_id = league_match.group(1)
+        league_id = _normalize_league_id(league_match.group(1))
         venue = _derive_venue_from_path(path_str)
 
         # Filter to date range
@@ -137,6 +193,11 @@ def rebuild_manifest(
             )
         return len(entries)
 
+    # Clean stale league entries from existing manifest before writing new ones.
+    # Without this, old non-canonical league_id values persist alongside new
+    # canonical ones because the ManifestWriter dedup key includes league_id.
+    _clean_stale_league_entries(storage_client, bucket, service)
+
     # Write manifest entries using ManifestWriter
     writer = ManifestWriter(
         service_name=service,
@@ -155,6 +216,51 @@ def rebuild_manifest(
     writer.flush()  # Force-flush module buffer to GCS
     logger.info("Wrote %d manifest entries to %s", len(entries), bucket)
     return len(entries)
+
+
+def _clean_stale_league_entries(
+    storage_client: object,
+    bucket: str,
+    service_name: str,
+) -> None:
+    """Remove existing league_id entries from the manifest index.
+
+    This prevents old non-canonical league names from persisting alongside
+    newly normalized ones after a rebuild.  Only removes entries with
+    non-empty league_id for the given service.
+    """
+    import io
+
+    import pyarrow.parquet as pq
+
+    index_path = "_index/availability_index.parquet"
+    try:
+        raw = storage_client.download_bytes(bucket, index_path)  # type: ignore[union-attr]
+        df = pq.read_table(io.BytesIO(raw)).to_pandas()
+    except Exception:
+        return  # No existing index — nothing to clean
+
+    if "league_id" not in df.columns:
+        return
+
+    before = len(df)
+    # Keep entries without league_id, or from other services
+    mask = (df["league_id"].str.len() == 0) | (df["service_name"] != service_name)
+    df = df[mask].reset_index(drop=True)
+    removed = before - len(df)
+
+    if removed == 0:
+        return
+
+    buf = io.BytesIO()
+    df.to_parquet(buf, index=False, coerce_timestamps="us", allow_truncated_timestamps=True)
+    storage_client.upload_bytes(bucket, index_path, buf.getvalue())  # type: ignore[union-attr]
+    logger.info(
+        "Cleaned %d stale league entries from %s (kept %d)",
+        removed,
+        bucket,
+        len(df),
+    )
 
 
 def _list_blobs(
