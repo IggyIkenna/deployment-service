@@ -231,7 +231,7 @@ def check_timeframes_for_venues(
     category_tf_breakdown = {tf: {"complete": 0, "total": 0} for tf in expected_timeframes}
     category_dt_breakdown = {dt: {"complete": 0, "total": 0} for dt in expected_data_types}
 
-    # Get venue-specific data type expectations (uses tick_window logic)
+    # Get venue-specific data type expectations (uses UAC tick window logic)
     first_date = valid_dates[0] if valid_dates else all_dates[0]
     venue_expected_dt = loader.get_all_venue_data_type_expectations(cat, first_date)
 

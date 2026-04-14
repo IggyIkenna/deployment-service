@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = "==3.13.*"
+resolution-markers = [
+    "platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "platform_machine != 'x86_64' or sys_platform != 'darwin'",
+]
 
 [[package]]
 name = "aiodns"
@@ -2191,7 +2195,7 @@ name = "pip-system-certs"
 version = "5.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pip" },
+    { name = "pip", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7d/6a/563b05a4f6c9ddc205c98bb413e74221368efb98b8fb9cca96b578b8930c/pip_system_certs-5.3.tar.gz", hash = "sha256:19c8bf9957bcce7d69c4dbc2d0b2ef13de1984d53f50a59012e6dbbad0af67c6", size = 6395, upload-time = "2025-10-16T06:14:55.217Z" }
 wheels = [
@@ -3347,7 +3351,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.4,<4.0.0" },
+    { name = "aiohttp", specifier = ">=3.13.2,<4.0.0" },
     { name = "bandit", specifier = ">=1.7.0,<2.0.0" },
     { name = "basedpyright", specifier = "==1.38.2" },
     { name = "boto3", specifier = ">=1.40.70,<2.0.0" },

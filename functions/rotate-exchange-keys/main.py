@@ -98,7 +98,6 @@ _DATA_KEY_PATTERNS = frozenset(
         "alchemy-api-key",
         "coinglass-api-key",
         "odds-api-key",
-        "pinnacle-api-key",
         "aws-hyperliquid-s3",
     ]
 )

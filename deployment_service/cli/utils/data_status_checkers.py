@@ -50,7 +50,6 @@ def check_data_types_detailed(
     # Get TRADFI config (only category with detailed data_type config)
     tradfi_config = venues_config.get("categories") or {}.get("TRADFI") or {}
     venue_data_types = tradfi_config.get("venue_data_types") or {}
-    tick_windows = tradfi_config.get("tick_windows") or []
     instrument_types_config = venues_config.get("instrument_types") or {}
 
     # Filter categories (only TRADFI has detailed config for now)
@@ -71,9 +70,13 @@ def check_data_types_detailed(
         all_dates.append(current.strftime("%Y-%m-%d"))
         current += timedelta(days=1)
 
-    # Determine which dates are in tick windows (have expanded data types)
+    # Determine which dates are in tick windows (SSOT in UAC)
+    from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
+        is_in_tradfi_tick_window,
+    )
+
     def is_tick_window(date_str: str) -> bool:
-        return any(window["start"] <= date_str <= window["end"] for window in tick_windows)
+        return is_in_tradfi_tick_window(date_str)
 
     # Filter venues
     all_venues = tradfi_config.get("venues") or []

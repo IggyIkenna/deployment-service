@@ -202,19 +202,12 @@ class ConfigLoader(BaseConfigLoader):
 
         venue_types_dict = cast(dict[str, object], venue_types_raw)
 
-        # Check if date is within a tick_window
-        tick_windows = category_config.get("tick_windows")
-        is_tick_window = False
-        if isinstance(tick_windows, list):
-            for window_raw in cast(list[object], tick_windows):
-                if not isinstance(window_raw, dict):
-                    continue
-                window = cast(dict[str, object], window_raw)
-                start = window.get("start")
-                end = window.get("end")
-                if start and end and str(start) <= date_str <= str(end):
-                    is_tick_window = True
-                    break
+        # Check if date is within a TradFi tick window (SSOT in UAC)
+        from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
+            is_in_tradfi_tick_window,
+        )
+
+        is_tick_window = is_in_tradfi_tick_window(date_str)
 
         # Collect data types from all instrument types for this venue
         expected: set[str] = set()
@@ -254,19 +247,14 @@ class ConfigLoader(BaseConfigLoader):
                         if data_types_raw:
                             if isinstance(data_types_raw, dict):
                                 data_types_dict = cast(dict[str, object], data_types_raw)
-                                is_tick_window = False
-                                if date_str:
-                                    tick_windows = cat_config.get("tick_windows")
-                                    if isinstance(tick_windows, list):
-                                        for window_raw in cast(list[object], tick_windows):
-                                            if not isinstance(window_raw, dict):
-                                                continue
-                                            window = cast(dict[str, object], window_raw)
-                                            start = window.get("start")
-                                            end = window.get("end")
-                                            if start and end and str(start) <= date_str <= str(end):
-                                                is_tick_window = True
-                                                break
+                                # Check if date is within a TradFi tick window (SSOT in UAC)
+                                from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
+                                    is_in_tradfi_tick_window as _is_tick_window_fn,
+                                )
+
+                                is_tick_window = (
+                                    _is_tick_window_fn(date_str) if date_str else False
+                                )
 
                                 resolved_types: list[object] | None = None
                                 if is_tick_window:
