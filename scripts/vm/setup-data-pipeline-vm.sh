@@ -169,11 +169,13 @@ if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
 fi
 
 log "Installing Python dependencies..."
-INSTALL_ARGS=()
+# Install in dependency order: UAC first (no deps on others), then UTL (depends
+# on UAC), then the service (depends on both). This ensures editable installs
+# can resolve local dependencies. --find-links uses cached pre-compiled wheels.
 for dir in "${INSTALLED_DIRS[@]}"; do
-  INSTALL_ARGS+=("-e" "$dir")
+  log "  Installing $(basename "$dir")..."
+  uv pip install --find-links "$WHEEL_CACHE" -e "$dir" 2>&1 | tail -1
 done
-uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" 2>&1 | tail -1
 
 # Upload any newly compiled wheels to GCS for next VM
 NEW_WHEELS=$(find "$VENV/lib" -name "*.whl" -newer "$WHEEL_CACHE" 2>/dev/null | wc -l)
