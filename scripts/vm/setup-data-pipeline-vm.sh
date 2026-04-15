@@ -152,13 +152,40 @@ else
   exit 1
 fi
 
-# ── 4. Install dependencies ──
+# ── 4. Install dependencies (with GCS wheel cache) ──
+# External deps (web3, pandas, etc.) are slow to compile from source.
+# Cache compiled wheels in GCS so subsequent VMs skip compilation.
+# Code repos (UAC/UTL/service) are installed as editable (-e) — always fresh.
+WHEEL_CACHE="/tmp/wheel-cache"
+WHEEL_GCS="gs://${CODE_BUCKET}/wheels/py313-linux-x86_64"
+mkdir -p "$WHEEL_CACHE"
+
+# Try to download cached wheels
+if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
+  log "Downloading cached wheels from GCS..."
+  gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
+  WHEEL_COUNT=$(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l)
+  log "Downloaded $WHEEL_COUNT cached wheels"
+fi
+
 log "Installing Python dependencies..."
 INSTALL_ARGS=()
 for dir in "${INSTALLED_DIRS[@]}"; do
   INSTALL_ARGS+=("-e" "$dir")
 done
-uv pip install "${INSTALL_ARGS[@]}" 2>&1 | tail -1
+uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" 2>&1 | tail -1
+
+# Upload any newly compiled wheels to GCS for next VM
+NEW_WHEELS=$(find "$VENV/lib" -name "*.whl" -newer "$WHEEL_CACHE" 2>/dev/null | wc -l)
+if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
+  log "Caching compiled wheels to GCS..."
+  # Build wheels for all installed packages (captures compiled C extensions)
+  uv pip wheel --wheel-dir "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" -q 2>/dev/null || true
+  gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
+  touch "$WHEEL_CACHE/.uploaded"
+  log "Wheels cached to $WHEEL_GCS"
+fi
+
 python -c 'from unified_api_contracts.sports import LEAGUE_REGISTRY; print(f"UAC OK: {len(LEAGUE_REGISTRY)} leagues")'
 # Verify whichever service is installed
 python -c 'import market_tick_data_service; print("MTDS OK")' 2>/dev/null || true
