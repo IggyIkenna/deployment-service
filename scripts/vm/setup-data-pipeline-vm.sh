@@ -68,6 +68,19 @@ log "Venv Python: $(python --version) at $(which python)"
 pip install uv -q 2>&1 | tail -1
 log "uv: $(uv --version)"
 
+# ── 2b. Read VM metadata early (needed for selective tarball install) ──
+_meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+VM_TASK=$(_meta VM_TASK)
+VM_VENUE=$(_meta VM_VENUE)
+VM_START_DATE=$(_meta VM_START_DATE)
+VM_END_DATE=$(_meta VM_END_DATE)
+VM_CATEGORY=$(_meta VM_CATEGORY CEFI)
+VM_OPERATION=$(_meta VM_OPERATION download)
+VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
+VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
+VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
+log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK CATEGORY=$VM_CATEGORY PROVIDER=$VM_SPORTS_PROVIDER"
+
 # ── 3. Deploy code ──
 # Core repos (always required) + optional service repos.
 # create-code-tarballs.sh uploads these to gs://{CODE_BUCKET}/code/:
@@ -80,8 +93,17 @@ log "uv: $(uv --version)"
 log "Deploying code from GCS..."
 mkdir -p "$WORKSPACE/uac" "$WORKSPACE/utl" "$WORKSPACE/mtds" "$LOGS"
 
-# Tarball → workspace directory mapping
-declare -A TARBALL_MAP=(
+# Service → tarball mapping. Only install what VM_SERVICE needs.
+# UAC + UTL are always required (shared contracts + library).
+declare -A SERVICE_TARBALLS=(
+  ["market_tick_data_service"]="mtds-code"
+  ["instruments_service"]="instruments-service-code"
+  ["features_sports_service"]="features-sports-service-code"
+  ["features_onchain_service"]="features-onchain-service-code"
+  ["market_data_processing_service"]="market-data-processing-service-code"
+  ["features_delta_one_service"]="features-delta-one-service-code"
+)
+declare -A TARBALL_DIRS=(
   ["unified-api-contracts-code"]="uac"
   ["unified-trading-library-code"]="utl"
   ["mtds-code"]="mtds"
@@ -92,17 +114,30 @@ declare -A TARBALL_MAP=(
   ["features-delta-one-service-code"]="fd1"
 )
 
+# Always install core (UAC + UTL) + the service tarball for VM_SERVICE
+NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code")
+SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
+if [ -n "$SERVICE_TARBALL" ]; then
+  NEEDED_TARBALLS+=("$SERVICE_TARBALL")
+else
+  log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
+  for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
+fi
+log "Tarballs to install: ${NEEDED_TARBALLS[*]}"
+
 INSTALLED_DIRS=()
 
 if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
-  for tarball_name in "${!TARBALL_MAP[@]}"; do
-    dir="${TARBALL_MAP[$tarball_name]}"
+  for tarball_name in "${NEEDED_TARBALLS[@]}"; do
+    dir="${TARBALL_DIRS[$tarball_name]}"
     tarball_path="/tmp/${tarball_name}.tar.gz"
     if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz" "$tarball_path" 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
       tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
       log "Deployed $tarball_name → $WORKSPACE/$dir"
+    else
+      log "WARNING: tarball $tarball_name not found in GCS — skipping"
     fi
   done
   log "Code deployed from GCS (${#INSTALLED_DIRS[@]} repos)"
@@ -130,20 +165,7 @@ python -c 'import market_tick_data_service; print("MTDS OK")' 2>/dev/null || tru
 python -c 'import instruments_service; print("instruments-service OK")' 2>/dev/null || true
 log "Dependencies installed successfully (${#INSTALLED_DIRS[@]} packages)"
 
-# ── 5. Read task from metadata (startup-script mode) ──
-# Read VM metadata — use -sf (silent + fail on HTTP errors) so missing
-# attributes return empty string via || fallback, not HTML 404 pages.
-_meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
-VM_TASK=$(_meta VM_TASK)
-VM_VENUE=$(_meta VM_VENUE)
-VM_START_DATE=$(_meta VM_START_DATE)
-VM_END_DATE=$(_meta VM_END_DATE)
-VM_CATEGORY=$(_meta VM_CATEGORY CEFI)
-VM_OPERATION=$(_meta VM_OPERATION download)
-VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
-VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
-VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
-
+# ── 5. Auto-launch task (metadata already read in step 2b) ──
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
