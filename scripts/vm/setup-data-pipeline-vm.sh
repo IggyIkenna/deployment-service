@@ -169,13 +169,17 @@ if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
 fi
 
 log "Installing Python dependencies..."
-# Install in dependency order: UAC first (no deps on others), then UTL (depends
-# on UAC), then the service (depends on both). This ensures editable installs
-# can resolve local dependencies. --find-links uses cached pre-compiled wheels.
+# --no-sources: ignore [tool.uv.sources] in pyproject.toml which points to
+# sibling paths like ../unified-api-contracts that don't exist in our
+# tarball layout (we use short names: uac, utl, instruments).
+# Instead, editable installs resolve deps from each other since all are
+# installed in the same call.
+INSTALL_ARGS=("--no-sources")
 for dir in "${INSTALLED_DIRS[@]}"; do
-  log "  Installing $(basename "$dir")..."
-  uv pip install --find-links "$WHEEL_CACHE" -e "$dir" 2>&1 | tail -1
+  INSTALL_ARGS+=("-e" "$dir")
 done
+log "  uv pip install ${INSTALL_ARGS[*]}"
+uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" 2>&1 | tail -5
 
 # Upload any newly compiled wheels to GCS for next VM
 NEW_WHEELS=$(find "$VENV/lib" -name "*.whl" -newer "$WHEEL_CACHE" 2>/dev/null | wc -l)
