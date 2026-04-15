@@ -15,10 +15,6 @@ defaults:
 
 shared_bucket_services:
   - features-calendar-service
-  - ml-training-service
-  - ml-inference-service
-  - pnl-attribution-service
-  - risk-and-exposure-service
   - alerting-service
   - reconciliation-service
 
@@ -28,6 +24,14 @@ service_categories:
     onchain: [cefi, defi]
     sports: [sports]
     prediction: [prediction]
+    cross-instrument: [prediction]
+    # execution/strategy only have financial categories
+    execution: [cefi, tradfi, defi]
+    strategy: [cefi, tradfi, defi]
+    # risk/pnl/positions have all 5 categories
+    risk: [cefi, tradfi, defi, prediction, sports]
+    pnl: [cefi, tradfi, defi]
+    positions: [cefi, tradfi, defi, prediction, sports]
   default_categories: [cefi, tradfi, defi, sports, prediction]
 
 infrastructure_buckets:
@@ -127,6 +131,103 @@ infrastructure_buckets:
     - name_template: "eigenlayer-rewards-test-{project_id}"
       service: market-tick-data-service
       type: reference_data_test
+      category: defi
+    # Infrastructure — shared buckets
+    - name_template: "config-store-{project_id}"
+      service: infrastructure
+      type: config
+      category: ALL
+    - name_template: "{project_id}-events"
+      service: infrastructure
+      type: events
+      category: ALL
+    - name_template: "{project_id}-build-metadata"
+      service: infrastructure
+      type: build
+      category: ALL
+    - name_template: "client-reporting-data-{project_id}"
+      service: client-reporting
+      type: reporting
+      category: ALL
+    - name_template: "databento-batch-registry-asia-{project_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: tradfi
+    - name_template: "backtest-configs-{project_id}"
+      service: strategy-service
+      type: config
+      category: ALL
+    - name_template: "backtest-results-{project_id}"
+      service: strategy-service
+      type: results
+      category: ALL
+    # ML configs — shared across categories
+    - name_template: "ml-configs-store-{project_id}"
+      service: ml-training-service
+      type: config
+      category: ALL
+    - name_template: "ml-configs-store-test-{project_id}"
+      service: ml-training-service
+      type: config_test
+      category: ALL
+    # Deployment state — per-env
+    - name_template: "unified-deployment-state-{project_id}"
+      service: deployment-service
+      type: infrastructure
+      category: ALL
+    - name_template: "uts-terraform-state-{project_id}"
+      service: infrastructure
+      type: infrastructure
+      category: ALL
+    # Legacy risk-store naming (category-prefix instead of suffix)
+    - name_template: "risk-store-cefi-{project_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: cefi
+    - name_template: "risk-store-cefi-test-{project_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: cefi
+    - name_template: "risk-store-defi-{project_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: defi
+    - name_template: "risk-store-defi-test-{project_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: defi
+    - name_template: "risk-store-tradfi-{project_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: tradfi
+    - name_template: "risk-store-tradfi-test-{project_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: tradfi
+    - name_template: "risk-store-prediction-{project_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: prediction
+    - name_template: "risk-store-prediction-test-{project_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: prediction
+    - name_template: "risk-store-sports-{project_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: sports
+    - name_template: "risk-store-sports-test-{project_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: sports
+    # Volatility defi (was missing from restricted_categories)
+    - name_template: "features-volatility-defi-{project_id}"
+      service: features-volatility-service
+      type: output
+      category: defi
+    - name_template: "features-volatility-defi-test-{project_id}"
+      service: features-volatility-service
+      type: test
       category: defi
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
@@ -232,6 +333,15 @@ aws_bucket_mappings:
   features-calendar: "unified-trading-features-calendar-{account_id}"
   features-sports: "unified-trading-features-sports-{account_id}"
   features-prediction: "unified-trading-features-prediction-{account_id}"
+  features-cross-instrument: "unified-trading-features-cross-instrument-{category}-{account_id}"
+  execution-store: "unified-trading-execution-{category}-{account_id}"
+  strategy-store: "unified-trading-strategy-{category}-{account_id}"
+  risk-store: "unified-trading-risk-{category}-{account_id}"
+  pnl-store: "unified-trading-pnl-{category}-{account_id}"
+  positions-store: "unified-trading-positions-{category}-{account_id}"
+  ml-models-store: "unified-trading-ml-models-{account_id}"
+  ml-predictions-store: "unified-trading-ml-predictions-{account_id}"
+  ml-configs-store: "unified-trading-ml-configs-{account_id}"
   gas-fees: "unified-trading-gas-fees-{account_id}"
   solana-defi: "unified-trading-solana-defi-{account_id}"
   evm-defi: "unified-trading-evm-defi-{account_id}"
@@ -298,3 +408,15 @@ validation:
     - template_contains: prediction
       invalid_category: defi
       reason: "Prediction buckets are prediction-category only"
+    - template_contains: execution-store
+      invalid_category: sports
+      reason: "Execution store is financial categories only"
+    - template_contains: execution-store
+      invalid_category: prediction
+      reason: "Execution store is financial categories only"
+    - template_contains: strategy-store
+      invalid_category: sports
+      reason: "Strategy store is financial categories only"
+    - template_contains: strategy-store
+      invalid_category: prediction
+      reason: "Strategy store is financial categories only"

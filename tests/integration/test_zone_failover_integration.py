@@ -9,16 +9,44 @@ Tests:
 """
 
 import os
+from unittest.mock import MagicMock
 
 import pytest
 
 
 @pytest.fixture
-def app():
-    """Create FastAPI app for testing (requires config_dir)."""
+def app(monkeypatch):
+    """Create FastAPI app for testing (requires config_dir).
+
+    Patches PubSubEventSink and events interface to avoid real Pub/Sub
+    calls during TestClient lifespan startup, and disables auth so
+    unauthenticated test requests reach the route handlers.
+    """
     from pathlib import Path
 
+    # Disable auth before deployment_api.auth is imported (module-level guard)
+    monkeypatch.setenv("DISABLE_AUTH", "true")
+
+    # Import the app (triggers module-level setup_events with real PubSubEventSink)
     from deployment_api.main import app as _app
+    from unified_trading_library import (
+        setup_events as _setup_events,
+    )
+    from unified_trading_library import sink as _sink_module
+
+    # Replace the global event writer with a MockEventSink so log_event()
+    # calls from RequestAuditMiddleware do not hit real Pub/Sub.
+    mock_sink = _sink_module.MockEventSink()
+    _setup_events(service_name="deployment-api", mode="test", sink=mock_sink)
+
+    # Also patch the module-level _event_sink so nothing references the real one.
+    monkeypatch.setattr(
+        "deployment_api.main._event_sink",
+        MagicMock(),
+    )
+
+    # Patch DISABLE_AUTH in the already-imported auth module
+    monkeypatch.setattr("deployment_api.auth.DISABLE_AUTH", True)
 
     # Ensure config_dir exists for lifespan
     api_dir = Path(__file__).resolve().parent.parent.parent / "api"

@@ -77,7 +77,7 @@ class TestVenueStartDateFiltering:
     """Tests for venue start date filtering (respect_start_dates parameter)."""
 
     def test_respect_start_dates_filters_invalid_combinations(
-        self, temp_config_with_start_dates, mock_env_vars
+        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
     ):
         """Test that shards before venue start date are filtered out when respect_start_dates=True."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
@@ -104,7 +104,7 @@ class TestVenueStartDateFiltering:
             )
 
     def test_ignore_start_dates_includes_all_combinations(
-        self, temp_config_with_start_dates, mock_env_vars
+        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
     ):
         """Test that all shards are included when respect_start_dates=False."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
@@ -133,7 +133,9 @@ class TestVenueStartDateFiltering:
         # Unfiltered should have more or equal shards
         assert len(shards_unfiltered) >= len(shards_filtered)
 
-    def test_asymmetric_shard_counts_across_days(self, temp_config_with_start_dates, mock_env_vars):
+    def test_asymmetric_shard_counts_across_days(
+        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
+    ):
         """Test that shard counts are asymmetric when venues launch on different days.
 
         This verifies that if we have:
@@ -165,7 +167,9 @@ class TestVenueStartDateFiltering:
         assert "BINANCE-SPOT" in venues_in_shards
         assert "DERIBIT" in venues_in_shards
 
-    def test_category_start_date_fallback(self, temp_config_with_start_dates, mock_env_vars):
+    def test_category_start_date_fallback(
+        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
+    ):
         """Test that category start date is used when venue start date is not configured."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
 
@@ -209,7 +213,9 @@ class TestVenueStartDateFiltering:
         # Should not error and should include all shards
         assert len(shards) > 0
 
-    def test_respect_start_dates_default_is_true(self, temp_config_with_start_dates, mock_env_vars):
+    def test_respect_start_dates_default_is_true(
+        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
+    ):
         """Test that respect_start_dates defaults to True."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
 

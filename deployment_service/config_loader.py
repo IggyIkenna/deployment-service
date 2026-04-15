@@ -252,9 +252,7 @@ class ConfigLoader(BaseConfigLoader):
                                     is_in_tradfi_tick_window as _is_tick_window_fn,
                                 )
 
-                                is_tick_window = (
-                                    _is_tick_window_fn(date_str) if date_str else False
-                                )
+                                is_tick_window = _is_tick_window_fn(date_str) if date_str else False
 
                                 resolved_types: list[object] | None = None
                                 if is_tick_window:
