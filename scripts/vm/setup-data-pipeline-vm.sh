@@ -134,6 +134,8 @@ VM_END_DATE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.intern
 VM_CATEGORY=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_CATEGORY 2>/dev/null || echo "CEFI")
 VM_OPERATION=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_OPERATION 2>/dev/null || echo "download")
 VM_SERVICE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SERVICE 2>/dev/null || echo "market_tick_data_service")
+VM_SPORTS_PROVIDER=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SPORTS_PROVIDER 2>/dev/null || echo "")
+VM_SPORTS_ENTITY=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SPORTS_ENTITY 2>/dev/null || echo "")
 
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
@@ -145,6 +147,8 @@ if [ -n "$VM_TASK" ]; then
   [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
+  [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
 
   log "Auto-launching: python -m $VM_SERVICE $CLI_ARGS"
   nohup "$VENV/bin/python" -m "$VM_SERVICE" $CLI_ARGS \
