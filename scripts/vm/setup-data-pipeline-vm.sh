@@ -65,28 +65,49 @@ source "$VENV/bin/activate"
 log "Venv Python: $(python --version) at $(which python)"
 
 # ── 3. Deploy code ──
+# Core repos (always required) + optional service repos.
+# create-code-tarballs.sh uploads these to gs://{CODE_BUCKET}/code/:
+#   unified-api-contracts-code.tar.gz  (core)
+#   unified-trading-library-code.tar.gz (core)
+#   mtds-code.tar.gz                   (core)
+#   instruments-service-code.tar.gz    (optional)
+#   features-sports-service-code.tar.gz (optional)
+#   ... any --include repo
 log "Deploying code from GCS..."
 mkdir -p "$WORKSPACE/uac" "$WORKSPACE/utl" "$WORKSPACE/mtds" "$LOGS"
 
-# Try GCS first (for startup-script mode), fall back to local tarballs
+# Tarball → workspace directory mapping
+declare -A TARBALL_MAP=(
+  ["unified-api-contracts-code"]="uac"
+  ["unified-trading-library-code"]="utl"
+  ["mtds-code"]="mtds"
+  ["instruments-service-code"]="instruments"
+  ["features-sports-service-code"]="fss"
+  ["features-onchain-service-code"]="fos"
+  ["market-data-processing-service-code"]="mdps"
+  ["features-delta-one-service-code"]="fd1"
+)
+
+INSTALLED_DIRS=()
+
 if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
-  gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/
-  gsutil -q cp "gs://${CODE_BUCKET}/code/unified-trading-library-code.tar.gz" /tmp/
-  gsutil -q cp "gs://${CODE_BUCKET}/code/mtds-code.tar.gz" /tmp/
-  tar xzf /tmp/unified-api-contracts-code.tar.gz -C "$WORKSPACE/uac"
-  tar xzf /tmp/unified-trading-library-code.tar.gz -C "$WORKSPACE/utl"
-  tar xzf /tmp/mtds-code.tar.gz -C "$WORKSPACE/mtds"
-  log "Code deployed from GCS"
+  for tarball_name in "${!TARBALL_MAP[@]}"; do
+    dir="${TARBALL_MAP[$tarball_name]}"
+    tarball_path="/tmp/${tarball_name}.tar.gz"
+    if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz" "$tarball_path" 2>/dev/null; then
+      mkdir -p "$WORKSPACE/$dir"
+      tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
+      INSTALLED_DIRS+=("$WORKSPACE/$dir")
+      log "Deployed $tarball_name → $WORKSPACE/$dir"
+    fi
+  done
+  log "Code deployed from GCS (${#INSTALLED_DIRS[@]} repos)"
 elif [ -f /home/ikennaigboaka/unified-api-contracts-code.tar.gz ]; then
   tar xzf /home/ikennaigboaka/unified-api-contracts-code.tar.gz -C "$WORKSPACE/uac"
   tar xzf /home/ikennaigboaka/unified-trading-library-code.tar.gz -C "$WORKSPACE/utl"
   tar xzf /home/ikennaigboaka/mtds-code.tar.gz -C "$WORKSPACE/mtds"
+  INSTALLED_DIRS=("$WORKSPACE/uac" "$WORKSPACE/utl" "$WORKSPACE/mtds")
   log "Code deployed from local tarballs"
-elif [ -f /tmp/unified-api-contracts-code.tar.gz ]; then
-  tar xzf /tmp/unified-api-contracts-code.tar.gz -C "$WORKSPACE/uac"
-  tar xzf /tmp/unified-trading-library-code.tar.gz -C "$WORKSPACE/utl"
-  tar xzf /tmp/mtds-code.tar.gz -C "$WORKSPACE/mtds"
-  log "Code deployed from /tmp tarballs"
 else
   log "ERROR: No code tarballs found. SCP them to /home/ikennaigboaka/ or upload to gs://${CODE_BUCKET}/code/"
   exit 1
@@ -94,10 +115,16 @@ fi
 
 # ── 4. Install dependencies ──
 log "Installing Python dependencies..."
-pip install -e "$WORKSPACE/uac" -e "$WORKSPACE/utl" -e "$WORKSPACE/mtds" 2>&1 | tail -1
-python -c 'import market_tick_data_service; print("MTDS OK")'
+INSTALL_ARGS=()
+for dir in "${INSTALLED_DIRS[@]}"; do
+  INSTALL_ARGS+=("-e" "$dir")
+done
+pip install "${INSTALL_ARGS[@]}" 2>&1 | tail -1
 python -c 'from unified_api_contracts.sports import LEAGUE_REGISTRY; print(f"UAC OK: {len(LEAGUE_REGISTRY)} leagues")'
-log "Dependencies installed successfully"
+# Verify whichever service is installed
+python -c 'import market_tick_data_service; print("MTDS OK")' 2>/dev/null || true
+python -c 'import instruments_service; print("instruments-service OK")' 2>/dev/null || true
+log "Dependencies installed successfully (${#INSTALLED_DIRS[@]} packages)"
 
 # ── 5. Read task from metadata (startup-script mode) ──
 VM_TASK=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_TASK 2>/dev/null || echo "")
@@ -106,16 +133,21 @@ VM_START_DATE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.inte
 VM_END_DATE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_END_DATE 2>/dev/null || echo "")
 VM_CATEGORY=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_CATEGORY 2>/dev/null || echo "CEFI")
 VM_OPERATION=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_OPERATION 2>/dev/null || echo "download")
+VM_SERVICE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SERVICE 2>/dev/null || echo "market_tick_data_service")
 
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
 
-if [ -n "$VM_TASK" ] && [ -n "$VM_VENUE" ]; then
-  log "Auto-launching task: $VM_TASK venue=$VM_VENUE dates=$VM_START_DATE→$VM_END_DATE"
-  nohup "$VENV/bin/python" -m market_tick_data_service \
-    --operation "$VM_OPERATION" --mode batch --category "$VM_CATEGORY" \
-    --venues "$VM_VENUE" --start-date "$VM_START_DATE" --end-date "$VM_END_DATE" \
+if [ -n "$VM_TASK" ]; then
+  # Build CLI args — --venues is optional (some services don't use it)
+  CLI_ARGS="--operation $VM_OPERATION --mode batch --category $VM_CATEGORY"
+  [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+
+  log "Auto-launching: python -m $VM_SERVICE $CLI_ARGS"
+  nohup "$VENV/bin/python" -m "$VM_SERVICE" $CLI_ARGS \
     > "$LOGS/backfill.log" 2>&1 &
   log "Task launched PID: $!"
 else
