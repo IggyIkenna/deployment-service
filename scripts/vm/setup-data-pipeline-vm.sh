@@ -127,15 +127,18 @@ python -c 'import instruments_service; print("instruments-service OK")' 2>/dev/n
 log "Dependencies installed successfully (${#INSTALLED_DIRS[@]} packages)"
 
 # ── 5. Read task from metadata (startup-script mode) ──
-VM_TASK=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_TASK 2>/dev/null || echo "")
-VM_VENUE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_VENUE 2>/dev/null || echo "")
-VM_START_DATE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_START_DATE 2>/dev/null || echo "")
-VM_END_DATE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_END_DATE 2>/dev/null || echo "")
-VM_CATEGORY=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_CATEGORY 2>/dev/null || echo "CEFI")
-VM_OPERATION=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_OPERATION 2>/dev/null || echo "download")
-VM_SERVICE=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SERVICE 2>/dev/null || echo "market_tick_data_service")
-VM_SPORTS_PROVIDER=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SPORTS_PROVIDER 2>/dev/null || echo "")
-VM_SPORTS_ENTITY=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SPORTS_ENTITY 2>/dev/null || echo "")
+# Read VM metadata — use -sf (silent + fail on HTTP errors) so missing
+# attributes return empty string via || fallback, not HTML 404 pages.
+_meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+VM_TASK=$(_meta VM_TASK)
+VM_VENUE=$(_meta VM_VENUE)
+VM_START_DATE=$(_meta VM_START_DATE)
+VM_END_DATE=$(_meta VM_END_DATE)
+VM_CATEGORY=$(_meta VM_CATEGORY CEFI)
+VM_OPERATION=$(_meta VM_OPERATION download)
+VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
+VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
+VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
 
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
