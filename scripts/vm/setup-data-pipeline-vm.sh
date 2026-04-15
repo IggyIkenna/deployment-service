@@ -53,7 +53,7 @@ apt-get update -qq
 apt-get install -y -qq \
   python3.13 python3.13-venv python3.13-dev \
   build-essential \
-  git curl
+  git curl pipx
 
 log "Python 3.13: $(python3.13 --version)"
 
@@ -63,6 +63,10 @@ rm -rf "$VENV"
 python3.13 -m venv "$VENV"
 source "$VENV/bin/activate"
 log "Venv Python: $(python --version) at $(which python)"
+
+# Install uv inside venv (10x faster than pip for dependency resolution)
+pip install uv -q 2>&1 | tail -1
+log "uv: $(uv --version)"
 
 # ── 3. Deploy code ──
 # Core repos (always required) + optional service repos.
@@ -119,7 +123,7 @@ INSTALL_ARGS=()
 for dir in "${INSTALLED_DIRS[@]}"; do
   INSTALL_ARGS+=("-e" "$dir")
 done
-pip install "${INSTALL_ARGS[@]}" 2>&1 | tail -1
+uv pip install "${INSTALL_ARGS[@]}" 2>&1 | tail -1
 python -c 'from unified_api_contracts.sports import LEAGUE_REGISTRY; print(f"UAC OK: {len(LEAGUE_REGISTRY)} leagues")'
 # Verify whichever service is installed
 python -c 'import market_tick_data_service; print("MTDS OK")' 2>/dev/null || true
