@@ -1231,6 +1231,17 @@ resource "google_storage_bucket" "ml_configs" {
   labels = merge(local.common_labels, { "purpose" = "ml-configs", "tier" = "group-b" })
 }
 
+resource "google_storage_bucket" "ml_training_artifacts" {
+  name     = "ml-training-artifacts-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "ml-training-artifacts", "tier" = "group-b" })
+}
+
 resource "google_storage_bucket" "strategy_cefi" {
   name     = "strategy-store-cefi-${var.environment}-${var.project_id}"
   project  = var.project_id

@@ -342,6 +342,7 @@ aws_bucket_mappings:
   ml-models-store: "unified-trading-ml-models-{account_id}"
   ml-predictions-store: "unified-trading-ml-predictions-{account_id}"
   ml-configs-store: "unified-trading-ml-configs-{account_id}"
+  ml-training-artifacts: "unified-trading-ml-training-artifacts-{account_id}"
   gas-fees: "unified-trading-gas-fees-{account_id}"
   solana-defi: "unified-trading-solana-defi-{account_id}"
   evm-defi: "unified-trading-evm-defi-{account_id}"

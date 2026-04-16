@@ -59,6 +59,11 @@ output "ml_configs_store_bucket" {
   value       = var.create_gcs_buckets ? google_storage_bucket.ml_configs_store[0].name : ""
 }
 
+output "ml_training_artifacts_bucket" {
+  description = "ML training artifacts bucket name (experiments, SHAP, grid configs)"
+  value       = var.create_gcs_buckets ? google_storage_bucket.ml_training_artifacts[0].name : ""
+}
+
 # =============================================================================
 # GCS Bucket Outputs - Strategy & Execution
 # =============================================================================
@@ -115,6 +120,7 @@ output "all_bucket_names" {
     var.create_gcs_buckets ? [google_storage_bucket.ml_models_store[0].name] : [],
     var.create_gcs_buckets ? [google_storage_bucket.ml_predictions_store[0].name] : [],
     var.create_gcs_buckets ? [google_storage_bucket.ml_configs_store[0].name] : [],
+    var.create_gcs_buckets ? [google_storage_bucket.ml_training_artifacts[0].name] : [],
     [for b in google_storage_bucket.strategy_store : b.name],
     [for b in google_storage_bucket.execution_store : b.name],
     var.create_gcs_buckets ? [google_storage_bucket.deployment_orchestration[0].name] : [],
