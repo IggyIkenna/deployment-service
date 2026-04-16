@@ -3,7 +3,8 @@ description: TradFi pipeline — equities, futures, options
 category: TRADFI
 services:
   - instruments-service
-  - corporate-actions
+  # corporate-actions: repo not yet created — uncomment when available
+  # - corporate-actions
   - market-tick-data-service
   - market-data-processing-service
   - features-calendar-service

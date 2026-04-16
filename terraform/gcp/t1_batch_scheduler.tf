@@ -6,8 +6,11 @@
 # Cloud Run Job definitions are deployed at runtime by backends/cloud_run.py
 # (see main.tf NOTE). This file only provisions the Cloud Scheduler triggers.
 #
-# Schedule design:
+# Schedule design (pipeline DAG order):
+#   23:30 — instruments-service (pipeline root — instrument definitions, sports fixtures)
+#   00:00 — market-tick-data-service (raw tick data, odds — depends on instruments)
 #   00:30 — execution-service config snapshot (prerequisite for Stage 3 recon)
+#   01:00 — market-data-processing-service (candle aggregation — depends on MTDS)
 #   01:30 — features-calendar-service
 #   02:00 — features-delta-one, features-volatility
 #   02:30 — features-onchain, features-sports, features-cross-instrument,
@@ -36,10 +39,45 @@ locals {
   t1_service_account_email = google_service_account.t1_batch.email
 
   t1_batch_services = {
+    "instruments" = {
+      schedule    = "30 23 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-t1-recon"
+      description = "instruments-service T+1 recon batch — pipeline root: instrument definitions, sports fixtures, reference data"
+    }
+    "sports-fixtures-6am" = {
+      schedule    = "0 6 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — fetches fixture calendar for next 14 days (6am UTC)"
+    }
+    "sports-fixtures-noon" = {
+      schedule    = "0 12 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — noon UTC"
+    }
+    "sports-fixtures-6pm" = {
+      schedule    = "0 18 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — 6pm UTC"
+    }
+    "sports-fixtures-midnight" = {
+      schedule    = "0 0 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — midnight UTC"
+    }
+    "market-tick-data" = {
+      schedule    = "0 0 * * *"
+      job_name    = "${local.env_prefix}-market-tick-data-service-t1-recon"
+      description = "market-tick-data-service T+1 recon batch — raw tick data, odds (depends on instruments)"
+    }
     "execution-config-snapshot" = {
       schedule    = "30 0 * * *"
       job_name    = "${local.env_prefix}-execution-service-config-snapshot"
       description = "execution-service EOD config snapshot — prerequisite for Stage 3 recon"
+    }
+    "market-data-processing" = {
+      schedule    = "0 1 * * *"
+      job_name    = "${local.env_prefix}-market-data-processing-service-t1-recon"
+      description = "market-data-processing-service T+1 recon batch — candle aggregation (depends on MTDS)"
     }
     "features-calendar" = {
       schedule    = "30 1 * * *"

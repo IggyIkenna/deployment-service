@@ -3,7 +3,8 @@ description: Full pipeline — all services, all categories
 category: ALL
 services:
   - instruments-service
-  - corporate-actions
+  # corporate-actions: repo not yet created — uncomment when available
+  # - corporate-actions
   - market-tick-data-service
   - market-data-processing-service
   - features-calendar-service
@@ -22,7 +23,8 @@ services:
   - position-balance-monitor-service
   - pnl-attribution-service
   - risk-and-exposure-service
-  - risk-management-service
+  # risk-management-service: repo not yet created — uncomment when available
+  # - risk-management-service
   - alerting-service
   - batch-live-reconciliation-service
   - trading-agent-service

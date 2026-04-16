@@ -386,3 +386,34 @@ def temp_config_with_start_dates(
         yaml.dump(expected_start_dates_config, f)
 
     return temp_config_dir
+
+
+@pytest.fixture
+def mock_venue_start_dates(monkeypatch, expected_start_dates_config):
+    """Patch VenueMapping.get_venue_start_date to return test fixture dates.
+
+    Production code delegates venue start date lookups to UAC VenueMapping,
+    which returns real historical dates. Tests need controlled dates from
+    expected_start_dates_config to exercise filtering logic.
+    """
+    # Build a flat venue -> start_date lookup from the nested config
+    venue_dates: dict[str, str] = {}
+    for _service, categories in expected_start_dates_config.items():
+        if not isinstance(categories, dict):
+            continue
+        for _category, cat_config in categories.items():
+            if not isinstance(cat_config, dict):
+                continue
+            venues = cat_config.get("venues")
+            if isinstance(venues, dict):
+                for venue, start_date in venues.items():
+                    venue_dates[venue] = str(start_date)
+
+    def _mock_get_venue_start_date(self, venue: str) -> str | None:  # noqa: ANN001
+        return venue_dates.get(venue)
+
+    monkeypatch.setattr(
+        "unified_api_contracts.VenueMapping.get_venue_start_date",
+        _mock_get_venue_start_date,
+    )
+    return venue_dates

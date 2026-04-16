@@ -121,6 +121,7 @@ from .commands.deploy_missing import deploy_missing_commands
 from .commands.deployment import deployment_commands
 from .commands.management import management_commands
 from .commands.reporting import reporting_commands
+from .commands.sports_trigger import sports_trigger
 from .commands.validation import validation_commands
 
 # Add command groups
@@ -133,7 +134,7 @@ for command in (
     + validation_commands
     + reporting_commands
     + deploy_missing_commands
-    + [data_status]
+    + [data_status, sports_trigger]
 ):
     cli.add_command(command)
 

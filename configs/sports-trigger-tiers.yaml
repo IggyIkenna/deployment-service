@@ -1,0 +1,158 @@
+# Sports Trigger Tiers — fixture-proximate job scheduling
+#
+# Defines what data to collect relative to fixture kickoff times.
+# The sports trigger scheduler reads the fixture calendar from GCS,
+# determines which fixtures are at which T-minus stage, and fires
+# standard batch CLI invocations.
+#
+# Sports "live" = batch with --date today, fired at fixture-proximate times.
+
+# Tier 1: Discovery — periodic, not fixture-proximate
+# Refreshes the fixture calendar and slow-changing reference data
+discovery:
+  description: Fixture calendar + slow-changing reference data
+  frequency_hours: 6
+  services:
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: FIXTURES
+      description: Refresh future fixture calendar (next 14 days)
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: STANDINGS
+      description: Refresh league standings
+
+# Tier 2: Reference refresh — daily or at window boundaries
+# Injuries, transfers, team rosters — changes more frequently
+reference:
+  description: Daily reference data refresh (injuries, transfers, rosters)
+  frequency_hours: 24
+  window_aware: true # Only run transfer-related items during transfer windows
+  services:
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: INJURIES
+      description: Refresh injury/suspension data for all leagues
+      run_always: true
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: TRANSFERS
+      description: Refresh transfer data (only during transfer windows)
+      run_always: false
+      window_condition: transfer_window_open
+
+# Tier 3: Pre-match — fixture-proximate trigger windows
+# Fires at specific T-minus offsets before kickoff
+pre_match:
+  description: Fixture-proximate data collection
+  triggers:
+    - name: odds_t24h
+      offset_hours: -24
+      tolerance_minutes: 30
+      services:
+        - service: market-tick-data-service
+          operation: download
+          category: SPORTS
+          description: Odds snapshot at T-24h
+        - service: instruments-service
+          operation: instruments
+          category: SPORTS
+          args:
+            --sports-entity: PREDICTIONS
+          description: Pre-match predictions
+
+    - name: odds_t6h
+      offset_hours: -6
+      tolerance_minutes: 30
+      services:
+        - service: market-tick-data-service
+          operation: download
+          category: SPORTS
+          description: Odds snapshot at T-6h
+
+    - name: odds_t1h
+      offset_hours: -1
+      tolerance_minutes: 15
+      services:
+        - service: market-tick-data-service
+          operation: download
+          category: SPORTS
+          description: Closing odds snapshot at T-1h
+        - service: instruments-service
+          operation: instruments
+          category: SPORTS
+          args:
+            --sports-entity: LINEUPS
+          description: Confirmed lineups (when available)
+        - service: instruments-service
+          operation: instruments
+          category: SPORTS
+          args:
+            --sports-entity: WEATHER
+          description: Match-day weather nowcast
+
+    - name: features_pre_match
+      offset_hours: -1
+      tolerance_minutes: 15
+      depends_on: odds_t1h
+      services:
+        - service: features-sports-service
+          operation: compute
+          category: SPORTS
+          description: Compute pre-match features from all collected data
+
+    - name: inference_pre_match
+      offset_hours: -1
+      tolerance_minutes: 10
+      depends_on: features_pre_match
+      services:
+        - service: ml-inference-service
+          operation: infer
+          category: SPORTS
+          description: Run ML inference for pre-match predictions
+
+# Tier 4: Post-match — after fixture completion
+# Fires at T+offset after final whistle
+post_match:
+  description: Post-match data collection
+  triggers:
+    - name: stats_immediate
+      offset_minutes: 30
+      services:
+        - service: instruments-service
+          operation: instruments
+          category: SPORTS
+          args:
+            --sports-entity: FIXTURE_STATS
+          description: Final match stats (goals, shots, cards, etc.)
+
+    - name: stats_delayed
+      offset_hours: 24
+      services:
+        - service: instruments-service
+          operation: instruments
+          category: SPORTS
+          args:
+            --sports-entity: XG
+          description: Delayed advanced stats (xG from Understat/FootyStats)
+
+# GCS fixture calendar source
+# Primary path: sports_reference/fixtures/day={date}/ (legacy, has historical data)
+# Fallback: instrument_availability/by_date/day={date}/league={league}/venue=API_FOOTBALL_FIXTURES/
+# Future: sports_reference/by_date/day={date}/entity=fixtures/ (new convention, not yet populated)
+fixture_calendar:
+  bucket_template: instruments-store-sports-{project_id}
+  path_templates:
+    - sports_reference/fixtures/day={date}/
+    - sports_reference/by_date/day={date}/entity=fixtures/
+  kickoff_field: kickoff_utc
+  league_field: league_id
+  fixture_id_field: fixture_id

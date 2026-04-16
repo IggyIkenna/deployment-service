@@ -15,7 +15,13 @@ from ..utils.data_status_checkers import (
 )
 from ..utils.data_status_display_dynamic import display_dynamic_service_status
 from ..utils.data_status_display_fixed import display_fixed_service_status
+from ..utils.data_status_extended import (
+    run_live_freshness_check,
+    run_ml_experiments_check,
+    run_t1_check,
+)
 from ..utils.data_status_formatters import format_benchmark_info
+from ..utils.data_status_sports import display_sports_league_breakdown
 from ..utils.data_status_venue_utils import check_instruments_venue_coverage
 from ..utils.manifest_reader import ManifestReader
 
@@ -37,21 +43,26 @@ FIXED_DIMENSION_SERVICES = {
     "features-delta-one-service",
     "features-volatility-service",
     "features-onchain-service",
+    "features-sports-service",
+    "features-cross-instrument-service",
+    "features-multi-timeframe-service",
+    "features-commodity-service",
+    "features-calendar-service",
     "ml-inference-service",
 }
 
 
 @click.command("data-status")
-@click.option("--service", "-s", required=True, help="Service to check data status for")
+@click.option("--service", "-s", default=None, help="Service to check data status for")
 @click.option(
     "--start-date",
-    required=True,
+    default=None,
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="Start date (YYYY-MM-DD)",
 )
 @click.option(
     "--end-date",
-    required=True,
+    default=None,
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="End date (YYYY-MM-DD)",
 )
@@ -88,6 +99,11 @@ FIXED_DIMENSION_SERVICES = {
     help="[market-data-processing-service] Check per-timeframe completion",
 )
 @click.option(
+    "--sports-league-breakdown",
+    is_flag=True,
+    help="[SPORTS] Use fixture-based denominator per league instead of calendar days",
+)
+@click.option(
     "--detailed",
     "-d",
     is_flag=True,
@@ -114,12 +130,35 @@ FIXED_DIMENSION_SERVICES = {
     envvar="DATA_STATUS_SOURCE",
     help="Data source: manifest (fast, from catalogue), gcs (slow, blob scanning), auto (try manifest first)",
 )
+@click.option(
+    "--t1-check",
+    type=str,
+    default="",
+    metavar="CLUSTER",
+    help=(
+        "T+1 check: verify yesterday's data for all services in a cluster."
+        " Pass cluster name (cefi, tradfi, defi, sports, full)."
+    ),
+)
+@click.option(
+    "--ml-experiments",
+    is_flag=True,
+    help="List ML training experiments from GCS and check model metadata existence.",
+)
+@click.option(
+    "--live-freshness",
+    is_flag=True,
+    help=(
+        "Report live-mode data freshness (staleness) per category."
+        " Flags stale if >15min for CeFi/DeFi, >6h for sports."
+    ),
+)
 @click.pass_context
 def data_status(
     ctx,
-    service: str,
-    start_date: datetime,
-    end_date: datetime,
+    service: str | None,
+    start_date: datetime | None,
+    end_date: datetime | None,
     category: tuple[str, ...],
     venue: tuple[str, ...],
     output: str,
@@ -130,10 +169,14 @@ def data_status(
     check_data_types: bool,
     check_feature_groups: bool,
     check_timeframes: bool,
+    sports_league_breakdown: bool,
     detailed: bool,
     fast: bool,
     mode: str,
     source: str,
+    t1_check: str,
+    ml_experiments: bool,
+    live_freshness: bool,
 ):
     """
     Check data completion status for a service across a date range.
@@ -166,15 +209,66 @@ def data_status(
         # Check venue coverage within instruments parquet files (instruments-service only)
         data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
           --check-venues
+
+        # Sports fixture-based breakdown per league (denominator = fixture count, not days)
+        data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
+          --sports-league-breakdown
+
+        # T+1 check: verify yesterday's data across all services in a cluster
+        data-status --t1-check full
+
+        # List ML experiments and model metadata
+        data-status --ml-experiments
+
+        # Live freshness: check staleness of live-mode data
+        data-status -s market-tick-data-service --live-freshness
     """
     config_dir = ctx.obj.get("config_dir", "configs")
+
+    # ── Extended modes (t1-check, ml-experiments, live-freshness) ──
+    # These short-circuit before requiring --service/--start-date/--end-date.
+    if t1_check:
+        run_t1_check(cluster_name=t1_check, config_dir=config_dir, output=output)
+        return
+
+    if ml_experiments:
+        run_ml_experiments_check(output=output)
+        return
+
+    if live_freshness:
+        if not service:
+            click.echo(
+                click.style("--live-freshness requires --service", fg="red"),
+                err=True,
+            )
+            sys.exit(1)
+        run_live_freshness_check(
+            service=service, category=category, config_dir=config_dir, output=output
+        )
+        return
+
+    # ── Standard mode: --service, --start-date, --end-date are required ──
+    if not service:
+        click.echo(click.style("--service is required", fg="red"), err=True)
+        sys.exit(1)
+    if not start_date:
+        click.echo(click.style("--start-date is required", fg="red"), err=True)
+        sys.exit(1)
+    if not end_date:
+        click.echo(click.style("--end-date is required", fg="red"), err=True)
+        sys.exit(1)
+
     total_start = time.time()
 
     resolved_source = source
     used_manifest = False
 
     is_specialized_check = (
-        check_venues or check_data_types or check_feature_groups or check_timeframes
+        check_venues
+        or check_data_types
+        or check_feature_groups
+        or check_timeframes
+        or sports_league_breakdown
     )
     if not is_specialized_check and resolved_source in ("manifest", "auto"):
         used_manifest = _try_manifest_source(
@@ -259,6 +353,25 @@ def data_status(
                 )
                 sys.exit(1)
             check_timeframes_detailed(start_date, end_date, category, venue, config_dir, output)
+
+        elif sports_league_breakdown:
+            # Sports-specific: fixture-based denominator per league
+            _SPORTS_SERVICES = {
+                "instruments-service",
+                "market-tick-data-service",
+                "features-sports-service",
+            }
+            if service not in _SPORTS_SERVICES:
+                click.echo(
+                    click.style(
+                        "--sports-league-breakdown is only supported for sports services:"
+                        f" {', '.join(sorted(_SPORTS_SERVICES))}",
+                        fg="red",
+                    ),
+                    err=True,
+                )
+                sys.exit(1)
+            display_sports_league_breakdown(service, start_date, end_date, output, show_missing)
 
         elif service in DYNAMIC_DIMENSION_SERVICES:
             display_dynamic_service_status(

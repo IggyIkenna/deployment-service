@@ -3,7 +3,10 @@ description: Prediction markets — subset of sports pipeline
 category: PREDICTION
 services:
   - instruments-service
+  - market-tick-data-service
+  - market-data-processing-service
   - features-sports-service
+  - ml-inference-service
   - strategy-service
   - execution-service # LIVE operational mode (automated strategies)
   - execution-service:manual # MANUAL operational mode (operator booking + backup)

@@ -3,6 +3,8 @@ description: Sports betting pipeline — pre-match ML features, betting strategi
 category: SPORTS
 services:
   - instruments-service
+  - market-tick-data-service
+  - market-data-processing-service
   - features-sports-service
   - ml-training-service
   - ml-inference-service

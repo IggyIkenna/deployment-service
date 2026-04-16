@@ -10,6 +10,7 @@ Or directly:
 
 from fastapi import APIRouter, Depends, FastAPI
 
+from deployment_service.api.routes.ml_experiments import router as ml_experiments_router
 from deployment_service.api.routes.orchestration import router as orchestration_router
 from deployment_service.api.routes.state import router
 from deployment_service.auth_s2s import verify_service_token
@@ -25,4 +26,5 @@ app = FastAPI(
 _authenticated_router = APIRouter(dependencies=[Depends(verify_service_token)])
 _authenticated_router.include_router(router)
 _authenticated_router.include_router(orchestration_router)
+_authenticated_router.include_router(ml_experiments_router)
 app.include_router(_authenticated_router)

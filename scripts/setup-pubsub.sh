@@ -123,6 +123,11 @@ TOPIC_REGISTRY=(
     # Domain data (instruments, tick data) flows through GCS — no Pub/Sub needed
     "fill-events-polymarket|3|fill-events-polymarket-pnl,fill-events-polymarket-risk,fill-events-polymarket-strategy|3"
     "fill-events-kalshi|3|fill-events-kalshi-pnl,fill-events-kalshi-risk,fill-events-kalshi-strategy|3"
+
+    # Sports live streaming — per-fixture odds + stats for real-time visualization
+    # MTDS publishes live odds (Odds API + Betfair), instruments-service publishes live stats (API Football)
+    "sports-live-odds|3|sports-live-odds-api,sports-live-odds-features|3"
+    "sports-live-stats|3|sports-live-stats-api,sports-live-stats-features|3"
 )
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,8 @@
-# Terraform configuration for market-data-processing-service on AWS
+# Terraform configuration for features-multi-timeframe-service on AWS
 # Creates AWS Batch Job + Step Functions Workflow for daily T+1 operations
+# Computes cross-timeframe features (L3b): tf_momentum_alignment, tf_structure_context,
+# tf_vol_compression, tf_session_context.
+# Runs after features-delta-one-service (scheduled 12:00 PM UTC, FDS at 10:30 AM).
 
 terraform {
   required_version = ">= 1.0.0"
@@ -14,7 +17,7 @@ terraform {
   backend "s3" {
     # Configure in backend.hcl or via -backend-config
     # bucket = "terraform-state-bucket"
-    # key    = "services/market-data-processing-service/terraform.tfstate"
+    # key    = "services/features-multi-timeframe-service/terraform.tfstate"
     # region = "ap-northeast-1"
   }
 }
@@ -30,7 +33,7 @@ locals {
 
   # Step Functions definition for daily T+1 workflow
   workflow_definition = jsonencode({
-    Comment = "Daily T+1 workflow for market-data-processing-service"
+    Comment = "Daily T+1 workflow for features-multi-timeframe-service"
     StartAt = "ComputeDate"
     States = {
       ComputeDate = {
@@ -45,19 +48,14 @@ locals {
         Type     = "Task"
         Resource = "arn:aws:states:::batch:submitJob.sync"
         Parameters = {
-          JobName       = "market-data-processing-service-daily"
+          JobName       = "features-multi-timeframe-service-daily"
           JobDefinition = module.daily_job.arn
           JobQueue      = var.job_queue_arn
           ContainerOverrides = {
             Command = [
-              "--operation", "process",
-              "--mode", "batch",
-              "--CEFI",
-              "--TRADFI",
-              "--DEFI",
-              "--SPORTS",
-              "--PREDICTION",
-              "--timeframes", "15s,1m,5m,15m,1h,4h,24h",
+              "--operation", "compute", "--mode", "batch",
+              "--category", "CEFI",
+              "--feature-group", "all",
               "--start-date.$", "$.dateInfo.t_plus_1_date",
               "--end-date.$", "$.dateInfo.t_plus_1_date"
             ]
@@ -84,7 +82,7 @@ locals {
   })
 }
 
-# AWS Batch Job for market-data-processing-service
+# AWS Batch Job for features-multi-timeframe-service
 module "daily_job" {
   source = "../../../modules/container-job/aws"
 
@@ -102,11 +100,14 @@ module "daily_job" {
   job_role_arn       = var.job_role_arn
 
   environment_variables = {
-    ENVIRONMENT      = var.environment
-    AWS_REGION       = var.region
-    S3_BUCKET_CEFI   = var.s3_bucket_cefi
-    S3_BUCKET_TRADFI = var.s3_bucket_tradfi
-    S3_BUCKET_DEFI   = var.s3_bucket_defi
+    ENVIRONMENT                      = var.environment
+    AWS_REGION                       = var.region
+    S3_BUCKET_DELTA_ONE_CEFI         = var.s3_bucket_delta_one_cefi
+    S3_BUCKET_DELTA_ONE_TRADFI       = var.s3_bucket_delta_one_tradfi
+    S3_BUCKET_DELTA_ONE_DEFI         = var.s3_bucket_delta_one_defi
+    FEATURES_BUCKET_CEFI             = var.features_bucket_cefi
+    FEATURES_BUCKET_TRADFI           = var.features_bucket_tradfi
+    FEATURES_BUCKET_DEFI             = var.features_bucket_defi
   }
 
   secret_environment_variables = {}
@@ -119,12 +120,12 @@ module "daily_job" {
   create_log_group   = true
   log_retention_days = 30
 
-  service_name = "market-data-processing-service"
+  service_name = "features-multi-timeframe-service"
   environment  = var.environment
 
   tags = {
-    "app"     = "market-data-processing-service"
-    "version" = "v2"
+    "app"     = "features-multi-timeframe-service"
+    "version" = "v1"
   }
 }
 
@@ -134,12 +135,12 @@ module "daily_workflow" {
 
   name        = var.workflow_name
   region      = var.region
-  description = "Daily T+1 workflow for market-data-processing-service"
+  description = "Daily T+1 workflow for features-multi-timeframe-service"
 
   definition  = local.workflow_definition
   create_role = true
 
-  # Schedule at 10:00 AM UTC daily (after market-tick-data-service)
+  # Schedule at 12:00 PM UTC daily (after features-delta-one at 10:30 AM)
   schedule  = var.schedule
   time_zone = var.time_zone
 
@@ -150,7 +151,7 @@ module "daily_workflow" {
   }
 
   tags = {
-    "app"     = "market-data-processing-service"
-    "version" = "v2"
+    "app"     = "features-multi-timeframe-service"
+    "version" = "v1"
   }
 }
