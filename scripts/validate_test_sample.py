@@ -129,7 +129,7 @@ def check_instruments_bucket(
 
         for date in dates:
             # Check if instruments file exists for this date
-            prefix = f"instrument_availability/by_date/day-{date}/"
+            prefix = f"instrument_availability/by_date/day={date}/"
             blobs = list(bucket.list_blobs(prefix=prefix, max_results=1))
 
             if not blobs:
@@ -179,7 +179,7 @@ def check_market_data_bucket(
                     # URL encode the instrument key for file name
                     encoded_key = instrument_key.replace(":", "%3A").replace("@", "%40")
 
-                    prefix = f"raw_tick_data/by_date/day-{date}/{data_type}/{venue}/"
+                    prefix = f"raw_tick_data/by_date/day={date}/{data_type}/{venue}/"
 
                     blobs = list(bucket.list_blobs(prefix=prefix, max_results=10))
                     results["total_checked"] += 1

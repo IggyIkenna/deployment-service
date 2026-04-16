@@ -330,7 +330,7 @@ class GCSTestBucketManager:
         date_val = shard.dimensions.get("date") or {}
         date_str = date_val.get("start") or "" if isinstance(date_val, dict) else str(date_val)
 
-        prefix = f"by_date/day-{date_str}/"
+        prefix = f"by_date/day={date_str}/"
 
         files = self.list_output_files(bucket_name, prefix)
         return len(files) >= min_files
