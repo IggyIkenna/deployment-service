@@ -235,7 +235,7 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
 
 ### 1. Helper Function (Common Utility)
 
-Use **unified-events-interface** or **unified-trading-library** (top-level `log_event`). Do not use `unified_trading_library.observability` (module deleted).
+Use **unified-trading-library** or **unified-trading-library** (top-level `log_event`). Do not use `unified_trading_library.observability` (module deleted).
 
 Import in services:
 

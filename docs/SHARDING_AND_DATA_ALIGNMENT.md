@@ -56,7 +56,7 @@ Data status checks completion at the same granularity as shard dimensions:
 
 **Required:** If any upload within a shard fails, the service MUST:
 
-1. Log `FAILED` via `log_event("FAILED", details={"reason": "..."})` (UCS) or `log_event("FAILED", severity="ERROR", details={...})` (unified-events-interface)
+1. Log `FAILED` via `log_event("FAILED", details={"reason": "..."})` (UCS) or `log_event("FAILED", severity="ERROR", details={...})` (unified-trading-library)
 2. Exit with code 1 (`sys.exit(1)`)
 3. NOT report success when some uploads succeeded and others failed
 
@@ -88,9 +88,9 @@ Data status checks completion at the same granularity as shard dimensions:
 **Usage:**
 
 - **UCS (unified_trading_library):** `log_event("FAILED", details=str)` — second arg is details string
-- **unified-events-interface:** `log_event("FAILED", severity="ERROR", details={"reason": "...", "shard": "..."})` — details is dict
+- **unified-trading-library:** `log_event("FAILED", severity="ERROR", details={"reason": "...", "shard": "..."})` — details is dict
 
-Services using unified-events-interface must pass `details` as dict. For shard-level failures, include:
+Services using unified-trading-library must pass `details` as dict. For shard-level failures, include:
 
 ```python
 log_event("FAILED", severity="ERROR", details={
