@@ -213,18 +213,18 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
         pytest.skip("No event markers found")
     for py in find_python_files(Path.cwd()):
         text = py.read_text()
-        if "from unified_events_interface import" in text and "log_event" in text:
+        if "from unified_trading_library.events import" in text and "log_event" in text:
             return
         if "from unified_trading_library import" in text and "log_event" in text:
             return
         if "from unified_trading_library.observability import log_event" in text:
             pytest.fail(
                 "log_event must not be imported from unified_trading_library.observability (deleted). "
-                "Use: from unified_events_interface import setup_events, log_event "
+                "Use: from unified_trading_library.events import setup_events, log_event "
                 "or: from unified_trading_library import setup_service, log_event"
             )
     pytest.fail(
-        "log_event not imported. Add: from unified_events_interface import log_event "
+        "log_event not imported. Add: from unified_trading_library.events import log_event "
         "or: from unified_trading_library import log_event"
     )
 ```
@@ -240,7 +240,7 @@ Use **unified-events-interface** or **unified-trading-library** (top-level `log_
 Import in services:
 
 ```python
-from unified_events_interface import setup_events, log_event
+from unified_trading_library.events import setup_events, log_event
 # or with sink config:
 # from unified_trading_library import setup_service, GCSEventSink, log_event
 ```
@@ -250,7 +250,7 @@ from unified_events_interface import setup_events, log_event
 ```python
 import sys
 import logging
-from unified_events_interface import setup_events, log_event
+from unified_trading_library.events import setup_events, log_event
 # Or: from unified_trading_library import setup_service, log_event (with sink)
 
 logger = logging.getLogger(__name__)

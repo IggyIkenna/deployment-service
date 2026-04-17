@@ -28,7 +28,7 @@ ensure_artifact_infra() {
 # Tier 1–4: Libraries (must publish to Artifact Registry before dependent services)
 LIBRARIES_ORDER=(
   unified-config-interface
-  unified-events-interface
+  unified-trading-library
   unified-trading-library
   unified-domain-client
   unified-trade-execution-interface

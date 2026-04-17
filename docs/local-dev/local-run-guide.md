@@ -279,7 +279,7 @@ mkdir -p data/samples
 
 ### 2. Mock PubSub
 
-Each service uses `unified_events_interface` with a configurable sink:
+Each service uses `unified_trading_library.events` with a configurable sink:
 
 - `MockEventSink` — fully in-memory, no PubSub required (strategy-service uses this already)
 - `LocalFsEventSink` — writes events to local JSON files (features-delta-one uses this)
