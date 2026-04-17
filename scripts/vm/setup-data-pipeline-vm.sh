@@ -123,7 +123,6 @@ declare -A SERVICE_TARBALLS=(
 declare -A TARBALL_DIRS=(
   ["unified-api-contracts-code"]="uac"
   ["unified-trading-library-code"]="utl"
-  ["unified-trading-library-code"]="uei"
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
   ["features-sports-service-code"]="fss"
@@ -146,7 +145,9 @@ declare -A TARBALL_DIRS=(
 )
 
 # Always install core (UAC + UTL) + the service tarball for VM_SERVICE
-NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "unified-trading-library-code")
+# Note: UEI (unified-events-interface) has been consolidated into UTL at
+# unified_trading_library.events — no separate tarball needed.
+NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code")
 SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
 if [ -n "$SERVICE_TARBALL" ]; then
   NEEDED_TARBALLS+=("$SERVICE_TARBALL")
