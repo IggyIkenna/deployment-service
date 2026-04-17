@@ -25,17 +25,23 @@ END_DATE=""
 SKIP_EXISTING=""
 DRY_RUN=""
 CATEGORY_OVERRIDE=""
+STRATEGY=""
+LAYER_ONLY=""
+FROM_LAYER=""
 
 usage() {
     echo "Usage: $0 --cluster <name> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [options]"
     echo ""
     echo "Options:"
-    echo "  --cluster        Cluster name: cefi, defi, tradfi, sports, prediction"
+    echo "  --cluster        Cluster name: cefi, defi, tradfi, sports, prediction, full"
     echo "  --start-date     Start date (YYYY-MM-DD)"
     echo "  --end-date       End date (YYYY-MM-DD)"
     echo "  --skip-existing  Skip dates/entities that already have data in GCS"
     echo "  --dry-run        Log commands without executing"
     echo "  --category       Override category (default: from cluster config)"
+    echo "  --strategy <id>  Run single strategy within cluster (L6-L7)"
+    echo "  --layer <L1-L7>  Run specific layer only"
+    echo "  --from-layer <L1-L7>  Start from this layer (skip earlier layers)"
     exit 1
 }
 
@@ -47,11 +53,19 @@ while [[ $# -gt 0 ]]; do
         --skip-existing) SKIP_EXISTING="--skip-existing"; shift ;;
         --dry-run)     DRY_RUN="true"; shift ;;
         --category)    CATEGORY_OVERRIDE="$2"; shift 2 ;;
+        --strategy)    STRATEGY="$2"; shift 2 ;;
+        --layer)       LAYER_ONLY="$2"; shift 2 ;;
+        --from-layer)  FROM_LAYER="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; usage ;;
     esac
 done
 
 [[ -z "$CLUSTER" || -z "$START_DATE" || -z "$END_DATE" ]] && usage
+
+# Layer number extraction helper
+layer_num() {
+    echo "${1#L}" # L3 → 3
+}
 
 # Resolve category from cluster config
 if [[ -n "$CATEGORY_OVERRIDE" ]]; then
@@ -71,6 +85,9 @@ echo "Category: ${CATEGORY}"
 echo "Date range: ${START_DATE} → ${END_DATE}"
 echo "Skip existing: ${SKIP_EXISTING:-no}"
 echo "Dry run: ${DRY_RUN:-no}"
+[[ -n "$STRATEGY" ]] && echo "Strategy: ${STRATEGY}"
+[[ -n "$LAYER_ONLY" ]] && echo "Layer only: ${LAYER_ONLY}"
+[[ -n "$FROM_LAYER" ]] && echo "From layer: ${FROM_LAYER}"
 echo "=========================================="
 
 # Resolve workspace root (parent of deployment-service)
@@ -113,6 +130,25 @@ run_service() {
         ml-inference-service)
             cmd="cd ${svc_dir} && python -m ${svc_under} --operation infer --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
+        strategy-service)
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
+            ;;
+        execution-service)
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
+            ;;
+        pnl-attribution-service)
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
+            ;;
+        risk-and-exposure-service)
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
+            ;;
+        position-balance-monitor-service)
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            ;;
         *)
             echo "SKIP: ${svc} — no backfill command defined"
             return 0
@@ -146,59 +182,76 @@ run_service() {
     fi
 }
 
-# Data pipeline services in DAG order (from dependencies.yaml execution_order)
-# Only run data pipeline services — skip strategy/execution/risk for backfill
-PIPELINE_SERVICES=(
-    instruments-service
-    market-tick-data-service
-    market-data-processing-service
-)
+# ── Pipeline layers (L1-L7) ──
+# Each layer is an array of "layer_number:service" pairs.
+# L1: Reference data
+# L2: Market data download
+# L3: Market data processing
+# L4: Feature computation
+# L5: ML training + inference
+# L6: Strategy + execution backtest
+# L7: PnL + risk attribution
 
-# Feature services depend on cluster
+# L1-L3: Common to all clusters
+L1_SERVICES=("instruments-service")
+L2_SERVICES=("market-tick-data-service")
+L3_SERVICES=("market-data-processing-service")
+
+# L4-L7: Cluster-dependent
+L4_SERVICES=()
+L5_SERVICES=()
+L6_SERVICES=()
+L7_SERVICES=()
+
 case "$CLUSTER" in
     cefi)
-        PIPELINE_SERVICES+=(
+        L4_SERVICES=(
             features-calendar-service
             features-delta-one-service
             features-onchain-service
             features-cross-instrument-service
             features-multi-timeframe-service
-            ml-training-service
-            ml-inference-service
         )
+        L5_SERVICES=(ml-training-service ml-inference-service)
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
     defi)
-        PIPELINE_SERVICES+=(
+        L4_SERVICES=(
             features-calendar-service
             features-onchain-service
+            features-delta-one-service
         )
+        L5_SERVICES=()
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
     tradfi)
-        PIPELINE_SERVICES+=(
+        L4_SERVICES=(
             features-calendar-service
             features-delta-one-service
             features-volatility-service
             features-cross-instrument-service
             features-multi-timeframe-service
-            ml-training-service
-            ml-inference-service
         )
+        L5_SERVICES=(ml-training-service ml-inference-service)
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
     sports)
-        PIPELINE_SERVICES+=(
-            features-sports-service
-            ml-training-service
-            ml-inference-service
-        )
+        L4_SERVICES=(features-sports-service)
+        L5_SERVICES=(ml-training-service ml-inference-service)
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
     prediction)
-        PIPELINE_SERVICES+=(
-            features-sports-service
-            ml-inference-service
-        )
+        L4_SERVICES=(features-cross-instrument-service)
+        L5_SERVICES=(ml-inference-service)
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
     full)
-        PIPELINE_SERVICES+=(
+        L4_SERVICES=(
             features-calendar-service
             features-delta-one-service
             features-volatility-service
@@ -207,23 +260,71 @@ case "$CLUSTER" in
             features-cross-instrument-service
             features-multi-timeframe-service
             features-commodity-service
-            ml-training-service
-            ml-inference-service
         )
+        L5_SERVICES=(ml-training-service ml-inference-service)
+        L6_SERVICES=(strategy-service execution-service)
+        L7_SERVICES=(pnl-attribution-service risk-and-exposure-service)
         ;;
 esac
 
+# Build ordered pipeline with layer filtering
+should_run_layer() {
+    local layer_num="$1"
+    if [[ -n "$LAYER_ONLY" ]]; then
+        [[ "$layer_num" == "$(layer_num "$LAYER_ONLY")" ]]
+        return $?
+    fi
+    if [[ -n "$FROM_LAYER" ]]; then
+        [[ "$layer_num" -ge "$(layer_num "$FROM_LAYER")" ]]
+        return $?
+    fi
+    return 0
+}
+
+PIPELINE_SERVICES=()
+PIPELINE_LAYERS=()
+
+add_layer() {
+    local layer_num="$1"
+    shift
+    local services=("$@")
+    if should_run_layer "$layer_num"; then
+        for svc in "${services[@]}"; do
+            PIPELINE_SERVICES+=("$svc")
+            PIPELINE_LAYERS+=("L${layer_num}")
+        done
+    fi
+}
+
+add_layer 1 "${L1_SERVICES[@]}"
+add_layer 2 "${L2_SERVICES[@]}"
+add_layer 3 "${L3_SERVICES[@]}"
+[[ ${#L4_SERVICES[@]} -gt 0 ]] && add_layer 4 "${L4_SERVICES[@]}"
+[[ ${#L5_SERVICES[@]} -gt 0 ]] && add_layer 5 "${L5_SERVICES[@]}"
+[[ ${#L6_SERVICES[@]} -gt 0 ]] && add_layer 6 "${L6_SERVICES[@]}"
+[[ ${#L7_SERVICES[@]} -gt 0 ]] && add_layer 7 "${L7_SERVICES[@]}"
+
 echo ""
 echo "Pipeline order (${#PIPELINE_SERVICES[@]} services):"
-for svc in "${PIPELINE_SERVICES[@]}"; do
-    echo "  - ${svc}"
+for i in "${!PIPELINE_SERVICES[@]}"; do
+    echo "  ${PIPELINE_LAYERS[$i]}: ${PIPELINE_SERVICES[$i]}"
 done
 echo ""
 
-for svc in "${PIPELINE_SERVICES[@]}"; do
+current_layer=""
+for i in "${!PIPELINE_SERVICES[@]}"; do
+    svc="${PIPELINE_SERVICES[$i]}"
+    layer="${PIPELINE_LAYERS[$i]}"
+    if [[ "$layer" != "$current_layer" ]]; then
+        [[ -n "$current_layer" ]] && echo "--- ${current_layer} complete ---"
+        echo ""
+        echo "=== Layer ${layer} ==="
+        current_layer="$layer"
+    fi
     run_service "$svc"
     echo ""
 done
+[[ -n "$current_layer" ]] && echo "--- ${current_layer} complete ---"
 
 echo "=========================================="
 echo "Backfill complete for cluster: ${CLUSTER}"
