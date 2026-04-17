@@ -263,6 +263,23 @@ if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
       log "ERROR: No pipeline script found for category $VM_CATEGORY"
     fi
   fi
+elif [[ "$VM_TASK" == "canonical-migration" ]]; then
+  # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full
+  # command (e.g. "python -m market_tick_data_service.scripts.migrate_defi_canonical ...").
+  # Extract VM_MIGRATION_CMD from metadata and exec it inside the VM venv.
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    # Rewrite "python " → "$VENV/bin/python " so we use the installed venv
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    log "Canonical migration: $FULL_CMD"
+    # cd into the MTDS workspace so top-level scripts/migrate_cefi_v2.py resolves
+    cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing"; exit 1; }
+    nohup bash -c "$FULL_CMD" > "$LOGS/canonical-migration.log" 2>&1 &
+    log "Migration task launched PID: $!"
+  else
+    log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   # Build CLI args — --venues is optional (some services don't use it)
   # Service-specific operation defaults (instruments-service uses "instruments", MTDS uses "download")
