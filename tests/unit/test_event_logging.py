@@ -88,7 +88,7 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
         pytest.skip("No event markers found")
     for py in find_python_files(Path.cwd()):
         content = py.read_text()
-        if "from unified_trading_library.events_interface import log_event" in content or (
+        if "from unified_trading_library.events import log_event" in content or (
             "from unified_trading_library import" in content and "log_event" in content
         ):
             return

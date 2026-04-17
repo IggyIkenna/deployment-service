@@ -168,7 +168,7 @@ class TestRotateExchangeKeys:
             importlib.reload(m)
 
             # Patch AFTER reload: reload re-runs `from unified_trading_library.cloud_interface import ...`
-            # and `from unified_trading_library.events_interface import ...`, which rebinds module-level
+            # and `from unified_trading_library.events import ...`, which rebinds module-level
             # names, so patches must be applied post-reload.
             with (
                 patch.object(m, "get_secret_client", return_value=mock_sm),
