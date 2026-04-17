@@ -82,6 +82,10 @@ VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
+# Read from metadata and EXPORT so Python inherits it.
+IS_TEST_RUN=$(_meta IS_TEST_RUN)
+export IS_TEST_RUN
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK CATEGORY=$VM_CATEGORY PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
 
