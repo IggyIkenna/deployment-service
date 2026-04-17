@@ -47,7 +47,7 @@ launch_vm() {
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
-        --machine-type=e2-small \
+        --machine-type=e2-medium \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
