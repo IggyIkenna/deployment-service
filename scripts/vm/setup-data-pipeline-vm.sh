@@ -263,6 +263,9 @@ if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
       log "ERROR: No pipeline script found for category $VM_CATEGORY"
     fi
   fi
+  exit 0
+fi
+
 # Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
 # monitor any VM task from outside even when SSH is broken).
 VM_NAME_SELF=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name" || echo "unknown-vm")
