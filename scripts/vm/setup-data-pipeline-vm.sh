@@ -120,9 +120,11 @@ declare -A SERVICE_TARBALLS=(
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
 )
+# NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
+# UEI was folded into unified-trading-library.events. No repo/pyproject depends
+# on it anymore; the stale 0-byte tarball in GCS broke VM setup. Keep it out.
 declare -A TARBALL_DIRS=(
   ["unified-api-contracts-code"]="uac"
-  ["unified-events-interface-code"]="uei"
   ["unified-trading-library-code"]="utl"
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
@@ -145,11 +147,10 @@ declare -A TARBALL_DIRS=(
   ["deployment-service-code"]="deployment"
 )
 
-# Always install core (UAC + UEI + UTL) + the service tarball for VM_SERVICE.
-# UEI is required because published UTL on PyPI still declares it as a dep
-# (consolidation into UTL events/ module is a pending refactor — uv.locks still
-# reference UEI as a directory source).
-NEEDED_TARBALLS=("unified-api-contracts-code" "unified-events-interface-code" "unified-trading-library-code")
+# Always install core (UAC + UTL) + the service tarball for VM_SERVICE.
+# UEI was folded into unified-trading-library.events 2026-04-17 — removed from
+# here so the stale 0-byte UEI tarball in GCS doesn't hang VM setup.
+NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code")
 SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
 if [ -n "$SERVICE_TARBALL" ]; then
   NEEDED_TARBALLS+=("$SERVICE_TARBALL")
