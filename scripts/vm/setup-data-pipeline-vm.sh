@@ -81,6 +81,7 @@ VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
 VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
+VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK CATEGORY=$VM_CATEGORY PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
 
@@ -122,6 +123,7 @@ declare -A SERVICE_TARBALLS=(
 declare -A TARBALL_DIRS=(
   ["unified-api-contracts-code"]="uac"
   ["unified-trading-library-code"]="utl"
+  ["unified-events-interface-code"]="uei"
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
   ["features-sports-service-code"]="fss"
@@ -144,7 +146,7 @@ declare -A TARBALL_DIRS=(
 )
 
 # Always install core (UAC + UTL) + the service tarball for VM_SERVICE
-NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code")
+NEEDED_TARBALLS=("unified-api-contracts-code" "unified-events-interface-code" "unified-trading-library-code")
 SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
 if [ -n "$SERVICE_TARBALL" ]; then
   NEEDED_TARBALLS+=("$SERVICE_TARBALL")
@@ -271,6 +273,7 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
+  [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types $VM_DATA_TYPES"
 
   log "Auto-launching: python -m $VM_SERVICE $CLI_ARGS"
   nohup "$VENV/bin/python" -m "$VM_SERVICE" $CLI_ARGS \
