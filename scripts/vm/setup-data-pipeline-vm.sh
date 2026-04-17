@@ -263,26 +263,48 @@ if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
       log "ERROR: No pipeline script found for category $VM_CATEGORY"
     fi
   fi
-elif [[ "$VM_TASK" == "canonical-migration" ]]; then
+# Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
+# monitor any VM task from outside even when SSH is broken).
+VM_NAME_SELF=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name" || echo "unknown-vm")
+GCS_LOG_DIR="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}"
+GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
+TEE_WRAPPER="/tmp/vm-exec-with-gcs-tee.sh"
+if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
+  chmod +x "$TEE_WRAPPER"
+  log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
+else
+  log "WARNING: vm-exec-with-gcs-tee.sh not found in GCS — falling back to local log only"
+  TEE_WRAPPER=""
+fi
+
+_launch_with_tee() {
+  # $1 = command string to execute (shell-quoted or simple)
+  # Redirects via the wrapper if it downloaded; otherwise plain nohup.
+  local cmd="$1"
+  local fallback_log="${2:-$LOGS/backfill.log}"
+  if [[ -n "$TEE_WRAPPER" ]]; then
+    log "Launching with GCS tee: $cmd"
+    nohup bash "$TEE_WRAPPER" "$GCS_LOG_URI" bash -c "$cmd" > "$fallback_log" 2>&1 &
+  else
+    log "Launching plain: $cmd"
+    nohup bash -c "$cmd" > "$fallback_log" 2>&1 &
+  fi
+  log "Task launched PID: $!"
+}
+
+if [[ "$VM_TASK" == "canonical-migration" ]]; then
   # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full
   # command (e.g. "python -m market_tick_data_service.scripts.migrate_defi_canonical ...").
-  # Extract VM_MIGRATION_CMD from metadata and exec it inside the VM venv.
   VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
   if [[ -n "$VM_MIGRATION_CMD" ]]; then
-    # Rewrite "python " → "$VENV/bin/python " so we use the installed venv
     FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
-    log "Canonical migration: $FULL_CMD"
-    # cd into the MTDS workspace so top-level scripts/migrate_cefi_v2.py resolves
     cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing"; exit 1; }
-    nohup bash -c "$FULL_CMD" > "$LOGS/canonical-migration.log" 2>&1 &
-    log "Migration task launched PID: $!"
+    _launch_with_tee "$FULL_CMD" "$LOGS/canonical-migration.log"
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
   fi
 elif [ -n "$VM_TASK" ]; then
-  # Build CLI args — --venues is optional (some services don't use it)
-  # Service-specific operation defaults (instruments-service uses "instruments", MTDS uses "download")
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
     _OP="instruments"
@@ -295,11 +317,7 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
   [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types $VM_DATA_TYPES"
-
-  log "Auto-launching: python -m $VM_SERVICE $CLI_ARGS"
-  nohup "$VENV/bin/python" -m "$VM_SERVICE" $CLI_ARGS \
-    > "$LOGS/backfill.log" 2>&1 &
-  log "Task launched PID: $!"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/backfill.log"
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"
 fi
