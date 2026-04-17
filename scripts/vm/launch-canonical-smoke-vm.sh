@@ -37,7 +37,7 @@ launch_vm() {
     local md="VM_TASK=canonical-smoke"
     md="${md},VM_SERVICE=market_tick_data_service"
     md="${md},VM_OPERATION=download"
-    md="${md},VM_CATEGORY=${cat^^}"
+    md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_VENUE=${venue}"
     md="${md},VM_START_DATE=${SMOKE_DATE}"
     md="${md},VM_END_DATE=${SMOKE_DATE}"
