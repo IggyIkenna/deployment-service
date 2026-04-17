@@ -24,7 +24,7 @@ from unified_api_contracts.internal.domain.deployment_service import (
     ServiceIsolationSpec,
     SLATierSpec,
 )
-from unified_trading_library.topology.topology_reader import (
+from unified_trading_library import (
     get_isolation_policy,
     get_sla_tier_spec,
     resolve_deployment,

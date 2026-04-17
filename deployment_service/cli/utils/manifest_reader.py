@@ -18,7 +18,12 @@ from unified_api_contracts.sports import (
     get_all_prediction_league_ids,
     get_league_fixture_calendar,
 )
-from unified_trading_library import get_project_id, get_storage_client, read_availability_index
+from unified_trading_library import (
+    get_bucket_name,
+    get_project_id,
+    get_storage_client,
+    read_availability_index,
+)
 
 _ALL_CATEGORIES = [str(c) for c in MarketCategory]
 
@@ -150,7 +155,7 @@ class ManifestReader:
             # common and always exists.  An empty string fails silently on
             # some cloud backends, giving a false negative.
             project_id = self._get_project_id()
-            probe_bucket = f"instruments-store-cefi-{project_id}"
+            probe_bucket = get_bucket_name("instruments", "CEFI", project_id=project_id)
             read_availability_index(probe_bucket)
             self._available = True
         except Exception:  # noqa: BLE001 — broad catch is intentional for probe

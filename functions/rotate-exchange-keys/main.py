@@ -78,8 +78,6 @@ _TRADE_KEY_PATTERNS = frozenset(
         "bybit-api-secret",
         "deribit-api-key",
         "deribit-api-secret",
-        "kraken-api-key",
-        "kraken-api-secret",
         "okx-api-key",
         "okx-api-secret",
         "coinbase-api-key",

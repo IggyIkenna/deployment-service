@@ -38,6 +38,11 @@ def test_runtime_topology_validation_passes_for_valid_minimum(tmp_path):
         "storage_flows": [
             {"actor": "market-data-processing-service", "store": "gcs"},
         ],
+        # v7 sections — minimal empty-but-present payloads to satisfy the schema.
+        "isolation_policies": {},
+        "sla_tiers": {},
+        "runtime_profiles": {},
+        "chaos_hooks": {},
     }
 
     workspace_manifest = {
@@ -434,6 +439,11 @@ def test_main_no_violations(tmp_path, capsys, monkeypatch):
         "service_flows": [],
         "api_interactions": [],
         "storage_flows": [],
+        # v7 sections — minimal empty-but-present payloads to satisfy the schema.
+        "isolation_policies": {},
+        "sla_tiers": {},
+        "runtime_profiles": {},
+        "chaos_hooks": {},
     }
     workspace_manifest = {"repositories": {}}
     runtime_path = tmp_path / "rt.yaml"

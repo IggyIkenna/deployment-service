@@ -270,7 +270,6 @@ class TestRotateExchangeKeys:
         secrets = [
             _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": ok_last}),
             _make_secret("bybit-api-key", {"key_category": "trade", "last_rotated": overdue_last}),
-            _make_secret("kraken-api-key", {"key_category": "trade", "last_rotated": warn_last}),
             _make_secret("tardis-api-key", {"key_category": "data"}),  # unknown age
         ]
         response, _ = self._run_function(secrets)

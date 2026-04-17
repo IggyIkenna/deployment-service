@@ -12,10 +12,11 @@ from pathlib import Path
 
 import click
 import yaml
-from unified_trading_library import UnifiedCloudConfig, get_storage_client
-from unified_trading_library.config_interface.paths.registry import (
+from unified_trading_library import (
     PATH_REGISTRY,
+    UnifiedCloudConfig,
     build_bucket,
+    get_storage_client,
 )
 
 from .manifest_reader import ManifestReader

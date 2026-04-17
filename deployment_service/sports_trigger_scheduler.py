@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import yaml
+from unified_trading_library import get_bucket_name
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ class SportsTriggerScheduler:
             ]
             for day_offset in range(4):
                 scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-                bucket_name = f"instruments-store-sports-{config.project_id}"
+                bucket_name = get_bucket_name("instruments", "SPORTS", project_id=config.project_id)
 
                 for path_pattern in _fixture_path_patterns:
                     prefix = path_pattern.format(date=scan_date)
@@ -177,10 +178,14 @@ class SportsTriggerScheduler:
 
                         # Read parquet to get fixture details
                         try:
-                            import pandas as pd
+                            import io
 
-                            blob_path = f"gs://{bucket_name}/{blob}"
-                            df = pd.read_parquet(blob_path)
+                            import pandas as pd
+                            from unified_trading_library import get_storage_client
+
+                            storage = get_storage_client()
+                            raw = storage.download_bytes(bucket=bucket_name, blob_path=str(blob))
+                            df = pd.read_parquet(io.BytesIO(raw))
 
                             for _, row in df.iterrows():
                                 kickoff_str = str(row.get("kickoff_utc", ""))

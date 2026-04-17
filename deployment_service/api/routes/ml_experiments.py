@@ -14,7 +14,7 @@ import re
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
-from unified_trading_library import get_storage_client
+from unified_trading_library import get_bucket_name, get_storage_client
 
 from deployment_service.deployment_config import DeploymentConfig
 
@@ -73,12 +73,12 @@ class ModelMetadataResponse(
 
 def _artifacts_bucket() -> str:
     """Return the ml-training-artifacts bucket name."""
-    return f"ml-training-artifacts-{_config.gcp_project_id}"
+    return get_bucket_name("ml_artifacts", project_id=_config.gcp_project_id)
 
 
 def _models_bucket() -> str:
     """Return the ml-models-store bucket name."""
-    return f"ml-models-store-{_config.gcp_project_id}"
+    return get_bucket_name("ml_models", project_id=_config.gcp_project_id)
 
 
 # ---------------------------------------------------------------------------
