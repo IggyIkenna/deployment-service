@@ -66,10 +66,17 @@ def validate_runtime_topology(
         "storage_flows",
         "deployment_profiles",
         "storage_systems",
+        # v7 additions — client isolation, SLA tiers, runtime profiles, chaos hooks
+        "isolation_policies",
+        "sla_tiers",
+        "runtime_profiles",
+        "chaos_hooks",
     ]
     for section in required_sections:
         if section not in topology:
             violations.append(f"Missing required section '{section}' in runtime-topology.yaml")
+
+    violations.extend(_validate_v7_sections(topology, entities))
 
     services = topology.get("services") or {}
     if not isinstance(services, dict):
@@ -190,6 +197,159 @@ def validate_runtime_topology(
         if store not in valid_stores:
             violations.append(f"storage_flows[{idx}] unknown store '{store}'")
 
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# v7 section validators — isolation_policies, sla_tiers, runtime_profiles, chaos_hooks
+# Cross-checks that UAC schemas agree with the YAML declarations.
+# ---------------------------------------------------------------------------
+
+
+_VALID_ISOLATIONS: frozenset[str] = frozenset({"shared", "isolated"})
+_VALID_RUNTIME_PROFILES: frozenset[str] = frozenset(
+    {"backtest", "paper", "mock-live", "staging", "prod"}
+)
+_VALID_SLA_TIERS: frozenset[str] = frozenset({"basic", "standard", "premium"})
+_VALID_CHAOS_POINTS: frozenset[str] = frozenset(
+    {
+        "venue_latency",
+        "rpc_timeout",
+        "recon_mismatch",
+        "price_shock",
+        "instrument_delist",
+        "config_flip",
+        "kill_switch_fire",
+        "component_failure",
+    }
+)
+
+
+def _validate_v7_sections(topology: dict[str, object], entities: dict[str, str]) -> list[str]:
+    """Validate isolation_policies, sla_tiers, runtime_profiles, chaos_hooks."""
+    violations: list[str] = []
+    violations.extend(_validate_isolation_policies(topology, entities))
+    violations.extend(_validate_sla_tiers(topology))
+    violations.extend(_validate_runtime_profiles(topology))
+    violations.extend(_validate_chaos_hooks(topology))
+    return violations
+
+
+def _validate_isolation_policies(
+    topology: dict[str, object], entities: dict[str, str]
+) -> list[str]:
+    violations: list[str] = []
+    isolation_policies = topology.get("isolation_policies") or {}
+    if not isinstance(isolation_policies, dict):
+        return ["Section 'isolation_policies' must be a mapping"]
+    for service_name, policy in isolation_policies.items():
+        if not isinstance(policy, dict):
+            violations.append(f"isolation_policies.{service_name} must be a mapping")
+            continue
+        if service_name not in entities:
+            violations.append(
+                f"isolation_policies.{service_name} refers to unknown service "
+                "(not in workspace-manifest)"
+            )
+        default = str(policy.get("default") or "")
+        if default not in _VALID_ISOLATIONS:
+            violations.append(
+                f"isolation_policies.{service_name}.default must be one of "
+                f"{sorted(_VALID_ISOLATIONS)}, got '{default}'"
+            )
+        allowed = policy.get("allowed") or []
+        if not isinstance(allowed, list):
+            violations.append(f"isolation_policies.{service_name}.allowed must be a list")
+            continue
+        for item in cast(list[object], allowed):
+            if str(item) not in _VALID_ISOLATIONS:
+                violations.append(
+                    f"isolation_policies.{service_name}.allowed item '{item}' invalid"
+                )
+        if default and default not in [str(x) for x in cast(list[object], allowed)]:
+            violations.append(
+                f"isolation_policies.{service_name}.default '{default}' "
+                f"not in allowed list {allowed}"
+            )
+    return violations
+
+
+def _validate_sla_tiers(topology: dict[str, object]) -> list[str]:
+    violations: list[str] = []
+    sla_tiers = topology.get("sla_tiers") or {}
+    if not isinstance(sla_tiers, dict):
+        return ["Section 'sla_tiers' must be a mapping"]
+    for tier_name, spec in sla_tiers.items():
+        if tier_name not in _VALID_SLA_TIERS:
+            violations.append(
+                f"sla_tiers.{tier_name} unknown — expected one of {sorted(_VALID_SLA_TIERS)}"
+            )
+        if not isinstance(spec, dict):
+            violations.append(f"sla_tiers.{tier_name} must be a mapping")
+            continue
+        if "cost_multiplier" not in spec:
+            violations.append(f"sla_tiers.{tier_name}.cost_multiplier required")
+        allowed = spec.get("allowed_isolations") or []
+        if not isinstance(allowed, list):
+            violations.append(f"sla_tiers.{tier_name}.allowed_isolations must be a list")
+            continue
+        for item in cast(list[object], allowed):
+            if str(item) not in _VALID_ISOLATIONS:
+                violations.append(f"sla_tiers.{tier_name}.allowed_isolations item '{item}' invalid")
+    return violations
+
+
+def _validate_runtime_profiles(topology: dict[str, object]) -> list[str]:
+    violations: list[str] = []
+    runtime_profiles = topology.get("runtime_profiles") or {}
+    if not isinstance(runtime_profiles, dict):
+        return ["Section 'runtime_profiles' must be a mapping"]
+    required_fields = {
+        "cloud_mock_mode",
+        "mock_state_mode",
+        "auth_disabled",
+        "chaos_allowed",
+        "client_isolation_required",
+        "storage_namespace",
+        "allow_real_venue_calls",
+    }
+    for profile_name, spec in runtime_profiles.items():
+        if profile_name not in _VALID_RUNTIME_PROFILES:
+            violations.append(
+                f"runtime_profiles.{profile_name} unknown — "
+                f"expected one of {sorted(_VALID_RUNTIME_PROFILES)}"
+            )
+        if not isinstance(spec, dict):
+            violations.append(f"runtime_profiles.{profile_name} must be a mapping")
+            continue
+        missing = required_fields - set(spec.keys())
+        if missing:
+            violations.append(f"runtime_profiles.{profile_name} missing fields: {sorted(missing)}")
+        if profile_name == "prod" and bool(spec.get("chaos_allowed")):
+            violations.append(
+                "runtime_profiles.prod.chaos_allowed must be false "
+                "(chaos is forbidden in production)"
+            )
+    return violations
+
+
+def _validate_chaos_hooks(topology: dict[str, object]) -> list[str]:
+    violations: list[str] = []
+    chaos_hooks = topology.get("chaos_hooks") or []
+    if not isinstance(chaos_hooks, list):
+        return ["Section 'chaos_hooks' must be a list"]
+    for idx, hook in enumerate(cast(list[object], chaos_hooks)):
+        if not isinstance(hook, dict):
+            violations.append(f"chaos_hooks[{idx}] must be a mapping")
+            continue
+        point = str(hook.get("point") or "")
+        if point not in _VALID_CHAOS_POINTS:
+            violations.append(
+                f"chaos_hooks[{idx}].point '{point}' unknown — "
+                f"expected one of {sorted(_VALID_CHAOS_POINTS)}"
+            )
+        if not hook.get("hook_location"):
+            violations.append(f"chaos_hooks[{idx}].hook_location required")
     return violations
 
 
