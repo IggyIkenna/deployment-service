@@ -79,7 +79,10 @@ VM_OPERATION=$(_meta VM_OPERATION download)
 VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
 VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
 VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
+VM_STRATEGY=$(_meta VM_STRATEGY)
+VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK CATEGORY=$VM_CATEGORY PROVIDER=$VM_SPORTS_PROVIDER"
+log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
 
 # ── 3. Deploy code ──
 # Core repos (always required) + optional service repos.
@@ -102,6 +105,19 @@ declare -A SERVICE_TARBALLS=(
   ["features_onchain_service"]="features-onchain-service-code"
   ["market_data_processing_service"]="market-data-processing-service-code"
   ["features_delta_one_service"]="features-delta-one-service-code"
+  ["strategy_service"]="strategy-service-code"
+  ["execution_service"]="execution-service-code"
+  ["pnl_attribution_service"]="pnl-attribution-service-code"
+  ["risk_and_exposure_service"]="risk-and-exposure-service-code"
+  ["ml_training_service"]="ml-training-service-code"
+  ["ml_inference_service"]="ml-inference-service-code"
+  ["position_balance_monitor_service"]="position-balance-monitor-service-code"
+  ["features_volatility_service"]="features-volatility-service-code"
+  ["features_cross_instrument_service"]="features-cross-instrument-service-code"
+  ["features_calendar_service"]="features-calendar-service-code"
+  ["features_multi_timeframe_service"]="features-multi-timeframe-service-code"
+  ["features_commodity_service"]="features-commodity-service-code"
+  ["deployment_service"]="deployment-service-code"
 )
 declare -A TARBALL_DIRS=(
   ["unified-api-contracts-code"]="uac"
@@ -112,6 +128,19 @@ declare -A TARBALL_DIRS=(
   ["features-onchain-service-code"]="fos"
   ["market-data-processing-service-code"]="mdps"
   ["features-delta-one-service-code"]="fd1"
+  ["strategy-service-code"]="strategy"
+  ["execution-service-code"]="execution"
+  ["pnl-attribution-service-code"]="pnl"
+  ["risk-and-exposure-service-code"]="risk"
+  ["ml-training-service-code"]="ml-train"
+  ["ml-inference-service-code"]="ml-infer"
+  ["position-balance-monitor-service-code"]="pbm"
+  ["features-volatility-service-code"]="fvol"
+  ["features-cross-instrument-service-code"]="fci"
+  ["features-calendar-service-code"]="fcal"
+  ["features-multi-timeframe-service-code"]="fmt"
+  ["features-commodity-service-code"]="fcom"
+  ["deployment-service-code"]="deployment"
 )
 
 # Always install core (UAC + UTL) + the service tarball for VM_SERVICE
@@ -203,14 +232,45 @@ export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
 
-if [ -n "$VM_TASK" ]; then
+if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
+  # Full L1-L7 pipeline for the category — uses backfill-cluster.sh from
+  # deployment-service (uploaded alongside this script).
+  BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
+  BACKFILL_ARGS="--cluster ${VM_CATEGORY,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
+  [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
+
+  if [[ -f "$BACKFILL_SCRIPT" ]]; then
+    log "Backtest mode: running full pipeline via backfill-cluster.sh"
+    log "  Args: $BACKFILL_ARGS"
+    nohup bash "$BACKFILL_SCRIPT" $BACKFILL_ARGS \
+      > "$LOGS/backtest-pipeline.log" 2>&1 &
+    log "Backtest pipeline launched PID: $!"
+  else
+    log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
+    # Try e2e-testing run-full-pipeline.sh as fallback
+    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_CATEGORY,,}/run-full-pipeline.sh"
+    if [[ -f "$E2E_SCRIPT" ]]; then
+      nohup bash "$E2E_SCRIPT" --start-date "$VM_START_DATE" --end-date "$VM_END_DATE" \
+        > "$LOGS/backtest-pipeline.log" 2>&1 &
+      log "E2E pipeline launched PID: $!"
+    else
+      log "ERROR: No pipeline script found for category $VM_CATEGORY"
+    fi
+  fi
+elif [ -n "$VM_TASK" ]; then
   # Build CLI args — --venues is optional (some services don't use it)
-  CLI_ARGS="--operation $VM_OPERATION --mode batch --category $VM_CATEGORY"
+  # Service-specific operation defaults (instruments-service uses "instruments", MTDS uses "download")
+  _OP="$VM_OPERATION"
+  if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
+    _OP="instruments"
+  fi
+  CLI_ARGS="--operation $_OP --mode batch --category $VM_CATEGORY"
   [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
+  [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
 
   log "Auto-launching: python -m $VM_SERVICE $CLI_ARGS"
   nohup "$VENV/bin/python" -m "$VM_SERVICE" $CLI_ARGS \
