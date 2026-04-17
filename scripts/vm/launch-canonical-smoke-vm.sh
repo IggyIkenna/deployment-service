@@ -32,11 +32,12 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 launch_vm() {
     local cat="$1"; local venue="$2"; local vm_name="canonical-smoke-${cat}-${RUN_TS}"
     local data_types="${3:-}"
-    echo "Launching $vm_name for $cat ($venue, $SMOKE_DATE)"
+    local operation="${4:-download}"
+    echo "Launching $vm_name for $cat ($venue, $SMOKE_DATE, op=$operation)"
 
     local md="VM_TASK=canonical-smoke"
     md="${md},VM_SERVICE=market_tick_data_service"
-    md="${md},VM_OPERATION=download"
+    md="${md},VM_OPERATION=${operation}"
     md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_VENUE=${venue}"
     md="${md},VM_START_DATE=${SMOKE_DATE}"
@@ -58,13 +59,13 @@ launch_vm() {
 }
 
 case "$CATEGORY" in
-    cefi)   launch_vm cefi BINANCE-FUTURES ;;
-    tradfi) launch_vm tradfi CME ;;
-    defi)   launch_vm defi AAVE_V3 lending_indices ;;
+    cefi)   launch_vm cefi BINANCE-FUTURES "" download ;;
+    tradfi) launch_vm tradfi CME "" download ;;
+    defi)   launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices ;;
     all)
-        launch_vm cefi BINANCE-FUTURES
-        launch_vm tradfi CME
-        launch_vm defi AAVE_V3 lending_indices
+        launch_vm cefi BINANCE-FUTURES "" download
+        launch_vm tradfi CME "" download
+        launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices
         ;;
     *) echo "Unknown category: $CATEGORY"; exit 2 ;;
 esac
