@@ -18,8 +18,13 @@ from pathlib import Path
 from typing import cast
 
 import yaml
+from unified_api_contracts.internal.domain.deployment_service import (
+    ClientSubscription,
+    IsolationPolicy,
+)
 from unified_trading_library import log_event, setup_events
 
+from .client_isolation import ClusterMaterialisationPlan, build_cluster_plan
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig
 from .orchestrator import T1Orchestrator
@@ -345,6 +350,7 @@ class ClusterOrchestrator:
         cluster_name: str,
         mode: str = "live",
         versions: dict[str, str] | None = None,
+        client_id: str | None = None,
     ) -> ClusterStatus:
         """Start all services in a cluster, respecting dependency order.
 
@@ -355,6 +361,10 @@ class ClusterOrchestrator:
             cluster_name: Name of the cluster to bootstrap
             mode: Startup mode ('live' or 'mock')
             versions: Optional version overrides per service
+            client_id: Optional client identifier. When set, loads the matching
+                ClientSubscription from configs/client_subscriptions/<client_id>.yaml
+                and materialises per-service isolation (ISOLATED services run as
+                dedicated per-client instances with CLIENT_ID env var).
 
         Returns:
             ClusterStatus with per-service status
@@ -366,13 +376,29 @@ class ClusterOrchestrator:
             started_at=datetime.now(UTC),
         )
 
+        subscription = self._load_subscription(client_id) if client_id else None
+        plan = build_cluster_plan(cluster_name, list(cluster.services), subscription)
+
         log_event(
             "cluster.bootstrap.started",
             cluster_name=cluster_name,
             mode=mode,
             service_count=len(cluster.services),
             cloud_provider=self.cloud_provider,
+            client_id=client_id or "",
+            sla_tier=plan.sla_tier or "",
+            isolated_services=",".join(plan.isolated_services),
+            shared_services=",".join(plan.shared_services),
         )
+        if client_id:
+            logger.info(
+                "Cluster %s materialising for client=%s tier=%s isolated=%s shared=%s",
+                cluster_name,
+                client_id,
+                plan.sla_tier,
+                plan.isolated_services,
+                plan.shared_services,
+            )
 
         # Get dependency-ordered services
         ordered_services = self._get_ordered_services(cluster.services)
@@ -383,6 +409,7 @@ class ClusterOrchestrator:
                 cluster=cluster,
                 mode=mode,
                 version=versions.get(service_name) if versions else None,
+                plan=plan,
             )
             status.services.append(svc_status)
 
@@ -400,9 +427,27 @@ class ClusterOrchestrator:
             running_count=status.running_count,
             total_count=status.total_count,
             all_healthy=status.all_healthy,
+            client_id=client_id or "",
         )
 
         return status
+
+    def _load_subscription(self, client_id: str) -> ClientSubscription:
+        """Load a ClientSubscription from configs/client_subscriptions/<client_id>.yaml.
+
+        Raises:
+            FileNotFoundError: If no subscription file exists for client_id.
+            ValueError: If the file is present but malformed.
+        """
+        safe_id = "".join(c for c in client_id if c.isalnum() or c in "_-")
+        if safe_id != client_id or not safe_id:
+            raise ValueError(f"Invalid client_id '{client_id}'")
+        subs_path = Path(self.config_dir) / "client_subscriptions" / f"{safe_id}.yaml"
+        if not subs_path.exists():
+            raise FileNotFoundError(f"No client subscription file for '{client_id}' at {subs_path}")
+        with open(subs_path) as handle:
+            raw = cast(dict[str, object], yaml.safe_load(handle) or {})
+        return ClientSubscription.model_validate(raw)
 
     def teardown(self, cluster_name: str) -> None:
         """Stop all services in a cluster (reverse dependency order).
@@ -610,6 +655,7 @@ class ClusterOrchestrator:
         cluster: ClusterConfig,
         mode: str,
         version: str | None = None,
+        plan: ClusterMaterialisationPlan | None = None,
     ) -> ServiceStatus:
         """Start a single service.
 
@@ -618,6 +664,9 @@ class ClusterOrchestrator:
             cluster: Cluster configuration
             mode: Startup mode
             version: Optional version override
+            plan: Optional materialisation plan; when present and the service is
+                ISOLATED for this plan's client, CLIENT_ID is injected into the
+                service process environment.
 
         Returns:
             ServiceStatus for the started service
@@ -627,8 +676,10 @@ class ClusterOrchestrator:
             health=ServiceHealthStatus.STARTING,
         )
 
+        extra_env = self._isolation_env(service_name, plan)
+
         if self.cloud_provider == "local":
-            svc_status = self._start_local_service(service_name, mode)
+            svc_status = self._start_local_service(service_name, mode, extra_env)
         else:
             # Cloud backends (GCP Cloud Run, AWS ECS) — placeholder
             logger.info(
@@ -641,12 +692,43 @@ class ClusterOrchestrator:
 
         return svc_status
 
-    def _start_local_service(self, service_name: str, mode: str) -> ServiceStatus:
+    def _isolation_env(
+        self,
+        service_name: str,
+        plan: ClusterMaterialisationPlan | None,
+    ) -> dict[str, str]:
+        """Return the env var overrides dictated by the materialisation plan.
+
+        Injects CLIENT_ID into ISOLATED service instances so the service's own
+        ServiceBootstrap can scope its subscriptions / venue keys / topic templates.
+        """
+        if plan is None:
+            return {}
+        for mat in plan.services:
+            if mat.service_name != service_name:
+                continue
+            if mat.isolation == IsolationPolicy.ISOLATED and mat.client_id:
+                return {
+                    "CLIENT_ID": mat.client_id,
+                    "ISOLATION_POLICY": "isolated",
+                }
+            if mat.isolation == IsolationPolicy.SHARED:
+                return {"ISOLATION_POLICY": "shared"}
+        return {}
+
+    def _start_local_service(
+        self,
+        service_name: str,
+        mode: str,
+        extra_env: dict[str, str] | None = None,
+    ) -> ServiceStatus:
         """Start a service locally via subprocess.
 
         Args:
             service_name: Service to start
             mode: Startup mode
+            extra_env: Additional env vars to inject (e.g. CLIENT_ID for isolated
+                services from the materialisation plan)
 
         Returns:
             ServiceStatus for the started service
@@ -676,17 +758,20 @@ class ClusterOrchestrator:
             mode,
         ]
 
+        env_overrides: dict[str, str] = {}
         if self.mock_mode:
-            env_overrides = {
-                "CLOUD_MOCK_MODE": "true",
-                "CLOUD_PROVIDER": "local",
-            }
-        else:
-            env_overrides = {}
+            env_overrides.update(
+                {
+                    "CLOUD_MOCK_MODE": "true",
+                    "CLOUD_PROVIDER": "local",
+                }
+            )
+        if extra_env:
+            env_overrides.update(extra_env)
 
         try:
             # Inherit parent environment for subprocess; env=None inherits automatically.
-            # Only override when we have mock-mode-specific vars.
+            # Only override when we have mock-mode-specific or isolation vars.
             env: dict[str, str] | None = None
             if env_overrides:
                 env = {**os.environ, **env_overrides}  # config-bootstrap: subprocess env merge
@@ -709,6 +794,8 @@ class ClusterOrchestrator:
                 service_name=service_name,
                 pid=process.pid,
                 mode=mode,
+                client_id=env_overrides.get("CLIENT_ID", ""),
+                isolation=env_overrides.get("ISOLATION_POLICY", ""),
             )
 
         except FileNotFoundError as e:

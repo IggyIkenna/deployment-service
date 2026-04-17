@@ -34,11 +34,27 @@ def cluster(ctx: click.Context):
     type=click.Choice(["local", "gcp", "aws"]),
     help="Cloud provider (default: local)",
 )
+@click.option(
+    "--client-id",
+    "client_id",
+    default=None,
+    help=(
+        "Optional client identifier. Loads ClientSubscription from "
+        "configs/client_subscriptions/<client_id>.yaml and materialises per-service "
+        "isolation (ISOLATED services get dedicated per-client instances)."
+    ),
+)
 @click.pass_context
-def cluster_bootstrap(ctx: click.Context, cluster_name: str, mode: str, cloud: str):
+def cluster_bootstrap(
+    ctx: click.Context,
+    cluster_name: str,
+    mode: str,
+    cloud: str,
+    client_id: str | None,
+):
     """Bootstrap all services in a cluster."""
     handler = ClusterHandler(ctx)
-    handler.handle_cluster_bootstrap(cluster_name, mode=mode, cloud=cloud)
+    handler.handle_cluster_bootstrap(cluster_name, mode=mode, cloud=cloud, client_id=client_id)
 
 
 @cluster.command("teardown")

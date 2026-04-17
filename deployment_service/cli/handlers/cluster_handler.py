@@ -60,6 +60,7 @@ class ClusterHandler:
         cluster_name: str,
         mode: str = "mock",
         cloud: str = "local",
+        client_id: str | None = None,
     ) -> None:
         """Handle cluster bootstrap command.
 
@@ -67,14 +68,23 @@ class ClusterHandler:
             cluster_name: Cluster to bootstrap
             mode: Startup mode (live, mock)
             cloud: Cloud provider override
+            client_id: Optional client identifier. When set, the orchestrator
+                loads the matching ClientSubscription from
+                configs/client_subscriptions/<client_id>.yaml and materialises
+                per-service isolation (ISOLATED services get dedicated instances
+                with CLIENT_ID env var).
         """
         try:
-            click.echo(f"Bootstrapping cluster '{cluster_name}' (mode={mode}, cloud={cloud})...")
+            client_suffix = f" client={client_id}" if client_id else ""
+            click.echo(
+                f"Bootstrapping cluster '{cluster_name}' "
+                f"(mode={mode}, cloud={cloud}){client_suffix}..."
+            )
 
             if cloud != self.cloud_provider:
                 self._orchestrator.cloud_provider = cloud
 
-            status = self._orchestrator.bootstrap(cluster_name, mode=mode)
+            status = self._orchestrator.bootstrap(cluster_name, mode=mode, client_id=client_id)
             self._display_cluster_status(status)
 
             if status.all_healthy:
