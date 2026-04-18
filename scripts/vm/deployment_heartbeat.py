@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from unified_trading_library import PubSubEventSink  # pyright: ignore[reportPrivateImportUsage]
 from unified_trading_library.events import (
     DEPLOYMENT_COMPLETED,
     DEPLOYMENT_FAILED,
@@ -54,15 +56,44 @@ logger = logging.getLogger("deployment_heartbeat")
 
 
 def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _init_events() -> None:
-    """Initialise event sink in batch mode — the VM writes to PubSub/GCS."""
-    setup_events(service_name="vm-deployment-heartbeat", mode="batch")
+    """Initialise event sink in batch mode — publish to Pub/Sub topic
+    ``deployment-events`` so deployment-ui + any subscriber sees the
+    DEPLOYMENT_STARTED/PROGRESS/COMPLETED/FAILED lifecycle in real time.
+
+    UTL's ``setup_events(mode='batch')`` requires ``sink=`` explicitly. A
+    previous heartbeat version called setup_events without a sink which
+    RuntimeError'd and silently lost events; combined with the missing
+    deployment-service tarball (fixed 2026-04-18, deployment-service
+    241940d) this meant zero batch-VM observability. This function fixes
+    bug #2.
+    """
+    project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        # Fallback so we don't crash the VM; events degrade gracefully to
+        # stdout via UTL's local mode.
+        logger.warning("GCP_PROJECT_ID unset; falling back to mode=local (events only in stdout)")
+        setup_events(service_name="vm-deployment-heartbeat", mode="local")
+        return
+
+    topic = os.environ.get("DEPLOYMENT_EVENTS_TOPIC", "deployment-events")
+    sink = PubSubEventSink(
+        project_id=project_id,
+        topic=topic,
+        service_name="vm-deployment-heartbeat",
+    )
+    setup_events(service_name="vm-deployment-heartbeat", mode="batch", sink=sink)
 
 
-def _emit(event: str, severity: str, entry: DeploymentRegistryEntry, extra: dict[str, object] | None = None) -> None:
+def _emit(
+    event: str,
+    severity: str,
+    entry: DeploymentRegistryEntry,
+    extra: dict[str, object] | None = None,
+) -> None:
     payload: dict[str, object] = {
         "deployment_id": entry.deployment_id,
         "vm_name": entry.vm_name,
@@ -165,7 +196,9 @@ def cmd_complete(args: argparse.Namespace, registry: DeploymentsRegistry) -> int
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="VM deployment heartbeat helper")
-    p.add_argument("--bucket", default=DEFAULT_BUCKET, help="Registry bucket (default: %(default)s)")
+    p.add_argument(
+        "--bucket", default=DEFAULT_BUCKET, help="Registry bucket (default: %(default)s)"
+    )
     sub = p.add_subparsers(dest="operation", required=True)
 
     reg = sub.add_parser("register", help="Create a new ACTIVE registry entry + DEPLOYMENT_STARTED")
@@ -173,7 +206,9 @@ def _build_parser() -> argparse.ArgumentParser:
     reg.add_argument("--name", required=True)
     reg.add_argument("--category", required=True)
     reg.add_argument("--task", required=True)
-    reg.add_argument("--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"])
+    reg.add_argument(
+        "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]
+    )
     reg.add_argument("--start-date", required=True)
     reg.add_argument("--end-date", required=True)
     reg.add_argument("--log-uri", required=True)
