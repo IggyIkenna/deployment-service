@@ -265,7 +265,7 @@ class TestRotateExchangeKeys:
     def test_summary_counts_are_correct_multi_secrets(self):
         ok_last = (date.today() - timedelta(days=5)).isoformat()
         overdue_last = (date.today() - timedelta(days=100)).isoformat()
-        warn_last = (date.today() - timedelta(days=80)).isoformat()
+        _warn_last = (date.today() - timedelta(days=80)).isoformat()
 
         secrets = [
             _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": ok_last}),

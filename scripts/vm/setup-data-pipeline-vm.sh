@@ -45,6 +45,23 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-central-element-323112}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 
+# ── 0. File descriptor limit (Gate G8.1) ──
+# MTDS backfill opens one StreamingParquetWriter per shard (per instrument, per
+# data_type). Busy venues can exceed the default Linux soft limit of 1024 FDs in
+# a single day, producing OSError(24, 'Too many open files'). Raise to 65536
+# for this shell AND for any systemd-managed service that inherits from the
+# unit defaults, then record the effective limit in the setup log.
+log "Raising file descriptor limit for backfill workload..."
+ulimit -n 65536 || log "WARNING: ulimit -n 65536 failed (non-fatal, current: $(ulimit -n))"
+
+mkdir -p /etc/systemd/system.conf.d/
+cat > /etc/systemd/system.conf.d/file-descriptors.conf <<'EOF'
+[Manager]
+DefaultLimitNOFILE=65536
+EOF
+systemctl daemon-reexec 2>/dev/null || log "WARNING: systemctl daemon-reexec failed (non-fatal)"
+log "File descriptor limit: $(ulimit -n) (systemd default raised to 65536)"
+
 # ── 1. System packages ──
 log "Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
