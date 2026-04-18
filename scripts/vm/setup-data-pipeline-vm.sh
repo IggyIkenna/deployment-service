@@ -168,10 +168,14 @@ declare -A TARBALL_DIRS=(
   ["deployment-service-code"]="deployment"
 )
 
-# Always install core (UAC + UTL) + the service tarball for VM_SERVICE.
+# Always install core (UAC + UTL + deployment-service) + the service
+# tarball for VM_SERVICE.
 # UEI was folded into unified-trading-library.events 2026-04-17 — removed from
 # here so the stale 0-byte UEI tarball in GCS doesn't hang VM setup.
-NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code")
+# deployment-service-code added 2026-04-18 so deployment_heartbeat.py
+# can import deployment_service.deployments_registry — without it every
+# VM silently drops DEPLOYMENT_STARTED/PROGRESS/COMPLETED events.
+NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "deployment-service-code")
 SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
 if [ -n "$SERVICE_TARBALL" ]; then
   NEEDED_TARBALLS+=("$SERVICE_TARBALL")

@@ -143,11 +143,16 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
 
-# Core repos always included
+# Core repos always included. deployment-service is in CORE so every VM
+# can import `deployment_service.deployments_registry` from the VM
+# heartbeat helper — without it, no DEPLOYMENT_STARTED/PROGRESS/COMPLETED
+# events reach Pub/Sub or the deployments registry (silent observability
+# loss). See plan Phase 8 and the 2026-04-18 event-streaming audit.
 CORE_REPOS=(
     "unified-api-contracts:unified-api-contracts-code"
     "unified-trading-library:unified-trading-library-code"
     "market-tick-data-service:mtds-code"
+    "deployment-service:deployment-service-code"
 )
 
 # Exclusions for all tarballs (keep them small)
@@ -164,6 +169,17 @@ EXCLUDES=(
     --exclude='*.pyc'
     --exclude='build'
     --exclude='dist'
+    # Terraform provider caches (deployment-service/terraform/*/.terraform
+    # can be ~900 MB — not needed at runtime; terraform runs locally or in
+    # CI, not on batch VMs).
+    --exclude='.terraform'
+    --exclude='.terraform.lock.hcl'
+    --exclude='*.tfstate*'
+    # Coverage / test artefacts
+    --exclude='coverage.json'
+    --exclude='coverage.xml'
+    --exclude='htmlcov'
+    --exclude='.coverage'
 )
 
 create_tarball() {
