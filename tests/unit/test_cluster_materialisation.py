@@ -58,7 +58,9 @@ def _make_orchestrator(tmp_path: Path) -> ClusterOrchestrator:
 
 
 def _write_subscription(tmp_path: Path, sub: ClientSubscription) -> None:
-    path = tmp_path / "client_subscriptions" / f"{sub.client_id}.yaml"
+    subs_dir = tmp_path / "client_subscriptions"
+    subs_dir.mkdir(parents=True, exist_ok=True)
+    path = subs_dir / f"{sub.client_id}.yaml"
     path.write_text(yaml.safe_dump(sub.model_dump(mode="json"), sort_keys=False))
 
 
