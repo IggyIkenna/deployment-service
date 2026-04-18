@@ -265,11 +265,12 @@ class TestRotateExchangeKeys:
     def test_summary_counts_are_correct_multi_secrets(self):
         ok_last = (date.today() - timedelta(days=5)).isoformat()
         overdue_last = (date.today() - timedelta(days=100)).isoformat()
-        _warn_last = (date.today() - timedelta(days=80)).isoformat()
+        warn_last = (date.today() - timedelta(days=80)).isoformat()
 
         secrets = [
             _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": ok_last}),
             _make_secret("bybit-api-key", {"key_category": "trade", "last_rotated": overdue_last}),
+            _make_secret("okx-api-key", {"key_category": "trade", "last_rotated": warn_last}),
             _make_secret("tardis-api-key", {"key_category": "data"}),  # unknown age
         ]
         response, _ = self._run_function(secrets)
