@@ -77,14 +77,13 @@ BUCKETS=(
   "instruments-store-prediction-${PROJECT}"
 
   # Market tick data (rarely accessed after features generation)
+  # NOTE: processed_candles/ live co-located under market-data-tick-*
+  # (MDPS output). The separate market-data-candles-* buckets were retired
+  # 2026-04-18 as empty shells — see
+  # unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
   "market-data-tick-cefi-${PROJECT}"
   "market-data-tick-tradfi-${PROJECT}"
   "market-data-tick-defi-${PROJECT}"
-
-  # Processed candles (rarely accessed after features generation)
-  "market-data-candles-cefi-${PROJECT}"
-  "market-data-candles-tradfi-${PROJECT}"
-  "market-data-candles-defi-${PROJECT}"
 
   # Features (frequently accessed during ML training)
   # Consider more conservative policy: 30d→NEARLINE, 90d→COLDLINE

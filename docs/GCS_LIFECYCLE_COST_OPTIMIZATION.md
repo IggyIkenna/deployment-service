@@ -151,11 +151,18 @@
 
 ---
 
-### 3. Processed Candles (Aggressive Tiering)
+### 3. Processed Candles (Co-located under MTDS, 2026-04-18)
 
-**Access Pattern:** Accessed during feature generation, then rarely
+**Access Pattern:** Accessed during feature generation, then rarely.
 
-**Policy:**
+**Retirement note:** The standalone `market-data-candles-{category}-{project}`
+buckets were retired 2026-04-18 (all 10 prod + test variants verified empty).
+MDPS now writes candles **co-located** under the MTDS tick bucket at
+`market-data-tick-{category}-{project}/processed_candles/...`. The lifecycle
+policy applied to `market-data-tick-*` (see section 2) now covers candles too,
+and no separate policy is required.
+
+Historical reference — the policy previously applied to the retired buckets:
 
 ```json
 {
@@ -178,13 +185,8 @@
 }
 ```
 
-**Buckets:**
-
-- `market-data-candles-cefi-{project}`
-- `market-data-candles-tradfi-{project}`
-- `market-data-candles-defi-{project}`
-
-**Savings:** ~39%
+See `unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md`
+Phase 5a for the full retirement manifest.
 
 ---
 

@@ -61,7 +61,11 @@
 
 ### 1.3 market-data-processing-service
 
-**Buckets:** `market-data-candles-{category}-{project_id}`
+**Buckets:** `market-data-tick-{category}-{project_id}` — MDPS output is co-located
+under the MTDS tick bucket in the `processed_candles/` subprefix. The standalone
+`market-data-candles-{category}-{project_id}` buckets were retired 2026-04-18
+(all 10 prod + test variants empty; see `data_pipeline_completion_2026_04_18.plan.md`
+Phase 5a).
 
 | Timeframe | Size/Day (BTC + SPY) | 6 Years    | Notes         |
 | --------- | -------------------- | ---------- | ------------- |
