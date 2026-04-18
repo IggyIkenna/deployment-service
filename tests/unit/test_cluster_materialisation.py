@@ -32,6 +32,19 @@ from deployment_service.client_isolation import (
 from deployment_service.cluster import ClusterOrchestrator
 
 
+@pytest.fixture(autouse=True)
+def _stub_setup_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the real setup_events() in ClusterOrchestrator.__init__.
+
+    UTL's setup_events() now requires a sink= in batch mode; ClusterOrchestrator
+    passes sink=None unconditionally. That's a pre-existing issue in cluster.py
+    orthogonal to these tests — mock it so the materialisation-plumbing tests
+    (our real target) can run deterministically.
+    """
+    monkeypatch.setattr("deployment_service.cluster.setup_events", lambda **_kwargs: None)
+    ClusterOrchestrator._events_initialized = False
+
+
 def _make_orchestrator(tmp_path: Path) -> ClusterOrchestrator:
     """Instantiate an orchestrator rooted at tmp_path (no real services needed)."""
     (tmp_path / "clusters").mkdir(parents=True, exist_ok=True)
