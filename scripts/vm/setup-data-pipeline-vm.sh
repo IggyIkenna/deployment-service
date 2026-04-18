@@ -293,9 +293,16 @@ VM_NAME_SELF=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.int
 GCS_LOG_DIR="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}"
 GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
 TEE_WRAPPER="/tmp/vm-exec-with-gcs-tee.sh"
+HEARTBEAT_HELPER="/tmp/deployment_heartbeat.py"
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
+  # The wrapper looks for deployment_heartbeat.py in its own directory.
+  if gsutil -q cp "gs://${CODE_BUCKET}/vm/deployment_heartbeat.py" "$HEARTBEAT_HELPER" 2>/dev/null; then
+    log "Deployment heartbeat helper downloaded → $HEARTBEAT_HELPER"
+  else
+    log "WARNING: deployment_heartbeat.py not found in GCS — heartbeats will be skipped"
+  fi
 else
   log "WARNING: vm-exec-with-gcs-tee.sh not found in GCS — falling back to local log only"
   TEE_WRAPPER=""
