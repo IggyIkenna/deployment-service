@@ -67,13 +67,16 @@ _launch() {
     local cat_upper; cat_upper="$(_category_upper_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
     local vm_name="mdps-backfill-${cat}-${RUN_TS}"
 
-    # Service CLIs follow the standardised axes (per CLAUDE.md):
-    #   --operation (what), --mode (batch|live), --category (domain)
-    # MDPS VM launch 2026-04-19 failed rc=2 with
-    # "error: the following arguments are required: --operation, --mode"
-    # because the command string used a sub-command (`process`) + a bare
-    # `--CEFI` flag instead of the canonical three-axis form. Fixed now.
-    local cmd="python -m market_data_processing_service --operation process --mode batch --category $cat_upper"
+    # MDPS CLI quirk: service uses ServiceBootstrap at the top level (which
+    # requires --operation and --mode) BUT has add_category_arg=False, so
+    # --category is NOT a recognised top-level arg. The legacy `process`
+    # subparser accepts per-category `--CEFI/--DEFI/...` flags, but those
+    # are only reachable if the bootstrap bridge (_build_legacy_argv in
+    # cli/main.py) reads MDPS_CATEGORY env var and translates to --CEFI.
+    # Hence: export MDPS_CATEGORY in the command string so the Python
+    # bridge picks it up. --category on the top-level fails with
+    # "unrecognized arguments" (2026-04-19 VM launches proved this).
+    local cmd="MDPS_CATEGORY=$cat_upper python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
