@@ -2,15 +2,24 @@
 # VM execution wrapper (Gate G1 — deployment observability).
 #
 # Responsibilities:
-#   1. Tee stdout + stderr to GCS every ~30s so operators can tail a long-running
-#      VM job from outside the VM even when SSH is broken.
-#   2. Register the deployment in the GCS-backed deployments registry via
-#      deployment_heartbeat.py and emit DEPLOYMENT_STARTED at launch.
-#   3. Heartbeat every 60s while the task is running (DEPLOYMENT_PROGRESS, with
-#      counters parsed from the last few lines of the log if present).
-#   4. On exit, archive the registry entry + emit DEPLOYMENT_COMPLETED or
-#      DEPLOYMENT_FAILED with structured stats (rows_in/out/error/events from
-#      the log's final "counters=" dict if present).
+#   1. Tee stdout + stderr to a local log.
+#   2. Launch the Python heartbeat daemon (scripts/vm/heartbeat_daemon.py),
+#      which OWNS both the 60s Pub/Sub heartbeat loop and the 30s GCS log
+#      uploader loop inside a single long-lived Python process.
+#   3. Local-log activity watchdog (still shell-side — SIGKILLs a stuck
+#      Python process, doesn't need UTL).
+#   4. On CMD_PID exit: write the final exit status into a file the daemon
+#      reads + SIGTERM the daemon. The daemon emits DEPLOYMENT_COMPLETED /
+#      DEPLOYMENT_FAILED + final GCS upload and exits.
+#
+# Why a daemon instead of per-tick subprocesses:
+#   The previous layout forked `python deployment_heartbeat.py heartbeat ...`
+#   every 60s and `gsutil cp` every 30s. Each fork paid ~4-5s (Python) or
+#   ~1s (gsutil) cold-start cost + a fresh gRPC auth token mint. Across
+#   105 concurrent VMs that piled up into auth-token rate limits and
+#   multi-minute heartbeat latency. The daemon imports UTL once, keeps
+#   cached `PubSubEventSink` + `get_storage_client()` singletons warm, and
+#   pays zero cold-start per iter.
 #
 # Usage (backward-compatible with the old 2-arg form):
 #
@@ -31,6 +40,8 @@
 #   VM_START_DATE = today (UTC)
 #   VM_END_DATE   = today (UTC)
 #   PYTHON_BIN    = python (override to point at the tarball's venv)
+#   HEARTBEAT_INTERVAL_SEC = 60 (forwarded to daemon)
+#   UPLOAD_INTERVAL_SEC    = 30 (forwarded to daemon)
 set -uo pipefail
 
 GCS_LOG_URI="${1:-}"
@@ -45,6 +56,10 @@ LOCAL_LOG="/tmp/vm-exec-$$.log"
 GCS_DIR="$(dirname "$GCS_LOG_URI")"
 EXIT_STATUS_URI="${GCS_DIR}/EXIT_STATUS"
 PID_FILE="/tmp/vm-exec-$$.pid"
+EXIT_STATUS_FILE="/tmp/vm-exec-$$.exit_status"
+STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
+WATCHDOG_HEARTBEAT="/tmp/vm-exec-$$.watchdog_alive"
+DAEMON_ALIVE_FILE="/tmp/vm-exec-$$.daemon_alive"
 
 # ---- structured deployment metadata (registry + events) ----
 VM_NAME="${VM_NAME:-$(hostname)}"
@@ -56,8 +71,8 @@ VM_START_DATE="${VM_START_DATE:-$TODAY_UTC}"
 VM_END_DATE="${VM_END_DATE:-$TODAY_UTC}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-# deployment_heartbeat.py sits next to this script on the VM.
-HEARTBEAT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deployment_heartbeat.py"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DAEMON_SCRIPT="${SCRIPT_DIR}/heartbeat_daemon.py"
 
 # Generate the deployment_id (uuid4). Prefer python (always available on VMs
 # that run our tarball); fall back to /proc/sys/kernel/random/uuid.
@@ -69,130 +84,49 @@ else
     DEPLOYMENT_ID="$(date +%s)-$$"
 fi
 
-# Heartbeat call timeout — if deployment_heartbeat.py hangs (GCS/Pub/Sub
-# connection-pool exhaustion has hung the heartbeat in prod before, which
-# silently killed the observability loop for 6h), wall-clock-bound every call.
-HEARTBEAT_CALL_TIMEOUT_SEC="${HEARTBEAT_CALL_TIMEOUT_SEC:-30}"
-
-# Helper that runs deployment_heartbeat.py. Failures are logged but do NOT
-# abort the wrapped task — registry is observability, not control flow.
-# Wrapped in `timeout` so a stuck Pub/Sub publish or GCS registry write can
-# never block the heartbeat loop indefinitely.
-run_heartbeat() {
-    local op="$1"; shift
-    if [[ ! -f "$HEARTBEAT_SCRIPT" ]]; then
-        echo "[vm-exec] WARN: heartbeat helper missing at $HEARTBEAT_SCRIPT — skipping $op" >> "$LOCAL_LOG"
-        return 0
-    fi
-    timeout --kill-after=5 "$HEARTBEAT_CALL_TIMEOUT_SEC" \
-        "$PYTHON_BIN" "$HEARTBEAT_SCRIPT" "$op" "$@" 2>> "$LOCAL_LOG"
-    local rc=$?
-    if [[ $rc -eq 124 || $rc -eq 137 ]]; then
-        echo "[vm-exec] WARN: heartbeat $op TIMED OUT after ${HEARTBEAT_CALL_TIMEOUT_SEC}s (rc=$rc) — continuing" >> "$LOCAL_LOG"
-    elif [[ $rc -ne 0 ]]; then
-        echo "[vm-exec] WARN: heartbeat $op failed (rc=$rc) — continuing" >> "$LOCAL_LOG"
-    fi
-    return 0
-}
-
-# Best-effort parser for the final "counters={...}" or "rows_in=X rows_out=Y"
-# lines that our migration scripts emit. Echoes space-separated key=value pairs
-# that the caller can eval into shell vars.
-parse_counters() {
-    local log="$1"
-    [[ -r "$log" ]] || return 0
-    "$PYTHON_BIN" - "$log" <<'PY'
-import re, sys, json, pathlib
-path = pathlib.Path(sys.argv[1])
-try:
-    text = path.read_text(errors="ignore")
-except OSError:
-    sys.exit(0)
-# Scan a 2000-line tail (enough to survive a Databento-classifier warning storm)
-# and aggregate counters via MAX across every match — so a brief warning burst
-# that displaces the most recent per-day summary line doesn't zero out rows_in.
-tail = "\n".join(text.splitlines()[-2000:])
-
-out = {"rows_in": 0, "rows_out": 0, "rows_error": 0, "events_emitted": 0}
-# JSON-ish "counters={...}" — take max across all matches.
-for m in re.finditer(r"counters\s*=\s*(\{[^}]+\})", tail):
-    try:
-        data = json.loads(m.group(1).replace("'", '"'))
-        for k in out:
-            if k in data:
-                out[k] = max(out[k], int(data[k]))
-    except (json.JSONDecodeError, ValueError):
-        pass
-# Loose key=value pairs — take max across all matches.
-for key in ("rows_in", "rows_out", "rows_error", "events_emitted"):
-    for m in re.finditer(rf"{key}\s*=\s*(\d+)", tail):
-        out[key] = max(out[key], int(m.group(1)))
-# events_emitted fallback — tally `INFO Event:` lines written by UTL's
-# PubSubEventSink logger. Not a perfect proxy (each log-line may represent
-# N batched Pub/Sub publishes) but it's strictly more informative than 0.
-if out["events_emitted"] == 0:
-    out["events_emitted"] = len(re.findall(r"INFO Event:", tail))
-print(" ".join(f"{k}={v}" for k, v in out.items()))
-PY
-}
-
 # ---- start ----
 echo "[vm-exec] deployment_id=$DEPLOYMENT_ID vm=$VM_NAME category=$VM_CATEGORY task=$VM_TASK mode=$VM_MODE" | tee "$LOCAL_LOG"
 echo "[vm-exec] starting: $*" | tee -a "$LOCAL_LOG"
-echo "[vm-exec] log -> $GCS_LOG_URI (upload every 30s)" | tee -a "$LOCAL_LOG"
+echo "[vm-exec] log -> $GCS_LOG_URI (uploaded by heartbeat_daemon.py)" | tee -a "$LOCAL_LOG"
 
-run_heartbeat register \
-    --id "$DEPLOYMENT_ID" \
-    --name "$VM_NAME" \
-    --category "$VM_CATEGORY" \
-    --task "$VM_TASK" \
-    --mode "$VM_MODE" \
-    --start-date "$VM_START_DATE" \
-    --end-date "$VM_END_DATE" \
-    --log-uri "$GCS_LOG_URI"
+# Launch the Python heartbeat daemon. It handles register → heartbeat loop
+# → uploader loop → complete via SIGTERM. Stderr/stdout are teed into the
+# local log for debugging.
+if [[ ! -f "$DAEMON_SCRIPT" ]]; then
+    echo "[vm-exec] WARN: heartbeat daemon missing at $DAEMON_SCRIPT — observability disabled" | tee -a "$LOCAL_LOG"
+    DAEMON_PID=""
+else
+    "$PYTHON_BIN" "$DAEMON_SCRIPT" \
+        --id "$DEPLOYMENT_ID" \
+        --name "$VM_NAME" \
+        --category "$VM_CATEGORY" \
+        --task "$VM_TASK" \
+        --mode "$VM_MODE" \
+        --start-date "$VM_START_DATE" \
+        --end-date "$VM_END_DATE" \
+        --log-uri "$GCS_LOG_URI" \
+        --local-log "$LOCAL_LOG" \
+        --exit-status-file "$EXIT_STATUS_FILE" \
+        --stall-breadcrumb "$STALL_BREADCRUMB" \
+        --watchdog-file "$DAEMON_ALIVE_FILE" \
+        >> "$LOCAL_LOG" 2>&1 &
+    DAEMON_PID=$!
+    echo "[vm-exec] heartbeat daemon pid=$DAEMON_PID" >> "$LOCAL_LOG"
+fi
 
 # Start the command in background, capture its PID, tee stdout+stderr.
 ( "$@" 2>&1; echo "[vm-exec] command exited rc=$?" ) >> "$LOCAL_LOG" &
 CMD_PID=$!
 echo "$CMD_PID" > "$PID_FILE"
 
-# Periodic uploader: every 30s copy the log to GCS while command is alive.
-(
-    while kill -0 "$CMD_PID" 2>/dev/null; do
-        gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
-        sleep 30
-    done
-) &
-UPLOADER_PID=$!
-
-# Heartbeat loop: every 60s emit DEPLOYMENT_PROGRESS with best-effort counters.
-(
-    while kill -0 "$CMD_PID" 2>/dev/null; do
-        sleep 60
-        kill -0 "$CMD_PID" 2>/dev/null || break
-        counters="$(parse_counters "$LOCAL_LOG")"
-        # shellcheck disable=SC2086
-        eval $counters
-        run_heartbeat heartbeat \
-            --id "$DEPLOYMENT_ID" \
-            --rows-in "${rows_in:-0}" \
-            --rows-out "${rows_out:-0}" \
-            --rows-error "${rows_error:-0}" \
-            --events-emitted "${events_emitted:-0}"
-    done
-) &
-HEARTBEAT_PID=$!
-
 # Log-activity watchdog: if LOCAL_LOG hasn't grown in STALL_TIMEOUT_SEC
 # (default 10 min), SIGKILL the command process group (including any GCS
 # worker threads that are wedged on pool exhaustion) and write a stall
-# breadcrumb so `complete` can emit DEPLOYMENT_FAILED with a structured
-# reason. Six prior TradFi VMs silently wedged for 5-6h in 2026-04 because
-# no watchdog existed.
+# breadcrumb so the daemon's shutdown path can emit DEPLOYMENT_FAILED
+# with a structured reason. Six prior TradFi VMs silently wedged for 5-6h
+# in 2026-04 because no watchdog existed.
 STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-600}"
 STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
-STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
-WATCHDOG_HEARTBEAT="/tmp/vm-exec-$$.watchdog_alive"
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
 # ever writing the STALL: breadcrumb. Any intermediate command returning
@@ -252,38 +186,46 @@ WATCHDOG_HEARTBEAT="/tmp/vm-exec-$$.watchdog_alive"
 ) &
 WATCHDOG_PID=$!
 
-# Wait for command, record exit code, stop helpers, final upload.
+# Wait for command, record exit code.
 wait "$CMD_PID"
 RC=$?
-kill "$UPLOADER_PID" 2>/dev/null || true
-kill "$HEARTBEAT_PID" 2>/dev/null || true
 kill "$WATCHDOG_PID" 2>/dev/null || true
 
+# Hand the exit status off to the daemon and let it emit the terminal event
+# + do the final GCS upload. Fall back to inline gsutil / direct EXIT_STATUS
+# write if the daemon isn't running.
+echo "$RC" > "$EXIT_STATUS_FILE"
+
+if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
+    # Daemon owns final upload + DEPLOYMENT_COMPLETED/FAILED emission.
+    kill -TERM "$DAEMON_PID" 2>/dev/null || true
+    # Give the daemon a generous window to finish uploading (log files can
+    # be large) and publishing the terminal event.
+    for _ in $(seq 1 30); do
+        kill -0 "$DAEMON_PID" 2>/dev/null || break
+        sleep 1
+    done
+    # Belt-and-braces: if the daemon is still alive after 30s, SIGKILL it
+    # and fall through to the inline upload path.
+    if kill -0 "$DAEMON_PID" 2>/dev/null; then
+        echo "[vm-exec] WARN: daemon did not exit within 30s — SIGKILL" >> "$LOCAL_LOG"
+        kill -KILL "$DAEMON_PID" 2>/dev/null || true
+    fi
+fi
+
+# Inline fallback upload — only does anything useful when the daemon either
+# never started or was SIGKILLed before its final upload. Harmless when the
+# daemon already uploaded (it just re-uploads the same bytes).
 gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
 echo "$RC" | gsutil -q cp - "$EXIT_STATUS_URI" 2>/dev/null || true
 
-# Parse final counters and emit DEPLOYMENT_COMPLETED or _FAILED.
-final_counters="$(parse_counters "$LOCAL_LOG")"
-# shellcheck disable=SC2086
-eval $final_counters
 FINAL_STATUS="completed"
 [[ "$RC" -ne 0 ]] && FINAL_STATUS="failed"
-# Watchdog override — if the stall breadcrumb was written the exit code
-# above was synthetic (SIGKILL'd), so surface the stall explicitly.
 if [[ -f "$STALL_BREADCRUMB" ]]; then
     FINAL_STATUS="failed"
-    RC=124  # same rc GNU `timeout` uses on wall-clock expiry
+    RC=124
     echo "[vm-exec] DEPLOYMENT_FAILED cause=stall $(cat "$STALL_BREADCRUMB")" >> "$LOCAL_LOG"
 fi
-
-run_heartbeat complete \
-    --id "$DEPLOYMENT_ID" \
-    --exit-code "$RC" \
-    --status "$FINAL_STATUS" \
-    --rows-in "${rows_in:-0}" \
-    --rows-out "${rows_out:-0}" \
-    --rows-error "${rows_error:-0}" \
-    --events-emitted "${events_emitted:-0}"
 
 echo "[vm-exec] final log uploaded, exit=$RC, status=$FINAL_STATUS"
 exit "$RC"
