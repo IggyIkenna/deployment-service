@@ -80,7 +80,7 @@ _launch() {
     echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
     local md="VM_TASK=mdps-backfill"
-    md="${md},VM_SERVICE=market-data-processing-service"
+    md="${md},VM_SERVICE=market_data_processing_service"
     md="${md},VM_OPERATION=backfill-${cat}"
     md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_START_DATE=${START_DATE}"

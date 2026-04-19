@@ -364,6 +364,17 @@ if [[ "$VM_TASK" == "canonical-migration" ]]; then
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" ]]; then
+  # Phase 5b/5c backfill: BACKFILL_CMD metadata carries the full command
+  # (e.g. "python -m market_data_processing_service process --start-date X --end-date Y --cefi").
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    _launch_with_tee "$FULL_CMD" "$LOGS/${VM_TASK}.log"
+  else
+    log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
