@@ -51,26 +51,30 @@ fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 
-_category_flag_for() {
+_category_upper_for() {
     case "$1" in
-        cefi)       echo "--CEFI" ;;
-        tradfi)     echo "--TRADFI" ;;
-        defi)       echo "--DEFI" ;;
-        sports)     echo "--SPORTS" ;;
-        prediction) echo "--PREDICTION" ;;
+        cefi)       echo "CEFI" ;;
+        tradfi)     echo "TRADFI" ;;
+        defi)       echo "DEFI" ;;
+        sports)     echo "SPORTS" ;;
+        prediction) echo "PREDICTION" ;;
         *) echo ""; return 1 ;;
     esac
 }
 
 _launch() {
     local cat="$1"
-    local flag; flag="$(_category_flag_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
+    local cat_upper; cat_upper="$(_category_upper_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
     local vm_name="mdps-backfill-${cat}-${RUN_TS}"
 
-    # Strict-mode canonical write path is unconditional on the service side
-    # (MDPS commit c1cb73c); the backfill CLI invokes the same service code.
-    local cmd="python -m market_data_processing_service process"
-    cmd="$cmd --start-date $START_DATE --end-date $END_DATE $flag"
+    # Service CLIs follow the standardised axes (per CLAUDE.md):
+    #   --operation (what), --mode (batch|live), --category (domain)
+    # MDPS VM launch 2026-04-19 failed rc=2 with
+    # "error: the following arguments are required: --operation, --mode"
+    # because the command string used a sub-command (`process`) + a bare
+    # `--CEFI` flag instead of the canonical three-axis form. Fixed now.
+    local cmd="python -m market_data_processing_service --operation process --mode batch --category $cat_upper"
+    cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
     fi
