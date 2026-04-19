@@ -376,8 +376,20 @@ _launch_with_tee() {
   # Redirects via the wrapper if it downloaded; otherwise plain nohup.
   local cmd="$1"
   local fallback_log="${2:-$LOGS/backfill.log}"
+  # Export VM_* env vars so the tee wrapper + heartbeat subprocess can read
+  # them. Without this the heartbeat registers every VM as category=UNKNOWN
+  # task=vm-exec mode=full (the defaults in vm-exec-with-gcs-tee.sh), which
+  # is what the 2026-04-19 Playwright audit caught across all 14 VMs.
+  export VM_NAME="$VM_NAME_SELF"
+  export VM_TASK="${VM_TASK:-}"
+  export VM_CATEGORY="${VM_CATEGORY:-UNKNOWN}"
+  export VM_MODE="${VM_MODE:-${VM_BACKFILL_MODE:-full}}"
+  export VM_START_DATE="${VM_START_DATE:-}"
+  export VM_END_DATE="${VM_END_DATE:-}"
+  export PYTHON_BIN="$VENV/bin/python"
   if [[ -n "$TEE_WRAPPER" ]]; then
     log "Launching with GCS tee: $cmd"
+    log "  VM_NAME=$VM_NAME VM_CATEGORY=$VM_CATEGORY VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
     nohup bash "$TEE_WRAPPER" "$GCS_LOG_URI" bash -c "$cmd" > "$fallback_log" 2>&1 &
   else
     log "Launching plain: $cmd"

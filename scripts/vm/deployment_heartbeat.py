@@ -34,12 +34,12 @@ import os
 import sys
 from datetime import UTC, datetime
 
-from unified_trading_library import PubSubEventSink  # pyright: ignore[reportPrivateImportUsage]
-from unified_trading_library.events import (
+from unified_trading_library import (
     DEPLOYMENT_COMPLETED,
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
+    PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     log_event,
     setup_events,
 )

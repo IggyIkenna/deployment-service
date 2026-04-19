@@ -108,25 +108,30 @@ try:
     text = path.read_text(errors="ignore")
 except OSError:
     sys.exit(0)
-# Scan from the tail for the most recent counters= or rows_in= line.
-tail = "\n".join(text.splitlines()[-200:])
+# Scan a 2000-line tail (enough to survive a Databento-classifier warning storm)
+# and aggregate counters via MAX across every match — so a brief warning burst
+# that displaces the most recent per-day summary line doesn't zero out rows_in.
+tail = "\n".join(text.splitlines()[-2000:])
 
 out = {"rows_in": 0, "rows_out": 0, "rows_error": 0, "events_emitted": 0}
-# JSON-ish "counters={...}"
-m = re.search(r"counters\s*=\s*(\{[^}]+\})", tail)
-if m:
+# JSON-ish "counters={...}" — take max across all matches.
+for m in re.finditer(r"counters\s*=\s*(\{[^}]+\})", tail):
     try:
         data = json.loads(m.group(1).replace("'", '"'))
         for k in out:
             if k in data:
-                out[k] = int(data[k])
+                out[k] = max(out[k], int(data[k]))
     except (json.JSONDecodeError, ValueError):
         pass
-# Loose key=value pairs
-for key in out:
-    m2 = re.search(rf"{key}\s*=\s*(\d+)", tail)
-    if m2:
-        out[key] = max(out[key], int(m2.group(1)))
+# Loose key=value pairs — take max across all matches.
+for key in ("rows_in", "rows_out", "rows_error", "events_emitted"):
+    for m in re.finditer(rf"{key}\s*=\s*(\d+)", tail):
+        out[key] = max(out[key], int(m.group(1)))
+# events_emitted fallback — tally `INFO Event:` lines written by UTL's
+# PubSubEventSink logger. Not a perfect proxy (each log-line may represent
+# N batched Pub/Sub publishes) but it's strictly more informative than 0.
+if out["events_emitted"] == 0:
+    out["events_emitted"] = len(re.findall(r"INFO Event:", tail))
 print(" ".join(f"{k}={v}" for k, v in out.items()))
 PY
 }
