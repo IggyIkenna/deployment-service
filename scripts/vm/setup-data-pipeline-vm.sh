@@ -252,6 +252,16 @@ log "  uv pip install ${INSTALL_ARGS_STD[*]}"
 uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
 log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
 uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+
+# deployment_service/__init__.py eagerly imports the whole package
+# (monitor/orchestrator/backends), which transitively needs jinja2 +
+# pyyaml for template rendering in backends/services/vm_config.py and
+# yaml parsing in config_loader.py. Importing the heartbeat helper
+# (`from deployment_service.deployments_registry import ...`) therefore
+# evaluates the parent __init__ and fails without these. Install just
+# the two minimal runtime extras needed by the init chain.
+log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
+uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
 INSTALL_ARGS=("${INSTALL_ARGS_STD[@]}")
