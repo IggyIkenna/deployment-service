@@ -8,11 +8,15 @@
 # without --dry-run to do the actual migration.
 #
 # Usage:
-#   bash launch-canonical-migration-vm.sh cefi   2020-01-01 2024-12-31 dry
-#   bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2024-12-31 dry
-#   bash launch-canonical-migration-vm.sh defi   2023-01-01 2024-12-31 dry
-#   bash launch-canonical-migration-vm.sh all    2020-01-01 2024-12-31 dry
-#   bash launch-canonical-migration-vm.sh cefi   2020-01-01 2024-12-31 full
+#   bash launch-canonical-migration-vm.sh cefi       2020-01-01 2024-12-31 dry
+#   bash launch-canonical-migration-vm.sh tradfi     2023-01-01 2024-12-31 dry
+#   bash launch-canonical-migration-vm.sh defi       2023-01-01 2024-12-31 dry
+#   bash launch-canonical-migration-vm.sh prediction 2025-03-14 2026-04-18 dry
+#   bash launch-canonical-migration-vm.sh all        2020-01-01 2024-12-31 dry
+#   bash launch-canonical-migration-vm.sh cefi       2020-01-01 2024-12-31 full
+#
+# Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
+# causing disk-pressure OOMs on long ranges).
 set -euo pipefail
 
 CATEGORY="${1:-}"
@@ -22,9 +26,10 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
+BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 
 if [[ -z "$CATEGORY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 <cefi|tradfi|defi|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 <cefi|tradfi|defi|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -33,9 +38,10 @@ RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 
 _script_for() {
     case "$1" in
-        cefi)   echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        tradfi) echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        defi)   echo "python -m market_tick_data_service.scripts.migrate_defi_canonical --buckets all --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_canonical --buckets all --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -63,6 +69,7 @@ _launch() {
         --machine-type=e2-standard-8 \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
+        --boot-disk-size="${BOOT_DISK_GB}GB" \
         --scopes=cloud-platform \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
         --labels=purpose=canonical-migration,category="${cat}",mode="${MODE}",run-ts="${RUN_TS_LABEL}"
@@ -71,11 +78,12 @@ _launch() {
 }
 
 case "$CATEGORY" in
-    cefi|tradfi|defi) _launch "$CATEGORY" ;;
+    cefi|tradfi|defi|prediction) _launch "$CATEGORY" ;;
     all)
         _launch cefi
         _launch tradfi
         _launch defi
+        _launch prediction
         ;;
     *) echo "Unknown category: $CATEGORY"; exit 2 ;;
 esac
