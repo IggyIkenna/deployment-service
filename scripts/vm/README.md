@@ -16,32 +16,61 @@ The deployment-UI should offer a toggle between these approaches.
 
 ### Step 1: Create and upload tarballs
 
+**Pick the invocation that matches the scope of your change.** The default
+(no flags) only re-tars CORE — `unified-api-contracts`, `unified-trading-library`,
+`market-tick-data-service`, `deployment-service`. If your change touches any
+other service repo, you MUST use `--all` or a category flag, or VMs will run
+stale code without any error.
+
 ```bash
-# Package core repos (UAC + UTL + MTDS) and upload to GCS
+# CORE only — UAC + UTL + MTDS + deployment-service
+# Use this only when your changes are confined to those four repos.
 bash scripts/vm/create-code-tarballs.sh
 
-# Include additional service repos
+# ALL service repos (CORE + every consumer service) — safest default for
+# any multi-repo feature rollout (e.g. Phase B of honest-coverage-metrics).
+bash scripts/vm/create-code-tarballs.sh --all
+
+# Category-scoped — CORE + every repo in the category's pipeline
+# Categories: CEFI, TRADFI, DEFI, SPORTS, PREDICTION
+bash scripts/vm/create-code-tarballs.sh --category SPORTS
+bash scripts/vm/create-code-tarballs.sh --category PREDICTION
+bash scripts/vm/create-code-tarballs.sh --category DEFI
+
+# Combine category with one-off additions
+bash scripts/vm/create-code-tarballs.sh --category SPORTS --include features-calendar-service
+
+# Add specific repos on top of CORE without a category
 bash scripts/vm/create-code-tarballs.sh --include instruments-service --include features-sports-service
 
 # Dry run (show what would be created)
-bash scripts/vm/create-code-tarballs.sh --dry-run
+bash scripts/vm/create-code-tarballs.sh --all --dry-run
 
 # Custom bucket
-bash scripts/vm/create-code-tarballs.sh --bucket my-custom-bucket
+bash scripts/vm/create-code-tarballs.sh --all --bucket my-custom-bucket
 ```
 
-GCS layout after upload:
+GCS layout after upload (varies by flag):
 
 ```
 gs://deployment-scripts-central-element-323112/
 ├── code/
-│   ├── unified-api-contracts-code.tar.gz    (~7 MB)
-│   ├── unified-trading-library-code.tar.gz  (~1 MB)
-│   ├── mtds-code.tar.gz                     (~8 MB)
-│   └── instruments-service-code.tar.gz      (if --include)
+│   ├── unified-api-contracts-code.tar.gz    (always — CORE)
+│   ├── unified-trading-library-code.tar.gz  (always — CORE)
+│   ├── mtds-code.tar.gz                     (always — CORE)
+│   ├── deployment-service-code.tar.gz       (always — CORE)
+│   ├── instruments-service-code.tar.gz      (--all / category / --include)
+│   ├── market-data-processing-service-code.tar.gz  (--all / category / --include)
+│   ├── features-sports-service-code.tar.gz  (--all / SPORTS / --include)
+│   ├── features-calendar-service-code.tar.gz  (--all / CEFI / TRADFI / --include)
+│   └── ...                                  (one per repo per --all / category)
 └── vm/
     └── setup-data-pipeline-vm.sh            (the setup script)
 ```
+
+**Category → repo mappings** are defined in `create-code-tarballs.sh` (the
+`CEFI_REPOS`, `TRADFI_REPOS`, `DEFI_REPOS`, `SPORTS_REPOS`, `PREDICTION_REPOS`
+arrays). Edit the script if you add a new service repo to a category.
 
 ### Step 2: Launch VM with startup-script
 
@@ -150,6 +179,6 @@ The deployment-UI "VM Instance" tab should offer:
 - **Must use Python 3.13** — UAC requires >=3.13, Ubuntu 24.04 ships 3.12
 - **Must use full venv path** — `nohup python` fails, must use `nohup /home/.../venv/bin/python`
 - **build-essential required** — C extensions (ckzg, lru-dict for web3/UTL) fail without it
-- **Tarballs must be refreshed** — After code changes, re-run `create-code-tarballs.sh`
+- **Tarballs must be refreshed** — After code changes, re-run `create-code-tarballs.sh`. **Pick the right scope flag**: bare invocation re-tars only CORE (UAC/UTL/MTDS/deployment-service); use `--all` for any multi-repo feature, or `--category SPORTS|CEFI|TRADFI|DEFI|PREDICTION` to scope tighter. Forgetting the flag means stale code runs on VMs with no error signal.
 - **Same region as GCS** — Use asia-northeast1 for fast I/O with data buckets
 - **cloud-platform scope** — Required for GCS + Secret Manager access
