@@ -152,8 +152,13 @@ launch_cefi_shard() {
     end_date="${year}-12-31"
   fi
 
+  # Machine types — heavy groups (trades + book_snapshot_5 for 9 symbols)
+  # write 20-50M records per day and OOM on e2-standard-4's 16 GB heap
+  # during parquet encoding. 55 of 95 heavy VMs died rc=137 on the first
+  # launch 2026-04-19. Escalated to e2-highmem-4 (32 GB) which stores the
+  # full per-day dataframe in memory before streaming-write.
   if [[ "$group" == "heavy" ]]; then
-    machine="e2-standard-4"
+    machine="e2-highmem-4"
   else
     machine="e2-standard-2"
   fi
