@@ -234,12 +234,27 @@ log "Installing Python dependencies..."
 # tarball layout (we use short names: uac, utl, instruments).
 # Instead, editable installs resolve deps from each other since all are
 # installed in the same call.
-INSTALL_ARGS=("--no-sources")
+# Two-pass install. deployment-service declares deployment-api + fastapi
+# + functions-framework as hard deps — none of which are needed by the VM
+# heartbeat helper (which only touches deployments_registry.py, stdlib +
+# UTL StorageClient). Install it with --no-deps to avoid a resolve
+# failure that stops the whole VM. Everything else installs normally.
+INSTALL_ARGS_STD=("--no-sources")
+INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 for dir in "${INSTALLED_DIRS[@]}"; do
-  INSTALL_ARGS+=("-e" "$dir")
+  if [[ "$dir" == */deployment ]]; then
+    INSTALL_ARGS_NODEPS+=("-e" "$dir")
+  else
+    INSTALL_ARGS_STD+=("-e" "$dir")
+  fi
 done
-log "  uv pip install ${INSTALL_ARGS[*]}"
-uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" 2>&1 | tail -5
+log "  uv pip install ${INSTALL_ARGS_STD[*]}"
+uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
+log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
+uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+# Use STD args for the wheel-cache step below (deployment-service's
+# heavyweight deps shouldn't be cached either).
+INSTALL_ARGS=("${INSTALL_ARGS_STD[@]}")
 
 # Upload any newly compiled wheels to GCS for next VM
 NEW_WHEELS=$(find "$VENV/lib" -name "*.whl" -newer "$WHEEL_CACHE" 2>/dev/null | wc -l)
