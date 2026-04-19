@@ -189,6 +189,34 @@ else
   log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
   for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
 fi
+
+# Transitive sibling dependency: MDPS + features-* services declare
+# `market-tick-data-service>=0.1.0,<1.0.0` in their pyproject.toml but MTDS
+# is not on PyPI, so without MTDS installed as a sibling editable install
+# the whole resolve fails with "requirements are unsatisfiable". Two MDPS
+# backfill VMs died this way 2026-04-19. Keep this list in lockstep with
+# pyproject deps of each downstream service.
+MTDS_DEPENDENT_SERVICES=(
+  "market_data_processing_service"
+  "features_delta_one_service"
+  "features_onchain_service"
+  "features_volatility_service"
+  "features_calendar_service"
+  "features_multi_timeframe_service"
+  "features_cross_instrument_service"
+  "features_commodity_service"
+  "features_sports_service"
+)
+for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
+  if [[ "$VM_SERVICE" == "$dep_svc" ]]; then
+    case " ${NEEDED_TARBALLS[*]} " in
+      *" mtds-code "*) ;;
+      *) NEEDED_TARBALLS+=("mtds-code"); log "  (added mtds-code — $VM_SERVICE depends on MTDS)" ;;
+    esac
+    break
+  fi
+done
+
 log "Tarballs to install: ${NEEDED_TARBALLS[*]}"
 
 INSTALLED_DIRS=()

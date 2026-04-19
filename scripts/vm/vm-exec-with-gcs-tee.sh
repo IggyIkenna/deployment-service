@@ -69,17 +69,30 @@ else
     DEPLOYMENT_ID="$(date +%s)-$$"
 fi
 
+# Heartbeat call timeout — if deployment_heartbeat.py hangs (GCS/Pub/Sub
+# connection-pool exhaustion has hung the heartbeat in prod before, which
+# silently killed the observability loop for 6h), wall-clock-bound every call.
+HEARTBEAT_CALL_TIMEOUT_SEC="${HEARTBEAT_CALL_TIMEOUT_SEC:-30}"
+
 # Helper that runs deployment_heartbeat.py. Failures are logged but do NOT
 # abort the wrapped task — registry is observability, not control flow.
+# Wrapped in `timeout` so a stuck Pub/Sub publish or GCS registry write can
+# never block the heartbeat loop indefinitely.
 run_heartbeat() {
     local op="$1"; shift
     if [[ ! -f "$HEARTBEAT_SCRIPT" ]]; then
         echo "[vm-exec] WARN: heartbeat helper missing at $HEARTBEAT_SCRIPT — skipping $op" >> "$LOCAL_LOG"
         return 0
     fi
-    "$PYTHON_BIN" "$HEARTBEAT_SCRIPT" "$op" "$@" 2>> "$LOCAL_LOG" || {
-        echo "[vm-exec] WARN: heartbeat $op failed (rc=$?) — continuing" >> "$LOCAL_LOG"
-    }
+    timeout --kill-after=5 "$HEARTBEAT_CALL_TIMEOUT_SEC" \
+        "$PYTHON_BIN" "$HEARTBEAT_SCRIPT" "$op" "$@" 2>> "$LOCAL_LOG"
+    local rc=$?
+    if [[ $rc -eq 124 || $rc -eq 137 ]]; then
+        echo "[vm-exec] WARN: heartbeat $op TIMED OUT after ${HEARTBEAT_CALL_TIMEOUT_SEC}s (rc=$rc) — continuing" >> "$LOCAL_LOG"
+    elif [[ $rc -ne 0 ]]; then
+        echo "[vm-exec] WARN: heartbeat $op failed (rc=$rc) — continuing" >> "$LOCAL_LOG"
+    fi
+    return 0
 }
 
 # Best-effort parser for the final "counters={...}" or "rows_in=X rows_out=Y"
@@ -165,11 +178,60 @@ UPLOADER_PID=$!
 ) &
 HEARTBEAT_PID=$!
 
+# Log-activity watchdog: if LOCAL_LOG hasn't grown in STALL_TIMEOUT_SEC
+# (default 10 min), SIGKILL the command process group (including any GCS
+# worker threads that are wedged on pool exhaustion) and write a stall
+# breadcrumb so `complete` can emit DEPLOYMENT_FAILED with a structured
+# reason. Six prior TradFi VMs silently wedged for 5-6h in 2026-04 because
+# no watchdog existed.
+STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-600}"
+STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
+STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
+(
+    last_size=-1
+    last_change_epoch=$(date +%s)
+    while kill -0 "$CMD_PID" 2>/dev/null; do
+        sleep "$STALL_POLL_SEC"
+        kill -0 "$CMD_PID" 2>/dev/null || break
+        now=$(date +%s)
+        cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null || echo 0)
+        if [[ "$cur_size" -ne "$last_size" ]]; then
+            last_size=$cur_size
+            last_change_epoch=$now
+            continue
+        fi
+        stalled_for=$(( now - last_change_epoch ))
+        if [[ $stalled_for -ge $STALL_TIMEOUT_SEC ]]; then
+            echo "[vm-exec] STALL: log has not grown in ${stalled_for}s (threshold=${STALL_TIMEOUT_SEC}s) — killing CMD_PID=$CMD_PID" >> "$LOCAL_LOG"
+            # Best-effort: dump current stack of the Python process for post-mortem.
+            if command -v py-spy >/dev/null 2>&1; then
+                py-spy dump --pid "$CMD_PID" >> "$LOCAL_LOG" 2>&1 || true
+            else
+                # Fallback — /proc task stacks (kernel view, not Python frames).
+                for tid in /proc/$CMD_PID/task/*/stack; do
+                    [[ -r "$tid" ]] && { echo "--- $tid ---" >> "$LOCAL_LOG"; cat "$tid" >> "$LOCAL_LOG" 2>/dev/null || true; }
+                done
+            fi
+            echo "stalled_for=$stalled_for threshold=$STALL_TIMEOUT_SEC" > "$STALL_BREADCRUMB"
+            # Kill the whole process group so GCS worker threads + tee
+            # subshell all die together. SIGTERM first, then SIGKILL.
+            pkill -TERM -P "$CMD_PID" 2>/dev/null || true
+            kill -TERM "$CMD_PID" 2>/dev/null || true
+            sleep 5
+            pkill -KILL -P "$CMD_PID" 2>/dev/null || true
+            kill -KILL "$CMD_PID" 2>/dev/null || true
+            break
+        fi
+    done
+) &
+WATCHDOG_PID=$!
+
 # Wait for command, record exit code, stop helpers, final upload.
 wait "$CMD_PID"
 RC=$?
 kill "$UPLOADER_PID" 2>/dev/null || true
 kill "$HEARTBEAT_PID" 2>/dev/null || true
+kill "$WATCHDOG_PID" 2>/dev/null || true
 
 gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
 echo "$RC" | gsutil -q cp - "$EXIT_STATUS_URI" 2>/dev/null || true
@@ -180,6 +242,13 @@ final_counters="$(parse_counters "$LOCAL_LOG")"
 eval $final_counters
 FINAL_STATUS="completed"
 [[ "$RC" -ne 0 ]] && FINAL_STATUS="failed"
+# Watchdog override — if the stall breadcrumb was written the exit code
+# above was synthetic (SIGKILL'd), so surface the stall explicitly.
+if [[ -f "$STALL_BREADCRUMB" ]]; then
+    FINAL_STATUS="failed"
+    RC=124  # same rc GNU `timeout` uses on wall-clock expiry
+    echo "[vm-exec] DEPLOYMENT_FAILED cause=stall $(cat "$STALL_BREADCRUMB")" >> "$LOCAL_LOG"
+fi
 
 run_heartbeat complete \
     --id "$DEPLOYMENT_ID" \
