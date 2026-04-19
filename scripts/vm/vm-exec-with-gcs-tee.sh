@@ -192,42 +192,63 @@ HEARTBEAT_PID=$!
 STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-600}"
 STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
 STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
+WATCHDOG_HEARTBEAT="/tmp/vm-exec-$$.watchdog_alive"
+# Disabling `set -e` inside the watchdog subshell because v1 of this
+# watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
+# ever writing the STALL: breadcrumb. Any intermediate command returning
+# non-zero inside the loop (stat on missing file, pkill with no matches,
+# arithmetic misstep) would terminate the subshell under the inherited
+# pipefail. Explicitly relax error-handling + emit heartbeats every poll
+# so a future hang has diagnostic trail.
 (
+    set +e
     last_size=-1
     last_change_epoch=$(date +%s)
+    iteration=0
     while kill -0 "$CMD_PID" 2>/dev/null; do
+        iteration=$((iteration + 1))
         sleep "$STALL_POLL_SEC"
         kill -0 "$CMD_PID" 2>/dev/null || break
         now=$(date +%s)
-        cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null || echo 0)
-        if [[ "$cur_size" -ne "$last_size" ]]; then
+        cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null)
+        cur_size=${cur_size:-0}
+        echo "watchdog iter=$iteration size=$cur_size last=$last_size ts=$now" > "$WATCHDOG_HEARTBEAT"
+        if [[ "$cur_size" != "$last_size" ]]; then
             last_size=$cur_size
             last_change_epoch=$now
             continue
         fi
         stalled_for=$(( now - last_change_epoch ))
         if [[ $stalled_for -ge $STALL_TIMEOUT_SEC ]]; then
-            echo "[vm-exec] STALL: log has not grown in ${stalled_for}s (threshold=${STALL_TIMEOUT_SEC}s) — killing CMD_PID=$CMD_PID" >> "$LOCAL_LOG"
-            # Best-effort: dump current stack of the Python process for post-mortem.
-            if command -v py-spy >/dev/null 2>&1; then
-                py-spy dump --pid "$CMD_PID" >> "$LOCAL_LOG" 2>&1 || true
-            else
-                # Fallback — /proc task stacks (kernel view, not Python frames).
-                for tid in /proc/$CMD_PID/task/*/stack; do
-                    [[ -r "$tid" ]] && { echo "--- $tid ---" >> "$LOCAL_LOG"; cat "$tid" >> "$LOCAL_LOG" 2>/dev/null || true; }
-                done
-            fi
+            {
+                echo "[vm-exec] STALL: log has not grown in ${stalled_for}s (threshold=${STALL_TIMEOUT_SEC}s) — killing CMD_PID=$CMD_PID"
+                if command -v py-spy >/dev/null 2>&1; then
+                    py-spy dump --pid "$CMD_PID" 2>&1 || true
+                else
+                    if [[ -d "/proc/$CMD_PID/task" ]]; then
+                        for tid_dir in /proc/"$CMD_PID"/task/*/; do
+                            [[ -d "$tid_dir" ]] || continue
+                            echo "--- $tid_dir ---"
+                            cat "${tid_dir}stack" 2>/dev/null || true
+                        done
+                    fi
+                fi
+            } >> "$LOCAL_LOG" 2>&1
             echo "stalled_for=$stalled_for threshold=$STALL_TIMEOUT_SEC" > "$STALL_BREADCRUMB"
-            # Kill the whole process group so GCS worker threads + tee
-            # subshell all die together. SIGTERM first, then SIGKILL.
             pkill -TERM -P "$CMD_PID" 2>/dev/null || true
             kill -TERM "$CMD_PID" 2>/dev/null || true
             sleep 5
             pkill -KILL -P "$CMD_PID" 2>/dev/null || true
             kill -KILL "$CMD_PID" 2>/dev/null || true
+            # Also kill any python subprocess by command match, as a belt-and-
+            # braces measure when the subshell PID is a bash wrapper and
+            # pkill -P doesn't reach the actual grandchild.
+            pkill -KILL -f "market_tick_data_service.scripts.migrate" 2>/dev/null || true
+            pkill -KILL -f "market_data_processing_service" 2>/dev/null || true
             break
         fi
     done
+    echo "watchdog exiting iter=$iteration reason=$([[ ${stalled_for:-0} -ge $STALL_TIMEOUT_SEC ]] && echo stall || echo cmd_ended)" >> "$LOCAL_LOG"
 ) &
 WATCHDOG_PID=$!
 
