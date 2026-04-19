@@ -99,6 +99,17 @@ VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# VM_INSTRUMENT_IDS: semicolon-separated raw venue-native symbols. Added
+# 2026-04-19 so cefi-backfill launchers can restrict Tardis downloads to a
+# curated symbol list (BTC/ETH majors + operator-selected x-coins, DERIBIT-only
+# options). Without this, --instrument-ids is omitted and MTDS downloads the
+# full symbol universe per venue — a Tardis cost explosion.
+#
+# Semicolons (not commas) because gcloud --metadata=K=V,K=V uses comma as the
+# key separator: any comma inside a value would be misparsed as a new key.
+# Semicolons are converted to spaces when appended to CLI_ARGS because argparse
+# nargs='+' takes space-separated values.
+VM_INSTRUMENT_IDS=$(_meta VM_INSTRUMENT_IDS)
 # IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
 # Read from metadata and EXPORT so Python inherits it.
 # CRITICAL: only export if non-empty — Pydantic Settings treats an empty-string
@@ -433,7 +444,13 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
-  [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types $VM_DATA_TYPES"
+  # CLI expects nargs='+' → space-separated. Metadata values arrive with
+  # semicolons (see VM_INSTRUMENT_IDS comment above) to avoid collision with
+  # gcloud's comma key-separator. Transform semicolons → spaces. VM_DATA_TYPES
+  # historically used commas but we harmonise both on ; going forward; the
+  # //,/ fallback keeps older launchers working.
+  [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/backfill.log"
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"
