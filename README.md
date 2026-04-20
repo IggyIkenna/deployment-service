@@ -51,3 +51,40 @@ bash scripts/quality-gates.sh
 - `deployment-api` — thin FastAPI that imports this package; exposes `/infra/health`
 - `deployment-ui` — React UI for deployment management
 - `system-integration-tests` — Layer 3a/3b smoke tests triggered post-deploy
+
+## Signal Broadcast wiring (Plan B Phase 4)
+
+Signal leasing (`strategy-service` → external counterparty webhook) is
+deployed by extending the existing strategy-service Cloud Run Job — no
+67th service. deployment-service owns three things:
+
+- **Per-counterparty HMAC secrets** — provision with:
+  `bash scripts/provision-signal-broadcast-secrets.sh <project-id>`.
+  Secret-name convention: `signal-broadcast-counterparty-{cp_id}-hmac`.
+- **Webhook allowlist + transport defaults** —
+  `configs/signal-broadcast/counterparties.yaml`. Source of truth for
+  runtime entitlements is UAC `Counterparty` records; this file is the
+  deploy-time mirror (Secret Manager coverage + egress allowlist + ops
+  catalogue).
+- **Cloud Run env injection** —
+  `terraform/services/strategy-service/gcp/` mounts the HMAC secrets via
+  `secret_environment_variables` and injects the `SIGNAL_BROADCAST_*`
+  env vars consumed by `SignalBroadcastConfig`. Per-counterparty rate
+  limits are UAC-side (`Counterparty.rate_limit_per_strategy_per_sec`);
+  service-wide transport knobs (timeout / retries / backoff / JWT / refresh
+  cadence / pull buffer) are terraform variables.
+
+VM tarball refresh: strategy-service is already in every category
+tarball in `scripts/vm/create-code-tarballs.sh`. After merging
+signal_broadcast changes, operators run
+`bash scripts/vm/create-code-tarballs.sh --all` so VMs pick up the new
+signal_broadcast sub-package. Bare invocation only re-tars CORE — do
+not forget the flag.
+
+Local-emulator smoke: `bash scripts/smoke-signal-broadcast.sh` (uses
+`responses`; no live HTTP). Live-staging smoke is an operator follow-up.
+
+SSOT: `unified-trading-pm/plans/active/signal_leasing_broadcast_architecture_2026_04_20.plan.md`
+Phase 4. D-decisions (D1 sub-package, D3 HMAC webhook auth, D7 per-cp-
+per-strategy rate limit, D10 shard-level failure isolation) locked
+2026-04-20.

@@ -205,6 +205,22 @@ module "daily_job" {
     GCS_FUSE_MOUNT_PATH    = "/mnt/gcs"
     UCS_SKIP_GCSFUSE_CHECK = "1"
     PYTHONUNBUFFERED       = "1"
+
+    # ── Signal-broadcast (Plan B Phase 4) ──
+    # These env vars are consumed by strategy-service's
+    # `SignalBroadcastConfig` (Pydantic `UnifiedCloudConfig` subclass).
+    # Aliases declared in strategy_service/signal_broadcast/config.py.
+    # Per-counterparty rate limits live in the UAC `Counterparty`
+    # entity (rate_limit_per_strategy_per_sec); these env vars are
+    # service-wide transport-layer knobs only.
+    SIGNAL_BROADCAST_WEBHOOK_TIMEOUT_SECONDS             = tostring(var.signal_broadcast_webhook_timeout_seconds)
+    SIGNAL_BROADCAST_WEBHOOK_MAX_RETRIES                 = tostring(var.signal_broadcast_webhook_max_retries)
+    SIGNAL_BROADCAST_WEBHOOK_BACKOFF_BASE_SECONDS        = tostring(var.signal_broadcast_webhook_backoff_base_seconds)
+    SIGNAL_BROADCAST_JWT_ISSUER                          = var.signal_broadcast_jwt_issuer
+    SIGNAL_BROADCAST_JWT_AUDIENCE                        = var.signal_broadcast_jwt_audience
+    SIGNAL_BROADCAST_JWT_TTL_SECONDS                     = tostring(var.signal_broadcast_jwt_ttl_seconds)
+    SIGNAL_BROADCAST_CREDENTIAL_REFRESH_INTERVAL_SECONDS = tostring(var.signal_broadcast_credential_refresh_interval_seconds)
+    SIGNAL_BROADCAST_PULL_BUFFER_SIZE                    = tostring(var.signal_broadcast_pull_buffer_size)
   }
 
   gcs_volumes = [
@@ -220,7 +236,13 @@ module "daily_job" {
     { name = "strategy-store-defi", bucket = var.strategy_bucket_defi, read_only = false },
   ]
 
-  secret_environment_variables = {}
+  # Per-counterparty HMAC signing secrets — mounted as env vars.
+  # `CounterpartyCredentialsManager` resolves the secret values via the
+  # UTL `ApiKeyReloader` at runtime; this wiring just guarantees the
+  # Secret Manager entries exist and Cloud Run has permission to read
+  # them. Map populated in variables.tf; override for additional
+  # counterparties by supplying a merged map via .tfvars.
+  secret_environment_variables = var.signal_broadcast_counterparty_secrets
 
   service_name = "strategy-service"
   environment  = var.environment
