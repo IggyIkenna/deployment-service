@@ -7,6 +7,7 @@ Reads fixture calendar from GCS to determine expected fixture counts,
 and uses UAC transfer_windows to determine if transfer data is expected.
 """
 
+import json
 import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -365,8 +366,6 @@ def _display_json(
     end_date: datetime,
 ) -> None:
     """Display JSON-format output for sports league breakdown."""
-    import json
-
     total_expected = sum(s.total_expected for s in league_results.values())
     total_actual = sum(s.total_actual for s in league_results.values())
 

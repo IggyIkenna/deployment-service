@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 
 import click
 from unified_api_contracts.internal import MarketCategory
+from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-deep-import
+    is_in_tradfi_tick_window,
+)
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient
@@ -71,10 +74,6 @@ def check_data_types_detailed(
         current += timedelta(days=1)
 
     # Determine which dates are in tick windows (SSOT in UAC)
-    from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
-        is_in_tradfi_tick_window,
-    )
-
     def is_tick_window(date_str: str) -> bool:
         return is_in_tradfi_tick_window(date_str)
 

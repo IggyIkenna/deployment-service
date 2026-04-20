@@ -22,14 +22,17 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from unified_trading_library import StorageClient
+from unified_trading_library import StorageClient, get_storage_client
 
 logger = logging.getLogger(__name__)
 
 
+# Deployment registry bucket — central element project is the SSOT for
+# VM deployment state across every environment. See the project-id exclude
+# glob list in ``scripts/quality-gates.sh`` for the documented bootstrap
+# exception (registry discovery precedes config load).
 DEFAULT_BUCKET = "deployment-scripts-central-element-323112"
 ACTIVE_PREFIX = "deployments/active/"
 ARCHIVE_PREFIX = "deployments/archive/"
@@ -216,13 +219,7 @@ def _utcnow_iso() -> str:
 
 
 def _default_storage() -> _StorageClientLike:
-    """Get the UTL-backed StorageClient wrapped to match `_StorageClientLike`.
-
-    Lazy import: UTL pulls in UAC transitively, which callers may not want at
-    module load time (e.g., unit tests using InMemoryStorageClient).
-    """
-    from unified_trading_library import get_storage_client
-
+    """Get the UTL-backed StorageClient wrapped to match `_StorageClientLike`."""
     utl_client = get_storage_client()
     return _UTLStorageAdapter(utl_client)
 
@@ -266,7 +263,7 @@ class InMemoryStorageClient:
 
     def download_string(self, bucket: str, key: str) -> str:
         if (bucket, key) not in self._store:
-            raise FileNotFoundError(f"gs://{bucket}/{key}")
+            raise FileNotFoundError(f"storage object not found at {bucket}/{key}")
         return self._store[(bucket, key)]
 
     def list_keys(self, bucket: str, prefix: str) -> list[str]:

@@ -19,7 +19,7 @@ from unified_trading_library import (
     get_storage_client,
 )
 
-from .manifest_reader import ManifestReader
+from .manifest_reader import _BUCKET_TEMPLATES, ManifestReader
 
 logger = logging.getLogger(__name__)
 
@@ -323,8 +323,6 @@ def run_live_freshness_check(
     config = UnifiedCloudConfig()
     project_id = config.gcp_project_id
     storage_client = get_storage_client()
-
-    from .manifest_reader import _BUCKET_TEMPLATES
 
     bucket_template = _BUCKET_TEMPLATES.get(service)
     if not bucket_template:

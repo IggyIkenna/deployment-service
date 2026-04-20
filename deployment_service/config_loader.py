@@ -14,6 +14,9 @@ from typing import cast
 
 import yaml
 from unified_api_contracts import VenueMapping
+from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-deep-import
+    is_in_tradfi_tick_window,
+)
 
 from .config.base_config import BaseConfigLoader
 from .config.bootstrap_config import TopologyBootstrapConfig
@@ -203,10 +206,6 @@ class ConfigLoader(BaseConfigLoader):
         venue_types_dict = cast(dict[str, object], venue_types_raw)
 
         # Check if date is within a TradFi tick window (SSOT in UAC)
-        from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
-            is_in_tradfi_tick_window,
-        )
-
         is_tick_window = is_in_tradfi_tick_window(date_str)
 
         # Collect data types from all instrument types for this venue
@@ -248,11 +247,9 @@ class ConfigLoader(BaseConfigLoader):
                             if isinstance(data_types_raw, dict):
                                 data_types_dict = cast(dict[str, object], data_types_raw)
                                 # Check if date is within a TradFi tick window (SSOT in UAC)
-                                from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-inside-import
-                                    is_in_tradfi_tick_window as _is_tick_window_fn,
+                                is_tick_window = (
+                                    is_in_tradfi_tick_window(date_str) if date_str else False
                                 )
-
-                                is_tick_window = _is_tick_window_fn(date_str) if date_str else False
 
                                 resolved_types: list[object] | None = None
                                 if is_tick_window:

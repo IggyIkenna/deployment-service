@@ -2,6 +2,8 @@
 
 import click
 
+from deployment_service.sports_trigger_scheduler import SportsTriggerScheduler
+
 
 @click.group()
 @click.pass_context
@@ -42,8 +44,6 @@ def sports_trigger_run(
 
     Designed to run as a long-lived process on a VM or Cloud Run service.
     """
-    from deployment_service.sports_trigger_scheduler import SportsTriggerScheduler
-
     scheduler = SportsTriggerScheduler(
         config_path=config_path,
         poll_interval_seconds=poll_interval,
@@ -76,8 +76,6 @@ def sports_trigger_evaluate(
     Checks what triggers are due right now and reports them.
     Useful for debugging and testing the trigger logic.
     """
-    from deployment_service.sports_trigger_scheduler import SportsTriggerScheduler
-
     scheduler = SportsTriggerScheduler(
         config_path=config_path,
         dry_run=dry_run,
