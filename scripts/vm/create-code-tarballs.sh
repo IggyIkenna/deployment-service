@@ -12,6 +12,10 @@
 #   bash scripts/vm/create-code-tarballs.sh --category CEFI    # core + CEFI services
 #   bash scripts/vm/create-code-tarballs.sh --category DEFI    # core + DEFI services
 #   bash scripts/vm/create-code-tarballs.sh --all              # core + ALL service repos
+#   bash scripts/vm/create-code-tarballs.sh --ml-training      # core + ml-training
+#                                                                pipeline (CORE +
+#                                                                ml-training-service +
+#                                                                features-* consumers)
 #
 # Also supports additional repos for services beyond the category set:
 #   bash scripts/vm/create-code-tarballs.sh --include instruments-service
@@ -38,6 +42,7 @@ DRY_RUN=false
 EXTRA_REPOS=()
 CATEGORY=""
 ALL_REPOS=false
+ML_TRAINING=false
 
 # ── Category → service repo mappings ──
 # Each category includes the full pipeline from instruments through risk.
@@ -72,6 +77,17 @@ PREDICTION_REPOS=(
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
+# ML training — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
+# Tier 1 MVP (stitched continuous ES series trained locally / on a training VM).
+# Does NOT include strategy-service / execution-service — those live on a
+# separate backtest VM fleet launched via launch-tradfi-backfill-vm.sh once
+# the model artefact is registered.
+ML_TRAINING_REPOS=(
+    instruments-service market-tick-data-service
+    features-multi-timeframe-service features-calendar-service
+    features-volatility-service features-cross-instrument-service
+    ml-training-service
+)
 # All known service repos (union of all categories)
 ALL_SERVICE_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
@@ -92,6 +108,8 @@ usage() {
     echo "  --category <CAT>      Include category-specific repos:"
     echo "                        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
     echo "  --all                 Include ALL service repos"
+    echo "  --ml-training         Include the ML training pipeline fleet"
+    echo "                        (CORE + ml-training-service + features-*)"
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
     exit 1
@@ -105,6 +123,7 @@ while [[ $# -gt 0 ]]; do
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
         --category) CATEGORY="${2^^}"; shift 2 ;;  # uppercase
         --all) ALL_REPOS=true; shift ;;
+        --ml-training) ML_TRAINING=true; shift ;;
         --help|-h) usage ;;
         *) echo "Unknown arg: $1"; usage ;;
     esac
@@ -114,6 +133,12 @@ done
 CATEGORY_REPOS=()
 if $ALL_REPOS; then
     CATEGORY_REPOS=("${ALL_SERVICE_REPOS[@]}")
+elif $ML_TRAINING; then
+    # --ml-training is a separate named tranche, not a --category value, because
+    # "ml training" is orthogonal to CEFI/TRADFI/DEFI/SPORTS/PREDICTION — a
+    # training run for any of those categories pulls the same ML_TRAINING_REPOS
+    # bundle. Combines cleanly with --include for one-off additions.
+    CATEGORY_REPOS=("${ML_TRAINING_REPOS[@]}")
 elif [[ -n "$CATEGORY" ]]; then
     case "$CATEGORY" in
         CEFI)       CATEGORY_REPOS=("${CEFI_REPOS[@]}") ;;
@@ -213,6 +238,7 @@ log "Workspace: $WORKSPACE_ROOT"
 log "Bucket: gs://$BUCKET/code/"
 [[ -n "$CATEGORY" ]] && log "Category: $CATEGORY"
 $ALL_REPOS && log "Mode: ALL service repos"
+$ML_TRAINING && log "Mode: ML training (CORE + ${#ML_TRAINING_REPOS[@]} repos)"
 [[ ${#MERGED_EXTRA_REPOS[@]} -gt 0 ]] && log "Extra repos (${#MERGED_EXTRA_REPOS[@]}): ${MERGED_EXTRA_REPOS[*]}"
 log ""
 
