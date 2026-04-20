@@ -109,7 +109,8 @@ _python_module_for() {
 
 PY_MODULE="$(_python_module_for "$SERVICE_SHORT")"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="features-${SERVICE_SHORT}-${CATEGORY,,}-backfill-${RUN_TS}"
+CATEGORY_LOWER="$(echo "$CATEGORY" | tr '[:upper:]' '[:lower:]')"  # bash-3-compat (${var,,} is bash 4+)
+VM_NAME="features-${SERVICE_SHORT}-${CATEGORY_LOWER}-backfill-${RUN_TS}"
 
 # Canonical service CLI convention (codex/06-coding-standards/cli-convention.md).
 CMD="python -m ${PY_MODULE} --operation backfill --mode batch"
