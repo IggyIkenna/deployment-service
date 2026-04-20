@@ -145,16 +145,32 @@ def get_default_values(cloud: str) -> dict:
 def get_test_bucket_name(prod_bucket_name: str, project_id: str) -> str:
     """
     Generate test bucket name from production bucket name using configuration.
+
+    Canonical convention (SSOT: ``codex/02-data/per-category-bucket-layouts.md``):
+    insert ``-test-`` between category and project_id. Matches the 77 buckets
+    provisioned by ``provision-test-buckets.sh`` + every consumer path in
+    UTL ``get_write_bucket_name``.
+
+    Fails loud when project_id is missing from the name — the old suffix
+    fallback produced bucket names that don't exist and silently broke
+    adapters (see 2026-04-20 instruments-service CEFI smoke incident).
     """
     config = load_bucket_config(get_config_dir())
     test_config = config["test_buckets"]
 
-    if test_config["naming_pattern"] == "infix" and project_id in prod_bucket_name:
-        # Insert '-test' before the project_id
-        return prod_bucket_name.replace(f"-{project_id}", f"-test-{project_id}")
-    else:
-        # Fallback: append '-test' suffix
-        return f"{prod_bucket_name}-test"
+    if test_config["naming_pattern"] != "infix":
+        raise ValueError(
+            f"Unsupported test_buckets.naming_pattern="
+            f"{test_config['naming_pattern']!r} — only 'infix' (middle-test) "
+            f"is canonical."
+        )
+    if project_id not in prod_bucket_name:
+        raise ValueError(
+            f"Cannot derive test bucket for {prod_bucket_name!r}: "
+            f"project_id={project_id!r} not in name. Canonical convention "
+            f"inserts `-test-` between category and project_id."
+        )
+    return prod_bucket_name.replace(f"-{project_id}", f"-test-{project_id}")
 
 
 def get_all_required_buckets(
