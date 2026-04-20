@@ -26,9 +26,22 @@
 # Usage:
 #   bash launch-sfi-forward-poll.sh                      # yesterday only (T-1)
 #   bash launch-sfi-forward-poll.sh 2026-04-15 2026-04-18  # explicit window
+#   bash launch-sfi-forward-poll.sh --force 2026-04-15 2026-04-18  # bypass singleton lock
 #
 # Cost: e2-standard-2 for ~5-15 min per run.
+#
+# Singleton lock: refuses to launch if any sfi-fwd-* VM is already running in
+# the zone. SFI/RapidAPI rate-limits per-API-key, so 10 concurrent VMs sharing
+# `soccer-football-info-api-key` thrash on 429 (proven in 2026-04-19 incident:
+# 10 VMs ran for ~6h producing ~4 successful writes total). Pass --force to
+# bypass for legitimate parallel investigations.
 set -euo pipefail
+
+FORCE=false
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=true
+  shift
+fi
 
 # Default: yesterday only (T-1). Pass two dates for an explicit window.
 if [[ $# -eq 2 ]]; then
@@ -42,6 +55,28 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
+
+# ── Singleton lock: 10 concurrent VMs sharing one API key thrash on 429s ──
+if ! $FORCE; then
+  EXISTING="$(gcloud compute instances list \
+    --filter='name~"^sfi-fwd-" AND status=RUNNING' \
+    --zones="$ZONE" \
+    --format='value(name)' 2>/dev/null | head -1)"
+  if [[ -n "$EXISTING" ]]; then
+    cat >&2 <<EOF
+ERROR: SFI VM already running in $ZONE: $EXISTING
+Refusing to launch a duplicate — SFI/RapidAPI rate-limits per-key and
+multiple concurrent VMs thrash on 429s without producing useful data.
+
+Options:
+  Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
+  Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
+  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
+  Force:     bash $0 --force ${START_DATE} ${END_DATE}
+EOF
+    exit 1
+  fi
+fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="sfi-fwd-${RUN_TS}"
