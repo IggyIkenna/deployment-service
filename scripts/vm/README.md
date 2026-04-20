@@ -12,6 +12,22 @@ The system supports three ways to get code + deps onto a GCE VM:
 
 The deployment-UI should offer a toggle between these approaches.
 
+## Per-category launcher quick reference
+
+| Script                                  | Category             | Notes                                                                            |
+| --------------------------------------- | -------------------- | -------------------------------------------------------------------------------- |
+| `launch-cefi-sharded-backfill.sh`       | CEFI / TRADFI        | Tardis-backed download fleet. Year × venue × heavy/light shards.                 |
+| `launch-canonical-migration-vm.sh`      | any                  | Layout-rewrite migration (existing data → canonical partitions). NOT a download. |
+| `launch-canonical-smoke-vm.sh`          | CEFI / TRADFI / DEFI | 1-day write to TEST buckets (`IS_TEST_RUN=true`). Safe smoke.                    |
+| `launch-mdps-backfill-vm.sh`            | CEFI / TRADFI / DEFI | MDPS candle aggregation. SPORTS/PREDICTION require dep-checker support.          |
+| `launch-features-backfill-vm.sh`        | any                  | Per (feature_service × category) cell.                                           |
+| `launch-mtds-prediction-backfill-vm.sh` | PREDICTION           | Polymarket-only MTDS download via gamma. Singleton-locked.                       |
+| `launch-sfi-forward-poll.sh`            | SPORTS               | SoccerFootball.info reference data via instruments-service. Singleton-locked.    |
+| `launch-footystats-forward-poll.sh`     | SPORTS               | FootyStats forward poll for 14 days.                                             |
+| `launch-strategy-test-vm.sh`            | n/a                  | Strategy-service smoke.                                                          |
+
+**Singleton locks**: `launch-sfi-forward-poll.sh` and `launch-mtds-prediction-backfill-vm.sh` refuse to launch a duplicate VM in the zone (RapidAPI / gamma rate-limit per shared API key). Pass `--force` as the first arg to bypass.
+
 ## Tarball Approach (this directory)
 
 ### Step 1: Create and upload tarballs
