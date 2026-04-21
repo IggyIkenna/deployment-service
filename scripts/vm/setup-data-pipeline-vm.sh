@@ -421,6 +421,22 @@ if [[ "$VM_TASK" == "canonical-migration" ]]; then
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "sports-manifest-rescan" ]]; then
+  # Phase 5 (2026-04-21) — SPORTS FIXTURES per-(date, canonical_league_id)
+  # manifest rescan. Runs instruments-service/scripts/rescan_sports_fixtures_canonical.py
+  # to close the EPL=5 / BRASILEIRAO=2 undercount by joining af_league_id to
+  # canonical league_id via UAC get_league_by_api_football_id. VM_MIGRATION_CMD
+  # metadata carries the full invocation so the launcher controls flags
+  # (--date / --workers / --dry-run) from the host side.
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/sports-manifest-rescan.log"
+  else
+    log "ERROR: sports-manifest-rescan task without VM_MIGRATION_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" ]]; then
   # Phase 5b/5c backfill: BACKFILL_CMD metadata carries the full command
   # (e.g. "python -m market_data_processing_service process --start-date X --end-date Y --cefi").
