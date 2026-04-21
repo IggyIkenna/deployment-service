@@ -67,6 +67,24 @@ steps:
       - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev"
       - "."
 
+  # Step 3b: Build sports-scheduler image (Cloud Run Job for fixture-aware cron)
+  # Tagged under the same artifact repo so IAM / scanning inherit `api`'s setup.
+  # Deployed separately via Terraform (`google_cloud_run_v2_job` in
+  # terraform/gcp/sports_scheduler_cron.tf) + Cloud Scheduler cron. This step
+  # builds + pushes the image; job spec + cron are provisioned out-of-band.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-sports-scheduler"
+    waitFor: ["build"]
+    args:
+      - "build"
+      - "--target"
+      - "sports-scheduler"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:${COMMIT_SHA}"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest"
+      - "."
+
   # Step 4: Run quality gates INSIDE the api-dev image
   - name: "gcr.io/cloud-builders/docker"
     id: "quality-gates"
@@ -98,6 +116,17 @@ steps:
       - "push"
       - "--all-tags"
       - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}"
+
+  # Step 5b: Push sports-scheduler image — gated on the same quality gates as api.
+  # Both images are built from the same source tree; failing QG must block
+  # BOTH images (no silent scheduler deploys on broken code).
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-sports-scheduler"
+    waitFor: ["quality-gates", "build-sports-scheduler"]
+    args:
+      - "push"
+      - "--all-tags"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler"
 
   # Step 6b: Generate env vars file for deploy (avoids Cloud Build 100-args limit)
   - name: "ubuntu"
@@ -220,6 +249,8 @@ steps:
 images:
   - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}"
   - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:${COMMIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest"
 
 # Build options - use a powerful machine for faster builds
 options:

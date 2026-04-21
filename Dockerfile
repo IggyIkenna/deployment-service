@@ -101,3 +101,26 @@ COPY tests/ ./tests/
 RUN uv sync --frozen --no-dev --system \
     && chown -R appuser:appuser /app
 USER appuser
+
+# ============================================
+# Stage 4: sports-scheduler (Cloud Run Job)
+# ============================================
+# Short-lived job image — Cloud Scheduler fires this on a 5-minute cron via
+# Cloud Run Jobs. Each invocation runs one evaluation cycle
+# (`sports-trigger run --one-shot`) and exits. State (last_run per tier)
+# persists to gs://deployment-scripts-<project>/sports_scheduler_state/
+# between runs, so cadence is preserved across short-lived containers.
+#
+# Uses the same Python + deps as the `api` stage (co-located code in
+# deployment_service/) — only the CMD differs. No gunicorn, no HTTP port,
+# no healthcheck: Cloud Run Jobs track exit code, not liveness.
+FROM api AS sports-scheduler
+
+# Jobs do not serve HTTP — clear the API HEALTHCHECK inherited from `api`.
+HEALTHCHECK NONE
+
+# Keep tini as PID 1 for signal handling (terminate cleanly on SIGTERM).
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# One-shot evaluation cycle — Cloud Scheduler drives cadence externally.
+CMD ["python", "-m", "deployment_service", "sports-trigger", "run", "--one-shot"]
