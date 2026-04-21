@@ -23,9 +23,15 @@
 #   - api-football-api-key in Secret Manager
 #
 # Usage:
-#   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15   # pre-deployment backfill
-#   bash launch-api-football-backfill-vm.sh 2026-04-21 2026-05-01   # forward-poll ~10 days
-#   bash launch-api-football-backfill-vm.sh --force <start> <end>   # bypass singleton lock
+#   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15                    # pre-deployment backfill (all entities)
+#   bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31  # forward-poll schedule only
+#   bash launch-api-football-backfill-vm.sh --force <start> <end>                    # bypass singleton lock
+#
+# --entity FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS | FIXTURE_LINEUPS | PLAYER_STATS
+#   Restricts the VM to a single manifest entity. Use FIXTURES for forward-poll
+#   (API-Football publishes schedules weeks/months ahead; per-fixture
+#   enrichments only exist post-match). Omit for full historical backfill of
+#   completed dates.
 #
 # Cost: e2-standard-2 for ~5-30 min depending on range size. API-Football
 # fixtures-by-date returns all leagues in one call per date, so the wall clock
@@ -41,20 +47,26 @@
 set -euo pipefail
 
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-  FORCE=true
-  shift
-fi
+ENTITY=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) FORCE=true; shift ;;
+    --entity) ENTITY="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
-Usage: bash launch-api-football-backfill-vm.sh [--force] <START_DATE> <END_DATE>
+Usage: bash launch-api-football-backfill-vm.sh [--force] [--entity ENTITY] <START_DATE> <END_DATE>
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
+  ENTITY (optional): FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS |
+                     FIXTURE_LINEUPS | PLAYER_STATS. Omit for all entities.
 
 Examples:
   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15
-  bash launch-api-football-backfill-vm.sh 2026-04-21 2026-05-01
+  bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31
 EOF
   exit 1
 fi
@@ -97,7 +109,9 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="af-backfill-${RUN_TS}"
 
-echo "Launching $VM_NAME: API_FOOTBALL backfill ${START_DATE}..${END_DATE}"
+ENTITY_DESC="all entities"
+[[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY only"
+echo "Launching $VM_NAME: API_FOOTBALL backfill ${START_DATE}..${END_DATE} ($ENTITY_DESC)"
 
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
@@ -106,6 +120,7 @@ METADATA="${METADATA},VM_CATEGORY=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
+[[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
