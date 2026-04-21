@@ -63,6 +63,22 @@ reference:
       description: Refresh transfer data (only during transfer windows)
       run_always: false
       window_condition: transfer_window_open
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: LEAGUES
+      description: Refresh leagues roster (season-boundary only — promotion/relegation)
+      run_always: false
+      window_condition: season_boundary
+    - service: instruments-service
+      operation: instruments
+      category: SPORTS
+      args:
+        --sports-entity: TEAMS
+      description: Refresh per-league team roster (season-boundary only)
+      run_always: false
+      window_condition: season_boundary
 
 # Tier 3: Pre-match — fixture-proximate trigger windows
 # Fires at specific T-minus offsets before kickoff

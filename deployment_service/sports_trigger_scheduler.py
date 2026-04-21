@@ -20,6 +20,7 @@ Usage:
 
 from __future__ import annotations
 
+import io
 import logging
 import shlex
 import subprocess
@@ -29,8 +30,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
 
+import pandas as pd
 import yaml
-from unified_trading_library import get_bucket_name
+from unified_trading_library import get_bucket_name, get_storage_client
+
+from .deployment_config import DeploymentConfig
+from .sports_trigger_periodic import PeriodicTierDispatcher
+from .sports_trigger_state import PeriodicTierState, resolve_state_bucket
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +46,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class FixtureInfo(TypedDict):
+class FixtureInfo(
+    TypedDict
+):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
     """Minimal fixture data read from GCS parquets."""
 
     fixture_id: str
@@ -50,7 +58,7 @@ class FixtureInfo(TypedDict):
     away_team: str
 
 
-class TriggerEvent(TypedDict):
+class TriggerEvent(TypedDict):  # CORRECT-LOCAL: scheduler-internal event dict, never exported
     """A trigger that should fire for a specific fixture."""
 
     trigger_name: str
@@ -98,6 +106,8 @@ class SportsTriggerScheduler:
         dry_run: bool = False,
         backend: str = "local",
         workspace_root: str = "",
+        periodic_state: PeriodicTierState | None = None,
+        state_bucket: str | None = None,
     ) -> None:
         self._config_path = config_path
         self._poll_interval = poll_interval_seconds
@@ -107,6 +117,27 @@ class SportsTriggerScheduler:
         self._state = TriggerState()
         self._config = self._load_config()
         self._running = False
+        self._periodic_state = (
+            periodic_state
+            if periodic_state is not None
+            else self._build_periodic_state(state_bucket)
+        )
+
+    def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
+        """Construct the GCS-backed periodic state. Returns None on failure.
+
+        Failure to construct (e.g. no GCP creds in a unit-test-like context)
+        must NOT crash the scheduler — periodic tiers degrade to in-memory
+        state for that process, per shard-level failure isolation.
+        """
+        try:
+            bucket = state_bucket or resolve_state_bucket()
+            return PeriodicTierState(bucket=bucket)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                "Periodic-tier state unavailable (%s) — cadence will reset on restart", exc
+            )
+            return None
 
     def _load_config(self) -> dict[str, object]:
         """Load trigger tier configuration from YAML."""
@@ -136,10 +167,6 @@ class SportsTriggerScheduler:
         returning fixtures with kickoff within ``horizon_hours`` from now.
         """
         try:
-            from unified_trading_library import get_storage_client
-
-            from .deployment_config import DeploymentConfig
-
             config = DeploymentConfig()
             storage = get_storage_client(project_id=config.project_id)
 
@@ -178,12 +205,6 @@ class SportsTriggerScheduler:
 
                         # Read parquet to get fixture details
                         try:
-                            import io
-
-                            import pandas as pd
-                            from unified_trading_library import get_storage_client
-
-                            storage = get_storage_client()
                             raw = storage.download_bytes(bucket=bucket_name, blob_path=str(blob))
                             df = pd.read_parquet(io.BytesIO(raw))
 
@@ -385,61 +406,118 @@ class SportsTriggerScheduler:
             return True
 
         today = datetime.now(UTC).strftime("%Y-%m-%d")
+        self._dispatch_services(
+            services=list(event["services"]),
+            start_date=today,
+            end_date=today,
+            trigger_name=trigger_name,
+            dispatch_id=fixture_id,
+        )
+        self._state.mark_fired(trigger_name, fixture_id)
+        return True
 
-        for svc_config in event["services"]:
-            service = svc_config.get("service", "")
-            operation = svc_config.get("operation", "")
-            category = svc_config.get("category", "SPORTS")
-            description = svc_config.get("description", "")
-            extra_args = svc_config.get("args", {})
+    def _build_cli_cmd(
+        self,
+        *,
+        service: str,
+        operation: str,
+        category: str,
+        start_date: str,
+        end_date: str,
+        extra_args: dict[str, object],
+        force: bool = False,
+        run_tag: str = "live",
+    ) -> str:
+        """Assemble the standard batch-CLI invocation string.
 
-            # Build CLI command
-            cmd_parts = [
-                f"python -m {service.replace('-', '_')}",
-                f"--operation {operation}",
-                "--mode batch",
-                f"--category {category}",
-                f"--start-date {today}",
-                f"--end-date {today}",
-                "--run-tag live",
-            ]
+        Shared by per-fixture dispatch (start=end=today) and periodic-tier
+        dispatch (rolling window). ``force=True`` appends ``--force`` so
+        skip-if-exists is bypassed — the equivalent of Tier-1's
+        ``rolling_window.force_overwrite`` contract.
+        """
+        parts = [
+            f"python -m {service.replace('-', '_')}",
+            f"--operation {operation}",
+            "--mode batch",
+            f"--category {category}",
+            f"--start-date {start_date}",
+            f"--end-date {end_date}",
+            f"--run-tag {run_tag}",
+        ]
+        for arg_name, arg_val in extra_args.items():
+            parts.append(f"{arg_name} {arg_val}")
+        if force:
+            parts.append("--force")
+        return " ".join(parts)
 
-            if isinstance(extra_args, dict):
-                for arg_name, arg_val in extra_args.items():
-                    cmd_parts.append(f"{arg_name} {arg_val}")
+    def _dispatch_services(
+        self,
+        *,
+        services: list[dict[str, object]],
+        start_date: str,
+        end_date: str,
+        trigger_name: str,
+        dispatch_id: str,
+        force: bool = False,
+    ) -> int:
+        """Dispatch a list of service configs through the active backend.
 
-            cmd = " ".join(cmd_parts)
+        Shared by per-fixture triggers (`fire_trigger`) and periodic tiers
+        (`_check_discovery` / `_check_reference`). Per-service failures log
+        but do not raise (shard-level failure isolation). Returns the number
+        of services that dispatched successfully.
+        """
+        dispatched = 0
+        for svc_config in services:
+            service = str(svc_config.get("service", ""))
+            operation = str(svc_config.get("operation", ""))
+            category = str(svc_config.get("category", "SPORTS"))
+            description = str(svc_config.get("description", ""))
+            extra_args_raw = svc_config.get("args", {})
+            extra_args: dict[str, object] = (
+                extra_args_raw if isinstance(extra_args_raw, dict) else {}
+            )
+
+            cmd = self._build_cli_cmd(
+                service=service,
+                operation=operation,
+                category=category,
+                start_date=start_date,
+                end_date=end_date,
+                extra_args=extra_args,
+                force=force,
+            )
             logger.info("  -> %s (%s)", cmd, description)
 
-            # Dispatch based on backend type
             if self._backend == "local":
-                self._dispatch_local(
+                if self._dispatch_local(
                     cmd=cmd,
                     service=service,
                     trigger_name=trigger_name,
-                    fixture_id=fixture_id,
-                )
+                    fixture_id=dispatch_id,
+                ):
+                    dispatched += 1
             elif self._backend == "cloud":
                 logger.warning(
                     "Cloud dispatch not yet implemented — skipping %s for trigger %s:%s",
                     service,
                     trigger_name,
-                    fixture_id,
+                    dispatch_id,
                 )
                 # TODO: integrate with CloudRunBackend.deploy_shard() for
                 # GCP Cloud Run dispatch. Requires building shard_id,
                 # docker_image, and compute_config from service metadata.
+                # NOTE: Tier-1/2 periodic tiers share this stub path so a
+                # single Cloud Run wiring change lights up every tier.
             else:
                 logger.warning(
                     "Unknown backend %s — skipping %s for trigger %s:%s",
                     self._backend,
                     service,
                     trigger_name,
-                    fixture_id,
+                    dispatch_id,
                 )
-
-        self._state.mark_fired(trigger_name, fixture_id)
-        return True
+        return dispatched
 
     def _dispatch_local(
         self,
@@ -549,36 +627,109 @@ class SportsTriggerScheduler:
             return False
 
     # ------------------------------------------------------------------
+    # Periodic tiers — delegated to PeriodicTierDispatcher
+    # ------------------------------------------------------------------
+
+    @property
+    def dry_run(self) -> bool:
+        """Expose dry-run flag for the periodic dispatcher's adapter surface."""
+        return self._dry_run
+
+    def build_cli_cmd(
+        self,
+        *,
+        service: str,
+        operation: str,
+        category: str,
+        start_date: str,
+        end_date: str,
+        extra_args: dict[str, object],
+        force: bool,
+    ) -> str:
+        """Adapter alias for PeriodicTierDispatcher — delegates to `_build_cli_cmd`."""
+        return self._build_cli_cmd(
+            service=service,
+            operation=operation,
+            category=category,
+            start_date=start_date,
+            end_date=end_date,
+            extra_args=extra_args,
+            force=force,
+        )
+
+    def dispatch_services(
+        self,
+        *,
+        services: list[dict[str, object]],
+        start_date: str,
+        end_date: str,
+        trigger_name: str,
+        dispatch_id: str,
+        force: bool,
+    ) -> int:
+        """Adapter alias for PeriodicTierDispatcher — delegates to `_dispatch_services`."""
+        return self._dispatch_services(
+            services=services,
+            start_date=start_date,
+            end_date=end_date,
+            trigger_name=trigger_name,
+            dispatch_id=dispatch_id,
+            force=force,
+        )
+
+    def _periodic_dispatcher(self) -> PeriodicTierDispatcher:
+        """Lazy-build the dispatcher so config reloads pick up fresh state."""
+        return PeriodicTierDispatcher(
+            config=self._config,
+            state=self._periodic_state,
+            adapter=self,
+        )
+
+    # Thin delegators so callers (and tests) can invoke tiers directly.
+    def _check_discovery(self) -> int:
+        return self._periodic_dispatcher().check_discovery()
+
+    def _check_reference(self) -> int:
+        return self._periodic_dispatcher().check_reference()
+
+    # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
 
     def run_once(self) -> int:
         """Run a single evaluation cycle. Returns number of triggers fired."""
+        fired = 0
+
+        # Tier-1 discovery + Tier-2 reference — periodic, not fixture-proximate.
+        dispatcher = self._periodic_dispatcher()
+        fired += dispatcher.check_discovery()
+        fired += dispatcher.check_reference()
+
         fixtures = self.get_upcoming_fixtures(horizon_hours=48)
         if not fixtures:
-            logger.info("No upcoming fixtures — nothing to trigger")
-            return 0
+            logger.info("No upcoming fixtures — periodic-only cycle fired=%d", fired)
+            return fired
 
-        # Evaluate all trigger types
+        # Tier-3 pre-match + Tier-4 post-match — fixture-proximate.
         pre_match_events = self.evaluate_pre_match_triggers(fixtures)
         post_match_events = self.evaluate_post_match_triggers(fixtures)
         all_events = pre_match_events + post_match_events
 
         if not all_events:
             logger.info(
-                "No triggers due — %d fixtures checked, %d already fired",
+                "No fixture-proximate triggers due — %d fixtures checked, %d already fired, periodic fired=%d",
                 len(fixtures),
                 len(self._state.fired),
+                fired,
             )
-            return 0
+            return fired
 
-        fired = 0
         for event in all_events:
             if self.fire_trigger(event):
                 fired += 1
 
         logger.info(
-            "Fired %d triggers (%d pre-match, %d post-match)",
+            "Fired %d triggers (%d pre-match, %d post-match, periodic included)",
             fired,
             len(pre_match_events),
             len(post_match_events),
