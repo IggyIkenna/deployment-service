@@ -19,7 +19,15 @@ provider "google" {
 }
 
 locals {
-  # Daily T+1 workflow
+  # Daily fixture-features workflow
+  #
+  # Window: yesterday (T-1) through T+7 — covers backlog catch-up for the
+  # previous day (post-match enrichments that land hours after kickoff) AND
+  # forward-horizon pre-match features for the next seven days of fixtures.
+  # SSOT: plans/active/features_sports_pipeline_deployment_2026_04_21.plan.md
+  # Phase 1 CLI contract. Tier-3 `features_pre_match` at T-1h in
+  # configs/sports-trigger-tiers.yaml still fires per-fixture on top of this
+  # daily catch-up.
   workflow_yaml = <<-YAML
 main:
   params: [args]
@@ -30,15 +38,18 @@ main:
           - region: "${var.region}"
           - job_name: "${var.job_name}"
 
-    # Compute yesterday's date (T+1)
-    - compute_date:
+    # Compute yesterday (T-1) and seven days ahead (T+7).
+    - compute_dates:
         assign:
           - current_time: $${sys.now()}
           - yesterday_seconds: $${int(current_time) - 86400}
+          - plus_seven_seconds: $${int(current_time) + (86400 * 7)}
           - yesterday_time: $${time.format(yesterday_seconds)}
-          - t_plus_1_date: $${text.substring(yesterday_time, 0, 10)}
+          - plus_seven_time: $${time.format(plus_seven_seconds)}
+          - start_date: $${text.substring(yesterday_time, 0, 10)}
+          - end_date: $${text.substring(plus_seven_time, 0, 10)}
 
-    # Run sports feature generation
+    # Run sports feature generation — compute fixture_features for the window.
     - run_features:
         call: http.post
         args:
@@ -49,14 +60,18 @@ main:
             overrides:
               containerOverrides:
                 - args:
+                    - "--operation"
+                    - "compute"
                     - "--mode"
                     - "batch"
-                    - "--feature-group"
-                    - "all"
+                    - "--category"
+                    - "SPORTS"
+                    - "--tables"
+                    - "fixture_features"
                     - "--start-date"
-                    - $${t_plus_1_date}
+                    - $${start_date}
                     - "--end-date"
-                    - $${t_plus_1_date}
+                    - $${end_date}
         result: features_response
 
     - get_execution:
@@ -88,7 +103,8 @@ main:
     - return_success:
         return:
           status: "completed"
-          date: $${t_plus_1_date}
+          start_date: $${start_date}
+          end_date: $${end_date}
           execution: $${execution_name}
           message: "features-sports-service completed"
 YAML
@@ -105,20 +121,11 @@ main:
           - job_name: "${var.job_name}"
           - start_date: $${args.start_date}
           - end_date: $${args.end_date}
-          - feature_groups: $${default(map.get(args, "feature_groups"), ["all"])}
+          - tables: $${default(map.get(args, "tables"), "fixture_features")}
 
     - build_args:
         assign:
-          - base_args: ["--operation", "compute", "--mode", "batch", "--start-date", $${start_date}, "--end-date", $${end_date}]
-
-    - add_feature_groups:
-        for:
-          value: fg
-          in: $${feature_groups}
-          steps:
-            - append_fg:
-                assign:
-                  - base_args: $${list.concat(base_args, ["--feature-group", fg])}
+          - base_args: ["--operation", "compute", "--mode", "batch", "--category", "SPORTS", "--start-date", $${start_date}, "--end-date", $${end_date}, "--tables", $${tables}]
 
     - run_backfill:
         call: http.post
@@ -163,7 +170,7 @@ main:
           status: "completed"
           start_date: $${start_date}
           end_date: $${end_date}
-          feature_groups: $${feature_groups}
+          tables: $${tables}
           execution: $${execution_name}
           message: "features-sports-service backfill completed"
 YAML
