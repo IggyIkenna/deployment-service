@@ -368,14 +368,23 @@ GCS_LOG_DIR="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SE
 GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
 TEE_WRAPPER="/tmp/vm-exec-with-gcs-tee.sh"
 HEARTBEAT_HELPER="/tmp/deployment_heartbeat.py"
+HEARTBEAT_DAEMON="/tmp/heartbeat_daemon.py"
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
-  # The wrapper looks for deployment_heartbeat.py in its own directory.
+  # The wrapper looks for deployment_heartbeat.py AND heartbeat_daemon.py in
+  # its own directory. The daemon owns the 60s Pub/Sub heartbeat loop + 30s
+  # GCS log upload — without it we get no streaming events and no GCS log
+  # tail (would have to SSH to the VM to see progress).
   if gsutil -q cp "gs://${CODE_BUCKET}/vm/deployment_heartbeat.py" "$HEARTBEAT_HELPER" 2>/dev/null; then
     log "Deployment heartbeat helper downloaded → $HEARTBEAT_HELPER"
   else
     log "WARNING: deployment_heartbeat.py not found in GCS — heartbeats will be skipped"
+  fi
+  if gsutil -q cp "gs://${CODE_BUCKET}/vm/heartbeat_daemon.py" "$HEARTBEAT_DAEMON" 2>/dev/null; then
+    log "Heartbeat daemon downloaded → $HEARTBEAT_DAEMON"
+  else
+    log "WARNING: heartbeat_daemon.py not found in GCS — observability disabled (no GCS log, no Pub/Sub events)"
   fi
 else
   log "WARNING: vm-exec-with-gcs-tee.sh not found in GCS — falling back to local log only"
