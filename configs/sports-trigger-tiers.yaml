@@ -5,20 +5,35 @@
 # determines which fixtures are at which T-minus stage, and fires
 # standard batch CLI invocations.
 #
-# Sports "live" = batch with --date today, fired at fixture-proximate times.
+# Sports "live" = batch with a fixture-proximate or rolling date window,
+# fired from Cloud Run jobs (warm-start ~1s) for periodic tiers and from
+# the scheduler for per-fixture triggers.
+#
+# SSOT: unified-trading-pm/codex/02-data/sports-scheduling-and-sharding.md
 
-# Tier 1: Discovery — periodic, not fixture-proximate
-# Refreshes the fixture calendar and slow-changing reference data
+# Tier 1: Discovery — periodic, not fixture-proximate.
+# Refreshes the fixture calendar and slow-changing reference data on a
+# rolling window: every run, re-fetch [today - lookback_days, today +
+# lookahead_days] and OVERWRITE existing parquets. Without overwrite, newly
+# announced fixtures (cup draws, TV reschedules, playoff brackets) never
+# hit the manifest and stay as stale "missing" / "empty_confirmed".
+#
+# lookahead_days=7 is the API-Football confirmed-schedule horizon. Beyond
+# that, schedule shifts mean we'd freeze invalid data. See codex §4.
 discovery:
-  description: Fixture calendar + slow-changing reference data
+  description: Fixture calendar + slow-changing reference data (rolling)
   frequency_hours: 6
+  rolling_window:
+    lookback_days: 1 # absorbs late API-Football schedule corrections
+    lookahead_days: 7 # API-Football confirmed-schedule horizon
+    force_overwrite: true # disable skip-if-exists inside the window
   services:
     - service: instruments-service
       operation: instruments
       category: SPORTS
       args:
         --sports-entity: FIXTURES
-      description: Refresh future fixture calendar (next 14 days)
+      description: Refresh fixture calendar (rolling today-1..today+7)
     - service: instruments-service
       operation: instruments
       category: SPORTS
