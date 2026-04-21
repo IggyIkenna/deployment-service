@@ -1,17 +1,37 @@
 #!/usr/bin/env bash
-# Launch a GCE VM that backfills sports FIXTURES from API-Football for an
-# explicit date range. Same code path as the live adapter + Cloud Run T+1 recon
-# — just dispatched to a VM so multi-year runs don't block a laptop.
+# Launch a GCE VM that backfills sports FIXTURES from API-Football. Same code
+# path as the live adapter + Cloud Run T+1 recon — just dispatched to a VM so
+# multi-year runs don't block a laptop.
 #
-# Purpose: fill genuine "no parquet at all" gaps in the manifest. The rescan
-# script handles empty_confirmed for dates where the adapter ran and got zero;
-# this launcher handles the other direction (adapter never ran).
+# Two invocation shapes:
+#
+#   1. Rolling forward-poll (preferred for FIXTURES schedule-polling):
+#        bash launch-api-football-backfill-vm.sh --lookback 1 --lookahead 7
+#        bash launch-api-football-backfill-vm.sh --entity FIXTURES --lookback 1 --lookahead 7 --force-window
+#
+#      Resolves to --lookback-days / --lookahead-days / --force-window on the VM,
+#      so the instruments-service CLI computes [today-N, today+M] at VM boot
+#      time (UTC). This matches the rolling-window contract in
+#      codex/02-data/sports-scheduling-and-sharding.md §4 and avoids stale
+#      start/end dates frozen at launcher-invocation time.
+#
+#   2. Explicit historical range (use for pre-deployment backfill):
+#        bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15
+#        bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31
 #
 # Writes to gs://instruments-store-sports-central-element-323112/
 #   sports_reference/by_date/day={D}/entity=fixtures/fixtures.parquet
-# per day in [START_DATE..END_DATE] inclusive.
+# per day in the resolved window (inclusive).
 #
 # Invocation inside the VM (assembled by setup-data-pipeline-vm.sh from metadata):
+#   # Rolling mode:
+#   python -m instruments_service \
+#     --operation instruments --mode batch --category SPORTS \
+#     --sports-provider API_FOOTBALL \
+#     --lookback-days $VM_LOOKBACK_DAYS --lookahead-days $VM_LOOKAHEAD_DAYS \
+#     [--force-window]
+#
+#   # Explicit-date mode:
 #   python -m instruments_service \
 #     --operation instruments --mode batch --category SPORTS \
 #     --sports-provider API_FOOTBALL \
@@ -23,15 +43,16 @@
 #   - api-football-api-key in Secret Manager
 #
 # Usage:
-#   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15                    # pre-deployment backfill (all entities)
-#   bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31  # forward-poll schedule only
-#   bash launch-api-football-backfill-vm.sh --force <start> <end>                    # bypass singleton lock
+#   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15                          # historical backfill
+#   bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31        # explicit forward range
+#   bash launch-api-football-backfill-vm.sh --lookback 1 --lookahead 7                     # rolling forward-poll
+#   bash launch-api-football-backfill-vm.sh --entity FIXTURES --lookback 1 --lookahead 7 --force-window
+#   bash launch-api-football-backfill-vm.sh --force <start> <end>                          # bypass singleton lock
 #
 # --entity FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS | FIXTURE_LINEUPS | PLAYER_STATS
 #   Restricts the VM to a single manifest entity. Use FIXTURES for forward-poll
 #   (API-Football publishes schedules weeks/months ahead; per-fixture
-#   enrichments only exist post-match). Omit for full historical backfill of
-#   completed dates.
+#   enrichments only exist post-match).
 #
 # Cost: e2-standard-2 for ~5-30 min depending on range size. API-Football
 # fixtures-by-date returns all leagues in one call per date, so the wall clock
@@ -48,36 +69,77 @@ set -euo pipefail
 
 FORCE=false
 ENTITY=""
+LOOKBACK=""
+LOOKAHEAD=""
+FORCE_WINDOW=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
     --entity) ENTITY="$2"; shift 2 ;;
+    --lookback) LOOKBACK="$2"; shift 2 ;;
+    --lookahead) LOOKAHEAD="$2"; shift 2 ;;
+    --force-window) FORCE_WINDOW=true; shift ;;
     *) break ;;
   esac
 done
 
-if [[ $# -ne 2 ]]; then
-  cat >&2 <<EOF
-Usage: bash launch-api-football-backfill-vm.sh [--force] [--entity ENTITY] <START_DATE> <END_DATE>
+# Mode resolution: rolling (--lookback/--lookahead) vs explicit (<start> <end>).
+USE_ROLLING=false
+if [[ -n "$LOOKBACK" || -n "$LOOKAHEAD" ]]; then
+  USE_ROLLING=true
+fi
+
+if $USE_ROLLING; then
+  if [[ $# -ne 0 ]]; then
+    cat >&2 <<EOF
+ERROR: cannot combine --lookback/--lookahead with positional <start> <end> dates.
+Pick one mode: rolling (--lookback N --lookahead M) OR explicit (<start> <end>).
+EOF
+    exit 1
+  fi
+  # Default missing side to 0 so --lookback 1 alone works (end = today).
+  [[ -z "$LOOKBACK" ]] && LOOKBACK=0
+  [[ -z "$LOOKAHEAD" ]] && LOOKAHEAD=0
+  if ! [[ "$LOOKBACK" =~ ^[0-9]+$ ]] || ! [[ "$LOOKAHEAD" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: --lookback / --lookahead must be non-negative integers (got lookback=$LOOKBACK, lookahead=$LOOKAHEAD)" >&2
+    exit 1
+  fi
+  RANGE_DESC="rolling [today-${LOOKBACK}..today+${LOOKAHEAD}] UTC"
+else
+  if [[ $# -ne 2 ]]; then
+    cat >&2 <<EOF
+Usage: bash launch-api-football-backfill-vm.sh [--force] [--entity ENTITY] \\
+         ( <START_DATE> <END_DATE> | --lookback N --lookahead M [--force-window] )
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
+  --lookback N / --lookahead M: rolling window resolved to [today-N..today+M] on the VM at boot (UTC).
+  --force-window: disable skip-if-exists for the rolling window (forward-poll overwrite contract).
   ENTITY (optional): FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS |
                      FIXTURE_LINEUPS | PLAYER_STATS. Omit for all entities.
 
 Examples:
   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15
   bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31
+  bash launch-api-football-backfill-vm.sh --lookback 1 --lookahead 7
+  bash launch-api-football-backfill-vm.sh --entity FIXTURES --lookback 1 --lookahead 7 --force-window
 EOF
-  exit 1
-fi
+    exit 1
+  fi
 
-START_DATE="$1"
-END_DATE="$2"
+  START_DATE="$1"
+  END_DATE="$2"
 
-# Sanity-check the date format up front — typos turn into silent VM boots.
-if ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! [[ "$END_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-  echo "ERROR: dates must be YYYY-MM-DD (got START=$START_DATE END=$END_DATE)" >&2
-  exit 1
+  # Sanity-check the date format up front — typos turn into silent VM boots.
+  if ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! [[ "$END_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "ERROR: dates must be YYYY-MM-DD (got START=$START_DATE END=$END_DATE)" >&2
+    exit 1
+  fi
+  RANGE_DESC="${START_DATE}..${END_DATE}"
+
+  if $FORCE_WINDOW; then
+    echo "WARNING: --force-window is only meaningful with --lookback/--lookahead; ignored in explicit-date mode." >&2
+    FORCE_WINDOW=false
+  fi
 fi
 
 ZONE="asia-northeast1-c"
@@ -100,7 +162,7 @@ Options:
   Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
   Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
   Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
-  Force:     bash $0 --force ${START_DATE} ${END_DATE}
+  Force:     bash $0 --force ...
 EOF
     exit 1
   fi
@@ -111,14 +173,20 @@ VM_NAME="af-backfill-${RUN_TS}"
 
 ENTITY_DESC="all entities"
 [[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY only"
-echo "Launching $VM_NAME: API_FOOTBALL backfill ${START_DATE}..${END_DATE} ($ENTITY_DESC)"
+echo "Launching $VM_NAME: API_FOOTBALL backfill ${RANGE_DESC} ($ENTITY_DESC)"
 
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
 METADATA="${METADATA},VM_CATEGORY=SPORTS"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+if $USE_ROLLING; then
+  METADATA="${METADATA},VM_LOOKBACK_DAYS=${LOOKBACK}"
+  METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"
+  $FORCE_WINDOW && METADATA="${METADATA},VM_FORCE_WINDOW=true"
+else
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"

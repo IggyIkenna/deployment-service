@@ -96,6 +96,12 @@ VM_OPERATION=$(_meta VM_OPERATION download)
 VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
 VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
 VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
+# Rolling forward-poll flags (instruments-service CLI). When present, the VM
+# resolves [today-N, today+M] at boot time (UTC) rather than freezing dates at
+# launcher-invocation time. SSOT: codex/02-data/sports-scheduling-and-sharding.md §4.
+VM_LOOKBACK_DAYS=$(_meta VM_LOOKBACK_DAYS)
+VM_LOOKAHEAD_DAYS=$(_meta VM_LOOKAHEAD_DAYS)
+VM_FORCE_WINDOW=$(_meta VM_FORCE_WINDOW)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
@@ -466,6 +472,9 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  [[ -n "$VM_LOOKBACK_DAYS" ]] && CLI_ARGS="$CLI_ARGS --lookback-days $VM_LOOKBACK_DAYS"
+  [[ -n "$VM_LOOKAHEAD_DAYS" ]] && CLI_ARGS="$CLI_ARGS --lookahead-days $VM_LOOKAHEAD_DAYS"
+  [[ "$VM_FORCE_WINDOW" == "true" ]] && CLI_ARGS="$CLI_ARGS --force-window"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
