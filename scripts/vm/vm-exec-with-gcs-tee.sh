@@ -228,4 +228,35 @@ if [[ -f "$STALL_BREADCRUMB" ]]; then
 fi
 
 echo "[vm-exec] final log uploaded, exit=$RC, status=$FINAL_STATUS"
+
+# ── Self-delete if launcher set VM_SHUTDOWN_ON_COMPLETION=true ──
+# Previously every launcher set VM_SHUTDOWN_ON_COMPLETION=true in metadata
+# but nothing read it — VMs finished rc=0 and stayed RUNNING forever.
+# Cost leak on every short job + operators had to manually gcloud delete.
+#
+# Fire the delete in a detached background subshell with a short delay so
+# this script can return $RC to systemd cleanly before gcloud tears the VM
+# down. --delete-disks=all prevents orphaned PD-balanced disks.
+# VM needs cloud-platform scope (every launch-*.sh already sets it).
+SHUTDOWN_ON_COMPLETION="$(curl -sf -H 'Metadata-Flavor: Google' \
+    'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
+    2>/dev/null || echo '')"
+if [[ "$SHUTDOWN_ON_COMPLETION" == "true" ]]; then
+    VM_NAME_SELF="$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')"
+    VM_ZONE_SELF="$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')"
+    if [[ -n "$VM_NAME_SELF" && -n "$VM_ZONE_SELF" ]]; then
+        echo "[vm-exec] VM_SHUTDOWN_ON_COMPLETION=true — scheduling self-delete of $VM_NAME_SELF in $VM_ZONE_SELF" >> "$LOCAL_LOG"
+        gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
+        # setsid + nohup + disown detach from this script so SIGHUP on VM
+        # teardown doesn't kill the delete mid-flight.
+        nohup setsid bash -c "sleep 10 && gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all" \
+            </dev/null >/dev/null 2>&1 &
+        disown || true
+    else
+        echo "[vm-exec] WARN: could not read VM name/zone from metadata — skipping self-delete" >> "$LOCAL_LOG"
+    fi
+fi
+
 exit "$RC"
