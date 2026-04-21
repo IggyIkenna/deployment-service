@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch a short-lived GCE VM that forward-polls FootyStats for the next 14 days.
+# Launch a short-lived GCE VM that forward-polls FootyStats for the next N days.
 #
 # Purpose: capture odds + predictions evolution over time. Each VM boot writes
 # a single `fetched_at_hour=YYYY-MM-DDTHH` snapshot per (kickoff date, entity)
@@ -7,42 +7,78 @@
 # Running this VM hourly (or daily) accumulates multiple snapshots per fixture,
 # enabling retrospective analysis of "when did FT first publish" and "do odds move".
 #
-# Default: polls `today` through `today + 14 days` and shuts itself down on success.
+# Default: rolling window [today..today+14] with `--force-window` so every run
+# re-fetches the window (required to accumulate snapshots). The VM resolves the
+# window at boot time (UTC) via the instruments-service rolling-window CLI
+# (`--lookback-days 0 --lookahead-days N --force-window`), per
+# codex/02-data/sports-scheduling-and-sharding.md §4.
 #
 # Prerequisites:
-#   - Tarballs already uploaded to gs://deployment-scripts-central-element-323112/code/
+#   - Tarballs uploaded to gs://deployment-scripts-central-element-323112/code/
+#     (refresh with: deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS)
 #   - FOOTYSTATS_API_KEY in Secret Manager under 'footystats-api-key'
 #
 # Usage:
-#   bash launch-footystats-forward-poll.sh                      # today..+14d (default)
-#   bash launch-footystats-forward-poll.sh 0 30                 # today..+30d
-#   bash launch-footystats-forward-poll.sh 0 14 ODDS            # only entity=ODDS
-#   bash launch-footystats-forward-poll.sh 0 14 PREDICTIONS     # only entity=PREDICTIONS
+#   bash launch-footystats-forward-poll.sh                       # today..today+14
+#   bash launch-footystats-forward-poll.sh 30                    # today..today+30
+#   bash launch-footystats-forward-poll.sh 14 ODDS               # today..today+14, entity=ODDS
+#   bash launch-footystats-forward-poll.sh 14 PREDICTIONS        # today..today+14, entity=PREDICTIONS
+#   bash launch-footystats-forward-poll.sh --explicit 2026-04-15 2026-04-21 [ENTITY]
+#                                                                # legacy explicit-date mode
 #
 # Cost: e2-small for ~5 min per run = ~$0.004 per fire. Delete on completion.
 set -euo pipefail
 
-DAYS_FROM="${1:-0}"      # offset from today (negative for backfill; positive not used — future==today is fine)
-DAYS_TO="${2:-14}"       # how far forward
-SPORTS_ENTITY="${3:-}"   # optional: ODDS | PREDICTIONS | MATCHES (empty = all)
+USE_EXPLICIT=false
+if [[ "${1:-}" == "--explicit" ]]; then
+  USE_EXPLICIT=true
+  shift
+fi
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 
-START_DATE="$(date -v+"${DAYS_FROM}"d +%Y-%m-%d 2>/dev/null || date -d "+${DAYS_FROM} days" +%Y-%m-%d)"
-END_DATE="$(date -v+"${DAYS_TO}"d +%Y-%m-%d 2>/dev/null || date -d "+${DAYS_TO} days" +%Y-%m-%d)"
+if $USE_EXPLICIT; then
+  if [[ $# -lt 2 ]]; then
+    echo "ERROR: --explicit requires <START_DATE> <END_DATE> [ENTITY]" >&2
+    exit 1
+  fi
+  START_DATE="$1"
+  END_DATE="$2"
+  SPORTS_ENTITY="${3:-}"
+  if ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! [[ "$END_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "ERROR: dates must be YYYY-MM-DD (got START=$START_DATE END=$END_DATE)" >&2
+    exit 1
+  fi
+  RANGE_DESC="${START_DATE}..${END_DATE}"
+else
+  LOOKAHEAD="${1:-14}"
+  SPORTS_ENTITY="${2:-}"
+  if ! [[ "$LOOKAHEAD" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: lookahead must be non-negative integer (got $LOOKAHEAD)" >&2
+    exit 1
+  fi
+  RANGE_DESC="rolling [today..today+${LOOKAHEAD}] UTC (force-window)"
+fi
+
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="footystats-fwd-${RUN_TS}"
 
-echo "Launching $VM_NAME: FOOTYSTATS ${START_DATE}..${END_DATE} entity=${SPORTS_ENTITY:-ALL}"
+echo "Launching $VM_NAME: FOOTYSTATS ${RANGE_DESC} entity=${SPORTS_ENTITY:-ALL}"
 
 METADATA="VM_TASK=sports-forward-poll"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
 METADATA="${METADATA},VM_CATEGORY=SPORTS"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+if $USE_EXPLICIT; then
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+else
+  METADATA="${METADATA},VM_LOOKBACK_DAYS=0"
+  METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"
+  METADATA="${METADATA},VM_FORCE_WINDOW=true"
+fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=FOOTYSTATS"
 [[ -n "$SPORTS_ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${SPORTS_ENTITY}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
@@ -55,7 +91,7 @@ gcloud compute instances create "$VM_NAME" \
   --image-project=ubuntu-os-cloud \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=footystats-forward-poll,run-ts="${RUN_TS_LABEL}"
+  --labels=purpose=footystats-forward-poll,run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"
