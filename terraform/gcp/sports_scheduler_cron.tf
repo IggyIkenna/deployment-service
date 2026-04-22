@@ -1,3 +1,9 @@
+# DEFERRED 2026-04-22 — Plan 3 activated via launch-sports-scheduler-vm.sh instead.
+# Keep for future Cloud Run migration once Plans 12 (deployment_service_build_infrastructure_repair)
+# and 13 (utl_base_image_rebuild_and_workflow_unblock) unblock the Cloud Build path.
+# The VM-daemon shape currently runs SportsTriggerScheduler.run() with its built-in
+# 300-s poll loop on an e2-small GCE VM — no Cloud Run image dependency.
+#
 # Sports Scheduler — Cloud Run Job + Cloud Scheduler Cron
 #
 # Plan: sports_scheduler_cron_activation_2026_04_21

@@ -90,7 +90,19 @@ class PeriodicTierState:
     def _load(self) -> None:
         try:
             raw = self._storage.download_string(self._bucket, self._key)
-        except (FileNotFoundError, KeyError):
+        except Exception as exc:
+            # First-boot case: scheduler.json doesn't exist yet → GCS raises
+            # google.cloud.storage.exceptions.InvalidResponse (404), UTL's
+            # local provider raises FileNotFoundError, in-memory raises
+            # KeyError. Treat ANY download failure as "no state yet" so the
+            # daemon can start and write the first state file on its first
+            # persist. Logging is INFO — this is the happy-path bootstrap.
+            logger.info(
+                "No existing scheduler state at gs://%s/%s (%s) — starting fresh",
+                self._bucket,
+                self._key,
+                type(exc).__name__,
+            )
             self._last_run = {}
             return
         try:

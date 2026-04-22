@@ -452,6 +452,46 @@ elif [[ "$VM_TASK" == "sports-manifest-rescan" ]]; then
   else
     log "ERROR: sports-manifest-rescan task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "sports-scheduler-poll" ]]; then
+  # Plan 3 (sports_scheduler_cron_activation_2026_04_21) — VM-based activation.
+  # Runs the sports fixture-aware trigger scheduler as a long-lived daemon.
+  #
+  # Why VM not Cloud Run Job: Plans 12 + 13 blockers on deployment-service
+  # image build + UTL base image. VM path uses the tarball infra (UAC + UTL +
+  # deployment-service already on GCS) and runs SportsTriggerScheduler.run()
+  # directly — its built-in 300-s poll loop IS the daemon.
+  #
+  # Config path: deployment-service tarball extracts to $WORKSPACE/deployment,
+  # and configs/sports-trigger-tiers.yaml is inside that tree. Run from
+  # $WORKSPACE/deployment so the default `configs/sports-trigger-tiers.yaml`
+  # resolves (the CLI also tries __file__.parent.parent fallback).
+  SCHEDULER_DIR="$WORKSPACE/deployment"
+  if [[ ! -d "$SCHEDULER_DIR" ]]; then
+    log "ERROR: $SCHEDULER_DIR missing — deployment-service tarball not extracted"
+    exit 1
+  fi
+  cd "$SCHEDULER_DIR" || { log "ERROR: cd $SCHEDULER_DIR failed"; exit 1; }
+
+  # The two-pass install above runs deployment-service with --no-deps (to avoid
+  # pulling in FastAPI / functions-framework on heartbeat-only VMs). The
+  # scheduler CLI is click-based and needs `click` explicitly + the Cloud
+  # Run / Compute SDKs used by SchedulerDispatchAdapter to dispatch child
+  # VMs. Install them here so sports-scheduler-poll task has a working CLI.
+  log "Installing deployment-service scheduler CLI extras (click + gcloud SDKs)..."
+  uv pip install --find-links "$WHEEL_CACHE" click google-cloud-run google-cloud-compute 2>&1 | tail -3
+
+  VM_SCHEDULER_DRY_RUN=$(_meta VM_SCHEDULER_DRY_RUN)
+  SCHED_ARGS="--config configs/sports-trigger-tiers.yaml --poll-interval 300"
+  if [[ "$VM_SCHEDULER_DRY_RUN" == "true" ]]; then
+    SCHED_ARGS="$SCHED_ARGS --dry-run"
+    log "Sports scheduler DRY-RUN mode — dispatches will be logged, not fired"
+  fi
+  # Launch the scheduler via the tee wrapper so run.log streams to GCS every
+  # 30s AND the scheduler's stdout/stderr lands in $LOGS/sports-scheduler.log
+  # for SSH-tail debugging. No VM_SHUTDOWN_ON_COMPLETION — this is a daemon.
+  _launch_with_tee \
+    "$VENV/bin/python -m deployment_service sports-trigger run $SCHED_ARGS" \
+    "$LOGS/sports-scheduler.log"
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" ]]; then
   # Phase 5b/5c backfill: BACKFILL_CMD metadata carries the full command
   # (e.g. "python -m market_data_processing_service process --start-date X --end-date Y --cefi").
