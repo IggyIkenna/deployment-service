@@ -24,16 +24,33 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from unified_trading_library import StorageClient, get_storage_client
+from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
 logger = logging.getLogger(__name__)
 
 
-# Deployment registry bucket — central element project is the SSOT for
-# VM deployment state across every environment. See the project-id exclude
-# glob list in ``scripts/quality-gates.sh`` for the documented bootstrap
-# exception (registry discovery precedes config load).
-DEFAULT_BUCKET = "deployment-scripts-central-element-323112"
+def _resolve_default_bucket() -> str:
+    """Derive the registry bucket from UnifiedCloudConfig.
+
+    Registry discovery runs before most config loads (VM startup / heartbeat
+    CLI), so callers can still override via the ``bucket=`` constructor arg.
+    The canonical pattern is ``deployment-scripts-<gcp_project_id>``.
+    UnifiedCloudConfig reads the project id from the environment via pydantic
+    AliasChoices — it owns the value post-init. Documented bootstrap exception
+    per codex §bootstrap-phase.
+    """
+    try:
+        cfg = UnifiedCloudConfig()
+    except (ValueError, RuntimeError, OSError):  # shard-level isolation
+        return ""
+    proj = getattr(cfg, "gcp_project_id", "") or ""
+    return f"deployment-scripts-{proj}" if proj else ""
+
+
+# Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
+# Empty string at import time = no GCP_PROJECT_ID set (e.g. unit tests); callers
+# must pass ``bucket=`` explicitly in that case.
+DEFAULT_BUCKET = _resolve_default_bucket()
 ACTIVE_PREFIX = "deployments/active/"
 ARCHIVE_PREFIX = "deployments/archive/"
 
@@ -210,12 +227,135 @@ class DeploymentsRegistry:
                 return entry
         return None
 
+    # ---- reaping ----------------------------------------------------------
+
+    def reap_stale(
+        self,
+        max_age_hours: int = 6,
+        running_vm_names: set[str] | None = None,
+        now: datetime | None = None,
+    ) -> list[DeploymentRegistryEntry]:
+        """Archive orphan ``active/`` entries — VMs gone or heartbeat dead.
+
+        An entry is considered stale when **either**:
+          * ``running_vm_names`` is not ``None`` and ``entry.vm_name`` is NOT
+            in that set (the GCE VM is gone / deleted / stopped), OR
+          * ``now - last_heartbeat_at > max_age_hours`` (the heartbeat thread
+            died but the VM may still be up — hard-kill or pre-emption).
+
+        Each reaped entry is archived with ``status="failed"``,
+        ``exit_code=125``, ``completed_at=now``, and
+        ``extras["reap_reason"]`` set to ``"vm_not_running"`` or
+        ``"heartbeat_stale"``. Returns the list of reaped entries.
+
+        Clock-skew tolerance: heartbeats less than 5 minutes old are never
+        considered stale even if ``running_vm_names`` says the VM is gone —
+        avoids racing with still-booting VMs whose first heartbeat has not
+        landed yet.
+        """
+        current = now or datetime.now(UTC)
+        reaped: list[DeploymentRegistryEntry] = []
+        skew_tolerance = timedelta(minutes=5)
+        max_age = timedelta(hours=max_age_hours)
+
+        for entry in self.list_active():
+            last_hb = _parse_iso_utc(entry.last_heartbeat_at)
+            if last_hb is None:
+                logger.warning(
+                    "reap_stale: skipping %s — unparseable last_heartbeat_at=%r",
+                    entry.deployment_id,
+                    entry.last_heartbeat_at,
+                )
+                continue
+            age = current - last_hb
+            if age < skew_tolerance:
+                continue  # fresh heartbeat — never stale
+
+            reason: str | None = None
+            if running_vm_names is not None and entry.vm_name not in running_vm_names:
+                reason = "vm_not_running"
+            elif age > max_age:
+                reason = "heartbeat_stale"
+
+            if reason is None:
+                continue
+
+            completed_at = current.strftime("%Y-%m-%dT%H:%M:%SZ")
+            entry.status = "failed"
+            entry.exit_code = 125
+            entry.completed_at = completed_at
+            entry.last_heartbeat_at = completed_at
+            extras = dict(entry.extras)
+            extras["reap_reason"] = reason
+            extras["reaped_at"] = completed_at
+            entry.extras = extras
+
+            try:
+                self.complete(entry)
+                reaped.append(entry)
+                logger.info(
+                    "reap_stale: archived %s (vm=%s, reason=%s, age=%s)",
+                    entry.deployment_id,
+                    entry.vm_name,
+                    reason,
+                    age,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:  # shard-level isolation
+                logger.warning(
+                    "reap_stale: failed to archive %s: %s",
+                    entry.deployment_id,
+                    exc,
+                )
+
+        return reaped
+
+
+def is_entry_stale(
+    entry: DeploymentRegistryEntry,
+    *,
+    now: datetime,
+    max_age_hours: int = 6,
+    running_vm_names: set[str] | None = None,
+) -> bool:
+    """Classify a single registry entry as stale (reap-eligible) or fresh.
+
+    Pure function — mirrors the logic inside ``reap_stale`` but exposed so
+    callers (dry-run previews, admin inspectors) can ask without mutating
+    state. Returns ``True`` iff the entry would be reaped by a corresponding
+    ``reap_stale`` call at the same ``now``.
+    """
+    last_hb = _parse_iso_utc(entry.last_heartbeat_at)
+    if last_hb is None:
+        return False
+    age = now - last_hb
+    if age < timedelta(minutes=5):
+        return False
+    if running_vm_names is not None and entry.vm_name not in running_vm_names:
+        return True
+    return age > timedelta(hours=max_age_hours)
+
 
 # ---- helpers --------------------------------------------------------------
 
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 UTC timestamp (``YYYY-MM-DDTHH:MM:SSZ``) tolerantly.
+
+    Returns ``None`` for empty / malformed input so callers can log-and-skip
+    rather than raise — matches the shard-level isolation policy used by
+    ``reap_stale``. ``Z`` suffix is accepted; internally we convert to the
+    ``+00:00`` form ``datetime.fromisoformat`` recognises across Py3.10+.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
 
 
 def _default_storage() -> _StorageClientLike:

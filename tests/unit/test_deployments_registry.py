@@ -321,3 +321,119 @@ def test_heartbeat_cli_register_then_complete(
     assert final.status == "completed"
     assert final.exit_code == 0
     assert final.rows_in == 10
+
+
+# ----- reap_stale / is_entry_stale / _parse_iso_utc ------------------------
+
+_parse_iso_utc = _registry_module._parse_iso_utc
+is_entry_stale = _registry_module.is_entry_stale
+
+
+def test_parse_iso_utc_happy_path() -> None:
+    parsed = _parse_iso_utc("2026-04-18T04:23:59Z")
+    assert parsed is not None
+    assert parsed.year == 2026 and parsed.month == 4 and parsed.day == 18
+    assert parsed.tzinfo is not None
+
+
+def test_parse_iso_utc_returns_none_for_empty_or_malformed() -> None:
+    assert _parse_iso_utc(None) is None
+    assert _parse_iso_utc("") is None
+    assert _parse_iso_utc("not-a-date") is None
+
+
+def test_is_entry_stale_fresh_heartbeat_returns_false() -> None:
+    now = datetime.now(UTC)
+    entry = _make_entry(
+        last_heartbeat_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    assert is_entry_stale(entry, now=now, max_age_hours=6) is False
+
+
+def test_is_entry_stale_stale_heartbeat_returns_true() -> None:
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=7)
+    entry = _make_entry(
+        last_heartbeat_at=old.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    assert is_entry_stale(entry, now=now, max_age_hours=6) is True
+
+
+def test_is_entry_stale_unparseable_heartbeat_returns_false() -> None:
+    now = datetime.now(UTC)
+    entry = _make_entry(last_heartbeat_at="garbage")
+    assert is_entry_stale(entry, now=now, max_age_hours=6) is False
+
+
+def test_is_entry_stale_vm_not_in_running_set_returns_true() -> None:
+    now = datetime.now(UTC)
+    # Recent heartbeat but VM not in running_vm_names → still stale (vm_not_running).
+    # NB: within skew-tolerance (5min) it must NOT be stale regardless.
+    old = now - timedelta(minutes=10)
+    entry = _make_entry(
+        vm_name="gone-vm",
+        last_heartbeat_at=old.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    assert is_entry_stale(entry, now=now, max_age_hours=24, running_vm_names={"other-vm"}) is True
+    # Same scenario within skew tolerance — must be fresh.
+    fresh = now - timedelta(minutes=1)
+    entry2 = _make_entry(
+        vm_name="gone-vm",
+        last_heartbeat_at=fresh.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    assert is_entry_stale(entry2, now=now, max_age_hours=24, running_vm_names={"other-vm"}) is False
+
+
+def test_reap_stale_archives_stale_entries(
+    registry: DeploymentsRegistry, storage: InMemoryStorageClient
+) -> None:
+    now = datetime.now(UTC)
+    old_hb = (now - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh_hb = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    stale = _make_entry(deployment_id="stale-1", last_heartbeat_at=old_hb)
+    fresh = _make_entry(deployment_id="fresh-1", last_heartbeat_at=fresh_hb)
+    registry.register(stale)
+    registry.register(fresh)
+
+    reaped = registry.reap_stale(max_age_hours=6, now=now)
+    reaped_ids = {e.deployment_id for e in reaped}
+    assert reaped_ids == {"stale-1"}
+
+    # Fresh entry must still be active.
+    active_keys = storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX)
+    assert active_keys == [f"{ACTIVE_PREFIX}fresh-1.json"]
+
+    # Stale entry must be archived with reap metadata.
+    archive_keys = storage.list_keys(DEFAULT_BUCKET, ARCHIVE_PREFIX)
+    assert len(archive_keys) == 1
+    stored = json.loads(storage.download_string(DEFAULT_BUCKET, archive_keys[0]))
+    assert stored["status"] == "failed"
+    assert stored["exit_code"] == 125
+    assert stored["extras"]["reap_reason"] == "heartbeat_stale"
+
+
+def test_reap_stale_uses_vm_name_signal(
+    registry: DeploymentsRegistry, storage: InMemoryStorageClient
+) -> None:
+    now = datetime.now(UTC)
+    old_hb = (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry = _make_entry(deployment_id="gone-1", vm_name="gone-vm", last_heartbeat_at=old_hb)
+    registry.register(entry)
+
+    reaped = registry.reap_stale(max_age_hours=24, running_vm_names={"other-vm"}, now=now)
+    assert [e.deployment_id for e in reaped] == ["gone-1"]
+    archive_keys = storage.list_keys(DEFAULT_BUCKET, ARCHIVE_PREFIX)
+    stored = json.loads(storage.download_string(DEFAULT_BUCKET, archive_keys[0]))
+    assert stored["extras"]["reap_reason"] == "vm_not_running"
+
+
+def test_reap_stale_skips_unparseable_heartbeat(
+    registry: DeploymentsRegistry, storage: InMemoryStorageClient
+) -> None:
+    entry = _make_entry(deployment_id="bad-hb", last_heartbeat_at="garbage")
+    registry.register(entry)
+    reaped = registry.reap_stale(max_age_hours=6, now=datetime.now(UTC))
+    assert reaped == []
+    # Active entry must be untouched.
+    assert storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX) == [f"{ACTIVE_PREFIX}bad-hb.json"]
