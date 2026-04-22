@@ -152,13 +152,19 @@ launch_cefi_shard() {
     end_date="${year}-12-31"
   fi
 
-  # Machine types — heavy groups (trades + book_snapshot_5 for 9 symbols)
-  # write 20-50M records per day and OOM on e2-standard-4's 16 GB heap
-  # during parquet encoding. 55 of 95 heavy VMs died rc=137 on the first
-  # launch 2026-04-19. Escalated to e2-highmem-4 (32 GB) which stores the
-  # full per-day dataframe in memory before streaming-write.
+  # Machine types — heavy groups (trades + book_snapshot_5 for 9 symbols).
+  # 2026-04-22 P2.B + P2.B follow-up: after killing ``small_frames`` accumulation
+  # in TardisAdapter.download_batch (MTDS 5ec195f) + removing the legacy
+  # PartitionedTickWriter dual-write path (same commit) + pre-flight
+  # granularity fix (MTDS ab6338b) that filters to only missing data_types
+  # per venue/date, heavy-profile peak RSS dropped from >8 GB (OS-OOM on
+  # e2-standard-2) to ~500 MB on the same smoke (cefi-smoke-p2b-20260422,
+  # BINANCE-FUTURES 2026-04-18 BTCUSDT+ETHUSDT trades+book_snapshot_5 =
+  # 8.66M records, ran to completion rc=0). Downgraded heavy profile from
+  # e2-highmem-4 (32 GB, $0.27/hr) to e2-standard-2 (8 GB, $0.07/hr) — a
+  # 4x cost reduction on 95 VMs × expected 24-48 h runtime.
   if [[ "$group" == "heavy" ]]; then
-    machine="e2-highmem-4"
+    machine="e2-standard-2"
   else
     machine="e2-standard-2"
   fi
