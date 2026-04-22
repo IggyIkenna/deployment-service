@@ -28,7 +28,10 @@ staging:
   counterparties:
     - counterparty_id: "signal-lease-cp1-staging"
       name: "Counterparty 1 (staging fixture)"
-      webhook_url: "https://cp1-staging.example.invalid/odum/webhook"
+      # Live-staging smoke receiver (R&D project central-element-323112, europe-west1).
+      # Deployed via `gcloud run deploy signal-broadcast-smoke-receiver --source
+      # scripts/signal-broadcast-smoke-receiver/`. Delete service post-smoke.
+      webhook_url: "https://signal-broadcast-smoke-receiver-1060025368044.europe-west1.run.app/cp/signal-lease-cp1-staging"
       schema_depth: "standard" # minimal | standard | rich — D8
       auth_method: "hmac_webhook" # D3 decision — HMAC-SHA256 on JWT bearer
       allowed_slots:
@@ -44,7 +47,8 @@ staging:
 
     - counterparty_id: "signal-lease-cp2-staging"
       name: "Counterparty 2 (staging fixture)"
-      webhook_url: "https://cp2-staging.example.invalid/odum/signals"
+      # Live-staging smoke receiver shared with CP1 — same deployment, different path.
+      webhook_url: "https://signal-broadcast-smoke-receiver-1060025368044.europe-west1.run.app/cp/signal-lease-cp2-staging"
       schema_depth: "minimal"
       auth_method: "hmac_webhook"
       allowed_slots:
