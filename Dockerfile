@@ -1,8 +1,8 @@
-# Dockerfile for Deployment Monitoring API + UI
-# Builds both API and UI, serves UI static files from FastAPI
+# Dockerfile for Deployment Orchestration API (deployment-service)
+# Serves the deployment-dashboard FastAPI; UI is hosted as a sibling Cloud Run service (deployment-ui).
 #
 # Production-ready configuration:
-# - Multi-stage build for smaller image
+# - Multi-stage build (api → api-dev → sports-scheduler)
 # - Non-root user for security
 # - Gunicorn with uvicorn workers for performance
 # - Health checks for Cloud Run
@@ -12,24 +12,10 @@
 ARG PROJECT_ID
 
 # ============================================
-# Stage 1: Build UI (React/Vite)
-# ============================================
-FROM node:20-slim AS ui-builder
-
-WORKDIR /app/ui
-
-# Copy package files first for better caching
-COPY ui/package*.json ./
-RUN npm ci --prefer-offline
-
-# Copy UI source and build for production
-COPY ui/ ./
-RUN npm run build
-
-# ============================================
-# Stage 2: Python API (Production)
+# Stage 1: Python API (Production)
 # ============================================
 # Use unified-trading-library base image for cloud abstraction
+# UI co-serving dropped — deployment-ui is a sibling Cloud Run service.
 FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library:latest AS base
 
 FROM base AS api
@@ -58,20 +44,16 @@ RUN id -u appuser >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /b
 # Copy and install Python dependencies first (better caching)
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies from lockfile
-# unified-trading-library already installed in base image
-RUN uv sync --frozen --no-dev --system \
+# Install dependencies (UTL base image already has transitive deps + UAC + UTL pre-installed)
+# uv >= 0.11 removed --system from `uv sync`; mirror features-sports-service pattern instead.
+RUN uv pip install --system --no-deps -e . \
     && uv pip install --system --no-cache-dir gunicorn[gevent] gevent
 
 # Copy application code
+# Repo layout: deployment_service/{api,backends,deployment}/ subpackages + configs/ at repo root.
+# (No top-level ui/api/backends/deployment dirs — those never existed.)
 COPY deployment_service/ ./deployment_service/
-COPY api/ ./api/
-COPY backends/ ./backends/
-COPY deployment/ ./deployment/
 COPY configs/ ./configs/
-
-# Copy built UI from previous stage
-COPY --from=ui-builder /app/ui/dist ./ui/dist
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
@@ -88,22 +70,23 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 # Use tini as init system for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# Run with gunicorn for production (manages uvicorn workers)
-CMD ["gunicorn", "api.main:app", "-c", "/app/api/gunicorn.conf.py"]
+# Run with gunicorn for production (manages uvicorn workers).
+# Module path matches actual package layout: deployment_service/api/main.py defines `app = create_app()`.
+CMD ["gunicorn", "deployment_service.api.main:app", "-c", "/app/deployment_service/api/gunicorn.conf.py"]
 
 # ============================================
-# Stage 3: api-dev (for Cloud Build quality gates - test-in-image)
+# Stage 2: api-dev (for Cloud Build quality gates - test-in-image)
 # ============================================
 FROM api AS api-dev
 USER root
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
-RUN uv sync --frozen --no-dev --system \
+RUN uv pip install --system --no-deps -e . \
     && chown -R appuser:appuser /app
 USER appuser
 
 # ============================================
-# Stage 4: sports-scheduler (Cloud Run Job)
+# Stage 3: sports-scheduler (Cloud Run Job)
 # ============================================
 # Short-lived job image — Cloud Scheduler fires this on a 5-minute cron via
 # Cloud Run Jobs. Each invocation runs one evaluation cycle

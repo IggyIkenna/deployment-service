@@ -222,24 +222,24 @@ steps:
     args:
       - "-c"
       - |
-        IMAGE="asia-northeast1-docker.pkg.dev/$PROJECT_ID/UNKNOWN/UNKNOWN"
-        echo "Waiting for Container Analysis vulnerability scan on $IMAGE..."
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}"
+        echo "Waiting for Container Analysis vulnerability scan on $$IMAGE..."
         # Poll up to 18 times × 10s = 3 minutes for scan to complete
-        for i in $(seq 1 18); do
-          RESULT=$(gcloud artifacts docker images describe "$IMAGE" \
+        for i in $$(seq 1 18); do
+          RESULT=$$(gcloud artifacts docker images describe "$$IMAGE" \
             --show-package-vulnerability --format="json" 2>/dev/null)
-          if [ -n "$RESULT" ]; then
-            CRITICAL=$(echo "$RESULT" | python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('package_vulnerability_summary',{}).get('vulnerabilities',{}).get('CRITICAL',[])))" 2>/dev/null || echo "0")
-            if [ "$CRITICAL" != "0" ]; then
-              echo "SCAN FAILED: $CRITICAL CRITICAL CVEs found in $IMAGE"
-              gcloud artifacts docker images describe "$IMAGE" \
+          if [ -n "$$RESULT" ]; then
+            CRITICAL=$$(echo "$$RESULT" | python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('package_vulnerability_summary',{}).get('vulnerabilities',{}).get('CRITICAL',[])))" 2>/dev/null || echo "0")
+            if [ "$$CRITICAL" != "0" ]; then
+              echo "SCAN FAILED: $$CRITICAL CRITICAL CVEs found in $$IMAGE"
+              gcloud artifacts docker images describe "$$IMAGE" \
                 --show-package-vulnerability --format="table[box](package_vulnerability_summary.vulnerabilities.CRITICAL[].vulnerability,package_vulnerability_summary.vulnerabilities.CRITICAL[].fixedPackage)" 2>/dev/null || true
               exit 1
             fi
             echo "Scan complete: 0 CRITICAL CVEs — image is clean"
             exit 0
           fi
-          echo "Scan not ready yet (attempt $i/18) — waiting 10s..."
+          echo "Scan not ready yet (attempt $$i/18) — waiting 10s..."
           sleep 10
         done
         echo "WARNING: Vulnerability scan did not complete within 3 minutes — proceeding (non-blocking)"
