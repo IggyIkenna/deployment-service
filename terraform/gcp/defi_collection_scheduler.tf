@@ -173,6 +173,12 @@ module "defi_collect_job" {
     GCP_PROJECT_ID = var.project_id
     DEPLOYMENT_ENV = var.environment
     CLOUD_PROVIDER = "gcp"
+    # Manifest-429 per-VM sharding: every Cloud Run Job container writes
+    # to `_index/per_vm/{instance}.parquet` instead of CAS-fighting on the
+    # single canonical blob. Reader fallback in UTL keeps the
+    # deployment-api UI coherent until the consolidator (declared in
+    # manifest_consolidator_scheduler.tf) merges shards every minute.
+    MANIFEST_PER_VM_SHARDS = "true"
   }
 
   service_name = "market-tick-data-service"

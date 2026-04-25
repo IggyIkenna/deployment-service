@@ -338,6 +338,12 @@ log "Dependencies installed successfully (${#INSTALLED_DIRS[@]} packages)"
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
+# Manifest-429 per-VM sharding (manifest_429_per_vm_sharding_2026_04_25):
+# every backfill / forward-poll VM writes to `_index/per_vm/{VM_NAME}.parquet`
+# instead of CAS-fighting the canonical blob. The minutely consolidator
+# (deployment-service/terraform/gcp/manifest_consolidator_scheduler.tf)
+# merges shards back into `_index/availability_index.parquet`.
+export MANIFEST_PER_VM_SHARDS="${MANIFEST_PER_VM_SHARDS:-true}"
 
 if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
   # Full L1-L7 pipeline for the category — uses backfill-cluster.sh from

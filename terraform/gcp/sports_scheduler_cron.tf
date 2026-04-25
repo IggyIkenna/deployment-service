@@ -87,6 +87,13 @@ resource "google_cloud_run_v2_job" "sports_scheduler" {
           name  = "SPORTS_SCHEDULER_STATE_BUCKET"
           value = "deployment-scripts-${var.project_id}"
         }
+        # Manifest-429 per-VM sharding — every container that calls
+        # ManifestWriter writes to its own shard file, the consolidator
+        # cron (manifest_consolidator_scheduler.tf) merges them back.
+        env {
+          name  = "MANIFEST_PER_VM_SHARDS"
+          value = "true"
+        }
 
         resources {
           limits = {
