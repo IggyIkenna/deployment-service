@@ -49,21 +49,23 @@ class SchedulerDispatchAdapter(Protocol):
         service: str,
         operation: str,
         category: str,
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         extra_args: dict[str, object],
-        force: bool,
+        force: bool = False,
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> str: ...
 
     def dispatch_services(
         self,
         *,
         services: list[dict[str, object]],
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         trigger_name: str,
         dispatch_id: str,
-        force: bool,
+        force: bool = False,
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> int: ...
 
 
@@ -85,25 +87,20 @@ class PeriodicTierDispatcher:
     # Cadence + rolling window
     # ------------------------------------------------------------------
 
-    def _rolling_window(self, section: dict[str, object]) -> tuple[str, str]:
-        """Resolve ``[today - lookback_days, today + lookahead_days]``.
+    def _rolling_window_triple(self, section: dict[str, object]) -> tuple[int, int, bool]:
+        """Read `(lookback_days, lookahead_days, force_window)` from the YAML.
 
-        Falls back to single-day ``today..today`` if ``rolling_window`` is
-        absent. Contract: codex/02-data/sports-scheduling-and-sharding.md §4.
+        Passed raw to instruments-service, which owns the date math per CLI
+        contract ``70517b2`` (codex/02-data/sports-scheduling-and-
+        sharding.md §4). Falls back to `(0, 0, False)` if `rolling_window`
+        is absent — effectively single-day ``today..today``.
         """
         window_raw = section.get("rolling_window")
         window: dict[str, object] = window_raw if isinstance(window_raw, dict) else {}
         lookback = as_int(window.get("lookback_days"), default=0)
         lookahead = as_int(window.get("lookahead_days"), default=0)
-        today = datetime.now(UTC).date()
-        start = (today - timedelta(days=lookback)).strftime("%Y-%m-%d")
-        end = (today + timedelta(days=lookahead)).strftime("%Y-%m-%d")
-        return start, end
-
-    def _force_overwrite(self, section: dict[str, object]) -> bool:
-        window_raw = section.get("rolling_window")
-        window: dict[str, object] = window_raw if isinstance(window_raw, dict) else {}
-        return bool(window.get("force_overwrite", False))
+        force_window = bool(window.get("force_overwrite", False))
+        return lookback, lookahead, force_window
 
     def _is_cadence_elapsed(self, tier_name: str, frequency_hours: float, now: datetime) -> bool:
         """True if this tier has never fired OR ``now - last_run >= frequency_hours``."""
@@ -122,7 +119,14 @@ class PeriodicTierDispatcher:
     # ------------------------------------------------------------------
 
     def check_discovery(self) -> int:
-        """Fire Tier-1 discovery services if cadence has elapsed."""
+        """Fire Tier-1 discovery services if cadence has elapsed.
+
+        Passes the raw ``(lookback, lookahead, force_window)`` triple through
+        to instruments-service which resolves it to concrete dates at parse
+        time (CLI SSOT: ``70517b2``). Keeping the date math in one place
+        avoids clock-drift between scheduler and CLI and matches the manual
+        launcher shape (deployment-service ``b0eb874``).
+        """
         section_raw = self._config.get("discovery")
         if not isinstance(section_raw, dict):
             return 0
@@ -138,14 +142,13 @@ class PeriodicTierDispatcher:
         if not services:
             return 0
 
-        start_date, end_date = self._rolling_window(section)
-        force = self._force_overwrite(section)
+        rolling = self._rolling_window_triple(section)
 
         logger.info(
-            "TIER-1 DISCOVERY firing: window=[%s..%s] force=%s services=%d",
-            start_date,
-            end_date,
-            force,
+            "TIER-1 DISCOVERY firing: rolling_window=(lookback=%d, lookahead=%d, force_window=%s) services=%d",
+            rolling[0],
+            rolling[1],
+            rolling[2],
             len(services),
         )
 
@@ -155,21 +158,17 @@ class PeriodicTierDispatcher:
                     service=str(svc.get("service", "")),
                     operation=str(svc.get("operation", "")),
                     category=str(svc.get("category", "SPORTS")),
-                    start_date=start_date,
-                    end_date=end_date,
                     extra_args=_args_of(svc),
-                    force=force,
+                    rolling_window=rolling,
                 )
                 logger.info("DRY RUN  -> %s (%s)", cmd, svc.get("description", ""))
             return len(services)
 
         dispatched = self._adapter.dispatch_services(
             services=services,
-            start_date=start_date,
-            end_date=end_date,
             trigger_name=tier_name,
             dispatch_id="periodic",
-            force=force,
+            rolling_window=rolling,
         )
         if dispatched and self._state is not None:
             self._state.set_last_run(tier_name, now)

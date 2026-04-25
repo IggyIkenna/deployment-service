@@ -128,19 +128,40 @@ def test_build_cli_cmd_per_fixture(scheduler: SportsTriggerScheduler) -> None:
     assert "--force" not in cmd
 
 
-def test_build_cli_cmd_rolling_window_with_force(scheduler: SportsTriggerScheduler) -> None:
+def test_build_cli_cmd_rolling_window_emits_raw_flags(scheduler: SportsTriggerScheduler) -> None:
+    """Rolling-window path emits raw ``--lookback-days``/``--lookahead-days``/``--force-window``.
+
+    Mutually exclusive with ``--start-date``/``--end-date``: the
+    instruments-service CLI contract (``70517b2``) rejects both shapes
+    mixed, and the periodic dispatcher relies on CLI-side date resolution.
+    """
     cmd = scheduler._build_cli_cmd(
         service="instruments-service",
         operation="instruments",
         category="SPORTS",
-        start_date="2026-04-20",
-        end_date="2026-04-28",
         extra_args={"--sports-entity": "FIXTURES"},
-        force=True,
+        rolling_window=(1, 7, True),
     )
-    assert "--start-date 2026-04-20" in cmd
-    assert "--end-date 2026-04-28" in cmd
-    assert cmd.endswith("--force")
+    assert "--lookback-days 1" in cmd
+    assert "--lookahead-days 7" in cmd
+    assert "--force-window" in cmd
+    assert "--start-date" not in cmd
+    assert "--end-date" not in cmd
+    assert "--force " not in cmd and not cmd.endswith("--force")
+
+
+def test_build_cli_cmd_rolling_window_without_force(scheduler: SportsTriggerScheduler) -> None:
+    """``force_overwrite: false`` yields lookback/lookahead with no ``--force-window``."""
+    cmd = scheduler._build_cli_cmd(
+        service="instruments-service",
+        operation="instruments",
+        category="SPORTS",
+        extra_args={},
+        rolling_window=(2, 14, False),
+    )
+    assert "--lookback-days 2" in cmd
+    assert "--lookahead-days 14" in cmd
+    assert "--force-window" not in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +198,12 @@ def test_periodic_tier_state_missing_blob_starts_fresh() -> None:
 
 
 def test_check_discovery_fires_first_run(scheduler: SportsTriggerScheduler) -> None:
-    """No prior state → discovery fires with rolling window + force."""
+    """No prior state → discovery fires with raw rolling flags + force-window.
+
+    Passes the raw ``(lookback, lookahead, force_window)`` triple straight
+    through to instruments-service's ``--lookback-days``/``--lookahead-days``/
+    ``--force-window`` CLI (``70517b2``), which owns the date math.
+    """
     captured: list[dict[str, Any]] = []
 
     def fake_dispatch_local(*, cmd: str, service: str, trigger_name: str, fixture_id: str) -> bool:
@@ -190,9 +216,12 @@ def test_check_discovery_fires_first_run(scheduler: SportsTriggerScheduler) -> N
     assert fired == 1
     assert len(captured) == 1
     cmd = captured[0]["cmd"]
-    assert "--start-date" in cmd
-    assert "--end-date" in cmd
-    assert "--force" in cmd
+    assert "--lookback-days 1" in cmd
+    assert "--lookahead-days 7" in cmd
+    assert "--force-window" in cmd
+    # Mutually exclusive — no pre-computed dates leak through.
+    assert "--start-date" not in cmd
+    assert "--end-date" not in cmd
     # Last-run persisted.
     assert scheduler._periodic_state is not None
     assert scheduler._periodic_state.get_last_run("discovery") is not None
@@ -230,18 +259,25 @@ def test_check_discovery_fires_when_cadence_elapsed(
     assert len(captured) == 1
 
 
-def test_check_discovery_rolling_window_math(scheduler: SportsTriggerScheduler) -> None:
-    """Rolling-window dates reflect lookback/lookahead config exactly."""
+def test_check_discovery_rolling_window_flags_match_config(
+    scheduler: SportsTriggerScheduler,
+) -> None:
+    """Raw rolling flags reflect lookback/lookahead config exactly.
+
+    No date math in the scheduler — instruments-service resolves
+    ``--lookback-days N --lookahead-days M`` at CLI parse time. Scheduler
+    is responsible only for forwarding the intent.
+    """
     captured: list[str] = []
     scheduler._dispatch_local = lambda **kw: captured.append(kw["cmd"]) or True  # type: ignore[method-assign]
 
     scheduler._check_discovery()
 
-    today = datetime.now(UTC).date()
-    expected_start = (today - timedelta(days=1)).strftime("%Y-%m-%d")
-    expected_end = (today + timedelta(days=7)).strftime("%Y-%m-%d")
-    assert f"--start-date {expected_start}" in captured[0]
-    assert f"--end-date {expected_end}" in captured[0]
+    assert "--lookback-days 1" in captured[0]
+    assert "--lookahead-days 7" in captured[0]
+    # Mutually exclusive with explicit dates — none leak through.
+    assert "--start-date" not in captured[0]
+    assert "--end-date" not in captured[0]
 
 
 def test_check_discovery_dry_run_does_not_persist(

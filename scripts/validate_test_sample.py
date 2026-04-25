@@ -171,7 +171,7 @@ def check_market_data_bucket(
                 instrument_key = instrument.get("instrument_key", "")
                 for data_type in data_types:
                     # Build expected path
-                    # Format: processed_candles/by_date/day-{date}/timeframe-{tf}/data_type-{dt}/{asset_class}/{venue}/{instrument_id}.parquet
+                    # Format: processed_candles/by_date/day-{date}/timeframe-{tf}/data_type-{dt}/{asset_group}/{venue}/{instrument_id}.parquet
                     # For raw tick data: raw_tick_data/by_date/day-{date}/{data_type}/{venue}/{instrument_id}.parquet
 
                     # Check raw tick data path

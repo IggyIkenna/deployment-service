@@ -138,6 +138,8 @@ pre_match:
         - service: features-sports-service
           operation: compute
           category: SPORTS
+          args:
+            --tables: fixture_features
           description: Compute pre-match features from all collected data
 
     - name: inference_pre_match

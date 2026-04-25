@@ -194,7 +194,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--start-date", required=True)
     p.add_argument("--end-date", required=True)
-    p.add_argument("--log-uri", required=True, help="gs://bucket/key for the tailed log")
+    p.add_argument("--log-uri", required=True, help="gs://bucket/key for the tailed log")  # noqa: gs-uri
     p.add_argument("--local-log", required=True, help="Path on disk being teed into")
     p.add_argument(
         "--exit-status-file",

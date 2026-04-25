@@ -31,7 +31,9 @@ from unified_trading_library import (
 )
 
 
-class ServiceMaterialisation(BaseModel):
+class ServiceMaterialisation(
+    BaseModel
+):  # CORRECT-LOCAL: deployment-service internal resolution result, not a cross-repo contract
     """How one service materialises for one client."""
 
     service_name: str
@@ -46,7 +48,9 @@ class ServiceMaterialisation(BaseModel):
     )
 
 
-class ClusterMaterialisationPlan(BaseModel):
+class ClusterMaterialisationPlan(
+    BaseModel
+):  # CORRECT-LOCAL: deployment-service internal resolution plan, not a cross-repo contract
     """Full plan for materialising a cluster for one client (or no client)."""
 
     cluster_name: str

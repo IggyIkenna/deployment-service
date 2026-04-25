@@ -2,7 +2,7 @@
 
 GCS path format, key=value partitions, and per-service schema changes.
 
-**Last consolidated:** 2026-02-09  
+**Last consolidated:** 2026-02-09
 **Status:** ✅ All production services use `key=value` format
 
 ---
@@ -99,7 +99,7 @@ If you have legacy data with folder names like `day-2023-01-01/`, `feature_group
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **Instruments**        | `instrument_availability/by_date/day={date}/venue={venue}/instruments.parquet`                                    |
 | **Market Tick**        | `raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={type}/venue={venue}/{symbol}.parquet`         |
-| **Processed Candles**  | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_class}/{venue}/{instrument}.parquet` |
+| **Processed Candles**  | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_group}/{venue}/{instrument}.parquet` |
 | **Features Delta-One** | `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet`                                    |
 | **Features Calendar**  | `calendar/category={category}/by_date/day={date}/features.parquet`                                                |
 

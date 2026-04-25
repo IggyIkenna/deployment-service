@@ -1,6 +1,6 @@
 # BigQuery Hive Partitioning Validation Report
 
-**Date:** February 9, 2026  
+**Date:** February 9, 2026
 **Status:** ✅ PRODUCTION READY - All services already use `key=value` format
 
 ---
@@ -117,7 +117,7 @@ gs://market-data-candles-{category}-{project}/
 | `timeframe=` | key=value | `timeframe=1m` |
 | `data_type=` | key=value | `data_type=trades` |
 
-Note: `asset_class` and `venue` are plain folder names (not partitioned)
+Note: `asset_group` and `venue` are plain folder names (not partitioned)
 
 **Code Locations:**
 

@@ -405,11 +405,19 @@ class SportsTriggerScheduler:
             self._state.mark_fired(trigger_name, fixture_id)
             return True
 
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        kickoff_iso = str(event.get("kickoff_utc", "")).replace("Z", "+00:00")
+        try:
+            kickoff_dt = datetime.fromisoformat(kickoff_iso)
+            if kickoff_dt.tzinfo is None:
+                kickoff_dt = kickoff_dt.replace(tzinfo=UTC)
+            fixture_date = kickoff_dt.astimezone(UTC).strftime("%Y-%m-%d")
+        except (TypeError, ValueError):
+            fixture_date = datetime.now(UTC).strftime("%Y-%m-%d")
+
         self._dispatch_services(
             services=list(event["services"]),
-            start_date=today,
-            end_date=today,
+            start_date=fixture_date,
+            end_date=fixture_date,
             trigger_name=trigger_name,
             dispatch_id=fixture_id,
         )
@@ -422,50 +430,69 @@ class SportsTriggerScheduler:
         service: str,
         operation: str,
         category: str,
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         extra_args: dict[str, object],
         force: bool = False,
         run_tag: str = "live",
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> str:
         """Assemble the standard batch-CLI invocation string.
 
         Shared by per-fixture dispatch (start=end=today) and periodic-tier
-        dispatch (rolling window). ``force=True`` appends ``--force`` so
-        skip-if-exists is bypassed — the equivalent of Tier-1's
-        ``rolling_window.force_overwrite`` contract.
+        dispatch. Two mutually-exclusive shapes, matching the
+        instruments-service CLI contract (``70517b2``, codex/02-data/
+        sports-scheduling-and-sharding.md §4):
+
+        - Explicit dates: ``--start-date X --end-date Y [--force]``. Used by
+          per-fixture triggers and Tier-2 reference (today/today).
+        - Rolling window: ``--lookback-days N --lookahead-days M [--force-
+          window]``. Used by Tier-1 discovery so instruments-service owns
+          the date math (single source of truth; avoids clock-drift
+          between scheduler and CLI).
         """
         parts = [
             f"python -m {service.replace('-', '_')}",
             f"--operation {operation}",
             "--mode batch",
             f"--category {category}",
-            f"--start-date {start_date}",
-            f"--end-date {end_date}",
-            f"--run-tag {run_tag}",
         ]
+        if rolling_window is not None:
+            lookback, lookahead, force_window = rolling_window
+            parts.append(f"--lookback-days {lookback}")
+            parts.append(f"--lookahead-days {lookahead}")
+            if force_window:
+                parts.append("--force-window")
+        else:
+            parts.append(f"--start-date {start_date}")
+            parts.append(f"--end-date {end_date}")
+            if force:
+                parts.append("--force")
+        parts.append(f"--run-tag {run_tag}")
         for arg_name, arg_val in extra_args.items():
             parts.append(f"{arg_name} {arg_val}")
-        if force:
-            parts.append("--force")
         return " ".join(parts)
 
     def _dispatch_services(
         self,
         *,
         services: list[dict[str, object]],
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         trigger_name: str,
         dispatch_id: str,
         force: bool = False,
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> int:
         """Dispatch a list of service configs through the active backend.
 
         Shared by per-fixture triggers (`fire_trigger`) and periodic tiers
-        (`_check_discovery` / `_check_reference`). Per-service failures log
-        but do not raise (shard-level failure isolation). Returns the number
-        of services that dispatched successfully.
+        (`_check_discovery` / `_check_reference`). Accepts EITHER explicit
+        start/end dates (+ ``force``) OR a ``rolling_window`` tuple of
+        ``(lookback_days, lookahead_days, force_window)`` — mirrors the
+        instruments-service CLI contract. Per-service failures log but do
+        not raise (shard-level failure isolation). Returns the number of
+        services that dispatched successfully.
         """
         dispatched = 0
         for svc_config in services:
@@ -486,6 +513,7 @@ class SportsTriggerScheduler:
                 end_date=end_date,
                 extra_args=extra_args,
                 force=force,
+                rolling_window=rolling_window,
             )
             logger.info("  -> %s (%s)", cmd, description)
 
@@ -641,10 +669,11 @@ class SportsTriggerScheduler:
         service: str,
         operation: str,
         category: str,
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         extra_args: dict[str, object],
-        force: bool,
+        force: bool = False,
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> str:
         """Adapter alias for PeriodicTierDispatcher — delegates to `_build_cli_cmd`."""
         return self._build_cli_cmd(
@@ -655,17 +684,19 @@ class SportsTriggerScheduler:
             end_date=end_date,
             extra_args=extra_args,
             force=force,
+            rolling_window=rolling_window,
         )
 
     def dispatch_services(
         self,
         *,
         services: list[dict[str, object]],
-        start_date: str,
-        end_date: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
         trigger_name: str,
         dispatch_id: str,
-        force: bool,
+        force: bool = False,
+        rolling_window: tuple[int, int, bool] | None = None,
     ) -> int:
         """Adapter alias for PeriodicTierDispatcher — delegates to `_dispatch_services`."""
         return self._dispatch_services(
@@ -675,6 +706,7 @@ class SportsTriggerScheduler:
             trigger_name=trigger_name,
             dispatch_id=dispatch_id,
             force=force,
+            rolling_window=rolling_window,
         )
 
     def _periodic_dispatcher(self) -> PeriodicTierDispatcher:

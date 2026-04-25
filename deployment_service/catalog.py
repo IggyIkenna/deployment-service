@@ -170,7 +170,7 @@ SERVICE_GCS_CONFIGS = {
         # Chain data types have special path structure
         "chain_data_types": ["options_chain", "futures_chain"],
         # Chain path templates - match market-data-processing implementation
-        # Implementation: .../data_type={type}/{asset_class}/{venue}/{instrument_id}.parquet
+        # Implementation: .../data_type={type}/{asset_group}/{venue}/{instrument_id}.parquet
         "chain_path_templates": {
             "options_chain": (
                 "processed_candles/by_date/day={date}/timeframe={timeframe}"

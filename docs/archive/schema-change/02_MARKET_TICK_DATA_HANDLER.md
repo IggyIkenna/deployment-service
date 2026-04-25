@@ -45,7 +45,7 @@ gs://market-data-tick-{category}-{project}/
 **Path Format:**
 
 ```
-raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={asset_class}/venue={venue}/{identifier}.parquet
+raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={asset_group}/venue={venue}/{identifier}.parquet
 ```
 
 **Changes:**
@@ -75,10 +75,10 @@ def _build_output_path(self, date, data_type, instrument_type, venue, symbol):
 **New (matches gcs_path_utils.build_raw_tick_data_path):**
 
 ```python
-def build_raw_tick_data_path(date_str, data_type, asset_class, venue, identifier):
+def build_raw_tick_data_path(date_str, data_type, asset_group, venue, identifier):
     base = f"raw_tick_data/by_date/day={date_str}/data_type={data_type}/"
-    if asset_class:
-        return f"{base}instrument_type={asset_class}/venue={venue}/{identifier}.parquet"
+    if asset_group:
+        return f"{base}instrument_type={asset_group}/venue={venue}/{identifier}.parquet"
     return f"{base}venue={venue}/{identifier}.parquet"
 ```
 

@@ -31,8 +31,8 @@ All path templates must match across:
 
 | Service                  | Path Template                                                                                                             | Notes                                                     |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={data_type}/instrument_type={asset_class}/venue={venue}/{instrument}.parquet` | No `symbol=` in path; filename = `{instrument}.parquet`   |
-| market-data-processing   | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_class}/{venue}/{instrument}.parquet`         | Chain: `options_chain/{venue}/`, `futures_chain/{venue}/` |
+| market-tick-data-handler | `raw_tick_data/by_date/day={date}/data_type={data_type}/instrument_type={asset_group}/venue={venue}/{instrument}.parquet` | No `symbol=` in path; filename = `{instrument}.parquet`   |
+| market-data-processing   | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_group}/{venue}/{instrument}.parquet`         | Chain: `options_chain/{venue}/`, `futures_chain/{venue}/` |
 | features-delta-one       | `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet`                                            |                                                           |
 | features-calendar        | `calendar/category={category}/by_date/day={date}/features.parquet` or `events.parquet`                                    | Shared bucket, no category                                |
 | features-volatility      | `by_date/day={date}/feature_group={group}/timeframe={tf}/{underlying}.parquet`                                            |                                                           |
