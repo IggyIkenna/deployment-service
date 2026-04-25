@@ -73,3 +73,9 @@ variable "protocol_service_env_overrides" {
   type        = map(map(string))
   default     = {}
 }
+
+variable "project_number" {
+  description = "GCP project number — used to derive default compute service account email (${project_number}-compute@developer.gserviceaccount.com) for IAM grants on UI Cloud Run services."
+  type        = string
+  default     = "1060025368044"
+}

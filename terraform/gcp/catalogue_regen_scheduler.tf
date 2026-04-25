@@ -50,6 +50,19 @@ resource "google_storage_bucket_iam_member" "catalogue_regen_instruments_reader"
   member = "serviceAccount:${google_service_account.catalogue_regen.email}"
 }
 
+# UI Cloud Run services need read access to catalogue/* on the strategy bucket
+# so the /api/catalogue/envelope?file=... GCS proxy route works on prod/staging
+# (currently uses ADC locally; deploy-time SA needs explicit grant).
+# odum-portal + visualizer-ui both run on the default compute SA today —
+# narrow grant to only the catalogue/ prefix would require an Object Reader
+# role binding scoped via condition, but storage.objectViewer at bucket level
+# is acceptable since the rest of the bucket is non-sensitive catalogue data.
+resource "google_storage_bucket_iam_member" "ui_runtime_catalogue_reader" {
+  bucket = "strategy-store-cefi-central-element-323112"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_cloud_scheduler_job" "catalogue_regen_nightly" {
   project          = var.project_id
   region           = var.region
