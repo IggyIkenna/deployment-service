@@ -1,10 +1,29 @@
 #!/usr/bin/env bash
-# Launch a short-lived GCE VM that forward-polls DeFi protocols.
+# DeFi forward-poll launcher — STUB.
 #
-# Purpose: ingest a single day of DeFi market-data for the operator-expected
-# coverage set in EXPECTED_COVERAGE_BY_ASSET_GROUP['defi'] — DEX swaps/pools,
-# lending indices, perp funding, oracle prices, gas fees, LST rates, plus
-# the Phase-1-expansion event types (liquidation_events, flash_loan_events,
+# Status (2026-04-28): NOT FUNCTIONAL on the standard ``--operation download``
+# CLI path. DeFi MTDS adapters expose 19 separate ``--operation collect-*``
+# choices (collect-gas-fees, collect-oracle-prices, collect-dex-pools,
+# collect-dex-swaps, collect-lending-indices, collect-perp-funding,
+# collect-lst-rates, collect-liquidations, collect-liquidation-events,
+# collect-flash-loan-events, collect-staking-yields, collect-position-data,
+# collect-token-transfers, collect-bridge-events, collect-governance-events,
+# collect-mev-events, collect-eigenlayer-rewards, collect-solana-defi,
+# collect-evm-defi). A single-VM forward-poll for DeFi therefore needs to
+# fan out a sequence of ``collect-*`` operations per protocol/chain/data_type
+# (or ``setup-data-pipeline-vm.sh`` needs a new task branch that loops).
+#
+# Today the DeFi rolling-poll story is: features-onchain-service runs
+# ``collect-*`` ops on its own cadence (per protocol). This stub stays in
+# place as a placeholder so the launcher inventory remains symmetric across
+# asset_groups; revisit once a unified DeFi forward-poll task lands in
+# setup-data-pipeline-vm.sh.
+#
+# Purpose (when functional): ingest a single day of DeFi market-data for
+# the operator-expected coverage set in
+# EXPECTED_COVERAGE_BY_ASSET_GROUP['defi'] — DEX swaps/pools, lending
+# indices, perp funding, oracle prices, gas fees, LST rates, plus the
+# Phase-1-expansion event types (liquidation_events, flash_loan_events,
 # staking_yields, etc.) across the protocol-chain composite venues
 # (UNISWAPV2/3/4, CURVE, BALANCER, AAVEV3, COMPOUNDV3, MORPHO, FLUID, LIDO,
 # ETHERFI, ETHENA, JITO).
@@ -37,6 +56,21 @@
 # in the zone. Alchemy + The Graph have per-key compute-unit budgets;
 # concurrent VMs hit shared rate ceilings.
 set -euo pipefail
+
+cat >&2 <<'STUB'
+ERROR: launch-defi-forward-poll.sh is a STUB.
+
+DeFi adapters require per-data-type ``--operation collect-*`` calls (19
+separate operation choices) — the standard ``--operation download`` path
+used by the other forward-poll launchers does not work for DEFI. A unified
+DeFi forward-poll task needs to land in setup-data-pipeline-vm.sh first.
+
+Until then, use features-onchain-service per-protocol cadence (its
+existing collect-* runs cover the rolling window).
+STUB
+exit 1
+
+# ─────────── unreachable below — kept as the future template ───────────
 
 FORCE=false
 if [[ "${1:-}" == "--force" ]]; then
