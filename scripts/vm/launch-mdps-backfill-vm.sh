@@ -82,13 +82,18 @@ _launch() {
     local source_bucket="market-data-tick-${cat}-${PROJECT}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
+    # Sports MDPS catch-up: pre-2026 dates often lack upstream raw because
+    # sports forward-poll has only been running recently. The dependency
+    # check would otherwise abort the run on the first empty date. Bridge
+    # the existing ``--skip-dependency-check`` flag (legacy subparser) via
+    # the SKIP_DEPENDENCY_CHECK env var that ``cli/main.py::_build_legacy_argv``
+    # honours at translate time. Other asset_groups keep the dep check on so
+    # we fail fast if upstream is genuinely missing.
+    if [[ "$cat" == "sports" ]]; then
+        cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
+    fi
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
-    # NOTE: ``--no-fail-on-missing-deps`` exists on MDPS' ``process``
-    # subparser (cli/parser.py:208) but the ServiceBootstrap top-level CLI
-    # does NOT expose it. Until MDPS routes the flag through, callers MUST
-    # pick a START_DATE where upstream raw data exists for the asset_group
-    # (DeFi → 2024+, Sports → 2020+, Prediction → 2025-03-14+).
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
     fi
