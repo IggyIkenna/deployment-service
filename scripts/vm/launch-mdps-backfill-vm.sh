@@ -84,12 +84,11 @@ _launch() {
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
-    # Don't fail the whole run on dates that lack upstream raw data — DeFi
-    # historical pre-2024 / Sports pre-2020 / Prediction pre-2025 have empty
-    # upstream and would otherwise abort on the first date. Warn-and-continue
-    # so the orchestrator iterates the full window and produces candles for
-    # every date that DOES have raw data.
-    cmd="$cmd --no-fail-on-missing-deps"
+    # NOTE: ``--no-fail-on-missing-deps`` exists on MDPS' ``process``
+    # subparser (cli/parser.py:208) but the ServiceBootstrap top-level CLI
+    # does NOT expose it. Until MDPS routes the flag through, callers MUST
+    # pick a START_DATE where upstream raw data exists for the asset_group
+    # (DeFi → 2024+, Sports → 2020+, Prediction → 2025-03-14+).
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
     fi
