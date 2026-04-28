@@ -33,7 +33,7 @@
 
 set -euo pipefail
 
-CATEGORY="${1:-}"
+ASSET_GROUP="${1:-}"
 START_DATE="${2:-}"
 END_DATE="${3:-}"
 MODE="${4:-dry}"  # dry | full
@@ -44,7 +44,7 @@ CODE_BUCKET="deployment-scripts-central-element-323112"
 MACHINE_TYPE="e2-standard-8"
 BOOT_DISK_GB="50"
 
-if [[ -z "$CATEGORY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
+if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
@@ -68,16 +68,28 @@ _launch() {
     local vm_name="mdps-backfill-${cat}-${RUN_TS}"
 
     # MDPS CLI quirk: service uses ServiceBootstrap at the top level (which
-    # requires --operation and --mode) BUT has add_category_arg=False, so
-    # --category is NOT a recognised top-level arg. The legacy `process`
-    # subparser accepts per-category `--CEFI/--DEFI/...` flags, but those
+    # requires --operation and --mode) BUT has add_asset_group_arg=False, so
+    # --asset-group is NOT a recognised top-level arg. The legacy `process`
+    # subparser accepts per-asset-group `--CEFI/--DEFI/...` flags, but those
     # are only reachable if the bootstrap bridge (_build_legacy_argv in
-    # cli/main.py) reads MDPS_CATEGORY env var and translates to --CEFI.
-    # Hence: export MDPS_CATEGORY in the command string so the Python
-    # bridge picks it up. --category on the top-level fails with
+    # cli/main.py) reads MDPS_ASSET_GROUP env var and translates to --CEFI.
+    # Hence: export MDPS_ASSET_GROUP in the command string so the Python
+    # bridge picks it up. --asset-group on the top-level fails with
     # "unrecognized arguments" (2026-04-19 VM launches proved this).
-    local cmd="MDPS_CATEGORY=$cat_upper python -m market_data_processing_service --operation process --mode batch"
+    # Source-bucket env var is read by MDPS config.py (line 75-80) to locate the
+    # raw tick bucket. Without it, every shard fails with "No source bucket
+    # configured for category=…" before any candle is produced.
+    local source_bucket="market-data-tick-${cat}-${PROJECT}"
+    local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
+    cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
+    cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
+    # Don't fail the whole run on dates that lack upstream raw data — DeFi
+    # historical pre-2024 / Sports pre-2020 / Prediction pre-2025 have empty
+    # upstream and would otherwise abort on the first date. Warn-and-continue
+    # so the orchestrator iterates the full window and produces candles for
+    # every date that DOES have raw data.
+    cmd="$cmd --no-fail-on-missing-deps"
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
     fi
@@ -89,7 +101,7 @@ _launch() {
     local md="VM_TASK=mdps-backfill"
     md="${md},VM_SERVICE=market_data_processing_service"
     md="${md},VM_OPERATION=backfill-${cat}"
-    md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    md="${md},VM_ASSET_GROUP=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
@@ -110,8 +122,8 @@ _launch() {
     echo ""
 }
 
-case "$CATEGORY" in
-    cefi|tradfi|defi|sports|prediction) _launch "$CATEGORY" ;;
+case "$ASSET_GROUP" in
+    cefi|tradfi|defi|sports|prediction) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
@@ -119,7 +131,7 @@ case "$CATEGORY" in
         _launch sports
         _launch prediction
         ;;
-    *) echo "Unknown category: $CATEGORY"; exit 2 ;;
+    *) echo "Unknown category: $ASSET_GROUP"; exit 2 ;;
 esac
 
 echo "Run timestamp: $RUN_TS"
@@ -127,5 +139,5 @@ echo "Mode: $MODE (dry = --dry-run; full = live writes)"
 echo ""
 echo "Reminder: post-backfill, run manifest reconciliation via:"
 echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('market-data-tick-${CATEGORY}-central-element-323112', \\"
+echo "    rebuild_manifest_from_canonical_paths('market-data-tick-${ASSET_GROUP}-central-element-323112', \\"
 echo "      service_name='market-data-processing-service', prefix='processed_candles/by_date')\""
