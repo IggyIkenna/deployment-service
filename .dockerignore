@@ -36,14 +36,12 @@ terraform/
 # Docs
 docs/
 
-# Tests
-tests/
+# Tests + scripts: NOT excluded — the api-dev stage in Dockerfile copies both
+# (tests/ for in-image quality-gates, scripts/ for QG helpers). The api stage
+# does not COPY them, so they don't bloat the production image.
 
 # Templates (not needed at runtime)
 templates/
-
-# Scripts (not needed at runtime)
-scripts/
 
 # OS
 .DS_Store
