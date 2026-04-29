@@ -39,7 +39,14 @@ set -euo pipefail
 MODE="${1:-}"
 shift || true
 
-ZONE="asia-northeast1-c"
+# Region asia-northeast1 (Tardis IP-allowlist locked to this region — VMs in
+# different regions get rate-limited even at low concurrency). Round-robin
+# across zones a/b/c so per-zone quota exhaustion (typical at ~100-150
+# concurrent VMs in one zone) falls through to siblings. Per-zone CPU /
+# in-use-IP / persistent-disk quotas are independent so 3 zones triples
+# the headroom without changing Tardis's view of where the calls come from.
+REGION="asia-northeast1"
+ZONES=("asia-northeast1-a" "asia-northeast1-b" "asia-northeast1-c")
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
@@ -112,7 +119,7 @@ fi
 TOTAL=$(wc -l < "$SHARDS_FILE" | tr -d ' ')
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 echo "Run timestamp: $RUN_TS"
-echo "Zone: $ZONE  Machine: $MACHINE_TYPE  Disk: ${BOOT_DISK_GB}G"
+echo "Region: $REGION  Zones: ${ZONES[*]}  Machine: $MACHINE_TYPE  Disk: ${BOOT_DISK_GB}G"
 echo "Batch size: $BATCH_SIZE  Pause: ${BATCH_PAUSE_SEC}s  Retries: $RETRY_MAX"
 echo "Total VMs: $TOTAL"
 echo ""
@@ -127,15 +134,21 @@ _common_meta() {
     echo -n ",MANIFEST_PER_VM_SHARDS=true"
 }
 
-# Launch one VM with retry. Exits non-zero only after RETRY_MAX failures.
+# Launch one VM with retry across all zones in the region. Exits non-zero
+# only after every zone fails RETRY_MAX times. The shard index is used as
+# a round-robin offset so the first batch spreads across a/b/c rather than
+# piling onto -a and waiting for it to fail.
 _launch_one() {
-    local vm_name="$1" start_date="$2" end_date="$3"
+    local vm_name="$1" start_date="$2" end_date="$3" shard_idx="$4"
     local meta
     meta="startup-script-url=${STARTUP},$(_common_meta),VM_START_DATE=${start_date},VM_END_DATE=${end_date}"
+    local zone_count=${#ZONES[@]}
     local attempt=0
-    while (( attempt < RETRY_MAX )); do
+    local zone_offset=$(( (shard_idx - 1) % zone_count ))
+    while (( attempt < RETRY_MAX * zone_count )); do
+        local zone="${ZONES[$(( (zone_offset + attempt) % zone_count ))]}"
         if gcloud compute instances create "$vm_name" \
-                --project="$PROJECT" --zone="$ZONE" \
+                --project="$PROJECT" --zone="$zone" \
                 --machine-type="$MACHINE_TYPE" \
                 --boot-disk-size="${BOOT_DISK_GB}GB" \
                 --image-family=ubuntu-2404-lts-amd64 \
@@ -147,11 +160,14 @@ _launch_one() {
             return 0
         fi
         attempt=$((attempt + 1))
-        # Quota / IP exhaustion / rate-limit errors are typically transient.
-        # Linear backoff: 5s, 10s, 15s.
-        sleep $((attempt * 5))
+        # Quota / IP exhaustion errors are zone-local and typically
+        # transient; same-zone retry rarely helps but cross-zone retry
+        # routes around the exhausted one. Linear backoff scaled by
+        # zone-cycle progress so early retries are fast (5s) and later
+        # attempts space out (up to 15s).
+        sleep $(( ((attempt / zone_count) + 1) * 5 ))
     done
-    echo "  FAILED after $RETRY_MAX attempts: $vm_name"
+    echo "  FAILED after $((RETRY_MAX * zone_count)) attempts across $zone_count zones: $vm_name"
     return 1
 }
 
@@ -170,7 +186,7 @@ while IFS=' ' read -r start end idx; do
         sleep "$BATCH_PAUSE_SEC"
     fi
     vm_name="cefi-mr-${RUN_TS}-${idx}"
-    _launch_one "$vm_name" "$start" "$end" &
+    _launch_one "$vm_name" "$start" "$end" "$idx" &
     PIDS+=($!)
     LAUNCHED=$((LAUNCHED + 1))
 done < "$SHARDS_FILE"
