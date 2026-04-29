@@ -41,19 +41,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user for security (if not already exists from base)
 RUN id -u appuser >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /bin/bash appuser
 
-# Copy and install Python dependencies first (better caching)
-COPY pyproject.toml uv.lock ./
+# Copy package source first — hatchling needs the package dir present at install time
+# to determine wheel contents (no explicit `tool.hatch.build.targets.wheel.packages`
+# declaration in pyproject.toml; it relies on the project-name → directory heuristic).
+# Repo layout: deployment_service/{api,backends,deployment}/ subpackages + configs/ at repo root.
+# (No top-level ui/api/backends/deployment dirs — those never existed.)
+COPY pyproject.toml uv.lock README.md ./
+COPY deployment_service/ ./deployment_service/
+COPY configs/ ./configs/
 
-# Install dependencies (UTL base image already has transitive deps + UAC + UTL pre-installed)
+# Install dependencies (UTL base image already has transitive deps + UAC + UTL pre-installed).
 # uv >= 0.11 removed --system from `uv sync`; mirror features-sports-service pattern instead.
 RUN uv pip install --system --no-deps -e . \
     && uv pip install --system --no-cache-dir gunicorn[gevent] gevent
-
-# Copy application code
-# Repo layout: deployment_service/{api,backends,deployment}/ subpackages + configs/ at repo root.
-# (No top-level ui/api/backends/deployment dirs — those never existed.)
-COPY deployment_service/ ./deployment_service/
-COPY configs/ ./configs/
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app
