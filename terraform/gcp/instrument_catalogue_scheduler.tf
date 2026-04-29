@@ -60,6 +60,49 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_strategy_store
   member = "serviceAccount:${google_service_account.instrument_catalogue_regen.email}"
 }
 
+module "instrument_catalogue_regen_job" {
+  source = "../modules/container-job/gcp"
+
+  name                  = "instrument-catalogue-regen"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.instrument_catalogue_regen.email
+
+  # Reuses the MTDS image (UAC bundled as a dep + UTL for read_availability_index).
+  # Same image the manifest-consolidator job uses.
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
+
+  cpu             = "2"
+  memory          = "4Gi"
+  timeout_seconds = 1800 # 30 min — manifest reads across 5 asset_group buckets + GCS upload
+  max_retries     = 1
+  parallelism     = 1
+  task_count      = 1
+
+  # CLI entrypoint: the catalogue generator script bundled in unified-api-contracts.
+  command = ["python"]
+  args = [
+    "/usr/src/unified-api-contracts/scripts/generate_instrument_catalogue.py",
+    "--project-id",
+    var.project_id,
+    "--output-dir",
+    "/tmp/instrument-catalogue",
+  ]
+
+  environment_variables = {
+    GCP_PROJECT_ID = var.project_id
+    DEPLOYMENT_ENV = var.environment
+    CLOUD_PROVIDER = "gcp"
+  }
+
+  service_name = "instrument-catalogue-regen"
+  environment  = var.environment
+
+  labels = {
+    "purpose" = "instrument-catalogue-regen"
+  }
+}
+
 resource "google_cloud_scheduler_job" "instrument_catalogue_regen_nightly" {
   project          = var.project_id
   region           = var.region
