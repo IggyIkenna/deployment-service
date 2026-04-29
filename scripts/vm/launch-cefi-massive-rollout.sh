@@ -49,7 +49,23 @@ REGION="asia-northeast1"
 ZONES=("asia-northeast1-a" "asia-northeast1-b" "asia-northeast1-c")
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+
+# Resolve machine type via the empirical resource matrix in MTDS unless the
+# operator overrides via env. e2-standard-8 (32 GB) deterministically OOMs on
+# the 7.6M-row DERIBIT BTC-PERPETUAL book_snapshot_5 shard — see
+# market_tick_data_service/engine/shard_memory_profile.py for the calibration.
+_resolve_machine_type() {
+    local mtds_dir
+    mtds_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../market-tick-data-service" 2>/dev/null && pwd)" || mtds_dir=""
+    if [[ -z "$mtds_dir" ]]; then
+        echo "e2-highmem-8"
+        return
+    fi
+    PYTHONPATH="$mtds_dir" python3 -c \
+        "from market_tick_data_service.engine.shard_memory_profile import recommended_machine_for_full_cefi_day; print(recommended_machine_for_full_cefi_day())" \
+        2>/dev/null || echo "e2-highmem-8"
+}
+MACHINE_TYPE="${MACHINE_TYPE:-$(_resolve_machine_type)}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 BATCH_SIZE="${BATCH_SIZE:-100}"            # VMs per batch
 BATCH_PAUSE_SEC="${BATCH_PAUSE_SEC:-30}"   # pause between batches for quota recovery
@@ -63,7 +79,9 @@ Usage:
   $0 full <START_YYYY-MM-DD> <END_YYYY-MM-DD>  # 1 VM per ISO week in window
 
 Env overrides:
-  MACHINE_TYPE    default e2-standard-8 (book_snapshot_5 days may need e2-standard-16)
+  MACHINE_TYPE    default resolved from MTDS shard_memory_profile (currently
+                  e2-highmem-8, 64 GB — sized for the 7.6M-row DERIBIT
+                  BTC-PERPETUAL book_snapshot_5 shard. e2-standard-8 OOMs.)
   BATCH_SIZE      default 100 VMs per batch
   BATCH_PAUSE_SEC default 30s between batches
   RETRY_MAX       default 3 retries per VM on quota / transient error
