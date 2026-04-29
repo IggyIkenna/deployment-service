@@ -39,10 +39,21 @@ steps:
     args: ["auth", "configure-docker", "${_REGION}-docker.pkg.dev", "--quiet"]
     waitFor: ["-"]
 
+  # Step 1b: Pull UTL base image explicitly so subsequent FROM lines hit local cache.
+  # Without this, the docker builder fails to auth against AR on the FROM-line pull
+  # (configure-docker writes credential helper config but the docker step's FROM-line
+  # pull doesn't trigger the helper). Mirrors the features-sports-service pattern.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "pull-base-image"
+    waitFor: ["configure-docker"]
+    args:
+      - "pull"
+      - "asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library:latest"
+
   # Step 2: Build production image (API + UI)
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
-    waitFor: ["configure-docker"]
+    waitFor: ["pull-base-image"]
     args:
       - "build"
       - "--build-arg"
