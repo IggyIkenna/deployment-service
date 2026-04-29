@@ -45,6 +45,8 @@ steps:
     waitFor: ["configure-docker"]
     args:
       - "build"
+      - "--build-arg"
+      - "PROJECT_ID=${PROJECT_ID}"
       - "--target"
       - "api"
       - "-t"
@@ -59,6 +61,8 @@ steps:
     waitFor: ["build"]
     args:
       - "build"
+      - "--build-arg"
+      - "PROJECT_ID=${PROJECT_ID}"
       - "--target"
       - "api-dev"
       - "-t"
@@ -75,6 +79,8 @@ steps:
     waitFor: ["build"]
     args:
       - "build"
+      - "--build-arg"
+      - "PROJECT_ID=${PROJECT_ID}"
       - "--target"
       - "sports-scheduler"
       - "-t"
