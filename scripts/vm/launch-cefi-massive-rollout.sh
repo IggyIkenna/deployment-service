@@ -103,7 +103,15 @@ esac
 # Build shard list (one shard per VM): each shard is a (start_date, end_date)
 # pair the VM will pass to launch-cefi-forward-poll.sh.
 SHARDS_FILE="$(mktemp -t cefi-shards-XXXXXX)"
-trap 'rm -f "$SHARDS_FILE"' EXIT
+# Per-VM result files. Each ``_launch_one`` invocation writes its outcome
+# (``ok`` / ``fail``) to ``$RESULTS_DIR/$vm_name``. Aggregate counts at the
+# end by scanning the dir — this is reliable across batch ``wait`` calls.
+# Earlier versions used ``wait $pid`` after a bare ``wait``, but bash reaps
+# the PID on the first wait so the second returns 127 (child not found),
+# which the loop counted as a failure → "Launch complete: 366 launched,
+# 365 failed" cosmetic bug even when every VM was created successfully.
+RESULTS_DIR="$(mktemp -d -t cefi-results-XXXXXX)"
+trap 'rm -f "$SHARDS_FILE"; rm -rf "$RESULTS_DIR"' EXIT
 
 if [[ "$MODE" == "probe" ]]; then
     PROBE_DATE="${1:-}"
@@ -175,6 +183,7 @@ _launch_one() {
                 --metadata="$meta" \
                 --labels=purpose=cefi-massive-rollout,run-ts="$RUN_TS",mode="$MODE" \
                 > /dev/null 2>&1; then
+            echo "ok" > "$RESULTS_DIR/$vm_name"
             return 0
         fi
         attempt=$((attempt + 1))
@@ -185,19 +194,21 @@ _launch_one() {
         # attempts space out (up to 15s).
         sleep $(( ((attempt / zone_count) + 1) * 5 ))
     done
+    echo "fail" > "$RESULTS_DIR/$vm_name"
     echo "  FAILED after $((RETRY_MAX * zone_count)) attempts across $zone_count zones: $vm_name"
     return 1
 }
 
 LAUNCHED=0
-FAILED=0
 BATCH_NUM=0
-PIDS=()
 
 while IFS=' ' read -r start end idx; do
     BATCH_POS=$((LAUNCHED % BATCH_SIZE))
     if [[ $BATCH_POS -eq 0 ]] && [[ $LAUNCHED -gt 0 ]]; then
         # Wait for the previous batch to finish launching before pausing.
+        # ``wait`` (no args) reaps every backgrounded job — that's why we
+        # write per-VM outcomes to $RESULTS_DIR rather than tracking PIDs;
+        # bash can't tell us a reaped process's exit code afterwards.
         wait
         BATCH_NUM=$((BATCH_NUM + 1))
         echo "[batch $BATCH_NUM] launched $LAUNCHED / $TOTAL — pausing ${BATCH_PAUSE_SEC}s for quota recovery"
@@ -205,23 +216,20 @@ while IFS=' ' read -r start end idx; do
     fi
     vm_name="cefi-mr-${RUN_TS}-${idx}"
     _launch_one "$vm_name" "$start" "$end" "$idx" &
-    PIDS+=($!)
     LAUNCHED=$((LAUNCHED + 1))
 done < "$SHARDS_FILE"
 
 # Wait for the final batch.
 wait
 
-# Count failures from background processes.
-for pid in "${PIDS[@]}"; do
-    if ! wait "$pid" 2>/dev/null; then
-        FAILED=$((FAILED + 1))
-    fi
-done
+# Count outcomes from $RESULTS_DIR — each ``_launch_one`` writes ``ok`` or
+# ``fail`` to a file named after the VM. Trustworthy across reaped PIDs.
+SUCCEEDED=$(grep -l "^ok$" "$RESULTS_DIR"/* 2>/dev/null | wc -l | tr -d ' ')
+FAILED=$(grep -l "^fail$" "$RESULTS_DIR"/* 2>/dev/null | wc -l | tr -d ' ')
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "Launch complete: $LAUNCHED launched, $FAILED failed"
+echo "Launch complete: $LAUNCHED launched ($SUCCEEDED succeeded, $FAILED failed)"
 echo "Run ts: $RUN_TS"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
