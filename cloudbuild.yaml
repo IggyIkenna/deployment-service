@@ -19,8 +19,6 @@
 
 substitutions:
   _SERVICE_NAME: deployment-dashboard
-  # For feature branch builds, set _VERSION_SUFFIX via trigger: +feat.${BRANCH_NAME}.${SHORT_SHA}
-  _VERSION_SUFFIX: ""
   _REGION: asia-northeast1
   _ARTIFACT_REPO: deployment-dashboard
   # Resource configuration - adjust based on usage (reduced for regional memory quota)
