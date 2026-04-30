@@ -160,11 +160,24 @@ _create_vm() {
     local instrument_ids="$7"
 
     local metadata
+    # Venue routing (2026-04-30 fix): VM_VENUE must be a canonical venue
+    # name from _DATABENTO_VENUES = {CME, ICE, NYSE, NASDAQ, CBOE} so the
+    # orchestrator's per-date active-venue filter accepts it. The previous
+    # `VM_VENUE=DATABENTO` was silently filtered out → "No active venues"
+    # warnings + zero rows captured. CME serves BTC/ETH/ES/MES futures;
+    # NYSE/NASDAQ for ETFs (added by ETF launcher mode).
+    local vm_venue="CME"
+    case "$root" in
+        IBIT|FBTC|GBTC|ETHA|FETH|ETHE|BITO|ARKB) vm_venue="NYSE" ;;
+        VIX|VX)                                  vm_venue="CBOE" ;;
+        *)                                       vm_venue="CME" ;;
+    esac
+
     metadata="VM_TASK=cefi-backfill"
     metadata="${metadata},VM_SERVICE=market_tick_data_service"
     metadata="${metadata},VM_OPERATION=download"
     metadata="${metadata},VM_ASSET_GROUP=TRADFI"
-    metadata="${metadata},VM_VENUE=DATABENTO"
+    metadata="${metadata},VM_VENUE=${vm_venue}"
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=${data_types}"
@@ -414,11 +427,13 @@ _launch_heavy_month() {
         return 1
     fi
 
-    # Heavy = full microstructure: trades + tbbo (top-of-book) + mbp_10 (10-deep).
-    # tbbo is cheap relative to mbp_10 and gives quote-by-quote NBBO; including
-    # it satisfies the universal "trades + tbbo overlap on reference months"
-    # rule alongside the deep-book mbp_10 capture.
-    local data_types="${DATA_TYPES_OVERRIDE:-trades;tbbo;mbp_10}"
+    # Heavy = trades + tbbo (top-of-book NBBO + each trade). Satisfies the
+    # universal "trades + tbbo overlap on reference months" rule.
+    # mbp_10 (10-deep book) is NOT in the MTDS DatabentoAdapter supported set
+    # ({ohlcv_1m, trades, quotes, tbbo}); adding mbp_10 requires extending
+    # the adapter (db.Schema.MBP_10 mapping + writer columns). Tracked as
+    # a separate follow-up.
+    local data_types="${DATA_TYPES_OVERRIDE:-trades;tbbo}"
     local run_ts
     run_ts="$(date +%Y%m%d-%H%M%S)"
     local vm_name="tradfi-bf-${root,,}-heavy-${yyyy_mm}-${run_ts}"
