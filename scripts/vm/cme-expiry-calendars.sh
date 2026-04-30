@@ -125,6 +125,19 @@ default_years_for_root() {
     esac
 }
 
+# Per-ticker listing date (ISO YYYY-MM-DD) for backfill clipping. Pre-listing
+# dates within a year-shard return 0 records and write empty_confirmed
+# manifest rows — wasteful, correct-but-noisy. Clip to the listing date
+# inside _launch_light_year so the start_date never precedes listing.
+listing_date_for_root() {
+    case "$1" in
+        IBIT|FBTC|GBTC|ARKB)           echo "2024-01-11" ;;  # US BTC spot ETF launch
+        ETHA|FETH|ETHE)                echo "2024-07-23" ;;  # US ETH spot ETF launch
+        BITO)                          echo "2021-10-19" ;;  # ProShares futures-based BTC
+        *)                             echo "" ;;            # No clip
+    esac
+}
+
 # ── ES options — parent symbols (stable across years, parent symbology) ──
 # Databento GLBX.MDP3, stype_in="parent" — fetching with these parent symbols
 # returns the full options chain (every strike + expiry) for the requested

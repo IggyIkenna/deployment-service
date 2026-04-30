@@ -355,6 +355,19 @@ _build_light_windows() {
         year_end="${year}-12-31"
     fi
 
+    # Per-ticker listing-date clip — avoid attempting pre-listing dates
+    # which return 0 records and write empty_confirmed manifest noise.
+    local listing
+    listing="$(listing_date_for_root "${ROOT_SYMBOL}")"
+    if [[ -n "$listing" && "$year_start" < "$listing" ]]; then
+        # If listing is after year-end, the whole year is pre-listing — skip.
+        if [[ "$listing" > "$year_end" ]]; then
+            LIGHT_WINDOWS=()
+            return
+        fi
+        year_start="$listing"
+    fi
+
     # Sort skip months ascending and clip to current year.
     local -a skips=()
     if [[ -n "$skip_csv" ]]; then
