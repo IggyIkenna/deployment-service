@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from itertools import product
 from typing import cast
 
-from unified_api_contracts import DATA_TYPES_BY_CATEGORY
+from unified_api_contracts import DATA_TYPES_BY_ASSET_GROUP
 
 from .cloud_client import CloudClient
 from .config_loader import ConfigLoader
@@ -132,16 +132,16 @@ class ServiceCatalog:
 # Service-specific GCS path configurations (key=value format for BigQuery hive partitioning)
 SERVICE_GCS_CONFIGS = {
     "instruments-service": {
-        "bucket_template": "instruments-store-{category_lower}-{project_id}",
+        "bucket_template": "instruments-store-{asset_group_lower}-{project_id}",
         # Each date has per-venue subdirectories: day={date}/venue={venue}/instruments.parquet
         "path_template": "instrument_availability/by_date/day={date}/",
-        "dimensions": ["category", "date"],
+        "dimensions": ["asset_group", "date"],
         "list_prefix": True,
     },
     "corporate-actions": {
-        "bucket_template": "instruments-store-{category_lower}-{project_id}",
+        "bucket_template": "instruments-store-{asset_group_lower}-{project_id}",
         "path_template": "corporate_actions/by_date/day={date}/",
-        "dimensions": ["category", "date"],
+        "dimensions": ["asset_group", "date"],
         "date_granularity": "none",  # Bulk download, daily partitions
         "list_prefix": True,  # Directory check - verify files exist
         # Additional paths for the new GCS layout:
@@ -150,23 +150,23 @@ SERVICE_GCS_CONFIGS = {
         "config_template": "corporate_actions/config/",
     },
     "market-tick-data-service": {
-        "bucket_template": "market-data-tick-{category_lower}-{project_id}",
+        "bucket_template": "market-data-tick-{asset_group_lower}-{project_id}",
         "path_template": "raw_tick_data/by_date/day={date}/data_type={data_type}/",
-        "dimensions": ["category", "venue", "data_type", "date"],
+        "dimensions": ["asset_group", "venue", "data_type", "date"],
         "list_prefix": True,  # List files in prefix (includes instrument_type=, venue= subdirs)
     },
     "market-data-processing-service": {
-        "bucket_template": "market-data-tick-{category_lower}-{project_id}",
+        "bucket_template": "market-data-tick-{asset_group_lower}-{project_id}",
         "path_template": (
             "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/"
         ),
-        "dimensions": ["category", "timeframe", "data_type", "venue", "date"],
+        "dimensions": ["asset_group", "timeframe", "data_type", "venue", "date"],
         "list_prefix": True,
         # Expected timeframes - all 7 must be present for completion
         "expected_timeframes": ["15s", "1m", "5m", "15m", "1h", "4h", "24h"],
-        # Expected data types per category (SSOT: unified-api-contracts DATA_TYPES_BY_CATEGORY)
-        # Keys uppercased to match service config category convention (CEFI, TRADFI, DEFI, etc.)
-        "expected_data_types": {k.upper(): v for k, v in DATA_TYPES_BY_CATEGORY.items()},
+        # Expected data types per asset group (SSOT: unified-api-contracts DATA_TYPES_BY_ASSET_GROUP)
+        # Keys uppercased to match service config asset group convention (CEFI, TRADFI, DEFI, etc.)
+        "expected_data_types": {k.upper(): v for k, v in DATA_TYPES_BY_ASSET_GROUP.items()},
         # Chain data types have special path structure
         "chain_data_types": ["options_chain", "futures_chain"],
         # Chain path templates - match market-data-processing implementation
@@ -185,15 +185,15 @@ SERVICE_GCS_CONFIGS = {
         "use_venue_specific_data_types": True,
     },
     "features-delta-one-service": {
-        "bucket_template": "features-delta-one-{category_lower}-{project_id}",
+        "bucket_template": "features-delta-one-{asset_group_lower}-{project_id}",
         "path_template": "by_date/day={date}/feature_group={feature_group}/",
-        "dimensions": ["category", "feature_group", "date"],
+        "dimensions": ["asset_group", "feature_group", "date"],
         "list_prefix": True,
     },
     "features-volatility-service": {
-        "bucket_template": "features-volatility-{category_lower}-{project_id}",
+        "bucket_template": "features-volatility-{asset_group_lower}-{project_id}",
         "path_template": "by_date/day={date}/feature_group={feature_group}/",
-        "dimensions": ["category", "feature_group", "date"],
+        "dimensions": ["asset_group", "feature_group", "date"],
         "list_prefix": True,
     },
     "features-onchain-service": {
@@ -623,7 +623,7 @@ class DataCatalog:
             bucket_template = str(gcs_config["bucket_template"])
             # Use a neutral template fill for listing (category=cefi as fallback)
             bucket = bucket_template.format(
-                category_lower="cefi",
+                asset_group_lower="cefi",
                 project_id=self.project_id,
             )
             prefix = "instrument_availability/"
