@@ -197,15 +197,19 @@ _create_vm() {
     local run_ts
     run_ts="$(date +%Y%m%d-%H%M%S)"
 
+    # GCP VM names must match [a-z](?:[-a-z0-9]{0,61}[a-z0-9])? — underscores
+    # are not valid. Normalise root by replacing _ with - for the name.
+    local vm_name_safe="${vm_name//_/-}"
+
     if $DRY_RUN; then
-        echo "[DRY-RUN] $vm_name"
+        echo "[DRY-RUN] $vm_name_safe"
         echo "          root=$root tier=$tier ${start_date}..${end_date}"
         echo "          data_types=${data_types}"
         echo "          instruments=${instrument_ids}"
         echo "          machine=${MACHINE_TYPE} zone=${ZONE}"
     else
-        echo "Launching $vm_name (root=$root tier=$tier ${start_date}..${end_date})"
-        gcloud compute instances create "$vm_name" \
+        echo "Launching $vm_name_safe (root=$root tier=$tier ${start_date}..${end_date})"
+        gcloud compute instances create "$vm_name_safe" \
             --project="$PROJECT" \
             --zone="$ZONE" \
             --machine-type="$MACHINE_TYPE" \
