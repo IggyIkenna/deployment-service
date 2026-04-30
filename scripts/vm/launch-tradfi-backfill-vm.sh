@@ -116,9 +116,9 @@ BOOT_DISK_GB="50"
 
 # ── Validate root ──
 case "$ROOT_SYMBOL" in
-    ES|ES_OPT|BTC|ETH) ;;
+    ES|ES_OPT|MES|BTC|ETH|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE) ;;
     *)
-        echo "ERROR: --root-symbol must be one of ES|ES_OPT|BTC|ETH (got '$ROOT_SYMBOL')" >&2
+        echo "ERROR: --root-symbol must be one of ES|ES_OPT|MES|BTC|ETH|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE (got '$ROOT_SYMBOL')" >&2
         exit 1
         ;;
 esac
@@ -465,6 +465,14 @@ _launch_light_year() {
         # needed (separate plan).
         data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
     fi
+    case "$root" in
+        IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE)
+            # Spot ETFs: ohlcv_1m only for the year-shard window. Trades
+            # and tbbo land in dedicated heavy-month runs (universal
+            # reference months 2024-08 + 2025-03 — see _launch_etf_default).
+            data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
+            ;;
+    esac
 
     _build_light_windows "$year" "$skip_csv"
 
@@ -514,20 +522,19 @@ _launch_tier_plan() {
     done
 }
 
-# ── Default ES legacy path (preserves existing behaviour) ──
+# ── Generic year-shard default (ES / ES_OPT / ETF tickers / etc.) ──
 _legacy_es_default() {
     local root="${1:-ES}"
-    local map_name="${root}_EXPIRIES_BY_YEAR"
-    declare -n _ref="$map_name"
     local years_to_run=()
     if [[ -n "$YEAR" ]]; then
         years_to_run=("$YEAR")
-        if [[ -z "${_ref[$YEAR]:-}" ]]; then
-            echo "ERROR: No $root expiries declared for --year $YEAR. Known: ${!_ref[*]}" >&2
-            exit 1
-        fi
     else
-        years_to_run=(2022 2023 2024 2025 2026)
+        # shellcheck disable=SC2207
+        years_to_run=($(default_years_for_root "$root"))
+    fi
+    if (( ${#years_to_run[@]} == 0 )); then
+        echo "ERROR: no default year set for root=$root" >&2
+        exit 1
     fi
     for year in "${years_to_run[@]}"; do
         local skip=""
@@ -594,9 +601,10 @@ if [[ "$TIER" == "light" ]]; then
     exit 0
 fi
 
-# No tier-plan, no explicit tier: legacy ES / ES_OPT year-shard default.
-if [[ "$ROOT_SYMBOL" == "ES" || "$ROOT_SYMBOL" == "ES_OPT" ]]; then
-    _legacy_es_default "$ROOT_SYMBOL"
+# No tier-plan, no explicit tier: year-shard default for ES / ES_OPT / ETFs.
+case "$ROOT_SYMBOL" in
+    ES|ES_OPT|MES|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE)
+        _legacy_es_default "$ROOT_SYMBOL"
     echo ""
     if $DRY_RUN; then
         echo "=========================================="
@@ -610,7 +618,8 @@ if [[ "$ROOT_SYMBOL" == "ES" || "$ROOT_SYMBOL" == "ES_OPT" ]]; then
         echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[df.venue=='CME'].capture_status.value_counts())\""
     fi
     exit 0
-fi
+    ;;
+esac
 
 echo "ERROR: --root-symbol ${ROOT_SYMBOL} requires --tier-plan or explicit --tier light|heavy" >&2
 echo "       For BTC/ETH crypto-basis backfill: --tier-plan crypto-basis-2023-05+2024-06" >&2

@@ -98,7 +98,30 @@ cme_parent_symbols() {
         ES)      printf '%s' "ES.FUT" ;;
         MES)     printf '%s' "MES.FUT" ;;
         ES_OPT)  printf '%s' "ES.OPT;EW.OPT;EW1.OPT;EW2.OPT;EW4.OPT;E1A.OPT;E2A.OPT;E3A.OPT;E4A.OPT;E5A.OPT;EOM.OPT" ;;
+        # Spot ETFs — single ticker per root, raw_symbol stype, DBEQ.BASIC.
+        # Pre-listing years yield empty Databento responses (empty_confirmed
+        # in the manifest) so launching beyond the listing year is safe but
+        # wasteful; the etf_default_years_for_root helper clips this.
+        IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE)
+                 printf '%s' "$root" ;;
         *)       printf '' ;;
+    esac
+}
+
+# Year-shard set for a root. CME futures + ES_OPT span 2022..2026; spot
+# crypto ETFs are clipped to their listing year onward.
+#   IBIT, FBTC, ARKB, GBTC (post-uplisting): 2024-01-11+
+#   ETHA, FETH, ETHE (post-uplisting):       2024-07-23+ — but we run
+#       full 2024 + onwards; pre-listing months return empty_confirmed
+#       which is harmless and cheap.
+#   BITO: 2021-10-19+, full 2022..today.
+default_years_for_root() {
+    case "$1" in
+        ES|ES_OPT|MES|BTC|ETH)         echo "2022 2023 2024 2025 2026" ;;
+        BITO)                          echo "2022 2023 2024 2025 2026" ;;
+        IBIT|FBTC|GBTC|ARKB)           echo "2024 2025 2026" ;;
+        ETHA|FETH|ETHE)                echo "2024 2025 2026" ;;
+        *)                             echo "" ;;
     esac
 }
 
