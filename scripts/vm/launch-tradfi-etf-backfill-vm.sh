@@ -10,7 +10,7 @@
 # Writes to:
 #   gs://market-data-tick-tradfi-central-element-323112/raw_tick_data/
 #     by_date/day={D}/asset_group=tradfi/venue=YAHOO_FINANCE/
-#     instrument_type=etf/data_type=ohlcv_1d/{SYMBOL}.parquet
+#     instrument_type=etf/data_type=ohlcv_24h/{SYMBOL}.parquet
 #
 # Manifest:
 #   gs://market-data-tick-tradfi-central-element-323112/_index/availability_index.parquet
@@ -96,7 +96,7 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="tradfi-etf-${RUN_TS}"
 
-echo "Launching $VM_NAME: YAHOO_FINANCE ETF ohlcv_1d ${START_DATE}..${END_DATE}"
+echo "Launching $VM_NAME: YAHOO_FINANCE ETF ohlcv_24h ${START_DATE}..${END_DATE}"
 echo "Symbols: ${SYMBOLS//;/, }"
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
@@ -108,7 +108,7 @@ METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=TRADFI"
 METADATA="${METADATA},VM_VENUE=YAHOO_FINANCE"
-METADATA="${METADATA},VM_DATA_TYPES=ohlcv_1d"
+METADATA="${METADATA},VM_DATA_TYPES=ohlcv_24h"
 METADATA="${METADATA},VM_INSTRUMENT_IDS=${SYMBOLS}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
