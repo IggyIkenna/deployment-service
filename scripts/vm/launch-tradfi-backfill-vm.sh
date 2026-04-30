@@ -1,46 +1,55 @@
 #!/usr/bin/env bash
-# Launch sharded TRADFI backfill VMs — Databento CME ES futures (+ adjacent
-# TRADFI instruments) for the CME S&P 500 ML directional signal (Tier 1 MVP).
+# Launch sharded TRADFI backfill VMs — Databento CME futures (ES + crypto:
+# BTC, ETH) via the unified MTDS download CLI.
 #
-# Purpose: ingest CME ES ohlcv_1m + trades across 2022-2026 expiries via the
-# unified MTDS download CLI — same code path as the Tardis-backed CeFi /
-# TradFi fleet, routed to the Databento adapter for proper CME tick data.
 # Writes to:
 #   gs://<tick-data-bucket>/raw_tick_data/
 #     by_date/day={D}/category=tradfi/venue=CME/instrument_type=future/
-#     data_type={ohlcv_1m,trades}/ES-<EXPIRY>.parquet
+#     data_type={ohlcv_1m,trades,mbp_10}/<ROOT>-<EXPIRY>.parquet
 #
 # Manifest:
 #   gs://<tick-data-bucket>/_index/availability_index.parquet
 #
-# Runs the unified MTDS CLI via setup-data-pipeline-vm.sh metadata routing —
-# same code path as the production CeFi/TradFi backfill fleet:
-#   python -m market_tick_data_service \
-#     --operation download --mode batch --category TRADFI \
-#     --venues DATABENTO --data-types ohlcv_1m trades \
-#     --start-date $VM_START_DATE --end-date $VM_END_DATE \
-#     --instrument-ids CME:FUTURE:ES-YYYYMMDD ...
+# ── Roots + tiers ────────────────────────────────────────────────────────────
+# ES  — quarterlies, single-tier `ohlcv_1m;trades` for the year (Tier 1 MVP
+#       directional-signal calendar, unchanged from the prior launcher).
+# BTC — 12 monthlies/year. Crypto-basis tier-plan splits the window into
+#       "heavy" (full L2 book: trades + mbp_10) and "light" (ohlcv_1m only).
+# ETH — same shape as BTC.
 #
-# Sharding strategy: one VM per expiry-year shard (2022-2026). Each ES
-# quarterly contract lives ~3 months; five years = ~20 expiries. A single-VM
-# backfill for all 20 is slow + prone to single-shard failure taking the
-# whole run down. Year-shard keeps failure isolation + wall-clock tight.
+# Tier plan `crypto-basis-2023-05+2024-06`:
+#     - heavy VM for 2023-05 (active contracts only) -> trades;mbp_10
+#     - heavy VM for 2024-06 (active contracts only) -> trades;mbp_10
+#     - light VMs for 2022..today, splitting around the heavy months -> ohlcv_1m
+# Per root: 9 VMs (2 heavy + 7 light). For BTC + ETH: 18 VMs.
+#
+# ── Sharding ─────────────────────────────────────────────────────────────────
+# One VM per (root, tier, contiguous date-range). Singleton lock matches
+# `^tradfi-bf-` so all 18 VMs serialize across the shared Databento account.
+# --force bypasses the lock for legitimate parallel investigation.
+#
+# ── Usage ────────────────────────────────────────────────────────────────────
+#   # Existing ES behavior (unchanged):
+#   bash launch-tradfi-backfill-vm.sh --dry-run
+#   bash launch-tradfi-backfill-vm.sh --year 2026
+#
+#   # Crypto-basis tier-plan (full BTC fan-out):
+#   bash launch-tradfi-backfill-vm.sh --root-symbol BTC --tier-plan crypto-basis-2023-05+2024-06 --dry-run
+#   bash launch-tradfi-backfill-vm.sh --root-symbol BTC --tier-plan crypto-basis-2023-05+2024-06
+#
+#   # Single heavy month (smoke):
+#   bash launch-tradfi-backfill-vm.sh --root-symbol BTC --tier heavy --month 2024-06
+#
+#   # Single light year (smoke):
+#   bash launch-tradfi-backfill-vm.sh --root-symbol BTC --tier light --year 2024 --skip-months 2024-06
 #
 # Prerequisites:
 #   - Tarballs uploaded to gs://deployment-scripts-central-element-323112/code/
-#     (run `bash create-code-tarballs.sh --category TRADFI` first).
+#     (run `bash create-code-tarballs.sh --asset-group TRADFI` first).
 #   - databento-api-key in Secret Manager.
 #
-# Usage:
-#   bash launch-tradfi-backfill-vm.sh --dry-run                    # preview all shards
-#   bash launch-tradfi-backfill-vm.sh                              # all expiry-year shards 2022-2026
-#   bash launch-tradfi-backfill-vm.sh --year 2026                  # single year
-#   bash launch-tradfi-backfill-vm.sh --force --year 2026          # bypass singleton lock
-#   bash launch-tradfi-backfill-vm.sh --year 2026 --instrument-ids 'CME:FUTURE:ES-20260620'
-#                                                                  # explicit contract list
-#
-# Cost: e2-standard-4 per shard (Databento OHLCV_1M is lighter than Tardis
-# L2 book; a year-shard completes in ~30-90 min depending on contract count).
+# Cost: e2-standard-4 per shard. ohlcv_1m year-shards complete in ~30-90 min;
+# mbp_10 month-shards similar (less calendar coverage but ~10x book volume).
 #
 # Singleton lock: refuses to launch if any tradfi-bf-* VM is RUNNING in the
 # zone. Databento per-IP rate-limits are looser than RapidAPI but the account
@@ -51,31 +60,48 @@
 #
 # Observability: inherits the STALL_TIMEOUT_SEC=600 log-mtime watchdog +
 # `timeout 30s` run_heartbeat + py-spy stack dump + pkill-by-name fallback
-# from vm-exec-with-gcs-tee.sh (deployed 2026-04-19 after 6 TradFi VMs
-# silently wedged for 5-6h — memory project_vm_hang_class_bug_and_mdps...).
+# from vm-exec-with-gcs-tee.sh.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=cme-expiry-calendars.sh
+source "${SCRIPT_DIR}/cme-expiry-calendars.sh"
 
 # ── Defaults + arg parsing ──
 FORCE=false
 DRY_RUN=false
+ROOT_SYMBOL="ES"
 YEAR=""
+MONTH=""
+TIER=""
+TIER_PLAN=""
 INSTRUMENT_IDS_OVERRIDE=""
-DATA_TYPES="ohlcv_1m;trades"
+DATA_TYPES_OVERRIDE=""
+START_DATE_OVERRIDE=""
+END_DATE_OVERRIDE=""
+SKIP_MONTHS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --force)           FORCE=true; shift ;;
-        --dry-run)         DRY_RUN=true; shift ;;
-        --year)            YEAR="$2"; shift 2 ;;
-        --instrument-ids)  INSTRUMENT_IDS_OVERRIDE="$2"; shift 2 ;;
-        --data-types)      DATA_TYPES="$2"; shift 2 ;;
+        --force)            FORCE=true; shift ;;
+        --dry-run)          DRY_RUN=true; shift ;;
+        --root-symbol)      ROOT_SYMBOL="$2"; shift 2 ;;
+        --year)             YEAR="$2"; shift 2 ;;
+        --month)            MONTH="$2"; shift 2 ;;
+        --tier)             TIER="$2"; shift 2 ;;
+        --tier-plan)        TIER_PLAN="$2"; shift 2 ;;
+        --instrument-ids)   INSTRUMENT_IDS_OVERRIDE="$2"; shift 2 ;;
+        --data-types)       DATA_TYPES_OVERRIDE="$2"; shift 2 ;;
+        --start-date)       START_DATE_OVERRIDE="$2"; shift 2 ;;
+        --end-date)         END_DATE_OVERRIDE="$2"; shift 2 ;;
+        --skip-months)      SKIP_MONTHS="$2"; shift 2 ;;
         --help|-h)
-            grep '^#' "$0" | head -60
+            grep '^#' "$0" | head -70
             exit 0
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--dry-run] [--force] [--year YYYY] [--instrument-ids 'ID;ID;ID'] [--data-types 'ohlcv_1m;trades']" >&2
+            echo "Usage: $0 [--root-symbol ES|BTC|ETH] [--tier-plan crypto-basis-2023-05+2024-06] [--tier light|heavy] [--year YYYY] [--month YYYY-MM] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--instrument-ids 'ID;ID'] [--data-types 'ohlcv_1m;trades'] [--skip-months 'YYYY-MM,YYYY-MM'] [--dry-run] [--force]" >&2
             exit 1
             ;;
     esac
@@ -88,96 +114,75 @@ STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 
-# ── Singleton lock: databento account shared, concurrent backfills risk quota
-#    exhaustion on big windows. Mirrors sfi-fwd / mtds-prediction pattern ──
-if ! $FORCE && ! $DRY_RUN; then
-    EXISTING="$(gcloud compute instances list \
+# ── Validate root ──
+case "$ROOT_SYMBOL" in
+    ES|BTC|ETH) ;;
+    *)
+        echo "ERROR: --root-symbol must be one of ES|BTC|ETH (got '$ROOT_SYMBOL')" >&2
+        exit 1
+        ;;
+esac
+
+# ── Singleton lock (skipped on dry-run) ──
+_check_singleton_lock() {
+    if $FORCE || $DRY_RUN; then return 0; fi
+    local existing
+    existing="$(gcloud compute instances list \
         --filter='name~"^tradfi-bf-" AND status=RUNNING' \
         --zones="$ZONE" \
         --format='value(name)' 2>/dev/null | head -1)"
-    if [[ -n "$EXISTING" ]]; then
+    if [[ -n "$existing" ]]; then
         cat >&2 <<EOF
-ERROR: TRADFI backfill VM already running in $ZONE: $EXISTING
+ERROR: TRADFI backfill VM already running in $ZONE: $existing
 Refusing to launch a duplicate — the Databento account is shared; concurrent
 VMs on wide windows risk contract-exceeded errors. Adding more shards in
 parallel does not speed up a bounded quota.
 
 Options:
-  Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
-  Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
-  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
-  Force:     bash $0 --force${YEAR:+ --year $YEAR}
+  Inspect:   gcloud compute ssh $existing --zone=$ZONE
+  Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${existing}/run.log
+  Stop:      gcloud compute instances delete $existing --zone=$ZONE --quiet
+  Force:     bash $0 --force [args...]
 EOF
         exit 1
     fi
-fi
+}
 
-# ── ES expiry calendar — quarterly contracts (H=Mar, M=Jun, U=Sep, Z=Dec).
-#    Canonical-id scheme per UAC: CME:FUTURE:ES-YYYYMMDD where YYYYMMDD is
-#    the last trading date. Dates below are 3rd-Friday of contract month
-#    per CME spec (Tier 1 MVP uses these single-expiry contracts; Phase B
-#    stitches continuous series from them). ──
-declare -A ES_EXPIRIES_BY_YEAR=(
-    ["2022"]="CME:FUTURE:ES-20220318;CME:FUTURE:ES-20220617;CME:FUTURE:ES-20220916;CME:FUTURE:ES-20221216"
-    ["2023"]="CME:FUTURE:ES-20230317;CME:FUTURE:ES-20230616;CME:FUTURE:ES-20230915;CME:FUTURE:ES-20231215"
-    ["2024"]="CME:FUTURE:ES-20240315;CME:FUTURE:ES-20240621;CME:FUTURE:ES-20240920;CME:FUTURE:ES-20241220"
-    ["2025"]="CME:FUTURE:ES-20250321;CME:FUTURE:ES-20250620;CME:FUTURE:ES-20250919;CME:FUTURE:ES-20251219"
-    ["2026"]="CME:FUTURE:ES-20260320;CME:FUTURE:ES-20260619"
-)
+# ── VM creator: builds METADATA, invokes gcloud (or dry-run echo) ──
+# Args: vm_name root tier start_date end_date data_types instrument_ids
+_create_vm() {
+    local vm_name="$1"
+    local root="$2"
+    local tier="$3"
+    local start_date="$4"
+    local end_date="$5"
+    local data_types="$6"
+    local instrument_ids="$7"
 
-# Choose which years to launch
-if [[ -n "$YEAR" ]]; then
-    YEARS_TO_RUN=("$YEAR")
-    if [[ -z "${ES_EXPIRIES_BY_YEAR[$YEAR]:-}" ]]; then
-        echo "ERROR: No ES expiries declared for --year $YEAR. Known: ${!ES_EXPIRIES_BY_YEAR[*]}" >&2
-        exit 1
-    fi
-else
-    YEARS_TO_RUN=(2022 2023 2024 2025 2026)
-fi
+    local metadata
+    metadata="VM_TASK=cefi-backfill"
+    metadata="${metadata},VM_SERVICE=market_tick_data_service"
+    metadata="${metadata},VM_OPERATION=download"
+    metadata="${metadata},VM_ASSET_GROUP=TRADFI"
+    metadata="${metadata},VM_VENUE=DATABENTO"
+    metadata="${metadata},VM_START_DATE=${start_date}"
+    metadata="${metadata},VM_END_DATE=${end_date}"
+    metadata="${metadata},VM_DATA_TYPES=${data_types}"
+    metadata="${metadata},VM_INSTRUMENT_IDS=${instrument_ids}"
+    metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
-_launched=0
-for year in "${YEARS_TO_RUN[@]}"; do
-    if [[ "$year" == "2026" ]]; then
-        START_DATE="2026-01-01"
-        END_DATE="$(date +%Y-%m-%d)"
-    else
-        START_DATE="${year}-01-01"
-        END_DATE="${year}-12-31"
-    fi
-
-    if [[ -n "$INSTRUMENT_IDS_OVERRIDE" ]]; then
-        INSTRUMENT_IDS="$INSTRUMENT_IDS_OVERRIDE"
-    else
-        INSTRUMENT_IDS="${ES_EXPIRIES_BY_YEAR[$year]}"
-    fi
-
-    RUN_TS="$(date +%Y%m%d-%H%M%S)"
-    VM_NAME="tradfi-bf-es-${year}-${RUN_TS}"
-
-    # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
-    # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly
-    # (task name is misleading; routing is category-agnostic).
-    METADATA="VM_TASK=cefi-backfill"
-    METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
-    METADATA="${METADATA},VM_OPERATION=download"
-    METADATA="${METADATA},VM_CATEGORY=TRADFI"
-    METADATA="${METADATA},VM_VENUE=DATABENTO"
-    METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-    METADATA="${METADATA},VM_END_DATE=${END_DATE}"
-    METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
-    METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
-    METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+    local run_ts
+    run_ts="$(date +%Y%m%d-%H%M%S)"
 
     if $DRY_RUN; then
-        echo "[DRY-RUN] $VM_NAME"
-        echo "          year=$year ${START_DATE}..${END_DATE}"
-        echo "          venue=DATABENTO data_types=${DATA_TYPES}"
-        echo "          instruments=${INSTRUMENT_IDS}"
+        echo "[DRY-RUN] $vm_name"
+        echo "          root=$root tier=$tier ${start_date}..${end_date}"
+        echo "          data_types=${data_types}"
+        echo "          instruments=${instrument_ids}"
         echo "          machine=${MACHINE_TYPE} zone=${ZONE}"
     else
-        echo "Launching $VM_NAME (ES ${year} ${START_DATE}..${END_DATE})"
-        gcloud compute instances create "$VM_NAME" \
+        echo "Launching $vm_name (root=$root tier=$tier ${start_date}..${end_date})"
+        gcloud compute instances create "$vm_name" \
             --project="$PROJECT" \
             --zone="$ZONE" \
             --machine-type="$MACHINE_TYPE" \
@@ -185,25 +190,399 @@ for year in "${YEARS_TO_RUN[@]}"; do
             --image-project=ubuntu-os-cloud \
             --boot-disk-size="${BOOT_DISK_GB}GB" \
             --scopes=cloud-platform \
-            --metadata="startup-script-url=${STARTUP},${METADATA}" \
-            --labels=purpose=tradfi-backfill,run-ts="${RUN_TS}",year="${year}"
+            --metadata="startup-script-url=${STARTUP},${metadata}" \
+            --labels=purpose=tradfi-backfill,run-ts="${run_ts}",root="${root,,}",tier="${tier}"
         echo "  VM launched."
-        # Brief stagger between shards so RUN_TS timestamps stay unique +
-        # gcloud create calls don't race the quota prechecks.
+        # Brief stagger so RUN_TS timestamps stay unique + gcloud create calls
+        # don't race quota prechecks.
         sleep 3
     fi
-    _launched=$((_launched + 1))
-done
+}
 
-echo ""
-if $DRY_RUN; then
-    echo "=========================================="
-    echo "DRY-RUN: ${_launched} VM(s) would be launched"
-    echo "=========================================="
-else
-    echo "${_launched} TRADFI backfill VM(s) launched in ${ZONE}"
-    echo ""
-    echo "Manifest check:"
-    echo "  gsutil cp gs://market-data-tick-tradfi-${PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
-    echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[df.venue=='CME'].capture_status.value_counts())\""
+# ── Helpers for crypto-basis tier-plan windowing ──
+
+# Filter a year's full monthly contract list to those whose LTD falls within
+# [window_start, window_end] inclusive.
+# Args: contracts_semicolon window_start_yyyymmdd window_end_yyyymmdd
+_filter_contracts_by_ltd() {
+    local contracts="$1"
+    local win_start="$2"
+    local win_end="$3"
+    local out=""
+    local IFS=';'
+    for contract in $contracts; do
+        # Extract YYYYMMDD from CME:FUTURE:ROOT-YYYYMMDD
+        local ltd="${contract##*-}"
+        if [[ "$ltd" -ge "$win_start" && "$ltd" -le "$win_end" ]]; then
+            out="${out}${out:+;}${contract}"
+        fi
+    done
+    printf '%s' "$out"
+}
+
+# Emit the union of contracts active during a date range. For a backfill window
+# we want any contract whose [listing, LTD] interval overlaps the window. CME
+# BTC/ETH list 7 months out; we approximate as: LTD in [window_start - 7mo,
+# window_end + 0]. Practically: pull contracts with LTD between window_start
+# (anything earlier already settled) and window_end + 7mo (so the back-month
+# contracts trading during the window are included).
+# Args: root year window_start window_end (all yyyymmdd)
+_contracts_active_in_window() {
+    local root="$1"
+    local year="$2"
+    local win_start="$3"
+    local win_end="$4"
+
+    # Years to consider: previous, current, next (since window can straddle).
+    local prev_y=$((year - 1))
+    local next_y=$((year + 1))
+    local map_name="${root}_EXPIRIES_BY_YEAR"
+    declare -n _ref="$map_name"
+
+    local pool=""
+    for y in "$prev_y" "$year" "$next_y"; do
+        local entry="${_ref[$y]:-}"
+        [[ -n "$entry" ]] && pool="${pool}${pool:+;}${entry}"
+    done
+
+    # Active = LTD in [win_start, win_start + 7mo]. Compute win_start_plus_7mo
+    # crudely: same date 7 months later; if month overflow, roll year.
+    local ws_year ws_mon ws_day
+    ws_year="${win_start:0:4}"
+    ws_mon="${win_start:4:2}"
+    ws_day="${win_start:6:2}"
+    local plus_mon=$((10#$ws_mon + 7))
+    local plus_year="$ws_year"
+    if (( plus_mon > 12 )); then
+        plus_mon=$(( plus_mon - 12 ))
+        plus_year=$(( plus_year + 1 ))
+    fi
+    local cap
+    cap=$(printf '%04d%02d%02d' "$plus_year" "$plus_mon" "10#$ws_day")
+
+    _filter_contracts_by_ltd "$pool" "$win_start" "$cap"
+}
+
+# Last day of a YYYY-MM string. Args: yyyy mm. Echoes YYYYMMDD.
+_last_day_of_month() {
+    local y="$1" m="$2"
+    # date(1) gnu vs bsd; use a portable trick.
+    local first_of_next
+    if (( 10#$m == 12 )); then
+        first_of_next=$(printf '%04d%02d01' $((y + 1)) 1)
+    else
+        first_of_next=$(printf '%04d%02d01' "$y" $((10#$m + 1)))
+    fi
+    # Subtract 1 day: parse YYYYMMDD, decrement.
+    # Simpler: use /usr/bin/date if available, else portable computation.
+    # We compute by counting backward from the 1st of next month.
+    local d_y d_m d_d
+    d_y="${first_of_next:0:4}"
+    d_m="${first_of_next:4:2}"
+    d_d="${first_of_next:6:2}"
+    local prev_d=$((10#$d_d - 1))
+    if (( prev_d == 0 )); then
+        if (( 10#$d_m == 1 )); then
+            d_y=$((d_y - 1)); d_m=12
+        else
+            d_m=$((10#$d_m - 1))
+        fi
+        # Last day of previous month — fall back to per-month table.
+        case "$d_m" in
+            1|3|5|7|8|10|12) prev_d=31 ;;
+            4|6|9|11)        prev_d=30 ;;
+            2)
+                # leap-year check
+                if (( (d_y % 4 == 0 && d_y % 100 != 0) || d_y % 400 == 0 )); then
+                    prev_d=29
+                else
+                    prev_d=28
+                fi
+                ;;
+        esac
+    fi
+    printf '%04d%02d%02d' "$d_y" "$d_m" "$prev_d"
+}
+
+# ── Mode dispatch ──
+
+# Build an array LIGHT_WINDOWS=(start1:end1 start2:end2 ...) for a year given a
+# list of skip-months (comma-separated YYYY-MM). Output ISO YYYY-MM-DD.
+_build_light_windows() {
+    local year="$1"
+    local skip_csv="$2"
+    LIGHT_WINDOWS=()
+
+    local year_start year_end
+    year_start="${year}-01-01"
+    if [[ "$year" == "$(date +%Y)" ]]; then
+        year_end="$(date +%Y-%m-%d)"
+    else
+        year_end="${year}-12-31"
+    fi
+
+    # Sort skip months ascending and clip to current year.
+    local -a skips=()
+    if [[ -n "$skip_csv" ]]; then
+        local IFS=','
+        for sm in $skip_csv; do
+            if [[ "${sm:0:4}" == "$year" ]]; then
+                skips+=("$sm")
+            fi
+        done
+        # Sort.
+        IFS=$'\n' read -r -d '' -a skips < <(printf '%s\n' "${skips[@]}" | sort && printf '\0')
+    fi
+
+    if (( ${#skips[@]} == 0 )); then
+        LIGHT_WINDOWS=("${year_start}:${year_end}")
+        return
+    fi
+
+    # Build contiguous sub-windows.
+    local cursor="$year_start"
+    for sm in "${skips[@]}"; do
+        local sm_y sm_m skip_start skip_end_yyyymmdd
+        sm_y="${sm:0:4}"
+        sm_m="${sm:5:2}"
+        skip_start="${sm}-01"
+        skip_end_yyyymmdd=$(_last_day_of_month "$sm_y" "$sm_m")
+
+        # Sub-window before this skip: cursor..(skip_start-1day)
+        # We compute "skip_start minus 1 day" via the same _last_day helper trick
+        # but more directly: if skip_start is the 1st, prev is last day of prior month.
+        local prev_y prev_m prev_d
+        prev_y="$sm_y"
+        prev_m=$((10#$sm_m - 1))
+        if (( prev_m == 0 )); then
+            prev_y=$((prev_y - 1)); prev_m=12
+        fi
+        prev_d=$(_last_day_of_month "$prev_y" "$(printf '%02d' "$prev_m")")
+        local before_end="${prev_d:0:4}-${prev_d:4:2}-${prev_d:6:2}"
+
+        if [[ "$cursor" < "$skip_start" ]]; then
+            LIGHT_WINDOWS+=("${cursor}:${before_end}")
+        fi
+
+        # Advance cursor to day-after skip end.
+        local next_y next_m next_d
+        next_y="${skip_end_yyyymmdd:0:4}"
+        next_m="${skip_end_yyyymmdd:4:2}"
+        next_d="${skip_end_yyyymmdd:6:2}"
+        local next_d_int=$((10#$next_d + 1))
+        local last_d_of_skip
+        last_d_of_skip=$(_last_day_of_month "$next_y" "$next_m")
+        if (( next_d_int > 10#${last_d_of_skip:6:2} )); then
+            next_d_int=1
+            local nm=$((10#$next_m + 1))
+            if (( nm > 12 )); then nm=1; next_y=$((next_y + 1)); fi
+            next_m=$(printf '%02d' "$nm")
+        fi
+        cursor=$(printf '%04d-%02d-%02d' "$next_y" "$next_m" "$next_d_int")
+    done
+
+    # Tail window (cursor..year_end) if cursor still <= year_end
+    if [[ "$cursor" < "$year_end" || "$cursor" == "$year_end" ]]; then
+        LIGHT_WINDOWS+=("${cursor}:${year_end}")
+    fi
+}
+
+# Launch one heavy month VM. Args: root yyyy-mm
+_launch_heavy_month() {
+    local root="$1"
+    local yyyy_mm="$2"
+    local sm_y sm_m
+    sm_y="${yyyy_mm:0:4}"
+    sm_m="${yyyy_mm:5:2}"
+    local last_yyyymmdd
+    last_yyyymmdd=$(_last_day_of_month "$sm_y" "$sm_m")
+    local start="${yyyy_mm}-01"
+    local end="${last_yyyymmdd:0:4}-${last_yyyymmdd:4:2}-${last_yyyymmdd:6:2}"
+
+    local instruments
+    instruments=$(cme_active_contracts "$root" "$yyyy_mm")
+    if [[ -z "$instruments" ]]; then
+        # Fall back to active-window heuristic from the calendar pool.
+        local win_start win_end
+        win_start=$(printf '%04d%02d01' "$sm_y" "$sm_m")
+        win_end="$last_yyyymmdd"
+        instruments=$(_contracts_active_in_window "$root" "$sm_y" "$win_start" "$win_end")
+    fi
+
+    if [[ -z "$instruments" ]]; then
+        echo "ERROR: no active contracts for root=$root month=$yyyy_mm" >&2
+        return 1
+    fi
+
+    local data_types="${DATA_TYPES_OVERRIDE:-trades;mbp_10}"
+    local run_ts
+    run_ts="$(date +%Y%m%d-%H%M%S)"
+    local vm_name="tradfi-bf-${root,,}-heavy-${yyyy_mm}-${run_ts}"
+    _create_vm "$vm_name" "$root" "heavy" "$start" "$end" "$data_types" "$instruments"
+}
+
+# Launch light VMs for a year. Args: root year skip_months_csv
+_launch_light_year() {
+    local root="$1"
+    local year="$2"
+    local skip_csv="$3"
+
+    local instruments
+    instruments=$(cme_year_contracts "$root" "$year")
+    if [[ -z "$instruments" ]]; then
+        echo "ERROR: no calendar entry for root=$root year=$year" >&2
+        return 1
+    fi
+
+    local data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
+    if [[ "$root" == "ES" ]]; then
+        # Preserve historical ES single-tier default.
+        data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m;trades}"
+    fi
+
+    _build_light_windows "$year" "$skip_csv"
+
+    local idx=0
+    for win in "${LIGHT_WINDOWS[@]}"; do
+        local win_start="${win%%:*}"
+        local win_end="${win##*:}"
+        local run_ts
+        run_ts="$(date +%Y%m%d-%H%M%S)"
+        local tag="${year}"
+        if (( ${#LIGHT_WINDOWS[@]} > 1 )); then
+            idx=$((idx + 1))
+            tag="${year}-w${idx}"
+        fi
+        local vm_name="tradfi-bf-${root,,}-light-${tag}-${run_ts}"
+        _create_vm "$vm_name" "$root" "light" "$win_start" "$win_end" "$data_types" "$instruments"
+    done
+}
+
+# Launch a tier plan for a root.
+_launch_tier_plan() {
+    local root="$1"
+    local plan="$2"
+
+    if [[ "$plan" != "crypto-basis-2023-05+2024-06" ]]; then
+        echo "ERROR: unknown --tier-plan '$plan'. Known: crypto-basis-2023-05+2024-06" >&2
+        exit 1
+    fi
+    if [[ "$root" != "BTC" && "$root" != "ETH" ]]; then
+        echo "ERROR: --tier-plan crypto-basis-* requires --root-symbol BTC|ETH (got '$root')" >&2
+        exit 1
+    fi
+
+    # Heavy month VMs (one per heavy month).
+    _launch_heavy_month "$root" "2023-05"
+    _launch_heavy_month "$root" "2024-06"
+
+    # Light year VMs for 2022..current year, skipping the heavy months in their year.
+    local current_year
+    current_year="$(date +%Y)"
+    for y in 2022 2023 2024 2025 2026; do
+        if (( y > current_year )); then break; fi
+        local skip=""
+        if (( y == 2023 )); then skip="2023-05"; fi
+        if (( y == 2024 )); then skip="2024-06"; fi
+        _launch_light_year "$root" "$y" "$skip"
+    done
+}
+
+# ── Default ES legacy path (preserves existing behaviour) ──
+_legacy_es_default() {
+    local years_to_run=()
+    if [[ -n "$YEAR" ]]; then
+        years_to_run=("$YEAR")
+        if [[ -z "${ES_EXPIRIES_BY_YEAR[$YEAR]:-}" ]]; then
+            echo "ERROR: No ES expiries declared for --year $YEAR. Known: ${!ES_EXPIRIES_BY_YEAR[*]}" >&2
+            exit 1
+        fi
+    else
+        years_to_run=(2022 2023 2024 2025 2026)
+    fi
+    for year in "${years_to_run[@]}"; do
+        local skip=""
+        _launch_light_year "ES" "$year" "$skip"
+    done
+}
+
+# ── Top-level dispatch ──
+_check_singleton_lock
+
+# Explicit --start-date/--end-date override (single-VM ad-hoc): caller-provided
+# instrument list, single window, single VM. Useful for retries.
+if [[ -n "$START_DATE_OVERRIDE" || -n "$END_DATE_OVERRIDE" ]]; then
+    if [[ -z "$START_DATE_OVERRIDE" || -z "$END_DATE_OVERRIDE" ]]; then
+        echo "ERROR: --start-date and --end-date must be used together" >&2
+        exit 1
+    fi
+    if [[ -z "$INSTRUMENT_IDS_OVERRIDE" ]]; then
+        echo "ERROR: ad-hoc --start-date/--end-date mode requires --instrument-ids" >&2
+        exit 1
+    fi
+    DT="${DATA_TYPES_OVERRIDE:-ohlcv_1m;trades}"
+    TIER_TAG="${TIER:-adhoc}"
+    RTS="$(date +%Y%m%d-%H%M%S)"
+    VN="tradfi-bf-${ROOT_SYMBOL,,}-${TIER_TAG}-adhoc-${RTS}"
+    _create_vm "$VN" "$ROOT_SYMBOL" "$TIER_TAG" "$START_DATE_OVERRIDE" "$END_DATE_OVERRIDE" "$DT" "$INSTRUMENT_IDS_OVERRIDE"
+    exit 0
 fi
+
+# Tier plan (multi-VM fan-out).
+if [[ -n "$TIER_PLAN" ]]; then
+    _launch_tier_plan "$ROOT_SYMBOL" "$TIER_PLAN"
+    echo ""
+    if $DRY_RUN; then
+        echo "=========================================="
+        echo "DRY-RUN: tier-plan '$TIER_PLAN' for root=$ROOT_SYMBOL"
+        echo "=========================================="
+    else
+        echo "Tier-plan '$TIER_PLAN' VMs launched in ${ZONE} for root=$ROOT_SYMBOL"
+        echo ""
+        echo "Manifest check:"
+        echo "  gsutil cp gs://market-data-tick-tradfi-${PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
+        echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); m=(df.venue=='CME')&(df.instrument_type=='future')&(df.symbol.str.startswith('${ROOT_SYMBOL}-')); print(df[m].groupby(['data_type','capture_status']).size())\""
+    fi
+    exit 0
+fi
+
+# Single-tier-explicit modes.
+if [[ "$TIER" == "heavy" ]]; then
+    if [[ -z "$MONTH" ]]; then
+        echo "ERROR: --tier heavy requires --month YYYY-MM" >&2
+        exit 1
+    fi
+    _launch_heavy_month "$ROOT_SYMBOL" "$MONTH"
+    exit 0
+fi
+
+if [[ "$TIER" == "light" ]]; then
+    if [[ -z "$YEAR" ]]; then
+        echo "ERROR: --tier light requires --year YYYY" >&2
+        exit 1
+    fi
+    _launch_light_year "$ROOT_SYMBOL" "$YEAR" "$SKIP_MONTHS"
+    exit 0
+fi
+
+# No tier-plan, no explicit tier: legacy ES default behaviour.
+if [[ "$ROOT_SYMBOL" == "ES" ]]; then
+    _legacy_es_default
+    echo ""
+    if $DRY_RUN; then
+        echo "=========================================="
+        echo "DRY-RUN: ES year-shards (legacy default)"
+        echo "=========================================="
+    else
+        echo "ES year-shards launched in ${ZONE}"
+        echo ""
+        echo "Manifest check:"
+        echo "  gsutil cp gs://market-data-tick-tradfi-${PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
+        echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[df.venue=='CME'].capture_status.value_counts())\""
+    fi
+    exit 0
+fi
+
+echo "ERROR: --root-symbol ${ROOT_SYMBOL} requires --tier-plan or explicit --tier light|heavy" >&2
+echo "       For BTC/ETH crypto-basis backfill: --tier-plan crypto-basis-2023-05+2024-06" >&2
+exit 1
