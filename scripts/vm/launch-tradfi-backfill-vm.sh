@@ -412,18 +412,17 @@ _launch_heavy_month() {
     local start="${yyyy_mm}-01"
     local end="${last_yyyymmdd:0:4}-${last_yyyymmdd:4:2}-${last_yyyymmdd:6:2}"
 
+    # Databento parent symbology: pass "BTC.FUT" / "ETH.FUT" / etc. The
+    # adapter's stype_in selector keys on the .FUT/.OPT suffix
+    # (databento_adapter.py:151). Date window narrows to the heavy month;
+    # Databento returns whichever contracts in the chain traded during
+    # that month. The previous per-contract enumeration (BTC_ACTIVE_2023_05
+    # etc.) was incompatible with the adapter and silently produced 0 rows.
     local instruments
-    instruments=$(cme_active_contracts "$root" "$yyyy_mm")
-    if [[ -z "$instruments" ]]; then
-        # Fall back to active-window heuristic from the calendar pool.
-        local win_start win_end
-        win_start=$(printf '%04d%02d01' "$sm_y" "$sm_m")
-        win_end="$last_yyyymmdd"
-        instruments=$(_contracts_active_in_window "$root" "$sm_y" "$win_start" "$win_end")
-    fi
+    instruments=$(cme_parent_symbols "$root")
 
     if [[ -z "$instruments" ]]; then
-        echo "ERROR: no active contracts for root=$root month=$yyyy_mm" >&2
+        echo "ERROR: no Databento parent symbol mapping for root=$root" >&2
         return 1
     fi
 
@@ -446,10 +445,11 @@ _launch_light_year() {
     local year="$2"
     local skip_csv="$3"
 
+    # Databento parent symbology — see comment in _launch_heavy_month.
     local instruments
-    instruments=$(cme_year_contracts "$root" "$year")
+    instruments=$(cme_parent_symbols "$root")
     if [[ -z "$instruments" ]]; then
-        echo "ERROR: no calendar entry for root=$root year=$year" >&2
+        echo "ERROR: no Databento parent symbol mapping for root=$root" >&2
         return 1
     fi
 

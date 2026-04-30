@@ -77,6 +77,31 @@ cme_year_contracts() {
     printf '%s' "${_ref[$year]:-}"
 }
 
+# Databento parent-symbol set per root. Databento parent symbology
+# (stype_in=parent) returns every active contract in the chain for the
+# requested date window — so the adapter receives ONE symbol like
+# "BTC.FUT" and pulls all BTC contracts that traded in the window. This
+# is the correct shape for the MTDS DatabentoAdapter, which keys
+# stype_in selection on the .FUT / .OPT suffix
+# (databento_adapter.py:151).
+#
+# Per-contract canonical IDs (CME:FUTURE:BTC-YYYYMMDD) DO NOT work with
+# the adapter — they are treated as raw_symbols and Databento does not
+# recognise them, returning 0 records. The contract-list calendars
+# above remain as documentation / audit reference for which contracts
+# are expected to land in any given window.
+cme_parent_symbols() {
+    local root="$1"
+    case "$root" in
+        BTC)     printf '%s' "BTC.FUT" ;;
+        ETH)     printf '%s' "ETH.FUT" ;;
+        ES)      printf '%s' "ES.FUT" ;;
+        MES)     printf '%s' "MES.FUT" ;;
+        ES_OPT)  printf '%s' "ES.OPT;EW.OPT;EW1.OPT;EW2.OPT;EW4.OPT;E1A.OPT;E2A.OPT;E3A.OPT;E4A.OPT;E5A.OPT;EOM.OPT" ;;
+        *)       printf '' ;;
+    esac
+}
+
 # ── ES options — parent symbols (stable across years, parent symbology) ──
 # Databento GLBX.MDP3, stype_in="parent" — fetching with these parent symbols
 # returns the full options chain (every strike + expiry) for the requested
