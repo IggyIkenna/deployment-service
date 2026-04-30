@@ -414,7 +414,11 @@ _launch_heavy_month() {
         return 1
     fi
 
-    local data_types="${DATA_TYPES_OVERRIDE:-trades;mbp_10}"
+    # Heavy = full microstructure: trades + tbbo (top-of-book) + mbp_10 (10-deep).
+    # tbbo is cheap relative to mbp_10 and gives quote-by-quote NBBO; including
+    # it satisfies the universal "trades + tbbo overlap on reference months"
+    # rule alongside the deep-book mbp_10 capture.
+    local data_types="${DATA_TYPES_OVERRIDE:-trades;tbbo;mbp_10}"
     local run_ts
     run_ts="$(date +%Y%m%d-%H%M%S)"
     local vm_name="tradfi-bf-${root,,}-heavy-${yyyy_mm}-${run_ts}"
