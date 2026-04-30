@@ -166,9 +166,16 @@ _create_vm() {
     # `VM_VENUE=DATABENTO` was silently filtered out → "No active venues"
     # warnings + zero rows captured. CME serves BTC/ETH/ES/MES futures;
     # NYSE/NASDAQ for ETFs (added by ETF launcher mode).
+    # ETF venues route to per-listing-exchange Databento datasets via UAC
+    # DatabentoInstrumentDef. The MTDS adapter's download_batch_df honors
+    # d.dataset per-instrument (XNAS.ITCH for NASDAQ, ARCX.PILLAR for ARCA,
+    # BATS.PITCH for BATS). DBEQ.BASIC SIP returned 0 records for these
+    # tickers in the 2026-04-30 backfill, hence dataset-direct routing.
     local vm_venue="CME"
     case "$root" in
-        IBIT|FBTC|GBTC|ETHA|FETH|ETHE|BITO|ARKB) vm_venue="NYSE" ;;
+        IBIT|ETHA)                               vm_venue="NASDAQ" ;;     # XNAS.ITCH
+        GBTC|ETHE|BITO)                          vm_venue="ARCA" ;;       # ARCX.PILLAR
+        FBTC|FETH|ARKB)                          vm_venue="BATS" ;;       # BATS.PITCH
         VIX|VX)                                  vm_venue="CBOE" ;;
         *)                                       vm_venue="CME" ;;
     esac
