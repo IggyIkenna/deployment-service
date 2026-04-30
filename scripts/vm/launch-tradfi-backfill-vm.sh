@@ -116,9 +116,9 @@ BOOT_DISK_GB="50"
 
 # ── Validate root ──
 case "$ROOT_SYMBOL" in
-    ES|BTC|ETH) ;;
+    ES|ES_OPT|BTC|ETH) ;;
     *)
-        echo "ERROR: --root-symbol must be one of ES|BTC|ETH (got '$ROOT_SYMBOL')" >&2
+        echo "ERROR: --root-symbol must be one of ES|ES_OPT|BTC|ETH (got '$ROOT_SYMBOL')" >&2
         exit 1
         ;;
 esac
@@ -458,6 +458,13 @@ _launch_light_year() {
         # Preserve historical ES single-tier default.
         data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m;trades}"
     fi
+    if [[ "$root" == "ES_OPT" ]]; then
+        # Options chains: ohlcv_1m only (volume coverage). Trades + tbbo
+        # across thousands of strikes per chain × 11 chains is prohibitively
+        # expensive; option microstructure goes through dedicated runs if
+        # needed (separate plan).
+        data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
+    fi
 
     _build_light_windows "$year" "$skip_csv"
 
@@ -509,11 +516,14 @@ _launch_tier_plan() {
 
 # ── Default ES legacy path (preserves existing behaviour) ──
 _legacy_es_default() {
+    local root="${1:-ES}"
+    local map_name="${root}_EXPIRIES_BY_YEAR"
+    declare -n _ref="$map_name"
     local years_to_run=()
     if [[ -n "$YEAR" ]]; then
         years_to_run=("$YEAR")
-        if [[ -z "${ES_EXPIRIES_BY_YEAR[$YEAR]:-}" ]]; then
-            echo "ERROR: No ES expiries declared for --year $YEAR. Known: ${!ES_EXPIRIES_BY_YEAR[*]}" >&2
+        if [[ -z "${_ref[$YEAR]:-}" ]]; then
+            echo "ERROR: No $root expiries declared for --year $YEAR. Known: ${!_ref[*]}" >&2
             exit 1
         fi
     else
@@ -521,7 +531,7 @@ _legacy_es_default() {
     fi
     for year in "${years_to_run[@]}"; do
         local skip=""
-        _launch_light_year "ES" "$year" "$skip"
+        _launch_light_year "$root" "$year" "$skip"
     done
 }
 
@@ -584,16 +594,16 @@ if [[ "$TIER" == "light" ]]; then
     exit 0
 fi
 
-# No tier-plan, no explicit tier: legacy ES default behaviour.
-if [[ "$ROOT_SYMBOL" == "ES" ]]; then
-    _legacy_es_default
+# No tier-plan, no explicit tier: legacy ES / ES_OPT year-shard default.
+if [[ "$ROOT_SYMBOL" == "ES" || "$ROOT_SYMBOL" == "ES_OPT" ]]; then
+    _legacy_es_default "$ROOT_SYMBOL"
     echo ""
     if $DRY_RUN; then
         echo "=========================================="
-        echo "DRY-RUN: ES year-shards (legacy default)"
+        echo "DRY-RUN: ${ROOT_SYMBOL} year-shards"
         echo "=========================================="
     else
-        echo "ES year-shards launched in ${ZONE}"
+        echo "${ROOT_SYMBOL} year-shards launched in ${ZONE}"
         echo ""
         echo "Manifest check:"
         echo "  gsutil cp gs://market-data-tick-tradfi-${PROJECT}/_index/availability_index.parquet /tmp/t.parquet"

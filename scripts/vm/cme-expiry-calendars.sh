@@ -76,3 +76,27 @@ cme_year_contracts() {
     declare -n _ref="$map_name"
     printf '%s' "${_ref[$year]:-}"
 }
+
+# ── ES options — parent symbols (stable across years, parent symbology) ──
+# Databento GLBX.MDP3, stype_in="parent" — fetching with these parent symbols
+# returns the full options chain (every strike + expiry) for the requested
+# date window. UAC declares these in tradfi_instrument_universe.py:155-171.
+#   ES   = quarterly options (3rd Friday of quarter month)
+#   EW   = weekly options (Friday)
+#   EW1/EW2/EW4 = Mon/Tue/Wed weekly options
+#   E1A-E5A = daily options (Mon..Fri 0DTE)
+#   EOM  = end-of-month options (last business day)
+# Together: full quarterly + weekly + daily volatility surface.
+ES_OPT_PARENTS="CME:OPTION:ES;CME:OPTION:EW;CME:OPTION:EW1;CME:OPTION:EW2;CME:OPTION:EW4;CME:OPTION:E1A;CME:OPTION:E2A;CME:OPTION:E3A;CME:OPTION:E4A;CME:OPTION:E5A;CME:OPTION:EOM"
+
+# Per-year list is just the parent set — options use parent symbology, not
+# dated expiries; one fetch per year-shard returns all strikes/expiries
+# active in that window. Declared per-year for symmetry with the futures
+# calendar (lookup by ${ROOT}_EXPIRIES_BY_YEAR pattern).
+declare -A ES_OPT_EXPIRIES_BY_YEAR=(
+    ["2022"]="$ES_OPT_PARENTS"
+    ["2023"]="$ES_OPT_PARENTS"
+    ["2024"]="$ES_OPT_PARENTS"
+    ["2025"]="$ES_OPT_PARENTS"
+    ["2026"]="$ES_OPT_PARENTS"
+)
