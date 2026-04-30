@@ -173,11 +173,21 @@ _create_vm() {
         *)                                       vm_venue="CME" ;;
     esac
 
+    # VM_FORCE_WINDOW=true triggers --force-window in setup-data-pipeline-vm.sh
+    # which the rolling_window helper translates to --force in the MTDS CLI.
+    # --force bypasses the pre-flight skip that reads availability_index.parquet.
+    # Necessary for tradfi while we work through the migration-era phantom
+    # captured rows (manifest claims captured but parquets don't exist at the
+    # canonical path; the phantom-recon script flips them but the
+    # consolidator daemon's merge can revert flips when concurrent VMs write
+    # captured rows for the same shards). Once the canonical is fully
+    # reality-aligned this flag can be removed.
     metadata="VM_TASK=cefi-backfill"
     metadata="${metadata},VM_SERVICE=market_tick_data_service"
     metadata="${metadata},VM_OPERATION=download"
     metadata="${metadata},VM_ASSET_GROUP=TRADFI"
     metadata="${metadata},VM_VENUE=${vm_venue}"
+    metadata="${metadata},VM_FORCE_WINDOW=true"
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=${data_types}"
