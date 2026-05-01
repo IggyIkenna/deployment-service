@@ -393,6 +393,24 @@ GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
 TEE_WRAPPER="/tmp/vm-exec-with-gcs-tee.sh"
 HEARTBEAT_HELPER="/tmp/deployment_heartbeat.py"
 HEARTBEAT_DAEMON="/tmp/heartbeat_daemon.py"
+
+# GCS-blob heartbeat sidecar (2026-05-01) — independent of Pub/Sub. Writes
+# gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt every 60s. Read by
+# the external vm-zombie-watchdog daemon to detect zombie VMs whose network
+# namespace died (the 2026-04-29 cefi rollout failure mode where 12 VMs lost
+# link-local metadata routes; in-VM Pub/Sub heartbeats can't help because they
+# also can't reach Pub/Sub when the L2 network is gone). GCS endpoint is
+# usually reachable via private google access even when metadata is gone — and
+# if even GCS is unreachable, the watchdog detects the stale blob and kills.
+HEARTBEAT_SIDECAR="/tmp/vm_heartbeat_sidecar.sh"
+if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm_heartbeat_sidecar.sh" "$HEARTBEAT_SIDECAR" 2>/dev/null; then
+  chmod +x "$HEARTBEAT_SIDECAR"
+  nohup bash "$HEARTBEAT_SIDECAR" "$VM_NAME_SELF" >/dev/null 2>&1 &
+  log "GCS-blob heartbeat sidecar started (60s interval, gs://${CODE_BUCKET}/vm-heartbeat/${VM_NAME_SELF}.txt)"
+else
+  log "WARNING: vm_heartbeat_sidecar.sh not found in GCS — external zombie-watchdog will fall back to manifest shard staleness"
+fi
+
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
