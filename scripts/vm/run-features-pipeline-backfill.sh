@@ -194,11 +194,15 @@ phase_4_downstream() {
     echo "-- commodity TRADFI --"
     _run "bash ${DEPLOY_VM_DIR}/launch-features-backfill-vm.sh commodity TRADFI ${START_DATE} ${END_DATE} full"
 
-    # 4f. calendar — CEFI/TRADFI (upstream-INDEPENDENT, can run anytime)
-    for ag in CEFI TRADFI; do
-        echo "-- calendar ${ag} --"
-        _run "bash ${DEPLOY_VM_DIR}/launch-features-backfill-vm.sh calendar ${ag} ${START_DATE} ${END_DATE} full"
-    done
+    # 4f. calendar — UPSTREAM-INDEPENDENT and ASSET-GROUP-AGNOSTIC. Output goes to
+    # gs://features-calendar-central-element-323112/calendar/{feature_group}/by_date/day=.../features.parquet —
+    # no asset_group segment in the path. Running per-asset_group races multiple
+    # VMs onto the same parquet (last writer wins). Run once with any
+    # asset_group token (the CLI's --asset-group flag is required by uniform
+    # convention, but calendar_orchestrator.py:373 passes asset_group="" through
+    # to the manifest writer, so the choice doesn't affect output).
+    echo "-- calendar (single run; asset-group axis has no output effect) --"
+    _run "bash ${DEPLOY_VM_DIR}/launch-features-backfill-vm.sh calendar CEFI ${START_DATE} ${END_DATE} full"
 
     echo
     echo "Phase 4 launched. ALL features are running."
