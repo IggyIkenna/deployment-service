@@ -27,7 +27,11 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-MACHINE_TYPE="e2-standard-2"
+# 2026-05-01: bumped from e2-standard-2 (8GB) to e2-standard-4 (16GB) after
+# DERIBIT 2024-2026 options_chain OOM-killed at peak RSS. Tardis options_chain
+# has thousands of strikes/expiries per underlying — much heavier than the
+# perp/spot data_types the previous heavy-profile fix targeted.
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 
 DRY=1
 SELECTED_VENUE=""
