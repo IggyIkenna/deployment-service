@@ -44,6 +44,24 @@
 #   UPLOAD_INTERVAL_SEC    = 30 (forwarded to daemon)
 set -uo pipefail
 
+# Detach from any inherited process group / session immediately, AND
+# reject SIGHUP/SIGTERM from systemd's ``KillMode=control-group`` on the
+# google-startup-scripts.service. Without this, when setup-data-pipeline-vm.sh
+# (the GCE startup script) finishes and systemd tears its cgroup down, our
+# nohup'd child gets SIGTERM mid-execution — typically right after the
+# heartbeat daemon exits but BEFORE the self-delete block at the bottom
+# of this file fires. Result: VMs finish rc=0, log "DEPLOYMENT_COMPLETED",
+# then sit RUNNING forever.
+#
+# Strategy: trap SIGTERM so the kill becomes a no-op, AND re-exec with setsid
+# if not already a session leader so we live in our own session ID.
+# We do still honour SIGINT (Ctrl-C from operator) for manual debugging.
+trap '' HUP TERM
+if [[ -z "${VM_EXEC_DETACHED:-}" ]] && command -v setsid >/dev/null 2>&1; then
+    export VM_EXEC_DETACHED=1
+    exec setsid bash "$0" "$@"
+fi
+
 GCS_LOG_URI="${1:-}"
 shift || true
 
