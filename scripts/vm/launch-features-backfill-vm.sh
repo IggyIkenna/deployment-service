@@ -129,7 +129,7 @@ echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
 MD="VM_TASK=features-backfill"
 MD="${MD},VM_SERVICE=${PY_MODULE}"
-MD="${MD},VM_OPERATION=backfill-${SERVICE_SHORT}-${ASSET_GROUP,,}"
+MD="${MD},VM_OPERATION=backfill-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}"
 MD="${MD},VM_ASSET_GROUP=${ASSET_GROUP}"
 MD="${MD},VM_START_DATE=${START_DATE}"
 MD="${MD},VM_END_DATE=${END_DATE}"
@@ -149,11 +149,11 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP,,}",mode="${MODE}",run-ts="${RUN_TS}"
+    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP_LOWER}",mode="${MODE}",run-ts="${RUN_TS}"
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
 echo ""
 echo "Post-backfill manifest rebuild (one per features bucket):"
 echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('features-${SERVICE_SHORT}-${ASSET_GROUP,,}-central-element-323112', \\"
+echo "    rebuild_manifest_from_canonical_paths('features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-central-element-323112', \\"
 echo "      service_name='features-${SERVICE_SHORT}-service', prefix='features/by_date')\""
