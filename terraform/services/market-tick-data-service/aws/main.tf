@@ -52,7 +52,7 @@ locals {
           ContainerOverrides = {
             Command = [
               "--operation", "fetch", "--mode", "batch",
-              "--category.$", "$.params.category",
+              "--asset-group.$", "$.params.category",
               "--start-date.$", "$.params.t_plus_1_date",
               "--end-date.$", "$.params.t_plus_1_date"
             ]
@@ -93,7 +93,7 @@ locals {
                 ContainerOverrides = {
                   Command = [
                     "--operation", "fetch", "--mode", "batch",
-                    "--category.$", "$.category",
+                    "--asset-group.$", "$.category",
                     "--start-date.$", "$.start_date",
                     "--end-date.$", "$.end_date"
                   ]

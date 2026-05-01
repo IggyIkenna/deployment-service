@@ -64,7 +64,7 @@ main:
                     - "compute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "SPORTS"
                     - "--tables"
                     - "fixture_features"
@@ -125,7 +125,7 @@ main:
 
     - build_args:
         assign:
-          - base_args: ["--operation", "compute", "--mode", "batch", "--category", "SPORTS", "--start-date", $${start_date}, "--end-date", $${end_date}, "--tables", $${tables}]
+          - base_args: ["--operation", "compute", "--mode", "batch", "--asset-group", "SPORTS", "--start-date", $${start_date}, "--end-date", $${end_date}, "--tables", $${tables}]
 
     - run_backfill:
         call: http.post

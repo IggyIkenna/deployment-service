@@ -37,7 +37,7 @@ class TestRequestSizeGuard:
         # Mock path combinatorics: return enough venues so days x venues > 35_000
         # 2020-01-01 to 2026-02-08 ≈ 2238 days; need ~16+ venues per category
         mock_pc = MagicMock()
-        mock_pc.get_all_venues_for_category.return_value = [f"V{i}" for i in range(20)]
+        mock_pc.get_all_venues_for_asset_group.return_value = [f"V{i}" for i in range(20)]
         mock_get_path_combinatorics.return_value = mock_pc
 
         with pytest.raises(HTTPException) as exc_info:

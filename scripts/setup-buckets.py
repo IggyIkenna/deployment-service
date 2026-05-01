@@ -389,7 +389,7 @@ def resolve_bucket_name(
             return None
 
     if cloud == "gcp":
-        name = template.replace("{category_lower}", cat_lower)
+        name = template.replace("{asset_group_lower}", cat_lower)
         name = name.replace("{project_id}", project_id)
         name = name.replace("{domain}", cat_lower)
         name = name.replace("{env}", env)

@@ -33,7 +33,7 @@ class CalculationHandler:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         venue: str | None = None,
-        category: str | None = None,
+        asset_group: str | None = None,
         max_shards: int | None = None,
         output: str = "table",
         dry_run: bool = True,
@@ -45,7 +45,7 @@ class CalculationHandler:
             start_date: Start date for calculation
             end_date: End date for calculation
             venue: Venue filter
-            category: Category filter
+            asset_group: Asset group filter
             max_shards: Maximum number of shards
             output: Output format (table, json, commands)
             dry_run: Whether this is a dry run
@@ -59,7 +59,7 @@ class CalculationHandler:
 
             # Perform calculation
             shards, summary = self._calculate_shards(
-                calculator, service, start_date, end_date, venue, category, max_shards
+                calculator, service, start_date, end_date, venue, asset_group, max_shards
             )
 
             # Output results
@@ -85,7 +85,7 @@ class CalculationHandler:
         start_date: datetime | None,
         end_date: datetime | None,
         venue: str | None,
-        category: str | None,
+        asset_group: str | None,
         max_shards: int | None,
     ) -> tuple[list[dict[str, object]], dict[str, object]]:
         """Calculate shards using the shard calculator.
@@ -96,7 +96,7 @@ class CalculationHandler:
             start_date: Start date
             end_date: End date
             venue: Venue filter
-            category: Category filter
+            asset_group: Asset group filter
             max_shards: Maximum shards
 
         Returns:
@@ -108,7 +108,7 @@ class CalculationHandler:
             "start_date": start_date,
             "end_date": end_date,
             "venue": venue,
-            "category": category,
+            "asset_group": asset_group,
             "max_shards": max_shards,
         }
 
@@ -170,8 +170,8 @@ class CalculationHandler:
             click.echo(f"  Date range: {summary['date_range']}")
         if summary.get("venue"):
             click.echo(f"  Venue: {summary['venue']}")
-        if summary.get("category"):
-            click.echo(f"  Category: {summary['category']}")
+        if summary.get("asset_group"):
+            click.echo(f"  Asset group: {summary['asset_group']}")
 
         click.echo()
 

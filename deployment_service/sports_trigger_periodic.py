@@ -48,7 +48,7 @@ class SchedulerDispatchAdapter(Protocol):
         *,
         service: str,
         operation: str,
-        category: str,
+        asset_group: str,
         start_date: str | None = None,
         end_date: str | None = None,
         extra_args: dict[str, object],
@@ -154,10 +154,11 @@ class PeriodicTierDispatcher:
 
         if self._adapter.dry_run:
             for svc in services:
+                ag = str(svc.get("asset_group") or svc.get("category", "SPORTS"))
                 cmd = self._adapter.build_cli_cmd(
                     service=str(svc.get("service", "")),
                     operation=str(svc.get("operation", "")),
-                    category=str(svc.get("category", "SPORTS")),
+                    asset_group=ag,
                     extra_args=_args_of(svc),
                     rolling_window=rolling,
                 )
@@ -226,10 +227,11 @@ class PeriodicTierDispatcher:
 
             if self._adapter.dry_run:
                 for gsvc in gated_services:
+                    gag = str(gsvc.get("asset_group") or gsvc.get("category", "SPORTS"))
                     cmd = self._adapter.build_cli_cmd(
                         service=str(gsvc.get("service", "")),
                         operation=str(gsvc.get("operation", "")),
-                        category=str(gsvc.get("category", "SPORTS")),
+                        asset_group=gag,
                         start_date=today_str,
                         end_date=today_str,
                         extra_args=_args_of(gsvc),

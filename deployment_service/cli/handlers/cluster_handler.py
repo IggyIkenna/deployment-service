@@ -153,7 +153,7 @@ class ClusterHandler:
             for name in clusters:
                 try:
                     config = self._orchestrator.load_cluster(name)
-                    click.echo(f"  {name:<15} {config.category:<8} {config.description}")
+                    click.echo(f"  {name:<15} {config.asset_group:<8} {config.description}")
                 except (ValueError, FileNotFoundError) as e:
                     logger.warning("Failed to load cluster %s: %s", name, e)
                     click.echo(f"  {name:<15} (invalid config)")

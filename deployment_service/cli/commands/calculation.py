@@ -90,7 +90,7 @@ def _output_commands(shards: list[Shard], summary: dict[str, object]) -> None:
     "Dynamically discovers all .json configs in directory and subdirectories. "
     "Creates one shard per config x date combination. Use with execution-service.",
 )
-@click.option("--category", multiple=True, help="Filter by category (can specify multiple)")
+@click.option("--asset-group", multiple=True, help="Filter by asset group (can specify multiple)")
 @click.option("--venue", multiple=True, help="Filter by venue (can specify multiple)")
 @click.option("--feature-group", multiple=True, help="Filter by feature group")
 @click.option("--instrument", multiple=True, help="Filter by instrument")
@@ -117,7 +117,7 @@ def calculate(
     end_date: datetime | None,
     max_shards: int,
     cloud_config_path: str | None,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     feature_group: tuple[str, ...],
     instrument: tuple[str, ...],
@@ -136,7 +136,7 @@ def calculate(
 
         # Calculate shards for market-tick-data-service (CEFI only)
         python -m deployment_service.cli calculate -s market-tick-data-service
-          --category CEFI --start-date 2024-01-01 --end-date 2024-01-07
+          --asset-group CEFI --start-date 2024-01-01 --end-date 2024-01-07
 
         # Show CLI commands for each shard
         python -m deployment_service.cli calculate -s instruments-service
@@ -160,8 +160,8 @@ def calculate(
 
         # Build filters from options
         filters: dict[str, list[str]] = {}
-        if category:
-            filters["category"] = list(category)
+        if asset_group:
+            filters["asset_group"] = list(asset_group)
         if venue:
             filters["venue"] = list(venue)
         if feature_group:
@@ -315,7 +315,7 @@ def info(ctx: click.Context, service: str):
 @click.command()
 @click.pass_context
 def venues(ctx: click.Context):
-    """Show available venues by category."""
+    """Show available venues by asset group."""
     config_dir = cast(str, cast(dict[str, object], ctx.obj or {}).get("config_dir") or "configs")
 
     try:
@@ -323,7 +323,7 @@ def venues(ctx: click.Context):
         config = loader.load_venues_config()
 
         click.echo()
-        click.echo(click.style("Venues by Category:", fg="cyan", bold=True))
+        click.echo(click.style("Venues by asset group:", fg="cyan", bold=True))
         click.echo()
 
         for category, cat_config in cast(

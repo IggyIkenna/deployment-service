@@ -24,7 +24,7 @@ START_DATE=""
 END_DATE=""
 SKIP_EXISTING=""
 DRY_RUN=""
-CATEGORY_OVERRIDE=""
+ASSET_GROUP_OVERRIDE=""
 STRATEGY=""
 LAYER_ONLY=""
 FROM_LAYER=""
@@ -38,7 +38,7 @@ usage() {
     echo "  --end-date       End date (YYYY-MM-DD)"
     echo "  --skip-existing  Skip dates/entities that already have data in GCS"
     echo "  --dry-run        Log commands without executing"
-    echo "  --category       Override category (default: from cluster config)"
+    echo "  --asset-group       Override category (default: from cluster config)"
     echo "  --strategy <id>  Run single strategy within cluster (L6-L7)"
     echo "  --layer <L1-L7>  Run specific layer only"
     echo "  --from-layer <L1-L7>  Start from this layer (skip earlier layers)"
@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
         --end-date)    END_DATE="$2"; shift 2 ;;
         --skip-existing) SKIP_EXISTING="--skip-existing"; shift ;;
         --dry-run)     DRY_RUN="true"; shift ;;
-        --category)    CATEGORY_OVERRIDE="$2"; shift 2 ;;
+        --asset-group)    ASSET_GROUP_OVERRIDE="$2"; shift 2 ;;
         --strategy)    STRATEGY="$2"; shift 2 ;;
         --layer)       LAYER_ONLY="$2"; shift 2 ;;
         --from-layer)  FROM_LAYER="$2"; shift 2 ;;
@@ -68,10 +68,10 @@ layer_num() {
 }
 
 # Resolve category from cluster config
-if [[ -n "$CATEGORY_OVERRIDE" ]]; then
-    CATEGORY="$CATEGORY_OVERRIDE"
+if [[ -n "$ASSET_GROUP_OVERRIDE" ]]; then
+    ASSET_GROUP="$ASSET_GROUP_OVERRIDE"
 else
-    CATEGORY=$(python3 -c "
+    ASSET_GROUP=$(python3 -c "
 import yaml, sys
 with open('${REPO_ROOT}/configs/clusters/${CLUSTER}.yaml') as f:
     cfg = yaml.safe_load(f)
@@ -81,7 +81,7 @@ fi
 
 echo "=========================================="
 echo "Cluster backfill: ${CLUSTER}"
-echo "Category: ${CATEGORY}"
+echo "Category: ${ASSET_GROUP}"
 echo "Date range: ${START_DATE} → ${END_DATE}"
 echo "Skip existing: ${SKIP_EXISTING:-no}"
 echo "Dry run: ${DRY_RUN:-no}"
@@ -109,45 +109,45 @@ run_service() {
     # Add category if the service supports it
     case "$svc" in
         instruments-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation instruments --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation instruments --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         market-tick-data-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation download --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation download --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         market-data-processing-service)
-            cmd="cd ${svc_dir} && MDPS_CATEGORY=${CATEGORY} python -m ${svc_under}.cli.main --operation process --mode batch --start-date ${START_DATE} --end-date ${END_DATE} --${CATEGORY}"
+            cmd="cd ${svc_dir} && MDPS_ASSET_GROUP=${ASSET_GROUP} python -m ${svc_under}.cli.main --operation process --mode batch --start-date ${START_DATE} --end-date ${END_DATE} --${ASSET_GROUP}"
             ;;
         features-sports-service)
             # Sports features use --date (single day) — iterate
             cmd="ITERATE_DATES"
             ;;
         features-*)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         ml-training-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation train --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation train --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         ml-inference-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation infer --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation infer --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         strategy-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         execution-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation backtest --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         pnl-attribution-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         risk-and-exposure-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         position-balance-monitor-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         *)
             echo "SKIP: ${svc} — no backfill command defined"

@@ -28,14 +28,14 @@
 # Extended usage with structured registry metadata (preferred):
 #
 #     VM_NAME=canonical-migration-cefi-20260418-042359 \
-#     VM_CATEGORY=CEFI VM_TASK=canonical-migration VM_MODE=full \
+#     VM_ASSET_GROUP=CEFI VM_TASK=canonical-migration VM_MODE=full \
 #     VM_START_DATE=2024-06-01 VM_END_DATE=2024-06-30 \
 #     bash vm-exec-with-gcs-tee.sh <gs://.../run.log> <command ...>
 #
 # Env var fallbacks (sensible for legacy callers):
-#   VM_NAME       = $(hostname)
-#   VM_CATEGORY   = UNKNOWN
-#   VM_TASK       = vm-exec
+#   VM_NAME         = $(hostname)
+#   VM_ASSET_GROUP  = UNKNOWN     (legacy alias: VM_CATEGORY accepted as fallback)
+#   VM_TASK         = vm-exec
 #   VM_MODE       = full     (one of: dry|full|backfill|forward-poll|smoke)
 #   VM_START_DATE = today (UTC)
 #   VM_END_DATE   = today (UTC)
@@ -63,7 +63,10 @@ DAEMON_ALIVE_FILE="/tmp/vm-exec-$$.daemon_alive"
 
 # ---- structured deployment metadata (registry + events) ----
 VM_NAME="${VM_NAME:-$(hostname)}"
-VM_CATEGORY="${VM_CATEGORY:-UNKNOWN}"
+# Read-side compat: prefer VM_ASSET_GROUP, fall back to legacy VM_CATEGORY,
+# then default UNKNOWN. Lets us roll out the rename without breaking any
+# launcher still on the old name.
+VM_ASSET_GROUP="${VM_ASSET_GROUP:-${VM_CATEGORY:-UNKNOWN}}"
 VM_TASK="${VM_TASK:-vm-exec}"
 VM_MODE="${VM_MODE:-full}"
 TODAY_UTC="$(date -u +%Y-%m-%d)"
@@ -85,7 +88,7 @@ else
 fi
 
 # ---- start ----
-echo "[vm-exec] deployment_id=$DEPLOYMENT_ID vm=$VM_NAME category=$VM_CATEGORY task=$VM_TASK mode=$VM_MODE" | tee "$LOCAL_LOG"
+echo "[vm-exec] deployment_id=$DEPLOYMENT_ID vm=$VM_NAME asset_group=$VM_ASSET_GROUP task=$VM_TASK mode=$VM_MODE" | tee "$LOCAL_LOG"
 echo "[vm-exec] starting: $*" | tee -a "$LOCAL_LOG"
 echo "[vm-exec] log -> $GCS_LOG_URI (uploaded by heartbeat_daemon.py)" | tee -a "$LOCAL_LOG"
 
@@ -99,7 +102,7 @@ else
     "$PYTHON_BIN" "$DAEMON_SCRIPT" \
         --id "$DEPLOYMENT_ID" \
         --name "$VM_NAME" \
-        --category "$VM_CATEGORY" \
+        --asset-group "$VM_ASSET_GROUP" \
         --task "$VM_TASK" \
         --mode "$VM_MODE" \
         --start-date "$VM_START_DATE" \

@@ -29,7 +29,7 @@ class TestShard:
             shard_index=0,
             total_shards=10,
             dimensions={
-                "category": "CEFI",
+                "asset_group": "CEFI",
                 "date": {"start": "2024-01-01", "end": "2024-01-01"},
             },
         )
@@ -37,7 +37,7 @@ class TestShard:
         assert shard.service == "test-service"
         assert shard.shard_index == 0
         assert shard.total_shards == 10
-        assert shard.dimensions["category"] == "CEFI"
+        assert shard.dimensions["asset_group"] == "CEFI"
 
     def test_shard_cli_command_generation(self):
         """Test CLI command is auto-generated."""
@@ -46,12 +46,12 @@ class TestShard:
             shard_index=0,
             total_shards=1,
             dimensions={
-                "category": "CEFI",
+                "asset_group": "CEFI",
                 "date": {"start": "2024-01-01", "end": "2024-01-01"},
             },
         )
 
-        assert "--category CEFI" in shard.cli_command
+        assert "--asset-group CEFI" in shard.cli_command
         assert "--start-date 2024-01-01" in shard.cli_command
         assert "--end-date 2024-01-01" in shard.cli_command
         assert "python -m instruments_service" in shard.cli_command
@@ -62,7 +62,7 @@ class TestShard:
             service="test-service",
             shard_index=5,
             total_shards=10,
-            dimensions={"category": "TRADFI"},
+            dimensions={"asset_group": "TRADFI"},
         )
 
         result = shard.to_dict()
@@ -70,7 +70,7 @@ class TestShard:
         assert result["service"] == "test-service"
         assert result["shard_index"] == 5
         assert result["total_shards"] == 10
-        assert result["dimensions"] == {"category": "TRADFI"}
+        assert result["dimensions"] == {"asset_group": "TRADFI"}
         assert "cli_command" in result
 
 
@@ -88,7 +88,7 @@ class TestShardCalculatorFixedDimensions:
             max_shards=100,
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI", "TRADFI", "DEFI"}
 
     def test_fixed_dimension_with_filter(self, temp_config_with_service, mock_env_vars):
@@ -100,10 +100,10 @@ class TestShardCalculatorFixedDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 1),
             max_shards=100,
-            category=["CEFI"],
+            asset_group=["CEFI"],
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI"}
 
     def test_fixed_dimension_multiple_filters(self, temp_config_with_service, mock_env_vars):
@@ -115,23 +115,23 @@ class TestShardCalculatorFixedDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 1),
             max_shards=100,
-            category=["CEFI", "TRADFI"],
+            asset_group=["CEFI", "TRADFI"],
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI", "TRADFI"}
 
     def test_fixed_dimension_invalid_filter(self, temp_config_with_service, mock_env_vars):
         """Test that invalid filter value raises error."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
-        with pytest.raises(ValueError, match="Invalid category values"):
+        with pytest.raises(ValueError, match="Invalid asset_group values"):
             calculator.calculate_shards(
                 service="test-service",
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 1),
                 max_shards=100,
-                category=["INVALID_CATEGORY"],
+                asset_group=["INVALID_CATEGORY"],
             )
 
 
@@ -147,7 +147,7 @@ class TestShardCalculatorDateRangeDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 3),
             max_shards=100,
-            category=["CEFI"],  # Single category to simplify counting
+            asset_group=["CEFI"],  # Single asset group to simplify counting
         )
 
         # Should have 3 days * 1 category = 3 shards
@@ -235,14 +235,14 @@ class TestCombinatorics:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 2),  # 2 days
             max_shards=100,
-            category=["CEFI", "TRADFI"],  # 2 categories
+            asset_group=["CEFI", "TRADFI"],  # 2 asset groups
         )
 
-        # 2 categories * 2 days = 4 shards
+        # 2 asset groups * 2 days = 4 shards
         assert len(shards) == 4
 
         # Verify all combinations exist
-        combos = {(s.dimensions["category"], s.dimensions["date"]["start"]) for s in shards}
+        combos = {(s.dimensions["asset_group"], s.dimensions["date"]["start"]) for s in shards}
         assert ("CEFI", "2024-01-01") in combos
         assert ("CEFI", "2024-01-02") in combos
         assert ("TRADFI", "2024-01-01") in combos

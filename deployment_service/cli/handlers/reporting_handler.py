@@ -492,21 +492,21 @@ class ReportingHandler:
         except (OSError, ValueError, RuntimeError) as e:
             click.echo(f"Failed to list service versions: {e}")
 
-    def handle_data_flow(self, category: str | None = None, output: str = "text") -> None:
+    def handle_data_flow(self, asset_group: str | None = None, output: str = "text") -> None:
         """Handle data flow analysis command.
 
         Args:
-            category: Category to analyze
+            asset_group: Asset group to analyze (substring filter on service names)
             output: Output format
         """
         try:
             click.echo("Analyzing data flow...")
 
-            if category:
-                click.echo(f"Category: {category}")
+            if asset_group:
+                click.echo(f"Asset group: {asset_group}")
 
             # Get data flow information
-            flow_data = self._analyze_data_flow(category)
+            flow_data = self._analyze_data_flow(asset_group)
 
             # Output results
             self._output_data_flow(flow_data, output)
@@ -515,11 +515,11 @@ class ReportingHandler:
             logger.error("Data flow analysis failed: %s", e)
             raise click.ClickException(f"Data flow analysis failed: {e}") from e
 
-    def _analyze_data_flow(self, category: str | None) -> dict[str, object]:
+    def _analyze_data_flow(self, asset_group: str | None) -> dict[str, object]:
         """Analyze data flow patterns.
 
         Args:
-            category: Category filter
+            asset_group: Substring filter on service names
 
         Returns:
             Data flow analysis
@@ -536,11 +536,11 @@ class ReportingHandler:
             "data_paths": [],
         }
 
-        if category:
-            # Filter by category
-            category_services = [s for s in services if category.lower() in s.lower()]
-            flow_analysis["filtered_services"] = len(category_services)
-            flow_analysis["services"] = category_services
+        if asset_group:
+            # Filter by substring (legacy name: category filter)
+            matched = [s for s in services if asset_group.lower() in s.lower()]
+            flow_analysis["filtered_services"] = len(matched)
+            flow_analysis["services"] = matched
         else:
             flow_analysis["services"] = services
 

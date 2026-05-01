@@ -38,7 +38,7 @@ class TestRequestSizeGuard:
 
         # Mock path combinatorics: return enough venues so days x venues > threshold
         mock_pc = MagicMock()
-        mock_pc.get_all_venues_for_category.return_value = [
+        mock_pc.get_all_venues_for_asset_group.return_value = [
             f"V{i}" for i in range(test_data["venues_count"])
         ]
         mock_get_path_combinatorics.return_value = mock_pc

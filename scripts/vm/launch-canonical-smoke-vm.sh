@@ -21,7 +21,7 @@
 #   bash launch-canonical-smoke-vm.sh all 2024-06-15              # all three sequentially
 set -euo pipefail
 
-CATEGORY="${1:-all}"
+ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-2024-06-15}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -38,7 +38,7 @@ launch_vm() {
     local md="VM_TASK=canonical-smoke"
     md="${md},VM_SERVICE=market_tick_data_service"
     md="${md},VM_OPERATION=${operation}"
-    md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    md="${md},VM_ASSET_GROUP=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_VENUE=${venue}"
     md="${md},VM_START_DATE=${SMOKE_DATE}"
     md="${md},VM_END_DATE=${SMOKE_DATE}"
@@ -58,7 +58,7 @@ launch_vm() {
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
 
-case "$CATEGORY" in
+case "$ASSET_GROUP" in
     cefi)   launch_vm cefi BINANCE-FUTURES "" download ;;
     tradfi) launch_vm tradfi CME "" download ;;
     defi)   launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices ;;
@@ -67,5 +67,5 @@ case "$CATEGORY" in
         launch_vm tradfi CME "" download
         launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices
         ;;
-    *) echo "Unknown category: $CATEGORY"; exit 2 ;;
+    *) echo "Unknown category: $ASSET_GROUP"; exit 2 ;;
 esac

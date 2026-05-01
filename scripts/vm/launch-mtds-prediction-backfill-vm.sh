@@ -14,7 +14,7 @@
 # Runs the unified MTDS CLI via setup-data-pipeline-vm.sh metadata routing —
 # same code path as the production CeFi/TradFi backfill fleet:
 #   python -m market_tick_data_service \
-#     --operation download --mode batch --category PREDICTION \
+#     --operation download --mode batch --asset-group PREDICTION \
 #     --venues POLYMARKET --data-types trades \
 #     --start-date $VM_START_DATE --end-date $VM_END_DATE
 #
@@ -105,7 +105,7 @@ echo "Launching $VM_NAME: Polymarket trades ${START_DATE}..${END_DATE}"
 METADATA="VM_TASK=cefi-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
-METADATA="${METADATA},VM_CATEGORY=PREDICTION"
+METADATA="${METADATA},VM_ASSET_GROUP=PREDICTION"
 METADATA="${METADATA},VM_VENUE=POLYMARKET"
 METADATA="${METADATA},VM_DATA_TYPES=trades"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"

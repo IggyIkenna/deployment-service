@@ -13,11 +13,11 @@
 # Runs the unified ml-training-service CLI via setup-data-pipeline-vm.sh
 # metadata routing (the generic `VM_TASK` branch at line 435 of setup-data-
 # pipeline-vm.sh assembles `python -m $VM_SERVICE --operation $VM_OPERATION
-# --mode batch --category $VM_CATEGORY ...`).
+# --mode batch --asset-group $VM_ASSET_GROUP ...`).
 #
 # Example assembled command:
 #   python -m ml_training_service \
-#     --operation train --mode batch --category TRADFI \
+#     --operation train --mode batch --asset-group TRADFI \
 #     --instruments ES_FRONT --timeframes 1m \
 #     --target-types swing_high swing_low \
 #     --start-date 2022-01-01 --end-date 2025-12-31
@@ -30,7 +30,7 @@
 # Usage:
 #   bash launch-ml-training-vm.sh --dry-run                    # preview
 #   bash launch-ml-training-vm.sh \
-#       --category TRADFI --instruments ES_FRONT \
+#       --asset-group TRADFI --instruments ES_FRONT \
 #       --target-types swing_high swing_low \
 #       --timeframes 1m \
 #       --start-date 2022-01-01 --end-date 2025-12-31
@@ -54,7 +54,7 @@ set -euo pipefail
 
 # ── Defaults + arg parsing ──
 DRY_RUN=false
-CATEGORY="TRADFI"
+ASSET_GROUP="TRADFI"
 INSTRUMENTS=""
 TARGET_TYPES=""
 TIMEFRAMES=""
@@ -67,7 +67,7 @@ EXTRA_METADATA=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)         DRY_RUN=true; shift ;;
-        --category)        CATEGORY="${2^^}"; shift 2 ;;
+        --asset-group)        ASSET_GROUP="${2^^}"; shift 2 ;;
         --instruments)     INSTRUMENTS="$2"; shift 2 ;;
         --target-types)    TARGET_TYPES="$2"; shift 2 ;;
         --timeframes)      TIMEFRAMES="$2"; shift 2 ;;
@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--dry-run] [--category TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline]" >&2
+            echo "Usage: $0 [--dry-run] [--asset-group TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline]" >&2
             exit 1
             ;;
     esac
@@ -120,7 +120,7 @@ VM_NAME="ml-train-${FIRST_INST_LOWER}-${RUN_TS}"
 
 # Metadata: setup-data-pipeline-vm.sh generic branch will assemble
 #   python -m ml_training_service --operation $VM_OPERATION --mode batch
-#     --category $VM_CATEGORY --instrument-ids $VM_INSTRUMENT_IDS
+#     --asset-group $VM_ASSET_GROUP --instrument-ids $VM_INSTRUMENT_IDS
 #     --data-types $VM_DATA_TYPES --start-date $VM_START_DATE --end-date ...
 #
 # ml-training-service's CLI uses --instruments + --target-types + --timeframes
@@ -140,7 +140,7 @@ VM_NAME="ml-train-${FIRST_INST_LOWER}-${RUN_TS}"
 ML_CMD="python -m ml_training_service"
 ML_CMD="${ML_CMD} --operation ${OPERATION}"
 ML_CMD="${ML_CMD} --mode batch"
-ML_CMD="${ML_CMD} --category ${CATEGORY}"
+ML_CMD="${ML_CMD} --asset-group ${ASSET_GROUP}"
 # ml-training-service argparse uses space-separated nargs='+'; semicolons in
 # metadata get converted to spaces by setup-data-pipeline-vm.sh before the
 # VM_BACKFILL_CMD is executed, but VM_BACKFILL_CMD does not get that
@@ -157,7 +157,7 @@ METADATA="VM_TASK=features-backfill"
 #   VM_TASK=ml-training branch once the setup script is extended.
 METADATA="${METADATA},VM_SERVICE=ml_training_service"
 METADATA="${METADATA},VM_OPERATION=${OPERATION}"
-METADATA="${METADATA},VM_CATEGORY=${CATEGORY}"
+METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_BACKFILL_CMD=${ML_CMD}"
@@ -167,7 +167,7 @@ METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 if $DRY_RUN; then
     cat <<EOF
 [DRY-RUN] $VM_NAME
-  category=$CATEGORY instruments=$INSTRUMENTS target_types=$TARGET_TYPES timeframes=$TIMEFRAMES
+  category=$ASSET_GROUP instruments=$INSTRUMENTS target_types=$TARGET_TYPES timeframes=$TIMEFRAMES
   operation=$OPERATION window=${START_DATE}..${END_DATE}
   machine=$MACHINE_TYPE ${ACCELERATOR:+accelerator=$ACCELERATOR }zone=$ZONE
   assembled_cmd=$ML_CMD
@@ -178,7 +178,7 @@ EOF
     echo "DRY-RUN: 1 VM would be launched"
     echo "=========================================="
 else
-    echo "Launching $VM_NAME ($CATEGORY $INSTRUMENTS ${START_DATE}..${END_DATE})"
+    echo "Launching $VM_NAME ($ASSET_GROUP $INSTRUMENTS ${START_DATE}..${END_DATE})"
     # shellcheck disable=SC2086
     gcloud compute instances create "$VM_NAME" \
         --project="$PROJECT" \
@@ -190,7 +190,7 @@ else
         --scopes=cloud-platform \
         $ACCELERATOR \
         --metadata="startup-script-url=${STARTUP},${METADATA}" \
-        --labels=purpose=ml-training,run-ts="${RUN_TS}",category="${CATEGORY,,}"
+        --labels=purpose=ml-training,run-ts="${RUN_TS}",category="${ASSET_GROUP,,}"
     echo ""
     echo "VM launched: $VM_NAME"
     echo "Logs:        gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/features-backfill.log'"

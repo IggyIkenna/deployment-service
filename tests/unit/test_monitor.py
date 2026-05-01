@@ -238,41 +238,41 @@ class TestDeploymentStatus:
 class TestServiceHealthReport:
     @pytest.mark.unit
     def test_completion_percent_zero_when_no_shards(self):
-        r = ServiceHealthReport(service="svc", date="2024-01-01", category="CEFI")
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI")
         assert r.completion_percent == 0.0
 
     @pytest.mark.unit
     def test_completion_percent_calculated(self):
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", total_shards=10, completed=6
+            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=10, completed=6
         )
         assert r.completion_percent == 60.0
 
     @pytest.mark.unit
     def test_status_summary_failed(self):
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", total_shards=5, failed=1
+            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, failed=1
         )
         assert r.status_summary == "failed"
 
     @pytest.mark.unit
     def test_status_summary_running(self):
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", total_shards=5, running=2
+            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, running=2
         )
         assert r.status_summary == "running"
 
     @pytest.mark.unit
     def test_status_summary_pending(self):
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", total_shards=5, pending=5
+            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, pending=5
         )
         assert r.status_summary == "pending"
 
     @pytest.mark.unit
     def test_status_summary_completed(self):
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", total_shards=3, completed=3
+            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=3, completed=3
         )
         assert r.status_summary == "completed"
 
@@ -281,7 +281,7 @@ class TestServiceHealthReport:
         r = ServiceHealthReport(
             service="svc",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=5,
             completed=3,
             skipped=1,
@@ -290,12 +290,12 @@ class TestServiceHealthReport:
 
     @pytest.mark.unit
     def test_to_dict_keys(self):
-        r = ServiceHealthReport(service="svc", date="2024-01-01", category="CEFI")
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI")
         d = r.to_dict()
         expected = {
             "service",
             "date",
-            "category",
+            "asset_group",
             "status_summary",
             "completion_percent",
             "total_shards",
@@ -314,19 +314,19 @@ class TestServiceHealthReport:
     def test_to_dict_with_version(self):
         v = _make_version()
         r = ServiceHealthReport(
-            service="svc", date="2024-01-01", category="CEFI", current_version=v
+            service="svc", date="2024-01-01", asset_group="CEFI", current_version=v
         )
         d = r.to_dict()
         assert d["current_version"] is not None
 
     @pytest.mark.unit
     def test_dependencies_met_defaults_true(self):
-        r = ServiceHealthReport(service="svc", date="2024-01-01", category="CEFI")
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI")
         assert r.dependencies_met is True
 
     @pytest.mark.unit
     def test_missing_dependencies_default_empty(self):
-        r = ServiceHealthReport(service="svc", date="2024-01-01", category="CEFI")
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI")
         assert r.missing_dependencies == []
 
 
@@ -465,7 +465,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
         assert isinstance(report, ServiceHealthReport)
         assert report.service == "instruments-service"
         assert report.date == "2024-01-01"
-        assert report.category == "CEFI"
+        assert report.asset_group == "CEFI"
         assert report.dependencies_met is True
 
     @pytest.mark.unit
@@ -682,7 +682,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="instruments-service",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=5,
             completed=5,
         )
@@ -699,7 +699,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="market-data",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=3,
             failed=2,
         )
@@ -715,7 +715,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="ml-training",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             dependencies_met=False,
             missing_dependencies=["features-delta-one-service"],
         )
@@ -732,7 +732,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="market-data-processing",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=10,
             running=5,
             completed=3,
@@ -749,7 +749,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="strategy-service",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=4,
             pending=4,
         )
@@ -764,10 +764,10 @@ class TestDeploymentMonitorGenerateStatusReport:
 
         statuses: dict[str, ServiceHealthReport] = {
             "svc-a": ServiceHealthReport(
-                service="svc-a", date="2024-01-01", category="CEFI", total_shards=5, completed=5
+                service="svc-a", date="2024-01-01", asset_group="CEFI", total_shards=5, completed=5
             ),
             "svc-b": ServiceHealthReport(
-                service="svc-b", date="2024-01-01", category="CEFI", total_shards=3, failed=1
+                service="svc-b", date="2024-01-01", asset_group="CEFI", total_shards=3, failed=1
             ),
         }
         report = monitor.generate_status_report(statuses)
@@ -785,7 +785,7 @@ class TestDeploymentMonitorGenerateStatusReport:
         r = ServiceHealthReport(
             service="instruments-service",
             date="2024-01-01",
-            category="CEFI",
+            asset_group="CEFI",
             total_shards=2,
             completed=2,
             current_version=v,

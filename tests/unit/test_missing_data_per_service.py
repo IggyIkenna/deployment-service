@@ -269,7 +269,7 @@ def _run_turbo(
                 service=service,
                 start_date=start_date,
                 end_date=end_date,
-                category=[category],
+                asset_groups=[category],
                 include_sub_dimensions=include_sub_dimensions,
                 include_dates_list=True,
                 full_dates_list=True,
@@ -431,7 +431,7 @@ class TestS3MissingVenues:
 
         assert "error" not in result
 
-        tradfi = result["categories"]["TRADFI"]
+        tradfi = result["asset_groups"]["TRADFI"]
         venue_summary = tradfi.get("venue_summary", {})
         expected_but_missing = venue_summary.get("expected_but_missing", [])
 
@@ -468,7 +468,7 @@ class TestS3MissingVenues:
         result = _run_turbo(mock, "instruments-service", "2024-05-01", "2024-05-03", "TRADFI")
 
         assert "error" not in result
-        tradfi = result["categories"]["TRADFI"]
+        tradfi = result["asset_groups"]["TRADFI"]
         expected_but_missing = tradfi.get("venue_summary", {}).get("expected_but_missing", [])
         assert "ICE" in expected_but_missing
 
@@ -490,7 +490,7 @@ class TestS3MissingVenues:
         result = _run_turbo(mock, "instruments-service", "2024-05-01", "2024-05-02", "CEFI")
 
         assert "error" not in result
-        cefi = result["categories"]["CEFI"]
+        cefi = result["asset_groups"]["CEFI"]
         expected_but_missing = cefi.get("venue_summary", {}).get("expected_but_missing", [])
 
         # Should detect missing venues
@@ -542,7 +542,7 @@ class TestS4DimensionWeightedSymmetry:
         mock = build_instruments_mock(venues, dates, category="TRADFI")
         result = _run_turbo(mock, "instruments-service", "2024-05-01", "2024-05-03", "TRADFI")
 
-        tradfi = result["categories"]["TRADFI"]
+        tradfi = result["asset_groups"]["TRADFI"]
 
         # Check present venues don't have _dim_weighted_expected
         for v_name, v_data in tradfi.get("venues", {}).items():
@@ -582,7 +582,7 @@ class TestS4DimensionWeightedSymmetry:
         result = _run_turbo(mock, "market-tick-data-handler", "2024-05-01", "2024-05-02", "CEFI")
 
         assert "error" not in result
-        cefi = result["categories"]["CEFI"]
+        cefi = result["asset_groups"]["CEFI"]
 
         # Check present venues DO have _dim_weighted_expected
         has_dim = False
@@ -804,7 +804,7 @@ class TestS5CategoriesWithMissing:
         assert "error" not in result
 
         # Feed backend response into frontend logic
-        cats_with_missing = self._categories_with_missing(result["categories"])
+        cats_with_missing = self._categories_with_missing(result["asset_groups"])
         assert "TRADFI" in cats_with_missing, (
             "Frontend categoriesWithMissing should detect TRADFI has missing venues. "
             "If not, the Deploy Missing button won't work for this category."

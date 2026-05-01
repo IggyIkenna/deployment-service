@@ -15,7 +15,7 @@
 #
 # Prerequisites:
 #   - Tarballs uploaded to gs://deployment-scripts-central-element-323112/code/
-#     (refresh with: deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS)
+#     (refresh with: deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS)
 #   - FOOTYSTATS_API_KEY in Secret Manager under 'footystats-api-key'
 #
 # Usage:
@@ -70,7 +70,7 @@ echo "Launching $VM_NAME: FOOTYSTATS ${RANGE_DESC} entity=${SPORTS_ENTITY:-ALL}"
 METADATA="VM_TASK=sports-forward-poll"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 if $USE_EXPLICIT; then
   METADATA="${METADATA},VM_START_DATE=${START_DATE}"
   METADATA="${METADATA},VM_END_DATE=${END_DATE}"

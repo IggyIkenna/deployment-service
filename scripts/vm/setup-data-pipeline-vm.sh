@@ -62,28 +62,39 @@ EOF
 systemctl daemon-reexec 2>/dev/null || log "WARNING: systemctl daemon-reexec failed (non-fatal)"
 log "File descriptor limit: $(ulimit -n) (systemd default raised to 65536)"
 
-# ── 1. System packages ──
+# ── 1. System packages + Python 3.13 via uv (deadsnakes PPA was unreliable) ──
 log "Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
-add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
 apt-get update -qq
 apt-get install -y -qq \
-  python3.13 python3.13-venv python3.13-dev \
   build-essential \
-  git curl pipx
+  git curl
 
-log "Python 3.13: $(python3.13 --version)"
+# Install uv (Astral) — bundles its own Python build infra, no apt-PPA race.
+# The deadsnakes PPA was hit-or-miss on launchpad CDN ('Failed to fetch' /
+# 'Cannot initiate the connection'), repeatedly bricking VM startup. uv
+# downloads Python from python-build-standalone instead — single TCP host
+# (github.com), much more reliable on cold-boot networks.
+log "Installing uv..."
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="/root/.local/bin:$PATH"
+log "uv: $(uv --version)"
+
+log "Installing Python 3.13 via uv..."
+uv python install 3.13
+PY313=$(uv python find 3.13)
+log "Python 3.13: $($PY313 --version) at $PY313"
 
 # ── 2. Create venv with correct Python ──
 log "Creating venv with Python 3.13..."
 rm -rf "$VENV"
-python3.13 -m venv "$VENV"
+"$PY313" -m venv "$VENV"
 source "$VENV/bin/activate"
 log "Venv Python: $(python --version) at $(which python)"
 
-# Install uv inside venv (10x faster than pip for dependency resolution)
-pip install uv -q 2>&1 | tail -1
-log "uv: $(uv --version)"
+# uv is already on PATH from /root/.local/bin (system install above) — no
+# need to also pip-install it inside the venv.
+log "uv (system, used for venv installs): $(uv --version)"
 
 # ── 2b. Read VM metadata early (needed for selective tarball install) ──
 _meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
@@ -91,7 +102,7 @@ VM_TASK=$(_meta VM_TASK)
 VM_VENUE=$(_meta VM_VENUE)
 VM_START_DATE=$(_meta VM_START_DATE)
 VM_END_DATE=$(_meta VM_END_DATE)
-VM_CATEGORY=$(_meta VM_CATEGORY CEFI)
+VM_ASSET_GROUP=$(_meta VM_ASSET_GROUP "$(_meta VM_CATEGORY CEFI)")
 VM_OPERATION=$(_meta VM_OPERATION download)
 VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
 VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
@@ -102,6 +113,7 @@ VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
 VM_LOOKBACK_DAYS=$(_meta VM_LOOKBACK_DAYS)
 VM_LOOKAHEAD_DAYS=$(_meta VM_LOOKAHEAD_DAYS)
 VM_FORCE_WINDOW=$(_meta VM_FORCE_WINDOW)
+VM_FORCE=$(_meta VM_FORCE)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
@@ -126,7 +138,7 @@ IS_TEST_RUN=$(_meta IS_TEST_RUN)
 if [[ -n "$IS_TEST_RUN" ]]; then
   export IS_TEST_RUN
 fi
-log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK CATEGORY=$VM_CATEGORY PROVIDER=$VM_SPORTS_PROVIDER"
+log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
 
 # ── 3. Deploy code ──
@@ -346,10 +358,10 @@ export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
 export MANIFEST_PER_VM_SHARDS="${MANIFEST_PER_VM_SHARDS:-true}"
 
 if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
-  # Full L1-L7 pipeline for the category — uses backfill-cluster.sh from
+  # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
   # deployment-service (uploaded alongside this script).
   BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
-  BACKFILL_ARGS="--cluster ${VM_CATEGORY,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
+  BACKFILL_ARGS="--cluster ${VM_ASSET_GROUP,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
   [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
 
   if [[ -f "$BACKFILL_SCRIPT" ]]; then
@@ -361,13 +373,13 @@ if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
   else
     log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
     # Try e2e-testing run-full-pipeline.sh as fallback
-    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_CATEGORY,,}/run-full-pipeline.sh"
+    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_ASSET_GROUP,,}/run-full-pipeline.sh"
     if [[ -f "$E2E_SCRIPT" ]]; then
       nohup bash "$E2E_SCRIPT" --start-date "$VM_START_DATE" --end-date "$VM_END_DATE" \
         > "$LOGS/backtest-pipeline.log" 2>&1 &
       log "E2E pipeline launched PID: $!"
     else
-      log "ERROR: No pipeline script found for category $VM_CATEGORY"
+      log "ERROR: No pipeline script found for asset_group $VM_ASSET_GROUP"
     fi
   fi
   exit 0
@@ -409,19 +421,19 @@ _launch_with_tee() {
   local cmd="$1"
   local fallback_log="${2:-$LOGS/backfill.log}"
   # Export VM_* env vars so the tee wrapper + heartbeat subprocess can read
-  # them. Without this the heartbeat registers every VM as category=UNKNOWN
+  # them. Without this the heartbeat registers every VM as asset_group=UNKNOWN
   # task=vm-exec mode=full (the defaults in vm-exec-with-gcs-tee.sh), which
   # is what the 2026-04-19 Playwright audit caught across all 14 VMs.
   export VM_NAME="$VM_NAME_SELF"
   export VM_TASK="${VM_TASK:-}"
-  export VM_CATEGORY="${VM_CATEGORY:-UNKNOWN}"
+  export VM_ASSET_GROUP="${VM_ASSET_GROUP:-UNKNOWN}"
   export VM_MODE="${VM_MODE:-${VM_BACKFILL_MODE:-full}}"
   export VM_START_DATE="${VM_START_DATE:-}"
   export VM_END_DATE="${VM_END_DATE:-}"
   export PYTHON_BIN="$VENV/bin/python"
   if [[ -n "$TEE_WRAPPER" ]]; then
     log "Launching with GCS tee: $cmd"
-    log "  VM_NAME=$VM_NAME VM_CATEGORY=$VM_CATEGORY VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
+    log "  VM_NAME=$VM_NAME VM_ASSET_GROUP=$VM_ASSET_GROUP VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
     nohup bash "$TEE_WRAPPER" "$GCS_LOG_URI" bash -c "$cmd" > "$fallback_log" 2>&1 &
   else
     log "Launching plain: $cmd"
@@ -498,6 +510,60 @@ elif [[ "$VM_TASK" == "sports-scheduler-poll" ]]; then
   _launch_with_tee \
     "$VENV/bin/python -m deployment_service sports-trigger run $SCHED_ARGS" \
     "$LOGS/sports-scheduler.log"
+elif [[ "$VM_TASK" == "manifest-consolidator-poll" ]]; then
+  # Long-lived daemon that periodically consolidates per-VM manifest shards
+  # into the canonical _index/availability_index.parquet for each sports /
+  # cefi / defi / tradfi / prediction bucket. Pre-requisite: UTL bug fix
+  # 2026-04-29 (BlobMetadata path filter) — without it, consolidator reports
+  # shards_scanned: 0 and is a no-op. SSOT:
+  # codex/02-data/sports-schema-paths.md "Manifest consolidator + per_vm shard
+  # merge mechanics" + memory:reference_manifest_consolidator_per_vm_merge.md.
+  POLL_INTERVAL=$(_meta VM_POLL_INTERVAL)
+  POLL_INTERVAL="${POLL_INTERVAL:-60}"
+  BUCKETS_RAW=$(_meta VM_BUCKETS)
+  # Launcher encodes buckets with ':' separator (gcloud --metadata can't
+  # nest ',' inside a value without ^|^ escape gymnastics). Convert back
+  # to space-separated for the bash loop. Default = all asset_group buckets.
+  if [[ -z "$BUCKETS_RAW" ]]; then
+    # Default = every bucket family that uses ManifestWriter v5: reference
+    # data (instruments-store-*), market tick (market-data-tick-*), derived
+    # features (features-sports-*), strategy outputs (strategy-store-*).
+    BUCKETS_RAW="instruments-store-sports-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-cefi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-defi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-tradfi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-prediction-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-sports-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-cefi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-defi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-tradfi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-prediction-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:features-sports-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-cefi-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-sports-${PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-defi-${PROJECT_ID}"
+  fi
+  BUCKETS_SPACE="${BUCKETS_RAW//:/ }"
+  log "manifest-consolidator-poll: interval=${POLL_INTERVAL}s buckets=[$BUCKETS_SPACE]"
+  # Bash poll loop: every $POLL_INTERVAL, call consolidator --once for each bucket.
+  # The consolidator's sentinel-lock prevents concurrent races within a bucket.
+  cat >"$WORKSPACE/manifest_consolidator_loop.sh" <<EOF_LOOP
+#!/usr/bin/env bash
+set -uo pipefail
+POLL=${POLL_INTERVAL}
+BUCKETS="${BUCKETS_SPACE}"
+while true; do
+  for bucket in \$BUCKETS; do
+    echo "[\$(date -u +%FT%TZ)] consolidating \$bucket" >&2
+    "$VENV/bin/python" -m unified_trading_library.manifest_consolidator --bucket "\$bucket" --once 2>&1 | tail -3
+  done
+  sleep "\$POLL"
+done
+EOF_LOOP
+  chmod +x "$WORKSPACE/manifest_consolidator_loop.sh"
+  _launch_with_tee \
+    "$WORKSPACE/manifest_consolidator_loop.sh" \
+    "$LOGS/manifest-consolidator.log"
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" ]]; then
   # Phase 5b/5c backfill: BACKFILL_CMD metadata carries the full command
   # (e.g. "python -m market_data_processing_service process --start-date X --end-date Y --cefi").
@@ -514,13 +580,14 @@ elif [ -n "$VM_TASK" ]; then
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
     _OP="instruments"
   fi
-  CLI_ARGS="--operation $_OP --mode batch --category $VM_CATEGORY"
+  CLI_ARGS="--operation $_OP --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
   [[ -n "$VM_LOOKBACK_DAYS" ]] && CLI_ARGS="$CLI_ARGS --lookback-days $VM_LOOKBACK_DAYS"
   [[ -n "$VM_LOOKAHEAD_DAYS" ]] && CLI_ARGS="$CLI_ARGS --lookahead-days $VM_LOOKAHEAD_DAYS"
   [[ "$VM_FORCE_WINDOW" == "true" ]] && CLI_ARGS="$CLI_ARGS --force-window"
+  [[ "$VM_FORCE" == "true" ]] && CLI_ARGS="$CLI_ARGS --force"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"

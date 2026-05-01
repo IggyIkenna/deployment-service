@@ -50,7 +50,7 @@ main:
                 - args:
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
                     - "--feature-group"
                     - "all"
@@ -119,7 +119,7 @@ main:
                 - args:
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
                     - "--start-date"
                     - $${start_date}

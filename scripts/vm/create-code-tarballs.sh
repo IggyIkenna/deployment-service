@@ -9,8 +9,8 @@
 #   bash scripts/vm/create-code-tarballs.sh                    # default (core only)
 #   bash scripts/vm/create-code-tarballs.sh --bucket my-bucket # custom bucket
 #   bash scripts/vm/create-code-tarballs.sh --dry-run          # show what would be created
-#   bash scripts/vm/create-code-tarballs.sh --category CEFI    # core + CEFI services
-#   bash scripts/vm/create-code-tarballs.sh --category DEFI    # core + DEFI services
+#   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI    # core + CEFI services
+#   bash scripts/vm/create-code-tarballs.sh --asset-group DEFI    # core + DEFI services
 #   bash scripts/vm/create-code-tarballs.sh --all              # core + ALL service repos
 #   bash scripts/vm/create-code-tarballs.sh --ml-training      # core + ml-training
 #                                                                pipeline (CORE +
@@ -19,7 +19,7 @@
 #
 # Also supports additional repos for services beyond the category set:
 #   bash scripts/vm/create-code-tarballs.sh --include instruments-service
-#   bash scripts/vm/create-code-tarballs.sh --category CEFI --include features-onchain-service
+#   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI --include features-onchain-service
 #
 # GCS layout:
 #   gs://{bucket}/code/unified-api-contracts-code.tar.gz
@@ -40,7 +40,7 @@ DEFAULT_BUCKET="deployment-scripts-central-element-323112"
 BUCKET="$DEFAULT_BUCKET"
 DRY_RUN=false
 EXTRA_REPOS=()
-CATEGORY=""
+ASSET_GROUP=""
 ALL_REPOS=false
 ML_TRAINING=false
 
@@ -105,7 +105,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --bucket <name>       GCS bucket (default: $DEFAULT_BUCKET)"
-    echo "  --category <CAT>      Include category-specific repos:"
+    echo "  --asset-group <CAT>      Include category-specific repos:"
     echo "                        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
     echo "  --all                 Include ALL service repos"
     echo "  --ml-training         Include the ML training pipeline fleet"
@@ -121,7 +121,7 @@ while [[ $# -gt 0 ]]; do
         --bucket) BUCKET="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
-        --category) CATEGORY="${2^^}"; shift 2 ;;  # uppercase
+        --asset-group) ASSET_GROUP="${2^^}"; shift 2 ;;  # uppercase
         --all) ALL_REPOS=true; shift ;;
         --ml-training) ML_TRAINING=true; shift ;;
         --help|-h) usage ;;
@@ -130,30 +130,30 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Resolve category repos
-CATEGORY_REPOS=()
+ASSET_GROUP_REPOS=()
 if $ALL_REPOS; then
-    CATEGORY_REPOS=("${ALL_SERVICE_REPOS[@]}")
+    ASSET_GROUP_REPOS=("${ALL_SERVICE_REPOS[@]}")
 elif $ML_TRAINING; then
-    # --ml-training is a separate named tranche, not a --category value, because
+    # --ml-training is a separate named tranche, not a --asset-group value, because
     # "ml training" is orthogonal to CEFI/TRADFI/DEFI/SPORTS/PREDICTION — a
     # training run for any of those categories pulls the same ML_TRAINING_REPOS
     # bundle. Combines cleanly with --include for one-off additions.
-    CATEGORY_REPOS=("${ML_TRAINING_REPOS[@]}")
-elif [[ -n "$CATEGORY" ]]; then
-    case "$CATEGORY" in
-        CEFI)       CATEGORY_REPOS=("${CEFI_REPOS[@]}") ;;
-        TRADFI)     CATEGORY_REPOS=("${TRADFI_REPOS[@]}") ;;
-        DEFI)       CATEGORY_REPOS=("${DEFI_REPOS[@]}") ;;
-        SPORTS)     CATEGORY_REPOS=("${SPORTS_REPOS[@]}") ;;
-        PREDICTION) CATEGORY_REPOS=("${PREDICTION_REPOS[@]}") ;;
-        *) echo "ERROR: Unknown category: $CATEGORY"; usage ;;
+    ASSET_GROUP_REPOS=("${ML_TRAINING_REPOS[@]}")
+elif [[ -n "$ASSET_GROUP" ]]; then
+    case "$ASSET_GROUP" in
+        CEFI)       ASSET_GROUP_REPOS=("${CEFI_REPOS[@]}") ;;
+        TRADFI)     ASSET_GROUP_REPOS=("${TRADFI_REPOS[@]}") ;;
+        DEFI)       ASSET_GROUP_REPOS=("${DEFI_REPOS[@]}") ;;
+        SPORTS)     ASSET_GROUP_REPOS=("${SPORTS_REPOS[@]}") ;;
+        PREDICTION) ASSET_GROUP_REPOS=("${PREDICTION_REPOS[@]}") ;;
+        *) echo "ERROR: Unknown category: $ASSET_GROUP"; usage ;;
     esac
 fi
 
-# Deduplicate: merge CATEGORY_REPOS + EXTRA_REPOS
+# Deduplicate: merge ASSET_GROUP_REPOS + EXTRA_REPOS
 declare -A _seen_repos
 MERGED_EXTRA_REPOS=()
-for repo in "${CATEGORY_REPOS[@]}" "${EXTRA_REPOS[@]}"; do
+for repo in "${ASSET_GROUP_REPOS[@]}" "${EXTRA_REPOS[@]}"; do
     if [[ -z "${_seen_repos[$repo]:-}" ]]; then
         _seen_repos[$repo]=1
         # Don't add repos already in CORE_REPOS (MTDS is handled there)
@@ -236,7 +236,7 @@ create_tarball() {
 # Create tarballs
 log "Workspace: $WORKSPACE_ROOT"
 log "Bucket: gs://$BUCKET/code/"
-[[ -n "$CATEGORY" ]] && log "Category: $CATEGORY"
+[[ -n "$ASSET_GROUP" ]] && log "Category: $ASSET_GROUP"
 $ALL_REPOS && log "Mode: ALL service repos"
 $ML_TRAINING && log "Mode: ML training (CORE + ${#ML_TRAINING_REPOS[@]} repos)"
 [[ ${#MERGED_EXTRA_REPOS[@]} -gt 0 ]] && log "Extra repos (${#MERGED_EXTRA_REPOS[@]}): ${MERGED_EXTRA_REPOS[*]}"

@@ -12,7 +12,7 @@
 #
 # Invocation inside the VM (assembled by setup-data-pipeline-vm.sh from metadata):
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider SOCCER_FOOTBALL_INFO \
 #     --start-date $VM_START_DATE --end-date $VM_END_DATE
 #
@@ -86,7 +86,7 @@ echo "Launching $VM_NAME: SFI (SOCCER_FOOTBALL_INFO) ${START_DATE}..${END_DATE}"
 METADATA="VM_TASK=sports-forward-poll"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SPORTS_PROVIDER=SOCCER_FOOTBALL_INFO"

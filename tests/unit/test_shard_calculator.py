@@ -31,7 +31,7 @@ class TestShard:
             shard_index=0,
             total_shards=10,
             dimensions={
-                "category": "CEFI",
+                "asset_group": "CEFI",
                 "date": {"start": "2024-01-01", "end": "2024-01-01"},
             },
         )
@@ -39,7 +39,7 @@ class TestShard:
         assert shard.service == "test-service"
         assert shard.shard_index == 0
         assert shard.total_shards == 10
-        assert shard.dimensions["category"] == "CEFI"
+        assert shard.dimensions["asset_group"] == "CEFI"
 
     def test_shard_cli_command_generation(self):
         """Test CLI command is auto-generated."""
@@ -48,12 +48,12 @@ class TestShard:
             shard_index=0,
             total_shards=1,
             dimensions={
-                "category": "CEFI",
+                "asset_group": "CEFI",
                 "date": {"start": "2024-01-01", "end": "2024-01-01"},
             },
         )
 
-        assert "--category CEFI" in shard.cli_command
+        assert "--asset-group CEFI" in shard.cli_command
         assert "--start-date 2024-01-01" in shard.cli_command
         assert "--end-date 2024-01-01" in shard.cli_command
         assert "python -m instruments_service" in shard.cli_command
@@ -64,7 +64,7 @@ class TestShard:
             service="test-service",
             shard_index=5,
             total_shards=10,
-            dimensions={"category": "TRADFI"},
+            dimensions={"asset_group": "TRADFI"},
         )
 
         result = shard.to_dict()
@@ -72,7 +72,7 @@ class TestShard:
         assert result["service"] == "test-service"
         assert result["shard_index"] == 5
         assert result["total_shards"] == 10
-        assert result["dimensions"] == {"category": "TRADFI"}
+        assert result["dimensions"] == {"asset_group": "TRADFI"}
         assert "cli_command" in result
 
 
@@ -90,7 +90,7 @@ class TestShardCalculatorFixedDimensions:
             max_shards=100,
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI", "TRADFI", "DEFI"}
 
     def test_fixed_dimension_with_filter(self, temp_config_with_service, mock_env_vars):
@@ -102,10 +102,10 @@ class TestShardCalculatorFixedDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 1),
             max_shards=100,
-            category=["CEFI"],
+            asset_group=["CEFI"],
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI"}
 
     def test_fixed_dimension_multiple_filters(self, temp_config_with_service, mock_env_vars):
@@ -117,23 +117,23 @@ class TestShardCalculatorFixedDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 1),
             max_shards=100,
-            category=["CEFI", "TRADFI"],
+            asset_group=["CEFI", "TRADFI"],
         )
 
-        categories = {s.dimensions["category"] for s in shards}
+        categories = {s.dimensions["asset_group"] for s in shards}
         assert categories == {"CEFI", "TRADFI"}
 
     def test_fixed_dimension_invalid_filter(self, temp_config_with_service, mock_env_vars):
         """Test that invalid filter value raises error."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
-        with pytest.raises(ValueError, match="Invalid category values"):
+        with pytest.raises(ValueError, match="Invalid asset_group values"):
             calculator.calculate_shards(
                 service="test-service",
                 start_date=date(2024, 1, 1),
                 end_date=date(2024, 1, 1),
                 max_shards=100,
-                category=["INVALID_CATEGORY"],
+                asset_group=["INVALID_CATEGORY"],
             )
 
 
@@ -149,7 +149,7 @@ class TestShardCalculatorDateRangeDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 3),
             max_shards=100,
-            category=["CEFI"],  # Single category to simplify counting
+            asset_group=["CEFI"],  # Single category to simplify counting
         )
 
         # Should have 3 days * 1 category = 3 shards
@@ -167,7 +167,7 @@ class TestShardCalculatorDateRangeDimensions:
             "service": "weekly-service",
             "description": "Weekly test",
             "dimensions": [
-                {"name": "category", "type": "fixed", "values": ["CEFI"]},
+                {"name": "asset_group", "type": "fixed", "values": ["CEFI"]},
                 {"name": "date", "type": "date_range", "granularity": "weekly"},
             ],
         }
@@ -192,7 +192,7 @@ class TestShardCalculatorDateRangeDimensions:
             "service": "monthly-service",
             "description": "Monthly test",
             "dimensions": [
-                {"name": "category", "type": "fixed", "values": ["CEFI"]},
+                {"name": "asset_group", "type": "fixed", "values": ["CEFI"]},
                 {"name": "date", "type": "date_range", "granularity": "monthly"},
             ],
         }
@@ -239,7 +239,7 @@ class TestShardCalculatorHierarchicalDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=100,
-            category=["CEFI"],
+            asset_group=["CEFI"],
         )
 
         venues = {s.dimensions["venue"] for s in shards}
@@ -264,7 +264,7 @@ class TestShardCalculatorHierarchicalDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=100,
-            category=["TRADFI"],
+            asset_group=["TRADFI"],
         )
 
         venues = {s.dimensions["venue"] for s in shards}
@@ -288,7 +288,7 @@ class TestShardCalculatorHierarchicalDimensions:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=100,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             venue=["BINANCE-SPOT"],
         )
 
@@ -400,7 +400,7 @@ class TestShardLimitExceeded:
             )
 
         error_msg = str(exc_info.value)
-        assert "category" in error_msg
+        assert "asset_group" in error_msg
         assert "date" in error_msg
         assert "To reduce shards" in error_msg
 
@@ -423,7 +423,7 @@ class TestShardSummary:
 
         assert summary["service"] == "test-service"
         assert summary["total_shards"] == 9  # 3 days * 3 categories
-        assert "category" in summary["breakdown"]
+        assert "asset_group" in summary["breakdown"]
         assert "date" in summary["breakdown"]
 
     def test_empty_shards_summary(self, temp_config_with_service, mock_env_vars):
@@ -448,14 +448,14 @@ class TestCombinatorics:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 2),  # 2 days
             max_shards=100,
-            category=["CEFI", "TRADFI"],  # 2 categories
+            asset_group=["CEFI", "TRADFI"],  # 2 categories
         )
 
         # 2 categories * 2 days = 4 shards
         assert len(shards) == 4
 
         # Verify all combinations exist
-        combos = {(s.dimensions["category"], s.dimensions["date"]["start"]) for s in shards}
+        combos = {(s.dimensions["asset_group"], s.dimensions["date"]["start"]) for s in shards}
         assert ("CEFI", "2024-01-01") in combos
         assert ("CEFI", "2024-01-02") in combos
         assert ("TRADFI", "2024-01-01") in combos
@@ -494,7 +494,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             venue=["BINANCE-FUTURES"],
             respect_start_dates=True,
         )
@@ -521,7 +521,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             venue=["BINANCE-FUTURES"],
             respect_start_dates=True,
         )
@@ -531,7 +531,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             venue=["BINANCE-FUTURES"],
             respect_start_dates=False,
         )
@@ -561,7 +561,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             respect_start_dates=True,
         )
 
@@ -585,7 +585,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["TRADFI"],
+            asset_group=["TRADFI"],
             venue=["NASDAQ"],  # Starts 2024-01-03
             respect_start_dates=True,
         )
@@ -612,7 +612,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             respect_start_dates=True,  # Should still work even without config
         )
 
@@ -631,7 +631,7 @@ class TestVenueStartDateFiltering:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             venue=["BINANCE-FUTURES"],
             # respect_start_dates not specified - should default to True
         )
@@ -658,7 +658,7 @@ class TestAsymmetricVenueCounts:
             start_date=date(2024, 1, 7),  # After all CEFI venues launched
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI"],
+            asset_group=["CEFI"],
             respect_start_dates=True,
         )
 
@@ -667,7 +667,7 @@ class TestAsymmetricVenueCounts:
             start_date=date(2024, 1, 7),  # After all TRADFI venues launched
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["TRADFI"],
+            asset_group=["TRADFI"],
             respect_start_dates=True,
         )
 
@@ -695,13 +695,13 @@ class TestAsymmetricVenueCounts:
             start_date=date(2024, 1, 7),  # After most venues launched
             end_date=date(2024, 1, 7),
             max_shards=1000,
-            category=["CEFI", "TRADFI"],
+            asset_group=["CEFI", "TRADFI"],
             respect_start_dates=True,
         )
 
         # Count by category
-        cefi_count = sum(1 for s in shards if s.dimensions["category"] == "CEFI")
-        tradfi_count = sum(1 for s in shards if s.dimensions["category"] == "TRADFI")
+        cefi_count = sum(1 for s in shards if s.dimensions["asset_group"] == "CEFI")
+        tradfi_count = sum(1 for s in shards if s.dimensions["asset_group"] == "TRADFI")
 
         # CEFI should have 3 venues, TRADFI should have 2 venues
         assert cefi_count == 3, f"Expected 3 CEFI shards, got {cefi_count}"
@@ -722,10 +722,10 @@ class TestSkipExistingFilter:
         service_config = {
             "service": "instruments-service",
             "dimensions": [
-                {"name": "category", "type": "fixed", "values": ["CEFI", "TRADFI"]},
+                {"name": "asset_group", "type": "fixed", "values": ["CEFI", "TRADFI"]},
                 {"name": "date", "type": "date_range", "granularity": "daily"},
             ],
-            "cli_args": {"category": "--category"},
+            "cli_args": {"category": "--asset-group"},
         }
         with open(config_dir / "sharding.instruments-service.yaml", "w") as f:
             yaml.dump(service_config, f)
@@ -868,7 +868,7 @@ class TestExcludeDatesDeploymentFiltering:
         # Simulated shards from calculator
         class MockShard:
             def __init__(self, category, date_start):
-                self.dimensions = {"category": category, "date": {"start": date_start}}
+                self.dimensions = {"asset_group": category, "date": {"start": date_start}}
 
         all_shards = [
             MockShard("CEFI", "2024-01-01"),
@@ -892,7 +892,7 @@ class TestExcludeDatesDeploymentFiltering:
 
         for shard in all_shards:
             dims = shard.dimensions
-            cat = dims.get("category", "")
+            cat = dims.get("asset_group", "")
             date_val = dims.get("date", {})
             date_str = date_val.get("start", "") if isinstance(date_val, dict) else str(date_val)
 
@@ -906,7 +906,7 @@ class TestExcludeDatesDeploymentFiltering:
 
         # Verify correct shards remain
         remaining = [
-            (s.dimensions["category"], s.dimensions["date"]["start"]) for s in filtered_shards
+            (s.dimensions["asset_group"], s.dimensions["date"]["start"]) for s in filtered_shards
         ]
         assert ("CEFI", "2024-01-04") in remaining
         assert ("CEFI", "2024-01-05") in remaining
@@ -926,7 +926,7 @@ class TestExcludeDatesDeploymentFiltering:
 
         class MockShard:
             def __init__(self, category, date_start, venue=None):
-                self.dimensions = {"category": category, "date": {"start": date_start}}
+                self.dimensions = {"asset_group": category, "date": {"start": date_start}}
                 if venue:
                     self.dimensions["venue"] = venue
 
@@ -946,7 +946,7 @@ class TestExcludeDatesDeploymentFiltering:
         filtered = []
 
         for shard in all_shards:
-            cat = shard.dimensions.get("category", "")
+            cat = shard.dimensions.get("asset_group", "")
             date_str = shard.dimensions.get("date", {}).get("start", "")
 
             if cat in exclude_sets and date_str in exclude_sets[cat]:

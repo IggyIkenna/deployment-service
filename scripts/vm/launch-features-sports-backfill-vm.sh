@@ -13,7 +13,7 @@
 # setup-data-pipeline-vm.sh line 455 branch for features-backfill):
 #
 #   python -m features_sports_service \
-#     --operation compute --mode batch --category SPORTS \
+#     --operation compute --mode batch --asset-group SPORTS \
 #     --tables fixture_features \
 #     --start-date $START_DATE --end-date $END_DATE
 #
@@ -24,7 +24,7 @@
 #
 # Prerequisites:
 #   - Tarballs refreshed:
-#       bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS
+#       bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS
 #   - All upstream providers (API_FOOTBALL / TRANSFERMARKT / SFI / OPEN_METEO)
 #     must already have data for the target window, otherwise the rows will
 #     materialise as empty_confirmed (honest-coverage — not attempted_failed).
@@ -108,7 +108,7 @@ VM_NAME="fs-backfill-${RUN_TS}"
 # Compose the in-VM command. features-backfill branch of setup-data-pipeline-vm.sh
 # substitutes `python ` → the per-tarball venv python.
 BACKFILL_CMD="python -m features_sports_service"
-BACKFILL_CMD="${BACKFILL_CMD} --operation compute --mode batch --category SPORTS"
+BACKFILL_CMD="${BACKFILL_CMD} --operation compute --mode batch --asset-group SPORTS"
 BACKFILL_CMD="${BACKFILL_CMD} --tables fixture_features"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
 if $SKIP_EXISTING; then
@@ -121,7 +121,7 @@ echo "  cmd: ${BACKFILL_CMD}"
 METADATA="VM_TASK=features-backfill"
 METADATA="${METADATA},VM_SERVICE=features_sports_service"
 METADATA="${METADATA},VM_OPERATION=compute"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"

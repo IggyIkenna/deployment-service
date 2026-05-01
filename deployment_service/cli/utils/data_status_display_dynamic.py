@@ -17,7 +17,7 @@ def display_dynamic_service_status(
     service: str,
     start_date,
     end_date,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     output: str,
     config_dir: str,
     mode: str = "batch",
@@ -50,13 +50,13 @@ def display_dynamic_service_status(
         click.echo("No GCS dynamic dimension found in config.")
         return
 
-    # Build buckets to check based on category/domain
-    domains_or_categories = list(category) if category else []
+    # Build buckets to check based on asset group / domain
+    domains_or_categories = list(asset_group) if asset_group else []
 
-    # Check for domain vs category dimension
+    # Check for domain vs trading-axis fixed dimension
     for dim in service_config.get("dimensions") or []:
         if (dim["name"] == "domain" and dim["type"] == "fixed") or (
-            dim["name"] == "category" and dim["type"] == "fixed"
+            dim["name"] in ("asset_group", "category") and dim["type"] == "fixed"
         ):
             if not domains_or_categories:
                 domains_or_categories = dim.get("values") or []
@@ -77,7 +77,7 @@ def display_dynamic_service_status(
         try:
             bucket = bucket_template.format(
                 domain=domain.lower(),
-                category_lower=domain.lower(),
+                asset_group_lower=domain.lower(),
             )
         except KeyError:
             bucket = bucket_template
@@ -110,7 +110,7 @@ def display_dynamic_service_status(
             try:
                 bucket = bucket_template.format(
                     domain=domain.lower(),
-                    category_lower=domain.lower(),
+                    asset_group_lower=domain.lower(),
                 )
             except KeyError:
                 bucket = bucket_template

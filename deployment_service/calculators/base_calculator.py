@@ -42,7 +42,7 @@ class ShardLimitExceeded(Exception):
         message += (
             f"\nTo reduce shards, try:\n"
             f"  1. Reduce date range (--start-date / --end-date)\n"
-            f"  2. Filter by category (--category CEFI)\n"
+            f"  2. Filter by category (--asset-group CEFI)\n"
             f"  3. Filter by venue (--venue BINANCE-FUTURES)\n"
             f"  4. Increase granularity in config (daily -> weekly)\n"
             f"  5. Increase --max-shards if quota allows\n"

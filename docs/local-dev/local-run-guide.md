@@ -167,7 +167,7 @@ export LOG_LEVEL=DEBUG
 cd features-delta-one-service
 SERVICE_MODE=batch CLOUD_PROVIDER=local USE_SECRET_MANAGER=false USE_NUMBA=false \
   python -m features_delta_one_service.cli.main \
-  --mode batch --category CEFI --feature-group technical_indicators \
+  --mode batch --asset-group CEFI --feature-group technical_indicators \
   --start-date 2024-01-02 --end-date 2024-01-02 \
   --log-level DEBUG
 ```

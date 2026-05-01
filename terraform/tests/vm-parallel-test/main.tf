@@ -42,7 +42,7 @@ module "parallel_vms" {
     "--operation", "fetch", "--mode", "batch",
     "--start-date", each.value,
     "--end-date", each.value,
-    "--category", "CEFI",
+    "--asset-group", "CEFI",
     "--venues", "BINANCE-SPOT",
     "--max-instruments", "3"
   ]

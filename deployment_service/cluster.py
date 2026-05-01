@@ -134,7 +134,7 @@ class ClusterOrchestrator:
         return ClusterConfig(
             name=str(raw_data.get("cluster", name)),
             description=str(raw_data.get("description", "")),
-            category=str(raw_data.get("category", "")),
+            asset_group=str(raw_data.get("asset_group") or raw_data.get("category", "")),
             services=[str(s) for s in services_raw],
             schedule_cron=str(schedule_raw.get("cron", "")),
             schedule_as_of=str(schedule_raw.get("as_of", "yesterday")),
@@ -345,7 +345,7 @@ class ClusterOrchestrator:
 
         plan = orchestrator.create_daily_plan(
             target_date=as_of_date,
-            category=cluster.category,
+            asset_group=cluster.asset_group,
             services=batch_services,
         )
 
@@ -357,7 +357,7 @@ class ClusterOrchestrator:
                 svc_result = self._execute_batch_service(
                     service_name=service_name,
                     as_of_date=as_of_date,
-                    category=cluster.category,
+                    asset_group=cluster.asset_group,
                     plan=plan,
                     orchestrator=orchestrator,
                 )
@@ -682,7 +682,7 @@ class ClusterOrchestrator:
         self,
         service_name: str,
         as_of_date: str,
-        category: str,
+        asset_group: str,
         plan: object,
         orchestrator: T1Orchestrator,
     ) -> BatchServiceResult:
@@ -691,7 +691,7 @@ class ClusterOrchestrator:
         Args:
             service_name: Service to execute
             as_of_date: Date to process
-            category: Category (CEFI/TRADFI/DEFI)
+            asset_group: Asset group (CEFI/TRADFI/DEFI)
             plan: Orchestration plan
             orchestrator: T1Orchestrator instance
 
@@ -704,7 +704,7 @@ class ClusterOrchestrator:
             "cluster.batch.service.started",
             service_name=service_name,
             as_of_date=as_of_date,
-            category=category,
+            asset_group=asset_group,
         )
 
         if self.mock_mode:
@@ -735,8 +735,8 @@ class ClusterOrchestrator:
             "run",
             "--mode",
             "batch",
-            "--category",
-            category,
+            "--asset-group",
+            asset_group,
         ]
 
         try:

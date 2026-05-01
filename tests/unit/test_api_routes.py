@@ -109,7 +109,7 @@ class TestShardsCalculateRoute:
                     "end_date": "2024-01-31",
                     "cloud_config_path": "gs://bucket/config.yaml",
                     "date_granularity_override": "day",
-                    "extra_filters": {"category": "cefi"},
+                    "extra_filters": {"asset_group": "cefi"},
                     "skip_existing": True,
                 },
             )

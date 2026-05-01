@@ -258,7 +258,7 @@ Examples:
     log(f"Total unique instruments: {len(result)}")
     log(f"Columns: {len(result.columns)}")
 
-    # Show instrument counts by category if available
+    # Show instrument counts by venue (and related breakdowns) if available
     if "venue" in result.columns:
         venue_counts = result.group_by("venue").len().sort("len", descending=True)
         log("\nTop venues by instrument count:")

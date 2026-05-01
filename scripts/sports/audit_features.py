@@ -6,7 +6,7 @@ Reads the FEATURES_CATALOG markdown document and compares it against
 feature tracking files to identify:
   1. Features documented but not tracked (missing implementation)
   2. Features tracked but not documented (undocumented features)
-  3. Coverage percentage per category
+  3. Coverage percentage per feature group (catalog section / tracking file stem)
 
 The original script read from local filesystem paths.  This version
 can also read catalog and tracking files from GCS Parquet when a
@@ -36,42 +36,44 @@ logger = logging.getLogger(__name__)
 def extract_documented_features(catalog_path: Path) -> dict[str, dict[str, int | list[str]]]:
     """Extract all features from FEATURES_CATALOG.md.
 
-    Returns a dict mapping category name to ``{"count": N, "features": [...]}``.
+    Returns a dict mapping feature-group label (``### {Label} features (N)``) to
+    ``{"count": N, "features": [...]}``. This is unrelated to trading asset groups (CEFI/DEFI/…).
     """
     content = catalog_path.read_text(encoding="utf-8")
 
-    feature_categories: dict[str, dict[str, int | list[str]]] = {}
+    documented_groups: dict[str, dict[str, int | list[str]]] = {}
 
-    category_pattern = r"### (\w+) features \((\d+)\)"
-    category_matches = list(re.finditer(category_pattern, content))
+    # Markdown headings: ### Team features (12) — "Team" is the feature-group label.
+    heading_pattern = r"### (\w+) features \((\d+)\)"
+    heading_matches = list(re.finditer(heading_pattern, content))
 
-    for i, match in enumerate(category_matches):
-        category_name = match.group(1)
+    for i, match in enumerate(heading_matches):
+        group_label = match.group(1)
         feature_count = int(match.group(2))
 
         start_pos = match.end()
-        end_pos = category_matches[i + 1].start() if i + 1 < len(category_matches) else len(content)
-        category_content = content[start_pos:end_pos]
+        end_pos = heading_matches[i + 1].start() if i + 1 < len(heading_matches) else len(content)
+        section_body = content[start_pos:end_pos]
 
         # Extract feature names from markdown table rows: | `feature_name` | ...
         feature_pattern = r"\| `([a-z0-9_]+)` \|"
-        features = re.findall(feature_pattern, category_content)
+        features = re.findall(feature_pattern, section_body)
 
-        feature_categories[category_name] = {
+        documented_groups[group_label] = {
             "count": feature_count,
             "features": features,
         }
         logger.info(
-            "%s: %d features found (documented: %d)", category_name, len(features), feature_count
+            "%s: %d features found (documented: %d)", group_label, len(features), feature_count
         )
 
-    return feature_categories
+    return documented_groups
 
 
 def scan_tracking_files(tracking_dir: Path) -> dict[str, list[dict[str, str]]]:
     """Scan all tracking files for implemented features.
 
-    Returns a dict mapping category name to a list of
+    Returns a dict mapping feature-group key (filename stem before ``_features``) to a list of
     ``{"name": "feature_name", "status": "X"}`` dicts.
     """
     tracking_files = list(tracking_dir.glob("*_features.py"))
@@ -81,7 +83,7 @@ def scan_tracking_files(tracking_dir: Path) -> dict[str, list[dict[str, str]]]:
         if tracking_file.name == "__init__.py":
             continue
 
-        category = tracking_file.stem.replace("_features", "")
+        group_key = tracking_file.stem.replace("_features", "")
         content = tracking_file.read_text(encoding="utf-8")
 
         # Pattern: ("feature_name", "STATUS", ...)
@@ -89,9 +91,9 @@ def scan_tracking_files(tracking_dir: Path) -> dict[str, list[dict[str, str]]]:
         matches = re.findall(feature_pattern, content)
 
         for feature_name, status in matches:
-            implemented[category].append({"name": feature_name, "status": status})
+            implemented[group_key].append({"name": feature_name, "status": status})
 
-        logger.info("%s: %d features tracked", category, len(matches))
+        logger.info("%s: %d features tracked", group_key, len(matches))
 
     return implemented
 
@@ -110,12 +112,12 @@ def compare_features(
     logger.info("FEATURE COMPARISON REPORT")
     logger.info("=" * 80)
 
-    doc_categories = set(documented.keys())
-    impl_categories = set(implemented.keys())
+    doc_group_keys = set(documented.keys())
+    impl_group_keys = set(implemented.keys())
 
-    logger.info("Category Overview:")
-    logger.info("  Documented categories: %d", len(doc_categories))
-    logger.info("  Tracked categories:    %d", len(impl_categories))
+    logger.info("Feature group overview:")
+    logger.info("  Documented groups: %d", len(doc_group_keys))
+    logger.info("  Tracked groups:    %d", len(impl_group_keys))
 
     total_documented = sum(int(cat["count"]) for cat in documented.values())
     total_tracked = sum(len(features) for features in implemented.values())
@@ -127,24 +129,24 @@ def compare_features(
         logger.info("  Coverage:            %.1f%%", total_tracked / total_documented * 100)
 
     logger.info("=" * 80)
-    logger.info("DETAILED BREAKDOWN BY CATEGORY")
+    logger.info("DETAILED BREAKDOWN BY FEATURE GROUP")
     logger.info("=" * 80)
 
-    for cat_name, cat_data in documented.items():
+    for group_label, cat_data in documented.items():
         features_list = cat_data["features"]
         if not isinstance(features_list, list):
             continue
         doc_features = set(features_list)
 
-        # Find matching tracking category
+        # Find matching tracking file group (fuzzy match on label vs stem).
         impl_features: set[str] = set()
-        for impl_cat, impl_list in implemented.items():
-            if cat_name.lower() in impl_cat.lower() or impl_cat.lower() in cat_name.lower():
+        for impl_key, impl_list in implemented.items():
+            if group_label.lower() in impl_key.lower() or impl_key.lower() in group_label.lower():
                 impl_features = {f["name"] for f in impl_list}
                 break
 
         logger.info("")
-        logger.info("%s Features:", cat_name.upper())
+        logger.info("%s Features:", group_label.upper())
         logger.info("  Documented: %d", len(doc_features))
         logger.info("  Tracked:    %d", len(impl_features))
 
@@ -164,24 +166,24 @@ def compare_features(
                 if len(doc_only) > 20:
                     logger.info("     ... and %d more", len(doc_only) - 20)
         else:
-            logger.info("  No tracking file found for this category!")
+            logger.info("  No tracking file found for this feature group!")
             logger.info("  Sample features:")
             for feat in list(doc_features)[:5]:
                 logger.info("     - %s", feat)
             if len(doc_features) > 5:
                 logger.info("     ... and %d more", len(doc_features) - 5)
 
-    # Categories only in tracking
-    tracking_only = impl_categories - doc_categories
+    # Groups only in tracking (no catalog section matched).
+    tracking_only = impl_group_keys - doc_group_keys
     if tracking_only:
         logger.info("")
         logger.info("=" * 80)
         logger.info("TRACKING FILES NOT IN DOCS:")
         logger.info("=" * 80)
-        for cat in tracking_only:
-            features = implemented[cat]
+        for group_key in tracking_only:
+            features = implemented[group_key]
             logger.info("")
-            logger.info("%s: %d features", cat.upper(), len(features))
+            logger.info("%s: %d features", group_key.upper(), len(features))
             for feat in features[:5]:
                 logger.info("  - %s (%s)", feat["name"], feat["status"])
             if len(features) > 5:

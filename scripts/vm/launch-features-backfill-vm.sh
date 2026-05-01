@@ -2,7 +2,7 @@
 # Phase 5c.3 features backfill VM launcher — spawn one VM per
 # (feature_service × category) cell. The service CLIs follow the standardised
 # axes defined in codex/06-coding-standards/cli-convention.md:
-#     --operation backfill --mode batch --category {CEFI|TRADFI|DEFI|SPORTS|PREDICTION}
+#     --operation backfill --mode batch --asset-group {CEFI|TRADFI|DEFI|SPORTS|PREDICTION}
 #     --start-date YYYY-MM-DD --end-date YYYY-MM-DD
 #
 # Input reads: features read from
@@ -46,7 +46,7 @@
 set -euo pipefail
 
 SERVICE_SHORT="${1:-}"
-CATEGORY="${2:-}"
+ASSET_GROUP="${2:-}"
 START_DATE="${3:-}"
 END_DATE="${4:-}"
 MODE="${5:-dry}"  # dry | full
@@ -57,20 +57,20 @@ CODE_BUCKET="deployment-scripts-central-element-323112"
 MACHINE_TYPE="e2-standard-8"
 BOOT_DISK_GB="50"
 
-if [[ -z "$SERVICE_SHORT" || -z "$CATEGORY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
+if [[ -z "$SERVICE_SHORT" || -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     cat <<EOF
-Usage: $0 <feature_service_short> <CATEGORY> <start-date> <end-date> [dry|full]
+Usage: $0 <feature_service_short> <ASSET_GROUP> <start-date> <end-date> [dry|full]
 
 feature_service_short ∈ {
   delta-one, volatility, onchain, sports,
   calendar, multi-timeframe, cross-instrument, commodity
 }
-CATEGORY ∈ { CEFI, DEFI, TRADFI, SPORTS, PREDICTION }
+ASSET_GROUP ∈ { CEFI, DEFI, TRADFI, SPORTS, PREDICTION }
 EOF
     exit 2
 fi
 
-# (feature_service_short, CATEGORY) validity matrix.
+# (feature_service_short, ASSET_GROUP) validity matrix.
 _is_viable_cell() {
     local svc="$1" cat="$2"
     case "$svc/$cat" in
@@ -86,8 +86,8 @@ _is_viable_cell() {
     esac
 }
 
-if ! _is_viable_cell "$SERVICE_SHORT" "$CATEGORY"; then
-    echo "Not a viable (service × category) cell: $SERVICE_SHORT × $CATEGORY"
+if ! _is_viable_cell "$SERVICE_SHORT" "$ASSET_GROUP"; then
+    echo "Not a viable (service × category) cell: $SERVICE_SHORT × $ASSET_GROUP"
     echo "See header for the viable matrix."
     exit 2
 fi
@@ -109,12 +109,12 @@ _python_module_for() {
 
 PY_MODULE="$(_python_module_for "$SERVICE_SHORT")"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-CATEGORY_LOWER="$(echo "$CATEGORY" | tr '[:upper:]' '[:lower:]')"  # bash-3-compat (${var,,} is bash 4+)
-VM_NAME="features-${SERVICE_SHORT}-${CATEGORY_LOWER}-backfill-${RUN_TS}"
+ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"  # bash-3-compat (${var,,} is bash 4+)
+VM_NAME="features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-backfill-${RUN_TS}"
 
 # Canonical service CLI convention (codex/06-coding-standards/cli-convention.md).
 CMD="python -m ${PY_MODULE} --operation backfill --mode batch"
-CMD="$CMD --category ${CATEGORY} --start-date ${START_DATE} --end-date ${END_DATE}"
+CMD="$CMD --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
 if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
@@ -125,8 +125,8 @@ echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
 MD="VM_TASK=features-backfill"
 MD="${MD},VM_SERVICE=${PY_MODULE}"
-MD="${MD},VM_OPERATION=backfill-${SERVICE_SHORT}-${CATEGORY,,}"
-MD="${MD},VM_CATEGORY=${CATEGORY}"
+MD="${MD},VM_OPERATION=backfill-${SERVICE_SHORT}-${ASSET_GROUP,,}"
+MD="${MD},VM_ASSET_GROUP=${ASSET_GROUP}"
 MD="${MD},VM_START_DATE=${START_DATE}"
 MD="${MD},VM_END_DATE=${END_DATE}"
 MD="${MD},VM_BACKFILL_CMD=${CMD}"
@@ -141,11 +141,11 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${CATEGORY,,}",mode="${MODE}",run-ts="${RUN_TS}"
+    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP,,}",mode="${MODE}",run-ts="${RUN_TS}"
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
 echo ""
 echo "Post-backfill manifest rebuild (one per features bucket):"
 echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('features-${SERVICE_SHORT}-${CATEGORY,,}-central-element-323112', \\"
+echo "    rebuild_manifest_from_canonical_paths('features-${SERVICE_SHORT}-${ASSET_GROUP,,}-central-element-323112', \\"
 echo "      service_name='features-${SERVICE_SHORT}-service', prefix='features/by_date')\""

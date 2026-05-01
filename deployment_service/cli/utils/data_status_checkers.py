@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def check_data_types_detailed(
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     config_dir: str,
     output: str = "tree",
@@ -50,17 +50,17 @@ def check_data_types_detailed(
     cloud_client = CloudClient()
     gcs_config = SERVICE_GCS_CONFIGS.get("market-tick-data-handler") or {}
 
-    # Get TRADFI config (only category with detailed data_type config)
+    # Get TRADFI config (only TRADFI asset group has detailed data_type config)
     tradfi_config = venues_config.get("categories") or {}.get("TRADFI") or {}
     venue_data_types = tradfi_config.get("venue_data_types") or {}
     instrument_types_config = venues_config.get("instrument_types") or {}
 
-    # Filter categories (only TRADFI has detailed config for now)
-    categories = list(category) if category else ["TRADFI"]
-    if "TRADFI" not in categories:
+    # Filter asset groups (only TRADFI has detailed config for now)
+    asset_groups = list(asset_group) if asset_group else ["TRADFI"]
+    if "TRADFI" not in asset_groups:
         click.echo(
             click.style(
-                "--check-data-types currently only supports TRADFI category",
+                "--check-data-types currently only supports the TRADFI asset group",
                 fg="yellow",
             )
         )
@@ -99,8 +99,7 @@ def check_data_types_detailed(
 
     # Get bucket for TRADFI
     bucket = gcs_config["bucket_template"].format(
-        category="TRADFI",
-        category_lower="tradfi",
+        asset_group_lower="tradfi",
         project_id=_deployment_config.gcp_project_id,
     )
 
@@ -258,7 +257,7 @@ def check_data_types_detailed(
     if output == "json":
         result = {
             "service": "market-tick-data-handler",
-            "category": "TRADFI",
+            "asset_group": "TRADFI",
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
             "days": len(all_dates),
@@ -325,14 +324,14 @@ def check_feature_groups_detailed(
     service: str,
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     config_dir: str,
     output: str = "tree",
 ):
     """
     Detailed feature_group checking for features-*-service.
 
-    Checks each expected feature_group per category/date based on the
+    Checks each expected feature_group per asset group/date based on the
     sharding config dimensions. Shows completion percentage per feature_group.
 
     Supports output formats: tree, json, summary
@@ -348,13 +347,13 @@ def check_feature_groups_detailed(
 
     # Get expected feature groups from sharding config
     expected_feature_groups = []
-    supported_categories = list(_DATA_MARKET_CATEGORIES)
+    supported_asset_groups = list(_DATA_MARKET_CATEGORIES)
 
     for dim in service_config.get("dimensions") or []:
         if dim["name"] == "feature_group" and dim["type"] == "fixed":
             expected_feature_groups = dim.get("values") or []
-        elif dim["name"] == "category" and dim["type"] == "fixed":
-            supported_categories = dim.get("values") or []
+        elif dim["name"] in ("asset_group", "category") and dim["type"] == "fixed":
+            supported_asset_groups = dim.get("values") or []
 
     # Special handling for features-calendar-service (no feature_group dimension)
     if service == "features-calendar-service":
@@ -364,7 +363,7 @@ def check_feature_groups_detailed(
         click.echo(click.style(f"No feature_group dimension found for {service}", fg="red"))
         return
 
-    # Services with SHARED buckets (no category in bucket name) - only scan once
+    # Services with SHARED buckets (no per-asset-group bucket name) - only scan once
     shared_bucket_services = [
         "features-calendar-service",
         "features-onchain-service",
@@ -372,16 +371,16 @@ def check_feature_groups_detailed(
     ]
     is_shared_bucket = service in shared_bucket_services
 
-    # Filter categories
+    # Filter asset groups
     if is_shared_bucket:
-        # Shared bucket services: only need one "category" to scan (bucket is same for all)
-        categories = ["ALL"]  # Use placeholder since bucket doesn't use category
+        # Shared bucket services: only need one placeholder to scan (bucket is the same for all)
+        asset_groups = ["ALL"]
     else:
-        categories = list(category) if category else supported_categories
-        categories = [c for c in categories if c in supported_categories]
+        asset_groups = list(asset_group) if asset_group else supported_asset_groups
+        asset_groups = [c for c in asset_groups if c in supported_asset_groups]
 
-    if not categories:
-        click.echo(click.style(f"No valid categories for {service}", fg="red"))
+    if not asset_groups:
+        click.echo(click.style(f"No valid asset groups for {service}", fg="red"))
         return
 
     # Generate date list
@@ -404,7 +403,7 @@ def check_feature_groups_detailed(
 
     results_by_category = {}
 
-    for cat in categories:
+    for cat in asset_groups:
         if show_progress:
             click.echo(f"Scanning {cat}...")
 
@@ -412,12 +411,14 @@ def check_feature_groups_detailed(
         bucket_template = gcs_config.get("bucket_template") or ""
 
         try:
-            bucket = bucket_template.format(
-                category=cat,
-                category_lower=cat.lower(),
-                project_id=_deployment_config.gcp_project_id,
-            )
-        except KeyError:
+            fmt_base: dict[str, str] = {
+                "project_id": str(_deployment_config.gcp_project_id),
+            }
+            if "{asset_group_lower}" in bucket_template:
+                ag_l = str(cat).lower() if (cat and cat != "ALL") else "cefi"
+                fmt_base["asset_group_lower"] = ag_l
+            bucket = bucket_template.format(**fmt_base)
+        except (KeyError, TypeError):
             if show_progress:
                 click.echo(
                     click.style(f"  Could not format bucket template for {cat}", fg="yellow")
@@ -514,7 +515,7 @@ def check_feature_groups_detailed(
                 "expected": total_expected,
                 "found": total_found,
             },
-            "categories": stats_by_category,
+            "asset_groups": stats_by_category,
         }
         click.echo(json.dumps(result, indent=2))
         return
@@ -526,7 +527,7 @@ def check_feature_groups_detailed(
     for cat, cat_stats in stats_by_category.items():
         pct = cat_stats["completion_percent"]
 
-        # Category header
+        # Asset group header
         if pct >= 100:
             status = click.style("✅", fg="green")
         elif pct >= 50:
@@ -590,7 +591,7 @@ def check_feature_groups_detailed(
 def check_timeframes_detailed(
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     config_dir: str,
     output: str = "tree",
@@ -598,7 +599,7 @@ def check_timeframes_detailed(
     """
     Detailed timeframe checking for market-data-processing-service.
 
-    Checks each expected timeframe per category/date. Shows completion
+    Checks each expected timeframe per asset group/date. Shows completion
     percentage per timeframe. Expected timeframes: 15s, 1m, 5m, 15m, 1h, 4h, 24h
 
     Supports output formats: tree, json, summary
@@ -616,8 +617,8 @@ def check_timeframes_detailed(
         "expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"]
     )
 
-    # Filter categories
-    categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
+    # Filter asset groups
+    scan_asset_groups = list(asset_group) if asset_group else list(_DATA_MARKET_CATEGORIES)
 
     # Generate date list
     all_dates = []
@@ -642,7 +643,7 @@ def check_timeframes_detailed(
 
     results_by_category = {}
 
-    for cat in categories:
+    for cat in scan_asset_groups:
         if show_progress:
             click.echo(f"Scanning {cat}...")
 
@@ -734,7 +735,7 @@ def check_timeframes_detailed(
                 "expected": total_expected,
                 "found": total_found,
             },
-            "categories": stats_by_category,
+            "asset_groups": stats_by_category,
         }
         click.echo(json.dumps(result, indent=2))
         return
@@ -746,7 +747,7 @@ def check_timeframes_detailed(
     for cat, cat_stats in stats_by_category.items():
         pct = cat_stats["completion_percent"]
 
-        # Category header
+        # Asset group header
         if pct >= 100:
             status = click.style("✅", fg="green")
         elif pct >= 50:

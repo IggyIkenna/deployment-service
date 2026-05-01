@@ -86,16 +86,16 @@ class TestInstrumentTypeExtraction:
                 service="market-tick-data-handler",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                category=["CEFI"],
+                asset_groups=["CEFI"],
                 include_sub_dimensions=True,
                 include_instrument_types=False,
             )
         )
 
         # Verify structure
-        assert "categories" in result
-        assert "CEFI" in result["categories"]
-        cefi = result["categories"]["CEFI"]
+        assert "asset_groups" in result
+        assert "CEFI" in result["asset_groups"]
+        cefi = result["asset_groups"]["CEFI"]
 
         # Should have found data for the market-tick service
         assert cefi["dates_found"] > 0

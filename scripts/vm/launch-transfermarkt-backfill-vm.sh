@@ -22,13 +22,13 @@
 #
 # Invocation inside the VM (assembled by setup-data-pipeline-vm.sh from metadata):
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider TRANSFERMARKT \
 #     --start-date $VM_START_DATE --end-date $VM_END_DATE
 #   (or --lookback-days / --lookahead-days / --force-window for rolling mode)
 #
 # Prerequisites:
-#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS
+#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS
 #   - transfermarkt API key in Secret Manager
 #
 # Usage:
@@ -149,7 +149,7 @@ echo "Launching $VM_NAME: TRANSFERMARKT backfill ${RANGE_DESC} ($ENTITY_DESC)"
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 if $USE_ROLLING; then
   METADATA="${METADATA},VM_LOOKBACK_DAYS=${LOOKBACK}"
   METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"
@@ -160,6 +160,7 @@ else
 fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=TRANSFERMARKT"
 [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
+$FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \

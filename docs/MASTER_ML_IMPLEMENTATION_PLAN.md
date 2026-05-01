@@ -87,7 +87,7 @@ If you have old data with `day-2023-01-01/` format:
 
 ## 2. Service Status Summary
 
-**Audit Date:** February 9, 2026  
+**Audit Date:** February 9, 2026
 **Result:** ✅ All services production-ready with `key=value` format
 
 ### 2.1 instruments-service ✅
@@ -561,7 +561,7 @@ market-tick-data-handler \
 ```bash
 # 3. Generate features (NEW STRUCTURE)
 features-delta-one --mode batch \
-  --category CEFI TRADFI \
+  --asset-group CEFI TRADFI \
   --feature-groups ALL \
   --timeframes ALL \
   --start-date 2020-10-01 --end-date 2021-12-31 \

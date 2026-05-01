@@ -67,7 +67,7 @@ instruments-service
 market-data-processing process --date 2023-05-23 --CEFI --venues BINANCE-FUTURES --dry-run
 
 # Deploy
-python -m deployment_service.cli deploy -s market-data-processing-service -c vm --start-date 2023-05-23 --end-date 2023-05-25 --category CEFI
+python -m deployment_service.cli deploy -s market-data-processing-service -c vm --start-date 2023-05-23 --end-date 2023-05-25 --asset-group CEFI
 
 # Data status
 python -m deployment_service.cli data-status -s market-data-processing-service --start-date 2023-05-23 --end-date 2023-05-25 --check-timeframes
@@ -110,10 +110,10 @@ python -m deployment_service.cli data-status -s market-data-processing-service -
 
 ```bash
 # Local
-python -m features_calendar_service --mode batch --category CEFI --start-date 2024-01-01 --end-date 2024-01-31 --dry-run
+python -m features_calendar_service --mode batch --asset-group CEFI --start-date 2024-01-01 --end-date 2024-01-31 --dry-run
 
 # Deploy
-python -m deployment_service.cli deploy -s features-calendar-service -c vm --start-date 2024-01-01 --end-date 2024-01-31 --category CEFI
+python -m deployment_service.cli deploy -s features-calendar-service -c vm --start-date 2024-01-01 --end-date 2024-01-31 --asset-group CEFI
 
 # Data status
 python -m deployment_service.cli data-status -s features-calendar-service --start-date 2024-01-01 --end-date 2024-01-31 --check-feature-groups

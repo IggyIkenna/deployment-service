@@ -64,7 +64,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
 
     deployment_id: str
     vm_name: str
-    category: str
+    asset_group: str
     task: str
     mode: str
     start_date: str
@@ -82,7 +82,10 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     extras: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), sort_keys=True)
+        row = asdict(self)
+        # Legacy registry rows used ``category``; mirror for GCS readers not yet on ``asset_group``.
+        row["category"] = row["asset_group"]
+        return json.dumps(row, sort_keys=True)
 
     @classmethod
     def from_json(cls, payload: str) -> DeploymentRegistryEntry:
@@ -94,7 +97,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
         return cls(
             deployment_id=str(data["deployment_id"]),
             vm_name=str(data["vm_name"]),
-            category=str(data["category"]),
+            asset_group=str(data.get("asset_group") or data.get("category") or ""),
             task=str(data["task"]),
             mode=str(data["mode"]),
             start_date=str(data["start_date"]),
@@ -149,7 +152,7 @@ class DeploymentsRegistry:
         logger.info(
             "registered deployment %s (%s, %s) in gs://%s/%s",
             entry.deployment_id,
-            entry.category,
+            entry.asset_group,
             entry.mode,
             self._bucket,
             key,

@@ -429,7 +429,7 @@ class SportsTriggerScheduler:
         *,
         service: str,
         operation: str,
-        category: str,
+        asset_group: str,
         start_date: str | None = None,
         end_date: str | None = None,
         extra_args: dict[str, object],
@@ -455,7 +455,7 @@ class SportsTriggerScheduler:
             f"python -m {service.replace('-', '_')}",
             f"--operation {operation}",
             "--mode batch",
-            f"--category {category}",
+            f"--asset-group {asset_group}",
         ]
         if rolling_window is not None:
             lookback, lookahead, force_window = rolling_window
@@ -498,7 +498,7 @@ class SportsTriggerScheduler:
         for svc_config in services:
             service = str(svc_config.get("service", ""))
             operation = str(svc_config.get("operation", ""))
-            category = str(svc_config.get("category", "SPORTS"))
+            ag = str(svc_config.get("asset_group") or svc_config.get("category", "SPORTS"))
             description = str(svc_config.get("description", ""))
             extra_args_raw = svc_config.get("args", {})
             extra_args: dict[str, object] = (
@@ -508,7 +508,7 @@ class SportsTriggerScheduler:
             cmd = self._build_cli_cmd(
                 service=service,
                 operation=operation,
-                category=category,
+                asset_group=ag,
                 start_date=start_date,
                 end_date=end_date,
                 extra_args=extra_args,
@@ -668,7 +668,7 @@ class SportsTriggerScheduler:
         *,
         service: str,
         operation: str,
-        category: str,
+        asset_group: str,
         start_date: str | None = None,
         end_date: str | None = None,
         extra_args: dict[str, object],
@@ -679,7 +679,7 @@ class SportsTriggerScheduler:
         return self._build_cli_cmd(
             service=service,
             operation=operation,
-            category=category,
+            asset_group=asset_group,
             start_date=start_date,
             end_date=end_date,
             extra_args=extra_args,

@@ -1667,7 +1667,7 @@ class TestReportingHandlerDataFlow:
             handler = ReportingHandler(ctx)
             json_lines: list[str] = []
             with patch("click.echo", side_effect=lambda msg="", **kw: json_lines.append(str(msg))):
-                handler.handle_data_flow(category="cefi", output="json")
+                handler.handle_data_flow(asset_group="cefi", output="json")
 
         json_str = next((line for line in json_lines if line.strip().startswith("{")), None)
         assert json_str is not None

@@ -201,7 +201,7 @@ def sample_service_config():
         "description": "Test service for unit tests",
         "dimensions": [
             {
-                "name": "category",
+                "name": "asset_group",
                 "type": "fixed",
                 "values": ["CEFI", "TRADFI", "DEFI"],
             },
@@ -212,7 +212,7 @@ def sample_service_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "asset_group": "--asset-group",
             "start_date": "--start-date",
             "end_date": "--end-date",
         },
@@ -240,14 +240,14 @@ def hierarchical_service_config():
         "description": "Test hierarchical dimensions",
         "dimensions": [
             {
-                "name": "category",
+                "name": "asset_group",
                 "type": "fixed",
                 "values": ["CEFI", "TRADFI"],
             },
             {
                 "name": "venue",
                 "type": "hierarchical",
-                "parent": "category",
+                "parent": "asset_group",
             },
             {
                 "name": "date",
@@ -256,7 +256,7 @@ def hierarchical_service_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "asset_group": "--asset-group",
             "venue": "--venue",
             "start_date": "--start-date",
             "end_date": "--end-date",

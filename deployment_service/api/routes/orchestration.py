@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 
 from deployment_service.deployment_config import DeploymentConfig
 from deployment_service.orchestrator import T1Orchestrator
@@ -61,7 +61,7 @@ class ClusterSummary(
 ):  # CORRECT-LOCAL — FastAPI response body, not a domain contract
     name: str
     description: str
-    category: str
+    asset_group: str
     service_count: int
 
 
@@ -96,7 +96,10 @@ class BatchRunRequest(
     cluster: str
     as_of_date: str
     service: str | None = None
-    category: str | None = None
+    asset_group: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("asset_group", "category"),
+    )
 
 
 class BatchResultResponse(
@@ -179,7 +182,7 @@ async def list_clusters() -> list[ClusterSummary]:
                 ClusterSummary(
                     name=str(cfg.get("cluster", name)),
                     description=str(cfg.get("description", "")),
-                    category=str(cfg.get("category", "")),
+                    asset_group=str(cfg.get("asset_group") or cfg.get("category", "")),
                     service_count=len(service_list),
                 )
             )
@@ -289,7 +292,7 @@ async def run_batch(request: BatchRunRequest) -> BatchResultResponse:
     """Run a thermal batch pipeline."""
     # Validate cluster exists
     cfg = _load_cluster_config(request.cluster)
-    category = request.category or str(cfg.get("category", "ALL"))
+    ag = request.asset_group or str(cfg.get("asset_group") or cfg.get("category", "ALL"))
 
     services_filter: list[str] | None = None
     if request.service is not None:
@@ -304,7 +307,7 @@ async def run_batch(request: BatchRunRequest) -> BatchResultResponse:
         )
         plan = orchestrator.create_daily_plan(
             target_date=request.as_of_date,
-            category=category,
+            asset_group=ag,
             services=services_filter,
         )
 

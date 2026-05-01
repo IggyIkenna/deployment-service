@@ -45,7 +45,7 @@ python -m deployment_service.cli deploy \
   -c <compute: cloud_run|vm> \
   --start-date <YYYY-MM-DD> \
   --end-date <YYYY-MM-DD> \
-  --category <CEFI|TRADFI|DEFI> \
+  --asset-group <CEFI|TRADFI|DEFI> \
   --venue <venue> \
   --force \
   --log-level <DEBUG|INFO|WARNING|ERROR> \
@@ -62,20 +62,20 @@ python -m deployment_service.cli status <deployment-id> --summary
 # Cancel deployments (with filters)
 python -m deployment_service.cli cancel <deployment-id>
 python -m deployment_service.cli cancel --service <service> --all
-python -m deployment_service.cli cancel --service <service> --category CEFI --all
+python -m deployment_service.cli cancel --service <service> --asset-group CEFI --all
 python -m deployment_service.cli cancel --service <service> --status running --all
 
 # List recent deployments (with filters)
 python -m deployment_service.cli list --service <service> --limit <N>
 python -m deployment_service.cli list --status running
-python -m deployment_service.cli list --category CEFI --since 2024-01-15
+python -m deployment_service.cli list --asset-group CEFI --since 2024-01-15
 
 # Resume failed deployment
 python -m deployment_service.cli resume <deployment-id>
 
 # Retry only failed shards (more targeted than resume)
 python -m deployment_service.cli retry-failed <deployment-id>
-python -m deployment_service.cli retry-failed <deployment-id> --category CEFI
+python -m deployment_service.cli retry-failed <deployment-id> --asset-group CEFI
 python -m deployment_service.cli retry-failed <deployment-id> --dry-run
 
 # View logs (with streaming support)
@@ -122,13 +122,13 @@ These args have been added to support UI functionality:
 | Arg | Description |
 |-----|-------------|
 | `--status` | Filter by status: running, completed, failed, pending, cancelled |
-| `--category` | Filter by category: CEFI, TRADFI, DEFI |
+| `--asset-group` | Filter by category: CEFI, TRADFI, DEFI |
 | `--since` | Show deployments since date/time |
 
 **Cancel command:**
 | Arg | Description |
 |-----|-------------|
-| `--category` | Only cancel deployments for this category |
+| `--asset-group` | Only cancel deployments for this category |
 | `--status` | Only cancel deployments with this status (running, pending) |
 
 **Logs command:**
@@ -141,7 +141,7 @@ These args have been added to support UI functionality:
 **New command: `retry-failed`**
 
 ```bash
-retry-failed <deployment-id> [--category CEFI] [--dry-run]
+retry-failed <deployment-id> [--asset-group CEFI] [--dry-run]
 ```
 
 More targeted than `resume` - only retries failed shards.
@@ -411,7 +411,7 @@ IDs are flat in storage, but displayed in a **nested, expandable tree view** in 
 ▼ instruments-service-20260130-143022-a1b2c3 (2192 shards)
   │ Tag: "Fixed Curve adapter"
   │ Status: Running (45%)
-  │ CLI Args: --category CEFI,TRADFI,DEFI --start-date 2024-01-01 --end-date 2024-12-31
+  │ CLI Args: --asset-group CEFI,TRADFI,DEFI --start-date 2024-01-01 --end-date 2024-12-31
   │ Image: asia-northeast1-docker.pkg.dev/.../instruments-service:abc123
   │
   ├─▼ CEFI (850 shards)
@@ -589,15 +589,15 @@ Each deployment should display the Docker image and code version information:
 
 ### Display Fields per Individual Shard
 
-| Field      | Description                       | Example                                                                              |
-| ---------- | --------------------------------- | ------------------------------------------------------------------------------------ |
-| Shard ID   | Human-readable ID with dimensions | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4`                                              |
-| Dimensions | All dimension values displayed    | Category: CEFI, Venue: BINANCE-SPOT, Date: 2024-01-15                                |
-| CLI Args   | Full command args for this shard  | `--category CEFI --venue BINANCE-SPOT --start-date 2024-01-15 --end-date 2024-01-15` |
-| Status     | Job status with progress          | `Pending`, `Building`, `Running (45%)`, `Completed`, `Failed`                        |
-| Duration   | How long job took/is taking       | `5m 32s`                                                                             |
-| Started At | When job started                  | `14:32:15`                                                                           |
-| Ended At   | When job finished                 | `14:37:47`                                                                           |
+| Field      | Description                       | Example                                                                                 |
+| ---------- | --------------------------------- | --------------------------------------------------------------------------------------- |
+| Shard ID   | Human-readable ID with dimensions | `CEFI-BINANCE-SPOT-2024-01-15-a1b2c3d4`                                                 |
+| Dimensions | All dimension values displayed    | Category: CEFI, Venue: BINANCE-SPOT, Date: 2024-01-15                                   |
+| CLI Args   | Full command args for this shard  | `--asset-group CEFI --venue BINANCE-SPOT --start-date 2024-01-15 --end-date 2024-01-15` |
+| Status     | Job status with progress          | `Pending`, `Building`, `Running (45%)`, `Completed`, `Failed`                           |
+| Duration   | How long job took/is taking       | `5m 32s`                                                                                |
+| Started At | When job started                  | `14:32:15`                                                                              |
+| Ended At   | When job finished                 | `14:37:47`                                                                              |
 
 **Note:** Cloud Job ID (GCP/AWS internal ID) is stored internally but **NOT displayed to users**. See Section 5.5 for ID abstraction rules.
 
@@ -618,7 +618,7 @@ For weekly or monthly sharding, show the date range in the UI:
 ```
 CEFI-2024-W03-a1b2c3d4
 ├── Date Range: Jan 15-21, 2024
-├── CLI Args: --category CEFI --start-date 2024-01-15 --end-date 2024-01-21
+├── CLI Args: --asset-group CEFI --start-date 2024-01-15 --end-date 2024-01-21
 └── Status: Running (2m 15s)
 ```
 
@@ -634,7 +634,7 @@ CEFI-2024-W03-a1b2c3d4
 │   Date: 2024-01-15                                                          │
 │                                                                             │
 │ CLI Args:                                                                   │
-│   --category CEFI --venue BINANCE-SPOT --start-date 2024-01-15              │
+│   --asset-group CEFI --venue BINANCE-SPOT --start-date 2024-01-15              │
 │   --end-date 2024-01-15 --force                                             │
 │                                                                             │
 │ Started: 14:32:15 UTC                                                       │
@@ -784,7 +784,7 @@ python -m deployment_service.cli cancel instruments-service-20260130-143022-a1b2
 python -m deployment_service.cli cancel --service instruments-service --all
 
 # Stop by category within a deployment
-python -m deployment_service.cli cancel instruments-service-20260130-143022-a1b2c3 --category CEFI
+python -m deployment_service.cli cancel instruments-service-20260130-143022-a1b2c3 --asset-group CEFI
 ```
 
 ### Confirmation Dialog
@@ -1092,7 +1092,7 @@ Show expected vs actual data coverage per service/category/venue. Answers the qu
 ### CLI Mapping
 
 ```bash
-python deploy.py data-status --service market-tick-data-handler --category CEFI
+python deploy.py data-status --service market-tick-data-handler --asset-group CEFI
 ```
 
 ### UI Location
@@ -1903,7 +1903,7 @@ Before UI is complete, verify all items above are ✅ DONE.
   "region": "asia-northeast1",
   "zone": "asia-northeast1-b",
   "created_at": "2026-01-30T14:30:22Z",
-  "cli_args": "--category CEFI,TRADFI,DEFI --start-date 2024-01-01 --end-date 2024-12-31 --force",
+  "cli_args": "--asset-group CEFI,TRADFI,DEFI --start-date 2024-01-01 --end-date 2024-12-31 --force",
   "image": {
     "full_path": "asia-northeast1-docker.pkg.dev/test-project/instruments-service/instruments-service:a1b2c3d4",
     "tag": "a1b2c3d4",
@@ -1926,7 +1926,7 @@ Before UI is complete, verify all items above are ✅ DONE.
         "category": "CEFI",
         "date": "2024-01-15"
       },
-      "cli_args": "--category CEFI --start-date 2024-01-15 --end-date 2024-01-15",
+      "cli_args": "--asset-group CEFI --start-date 2024-01-15 --end-date 2024-01-15",
       "internal_job_id": "projects/xxx/locations/xxx/jobs/xxx/executions/xxx",
       "status": "completed",
       "started_at": "2026-01-30T14:32:15Z",
@@ -2089,7 +2089,7 @@ $ python deploy.py rerun-command instruments-service-20260130-143022-a1b2c3 --fa
 python -m deployment_service.cli deploy \
   --service instruments-service \
   --compute vm \
-  --category DEFI \
+  --asset-group DEFI \
   --start-date 2024-01-18 \
   --end-date 2024-01-18 \
   --force
@@ -2098,7 +2098,7 @@ python -m deployment_service.cli deploy \
 python -m deployment_service.cli deploy \
   --service instruments-service \
   --compute vm \
-  --category DEFI \
+  --asset-group DEFI \
   --start-date 2024-01-19 \
   --end-date 2024-01-19 \
   --force

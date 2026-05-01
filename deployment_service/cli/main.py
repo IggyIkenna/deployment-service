@@ -5,7 +5,7 @@ Usage:
     python -m src.cli calculate --service instruments-service
         --start-date 2024-01-01 --end-date 2024-12-31
     python -m src.cli calculate --service market-tick-data-handler
-        --category CEFI --max-shards 100
+        --asset-group CEFI --max-shards 100
 """
 
 import logging
@@ -169,7 +169,7 @@ def main_service_cli() -> None:  # pragma: no cover
         operations={"deploy": _DeployBootstrapHandler},
         config=DeploymentConfig(),
         add_date_args=False,
-        add_category_arg=False,
+        add_asset_group_arg=False,
         description="Unified Trading deployment shard calculator and cluster manager",
     ).run()
 

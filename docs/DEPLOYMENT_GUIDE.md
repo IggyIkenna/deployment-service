@@ -37,7 +37,7 @@ For the **tarball VM pattern** (every `launch-*.sh` in `scripts/vm/` uses this),
 **Refresh tarballs after every code change** with `bash scripts/vm/create-code-tarballs.sh <flag>`:
 
 - `--all` — safest for any multi-repo feature
-- `--category SPORTS|CEFI|TRADFI|DEFI|PREDICTION` — scopes to a category's pipeline
+- `--asset-group SPORTS|CEFI|TRADFI|DEFI|PREDICTION` — scopes to a category's pipeline
 - `--include <repo>` — one-off addition
 - bare invocation only re-tars CORE (UAC/UTL/MTDS/deployment-service)
 

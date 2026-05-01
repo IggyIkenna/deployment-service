@@ -49,12 +49,12 @@ bash scripts/vm/create-code-tarballs.sh --all
 
 # Category-scoped — CORE + every repo in the category's pipeline
 # Categories: CEFI, TRADFI, DEFI, SPORTS, PREDICTION
-bash scripts/vm/create-code-tarballs.sh --category SPORTS
-bash scripts/vm/create-code-tarballs.sh --category PREDICTION
-bash scripts/vm/create-code-tarballs.sh --category DEFI
+bash scripts/vm/create-code-tarballs.sh --asset-group SPORTS
+bash scripts/vm/create-code-tarballs.sh --asset-group PREDICTION
+bash scripts/vm/create-code-tarballs.sh --asset-group DEFI
 
 # Combine category with one-off additions
-bash scripts/vm/create-code-tarballs.sh --category SPORTS --include features-calendar-service
+bash scripts/vm/create-code-tarballs.sh --asset-group SPORTS --include features-calendar-service
 
 # Add specific repos on top of CORE without a category
 bash scripts/vm/create-code-tarballs.sh --include instruments-service --include features-sports-service
@@ -117,7 +117,7 @@ gcloud compute ssh my-vm --zone=asia-northeast1-b --command="sudo bash /tmp/setu
 gcloud compute ssh my-vm --zone=asia-northeast1-b --command="
   export GCP_PROJECT_ID=central-element-323112 CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false
   nohup /home/ikennaigboaka/venv/bin/python -m market_tick_data_service \
-    --operation download --mode batch --category CEFI \
+    --operation download --mode batch --asset-group CEFI \
     --venues DERIBIT --start-date 2020-01-01 --end-date 2020-12-31 \
     > /home/ikennaigboaka/logs/backfill.log 2>&1 &
 "
@@ -195,6 +195,6 @@ The deployment-UI "VM Instance" tab should offer:
 - **Must use Python 3.13** — UAC requires >=3.13, Ubuntu 24.04 ships 3.12
 - **Must use full venv path** — `nohup python` fails, must use `nohup /home/.../venv/bin/python`
 - **build-essential required** — C extensions (ckzg, lru-dict for web3/UTL) fail without it
-- **Tarballs must be refreshed** — After code changes, re-run `create-code-tarballs.sh`. **Pick the right scope flag**: bare invocation re-tars only CORE (UAC/UTL/MTDS/deployment-service); use `--all` for any multi-repo feature, or `--category SPORTS|CEFI|TRADFI|DEFI|PREDICTION` to scope tighter. Forgetting the flag means stale code runs on VMs with no error signal.
+- **Tarballs must be refreshed** — After code changes, re-run `create-code-tarballs.sh`. **Pick the right scope flag**: bare invocation re-tars only CORE (UAC/UTL/MTDS/deployment-service); use `--all` for any multi-repo feature, or `--asset-group SPORTS|CEFI|TRADFI|DEFI|PREDICTION` to scope tighter. Forgetting the flag means stale code runs on VMs with no error signal.
 - **Same region as GCS** — Use asia-northeast1 for fast I/O with data buckets
 - **cloud-platform scope** — Required for GCS + Secret Manager access

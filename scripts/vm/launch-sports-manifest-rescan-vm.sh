@@ -27,7 +27,7 @@
 #        Run exactly once after all workers finish.
 #
 # Prerequisites:
-#   - Tarballs refreshed: ``bash create-code-tarballs.sh --category SPORTS``
+#   - Tarballs refreshed: ``bash create-code-tarballs.sh --asset-group SPORTS``
 #     (need UAC + instruments-service tarballs at least).
 #   - ADC available on the VM — no external API calls, just GCS reads/writes.
 #

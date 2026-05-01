@@ -108,7 +108,7 @@ def run_t1_check(
         if manifest_available:
             result = reader.get_completion(
                 service=svc,
-                category="",
+                asset_group="",
                 start_date=yesterday,
                 end_date=yesterday,
             )
@@ -310,13 +310,13 @@ def _format_staleness(seconds: float) -> str:
 
 def run_live_freshness_check(
     service: str,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     config_dir: str,
     output: str,
 ) -> None:
     """Report freshness (staleness) for live-mode data partitions.
 
-    For each category, scans the ``live/`` prefix in the service bucket and
+    For each asset group, scans the ``live/`` prefix in the service bucket and
     finds the newest blob timestamp.  Reports staleness = now - last_write.
     Flags stale entries based on domain-specific thresholds.
     """
@@ -332,7 +332,9 @@ def run_live_freshness_check(
         )
         raise SystemExit(1)
 
-    categories_to_check = list(category) if category else ["cefi", "defi", "tradfi", "sports"]
+    asset_groups_to_check = (
+        list(asset_group) if asset_group else ["cefi", "defi", "tradfi", "sports"]
+    )
     now = datetime.now(tz=UTC)
 
     click.echo()
@@ -347,10 +349,10 @@ def run_live_freshness_check(
 
     results: list[dict[str, object]] = []
 
-    for cat in categories_to_check:
+    for cat in asset_groups_to_check:
         cat_lower = cat.lower().replace("_", "-")
         bucket_name = bucket_template.format(
-            category_lower=cat_lower,
+            asset_group_lower=cat_lower,
             project_id=project_id,
             domain=cat_lower,
         )
@@ -382,6 +384,7 @@ def run_live_freshness_check(
 
         results.append(
             {
+                "asset_group": cat,
                 "category": cat,
                 "bucket": bucket_name,
                 "blob_count": blob_count,
@@ -395,7 +398,12 @@ def run_live_freshness_check(
     if output == "json":
         click.echo(
             json.dumps(
-                {"service": service, "checked_at": now.isoformat(), "categories": results},
+                {
+                    "service": service,
+                    "checked_at": now.isoformat(),
+                    "categories": results,
+                    "asset_groups": results,
+                },
                 indent=2,
                 default=str,
             )
@@ -403,7 +411,7 @@ def run_live_freshness_check(
         return
 
     click.echo()
-    click.echo(f"{'Category':<15} {'Blobs':<8} {'Last Write':<22} {'Staleness':<12} {'Status'}")
+    click.echo(f"{'Asset group':<15} {'Blobs':<8} {'Last Write':<22} {'Staleness':<12} {'Status'}")
     click.echo("-" * 80)
 
     stale_count = 0
@@ -421,7 +429,7 @@ def run_live_freshness_check(
             status = click.style("FRESH", fg="green")
 
         click.echo(
-            f"{str(r['category']):<15} {str(r['blob_count']):<8} "
+            f"{str(r['asset_group']):<15} {str(r['blob_count']):<8} "
             f"{last_write_str:<22} {staleness_display:<12} {status}"
         )
 
@@ -429,10 +437,10 @@ def run_live_freshness_check(
     if stale_count > 0:
         click.echo(
             click.style(
-                f"WARNING: {stale_count}/{len(results)} categories are stale or have no data",
+                f"WARNING: {stale_count}/{len(results)} asset groups are stale or have no data",
                 fg="red",
                 bold=True,
             )
         )
     else:
-        click.echo(click.style("All categories are fresh.", fg="green"))
+        click.echo(click.style("All asset groups are fresh.", fg="green"))

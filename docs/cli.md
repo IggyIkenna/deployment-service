@@ -22,8 +22,8 @@ All three invoke the same CLI.
 
 ```bash
 deploy-shards list-services
-deploy-shards calculate market-tick-data-handler --start-date 2025-01-01 --end-date 2025-01-07 --category CEFI
-python deploy.py deploy -s market-tick-data-handler -c cloud_run --start-date 2025-01-01 --end-date 2025-01-07 --category CEFI --dry-run
+deploy-shards calculate market-tick-data-handler --start-date 2025-01-01 --end-date 2025-01-07 --asset-group CEFI
+python deploy.py deploy -s market-tick-data-handler -c cloud_run --start-date 2025-01-01 --end-date 2025-01-07 --asset-group CEFI --dry-run
 python deploy.py status <deployment-id>
 ```
 
@@ -37,7 +37,7 @@ python deploy.py deploy -s SERVICE -c cloud_run|vm --start-date YYYY-MM-DD --end
 
 | Option             | Description                                                               |
 | ------------------ | ------------------------------------------------------------------------- |
-| `--category`       | CEFI, TRADFI, DEFI                                                        |
+| `--asset-group`    | CEFI, TRADFI, DEFI                                                        |
 | `--venue`          | Filter venues                                                             |
 | `--force`          | Overwrite existing GCS data                                               |
 | `--dry-run`        | Preview only                                                              |
@@ -117,7 +117,7 @@ deploy-shards venues
 python -m deployment_service.cli catalog -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
 python -m deployment_service.cli catalog-all --start-date 2024-01-01 --end-date 2024-01-31 -o catalog.json
 python -m deployment_service.cli data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
-python -m deployment_service.cli check-deps -s ml-training-service -d 2024-01-15 --category CEFI
+python -m deployment_service.cli check-deps -s ml-training-service -d 2024-01-15 --asset-group CEFI
 ```
 
 ### Data Source Toggle

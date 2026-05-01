@@ -323,7 +323,8 @@ class MaintenanceHandler:
                 if bucket_key in config:
                     bucket_configs[bucket_key] = {
                         "name": config[bucket_key],
-                        "type": "category",
+                        "type": "asset_group",
+                        "asset_group": category,
                         "category": category,
                     }
 

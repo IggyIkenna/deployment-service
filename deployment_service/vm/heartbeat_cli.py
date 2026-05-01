@@ -5,14 +5,14 @@ All generic lifecycle plumbing (daemon loop, counter parsing, GCS uploader,
 signal-file protocol) lives in ``unified_trading_library.lifecycle``. This
 module owns only:
 
-  - VM-specific CLI arg shape (--id/--name/--category/--task/--mode/
+  - VM-specific CLI arg shape (--id/--name/--asset-group/--task/--mode/
     --start-date/--end-date/--log-uri/--local-log/--exit-status-file/
     --stall-breadcrumb/--watchdog-file/--heartbeat-interval-sec/
     --upload-interval-sec/--bucket)
   - ``_RegistryAdapter`` translating the generic ``HeartbeatStore`` protocol
     to ``deployment_service.deployments_registry.DeploymentsRegistry``
   - Event-payload builder preserving the VM deployment wire format
-    (deployment_id / vm_name / category / task / mode / start_date /
+    (deployment_id / vm_name / asset_group / task / mode / start_date /
     end_date / status / row counters / exit_code / log_uri)
 
 Invoked by ``scripts/vm/vm-exec-with-gcs-tee.sh`` on every VM. Signature is
@@ -64,7 +64,7 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
     return DeploymentRegistryEntry(
         deployment_id=entry.deployment_id,
         vm_name=str(md.get("vm_name", entry.service_name)),
-        category=str(md.get("category", "")),
+        asset_group=str(md.get("asset_group") or md.get("category", "")),
         task=str(md.get("task", "")),
         mode=str(md.get("mode", "")),
         start_date=str(md.get("start_date", "")),
@@ -99,7 +99,7 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
         },
         metadata={
             "vm_name": reg.vm_name,
-            "category": reg.category,
+            "asset_group": reg.asset_group,
             "task": reg.task,
             "mode": reg.mode,
             "start_date": reg.start_date,
@@ -142,7 +142,7 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
     return {
         "deployment_id": entry.deployment_id,
         "vm_name": md.get("vm_name", entry.service_name),
-        "category": md.get("category", ""),
+        "asset_group": md.get("asset_group") or md.get("category", ""),
         "task": md.get("task", ""),
         "mode": md.get("mode", ""),
         "start_date": md.get("start_date", ""),
@@ -187,7 +187,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="VM deployment heartbeat + uploader daemon")
     p.add_argument("--id", required=True, help="Deployment UUID")
     p.add_argument("--name", required=True, help="VM name")
-    p.add_argument("--category", required=True)
+    p.add_argument("--asset-group", required=True)
     p.add_argument("--task", required=True)
     p.add_argument(
         "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]
@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
 
     deployment_id = _s("id")
     vm_name = _s("name")
-    category = _s("category")
+    asset_group = _s("asset_group")
     task = _s("task")
     mode = _s("mode")
     start_date = _s("start_date")
@@ -272,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         last_heartbeat_at="",
         metadata={
             "vm_name": vm_name,
-            "category": category,
+            "asset_group": asset_group,
             "task": task,
             "mode": mode,
             "start_date": start_date,

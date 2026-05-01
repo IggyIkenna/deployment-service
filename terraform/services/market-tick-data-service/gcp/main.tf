@@ -54,7 +54,7 @@ main:
                     - "fetch"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - $${category}
                     - "--start-date"
                     - $${t_plus_1_date}
@@ -136,7 +136,7 @@ main:
     # Build optional args that apply to all jobs
     - build_optional_args:
         assign:
-          - cat_args: $${if(len(categories) > 0, list.concat(["--category"], categories), [])}
+          - cat_args: $${if(len(categories) > 0, list.concat(["--asset-group"], categories), [])}
           - venue_args: $${if(len(venues) > 0, list.concat(["--venues"], venues), [])}
           - type_args: $${if(len(instrument_types) > 0, list.concat(["--instrument-types"], instrument_types), [])}
           - data_args: $${if(len(data_types) > 0, list.concat(["--data-types"], data_types), [])}

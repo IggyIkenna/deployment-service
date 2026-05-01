@@ -19,7 +19,7 @@
 # causing disk-pressure OOMs on long ranges).
 set -euo pipefail
 
-CATEGORY="${1:-}"
+ASSET_GROUP="${1:-}"
 START_DATE="${2:-}"
 END_DATE="${3:-}"
 MODE="${4:-dry}"  # dry | full
@@ -28,7 +28,7 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 
-if [[ -z "$CATEGORY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
+if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 <cefi|tradfi|defi|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
@@ -57,7 +57,7 @@ _launch() {
     local md="VM_TASK=canonical-migration"
     md="${md},VM_SERVICE=market_tick_data_service"
     md="${md},VM_OPERATION=migrate-${cat}"
-    md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    md="${md},VM_ASSET_GROUP=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_MIGRATION_CMD=${cmd}"
@@ -77,15 +77,15 @@ _launch() {
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
 
-case "$CATEGORY" in
-    cefi|tradfi|defi|prediction) _launch "$CATEGORY" ;;
+case "$ASSET_GROUP" in
+    cefi|tradfi|defi|prediction) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
         _launch defi
         _launch prediction
         ;;
-    *) echo "Unknown category: $CATEGORY"; exit 2 ;;
+    *) echo "Unknown category: $ASSET_GROUP"; exit 2 ;;
 esac
 
 echo ""

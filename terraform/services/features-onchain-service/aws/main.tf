@@ -51,7 +51,7 @@ locals {
           ContainerOverrides = {
             Command = [
               "--operation", "compute", "--mode", "batch",
-              "--category", "DEFI",
+              "--asset-group", "DEFI",
               "--feature-group", "all",
               "--start-date.$", "$.dateInfo.t_plus_1_date",
               "--end-date.$", "$.dateInfo.t_plus_1_date"

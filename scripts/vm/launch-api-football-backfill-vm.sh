@@ -26,20 +26,20 @@
 # Invocation inside the VM (assembled by setup-data-pipeline-vm.sh from metadata):
 #   # Rolling mode:
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider API_FOOTBALL \
 #     --lookback-days $VM_LOOKBACK_DAYS --lookahead-days $VM_LOOKAHEAD_DAYS \
 #     [--force-window]
 #
 #   # Explicit-date mode:
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider API_FOOTBALL \
 #     --start-date $VM_START_DATE --end-date $VM_END_DATE
 #
 # Prerequisites:
 #   - Tarballs refreshed:
-#       bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS
+#       bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS
 #   - api-football-api-key in Secret Manager
 #
 # Usage:
@@ -178,7 +178,7 @@ echo "Launching $VM_NAME: API_FOOTBALL backfill ${RANGE_DESC} ($ENTITY_DESC)"
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 if $USE_ROLLING; then
   METADATA="${METADATA},VM_LOOKBACK_DAYS=${LOOKBACK}"
   METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"
@@ -189,6 +189,7 @@ else
 fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
+$FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \

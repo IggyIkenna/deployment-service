@@ -53,11 +53,11 @@ main:
                     - "attribute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
-                    - "--category"
+                    - "--asset-group"
                     - "TRADFI"
-                    - "--category"
+                    - "--asset-group"
                     - "DEFI"
                     - "--date"
                     - $${t_plus_1_date}
@@ -122,7 +122,7 @@ main:
           steps:
             - append_cat:
                 assign:
-                  - base_args: $${list.concat(base_args, ["--category", cat])}
+                  - base_args: $${list.concat(base_args, ["--asset-group", cat])}
 
     - run_backfill:
         call: http.post

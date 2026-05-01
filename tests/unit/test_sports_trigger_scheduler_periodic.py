@@ -111,7 +111,7 @@ def test_build_cli_cmd_per_fixture(scheduler: SportsTriggerScheduler) -> None:
     cmd = scheduler._build_cli_cmd(
         service="instruments-service",
         operation="instruments",
-        category="SPORTS",
+        asset_group="SPORTS",
         start_date="2026-04-21",
         end_date="2026-04-21",
         extra_args={"--sports-entity": "LINEUPS"},
@@ -120,7 +120,7 @@ def test_build_cli_cmd_per_fixture(scheduler: SportsTriggerScheduler) -> None:
     assert cmd.startswith("python -m instruments_service")
     assert "--operation instruments" in cmd
     assert "--mode batch" in cmd
-    assert "--category SPORTS" in cmd
+    assert "--asset-group SPORTS" in cmd
     assert "--start-date 2026-04-21" in cmd
     assert "--end-date 2026-04-21" in cmd
     assert "--run-tag live" in cmd
@@ -138,7 +138,7 @@ def test_build_cli_cmd_rolling_window_emits_raw_flags(scheduler: SportsTriggerSc
     cmd = scheduler._build_cli_cmd(
         service="instruments-service",
         operation="instruments",
-        category="SPORTS",
+        asset_group="SPORTS",
         extra_args={"--sports-entity": "FIXTURES"},
         rolling_window=(1, 7, True),
     )
@@ -155,7 +155,7 @@ def test_build_cli_cmd_rolling_window_without_force(scheduler: SportsTriggerSche
     cmd = scheduler._build_cli_cmd(
         service="instruments-service",
         operation="instruments",
-        category="SPORTS",
+        asset_group="SPORTS",
         extra_args={},
         rolling_window=(2, 14, False),
     )

@@ -209,7 +209,7 @@ async def get_data_status(
     check_data_types: bool = False,
     check_feature_groups: bool = False,
     check_timeframes: bool = False,
-    categories: list[str] | None = None,
+    asset_groups: list[str] | None = None,
     venues: list[str] | None = None,
 ) -> dict[str, object]:
     """Query data status for a service."""
@@ -529,7 +529,7 @@ async def get_live_health(
 @router.get("/data-coverage-summary")
 async def get_data_coverage_summary(
     service: str = "instruments-service",
-    categories: str | None = None,
+    asset_groups: str | None = None,
 ) -> dict[str, object]:
     """Return instrument coverage summary for the deployment UI.
 
@@ -538,14 +538,14 @@ async def get_data_coverage_summary(
 
     Query params:
         service: service name (default: instruments-service)
-        categories: comma-separated category list (default: CEFI,TRADFI,DEFI,SPORTS)
+        asset_groups: comma-separated asset group list (e.g. CEFI,TRADFI,DEFI,SPORTS)
     """
     try:
         from deployment_service.cli.utils.manifest_reader import ManifestReader
 
         reader = ManifestReader()
-        cat_list = [c.strip().upper() for c in categories.split(",")] if categories else None
-        return reader.get_coverage_summary(service=service, categories=cat_list)
+        ag_list = [c.strip().upper() for c in asset_groups.split(",")] if asset_groups else None
+        return reader.get_coverage_summary(service=service, asset_groups=ag_list)
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_data_coverage_summary failed for %s: %s", service, e)
         raise HTTPException(status_code=500, detail=str(e)) from e

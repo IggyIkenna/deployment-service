@@ -7,14 +7,14 @@
 #
 # Usage:
 #   bash scripts/vm/launch-strategy-test-vm.sh \
-#     --category CEFI \
+#     --asset-group CEFI \
 #     --strategy CEFI_MOMENTUM_BTC_5M \
 #     --start-date 2026-04-01 \
 #     --end-date 2026-04-07 \
 #     --mode batch
 #
 #   bash scripts/vm/launch-strategy-test-vm.sh \
-#     --category DEFI \
+#     --asset-group DEFI \
 #     --strategy DEFI_ARB_ETH_1M \
 #     --start-date 2026-04-01 \
 #     --end-date 2026-04-07 \
@@ -37,7 +37,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$REPO_ROOT/.." && pwd)}"
 
 # Defaults
-CATEGORY=""
+ASSET_GROUP=""
 STRATEGY=""
 START_DATE=""
 END_DATE=""
@@ -52,10 +52,10 @@ VM_NAME=""
 SKIP_TARBALLS=false
 
 usage() {
-    echo "Usage: $0 --category <CAT> --strategy <ID> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [options]"
+    echo "Usage: $0 --asset-group <CAT> --strategy <ID> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [options]"
     echo ""
     echo "Required:"
-    echo "  --category <CAT>        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
+    echo "  --asset-group <CAT>        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
     echo "  --strategy <ID>         Strategy ID (e.g. CEFI_MOMENTUM_BTC_5M)"
     echo "  --start-date YYYY-MM-DD Backtest start date"
     echo "  --end-date YYYY-MM-DD   Backtest end date"
@@ -74,7 +74,7 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --category)     CATEGORY="${2^^}"; shift 2 ;;
+        --asset-group)     ASSET_GROUP="${2^^}"; shift 2 ;;
         --strategy)     STRATEGY="$2"; shift 2 ;;
         --start-date)   START_DATE="$2"; shift 2 ;;
         --end-date)     END_DATE="$2"; shift 2 ;;
@@ -92,15 +92,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate required args
-if [[ -z "$CATEGORY" || -z "$STRATEGY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "ERROR: --category, --strategy, --start-date, and --end-date are required."
+if [[ -z "$ASSET_GROUP" || -z "$STRATEGY" || -z "$START_DATE" || -z "$END_DATE" ]]; then
+    echo "ERROR: --asset-group, --strategy, --start-date, and --end-date are required."
     usage
 fi
 
 # Validate category
-case "$CATEGORY" in
+case "$ASSET_GROUP" in
     CEFI|TRADFI|DEFI|SPORTS|PREDICTION) ;;
-    *) echo "ERROR: Unknown category: $CATEGORY"; usage ;;
+    *) echo "ERROR: Unknown category: $ASSET_GROUP"; usage ;;
 esac
 
 # Generate VM name if not provided
@@ -118,7 +118,7 @@ log() { echo "$(date '+%H:%M:%S') $*"; }
 log "=========================================="
 log "Strategy Test VM Launcher"
 log "=========================================="
-log "Category:    ${CATEGORY}"
+log "Category:    ${ASSET_GROUP}"
 log "Strategy:    ${STRATEGY}"
 log "Date range:  ${START_DATE} -> ${END_DATE}"
 log "Mode:        ${MODE}"
@@ -132,8 +132,8 @@ log ""
 
 # ── Step 1: Create and upload code tarballs ──
 if ! $SKIP_TARBALLS; then
-    log "Step 1: Creating code tarballs for category ${CATEGORY}..."
-    TARBALL_ARGS="--category ${CATEGORY} --bucket ${BUCKET}"
+    log "Step 1: Creating code tarballs for category ${ASSET_GROUP}..."
+    TARBALL_ARGS="--asset-group ${ASSET_GROUP} --bucket ${BUCKET}"
     # Also include deployment-service itself (for backfill-cluster.sh on the VM)
     TARBALL_ARGS="${TARBALL_ARGS} --include deployment-service"
 
@@ -175,7 +175,7 @@ log "Step 2: Creating GCE VM..."
 
 METADATA_ITEMS=(
     "VM_TASK=strategy-backtest"
-    "VM_CATEGORY=${CATEGORY}"
+    "VM_ASSET_GROUP=${ASSET_GROUP}"
     "VM_STRATEGY=${STRATEGY}"
     "VM_START_DATE=${START_DATE}"
     "VM_END_DATE=${END_DATE}"

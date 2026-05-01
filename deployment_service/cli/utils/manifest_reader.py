@@ -35,21 +35,21 @@ logger = logging.getLogger(__name__)
 _PIPELINE_START_DATE = "2019-01-01"
 
 # ── Bucket resolution: uses same templates as catalog.py SERVICE_GCS_CONFIGS ──
-# Maps service → bucket template. Templates use {category_lower} and {project_id}.
-# Services without {category_lower} use a shared bucket (no per-category split).
+# Maps service → bucket template. Templates use {asset_group_lower} and {project_id}.
+# Services without {asset_group_lower} use a shared bucket (no per-category split).
 _BUCKET_TEMPLATES: dict[str, str] = {
-    "instruments-service": "instruments-store-{category_lower}-{project_id}",
-    "corporate-actions": "instruments-store-{category_lower}-{project_id}",
-    "market-tick-data-service": "market-data-tick-{category_lower}-{project_id}",
-    "market-data-processing-service": "market-data-tick-{category_lower}-{project_id}",
-    "features-delta-one-service": "features-delta-one-{category_lower}-{project_id}",
-    "features-volatility-service": "features-volatility-{category_lower}-{project_id}",
+    "instruments-service": "instruments-store-{asset_group_lower}-{project_id}",
+    "corporate-actions": "instruments-store-{asset_group_lower}-{project_id}",
+    "market-tick-data-service": "market-data-tick-{asset_group_lower}-{project_id}",
+    "market-data-processing-service": "market-data-tick-{asset_group_lower}-{project_id}",
+    "features-delta-one-service": "features-delta-one-{asset_group_lower}-{project_id}",
+    "features-volatility-service": "features-volatility-{asset_group_lower}-{project_id}",
     "features-onchain-service": "features-onchain-{project_id}",
     "features-calendar-service": "features-calendar-{project_id}",
-    "features-sports-service": "features-sports-{category_lower}-{project_id}",
-    "features-multi-timeframe-service": "features-multi-timeframe-{category_lower}-{project_id}",
-    "features-cross-instrument-service": "features-cross-instrument-{category_lower}-{project_id}",
-    "features-commodity-service": "features-commodity-{category_lower}-{project_id}",
+    "features-sports-service": "features-sports-{asset_group_lower}-{project_id}",
+    "features-multi-timeframe-service": "features-multi-timeframe-{asset_group_lower}-{project_id}",
+    "features-cross-instrument-service": "features-cross-instrument-{asset_group_lower}-{project_id}",
+    "features-commodity-service": "features-commodity-{asset_group_lower}-{project_id}",
     "ml-training-service": "ml-models-store-{project_id}",
     "ml-inference-service": "ml-predictions-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
@@ -170,19 +170,19 @@ class ManifestReader:
         self,
         *,
         service: str,
-        category: str,
+        asset_group: str,
         start_date: str,
         end_date: str,
     ) -> dict[str, object]:
-        """Query overall completion for *service* in *category* between dates.
+        """Query overall completion for *service* in *asset_group* between dates.
 
         Returns a dict with at least ``overall_completion`` (float 0-100) and
-        ``category``.  On failure the dict contains ``error``.
+        ``asset_group``.  On failure the dict contains ``error``.
         """
         try:
             # Clamp start to pipeline start — no data expected before this
             effective_start_date = max(start_date, _PIPELINE_START_DATE)
-            all_buckets = self._resolve_all_buckets(service, category)
+            all_buckets = self._resolve_all_buckets(service, asset_group)
             frames: list[pd.DataFrame] = []
             for bkt in all_buckets:
                 try:
@@ -193,7 +193,7 @@ class ManifestReader:
                     pass
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if index.empty:
-                return {"category": category, "overall_completion": 0, "dates": []}
+                return {"asset_group": asset_group, "overall_completion": 0, "dates": []}
 
             mask = (index["date"] >= effective_start_date) & (index["date"] <= end_date)
             if "service_name" in index.columns:
@@ -201,7 +201,7 @@ class ManifestReader:
             filtered = index.loc[mask]
 
             if filtered.empty:
-                return {"category": category, "overall_completion": 0, "dates": []}
+                return {"asset_group": asset_group, "overall_completion": 0, "dates": []}
 
             dates_present = filtered["date"].nunique()
             total_days = max(
@@ -211,7 +211,7 @@ class ManifestReader:
             completion = round(dates_present / total_days * 100, 2)
 
             return {
-                "category": category,
+                "asset_group": asset_group,
                 "overall_completion": completion,
                 "dates_present": dates_present,
                 "total_days": total_days,
@@ -221,7 +221,7 @@ class ManifestReader:
             }
         except Exception as exc:  # noqa: BLE001
             logger.debug("ManifestReader.get_completion failed: %s", exc)
-            return {"error": str(exc), "category": category}
+            return {"error": str(exc), "asset_group": asset_group}
 
     def get_manifest_status(
         self,
@@ -229,9 +229,9 @@ class ManifestReader:
         service: str,
         start_date: str,
         end_date: str,
-        categories: list[str] | None = None,
+        asset_groups: list[str] | None = None,
     ) -> dict[str, object]:
-        """Read manifest indices and return structured status for all categories.
+        """Read manifest indices and return structured status for all asset groups.
 
         This is the fast-path: reads parquet indices instead of listing blobs.
         Works with both GCS and S3 (cloud-agnostic via UCI StorageClient).
@@ -245,7 +245,7 @@ class ManifestReader:
         sub_dim_key = _SUB_DIMENSION_KEY.get(service)
 
         # For shared-bucket services, query once with category=None
-        cat_list = [None] if service in _SHARED_BUCKET_SERVICES else categories or _ALL_CATEGORIES
+        cat_list = [None] if service in _SHARED_BUCKET_SERVICES else asset_groups or _ALL_CATEGORIES
 
         for cat in cat_list:
             cat_label = cat or "ALL"
@@ -263,7 +263,7 @@ class ManifestReader:
 
             if not frames:
                 result_categories[cat_label] = {
-                    "category": cat_label,
+                    "asset_group": cat_label,
                     "bucket": primary_bucket,
                     "dates_expected": 0,
                     "dates_found": 0,
@@ -279,7 +279,7 @@ class ManifestReader:
 
             if index.empty:
                 result_categories[cat_label] = {
-                    "category": cat_label,
+                    "asset_group": cat_label,
                     "bucket": primary_bucket,
                     "dates_expected": 0,
                     "dates_found": 0,
@@ -449,7 +449,7 @@ class ManifestReader:
             cat_completion = round(cat_found / cat_expected * 100, 2) if cat_expected > 0 else 0
 
             cat_result: dict[str, object] = {
-                "category": cat_label,
+                "asset_group": cat_label,
                 "bucket": primary_bucket,
                 "dates_expected": cat_expected,
                 "dates_found": cat_found,
@@ -509,7 +509,7 @@ class ManifestReader:
             "overall_dates_found": total_found,
             "overall_dates_expected": total_expected,
             "total_missing": max(0, total_expected - total_found),
-            "categories": result_categories,
+            "asset_groups": result_categories,
         }
 
     # ------------------------------------------------------------------
@@ -520,7 +520,7 @@ class ManifestReader:
         self,
         *,
         service: str,
-        category: str,
+        asset_group: str,
         venue: str,
         date: str | None = None,
     ) -> dict[str, object]:
@@ -530,7 +530,7 @@ class ManifestReader:
         Returns counts per instrument_type and sample instruments.
         """
         try:
-            bucket_name = self._resolve_bucket(service, category)
+            bucket_name = self._resolve_bucket(service, asset_group)
             storage_client = get_storage_client()
 
             # Find the latest date with data for this venue
@@ -561,7 +561,7 @@ class ManifestReader:
 
             result: dict[str, object] = {
                 "venue": venue,
-                "category": category,
+                "asset_group": asset_group,
                 "date": target_date,
                 "total_instruments": len(df),
                 "columns": list(df.columns),
@@ -602,17 +602,17 @@ class ManifestReader:
         self,
         *,
         service: str,
-        categories: list[str] | None = None,
+        asset_groups: list[str] | None = None,
     ) -> dict[str, object]:
         """Return instrument coverage summary for the deployment UI.
 
-        For each category:
+        For each asset group:
         - Manifest totals: total shards, instrument-rows, unique dates, unique venues
         - Latest-day unique instrument counts by instrument_type (from parquet files)
 
         This is fast: reads 4 small manifest parquets + latest-day parquets only.
         """
-        cat_list = categories or _ALL_CATEGORIES
+        cat_list = asset_groups or _ALL_CATEGORIES
         result_categories: dict[str, dict[str, object]] = {}
         grand_shards = 0
         grand_rows = 0
@@ -669,7 +669,7 @@ class ManifestReader:
                 for venue_name in latest_venues:
                     detail = self.get_venue_detail(
                         service=service,
-                        category=cat,
+                        asset_group=cat,
                         venue=venue_name,
                         date=latest_date,
                     )
@@ -700,11 +700,11 @@ class ManifestReader:
 
         return {
             "service": service,
-            "categories": result_categories,
+            "asset_groups": result_categories,
             "totals": {
                 "shards": grand_shards,
                 "instrument_rows": grand_rows,
-                "dates_across_categories": grand_dates,
+                "dates_across_asset_groups": grand_dates,
                 "latest_day_instruments": grand_latest_instruments,
             },
         }
@@ -774,28 +774,28 @@ class ManifestReader:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _resolve_bucket(self, service: str, category: str) -> str:
+    def _resolve_bucket(self, service: str, asset_group: str) -> str:
         """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
         template = _BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
-            cat_slug = category.lower().replace("_", "-") if category else "default"
-            return f"{service}-store-{cat_slug}"
+            ag_slug = asset_group.lower().replace("_", "-") if asset_group else "default"
+            return f"{service}-store-{ag_slug}"
 
         project_id = self._get_project_id()
-        cat_lower = category.lower().replace("_", "-") if category else "default"
+        ag_lower = asset_group.lower().replace("_", "-") if asset_group else "default"
 
         return template.format(
-            category_lower=cat_lower,
+            asset_group_lower=ag_lower,
             project_id=project_id,
-            domain=cat_lower,  # execution-service uses {domain}
+            domain=ag_lower,  # execution-service uses {domain}
         )
 
-    def _resolve_all_buckets(self, service: str, category: str) -> list[str]:
-        """Resolve primary bucket + any extra buckets for the service/category pair."""
-        primary = self._resolve_bucket(service, category)
+    def _resolve_all_buckets(self, service: str, asset_group: str) -> list[str]:
+        """Resolve primary bucket + any extra buckets for the service/asset_group pair."""
+        primary = self._resolve_bucket(service, asset_group)
         buckets = [primary]
-        extras = _EXTRA_BUCKETS.get(service, {}).get(category.lower(), [])
+        extras = _EXTRA_BUCKETS.get(service, {}).get(asset_group.lower(), [])
         if extras:
             project_id = self._get_project_id()
             for tmpl in extras:

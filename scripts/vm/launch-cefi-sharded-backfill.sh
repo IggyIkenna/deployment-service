@@ -46,7 +46,7 @@
 # Observability (MUST match):
 #   - startup-script-url=gs://deployment-scripts.../vm/setup-data-pipeline-vm.sh
 #   - VM_TASK=cefi-backfill → routes through setup-data-pipeline-vm.sh line 424
-#     elif branch which assembles --operation/--mode/--category/--venues/... CLI
+#     elif branch which assembles --operation/--mode/--asset-group/--venues/... CLI
 #   - VM_INSTRUMENT_IDS comma-separated (setup script expands to space-sep
 #     --instrument-ids nargs='+' argparse)
 #   - heartbeat + watchdog are in the GCS tee wrapper; nothing to add here
@@ -177,7 +177,7 @@ launch_cefi_shard() {
   meta+=",VM_TASK=cefi-backfill"
   meta+=",VM_SERVICE=market_tick_data_service"
   meta+=",VM_OPERATION=download"
-  meta+=",VM_CATEGORY=CEFI"
+  meta+=",VM_ASSET_GROUP=CEFI"
   meta+=",VM_VENUE=$venue"
   meta+=",VM_START_DATE=$start_date"
   meta+=",VM_END_DATE=$end_date"
@@ -228,7 +228,7 @@ launch_tradfi_shard() {
   meta+=",VM_TASK=cefi-backfill"   # same routing branch — triggers MTDS CLI
   meta+=",VM_SERVICE=market_tick_data_service"
   meta+=",VM_OPERATION=download"
-  meta+=",VM_CATEGORY=TRADFI"
+  meta+=",VM_ASSET_GROUP=TRADFI"
   meta+=",VM_VENUE=$venue"
   meta+=",VM_START_DATE=$start_date"
   meta+=",VM_END_DATE=$end_date"

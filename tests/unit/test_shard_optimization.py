@@ -294,8 +294,8 @@ class TestAsymmetricVenueCounts:
         )
 
         # Count by category
-        cefi_count = sum(1 for s in shards if s.dimensions["category"] == "CEFI")
-        tradfi_count = sum(1 for s in shards if s.dimensions["category"] == "TRADFI")
+        cefi_count = sum(1 for s in shards if s.dimensions["asset_group"] == "CEFI")
+        tradfi_count = sum(1 for s in shards if s.dimensions["asset_group"] == "TRADFI")
 
         # CEFI should have 3 venues, TRADFI should have 2 venues
         assert cefi_count == 3, f"Expected 3 CEFI shards, got {cefi_count}"

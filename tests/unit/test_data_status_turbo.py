@@ -79,7 +79,7 @@ class TestRequestSizeGuard:
         # Mock path combinatorics: return enough venues so days x venues > 35_000
         # 2020-01-01 to 2026-02-08 ≈ 2238 days; need ~16+ venues per category
         mock_pc = MagicMock()
-        mock_pc.get_all_venues_for_category.return_value = [f"V{i}" for i in range(20)]
+        mock_pc.get_all_venues_for_asset_group.return_value = [f"V{i}" for i in range(20)]
         mock_get_path_combinatorics.return_value = mock_pc
 
         with pytest.raises(HTTPException) as exc_info:
@@ -199,16 +199,16 @@ class TestInstrumentTypeExtraction:
                 service="market-tick-data-handler",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                category=["CEFI"],
+                asset_groups=["CEFI"],
                 include_sub_dimensions=True,
                 include_instrument_types=False,  # instrument_types extraction uses separate code path
             )
         )
 
         # Verify structure
-        assert "categories" in result
-        assert "CEFI" in result["categories"]
-        cefi = result["categories"]["CEFI"]
+        assert "asset_groups" in result
+        assert "CEFI" in result["asset_groups"]
+        cefi = result["asset_groups"]["CEFI"]
 
         # Should have found data for the market-tick service
         assert cefi["dates_found"] > 0
@@ -974,7 +974,7 @@ class TestMetricConsistency:
         response_complete = {
             "overall_completion_pct": 100.0,
             "total_missing": 0,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},
                 "TRADFI": {"dates_missing": 0},
             },
@@ -987,14 +987,14 @@ class TestMetricConsistency:
         response_partial = {
             "overall_completion_pct": 97.4,
             "total_missing": 19,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},  # Category level shows 0!
                 "TRADFI": {"dates_missing": 0},  # Category level shows 0!
             },
         }
         # Category-level dates_missing can be 0 while venue-weighted total_missing > 0
         # This is why we use total_missing (venue-weighted) for consistency
-        sum(cat["dates_missing"] for cat in response_partial["categories"].values())
+        sum(cat["dates_missing"] for cat in response_partial["asset_groups"].values())
         # Category sum might be 0 while overall is not complete
         # This is the bug we fixed: use total_missing, not category sum
         assert response_partial["total_missing"] > 0
@@ -1252,11 +1252,13 @@ class TestDatesFoundListIncluded:
         """Test that dates_found_list is empty when no data exists."""
         # When a category has no data, dates_found_list should be []
         sample_response = {
-            "categories": {"DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}}
+            "asset_groups": {
+                "DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}
+            }
         }
 
-        assert sample_response["categories"]["DEFI"]["dates_found_list"] == []
-        assert sample_response["categories"]["DEFI"]["dates_found"] == 0
+        assert sample_response["asset_groups"]["DEFI"]["dates_found_list"] == []
+        assert sample_response["asset_groups"]["DEFI"]["dates_found"] == 0
 
 
 class TestDefiVenueExtraction:

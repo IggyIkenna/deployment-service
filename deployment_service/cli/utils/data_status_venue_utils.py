@@ -28,7 +28,7 @@ DEFAULT_CATEGORY_START_DATE = "2020-01-01"
 def check_instruments_venue_coverage(
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     output: str,
     config_dir: str,
 ):
@@ -54,7 +54,7 @@ def check_instruments_venue_coverage(
     instruments_config = expected_dates.get("instruments-service") or {}
     _venue_mapping = VenueMapping()
 
-    categories = list(category) if category else list(_DATA_MARKET_CATEGORIES)
+    asset_groups = list(asset_group) if asset_group else list(_DATA_MARKET_CATEGORIES)
 
     format_venue_coverage_header(start_date, end_date)
     click.echo(
@@ -128,7 +128,7 @@ def check_instruments_venue_coverage(
 
     # Build tasks for parallel execution
     tasks = []
-    for cat in categories:
+    for cat in asset_groups:
         cat_config = instruments_config.get(cat, {})
         cat_start = cat_config.get("category_start", DEFAULT_CATEGORY_START_DATE)
         expected_venues = set(cat_config.get("venues") or {}.keys())
@@ -146,7 +146,7 @@ def check_instruments_venue_coverage(
             tasks.append((cat, date_str, gcs_path, expected_venues))
             total_files += 1
 
-    click.echo(f"  Checking {total_files} parquet files across {len(categories)} categories...")
+    click.echo(f"  Checking {total_files} parquet files across {len(asset_groups)} asset groups...")
 
     # Execute in parallel
     with ThreadPoolExecutor(max_workers=16) as executor:

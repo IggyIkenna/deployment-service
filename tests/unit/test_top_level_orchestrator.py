@@ -37,23 +37,23 @@ from deployment_service.orchestrator import (
 # ---------------------------------------------------------------------------
 
 _DATE = "2026-03-08"
-_CATEGORY = "CEFI"
+_ASSET_GROUP = "CEFI"
 
 
 def _make_job(
     service: str = "svc-a",
     date: str = _DATE,
-    category: str = _CATEGORY,
+    asset_group: str = _ASSET_GROUP,
     shard_id: str = "0",
     state: JobState = JobState.PENDING,
 ) -> OrchestratedJob:
-    job = OrchestratedJob(service=service, date=date, category=category, shard_id=shard_id)
+    job = OrchestratedJob(service=service, date=date, asset_group=asset_group, shard_id=shard_id)
     job.state = state
     return job
 
 
-def _make_plan(date: str = _DATE, category: str = _CATEGORY) -> OrchestrationPlan:
-    return OrchestrationPlan(date=date, category=category)
+def _make_plan(date: str = _DATE, asset_group: str = _ASSET_GROUP) -> OrchestrationPlan:
+    return OrchestrationPlan(date=date, asset_group=asset_group)
 
 
 def _make_orchestrator() -> T1Orchestrator:
@@ -79,7 +79,7 @@ def _make_orchestrator() -> T1Orchestrator:
 
 @pytest.mark.unit
 def test_orchestrated_job_job_id() -> None:
-    job = _make_job(service="svc", date="2026-01-01", category="CEFI", shard_id="3")
+    job = _make_job(service="svc", date="2026-01-01", asset_group="CEFI", shard_id="3")
     assert job.job_id == "svc:2026-01-01:CEFI:3"
 
 
@@ -107,6 +107,7 @@ def test_orchestrated_job_to_dict_contains_expected_keys() -> None:
         "job_id",
         "service",
         "date",
+        "asset_group",
         "category",
         "shard_id",
         "state",
@@ -118,6 +119,7 @@ def test_orchestrated_job_to_dict_contains_expected_keys() -> None:
         "dimensions",
     }
     assert expected.issubset(d.keys())
+    assert d["category"] == d["asset_group"]
     assert d["state"] == "pending"
 
 
@@ -271,8 +273,17 @@ def test_plan_to_dict_structure() -> None:
     plan = _make_plan()
     plan.add_job(_make_job())
     d = plan.to_dict()
-    for key in ("date", "category", "created_at", "execution_order", "total_jobs", "jobs"):
+    for key in (
+        "date",
+        "asset_group",
+        "category",
+        "created_at",
+        "execution_order",
+        "total_jobs",
+        "jobs",
+    ):
         assert key in d
+    assert d["category"] == d["asset_group"]
 
 
 # ---------------------------------------------------------------------------
@@ -383,11 +394,11 @@ def test_create_daily_plan_with_no_services_returns_empty_plan() -> None:
         patch("deployment_service.orchestrator.RECORDS_PROCESSED") as mock_rp,
     ):
         mock_rp.labels.return_value.inc = MagicMock()
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY)
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP)
 
     assert plan.total_jobs == 0
     assert plan.date == _DATE
-    assert plan.category == _CATEGORY
+    assert plan.asset_group == _ASSET_GROUP
 
 
 @pytest.mark.unit
@@ -411,7 +422,9 @@ def test_create_daily_plan_filters_to_requested_services() -> None:
         mock_calc.calculate_shards.return_value = [mock_shard]
         mock_calc_cls.return_value = mock_calc
 
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY, services=["svc-a"])
+        plan = orch.create_daily_plan(
+            target_date=_DATE, asset_group=_ASSET_GROUP, services=["svc-a"]
+        )
 
     assert plan.execution_order == ["svc-a"]
     assert plan.total_jobs == 1
@@ -433,7 +446,7 @@ def test_create_daily_plan_handles_value_error_from_shard_calculator() -> None:
         patch("deployment_service.orchestrator.RECORDS_PROCESSED") as mock_rp,
     ):
         mock_rp.labels.return_value.inc = MagicMock()
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY)
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP)
 
     # ValueError logged, no jobs added
     assert plan.total_jobs == 0
@@ -455,7 +468,7 @@ def test_create_daily_plan_handles_file_not_found_from_shard_calculator() -> Non
         patch("deployment_service.orchestrator.RECORDS_PROCESSED") as mock_rp,
     ):
         mock_rp.labels.return_value.inc = MagicMock()
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY)
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP)
 
     assert plan.total_jobs == 0
 
@@ -477,7 +490,7 @@ def test_create_daily_plan_os_error_adds_placeholder_job() -> None:
         patch("deployment_service.orchestrator.RECORDS_PROCESSED") as mock_rp,
     ):
         mock_rp.labels.return_value.inc = MagicMock()
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY)
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP)
 
     # Placeholder job is added
     assert plan.total_jobs == 1
@@ -507,7 +520,7 @@ def test_create_daily_plan_maps_downstream_dependencies() -> None:
         mock_calc.calculate_shards.return_value = [mock_shard]
         mock_calc_cls.return_value = mock_calc
 
-        plan = orch.create_daily_plan(target_date=_DATE, category=_CATEGORY)
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP)
 
     # svc-a job should have downstream_jobs pointing to svc-b job
     svc_a_jobs = plan.get_jobs_by_service("svc-a")
@@ -666,7 +679,7 @@ def test_generate_execution_report_contains_header() -> None:
     report = orch.generate_execution_report(plan)
     assert "T+1 ORCHESTRATION PLAN" in report
     assert _DATE in report
-    assert _CATEGORY in report
+    assert _ASSET_GROUP in report
 
 
 @pytest.mark.unit
@@ -789,7 +802,7 @@ def test_load_plan_returns_none_when_no_gcs_client() -> None:
 
     with patch("deployment_service.orchestrator._config") as mock_cfg:
         mock_cfg.is_mock_mode.return_value = True
-        result = orch.load_plan(_DATE, _CATEGORY)
+        result = orch.load_plan(_DATE, _ASSET_GROUP)
 
     assert result is None
 
@@ -806,7 +819,7 @@ def test_load_plan_returns_none_when_blob_not_found() -> None:
     mock_gcs.bucket.return_value = mock_bucket
     orch._gcs_client = mock_gcs
 
-    result = orch.load_plan(_DATE, _CATEGORY)
+    result = orch.load_plan(_DATE, _ASSET_GROUP)
     assert result is None
 
 
@@ -818,13 +831,13 @@ def test_load_plan_success_deserializes_plan() -> None:
 
     plan_data = {
         "date": _DATE,
-        "category": _CATEGORY,
+        "category": _ASSET_GROUP,
         "execution_order": ["svc-a"],
         "jobs": {
             "svc-a:2026-03-08:CEFI:0": {
                 "service": "svc-a",
                 "date": _DATE,
-                "category": _CATEGORY,
+                "category": _ASSET_GROUP,
                 "shard_id": "0",
                 "state": "completed",
                 "upstream_jobs": [],
@@ -845,11 +858,11 @@ def test_load_plan_success_deserializes_plan() -> None:
     orch._gcs_client = mock_gcs
 
     with patch("deployment_service.orchestrator.log_event"):
-        plan = orch.load_plan(_DATE, _CATEGORY)
+        plan = orch.load_plan(_DATE, _ASSET_GROUP)
 
     assert plan is not None
     assert plan.date == _DATE
-    assert plan.category == _CATEGORY
+    assert plan.asset_group == _ASSET_GROUP
     assert plan.total_jobs == 1
 
 
@@ -862,7 +875,7 @@ def test_load_plan_connection_error_returns_none() -> None:
     orch._gcs_client = mock_gcs
 
     with patch("deployment_service.orchestrator.log_event"):
-        result = orch.load_plan(_DATE, _CATEGORY)
+        result = orch.load_plan(_DATE, _ASSET_GROUP)
 
     assert result is None
 
@@ -881,7 +894,7 @@ def test_load_plan_value_error_returns_none() -> None:
     orch._gcs_client = mock_gcs
 
     with patch("deployment_service.orchestrator.log_event"):
-        result = orch.load_plan(_DATE, _CATEGORY)
+        result = orch.load_plan(_DATE, _ASSET_GROUP)
 
     assert result is None
 

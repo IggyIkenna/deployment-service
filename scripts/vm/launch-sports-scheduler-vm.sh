@@ -31,7 +31,7 @@
 #
 # Prerequisites:
 #   - SPORTS tarballs on gs://deployment-scripts-central-element-323112/code/
-#     (refresh with: bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS)
+#     (refresh with: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS)
 #   - deployment-service-code.tar.gz with sports_trigger_periodic.py + CLI
 #   - Service account with storage.objectAdmin + pubsub.publisher + compute.instanceAdmin.v1
 #     (child-VM dispatch via gcloud compute instances create)
@@ -117,7 +117,7 @@ fi
 
 METADATA="VM_TASK=sports-scheduler-poll"
 METADATA="${METADATA},VM_SERVICE=deployment_service"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_MODE=live"
 if $DRY_RUN; then
   METADATA="${METADATA},VM_SCHEDULER_DRY_RUN=true"

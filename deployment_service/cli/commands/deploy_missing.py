@@ -19,21 +19,22 @@ def _collect_missing_dates(
     service: str,
     start_date: str,
     end_date: str,
-    categories: list[str] | None,
+    asset_groups: list[str] | None,
 ) -> dict[str, list[str]]:
-    """Query manifest for missing dates per category.
+    """Query manifest for missing dates per asset group.
 
-    Returns a dict of ``{category: [missing_date_str, ...]}``.
+    Returns a dict of ``{asset_group_label: [missing_date_str, ...]}`` (keys match
+    manifest ``asset_groups`` entries, including ``ALL`` for shared-bucket services).
     """
     status = reader.get_manifest_status(
         service=service,
         start_date=start_date,
         end_date=end_date,
-        categories=categories or None,
+        asset_groups=asset_groups or None,
     )
 
     cats: dict[str, dict[str, object]] = cast(
-        dict[str, dict[str, object]], status.get("categories", {})
+        dict[str, dict[str, object]], status.get("asset_groups", {})
     )
 
     result: dict[str, list[str]] = {}
@@ -83,7 +84,7 @@ def _dates_to_ranges(dates: list[str]) -> list[tuple[str, str]]:
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="End date (YYYY-MM-DD)",
 )
-@click.option("-c", "--category", multiple=True, help="Category filter")
+@click.option("-c", "--asset-group", multiple=True, help="Asset group filter")
 @click.option("-v", "--venue", multiple=True, help="Venue filter")
 @click.option(
     "--compute",
@@ -109,7 +110,7 @@ def deploy_missing(
     service: str,
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     compute: str,
     region: str | None,
@@ -130,7 +131,7 @@ def deploy_missing(
         # Preview what's missing (no deployment)
         deploy-missing -s instruments-service --start-date 2026-01-01 --end-date 2026-04-04 --dry-run
 
-        # Deploy missing shards for a specific category
+        # Deploy missing shards for a specific asset group
         deploy-missing -s instruments-service --start-date 2026-01-01 --end-date 2026-04-04 -c CEFI
 
         # Deploy missing with venue filter
@@ -161,8 +162,8 @@ def deploy_missing(
         )
         sys.exit(1)
 
-    categories_filter = list(category) if category else None
-    missing_by_cat = _collect_missing_dates(reader, service, sd, ed, categories_filter)
+    asset_groups_filter = list(asset_group) if asset_group else None
+    missing_by_cat = _collect_missing_dates(reader, service, sd, ed, asset_groups_filter)
 
     if not missing_by_cat:
         click.echo(click.style("No missing dates found — data is complete!", fg="green"))
@@ -173,7 +174,7 @@ def deploy_missing(
     click.echo()
     click.echo(
         click.style(
-            f"Missing dates: {total_missing} across {len(missing_by_cat)} categories", fg="yellow"
+            f"Missing dates: {total_missing} across {len(missing_by_cat)} asset groups", fg="yellow"
         )
     )
 
@@ -196,9 +197,9 @@ def deploy_missing(
             "service": service,
             "date_range": {"start": sd, "end": ed},
             "total_missing_dates": total_missing,
-            "categories": {
-                cat: {"missing_count": len(dates), "missing_dates": dates}
-                for cat, dates in missing_by_cat.items()
+            "asset_groups": {
+                ag: {"missing_count": len(dates), "missing_dates": dates}
+                for ag, dates in missing_by_cat.items()
             },
         }
         click.echo()
@@ -210,17 +211,17 @@ def deploy_missing(
     click.echo(click.style("Calculating shards for missing dates...", fg="cyan"))
 
     all_shards: list[object] = []
-    shards_by_category: dict[str, int] = {}
+    shards_by_asset_group: dict[str, int] = {}
 
     for cat_name, dates in sorted(missing_by_cat.items()):
         ranges = _dates_to_ranges(dates)
 
         for range_start, range_end in ranges:
             filters: dict[str, list[str]] = {}
-            if category:
-                filters["category"] = list(category)
+            if asset_group:
+                filters["asset_group"] = list(asset_group)
             elif cat_name != "ALL":
-                filters["category"] = [cat_name]
+                filters["asset_group"] = [cat_name]
             if venue:
                 filters["venue"] = list(venue)
 
@@ -236,7 +237,9 @@ def deploy_missing(
                     **dim_filters,
                 )
                 all_shards.extend(shards)
-                shards_by_category[cat_name] = shards_by_category.get(cat_name, 0) + len(shards)
+                shards_by_asset_group[cat_name] = shards_by_asset_group.get(cat_name, 0) + len(
+                    shards
+                )
             except ShardLimitExceeded as exc:
                 click.echo(
                     click.style(
@@ -272,8 +275,8 @@ def deploy_missing(
         click.echo(f"  Region:    {region}")
     click.echo(f"  Total shards: {len(all_shards)}")
     click.echo()
-    click.echo("  Per-category breakdown:")
-    for cat_name, count in sorted(shards_by_category.items()):
+    click.echo("  Per asset group breakdown:")
+    for cat_name, count in sorted(shards_by_asset_group.items()):
         click.echo(f"    {cat_name}: {count} shards")
 
     click.echo()

@@ -24,12 +24,12 @@
 #
 # Invocation inside the VM:
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider OPEN_METEO \
 #     --sports-entity WEATHER ...
 #
 # Prerequisites:
-#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS
+#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS
 #
 # Usage:
 #   bash launch-openmeteo-backfill-vm.sh 2018-01-01 2019-01-15
@@ -117,7 +117,7 @@ echo "Launching $VM_NAME: OPEN_METEO backfill ${RANGE_DESC} ($ENTITY_DESC)"
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
-METADATA="${METADATA},VM_CATEGORY=SPORTS"
+METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 if $USE_ROLLING; then
   METADATA="${METADATA},VM_LOOKBACK_DAYS=${LOOKBACK}"
   METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"

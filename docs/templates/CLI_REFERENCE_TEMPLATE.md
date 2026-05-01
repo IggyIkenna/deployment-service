@@ -27,7 +27,7 @@ Process data in batch mode (per codex cli-standards).
 Validate upstream dependencies exist.
 
 ```bash
-{console-script} check-deps --category CEFI --date 2024-01-15
+{console-script} check-deps --asset-group CEFI --date 2024-01-15
 ```
 
 ### Health Check: `health`
@@ -40,13 +40,13 @@ Check service health status.
 
 ## Required Arguments
 
-| Argument       | Description                    | Values                                |
-| -------------- | ------------------------------ | ------------------------------------- |
-| `--operation`  | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
-| `--mode`       | How to run                     | `batch`, `live`                       |
-| `--category`   | Market category                | `CEFI`, `TRADFI`, `DEFI`              |
-| `--start-date` | Start date                     | `YYYY-MM-DD`                          |
-| `--end-date`   | End date                       | `YYYY-MM-DD`                          |
+| Argument        | Description                    | Values                                |
+| --------------- | ------------------------------ | ------------------------------------- |
+| `--operation`   | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
+| `--mode`        | How to run                     | `batch`, `live`                       |
+| `--asset-group` | Market category                | `CEFI`, `TRADFI`, `DEFI`              |
+| `--start-date`  | Start date                     | `YYYY-MM-DD`                          |
+| `--end-date`    | End date                       | `YYYY-MM-DD`                          |
 
 ## Optional Arguments
 
@@ -78,7 +78,7 @@ Check service health status.
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-31
 ```
@@ -89,7 +89,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --venue BINANCE-FUTURES \
     --start-date 2024-01-01 \
     --end-date 2024-01-31
@@ -101,7 +101,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-01 \
     --dry-run
@@ -113,7 +113,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category TRADFI \
+    --asset-group TRADFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-07 \
     --force \
@@ -124,7 +124,7 @@ python -m {service_package}.cli.main \
 
 ```bash
 python -m {service_package}.cli.main check-deps \
-    --category CEFI \
+    --asset-group CEFI \
     --date 2024-01-15
 ```
 

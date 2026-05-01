@@ -45,7 +45,7 @@ def sample_shard_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "category": "--asset-group",
             "start_date": "--start-date",
             "end_date": "--end-date",
         },
@@ -80,7 +80,7 @@ def hierarchical_shard_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "category": "--asset-group",
             "venue": "--venue",
             "start_date": "--start-date",
             "end_date": "--end-date",

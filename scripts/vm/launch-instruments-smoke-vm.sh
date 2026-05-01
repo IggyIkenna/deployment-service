@@ -25,7 +25,7 @@
 #   gsutil ls -r gs://instruments-store-defi-test-central-element-323112/
 set -euo pipefail
 
-CATEGORY="${1:-all}"
+ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -40,7 +40,7 @@ launch_vm() {
     local md="VM_TASK=instruments-smoke"
     md="${md},VM_SERVICE=instruments_service"
     md="${md},VM_OPERATION=download"   # setup-data-pipeline-vm.sh rewrites download→instruments for instruments_service
-    md="${md},VM_CATEGORY=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    md="${md},VM_ASSET_GROUP=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_VENUE=${venue}"
     md="${md},VM_START_DATE=${SMOKE_DATE}"
     md="${md},VM_END_DATE=${SMOKE_DATE}"
@@ -59,7 +59,7 @@ launch_vm() {
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
 
-case "$CATEGORY" in
+case "$ASSET_GROUP" in
     cefi)   launch_vm cefi BINANCE-FUTURES ;;
     tradfi) launch_vm tradfi CME ;;
     defi)   launch_vm defi AAVEV3-ETHEREUM ;;
@@ -68,5 +68,5 @@ case "$CATEGORY" in
         launch_vm tradfi CME
         launch_vm defi AAVEV3-ETHEREUM
         ;;
-    *) echo "Unknown category: $CATEGORY (expected cefi|tradfi|defi|all)"; exit 2 ;;
+    *) echo "Unknown category: $ASSET_GROUP (expected cefi|tradfi|defi|all)"; exit 2 ;;
 esac

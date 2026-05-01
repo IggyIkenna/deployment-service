@@ -5,7 +5,7 @@ VM-side deployment heartbeat + lifecycle event helper.
 Invoked as a subprocess from `vm-exec-with-gcs-tee.sh`:
 
     python deployment_heartbeat.py register \\
-        --id <uuid> --name <vm_name> --category <CEFI> \\
+        --id <uuid> --name <vm_name> --asset-group <CEFI> \\
         --task <canonical-migration> --mode <dry|full> \\
         --start-date <YYYY-MM-DD> --end-date <YYYY-MM-DD> \\
         --log-uri <gs://...>
@@ -97,7 +97,7 @@ def _emit(
     payload: dict[str, object] = {
         "deployment_id": entry.deployment_id,
         "vm_name": entry.vm_name,
-        "category": entry.category,
+        "asset_group": entry.asset_group,
         "task": entry.task,
         "mode": entry.mode,
         "start_date": entry.start_date,
@@ -123,7 +123,7 @@ def cmd_register(args: argparse.Namespace, registry: DeploymentsRegistry) -> int
     entry = DeploymentRegistryEntry(
         deployment_id=args.id,
         vm_name=args.name,
-        category=args.category,
+        asset_group=args.asset_group,
         task=args.task,
         mode=args.mode,
         start_date=args.start_date,
@@ -204,7 +204,7 @@ def _build_parser() -> argparse.ArgumentParser:
     reg = sub.add_parser("register", help="Create a new ACTIVE registry entry + DEPLOYMENT_STARTED")
     reg.add_argument("--id", required=True)
     reg.add_argument("--name", required=True)
-    reg.add_argument("--category", required=True)
+    reg.add_argument("--asset-group", required=True)
     reg.add_argument("--task", required=True)
     reg.add_argument(
         "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]

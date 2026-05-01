@@ -66,7 +66,7 @@ FIXED_DIMENSION_SERVICES = {
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="End date (YYYY-MM-DD)",
 )
-@click.option("--category", "-c", multiple=True, help="Filter by category (default: all)")
+@click.option("--asset-group", "-c", multiple=True, help="Filter by asset group (default: all)")
 @click.option("--venue", "-v", multiple=True, help="Filter by venue")
 @click.option(
     "--output",
@@ -149,7 +149,7 @@ FIXED_DIMENSION_SERVICES = {
     "--live-freshness",
     is_flag=True,
     help=(
-        "Report live-mode data freshness (staleness) per category."
+        "Report live-mode data freshness (staleness) per asset group."
         " Flags stale if >15min for CeFi/DeFi, >6h for sports."
     ),
 )
@@ -159,7 +159,7 @@ def data_status(
     service: str | None,
     start_date: datetime | None,
     end_date: datetime | None,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     output: str,
     show_timestamps: bool,
@@ -184,7 +184,7 @@ def data_status(
     OPTIMIZED for speed: Uses batch blob listing (1 API call per bucket instead
     of 1 per date) and parallel scanning. Can check years of data in seconds.
 
-    Shows hierarchical breakdown of data completion by dimensions (category, venue, etc.)
+    Shows hierarchical breakdown of data completion by dimensions (asset group, venue, etc.)
     with percentages and optionally file timestamps.
 
     For dynamic-dimension services (execution-service, ml-training-service, strategy-service),
@@ -243,7 +243,7 @@ def data_status(
             )
             sys.exit(1)
         run_live_freshness_check(
-            service=service, category=category, config_dir=config_dir, output=output
+            service=service, asset_group=asset_group, config_dir=config_dir, output=output
         )
         return
 
@@ -275,7 +275,7 @@ def data_status(
             service=service,
             start_date=start_date,
             end_date=end_date,
-            category=category,
+            asset_group=asset_group,
             output=output,
             show_missing=show_missing,
             resolved_source=resolved_source,
@@ -306,7 +306,7 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_instruments_venue_coverage(start_date, end_date, category, output, config_dir)
+            check_instruments_venue_coverage(start_date, end_date, asset_group, output, config_dir)
 
         elif check_data_types:
             if service != "market-tick-data-service":
@@ -318,7 +318,7 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_data_types_detailed(start_date, end_date, category, venue, config_dir, output)
+            check_data_types_detailed(start_date, end_date, asset_group, venue, config_dir, output)
 
         elif check_feature_groups:
             # Feature groups check for features-*-service
@@ -339,7 +339,7 @@ def data_status(
                 )
                 sys.exit(1)
             check_feature_groups_detailed(
-                service, start_date, end_date, category, config_dir, output
+                service, start_date, end_date, asset_group, config_dir, output
             )
 
         elif check_timeframes:
@@ -352,7 +352,7 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_timeframes_detailed(start_date, end_date, category, venue, config_dir, output)
+            check_timeframes_detailed(start_date, end_date, asset_group, venue, config_dir, output)
 
         elif sports_league_breakdown:
             # Sports-specific: fixture-based denominator per league
@@ -375,7 +375,7 @@ def data_status(
 
         elif service in DYNAMIC_DIMENSION_SERVICES:
             display_dynamic_service_status(
-                service, start_date, end_date, category, output, config_dir, mode
+                service, start_date, end_date, asset_group, output, config_dir, mode
             )
 
         else:
@@ -383,7 +383,7 @@ def data_status(
                 service,
                 start_date,
                 end_date,
-                category,
+                asset_group,
                 venue,
                 output,
                 show_timestamps,
@@ -408,7 +408,7 @@ def _try_manifest_source(
     service: str,
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     output: str,
     show_missing: bool,
     resolved_source: str,
@@ -433,18 +433,18 @@ def _try_manifest_source(
     sd = start_date.strftime("%Y-%m-%d")
     ed = end_date.strftime("%Y-%m-%d")
 
-    categories_to_check = list(category) if category else [None]
+    asset_groups_to_check = list(asset_group) if asset_group else [None]
     all_results: list[dict[str, object]] = []
 
-    for cat in categories_to_check:
+    for ag in asset_groups_to_check:
         result = reader.get_completion(
             service=service,
-            category=cat or "",
+            asset_group=ag or "",
             start_date=sd,
             end_date=ed,
         )
         if "error" in result:
-            logger.debug("Manifest query error for category=%s: %s", cat, result.get("error"))
+            logger.debug("Manifest query error for asset_group=%s: %s", ag, result.get("error"))
             continue
         all_results.append(result)
 
@@ -483,7 +483,7 @@ def _display_manifest_results(
     click.echo()
 
     for result in results:
-        cat = result.get("category", "unknown")
+        cat = result.get("asset_group", "unknown")
         completion = result.get("overall_completion", 0)
         days_complete = result.get("days_complete", 0)
         days_total = result.get("days_total", 0)
@@ -495,8 +495,9 @@ def _display_manifest_results(
             + f" ({days_complete}/{days_total} days)"
         )
 
-        venues: dict[str, object] = result.get("venues", {})  # type: ignore[assignment]
-        if venues and output == "tree":
+        venues_raw: object = result.get("venues", {})
+        if isinstance(venues_raw, dict) and venues_raw and output == "tree":
+            venues: dict[str, object] = venues_raw  # type: ignore[assignment]
             for venue_name, venue_info in venues.items():
                 v_info: dict[str, object] = venue_info  # type: ignore[assignment]
                 v_pct = v_info.get("completion_percent", 0)
@@ -521,4 +522,4 @@ def _display_manifest_results(
         total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]
         overall = round(total_complete / total_days * 100, 1) if total_days > 0 else 0
         click.echo()
-        click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} category-days)")
+        click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} asset-group-days)")

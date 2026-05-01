@@ -39,7 +39,7 @@ class ClusterConfig:
 
     name: str
     description: str
-    category: str
+    asset_group: str
     services: list[str]
 
     # Batch scheduling
@@ -56,7 +56,7 @@ class ClusterConfig:
         return {
             "name": self.name,
             "description": self.description,
-            "category": self.category,
+            "asset_group": self.asset_group,
             "services": self.services,
             "schedule": {
                 "cron": self.schedule_cron,

@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 _config = DeploymentConfig()
 
 
+def _trading_axis_from_combo(combo: dict[str, object]) -> object | None:
+    """Shard dict key for the trading venue axis: ``asset_group`` (preferred) or legacy ``category``."""
+    ag = combo.get("asset_group")
+    if ag is not None:
+        return ag
+    return combo.get("category")
+
+
 class CombinationCalculator:
     """Calculates valid combinations of dimension values with filtering capabilities."""
 
@@ -148,7 +156,7 @@ class CombinationCalculator:
         for combo in combinations:
             date_val = combo.get("date")
             venue = combo.get("venue")
-            category = combo.get("category")
+            trading_axis = _trading_axis_from_combo(combo)
 
             # If no date dimension, nothing to filter
             if date_val is None:
@@ -172,12 +180,14 @@ class CombinationCalculator:
             if venue is not None:
                 # Service has venue dimension - try venue-specific start date first
                 start_date = self.config_loader.get_venue_start_date(
-                    service, str(category) if category else "", str(venue)
+                    service, str(trading_axis) if trading_axis else "", str(venue)
                 )
 
-            if start_date is None and category is not None:
-                # Fall back to category start date
-                start_date = self.config_loader.get_category_start_date(service, str(category))
+            if start_date is None and trading_axis is not None:
+                # Fall back to asset-group start date (YAML: category_start)
+                start_date = self.config_loader.get_asset_group_start_date(
+                    service, str(trading_axis)
+                )
 
             if start_date is None:
                 # No start date configured, include the combo
@@ -191,7 +201,7 @@ class CombinationCalculator:
                 venue_str = f"/{venue}" if venue else ""
                 logger.debug(
                     "Filtering out %s%s on %s (before start date %s)",
-                    category,
+                    trading_axis,
                     venue_str,
                     combo_date,
                     start_date,
@@ -266,8 +276,9 @@ class CombinationCalculator:
         def check_data_exists(combo: dict[str, object]) -> tuple[dict[str, object], bool]:
             """Check if data exists for a shard combination."""
             try:
-                # Extract dimensions for path construction
-                category = str(combo.get("category") or "")
+                # Extract dimensions for path construction (GCS templates still use {category}=…)
+                _axis = _trading_axis_from_combo(combo)
+                ag = str(_axis or "")
                 date_val = combo.get("date")
                 venue = str(combo.get("venue") or "") or None
                 data_type = str(combo.get("data_type") or "") or None
@@ -283,14 +294,14 @@ class CombinationCalculator:
                 # Construct bucket and path
                 project_id = str(_config.gcp_project_id or "")
                 bucket_name = bucket_template.format(
-                    category_lower=category.lower() if category else "",
+                    asset_group_lower=ag.lower() if ag else "",
                     project_id=project_id,
                 )
 
                 path = path_template.format(
                     date=date_str,
-                    category=category,
-                    category_lower=category.lower() if category else "",
+                    category=ag,
+                    asset_group_lower=ag.lower() if ag else "",
                     venue=venue or "",
                     data_type=data_type or "",
                     feature_group=feature_group or "",

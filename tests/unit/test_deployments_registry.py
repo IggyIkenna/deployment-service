@@ -63,7 +63,7 @@ def _make_entry(**overrides: object) -> DeploymentRegistryEntry:
     base: dict[str, object] = {
         "deployment_id": "dep-abc-123",
         "vm_name": "canonical-migration-cefi-20260418-042359",
-        "category": "CEFI",
+        "asset_group": "CEFI",
         "task": "canonical-migration",
         "mode": "dry",
         "start_date": "2024-06-01",
@@ -277,7 +277,7 @@ def test_heartbeat_cli_register_then_complete(
             "cli-1",
             "--name",
             "vm-x",
-            "--category",
+            "--asset-group",
             "CEFI",
             "--task",
             "smoke",

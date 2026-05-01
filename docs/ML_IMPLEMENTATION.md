@@ -371,7 +371,7 @@ market-tick-data-handler \
 
 # 3. Generate features
 features-delta-one --mode batch \
-  --category CEFI TRADFI \
+  --asset-group CEFI TRADFI \
   --feature-groups ALL \
   --timeframes ALL \
   --start-date 2020-10-01 --end-date 2021-12-31

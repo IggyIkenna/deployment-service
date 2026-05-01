@@ -5,7 +5,7 @@
 # Background
 #   The MTDS DeFi manifest stayed 682+ days stale because Cloud Scheduler's
 #   pre-existing "${env_prefix}-market-tick-data-service-fast-t1-recon"
-#   target invokes "--operation run --mode batch --category DEFI", which the
+#   target invokes "--operation run --mode batch --asset-group DEFI", which the
 #   orchestrator (`engine/orchestrator.py`) explicitly skips for every DeFi
 #   venue. The actual DeFi work happens via 11 dedicated `collect-*` ops
 #   registered in `cli/main.py` — none of which had a scheduler entry.

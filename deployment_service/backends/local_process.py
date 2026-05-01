@@ -1,7 +1,7 @@
 """Local process backend — runs services as subprocesses on the developer machine.
 
 Used for Tier 2 (full fleet on localhost). Each service is started as:
-  cd <workspace>/<service-repo> && .venv/bin/python -m <module> --operation <op> --mode <mode> --category <cat>
+  cd <workspace>/<service-repo> && .venv/bin/python -m <module> --operation <op> --mode <mode> --asset-group <cat>
 
 For batch: subprocess runs to completion, exit code = success/failure.
 For live: subprocess runs in background, monitored via health endpoint.

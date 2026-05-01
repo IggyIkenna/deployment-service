@@ -18,7 +18,7 @@
 #
 # Invocation inside the VM (assembled by setup-data-pipeline-vm.sh from metadata):
 #   python -m instruments_service \
-#     --operation instruments --mode batch --category SPORTS \
+#     --operation instruments --mode batch --asset-group SPORTS \
 #     --sports-provider SOCCER_FOOTBALL_INFO \
 #     --start-date $VM_START_DATE --end-date $VM_END_DATE
 #   (or --sports-entity SFI_LEAGUES | SFI_PROGRESSIVE_STATS to scope)
@@ -43,7 +43,7 @@
 # N=4 vs ~68 days single-VM).
 #
 # Prerequisites:
-#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --category SPORTS
+#   - Tarballs: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group SPORTS
 #   - `soccer-football-info-api-key` in Secret Manager
 #
 # Usage:
@@ -191,11 +191,12 @@ launch_one_vm() {
   local metadata="VM_TASK=sports-backfill"
   metadata="${metadata},VM_SERVICE=instruments_service"
   metadata="${metadata},VM_OPERATION=instruments"
-  metadata="${metadata},VM_CATEGORY=SPORTS"
+  metadata="${metadata},VM_ASSET_GROUP=SPORTS"
   metadata="${metadata},VM_START_DATE=${start_date}"
   metadata="${metadata},VM_END_DATE=${end_date}"
   metadata="${metadata},VM_SPORTS_PROVIDER=SOCCER_FOOTBALL_INFO"
   [[ -n "$ENTITY" ]] && metadata="${metadata},VM_SPORTS_ENTITY=${ENTITY}"
+  $FORCE && metadata="${metadata},VM_FORCE=true"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
   local labels="purpose=sfi-backfill,run-id=${run_id}"

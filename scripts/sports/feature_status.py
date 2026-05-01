@@ -9,7 +9,7 @@ and prints a summary to stdout.
 Usage:
     python scripts/sports/feature_status.py --tracking-dir path/to/tracking
     python scripts/sports/feature_status.py --tracking-dir path/to/tracking --detailed
-    python scripts/sports/feature_status.py --tracking-dir path/to/tracking --category Team
+    python scripts/sports/feature_status.py --tracking-dir path/to/tracking --asset-group Team
     python scripts/sports/feature_status.py --tracking-dir path/to/tracking --export csv --output status.csv
 """
 
@@ -75,10 +75,10 @@ def scan_tracking_directory(tracking_dir: Path) -> list[FeatureRecord]:
 # ---------------------------------------------------------------------------
 
 
-def print_summary(records: list[FeatureRecord], category_filter: str = "") -> None:
+def print_summary(records: list[FeatureRecord], name_filter: str = "") -> None:
     """Log a feature status summary."""
-    if category_filter:
-        records = [r for r in records if r["category"].lower() == category_filter.lower()]
+    if name_filter:
+        records = [r for r in records if r["category"].lower() == name_filter.lower()]
 
     if not records:
         logger.info("No features found.")
@@ -119,10 +119,10 @@ def print_summary(records: list[FeatureRecord], category_filter: str = "") -> No
     logger.info("=" * 80)
 
 
-def print_detailed(records: list[FeatureRecord], category_filter: str = "") -> None:
+def print_detailed(records: list[FeatureRecord], name_filter: str = "") -> None:
     """Log every feature with its status."""
-    if category_filter:
-        records = [r for r in records if r["category"].lower() == category_filter.lower()]
+    if name_filter:
+        records = [r for r in records if r["category"].lower() == name_filter.lower()]
 
     if not records:
         logger.info("No features found.")
@@ -162,7 +162,12 @@ def main() -> None:
         "--tracking-dir", type=str, required=True, help="Path to tracking directory"
     )
     parser.add_argument("--detailed", action="store_true", help="Show every feature")
-    parser.add_argument("--category", type=str, default="", help="Filter by category name")
+    parser.add_argument(
+        "--asset-group",
+        type=str,
+        default="",
+        help="Filter by feature-group name (tracking file stem, e.g. Team)",
+    )
     parser.add_argument("--export", choices=["csv"], default="", help="Export format")
     parser.add_argument(
         "--output", type=str, default="feature_status.csv", help="Export output path"
@@ -181,9 +186,9 @@ def main() -> None:
         return
 
     if args.detailed:
-        print_detailed(records, category_filter=args.category)
+        print_detailed(records, name_filter=args.asset_group)
     else:
-        print_summary(records, category_filter=args.category)
+        print_summary(records, name_filter=args.asset_group)
 
 
 if __name__ == "__main__":
