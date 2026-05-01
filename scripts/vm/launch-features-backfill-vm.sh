@@ -113,7 +113,11 @@ ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"  # bash-
 VM_NAME="features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-backfill-${RUN_TS}"
 
 # Canonical service CLI convention (codex/06-coding-standards/cli-convention.md).
-CMD="python -m ${PY_MODULE} --operation backfill --mode batch"
+# 2026-05-01: features-* services standardised on --operation=compute (with
+# --mode batch for backfill, --mode live for pubsub). The legacy
+# --operation=backfill choice was removed during the asset_group rename
+# (Wave A); using it here caused argparse exit rc=2 in 16 backfill VMs.
+CMD="python -m ${PY_MODULE} --operation compute --mode batch"
 CMD="$CMD --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
 if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
@@ -131,6 +135,10 @@ MD="${MD},VM_START_DATE=${START_DATE}"
 MD="${MD},VM_END_DATE=${END_DATE}"
 MD="${MD},VM_BACKFILL_CMD=${CMD}"
 MD="${MD},VM_BACKFILL_MODE=${MODE}"
+# 2026-05-01: opt-in auto-delete after task completion (read by
+# vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
+# RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
+MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
