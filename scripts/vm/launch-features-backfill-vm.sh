@@ -119,6 +119,12 @@ VM_NAME="features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-backfill-${RUN_TS}"
 # (Wave A); using it here caused argparse exit rc=2 in 16 backfill VMs.
 CMD="python -m ${PY_MODULE} --operation compute --mode batch"
 CMD="$CMD --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
+# 2026-05-01: delta-one / volatility / onchain require --feature-group; the
+# other services don't accept the flag at all. Backfill defaults to ALL —
+# strategy-/scenario-driven targeted runs would override at the call site.
+case "$SERVICE_SHORT" in
+    delta-one|volatility|onchain) CMD="$CMD --feature-group ALL" ;;
+esac
 if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
