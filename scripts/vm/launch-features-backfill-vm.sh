@@ -118,7 +118,14 @@ VM_NAME="features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-backfill-${RUN_TS}"
 # --operation=backfill choice was removed during the asset_group rename
 # (Wave A); using it here caused argparse exit rc=2 in 16 backfill VMs.
 CMD="python -m ${PY_MODULE} --operation compute --mode batch"
-CMD="$CMD --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
+CMD="$CMD --start-date ${START_DATE} --end-date ${END_DATE}"
+# 2026-05-01: calendar's CLI does NOT accept --asset-group (output is global,
+# not per-asset_group; calendar_orchestrator.py:373 passes asset_group=""
+# through to the manifest writer). Every other features-* service requires it.
+case "$SERVICE_SHORT" in
+    calendar) ;;
+    *) CMD="$CMD --asset-group ${ASSET_GROUP}" ;;
+esac
 # 2026-05-01: delta-one / volatility / onchain require --feature-group; the
 # other services don't accept the flag at all. Backfill defaults to ALL —
 # strategy-/scenario-driven targeted runs would override at the call site.
