@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import os
 
-_PORT = int(os.environ.get("PORT", "8080"))
-_WORKERS = int(os.environ.get("WORKERS", "4"))
+_PORT = int(os.environ.get("PORT", "8080"))  # noqa: qg-os-environ qg-empty-fallback — config-bootstrap: gunicorn pre-fork; UCI not initialised yet
+_WORKERS = int(os.environ.get("WORKERS", "4"))  # noqa: qg-os-environ qg-empty-fallback — config-bootstrap: gunicorn pre-fork; UCI not initialised yet
 
 # Server socket
 bind = f"0.0.0.0:{_PORT}"

@@ -37,6 +37,11 @@ EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_c
 GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_framework.py" "!**/deployment_config.py" "!**/config_loader.py" "!**/cloud_client.py" "!**/backends/services/vm_config.py" "!**/dependencies.py" "!**/shard_builder.py" "!**/backends/services/vm_lifecycle.py")
 # Broad except: manifest_reader.py intentional probe (noqa: BLE001)
 BE_EXCLUDE_GLOBS=("**/cli/utils/manifest_reader.py")
+# Direct cloud SDK: gcp_instance_lister.py wraps compute_v1.aggregated_list specifically
+# to cross-reference live GCE VMs vs registry (read-only, failure-isolated). UCI's
+# storage/pubsub/firestore providers don't cover compute_v1; this is the documented
+# carve-out used exclusively by DeploymentsRegistry.reap_stale().
+CLOUD_SDK_EXCLUDE_GLOBS=("!**/vm/gcp_instance_lister.py")
 # Deep UAC imports: CLI utils legitimately import MarketCategory from unified_api_contracts.internal
 DEEP_IMPORT_EXCLUDE_GLOBS=(
     "!**/cli/utils/data_status_checkers.py"
