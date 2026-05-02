@@ -56,10 +56,17 @@
 
 locals {
   # features-onchain-service image — published by
-  # `features-onchain-service/cloudbuild.yaml`
-  # (`_REGISTRY_REPO=features-onchain-service`,
-  # `_SERVICE_NAME=features-onchain-service`).
-  features_onchain_image = "${var.region}-docker.pkg.dev/${var.project_id}/features-onchain-service/features-onchain-service:latest"
+  # `features-onchain-service/cloudbuild.yaml` to the shared
+  # `unified-trading-system` Artifact Registry repo (matches the
+  # per-service `cloudbuild.yaml` `_REGISTRY_REPO=unified-trading-system`
+  # convention also used by defi_collection_scheduler.tf for MTDS).
+  #
+  # NB: per-service standalone Terraform under
+  # `terraform/services/features-onchain-service/gcp/terraform.tfvars`
+  # uses a DIFFERENT path (`features-onchain-service/features-onchain-service:latest`)
+  # which is a stale convention pre-dating the shared-repo migration —
+  # don't follow that pattern here.
+  features_onchain_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/features-onchain-service:latest"
 
   # Single op, so just one entry. Modelled as a map for symmetry with
   # defi_collect_operations + future-proofing if more reward-realisation
