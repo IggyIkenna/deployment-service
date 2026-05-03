@@ -122,15 +122,21 @@ def display_fixed_service_status(
             category_excluded[cat] = 0
             category_start_date[cat] = None
 
-    format_fixed_service_header(
-        service,
-        start_date,
-        end_date,
-        total_requested_days,
-        category_excluded,
-        asset_groups,
-        category_start_date,
-    )
+    # Headers + progress chatter go to stderr when output==json so the
+    # deployment-api (and any other JSON consumer) can pipe stdout straight
+    # into json.loads without stripping a banner first.  tree/summary mode
+    # still emits to stdout.
+    is_json = output == "json"
+    if not is_json:
+        format_fixed_service_header(
+            service,
+            start_date,
+            end_date,
+            total_requested_days,
+            category_excluded,
+            asset_groups,
+            category_start_date,
+        )
 
     # Decide on scan mode: fast (targeted queries) vs batch (full bucket scan)
     # Auto-enable fast mode for services with venue dimension + short date range
@@ -139,10 +145,11 @@ def display_fixed_service_status(
 
     if auto_fast:
         click.echo(
-            click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True)
+            click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True),
+            err=is_json,
         )
     else:
-        click.echo(click.style("Scanning buckets (batch mode)...", dim=True))
+        click.echo(click.style("Scanning buckets (batch mode)...", dim=True), err=is_json)
 
     # Live mode: persisted data under live/ prefix (same buckets). See codex batch-live-symmetry.
     path_prefix = "live/" if mode == "live" else ""
@@ -199,8 +206,9 @@ def display_fixed_service_status(
         bucket_indexes = scan_buckets_batch_mode(asset_groups, bucket_info, cloud_client)
 
     scan_time = time.time() - scan_start
-    click.echo(click.style(f"Scan complete in {scan_time:.1f}s", fg="green"))
-    click.echo()
+    click.echo(click.style(f"Scan complete in {scan_time:.1f}s", fg="green"), err=is_json)
+    if not is_json:
+        click.echo()
 
     # Build hierarchical structure: category -> venue -> dates
     hierarchy = defaultdict(
