@@ -1,6 +1,7 @@
-"""deployment-service — FastAPI health API.
+"""deployment-service — FastAPI app.
 
-Exposes /health and /readiness endpoints via UTL make_health_router.
+Exposes /health + /readiness via UTL make_health_router and the orchestration /
+state / ml-experiments routers consumed by deployment-api.
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from datetime import date
 
 from fastapi import FastAPI
 from unified_trading_library import make_health_router
+
+from deployment_service.api.routes import ml_experiments, orchestration, state
 
 _last_processed_date: date | None = None
 
@@ -37,6 +40,9 @@ def create_app() -> FastAPI:
         data_freshness=_data_freshness,
     )
     app.include_router(health_router)
+    app.include_router(state.router)
+    app.include_router(orchestration.router)
+    app.include_router(ml_experiments.router)
     return app
 
 

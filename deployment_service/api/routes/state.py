@@ -9,6 +9,7 @@ All routes delegate to StateManager and existing deployment-service internals.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import cast
 
 from fastapi import APIRouter, HTTPException
@@ -139,9 +140,9 @@ async def calculate_shards(request: CalculateShardsRequest) -> dict[str, object]
             "skip_dimensions": request.skip_dimensions,
         }
         if request.start_date is not None:
-            kwargs["start_date"] = request.start_date
+            kwargs["start_date"] = date.fromisoformat(request.start_date)
         if request.end_date is not None:
-            kwargs["end_date"] = request.end_date
+            kwargs["end_date"] = date.fromisoformat(request.end_date)
         if request.cloud_config_path is not None:
             kwargs["cloud_config_path"] = request.cloud_config_path
         if request.date_granularity_override is not None:
