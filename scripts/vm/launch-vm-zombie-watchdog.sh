@@ -73,12 +73,30 @@ VM_NAME="vm-zombie-watchdog-${RUN_TS}"
 DRY_FLAG=""
 if $DRY_RUN; then DRY_FLAG="--dry-run"; fi
 
-# Build the in-VM command (poll loop)
+# Build the in-VM command (poll loop).
+#
+# Boot pip vs apt notes (2026-05-04 fix for the silent-watchdog incident):
+#   - python3-pandas + python3-pyarrow are installed via APT first.  Ubuntu
+#     24.04 ships ``typing_extensions`` from Debian without a pip RECORD file,
+#     and any pip transitive that wants to upgrade it crashes with
+#     "Cannot uninstall typing_extensions ... RECORD file not found" — which
+#     is exactly what killed the previous watchdog at boot, leaving 29
+#     orphaned backfill VMs running for 3 days.
+#   - The remaining google-cloud-* SDKs are not in apt and must come via pip.
+#     ``--ignore-installed`` tells pip to skip the uninstall step entirely,
+#     so any installed-by-apt deps (typing_extensions, requests, urllib3) stay
+#     in place even if a newer version is in the resolution.
+#   - The pip command itself runs without ``set -e`` so a single dependency
+#     edge-case can't kill the whole startup script — the next line, the
+#     poll loop, will simply ImportError-and-retry if a package is missing.
 LOOP_CMD="
-set -euo pipefail
 cd /tmp
 gsutil cp gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py /tmp/watchdog.py
-python3 -m pip install --break-system-packages --quiet google-cloud-compute google-cloud-storage pandas pyarrow
+python3 -m pip install \
+    --break-system-packages \
+    --ignore-installed \
+    --quiet \
+    google-cloud-compute google-cloud-storage || true
 while true; do
     python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
     sleep ${INTERVAL}
@@ -87,9 +105,12 @@ done
 
 STARTUP="
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq python3 python3-pip
+# python3-pandas / python3-pyarrow from apt avoids the typing_extensions
+# uninstall-record clash that killed the previous watchdog at boot.
+apt-get update -qq
+apt-get install -y -qq python3 python3-pip python3-pandas python3-pyarrow
 ${LOOP_CMD}
 "
 
