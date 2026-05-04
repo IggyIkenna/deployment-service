@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Launch CeFi instruments-service backfill VM(s).
+#
+# Purpose: capture per-(date, venue) instrument reference data into
+#   gs://instruments-store-cefi-central-element-323112/
+#     instrument_availability/by_date/day={D}/venue={V}/instruments.parquet
+# AND register the shard in the canonical availability manifest at
+#   gs://instruments-store-cefi-.../_index/availability_index.parquet
+# (via _index/per_vm/{VM_NAME}.parquet, merged by manifest-consolidator).
+#
+# Distinct from launch-cefi-* scripts which all target market_tick_data_service
+# (price ticks via Tardis). This is the instruments-service path which fetches
+# instrument metadata via per-venue REST APIs (Binance, OKX, Bybit, Coinbase,
+# Deribit, Bitfinex, Bitget, Hyperliquid, Aster, Upbit).
+#
+# Skip-existing: instruments-service orchestrator pre-flight checks the
+# manifest and skips (date, venue) shards already CAPTURED. Re-running with
+# overlapping ranges no-ops on completed shards. Force overrides.
+#
+# Per-VM shard isolation: setup-data-pipeline-vm.sh exports
+#   MANIFEST_PER_VM_SHARDS=true + VM_NAME=$(GCE instance name)
+# automatically, so every VM writes to its own _index/per_vm/{vm}.parquet —
+# no CAS races on the canonical, the consolidator merges them every 60s.
+#
+# Singleton lock: refuses to launch if an cefi-instr-* VM is already running
+# in the zone. Many CeFi venues have shared rate-limit budgets per source-IP
+# (binance, okx, deribit). Multiple concurrent VMs hitting the same venue
+# from the same NAT egress thrash on 429s. Use --force to bypass for
+# multi-venue fan-out where you've manually distributed venues across VMs.
+#
+# Usage:
+#   bash launch-cefi-instruments-backfill.sh                              # last 7 days, all venues
+#   bash launch-cefi-instruments-backfill.sh 2026-04-15 2026-05-04        # explicit window, all venues
+#   bash launch-cefi-instruments-backfill.sh 2026-04-15 2026-05-04 BINANCE-SPOT  # one venue
+#   bash launch-cefi-instruments-backfill.sh --force ...                  # bypass singleton lock
+#
+# Cost: e2-standard-4 ~5-15 min per (venue, day) range; instruments are
+# small (REST GET + parse, no Tardis $ cost).
+#
+# Prerequisites:
+#   - Tarballs uploaded: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group CEFI
+#   - Per-venue API keys in Secret Manager (most CeFi REST endpoints don't
+#     require auth, but ApiKeyReloader expects entries to exist)
+set -euo pipefail
+
+FORCE=false
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=true
+  shift
+fi
+
+# Args: [start_date end_date [venue]]
+if [[ $# -ge 2 ]]; then
+  START_DATE="$1"
+  END_DATE="$2"
+  VENUE="${3:-}"
+else
+  END_DATE="$(date -u -d "yesterday" +%Y-%m-%d)"
+  START_DATE="$(date -u -d "7 days ago" +%Y-%m-%d)"
+  VENUE=""
+fi
+
+ZONE="asia-northeast1-c"
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-central-element-323112"
+
+if ! $FORCE; then
+  EXISTING="$(gcloud compute instances list \
+    --filter='name~"^cefi-instr-" AND status=RUNNING' \
+    --zones="$ZONE" \
+    --project="$PROJECT" \
+    --format='value(name)' 2>/dev/null | head -1)"
+  if [[ -n "$EXISTING" ]]; then
+    cat >&2 <<EOF
+ERROR: CeFi instruments VM already running in $ZONE: $EXISTING
+Refusing to launch a duplicate — venue REST APIs share rate limits
+per source-IP and concurrent VMs from the same NAT egress thrash on 429s.
+
+Options:
+  Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE --project=$PROJECT
+  GCS log:   gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
+  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
+  Force:     bash $0 --force ${START_DATE} ${END_DATE} ${VENUE:-}
+EOF
+    exit 1
+  fi
+fi
+
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+# VM name suffix carries venue when scoped, "all" otherwise. GCE caps name
+# at 63 chars; venue strings (BINANCE-FUTURES = 15) fit comfortably.
+SUFFIX_RAW="${VENUE:-all}"
+NAME_SUFFIX=$(echo "$SUFFIX_RAW" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g; s/^-//; s/-$//')
+VM_NAME="cefi-instr-${NAME_SUFFIX}-${RUN_TS}"
+
+echo "Launching $VM_NAME"
+echo "  service:    instruments-service"
+echo "  asset_group: CEFI"
+echo "  range:      ${START_DATE} → ${END_DATE}"
+echo "  venue:      ${VENUE:-<all CeFi venues>}"
+echo "  zone:       $ZONE"
+
+METADATA="VM_TASK=cefi-instruments-backfill"
+METADATA="${METADATA},VM_SERVICE=instruments_service"
+METADATA="${METADATA},VM_OPERATION=download"
+METADATA="${METADATA},VM_ASSET_GROUP=CEFI"
+METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+[[ -n "$VENUE" ]] && METADATA="${METADATA},VM_VENUE=${VENUE}"
+
+gcloud compute instances create "$VM_NAME" \
+  --project="$PROJECT" \
+  --zone="$ZONE" \
+  --machine-type=e2-standard-4 \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=30GB \
+  --scopes=cloud-platform \
+  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+  --labels=purpose=cefi-instruments-backfill,run-ts="${RUN_TS}"
+
+echo ""
+echo "VM launched: $VM_NAME"
+echo "GCS log tail:    gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+echo "Per-VM shard:    gs://instruments-store-cefi-${PROJECT}/_index/per_vm/${VM_NAME}.parquet"
+echo "Captured data:   gs://instruments-store-cefi-${PROJECT}/instrument_availability/by_date/day={D}/venue={V}/instruments.parquet"
+echo "Delete when done: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
