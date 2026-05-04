@@ -73,30 +73,31 @@ VM_NAME="vm-zombie-watchdog-${RUN_TS}"
 DRY_FLAG=""
 if $DRY_RUN; then DRY_FLAG="--dry-run"; fi
 
-# Build the in-VM command (poll loop).
+# Boot pip vs apt notes (2026-05-04 — silent-watchdog incident fix):
 #
-# Boot pip vs apt notes (2026-05-04 fix for the silent-watchdog incident):
-#   - python3-pandas + python3-pyarrow are installed via APT first.  Ubuntu
-#     24.04 ships ``typing_extensions`` from Debian without a pip RECORD file,
-#     and any pip transitive that wants to upgrade it crashes with
-#     "Cannot uninstall typing_extensions ... RECORD file not found" — which
-#     is exactly what killed the previous watchdog at boot, leaving 29
-#     orphaned backfill VMs running for 3 days.
-#   - The remaining google-cloud-* SDKs are not in apt and must come via pip.
-#     ``--ignore-installed`` tells pip to skip the uninstall step entirely,
-#     so any installed-by-apt deps (typing_extensions, requests, urllib3) stay
-#     in place even if a newer version is in the resolution.
-#   - The pip command itself runs without ``set -e`` so a single dependency
-#     edge-case can't kill the whole startup script — the next line, the
-#     poll loop, will simply ImportError-and-retry if a package is missing.
+#   * The previous watchdog crashed at boot because pip-installing
+#     pandas/pyarrow tried to upgrade ``typing_extensions`` past Ubuntu's
+#     apt-installed copy, which has no pip RECORD file and so cannot be
+#     uninstalled. ``set -euo pipefail`` then killed the whole startup
+#     script BEFORE the poll loop ever started.
+#
+#   * Fix splits installs into two layered apt calls so ONE missing package
+#     can't roll back the must-haves, then pip with ``--ignore-installed``
+#     so it never touches apt-managed deps:
+#
+#       1. apt: python3, python3-pip                  (must-have, atomic)
+#       2. apt: python3-pandas                         (apt has it; nice-to-have)
+#       3. pip: google-cloud-compute google-cloud-storage pyarrow
+#               --ignore-installed (skips uninstall step, leaves
+#               typing_extensions + urllib3 + requests as apt put them)
+#
+#   * Outer ``set -uo pipefail`` (no ``-e``) so a transient apt mirror or
+#     pip resolution failure can't take down the daemon — the inner poll
+#     loop will simply ImportError on the next iteration if something's
+#     missing, which is far easier to diagnose than a silent boot.
 LOOP_CMD="
 cd /tmp
 gsutil cp gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py /tmp/watchdog.py
-python3 -m pip install \
-    --break-system-packages \
-    --ignore-installed \
-    --quiet \
-    google-cloud-compute google-cloud-storage || true
 while true; do
     python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
     sleep ${INTERVAL}
@@ -107,10 +108,25 @@ STARTUP="
 #!/usr/bin/env bash
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
-# python3-pandas / python3-pyarrow from apt avoids the typing_extensions
-# uninstall-record clash that killed the previous watchdog at boot.
 apt-get update -qq
-apt-get install -y -qq python3 python3-pip python3-pandas python3-pyarrow
+
+# Pass 1 — must-have core; if either of these fails the watchdog cannot run.
+apt-get install -y -qq python3 python3-pip
+
+# Pass 2 — nice-to-haves. python3-pandas is in apt; python3-pyarrow is not
+# in Ubuntu 24.04 main, so it comes via pip below. Wrapping in '|| true'
+# means a missing pandas package still lets pip take over.
+apt-get install -y -qq python3-pandas || true
+
+# Pip the rest with --ignore-installed so it never tries to uninstall
+# apt-managed deps (the typing_extensions trap that killed the previous
+# watchdog at boot).
+python3 -m pip install \
+    --break-system-packages \
+    --ignore-installed \
+    --quiet \
+    google-cloud-compute google-cloud-storage pyarrow || true
+
 ${LOOP_CMD}
 "
 
