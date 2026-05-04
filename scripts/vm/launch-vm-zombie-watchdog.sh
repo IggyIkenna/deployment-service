@@ -131,6 +131,16 @@ ${LOOP_CMD}
 "
 
 echo "Launching watchdog VM: $VM_NAME (interval=${INTERVAL}s, dry_run=${DRY_RUN})"
+
+# Materialise the startup script to a temp file so gcloud's
+# --metadata-from-file path handles the multi-line + special-char content
+# cleanly. Inline --metadata=startup-script="..." trips gcloud's shell-flag
+# parser on multi-line bodies (observed 2026-05-04: gcloud aborts with a
+# generic "Please see gcloud topic escaping" hint).
+STARTUP_FILE="$(mktemp -t vm-zombie-watchdog-startup.XXXXXX.sh)"
+trap 'rm -f "$STARTUP_FILE"' EXIT
+printf '%s\n' "$STARTUP" > "$STARTUP_FILE"
+
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
@@ -139,7 +149,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=20GB \
     --scopes=cloud-platform \
-    --metadata=startup-script="$STARTUP" \
+    --metadata-from-file=startup-script="$STARTUP_FILE" \
     --labels=purpose=vm-zombie-watchdog 2>&1 | tail -5
 
 echo ""
