@@ -143,6 +143,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-gas-fees-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
