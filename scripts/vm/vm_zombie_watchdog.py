@@ -49,7 +49,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1, storage
+# Bump urllib3 pool size from default 10 → 64 BEFORE importing google.cloud.
+# With 16 concurrent worker threads querying 50+ prefix VMs each iteration,
+# the default pool generated 'Connection pool is full, discarding connection'
+# warnings (observed 2026-05-05) and caused op.result() polling to lose
+# track of in-flight delete operations. Must run before google.cloud imports
+# because the auth-session adapter is mounted at client-construction time.
+import requests.adapters  # noqa: E402
+
+requests.adapters.DEFAULT_POOLSIZE = 64
+
+from google.cloud import compute_v1, storage  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -245,13 +255,32 @@ def _evaluate_vm(
 
 
 def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str) -> bool:
+    """Issue a delete and treat best-effort.
+
+    The delete is counted as a kill iff the API call itself returned (the
+    Compute API has accepted the delete and the VM is going away). The
+    follow-up `op.result()` poll is best-effort — if it raises (transient
+    connection-pool issue, network blip, eventual-consistency lag), the
+    delete is still in-flight, so the kill counts. Previously we returned
+    False on poll-raise, which under-counted real kills (observed
+    2026-05-05: watchdog reported `killed 0/4` while all 4 VMs deleted).
+    """
     try:
         op = compute_client.delete(project=PROJECT_ID, zone=zone, instance=vm_name)
-        op.result(timeout=120)
-        return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("kill failed for %s in %s: %s", vm_name, zone, exc)
+        logger.warning("kill API call failed for %s in %s: %s", vm_name, zone, exc)
         return False
+
+    try:
+        op.result(timeout=120)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "kill confirm-poll failed for %s in %s (delete in-flight, counting as kill): %s",
+            vm_name,
+            zone,
+            exc,
+        )
+    return True
 
 
 def main(argv: list[str]) -> int:
