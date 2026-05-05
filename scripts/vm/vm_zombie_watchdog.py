@@ -163,7 +163,9 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "us-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "weather-backfill-": f"instruments-store-sports-{PROJECT_ID}",  # open_meteo (launcher emits weather-* not openmeteo-*)
     # ------------------------------------------------------------------
-    # Features pipeline VMs (heartbeat-only — bucket varies by features-{group}-{asset_group}-)
+    # Features pipeline VMs (heartbeat-only — bucket varies by features-{group}-{asset_group}-).
+    # Group ∈ {calendar, commodity, cross-instrument, delta-one, multi-timeframe, onchain, volatility,
+    # sfi-progressive (sports halftime backfill, e2-standard-4)}.
     # ------------------------------------------------------------------
     "features-": None,  # features-{calendar,commodity,cross-instrument,delta-one,multi-timeframe,onchain,volatility}-{asset_group}-
     # ------------------------------------------------------------------
@@ -175,6 +177,16 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "instr-": None,  # tier3-cefi instr-{venue}-{ts} + e2e-testing instr-backfill-defi-targeted
     "instruments-smoke-": None,
     "combo-migration-": None,
+    # ------------------------------------------------------------------
+    # canonical-migration VMs — launch-canonical-migration-vm.sh
+    # naming: canonical-migration-{cefi|tradfi|defi|prediction|sports}-{ts}
+    # writes per-VM manifest shards under each asset_group's tick bucket.
+    # ------------------------------------------------------------------
+    "canonical-migration-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "canonical-migration-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "canonical-migration-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "canonical-migration-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "canonical-migration-sports-": f"market-data-tick-sports-{PROJECT_ID}",
 }
 
 

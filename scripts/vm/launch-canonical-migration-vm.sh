@@ -29,7 +29,7 @@ CODE_BUCKET="deployment-scripts-central-element-323112"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 <cefi|tradfi|defi|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 <cefi|tradfi|defi|prediction|sports|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -42,6 +42,12 @@ _script_for() {
         tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_canonical --buckets all --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        # Sports: --workers 16 — same-region VM has lower GCS latency than the
+        # cross-region laptop run that thrashed at workers=32 (2026-05-05
+        # incident: 2476 generation conflicts, run died on 404 NotFound race).
+        # MANIFEST_PER_VM_SHARDS=true is already exported by setup-data-pipeline-vm.sh
+        # so manifest writes hit per-VM shards instead of canonical _index.
+        sports)     echo "python -m market_tick_data_service.scripts.migrate_sports_canonical --start-date $START_DATE --end-date $END_DATE --workers 16" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -78,12 +84,13 @@ _launch() {
 }
 
 case "$ASSET_GROUP" in
-    cefi|tradfi|defi|prediction) _launch "$ASSET_GROUP" ;;
+    cefi|tradfi|defi|prediction|sports) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
         _launch defi
         _launch prediction
+        _launch sports
         ;;
     *) echo "Unknown category: $ASSET_GROUP"; exit 2 ;;
 esac
