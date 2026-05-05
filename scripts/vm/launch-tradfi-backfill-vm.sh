@@ -43,6 +43,9 @@
 #   # Single light year (smoke):
 #   bash launch-tradfi-backfill-vm.sh --root-symbol BTC --tier light --year 2024 --skip-months 2024-06
 #
+#   # Skip already-captured shards (manifest pre-flight on, no force):
+#   bash launch-tradfi-backfill-vm.sh --root-symbol ES_OPT --year 2020 --no-force-window
+#
 # Prerequisites:
 #   - Tarballs uploaded to gs://deployment-scripts-central-element-323112/code/
 #     (run `bash create-code-tarballs.sh --asset-group TRADFI` first).
@@ -80,11 +83,13 @@ DATA_TYPES_OVERRIDE=""
 START_DATE_OVERRIDE=""
 END_DATE_OVERRIDE=""
 SKIP_MONTHS=""
+FORCE_WINDOW=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --force)            FORCE=true; shift ;;
         --dry-run)          DRY_RUN=true; shift ;;
+        --no-force-window)  FORCE_WINDOW=false; shift ;;
         --root-symbol)      ROOT_SYMBOL="$2"; shift 2 ;;
         --year)             YEAR="$2"; shift 2 ;;
         --month)            MONTH="$2"; shift 2 ;;
@@ -101,7 +106,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--root-symbol ES|BTC|ETH] [--tier-plan crypto-basis-2023-05+2024-06] [--tier light|heavy] [--year YYYY] [--month YYYY-MM] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--instrument-ids 'ID;ID'] [--data-types 'ohlcv_1m;trades'] [--skip-months 'YYYY-MM,YYYY-MM'] [--dry-run] [--force]" >&2
+            echo "Usage: $0 [--root-symbol ES|BTC|ETH] [--tier-plan crypto-basis-2023-05+2024-06] [--tier light|heavy] [--year YYYY] [--month YYYY-MM] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--instrument-ids 'ID;ID'] [--data-types 'ohlcv_1m;trades'] [--skip-months 'YYYY-MM,YYYY-MM'] [--dry-run] [--force] [--no-force-window]" >&2
             exit 1
             ;;
     esac
@@ -179,21 +184,21 @@ _create_vm() {
         *)                                       vm_venue="CME" ;;
     esac
 
-    # VM_FORCE_WINDOW=true triggers --force-window in setup-data-pipeline-vm.sh
-    # which the rolling_window helper translates to --force in the MTDS CLI.
-    # --force bypasses the pre-flight skip that reads availability_index.parquet.
-    # Necessary for tradfi while we work through the migration-era phantom
-    # captured rows (manifest claims captured but parquets don't exist at the
-    # canonical path; the phantom-recon script flips them but the
-    # consolidator daemon's merge can revert flips when concurrent VMs write
-    # captured rows for the same shards). Once the canonical is fully
-    # reality-aligned this flag can be removed.
+    # VM_FORCE_WINDOW=true (default) triggers --force-window in
+    # setup-data-pipeline-vm.sh which the rolling_window helper translates to
+    # --force in the MTDS CLI. --force bypasses the pre-flight skip that reads
+    # availability_index.parquet. Default kept true for backward compat with
+    # the migration-era phantom captured-row period; pass --no-force-window
+    # to disable once the tradfi phantom audit (master plan
+    # unified-trading-pm/plans/active/sp500_ml_readiness_master_2026_05_05.plan.md
+    # Phase 1) has reconciled the manifest. Then narrow-window VMs skip
+    # already-captured shards instead of refetching the entire window.
     metadata="VM_TASK=cefi-backfill"
     metadata="${metadata},VM_SERVICE=market_tick_data_service"
     metadata="${metadata},VM_OPERATION=download"
     metadata="${metadata},VM_ASSET_GROUP=TRADFI"
     metadata="${metadata},VM_VENUE=${vm_venue}"
-    metadata="${metadata},VM_FORCE_WINDOW=true"
+    metadata="${metadata},VM_FORCE_WINDOW=${FORCE_WINDOW}"
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=${data_types}"
