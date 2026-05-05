@@ -174,6 +174,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "manifest-consolidator-": None,  # long-lived consolidator daemon
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
+    "tradfi-audit-aggregate-": None,  # tradfi phantom audit + ES_OPT legacy aggregation one-off
     "instr-": None,  # tier3-cefi instr-{venue}-{ts} + e2e-testing instr-backfill-defi-targeted
     "instruments-smoke-": None,
     "combo-migration-": None,
