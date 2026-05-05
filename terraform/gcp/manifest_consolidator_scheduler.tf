@@ -58,6 +58,16 @@ locals {
     "market-data-sports"     = "market-data-tick-sports-${var.project_id}"
     "market-data-prediction" = "market-data-tick-prediction-${var.project_id}"
   }
+
+  # Per-category timeout override (seconds). Default 300 covers most categories
+  # where the merge is < 30s. Sports buckets carry 2M+ row manifests across 37+
+  # shards; the merge has been observed taking 60-80s and can timeout under load.
+  # 600s gives sufficient headroom — incidents 2026-05-05 showed sports-instruments
+  # canonical drifting to ~7min stale because real-merge cycles were timing out.
+  manifest_consolidator_timeouts = {
+    "instruments-sports" = 600
+    "market-data-sports" = 600
+  }
 }
 
 # -------------------------------------------------------
@@ -82,7 +92,7 @@ module "manifest_consolidator_job" {
 
   cpu             = "1"
   memory          = "2Gi"
-  timeout_seconds = 300 # consolidation is a single read-list-merge-write cycle, ~5-30s expected
+  timeout_seconds = lookup(local.manifest_consolidator_timeouts, each.key, 300) # consolidation is a single read-list-merge-write cycle, ~5-30s typical; sports overridden to 600s for 2M+ row merges
   max_retries     = 1
   parallelism     = 1
   task_count      = 1

@@ -115,10 +115,14 @@ MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 
 # ── Validate root ──
+# MVP TradFi (2026-05-05 scope): CME futures + ES options + BlackRock spot ETFs
+# (IBIT, ETHA on NASDAQ). FBTC/ARKB/FETH (BATS) and GBTC/ETHE/BITO (NYSE Arca)
+# dropped from scope — date-futures arb only needs CME futures + Deribit
+# futures (same expiry day), and the BlackRock ETFs alone cover spot exposure.
 case "$ROOT_SYMBOL" in
-    ES|ES_OPT|MES|BTC|ETH|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE) ;;
+    ES|ES_OPT|MES|BTC|ETH|IBIT|ETHA) ;;
     *)
-        echo "ERROR: --root-symbol must be one of ES|ES_OPT|MES|BTC|ETH|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE (got '$ROOT_SYMBOL')" >&2
+        echo "ERROR: --root-symbol must be one of ES|ES_OPT|MES|BTC|ETH|IBIT|ETHA (got '$ROOT_SYMBOL')" >&2
         exit 1
         ;;
 esac
@@ -164,18 +168,13 @@ _create_vm() {
     # name from _DATABENTO_VENUES = {CME, ICE, NYSE, NASDAQ, CBOE} so the
     # orchestrator's per-date active-venue filter accepts it. The previous
     # `VM_VENUE=DATABENTO` was silently filtered out → "No active venues"
-    # warnings + zero rows captured. CME serves BTC/ETH/ES/MES futures;
-    # NYSE/NASDAQ for ETFs (added by ETF launcher mode).
-    # ETF venues route to per-listing-exchange Databento datasets via UAC
-    # DatabentoInstrumentDef. The MTDS adapter's download_batch_df honors
-    # d.dataset per-instrument (XNAS.ITCH for NASDAQ, ARCX.PILLAR for ARCA,
-    # BATS.PITCH for BATS). DBEQ.BASIC SIP returned 0 records for these
-    # tickers in the 2026-04-30 backfill, hence dataset-direct routing.
+    # warnings + zero rows captured. CME serves BTC/ETH/ES/MES futures +
+    # ES options; NASDAQ serves the BlackRock spot ETFs (IBIT, ETHA via
+    # XNAS.ITCH); CBOE serves VIX. NYSE-Arca + Cboe-BZX-listed ETFs were
+    # part of an earlier scope and are deliberately not handled here.
     local vm_venue="CME"
     case "$root" in
         IBIT|ETHA)                               vm_venue="NASDAQ" ;;     # XNAS.ITCH
-        GBTC|ETHE|BITO)                          vm_venue="ARCA" ;;       # ARCX.PILLAR
-        FBTC|FETH|ARKB)                          vm_venue="BATS" ;;       # BATS.PITCH
         VIX|VX)                                  vm_venue="CBOE" ;;
         *)                                       vm_venue="CME" ;;
     esac
@@ -500,10 +499,11 @@ _launch_light_year() {
         data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
     fi
     case "$root" in
-        IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE)
-            # Spot ETFs: ohlcv_1m only for the year-shard window. Trades
-            # and tbbo land in dedicated heavy-month runs (universal
-            # reference months 2024-08 + 2025-03 — see _launch_etf_default).
+        IBIT|ETHA)
+            # Spot ETFs (NASDAQ-listed BlackRock funds): ohlcv_1m only for
+            # the year-shard window. Trades and tbbo land in dedicated
+            # heavy-month runs (universal reference months 2024-08 + 2025-03
+            # — see _launch_etf_default).
             data_types="${DATA_TYPES_OVERRIDE:-ohlcv_1m}"
             ;;
     esac
@@ -637,7 +637,7 @@ fi
 
 # No tier-plan, no explicit tier: year-shard default for ES / ES_OPT / ETFs.
 case "$ROOT_SYMBOL" in
-    ES|ES_OPT|MES|IBIT|FBTC|GBTC|BITO|ARKB|ETHA|FETH|ETHE)
+    ES|ES_OPT|MES|IBIT|ETHA)
         _legacy_es_default "$ROOT_SYMBOL"
     echo ""
     if $DRY_RUN; then
