@@ -133,6 +133,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "mdps-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
     "mdps-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mdps-defi-": f"market-data-tick-defi-{PROJECT_ID}",
     "mdps-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # MTDS asset-group-scoped backfills (DeFi onchain feeds + prediction)

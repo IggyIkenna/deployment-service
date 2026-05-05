@@ -45,6 +45,7 @@ STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # ─── Per-asset_group year ranges ─────────────────────────────────────────────
 CEFI_YEARS="2020 2021 2022 2023 2024 2025 2026"
 TRADFI_YEARS="2020 2021 2022 2023 2024 2025 2026"
+DEFI_YEARS="2022 2023 2024 2025 2026"
 SPORTS_YEARS="2020 2021 2022 2023 2024 2025 2026"
 PREDICTION_YEARS="2025 2026"
 
@@ -64,17 +65,17 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
-        cefi|tradfi|sports|prediction)
+        cefi|tradfi|defi|sports|prediction)
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|sports|prediction ...] [--year YYYY ...] [--dry]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry]"; exit 2 ;;
     esac
 done
 
 # Default: all 4 asset_groups
 if [[ -z "$SELECTED_AGS" ]]; then
-    SELECTED_AGS="cefi tradfi sports prediction"
+    SELECTED_AGS="cefi tradfi defi sports prediction"
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
@@ -83,6 +84,7 @@ _year_range_for() {
     case "$1" in
         cefi) echo "$CEFI_YEARS" ;;
         tradfi) echo "$TRADFI_YEARS" ;;
+        defi) echo "$DEFI_YEARS" ;;
         sports) echo "$SPORTS_YEARS" ;;
         prediction) echo "$PREDICTION_YEARS" ;;
         *) echo "" ;;
@@ -93,6 +95,7 @@ _cat_upper_for() {
     case "$1" in
         cefi) echo "CEFI" ;;
         tradfi) echo "TRADFI" ;;
+        defi) echo "DEFI" ;;
         sports) echo "SPORTS" ;;
         prediction) echo "PREDICTION" ;;
         *) echo "" ;;
@@ -123,6 +126,10 @@ launch_year_shard() {
     # Prediction 2025: clamp start to data-availability start.
     if [[ "$cat" == "prediction" && "$year" == "2025" ]]; then
         start_date="2025-03-14"
+    fi
+    # DeFi 2022: clamp start to data-availability start (raw_tick_data begins 2022-11-01).
+    if [[ "$cat" == "defi" && "$year" == "2022" ]]; then
+        start_date="2022-11-01"
     fi
 
     local source_bucket="market-data-tick-${cat}-${PROJECT}"
