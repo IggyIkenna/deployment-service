@@ -124,24 +124,30 @@ STARTUP="
 #!/usr/bin/env bash
 set -uo pipefail
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
 
-# Pass 1 — must-have core; if either of these fails the watchdog cannot run.
-apt-get install -y -qq python3 python3-pip
+# Wait up to 60s for any in-flight unattended-upgrades to release the
+# dpkg lock; otherwise apt-get install would block.
+for i in \$(seq 1 60); do
+    if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
 
-# Pass 2 — nice-to-haves. python3-pandas is in apt; python3-pyarrow is not
-# in Ubuntu 24.04 main, so it comes via pip below. Wrapping in '|| true'
-# means a missing pandas package still lets pip take over.
-apt-get install -y -qq python3-pandas || true
+# Skip apt-get update — Ubuntu 24.04 GCE image lists are fresh enough,
+# and 'apt-get update -qq' has hung 7+ min on slow asia-northeast1
+# mirrors (observed 2026-05-05). python3 is pre-installed; we just need
+# python3-pip from the cached apt lists.
+apt-get install -y -qq python3-pip 2>&1 || true
 
-# Pip the rest with --ignore-installed so it never tries to uninstall
-# apt-managed deps (the typing_extensions trap that killed the previous
-# watchdog at boot).
+# Watchdog only imports google.cloud.{compute_v1, storage} — no pandas,
+# no pyarrow. --ignore-installed avoids the typing_extensions trap
+# (apt-managed package without a pip RECORD file).
 python3 -m pip install \
     --break-system-packages \
     --ignore-installed \
     --quiet \
-    google-cloud-compute google-cloud-storage pyarrow || true
+    google-cloud-compute google-cloud-storage 2>&1 || true
 
 ${LOOP_CMD}
 "
