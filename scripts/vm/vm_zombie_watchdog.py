@@ -188,6 +188,13 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "canonical-migration-defi-": f"market-data-tick-defi-{PROJECT_ID}",
     "canonical-migration-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
     "canonical-migration-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
+    # MDPS sports bucket-pass VMs — launch-mdps-sports-bucket-vm.sh
+    # naming: mdps-sports-bucket-{ts}
+    # writes per-(league_id, horizon) bucketed parquets to the same sports
+    # tick bucket that the canonical-migration step writes raw data to.
+    # ------------------------------------------------------------------
+    "mdps-sports-bucket-": f"market-data-tick-sports-{PROJECT_ID}",
 }
 
 
