@@ -60,13 +60,18 @@ locals {
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
-  # where the merge is < 30s. Sports buckets carry 2M+ row manifests across 37+
-  # shards; the merge has been observed taking 60-80s and can timeout under load.
-  # 600s gives sufficient headroom — incidents 2026-05-05 showed sports-instruments
-  # canonical drifting to ~7min stale because real-merge cycles were timing out.
+  # where the merge is < 30s. Heavy buckets (2M+ rows) need more headroom.
+  #
+  # 2026-05-05 sizing data:
+  #   - instruments-store-sports:  37 shards / 2.09M rows / merges 60-80s
+  #   - market-data-tick-cefi:   1243 shards / 2.22M rows / merges 70-90s
+  # First bump (sports → 600s) was insufficient — observed 'Container terminated
+  # on signal 9' mid-merge. Second bump: sports → 900s, plus cefi-market-data
+  # added at 600s prophylactically since its shard count is 33x sports'.
   manifest_consolidator_timeouts = {
-    "instruments-sports" = 600
-    "market-data-sports" = 600
+    "instruments-sports" = 900
+    "market-data-sports" = 900
+    "market-data-cefi"   = 600
   }
 }
 
