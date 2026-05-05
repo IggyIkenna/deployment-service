@@ -59,12 +59,17 @@ esac
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="mdps-sports-bucket-${RUN_TS}"
 
-# Build the python command. ``--force`` bypasses both the legacy single-
-# file pre-flight skip AND the manifest pre-flight skip — needed for the
-# first sweep after the per-(league, horizon) refactor since legacy
-# single-file outputs would otherwise short-circuit the day.
-CMD="cd /home/ikennaigboaka/workspace/market-data-processing-service && \
-/home/ikennaigboaka/venv/bin/python scripts/reprocess_sports_odds.py \
+# Build the python command. ``setup-data-pipeline-vm.sh`` performs two
+# things on this metadata before launch: (1) ``cd $WORKSPACE/mdps``, and
+# (2) ``${VM_MIGRATION_CMD/python /$VENV/bin/python }`` — the FIRST
+# ``python `` token gets replaced with the venv interpreter path. So this
+# CMD must (a) start with bare ``python `` (no path), and (b) NOT prepend
+# its own ``cd`` (the setup script already CDs to MDPS workspace dir).
+# ``--force`` bypasses both the legacy single-file pre-flight skip AND
+# the manifest pre-flight skip — needed for the first sweep after the
+# per-(league, horizon) refactor since legacy single-file outputs would
+# otherwise short-circuit the day.
+CMD="python scripts/reprocess_sports_odds.py \
 --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS}"
 case "$MODE" in
     dry)   CMD="${CMD} --dry-run" ;;
