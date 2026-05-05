@@ -49,23 +49,35 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-# Bump urllib3 pool size from default 10 → 64 BEFORE importing google.cloud.
-# With 16 concurrent worker threads querying 50+ prefix VMs each iteration,
-# the default pool generated 'Connection pool is full, discarding connection'
-# warnings (observed 2026-05-05) and caused op.result() polling to lose
-# track of in-flight delete operations. Must run before google.cloud imports
-# because the auth-session adapter is mounted at client-construction time.
-import requests.adapters  # noqa: E402
-
-requests.adapters.DEFAULT_POOLSIZE = 64
-
-from google.cloud import compute_v1, storage  # noqa: E402
+from google.cloud import compute_v1, storage
+from requests.adapters import HTTPAdapter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ID = "central-element-323112"
 HEARTBEAT_BUCKET = f"deployment-scripts-{PROJECT_ID}"
+
+# urllib3 pool size for the AuthorizedSession on each Google client. The
+# default of 10 overflows under our 16-thread × 50-prefix workload —
+# 'Connection pool is full, discarding connection' warnings AND silent
+# op.result() polling failures (observed 2026-05-05). 64 matches the
+# phantom-audit 2*workers convention with headroom.
+POOL_SIZE = 64
+
+
+def _bump_pool_size(session, size: int = POOL_SIZE) -> None:
+    """Replace the default HTTPAdapter on a requests.Session-like object.
+
+    Note: monkey-patching requests.adapters.DEFAULT_POOLSIZE doesn't work —
+    HTTPAdapter.__init__ captures DEFAULT_POOLSIZE as a default kwarg at
+    class-definition time (Python early-bound default args), so module-level
+    reassignment is silently ignored. We must mount a fresh adapter.
+    """
+    adapter = HTTPAdapter(pool_connections=size, pool_maxsize=size)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
 
 # VM prefix → manifest-shard bucket. None = no shard check (heartbeat-only).
 #
@@ -300,6 +312,8 @@ def main(argv: list[str]) -> int:
 
     compute_client = compute_v1.InstancesClient()
     storage_client = storage.Client(project=PROJECT_ID)
+    _bump_pool_size(compute_client.transport._session)
+    _bump_pool_size(storage_client._http)
 
     t0 = time.monotonic()
     vms = _list_backfill_vms(compute_client)
