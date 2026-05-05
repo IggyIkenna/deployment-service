@@ -62,7 +62,52 @@ ZONE=asia-northeast1-c
 STARTUP=gs://deployment-scripts-central-element-323112/vm/setup-data-pipeline-vm.sh
 
 DRY_RUN="${DRY_RUN:-0}"
+FORCE="${FORCE:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+
+# ─── Singleton lock: shared Tardis account + project egress NAT ──────────────
+# This launcher fans out across CeFi venues (Tardis) AND TradFi (Tardis-carried
+# CME/CBOE futures+options). Tardis enforces per-account rate limits that bite
+# under concurrent-VM load — and the Databento path (NASDAQ/NYSE ETFs via
+# launch-tradfi-backfill-vm.sh) is the same shape: the 2026-05-05 silent-drop
+# incident was 7+ MTDS VMs hitting a shared provider account and exhausting
+# the adapter retry budget, which the per-schema loop in download_batch_df
+# masked as "captured" with zero rows.
+#
+# VMs created by this launcher follow the unique shape
+#   {cefi|tradfi}-{venue|instrument}-{year}-{heavy|light}-{RUN_TS}
+# so we lock on the trailing `-{heavy|light}-` segment, which scopes the check
+# to PRIOR sharded-backfill invocations (and never collides with single-shot
+# launchers like `tradfi-bf-*` or `tradfi-instr-*`).
+#
+# Bypass: FORCE=1 bash launch-cefi-sharded-backfill.sh
+if [[ "$FORCE" != "1" && "$DRY_RUN" != "1" ]]; then
+  EXISTING="$(gcloud compute instances list \
+      --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-" AND status=RUNNING' \
+      --zones="$ZONE" \
+      --project="$PROJECT" \
+      --format='value(name)' 2>/dev/null | head -3)"
+  if [[ -n "$EXISTING" ]]; then
+    cat >&2 <<EOF
+ERROR: cefi-sharded-backfill VMs already running in $ZONE:
+$EXISTING
+
+Refusing to launch a duplicate sharded backfill — Tardis rate-limits per-account
+and the project egress NAT is shared. Concurrent runs collide on 429 backoffs;
+the adapter retry budget can exhaust silently (see 2026-05-05 silent-drop
+incident: 1004 MES/BTC/ETH/ES (root, date) pairs lost to this exact pattern
+on the bundled Databento ohlcv_1m;trades CME parent symbology).
+
+Options:
+  Inspect:   gcloud compute instances list --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-"' --zones=$ZONE
+  Tail logs: gsutil cat gs://deployment-scripts-${PROJECT}/vm-logs/<vm-name>/run.log
+  Stop all:  gcloud compute instances list --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-"' --zones=$ZONE --format='value(name)' | xargs -I{} gcloud compute instances delete {} --zone=$ZONE --quiet
+  Force:     FORCE=1 bash $0
+EOF
+    exit 1
+  fi
+fi
 
 # ─── Per-venue symbol universes ──────────────────────────────────────────────
 # Keep comma-separated (VM metadata format). Order: majors first, x-coins after.
@@ -171,7 +216,9 @@ launch_cefi_shard() {
 
   local venue_lower
   venue_lower=$(echo "$venue" | tr '[:upper:]' '[:lower:]')
-  local vm_name="cefi-${venue_lower}-${year}-${group}"
+  # RUN_TS suffix per workspace VM naming convention — sortable, unique across
+  # re-launches so the orchestrator can write to its own per-VM manifest shard.
+  local vm_name="cefi-${venue_lower}-${year}-${group}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
   meta+=",VM_TASK=cefi-backfill"
@@ -226,7 +273,7 @@ launch_tradfi_shard() {
   fi
   machine="e2-standard-2"  # TradFi is lighter than CeFi book flow
 
-  local vm_name="tradfi-${instrument}-${year}-${group}"
+  local vm_name="tradfi-${instrument}-${year}-${group}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
   meta+=",VM_TASK=cefi-backfill"   # same routing branch — triggers MTDS CLI
