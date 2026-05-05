@@ -488,6 +488,25 @@ elif [[ "$VM_TASK" == "sports-manifest-rescan" ]]; then
   else
     log "ERROR: sports-manifest-rescan task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "mdps-sports-bucket" ]]; then
+  # Pass K of sports_predictions_e2e_2026_05_05 (2026-05-05) — MDPS bucket
+  # adapter pass over canonical Odds-API data. Runs
+  # market-data-processing-service/scripts/reprocess_sports_odds.py to
+  # produce per-(league_id, horizon) bucketed parquets and per-shard
+  # manifest entries (the user directive: "the manifest for MDPS need to
+  # record properly per shard league and day and time bucket"). Like the
+  # canonical-migration dispatch above, ``VM_MIGRATION_CMD`` carries the
+  # full python invocation so the host-side launcher controls the date
+  # slice + ``--workers`` / ``--force`` flags.
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/mdps" || { log "ERROR: $WORKSPACE/mdps missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/mdps-sports-bucket.log"
+  else
+    log "ERROR: mdps-sports-bucket task without VM_MIGRATION_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "sports-scheduler-poll" ]]; then
   # Plan 3 (sports_scheduler_cron_activation_2026_04_21) — VM-based activation.
   # Runs the sports fixture-aware trigger scheduler as a long-lived daemon.
