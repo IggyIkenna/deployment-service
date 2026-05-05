@@ -185,9 +185,12 @@ def check_instruments_venue_coverage(
 
                 # UAC VenueMapping is the SSOT for venue start dates.
                 # For each found venue, check if it should exist on this date.
+                # Use ``get_instrument_discovery_start`` so venues with a
+                # discovery-API gap narrower than the market-data archive
+                # (e.g. HYPERLIQUID 2023-11-01) clip correctly.
                 expected_for_date = set()
                 for venue in found:
-                    uac_start = _venue_mapping.get_venue_start_date(venue)
+                    uac_start = _venue_mapping.get_instrument_discovery_start(venue)
                     if uac_start and date_str >= uac_start:
                         expected_for_date.add(venue)
 

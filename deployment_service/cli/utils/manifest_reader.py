@@ -311,11 +311,14 @@ class ManifestReader:
                     v_mask = filtered["venue"] == venue_val
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
 
-                    # Resolve venue-specific expected days using launch date
+                    # Resolve venue-specific expected days using launch date.
                     # For compound keys like "BINANCE-FUTURES:trades", extract
-                    # the venue name (first segment before ':')
+                    # the venue name (first segment before ':'). Use
+                    # ``get_instrument_discovery_start`` so HYPERLIQUID-style
+                    # discovery-API gaps clip the denominator (matches the
+                    # orchestrator's ``is_venue_available`` gate).
                     base_venue = venue_val.split(":")[0] if ":" in venue_val else venue_val
-                    venue_start = self._venue_mapping.get_venue_start_date(base_venue)
+                    venue_start = self._venue_mapping.get_instrument_discovery_start(base_venue)
                     if venue_start:
                         effective_start = max(clamped_start, venue_start)
                     else:

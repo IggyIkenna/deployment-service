@@ -156,12 +156,24 @@ class ConfigLoader(BaseConfigLoader):
         return None
 
     def get_venue_start_date(self, service: str, asset_group: str, venue: str) -> str | None:
-        """Get the expected start date for a specific venue.
+        """Get the earliest date the pipeline can produce captures for a venue.
 
-        SSOT: UAC VenueMapping. No YAML fallback — venue start dates live in
-        one place so coverage page and manifest never drift.
+        SSOT: UAC ``VenueMapping.get_instrument_discovery_start``. Returns the
+        instrument-discovery start date — which equals
+        ``venue_start_dates[venue]`` for venues without a discovery-API gap, but
+        defers to the override (e.g. HYPERLIQUID 2023-11-01 vs market-data
+        archive 2023-04-15) when the discovery API has narrower historical
+        coverage than the market-data archive.
+
+        Why discovery-start is the right denominator clip: the orchestrator's
+        ``is_venue_available()`` gates pre-flight on this same value (see
+        ``instruments-service/instruments_service/engine/orchestrator.py:954``),
+        so dates before this floor are never attempted — they should not appear
+        in the data-status "expected" denominator either, otherwise the page
+        renders honestly-skipped dates as "missing" (HYPERLIQUID showed
+        82% / 916-of-1116 instead of the correct ~100% prior to this fix).
         """
-        return VenueMapping().get_venue_start_date(venue)
+        return VenueMapping().get_instrument_discovery_start(venue)
 
     def get_venue_expected_data_types(
         self, asset_group: str, venue: str, date_str: str
