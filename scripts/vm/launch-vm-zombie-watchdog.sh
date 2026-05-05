@@ -14,13 +14,17 @@
 # GCS-side fingerprints.
 #
 # SSOT:
-#   - script:        gs://deployment-scripts-{pid}/scripts/vm_zombie_watchdog.py
+#   - script:        ./vm_zombie_watchdog.py (repo) — uploaded to
+#                    gs://deployment-scripts-{pid}/scripts/vm_zombie_watchdog.py
+#                    on every launch so the in-VM bootstrap pulls the latest.
+#                    To extend coverage: edit VM_PREFIX_TO_BUCKET in the .py,
+#                    then relaunch this watchdog (kill old vm-zombie-watchdog-*
+#                    and re-run this script — the running watchdog never
+#                    re-fetches mid-loop).
 #   - heartbeat:     gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt
 #                    (60s sidecar in setup-data-pipeline-vm.sh)
-#   - prefixes:      cefi-mr-, cefi-binance-, cefi-deribit-, tradfi-bf-,
-#                    fs-backfill-, af-backfill-, tm-backfill-, sfi-backfill-,
-#                    us-backfill-, openmeteo-backfill-, combo-migration-, etc.
-#                    (extend in vm_zombie_watchdog.py VM_PREFIX_TO_BUCKET)
+#   - naming rules:  unified-trading-pm/cursor-configs/CLAUDE.md
+#                    § "VM Naming Convention"
 #
 # Invocation:
 #   bash launch-vm-zombie-watchdog.sh                    # 5min poll, dry-run=false
@@ -72,6 +76,18 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="vm-zombie-watchdog-${RUN_TS}"
 DRY_FLAG=""
 if $DRY_RUN; then DRY_FLAG="--dry-run"; fi
+
+# Upload the repo's vm_zombie_watchdog.py to GCS so the in-VM bootstrap
+# pulls the latest VM_PREFIX_TO_BUCKET. The repo is the SSOT; GCS is a
+# build artifact. This refresh is idempotent and cheap.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_PY="$SCRIPT_DIR/vm_zombie_watchdog.py"
+if [[ ! -f "$LOCAL_PY" ]]; then
+    echo "ERROR: $LOCAL_PY not found — cannot refresh GCS copy." >&2
+    exit 1
+fi
+echo "Uploading repo SSOT → gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py"
+gsutil -q cp "$LOCAL_PY" "gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py"
 
 # Boot pip vs apt notes (2026-05-04 — silent-watchdog incident fix):
 #
