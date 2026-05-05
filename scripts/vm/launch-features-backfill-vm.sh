@@ -128,10 +128,17 @@ case "$SERVICE_SHORT" in
 esac
 # 2026-05-01: delta-one / volatility / onchain require --feature-group; the
 # other services don't accept the flag at all. Backfill defaults to ALL —
-# strategy-/scenario-driven targeted runs would override at the call site.
+# strategy-/scenario-driven targeted runs override via FEATURE_GROUP env var.
+# 2026-05-05: also support SKIP_DEPENDENCY_CHECK env override for narrow-scope
+# feature-group runs that don't actually read processed_candles (e.g. lst_yields,
+# lending_rates, funding_oi all read raw_tick_data directly per the carry-tracer
+# pipeline) — bypasses the global preflight that would otherwise block.
 case "$SERVICE_SHORT" in
-    delta-one|volatility|onchain) CMD="$CMD --feature-group ALL" ;;
+    delta-one|volatility|onchain) CMD="$CMD --feature-group ${FEATURE_GROUP:-ALL}" ;;
 esac
+if [[ -n "${SKIP_DEPENDENCY_CHECK:-}" ]]; then
+    CMD="$CMD --skip-dependency-check"
+fi
 if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
