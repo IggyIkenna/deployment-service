@@ -134,11 +134,16 @@ for i in \$(seq 1 60); do
     sleep 1
 done
 
-# Skip apt-get update — Ubuntu 24.04 GCE image lists are fresh enough,
-# and 'apt-get update -qq' has hung 7+ min on slow asia-northeast1
-# mirrors (observed 2026-05-05). python3 is pre-installed; we just need
-# python3-pip from the cached apt lists.
-apt-get install -y -qq python3-pip 2>&1 || true
+# Bootstrap pip via get-pip.py — does NOT depend on apt mirrors. The
+# previous design used 'apt-get update + apt-get install python3-pip'
+# but the mirror hangs 7+ min on slow asia-northeast1 days, AND skipping
+# apt-get update leaves the cached lists missing python3-pip entirely
+# (observed 2026-05-05: 'Package python3-pip has no installation
+# candidate'). Python3 is pre-installed on Ubuntu 24.04 GCE; pip is not.
+if ! python3 -m pip --version >/dev/null 2>&1; then
+    curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    python3 /tmp/get-pip.py --break-system-packages 2>&1 || true
+fi
 
 # Watchdog only imports google.cloud.{compute_v1, storage} — no pandas,
 # no pyarrow. --ignore-installed avoids the typing_extensions trap
