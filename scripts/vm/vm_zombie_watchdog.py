@@ -198,6 +198,10 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # checks the same shard bucket — its progress signal is the truth-set
     # parquet checkpoint mtime under _audits/.
     "af-audit-": f"instruments-store-sports-{PROJECT_ID}",
+    # Phase 2 fixtures recovery from the truth-set
+    # (launch-fixtures-recovery-vm.sh). Writes per-league sub-partition
+    # fixtures parquets + per-VM manifest shards.
+    "af-recover-": f"instruments-store-sports-{PROJECT_ID}",
     "tm-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "sfi-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "us-backfill-": f"instruments-store-sports-{PROJECT_ID}",
