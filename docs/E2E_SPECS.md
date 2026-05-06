@@ -1,8 +1,12 @@
-<!-- POST_PLAN_BANNER_2026_05_06 -->
-
-> **POST-PLAN REALITY (2026-05-06)** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) BEFORE making code or doc changes informed by this doc. This doc is partially stale: may describe shard atom, GCS path conventions, schema validation, or live-mode behaviour that's evolving (per-fixture sports sharding, canonical_question_group for predictions, cluster validation mandatory at record_captured, available_at column required, per-VM shard isolation rule for concurrent backfills). The post-plan-reality doc lists the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation mandatory at record_captured, per-row write-time `available_at`, prediction lifecycle timing, temporary state must have named successor, per-VM shard isolation, etc.) plus the active plans where the canonical post-plan reality is being implemented. If this doc and the active plans disagree, the plans win. If you find a contradiction the plans don't address, flag to user — don't decide unilaterally.
-
 # End-to-End Completion Specs
+
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**Post-2026-05-06 additions** — E2E specs include 4-pillar write-gate per shard, 3-category empty-output decision per adapter, `available_at` per-row check, cluster validation for bundled data_types, per-VM shard isolation for batch clusters. New typed events: `RAW_TICK_PARTITION_MISMATCH`, `CLUSTER_COVERAGE_INSUFFICIENT`, `LIFECYCLE_BOUNDS_VIOLATED`, `LOOKAHEAD_BIAS_DETECTED`, `MANIFEST_PER_VM_SHARD_WRITE`, `MULTI_WORKER_WITHOUT_SHARD_ISOLATION`.
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
 
 **Last consolidated:** 2026-02-09
 

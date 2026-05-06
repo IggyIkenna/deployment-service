@@ -1,8 +1,12 @@
-<!-- POST_PLAN_BANNER_2026_05_06 -->
-
-> **POST-PLAN REALITY (2026-05-06)** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) BEFORE making code or doc changes informed by this doc. This doc is partially stale: may describe shard atom, GCS path conventions, schema validation, or live-mode behaviour that's evolving (per-fixture sports sharding, canonical_question_group for predictions, cluster validation mandatory at record_captured, available_at column required, per-VM shard isolation rule for concurrent backfills). The post-plan-reality doc lists the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation mandatory at record_captured, per-row write-time `available_at`, prediction lifecycle timing, temporary state must have named successor, per-VM shard isolation, etc.) plus the active plans where the canonical post-plan reality is being implemented. If this doc and the active plans disagree, the plans win. If you find a contradiction the plans don't address, flag to user — don't decide unilaterally.
-
 # Live Mode (UTD v3)
+
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**Post-2026-05-06 additions** — live = batch principle (workspace CLAUDE.md `§ Live = batch`): identical schemas + identical fields + identical timing semantics; only the SOURCE differs per `(asset_group, data_type)` via `UAC.SOURCE_PRIORITY`. Historical writes timestamped per live-pipeline-equivalent `available_at`. Live deployment cluster = multiple services co-located; batch deployment cluster = same service N times for N shards. Per-tier shard semantics: data tier shards by `(day, data_type, venue, ...)`; decision tier shards by `(strategy_id, job_id, day)` per multi-axis plan. See [deployment-clusters-live-vs-batch.md](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md).
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
 
 Live mode is the deployment mode for **long-running services** (e.g. Cloud Run Services, always-on containers) as opposed to **batch** one-off jobs (Cloud Run Jobs, VMs that exit when done). The same deployment machinery is used; only how missing data is checked and how job/service completion is monitored differ.
 

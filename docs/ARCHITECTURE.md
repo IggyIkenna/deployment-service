@@ -1,8 +1,12 @@
-<!-- POST_PLAN_BANNER_2026_05_06 -->
-
-> **POST-PLAN REALITY (2026-05-06)** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) BEFORE making code or doc changes informed by this doc. This doc is partially stale: missing per-VM shard isolation rule (`MANIFEST_PER_VM_SHARDS=true` + unique `VM_NAME`) for concurrent backfills. The post-plan-reality doc lists the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision, cluster validation mandatory, per-row write-time `available_at`, prediction lifecycle timing, temporary state must have named successor, per-VM shard isolation, etc.) plus the active plans where the canonical post-plan reality is being implemented (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`). If this doc and the active plans disagree, the plans win. If you find a contradiction the plans don't address, flag to user — don't decide unilaterally.
-
 # Deployment Service — Architecture
+
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**deployment-service post-2026-05-06**: per-VM shard isolation rule codified — every multi-worker batch cluster sets `VM_NAME=<unique>` + `MANIFEST_PER_VM_SHARDS=true`. UTL runtime guard `MultiWorkerWithoutShardIsolationError`. New base-service.sh QG STEP 5.66. Two deployment mechanisms (both eventually selectable in deployment-UI): tarball (current, fast iteration) + Cloud Build (immutable container, audit trail). All deployment scripts live in deployment-service NOT individual services. See [`unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md`](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md) for live cluster vs batch cluster taxonomy.
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
 
 ## Overview
 
