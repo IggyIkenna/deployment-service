@@ -211,6 +211,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # Long-lived daemons + audits + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
     "manifest-consolidator-": None,  # long-lived consolidator daemon
+    "data-status-rollup-": None,  # */5 min Cloud Run Job — offline rollup of /api/data-status/manifest
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
     "tradfi-audit-aggregate-": None,  # tradfi phantom audit + ES_OPT legacy aggregation one-off
