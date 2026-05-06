@@ -142,7 +142,17 @@ filter_symbols_for_year() {
     echo "$result"
 }
 
-VENUES=(BITFINEX-SPOT BITFINEX-FUTURES BITGET-SPOT BITGET-FUTURES KRAKEN-SPOT KRAKEN-FUTURES)
+# Default = all 6 Tier-3 CeFi venues. Override via ONLY_VENUES env var to limit
+# scope (e.g. resume after partial-failure / target a single venue):
+#   ONLY_VENUES="BITGET-SPOT BITGET-FUTURES KRAKEN-SPOT KRAKEN-FUTURES" \
+#     MACHINE_TYPE=e2-highmem-4 \
+#     bash launch-tier3-cefi-backfill.sh --market-tick
+if [[ -n "${ONLY_VENUES:-}" ]]; then
+    # shellcheck disable=SC2206
+    VENUES=($ONLY_VENUES)
+else
+    VENUES=(BITFINEX-SPOT BITFINEX-FUTURES BITGET-SPOT BITGET-FUTURES KRAKEN-SPOT KRAKEN-FUTURES)
+fi
 
 create_vm() {
     local vm_name="$1" md="$2"
@@ -150,10 +160,10 @@ create_vm() {
         echo "[DRY-RUN] $vm_name"
         return
     fi
-    echo "Launching $vm_name"
+    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-standard-4})"
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
-        --machine-type=e2-standard-4 \
+        --machine-type="${MACHINE_TYPE:-e2-standard-4}" \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
