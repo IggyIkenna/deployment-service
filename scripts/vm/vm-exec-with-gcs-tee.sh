@@ -136,7 +136,16 @@ else
 fi
 
 # Start the command in background, capture its PID, tee stdout+stderr.
-( "$@" 2>&1; echo "[vm-exec] command exited rc=$?" ) >> "$LOCAL_LOG" &
+# BUG-4 fix (2026-05-05): the prior subshell's last command was the trailing
+# ``echo``, so its exit status was always 0 and ``wait $CMD_PID`` below
+# returned 0 even when the workload exited non-zero. Result: every failed
+# backfill VM reported ``exit_code=0`` to the deployment registry, fired
+# ``DEPLOYMENT_COMPLETED`` instead of ``DEPLOYMENT_FAILED``, and self-deleted
+# via ``VM_SHUTDOWN_ON_COMPLETION=true`` — silent failure for the entire
+# CeFi MDPS gap-fill fleet (5 VMs crashed in seconds, all reported success).
+# The fix: capture ``$?`` immediately after the workload, then ``exit`` the
+# subshell with that status so ``wait`` reads the workload's real rc.
+( "$@" 2>&1; rc=$?; echo "[vm-exec] command exited rc=$rc"; exit "$rc" ) >> "$LOCAL_LOG" &
 CMD_PID=$!
 echo "$CMD_PID" > "$PID_FILE"
 
@@ -146,7 +155,7 @@ echo "$CMD_PID" > "$PID_FILE"
 # breadcrumb so the daemon's shutdown path can emit DEPLOYMENT_FAILED
 # with a structured reason. Six prior TradFi VMs silently wedged for 5-6h
 # in 2026-04 because no watchdog existed.
-STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-600}"
+STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-3600}"
 STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without

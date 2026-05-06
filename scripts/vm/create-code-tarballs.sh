@@ -121,7 +121,7 @@ while [[ $# -gt 0 ]]; do
         --bucket) BUCKET="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
-        --asset-group) ASSET_GROUP="${2^^}"; shift 2 ;;  # uppercase
+        --asset-group) ASSET_GROUP="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;  # uppercase (bash3-safe)
         --all) ALL_REPOS=true; shift ;;
         --ml-training) ML_TRAINING=true; shift ;;
         --help|-h) usage ;;
@@ -265,9 +265,16 @@ log ""
 log "Uploading to gs://$BUCKET/code/..."
 gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
 
-# Also upload the setup script itself
-log "Uploading setup script to gs://$BUCKET/vm/..."
+# Also upload the setup + execution wrapper scripts. Without the wrapper
+# upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,
+# stall timeout bumps) silently never reach VMs because setup-data-pipeline-vm.sh
+# downloads the wrapper as a standalone object from gs://.../vm/, not from
+# the deployment-service tarball. The wrapper sat at 2026-04-28 mtime for a
+# week despite multiple tarball refreshes (incident 2026-05-05).
+log "Uploading setup + wrapper scripts to gs://$BUCKET/vm/..."
 gsutil cp "$SCRIPT_DIR/setup-data-pipeline-vm.sh" "gs://$BUCKET/vm/"
+gsutil cp "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh" "gs://$BUCKET/vm/"
+gsutil cp "$SCRIPT_DIR/heartbeat_daemon.py" "gs://$BUCKET/vm/" 2>/dev/null || true
 
 # Verify
 log ""
