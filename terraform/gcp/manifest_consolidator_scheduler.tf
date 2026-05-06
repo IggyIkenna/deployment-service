@@ -95,8 +95,20 @@ module "manifest_consolidator_job" {
   # Reuses the MTDS image (UTL is bundled as a dep).
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
 
-  cpu             = "1"
-  memory          = "2Gi"
+  # 2026-05-06: bumped from 2Gi → 16Gi after the sports consolidator OOM
+  # incident: 2.6M-row × 9M-input merge needs ~5-8GB working set during
+  # pandas concat + dedup + parquet serialise. 2Gi caused every cycle to
+  # SIGKILL mid-merge → canonical mtime stuck for 2h while readers
+  # perpetually fell back to the slow 51-shard merge. Headroom for
+  # manifest growth (every consolidator-instance pair shares this — sports
+  # is the largest today; cefi/defi will catch up).
+  #
+  # Cloud Run gen2 memory ceilings: 1-2 vCPU → max 8Gi; 4 vCPU → max 16Gi;
+  # 8 vCPU → max 32Gi. We pick 4 vCPU to unlock the 16Gi ceiling AND get
+  # ~4× pandas-concat parallelism (multi-threaded BLAS / pyarrow). See
+  # `feedback_manifest_consolidator_oom.md` (2026-05-06) for diagnosis.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = lookup(local.manifest_consolidator_timeouts, each.key, 300) # consolidation is a single read-list-merge-write cycle, ~5-30s typical; sports overridden to 600s for 2M+ row merges
   max_retries     = 1
   parallelism     = 1
