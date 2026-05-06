@@ -192,10 +192,15 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+# Machine type override via env (default e2-standard-4 — bumped from -2 after
+# 2026-05-06 OOM during per-VM shard merge: 51 shards × pandas concat blew
+# past 8GB on e2-standard-2). Operator can override with MACHINE_TYPE=e2-...
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+
 gcloud compute instances create "$VM_NAME" \
   --project="$PROJECT" \
   --zone="$ZONE" \
-  --machine-type=e2-standard-2 \
+  --machine-type="$MACHINE_TYPE" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \
