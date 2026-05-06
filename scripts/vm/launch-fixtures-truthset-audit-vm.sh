@@ -120,6 +120,10 @@ echo "  seasons: ${SEASON_START}..${SEASON_END}"
 echo "  cmd:     ${AUDIT_CMD}"
 
 METADATA="VM_TASK=sports-gap-fill"
+# VM_SERVICE selects which service tarball setup-data-pipeline-vm.sh installs
+# AND which workspace dir to cd into. Without this, only core (UAC+UTL+deployment)
+# is unpacked and the sports-gap-fill branch's `cd $WORKSPACE/instruments` fails.
+METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_MIGRATION_CMD=${AUDIT_CMD}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
