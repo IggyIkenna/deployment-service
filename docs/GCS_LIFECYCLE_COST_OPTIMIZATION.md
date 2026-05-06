@@ -1,7 +1,11 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # GCS Lifecycle Cost Optimization
 
-**Purpose:** Automatic storage class transitions to reduce costs  
-**Status:** Ready to apply to all buckets  
+**Purpose:** Automatic storage class transitions to reduce costs
+**Status:** Ready to apply to all buckets
 **Estimated Savings:** $800-1,500/year (MVP: BTC + SPY)
 
 ---
@@ -69,8 +73,8 @@
 
 ### At Scale (Full MVP: 11 Venues)
 
-**Current (All STANDARD):** $14,000/year  
-**With Lifecycle Policy:** $8,540/year  
+**Current (All STANDARD):** $14,000/year
+**With Lifecycle Policy:** $8,540/year
 **Annual Savings:** **$5,460/year (39% reduction)**
 
 ---
@@ -395,8 +399,8 @@ gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/day=2023-01-01/ | gr
 
 ### Cost-Benefit
 
-**Annual Storage Savings:** $767-5,460/year  
-**Estimated Retrieval Costs:** $50-200/year (quarterly training + occasional backtests)  
+**Annual Storage Savings:** $767-5,460/year
+**Estimated Retrieval Costs:** $50-200/year (quarterly training + occasional backtests)
 **Net Savings:** **$600-5,200/year**
 
 ---
