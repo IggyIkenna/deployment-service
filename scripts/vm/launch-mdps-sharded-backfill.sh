@@ -38,7 +38,13 @@ set -euo pipefail
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
-MACHINE_TYPE="e2-standard-8"
+# Default e2-standard-8 (32GB) is sufficient for cefi/defi/sports/prediction.
+# TradFi options-heavy days (legacy ticks.parquet bundles with 4000+ symbols
+# loaded into one Polars DataFrame) hit OOM/SIGKILL on 32GB — incident
+# 2026-05-06: 2 of 7 sharded VMs killed mid-flight.
+# Override via ``MACHINE_TYPE=e2-highmem-8`` (64GB) env var when launching
+# tradfi until the MDPS streaming refactor lazifies the bundle reader.
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="50"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 
