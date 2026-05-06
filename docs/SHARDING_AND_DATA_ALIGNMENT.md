@@ -1,5 +1,16 @@
 # Sharding and Data Alignment Spec
 
+<!-- MULTI_AXIS_CORRECTION_2026_05_06 -->
+
+> **Multi-axis correction (2026-05-06)** — per [`data_status_multi_axis_shard_propagation_2026_05_06.plan.md`](../../unified-trading-pm/plans/active/data_status_multi_axis_shard_propagation_2026_05_06.plan.md): a column belongs in the **shard atom** ONLY IF it earns it via failure isolation OR memory ceiling OR concurrency orthogonality. Otherwise it's a **display axis** (row-level column for filter/group, NOT a manifest row per value). This refines the per-asset-group shard atoms below:
+>
+> - **Sports**: shard atom = `(asset_group=sports, venue/source, data_type, league_id, day)`. **`fixture_id` is a row-level column in the parquet, NOT a shard axis** — `(league_id, day)` already bounds the per-day fixture set; per-fixture detail at drill-down comes from reading the parquet, not from a separate manifest row. Avoids 10× manifest inflation.
+> - **Prediction**: shard atom = `(asset_group=prediction, venue, data_type=prediction_canonical_question_group, canonical_question_group, day)`. **`market_id` is a row-level column in the parquet, NOT a shard axis** — same rationale. HOURLY (24/day) + DAILY + ELECTION groups all roll up to one manifest row per `(canonical_question_group, day)`; per-market detail at drill-down from parquet.
+> - **CeFi options/futures bundles**: bundle root IS a shard axis (memory + concurrency); per-symbol within bundle is parquet row (cluster validation enforces all expected per-bundle clusters covered).
+> - **DeFi `chain`** IS a shard axis (independent RPC/subgraph endpoints + failure isolation).
+> - **ML / strategy / execution**: new `job_id` v7 manifest column for experiment-keyed services. Same `(model_family, training_period, job_id)` shard atom for ML training; `(strategy_id, job_id)` for strategy; `(strategy_id, instruction_type, job_id)` for execution. Re-running same configs = new `job_id` (audit trail of every experiment version).
+> - **instrument_type for instruments-service**: NOT a shard axis (Databento + TARDIS bulk-fetch all instrument_types per venue in one call). Display axis only — row column for filter/group.
+
 **Purpose:** Ensure data status, missing-shards, startup dependency validation, and service upload behavior align with GCS bucketing and the canonical shard atom per asset_group.
 
 **Principle:** "Any data means all data" — a shard either succeeds fully (passes the 4-pillar write-gate at `record_captured`) or fails fully (`record_failed(<typed_reason>)`) or is honestly absent (`record_empty(row_key)`). No partial uploads. No silent NaN placeholder rows. No silent per-schema drops on bundled writes.
