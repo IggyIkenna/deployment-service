@@ -176,6 +176,11 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "sfi-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "us-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "weather-backfill-": f"instruments-store-sports-{PROJECT_ID}",  # open_meteo (launcher emits weather-* not openmeteo-*)
+    # Targeted (date, league_id) gap-fill — reads canonical manifest, fires
+    # only at the missing-shard set. First use: PLAYER_STATS via
+    # launch-fill-missing-player-stats-vm.sh (2026-05-06), replacing the
+    # slow chronological af-backfill iteration.
+    "fill-missing-player-stats-": f"instruments-store-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # Features pipeline VMs (heartbeat-only — bucket varies by features-{group}-{asset_group}-).
     # Group ∈ {calendar, commodity, cross-instrument, delta-one, multi-timeframe, onchain, volatility,

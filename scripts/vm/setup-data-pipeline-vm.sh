@@ -488,6 +488,26 @@ elif [[ "$VM_TASK" == "sports-manifest-rescan" ]]; then
   else
     log "ERROR: sports-manifest-rescan task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "sports-gap-fill" ]]; then
+  # 2026-05-06 — targeted (date, league_id) gap-fill for sports data types.
+  # Runs an instruments-service/scripts/fill_missing_*.py script that reads
+  # the canonical manifest, computes the missing-shard set, and calls the
+  # adapter directly — bypassing the orchestrator's chronological date
+  # iteration that wastes wall-clock on _should_skip_shard checks for
+  # already-captured dates. Mirrors the sports-manifest-rescan dispatch
+  # shape; VM_MIGRATION_CMD carries the full python invocation so the
+  # host-side launcher controls --concurrency / --start-date / --end-date
+  # / --limit flags. First use: PLAYER_STATS gap-fill (23k shards across
+  # 1.6k dates) replacing the slow chronological af-backfill VM.
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/sports-gap-fill.log"
+  else
+    log "ERROR: sports-gap-fill task without VM_MIGRATION_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "mdps-sports-bucket" ]]; then
   # Pass K of sports_predictions_e2e_2026_05_05 (2026-05-05) — MDPS bucket
   # adapter pass over canonical Odds-API data. Runs
