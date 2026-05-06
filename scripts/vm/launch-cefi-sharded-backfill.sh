@@ -208,8 +208,15 @@ launch_cefi_shard() {
   # 8.66M records, ran to completion rc=0). Downgraded heavy profile from
   # e2-highmem-4 (32 GB, $0.27/hr) to e2-standard-2 (8 GB, $0.07/hr) — a
   # 4x cost reduction on 95 VMs × expected 24-48 h runtime.
+  #
+  # 2026-05-06: bumped heavy default from e2-standard-2 (8 GB) to
+  # e2-highmem-2 (16 GB) post-streaming-finalize ship (MTDS f07f3f9 default-on).
+  # AVAX-USD smoke peaked at 1.04 GB; BTC-USD heavy days scale ~10-20×.
+  # 8 GB had no headroom; 16 GB / $0.10/hr is the right floor — cheaper than
+  # e2-highmem-4 (32 GB / $0.20/hr), and still cheap relative to fleet cost
+  # of an OOM relaunch wave. Override per-launch via MACHINE_TYPE_HEAVY.
   if [[ "$group" == "heavy" ]]; then
-    machine="${MACHINE_TYPE_HEAVY:-e2-standard-2}"
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-2}"
   else
     machine="${MACHINE_TYPE_LIGHT:-e2-standard-2}"
   fi
