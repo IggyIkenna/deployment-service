@@ -114,9 +114,28 @@ VM_LOOKBACK_DAYS=$(_meta VM_LOOKBACK_DAYS)
 VM_LOOKAHEAD_DAYS=$(_meta VM_LOOKAHEAD_DAYS)
 VM_FORCE_WINDOW=$(_meta VM_FORCE_WINDOW)
 VM_FORCE=$(_meta VM_FORCE)
+# Tardis adapter feature flag — when "true", per-symbol downloads use the
+# streaming finalize path (chunked HTTP → temp parquet → per-row-group
+# canonical write) instead of the legacy full-materialise path. Set in VM
+# metadata for memory-bound shards (Coinbase BTC-USD book_snapshot_5).
+# Read into env so MTDS Tardis adapter (tardis_adapter.py download_batch)
+# picks it up via os.environ.get.
+TARDIS_STREAMING_FINALIZE=$(_meta TARDIS_STREAMING_FINALIZE)
+[[ -n "$TARDIS_STREAMING_FINALIZE" ]] && export TARDIS_STREAMING_FINALIZE
+# Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
+# tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
+# running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
+# that prefer fewer parquet row-groups (slightly better compression).
+TARDIS_STREAM_BLOCK_SIZE_MB=$(_meta TARDIS_STREAM_BLOCK_SIZE_MB)
+[[ -n "$TARDIS_STREAM_BLOCK_SIZE_MB" ]] && export TARDIS_STREAM_BLOCK_SIZE_MB
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# Recovery-mode fixture-id allowlist (instruments-service --recovery-fixture-ids).
+# Path to a parquet on GCS or local disk that scopes per-fixture entity fetches
+# to a specific af_fixture_id allowlist. Used for targeted recovery work — see
+# unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.plan.md.
+VM_RECOVERY_FIXTURE_IDS=$(_meta VM_RECOVERY_FIXTURE_IDS)
 # VM_INSTRUMENT_IDS: semicolon-separated raw venue-native symbols. Added
 # 2026-04-19 so cefi-backfill launchers can restrict Tardis downloads to a
 # curated symbol list (BTC/ETH majors + operator-selected x-coins, DERIBIT-only
@@ -647,6 +666,7 @@ elif [ -n "$VM_TASK" ]; then
   [[ "$VM_FORCE" == "true" ]] && CLI_ARGS="$CLI_ARGS --force"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
+  [[ -n "$VM_RECOVERY_FIXTURE_IDS" ]] && CLI_ARGS="$CLI_ARGS --recovery-fixture-ids $VM_RECOVERY_FIXTURE_IDS"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
   # CLI expects nargs='+' → space-separated. Metadata values arrive with
   # semicolons (see VM_INSTRUMENT_IDS comment above) to avoid collision with

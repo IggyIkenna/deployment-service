@@ -34,19 +34,22 @@ ENTITIES_DEFAULT="PLAYER_STATS,FIXTURE_STATS,FIXTURE_EVENTS,FIXTURE_LINEUPS,INJU
 START_DATE=""
 END_DATE=""
 ENTITIES="$ENTITIES_DEFAULT"
+RECOVERY_FIXTURE_IDS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --start-date) START_DATE="$2"; shift 2 ;;
     --end-date) END_DATE="$2"; shift 2 ;;
     --entities) ENTITIES="$2"; shift 2 ;;
+    --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "$START_DATE" || -z "$END_DATE" ]]; then
   cat >&2 <<EOF
-Usage: bash $0 --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--entities CSV]
+Usage: bash $0 --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--entities CSV] \\
+              [--recovery-fixture-ids gs://path/to/fixtures_recovery_set.parquet]
 
 Defaults:
   --entities $ENTITIES_DEFAULT
@@ -79,7 +82,11 @@ for entity in "${ENTITY_LIST[@]}"; do
   echo "Launching VM..."
 
   # Capture VM name from launcher output ("VM launched: <name>")
-  LAUNCH_OUT="$(bash "$LAUNCHER" --entity "$entity_trimmed" "$START_DATE" "$END_DATE" 2>&1)"
+  LAUNCH_ARGS=(--entity "$entity_trimmed")
+  if [[ -n "$RECOVERY_FIXTURE_IDS" ]]; then
+    LAUNCH_ARGS+=(--recovery-fixture-ids "$RECOVERY_FIXTURE_IDS")
+  fi
+  LAUNCH_OUT="$(bash "$LAUNCHER" "${LAUNCH_ARGS[@]}" "$START_DATE" "$END_DATE" 2>&1)"
   VM_NAME="$(echo "$LAUNCH_OUT" | grep -oE 'VM launched: af-backfill-[0-9-]+' | awk '{print $3}' | head -1)"
 
   if [[ -z "$VM_NAME" ]]; then
