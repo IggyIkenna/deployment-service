@@ -209,9 +209,24 @@ launch_cefi_shard() {
   # e2-highmem-4 (32 GB, $0.27/hr) to e2-standard-2 (8 GB, $0.07/hr) — a
   # 4x cost reduction on 95 VMs × expected 24-48 h runtime.
   if [[ "$group" == "heavy" ]]; then
-    machine="e2-standard-2"
+    machine="${MACHINE_TYPE_HEAVY:-e2-standard-2}"
   else
-    machine="e2-standard-2"
+    machine="${MACHINE_TYPE_LIGHT:-e2-standard-2}"
+  fi
+
+  # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
+  # combos. Used by relaunch-OOM workflow to retry only the dead heavy VMs
+  # at higher memory, e.g.:
+  #   ONLY="BINANCE-SPOT:2026:heavy DERIBIT:2026:heavy" \
+  #     MACHINE_TYPE_HEAVY=e2-highmem-4 FORCE=1 \
+  #     bash launch-cefi-sharded-backfill.sh
+  if [[ -n "${ONLY:-}" ]]; then
+    local key="${venue}:${year}:${group}"
+    local matched=0
+    for tok in $ONLY; do
+      [[ "$tok" == "$key" ]] && matched=1 && break
+    done
+    [[ $matched -eq 0 ]] && return 0
   fi
 
   local venue_lower
@@ -271,7 +286,17 @@ launch_tradfi_shard() {
     start_date="${year}-01-01"
     end_date="${year}-12-31"
   fi
-  machine="e2-standard-2"  # TradFi is lighter than CeFi book flow
+  machine="${MACHINE_TYPE_TRADFI:-e2-standard-2}"  # TradFi is lighter than CeFi book flow
+
+  # ONLY filter — same shape as launch_cefi_shard (venue:year:group).
+  if [[ -n "${ONLY:-}" ]]; then
+    local key="${instrument}:${year}:${group}"
+    local matched=0
+    for tok in $ONLY; do
+      [[ "$tok" == "$key" ]] && matched=1 && break
+    done
+    [[ $matched -eq 0 ]] && return 0
+  fi
 
   local vm_name="tradfi-${instrument}-${year}-${group}-${RUN_TS}"
 
