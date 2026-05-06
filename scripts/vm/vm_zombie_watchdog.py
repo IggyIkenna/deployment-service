@@ -136,6 +136,19 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mdps-defi-": f"market-data-tick-defi-{PROJECT_ID}",
     "mdps-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
     # ------------------------------------------------------------------
+    # MDPS per-AG backfill (launch-mdps-backfill-vm.sh emits
+    # mdps-backfill-{ag}-{ts}, distinct from the sharded prefix above).
+    # 2026-05-06 incident: mdps-backfill-cefi-... ran rc=0 then sat
+    # RUNNING for 12h because (a) prefix was not in this dict so the
+    # watchdog never inspected it, (b) the launcher omitted
+    # VM_SHUTDOWN_ON_COMPLETION=true.
+    # ------------------------------------------------------------------
+    "mdps-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "mdps-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mdps-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mdps-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mdps-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # MTDS asset-group-scoped backfills (DeFi onchain feeds + prediction)
     # ------------------------------------------------------------------
     "mtds-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
@@ -206,7 +219,18 @@ class WatchdogVerdict:
     age_minutes: float
     heartbeat_age_min: float | None  # None if missing
     shard_age_min: float | None  # None if no bucket / no shard
-    verdict: str  # 'alive' | 'zombie_no_heartbeat' | 'zombie_stale_heartbeat' | 'zombie_stale_shard' | 'too_young'
+    verdict: str
+    # one of:
+    #   'alive'                       — VM is healthy, no action
+    #   'too_young'                   — VM age < min_age, skip this cycle
+    #   'zombie_no_heartbeat'         — heartbeat + shard both missing, VM age > 30m
+    #   'zombie_stale_heartbeat'      — heartbeat older than threshold
+    #   'zombie_stale_shard'          — heartbeat unimplemented + shard older than threshold
+    #   'zombie_finished_not_shutdown' — workload wrote EXIT_STATUS file, VM still RUNNING
+    #                                    after grace period. Catches:
+    #                                      (a) launchers missing VM_SHUTDOWN_ON_COMPLETION=true
+    #                                      (b) self-delete subshell that failed silently
+    #                                      (c) post-mortem mode VMs left after debugging
 
     def is_zombie(self) -> bool:
         return self.verdict.startswith("zombie")
@@ -258,12 +282,27 @@ def _evaluate_vm(
     min_age: float,
     heartbeat_stale: float,
     shard_stale: float,
+    finished_grace: float,
 ) -> WatchdogVerdict:
     age = _vm_age_minutes(compute_client, vm_name, zone)
     if age < min_age:
         return WatchdogVerdict(vm_name, zone, age, None, None, "too_young")
 
     hb_bucket = storage_client.bucket(HEARTBEAT_BUCKET)
+
+    # FIRST — check if the workload wrote an EXIT_STATUS file. If yes the
+    # workload is finished (cleanly or otherwise). The VM should have
+    # self-deleted via VM_SHUTDOWN_ON_COMPLETION=true; if it's still RUNNING
+    # after a grace period, the launcher omitted that flag OR the self-delete
+    # subshell failed OR it's a post-mortem-mode VM left for debugging.
+    # Either way, it's a zombie consuming idle compute.
+    # Reference incident 2026-05-06: mdps-backfill-cefi-... ran rc=0 then sat
+    # RUNNING for 12h (launcher omitted shutdown flag).  This check is the
+    # catch-net for that whole class of bug.
+    exit_status_age = _blob_age_minutes(hb_bucket, f"vm-logs/{vm_name}/EXIT_STATUS")
+    if exit_status_age is not None and exit_status_age > finished_grace:
+        return WatchdogVerdict(vm_name, zone, age, None, None, "zombie_finished_not_shutdown")
+
     hb_age = _blob_age_minutes(hb_bucket, f"vm-heartbeat/{vm_name}.txt")
 
     shard_age: float | None = None
@@ -329,6 +368,18 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--shard-stale", type=float, default=120.0, help="Manifest shard staleness fallback (min)."
     )
+    parser.add_argument(
+        "--finished-grace",
+        type=float,
+        default=10.0,
+        help=(
+            "Grace period (min) after EXIT_STATUS file appears before the VM is killed. "
+            "Catches workloads that finished (cleanly or with rc!=0) but failed to "
+            "self-delete because the launcher omitted VM_SHUTDOWN_ON_COMPLETION=true "
+            "or the self-delete subshell failed. Default 10 min — shorter than other "
+            "thresholds because a finished workload should not linger."
+        ),
+    )
     parser.add_argument("--workers", type=int, default=16)
     args = parser.parse_args(argv)
 
@@ -353,6 +404,7 @@ def main(argv: list[str]) -> int:
                 args.min_age,
                 args.heartbeat_stale,
                 args.shard_stale,
+                args.finished_grace,
             ): (n, z)
             for n, z in vms
         }

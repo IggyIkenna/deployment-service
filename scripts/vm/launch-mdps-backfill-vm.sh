@@ -110,6 +110,7 @@ _launch() {
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=${MODE}"
+    md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

@@ -91,6 +91,7 @@ md="${md},VM_START_DATE=${START_DATE}"
 md="${md},VM_END_DATE=${END_DATE}"
 md="${md},VM_MIGRATION_CMD=${CMD}"
 md="${md},VM_MIGRATION_MODE=${MODE}"
+md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
