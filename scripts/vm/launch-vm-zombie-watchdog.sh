@@ -177,7 +177,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size=20GB \
     --scopes=cloud-platform \
     --metadata-from-file=startup-script="$STARTUP_FILE" \
-    --labels=purpose=vm-zombie-watchdog 2>&1 | tail -5
+    --labels=purpose=vm-zombie-watchdog,tier=daemon 2>&1 | tail -5
 
 echo ""
 echo "VM running. Tail logs:"

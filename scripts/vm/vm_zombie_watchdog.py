@@ -22,13 +22,33 @@ Why this catches the 2026-04-29 cefi zombie failure mode:
 SSOT: this file lives in deployment-service/scripts/vm/vm_zombie_watchdog.py.
 The launcher (launch-vm-zombie-watchdog.sh) `gsutil cp`s it to
 gs://deployment-scripts-{project}/scripts/vm_zombie_watchdog.py at launch
-time so the watchdog VM bootstraps from the repo copy. To extend coverage,
-add a prefix to VM_PREFIX_TO_BUCKET below, then relaunch the watchdog VM.
+time so the watchdog VM bootstraps from the repo copy.
 
-Prefix table is the source of truth for what counts as a "backfill-class VM."
-Every new VM-launching script must use a prefix that appears here, OR add
-its prefix here in the same change. Naming convention: see
-unified-trading-pm/cursor-configs/CLAUDE.md § "VM Naming Convention".
+**Catch-all coverage (2026-05-06):** every RUNNING VM is watched,
+regardless of name prefix. Unknown-prefix VMs fall back to heartbeat-only
+(safe — setup-data-pipeline-vm.sh starts the heartbeat sidecar for every
+VM, including one-off scripts and migrations). This closes the
+"added launcher, forgot to update VM_PREFIX_TO_BUCKET, VM zombies
+forever" footgun (5 prefixes silently un-watched in 2026-05-05 alone).
+
+VM_PREFIX_TO_BUCKET is now a *richer-signal* opt-in: prefixes listed
+below ALSO get checked for per-VM manifest-shard write progress
+(``_index/per_vm/{vm_name}.parquet``), which detects "VM still alive
++ heartbeating but no useful work happening" failures (network
+partitions, hung adapters, etc.). New launchers don't NEED a dict
+entry to be watched — only when the richer signal is desired.
+
+Daemon opt-out: long-lived VMs without a deadline (manifest-consolidator
+poll loops, sports-scheduler, the watchdog itself, etc.) must label
+themselves ``--labels=...,tier=daemon`` to skip the catch-all sweep.
+Without that label, a daemon whose heartbeat sidecar pauses past
+``--heartbeat-stale`` (default 15 min) WILL be killed. The watchdog
+itself is also opted out via ``purpose=vm-zombie-watchdog`` (specific
+fallback so it can't reap itself even if its launcher omits the tier
+label).
+
+Naming convention: see unified-trading-pm/cursor-configs/CLAUDE.md §
+"VM Naming Convention".
 
 Heartbeat blob path:
   gs://deployment-scripts-{project_id}/vm-heartbeat/{vm_name}.txt
@@ -241,22 +261,88 @@ class WatchdogVerdict:
         return self.verdict.startswith("zombie")
 
 
-def _list_backfill_vms(compute_client: compute_v1.InstancesClient) -> list[tuple[str, str]]:
-    """List all RUNNING VMs that match a backfill prefix. Returns [(name, zone), ...]."""
+# Catch-all opt-out. A VM is excluded from the heartbeat watcher when EITHER:
+#   * Its ``tier`` label is ``daemon`` (canonical: long-lived poll loops with
+#     no fixed deadline — manifest-consolidator-, sports-scheduler-, etc.).
+#   * Its ``purpose`` label matches one of ``DAEMON_PURPOSE_OPT_OUT`` (legacy /
+#     specific exemptions, primarily the watchdog itself so it doesn't reap
+#     itself even before its launcher adds ``tier=daemon``).
+#
+# Daemons must self-declare via labels — there's no reliable name-pattern
+# heuristic for "this VM is allowed to idle" because heartbeat staleness
+# during legitimate idle waits is exactly the failure mode that the
+# rich-signal (per-VM shard write) catches for backfill VMs. New daemons
+# should add ``--labels=...,tier=daemon`` to their gcloud launcher.
+# Tiers that mark a VM as long-lived (poll loop / scheduler / watchdog) and
+# therefore exempt from heartbeat staleness. ``daemon`` is canonical; older
+# launchers used ``scheduler`` for sports-scheduler-* and that's still in use.
+DAEMON_TIER_LABELS: frozenset[str] = frozenset({"daemon", "scheduler"})
+DAEMON_PURPOSE_OPT_OUT: frozenset[str] = frozenset(
+    {
+        "vm-zombie-watchdog",  # watchdog itself — must not reap self
+    }
+)
+
+
+def _is_daemon(labels: object) -> bool:
+    """True if VM labels mark it as a long-lived daemon (heartbeat-watch opt-out)."""
+    if not labels:
+        return False
+    if labels.get("tier") in DAEMON_TIER_LABELS:
+        return True
+    if labels.get("purpose") in DAEMON_PURPOSE_OPT_OUT:
+        return True
+    return False
+
+
+def _list_watchable_vms(compute_client: compute_v1.InstancesClient) -> list[tuple[str, str, bool]]:
+    """List every RUNNING VM that should be watched. Returns ``[(name, zone, has_known_prefix), ...]``.
+
+    Catch-all by default: every running VM is returned, regardless of whether
+    its name prefix appears in :data:`VM_PREFIX_TO_BUCKET`. ``has_known_prefix``
+    tells the caller whether the richer per-VM shard-write signal is available
+    for that VM (rich signal) or whether we have to fall back to heartbeat-only
+    (still safe, since ``setup-data-pipeline-vm.sh`` starts the heartbeat
+    sidecar for every VM regardless of task / prefix).
+
+    Opt-out: VMs labelled ``purpose ∈ DAEMON_OPT_OUT_LABELS`` are skipped —
+    they're long-lived daemons (the watchdog itself, manifest-consolidator
+    poll loops, etc.) where heartbeat staleness during legitimate idle waits
+    would produce false-positive zombie kills.
+
+    Why catch-all + opt-out beats prefix-allowlist (2026-05-06 incident
+    pattern): adding a launcher without remembering to update
+    ``VM_PREFIX_TO_BUCKET`` here used to silently make the new VMs invisible
+    to the watchdog. Five prefixes were missed in 2026-05-05 alone. Catch-all
+    closes that footgun; new launchers only need to set the opt-out label
+    explicitly when their VM is genuinely long-lived without a deadline.
+    """
     request = compute_v1.AggregatedListInstancesRequest(project=PROJECT_ID)
-    out: list[tuple[str, str]] = []
+    prefixes = tuple(VM_PREFIX_TO_BUCKET.keys())
+    out: list[tuple[str, str, bool]] = []
     for zone, scoped in compute_client.aggregated_list(request=request):
         if not scoped.instances:
             continue
         for inst in scoped.instances:
             if inst.status != "RUNNING":
                 continue
-            for prefix in VM_PREFIX_TO_BUCKET:
-                if inst.name.startswith(prefix):
-                    z = zone.replace("zones/", "")
-                    out.append((inst.name, z))
-                    break
+            # Opt-out: explicit daemon labels (tier=daemon | purpose ∈ {watchdog}).
+            if _is_daemon(inst.labels):
+                continue
+            has_known_prefix = inst.name.startswith(prefixes)
+            z = zone.replace("zones/", "")
+            out.append((inst.name, z, has_known_prefix))
     return out
+
+
+def _list_backfill_vms(compute_client: compute_v1.InstancesClient) -> list[tuple[str, str]]:
+    """Back-compat shim — name retained so older callers don't break.
+
+    Delegates to :func:`_list_watchable_vms` and drops the third tuple
+    field. New code should call :func:`_list_watchable_vms` directly so it
+    can branch on the rich-signal vs heartbeat-only distinction.
+    """
+    return [(name, zone) for (name, zone, _) in _list_watchable_vms(compute_client)]
 
 
 def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:
@@ -394,8 +480,24 @@ def main(argv: list[str]) -> int:
     _bump_pool_size(storage_client._http)
 
     t0 = time.monotonic()
-    vms = _list_backfill_vms(compute_client)
-    logger.info("found %d backfill VMs (RUNNING) in %.1fs", len(vms), time.monotonic() - t0)
+    watchable = _list_watchable_vms(compute_client)
+    known = [(n, z) for (n, z, has_prefix) in watchable if has_prefix]
+    unknown = [(n, z) for (n, z, has_prefix) in watchable if not has_prefix]
+    logger.info(
+        "found %d watchable VMs in %.1fs (%d known-prefix + shard signal, %d unknown-prefix → heartbeat-only)",
+        len(watchable),
+        time.monotonic() - t0,
+        len(known),
+        len(unknown),
+    )
+    if unknown:
+        # Catch-all has them covered, but log so an operator can decide whether
+        # the new prefix deserves a richer shard-write signal in
+        # ``VM_PREFIX_TO_BUCKET``. Truncate the printed list to keep the log
+        # quiet when many launchers grow without dict updates.
+        sample = ", ".join(name for name, _ in unknown[:8])
+        more = "" if len(unknown) <= 8 else f" (+ {len(unknown) - 8} more)"
+        logger.info("unknown-prefix VMs (heartbeat-only watch): %s%s", sample, more)
 
     verdicts: list[WatchdogVerdict] = []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -411,7 +513,7 @@ def main(argv: list[str]) -> int:
                 args.shard_stale,
                 args.finished_grace,
             ): (n, z)
-            for n, z in vms
+            for (n, z, _has_prefix) in watchable
         }
         for fut in as_completed(futures):
             verdicts.append(fut.result())
