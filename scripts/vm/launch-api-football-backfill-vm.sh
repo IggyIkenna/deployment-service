@@ -58,13 +58,13 @@
 # fixtures-by-date returns all leagues in one call per date, so the wall clock
 # is dominated by rate-limit pacing (one call per date in the range).
 #
-# Singleton lock: refuses to launch if any af-backfill-* VM is already running
-# in the zone. API-Football shares one API key across all VMs and enforces
-# per-key rate limits — multiple concurrent VMs produce 429s without useful
-# throughput. Reference incident: 2026-04-19 SFI thundering herd (10 VMs /
-# 6h / ~4 useful writes), same shape. Pass --force only when you have a
-# genuinely disjoint reason (e.g. testing on a different date window while an
-# unrelated run is live).
+# Singleton lock: refuses to launch if any af-backfill-* OR af-audit-* VM is
+# already running in the zone. API-Football shares one API key across all VMs
+# and enforces per-key rate limits — multiple concurrent VMs produce 429s
+# without useful throughput. Reference incident: 2026-04-19 SFI thundering
+# herd (10 VMs / 6h / ~4 useful writes), same shape. Pass --force only when
+# you have a genuinely disjoint reason (e.g. testing on a different date
+# window while an unrelated run is live).
 set -euo pipefail
 
 FORCE=false
@@ -147,9 +147,11 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 
 # ── Singleton lock: API-Football rate-limits per-key ──
+# Catches both af-backfill-* (this script) and af-audit-* (truth-set audit
+# launcher) — they share the api_football key and must be mutually exclusive.
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
-    --filter='name~"^af-backfill-" AND status=RUNNING' \
+    --filter='(name~"^af-backfill-" OR name~"^af-audit-") AND status=RUNNING' \
     --zones="$ZONE" \
     --format='value(name)' 2>/dev/null | head -1)"
   if [[ -n "$EXISTING" ]]; then
