@@ -211,14 +211,14 @@ if $DO_MARKET_TICK; then
             run_ts2="$(date +%Y%m%d-%H%M%S)"
             vm_name="cefi-${v,,}-${year}-heavy-${run_ts2}"
             vm_name="${vm_name//_/-}"
-            md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_HEAVY},VM_INSTRUMENT_IDS=${symbols},VM_SHUTDOWN_ON_COMPLETION=true"
+            md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_HEAVY},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
             create_vm "$vm_name" "$md"
 
             if [[ "$mode" == "perps" ]]; then
                 run_ts3="$(date +%Y%m%d-%H%M%S)"
                 vm_name="cefi-${v,,}-${year}-light-${run_ts3}"
                 vm_name="${vm_name//_/-}"
-                md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_LIGHT_PERPS},VM_INSTRUMENT_IDS=${symbols},VM_SHUTDOWN_ON_COMPLETION=true"
+                md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_LIGHT_PERPS},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
                 create_vm "$vm_name" "$md"
             fi
         done

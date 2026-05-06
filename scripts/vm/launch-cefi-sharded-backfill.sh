@@ -245,6 +245,7 @@ launch_cefi_shard() {
   meta+=",VM_END_DATE=$end_date"
   meta+=",VM_DATA_TYPES=$data_types"
   meta+=",VM_INSTRUMENT_IDS=$symbols"
+  meta+=",VM_FORCE=${VM_FORCE:-false}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
   # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
@@ -310,6 +311,7 @@ launch_tradfi_shard() {
   meta+=",VM_END_DATE=$end_date"
   meta+=",VM_DATA_TYPES=$data_types"
   meta+=",VM_INSTRUMENT_IDS=$symbols"
+  meta+=",VM_FORCE=${VM_FORCE:-false}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253).
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
