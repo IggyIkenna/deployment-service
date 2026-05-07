@@ -640,9 +640,13 @@ EOF_LOOP
   _launch_with_tee \
     "$WORKSPACE/manifest_consolidator_loop.sh" \
     "$LOGS/manifest-consolidator.log"
-elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" ]]; then
-  # Phase 5b/5c backfill: BACKFILL_CMD metadata carries the full command
-  # (e.g. "python -m market_data_processing_service process --start-date X --end-date Y --cefi").
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" ]]; then
+  # Phase 5b/5c backfill + phantom-recon (2026-05-07): BACKFILL_CMD metadata
+  # carries the full command (e.g. "python /workspace/instruments-service/scripts/
+  # reconcile_phantom_manifest_rows_all.py --asset-group defi --dry-run"). The
+  # phantom-recon route lets `launch-defi-phantom-recon-vm.sh` (and any future
+  # one-off-script launcher) reuse the workspace tarball-pull + venv setup
+  # without bespoke startup scripts.
   VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
   if [[ -n "$VM_BACKFILL_CMD" ]]; then

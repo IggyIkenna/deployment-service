@@ -178,6 +178,13 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
     # ------------------------------------------------------------------
+    # Phantom-row reconciliation (read-only audit, 2026-05-07).
+    # Read-only on the asset_group's manifest bucket — heartbeat-only
+    # signal (None) since the script doesn't write per-VM shards. The
+    # watchdog still tracks STARTED/STOPPED + heartbeat staleness.
+    # ------------------------------------------------------------------
+    "defi-phantom-recon-": None,
+    # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
     "opt-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
