@@ -185,6 +185,15 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "defi-phantom-recon-": None,
     # ------------------------------------------------------------------
+    # Expected-universe enumerator (Phase 3.D.4 writegate, 2026-05-07).
+    # In --apply-write mode it writes per-VM manifest shards under
+    # gs://market-data-tick-{asset_group}-{pid}/_index/per_vm/{vm_name}.parquet
+    # which the consolidator daemon merges into the canonical manifest.
+    # Per-VM shard write means the watchdog needs no per-asset-group
+    # bucket signal here — heartbeat-only (None) is correct.
+    # ------------------------------------------------------------------
+    "expected-universe-enum-": None,
+    # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
     "opt-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
