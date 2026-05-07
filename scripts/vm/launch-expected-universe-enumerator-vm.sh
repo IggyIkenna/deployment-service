@@ -23,14 +23,20 @@
 # other VMs do not race on the canonical manifest.
 #
 # Usage:
-#   bash launch-expected-universe-enumerator-vm.sh                          # tradfi --scan-only
-#   bash launch-expected-universe-enumerator-vm.sh tradfi                    # tradfi --scan-only
-#   bash launch-expected-universe-enumerator-vm.sh tradfi --apply-write      # tradfi, write back
-#   bash launch-expected-universe-enumerator-vm.sh defi --apply-write
+#   bash launch-expected-universe-enumerator-vm.sh                                          # tradfi --scan-only
+#   bash launch-expected-universe-enumerator-vm.sh tradfi                                    # tradfi --scan-only
+#   bash launch-expected-universe-enumerator-vm.sh tradfi --apply-write                      # tradfi, write back
+#   bash launch-expected-universe-enumerator-vm.sh defi --apply-write                        # defi (default 1M cap)
+#   bash launch-expected-universe-enumerator-vm.sh defi --apply-write 5000000                # defi, override cap
 #   bash launch-expected-universe-enumerator-vm.sh sports
-#   bash launch-expected-universe-enumerator-vm.sh cefi                       # stub — instant exit
-#   bash launch-expected-universe-enumerator-vm.sh prediction                 # stub — instant exit
-#   bash launch-expected-universe-enumerator-vm.sh --force defi               # bypass singleton
+#   bash launch-expected-universe-enumerator-vm.sh cefi                                      # cefi pre-venue-launch
+#   bash launch-expected-universe-enumerator-vm.sh prediction                                # prediction pre-venue-launch
+#   bash launch-expected-universe-enumerator-vm.sh --force defi --apply-write 1500000        # bypass singleton + custom cap
+#
+# Positional args (in order):
+#   1. asset_group: cefi | defi | tradfi | prediction | sports
+#   2. mode flag:   --scan-only (default) | --apply-write
+#   3. max writes:  integer override for --max-writes-per-run (default in script: 1_000_000)
 #
 # Cost: e2-standard-4 + 50GB. tradfi/defi/sports ~5–30 min depending on
 # expected-universe cardinality; cefi/prediction stubs exit in seconds.
@@ -61,6 +67,7 @@ fi
 
 ASSET_GROUP="${1:-tradfi}"
 APPLY_FLAG="${2:---scan-only}"
+MAX_WRITES="${3:-}"  # optional override for --max-writes-per-run
 
 # Validate asset_group + flag.
 case "$ASSET_GROUP" in
@@ -71,6 +78,12 @@ case "$APPLY_FLAG" in
     --scan-only|--apply-write) ;;
     *) echo "ERROR: second arg must be --scan-only (default) or --apply-write (got: $APPLY_FLAG)" >&2; exit 2 ;;
 esac
+if [[ -n "$MAX_WRITES" ]]; then
+    if ! [[ "$MAX_WRITES" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: third arg (max-writes-per-run) must be a positive integer (got: $MAX_WRITES)" >&2
+        exit 2
+    fi
+fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -124,6 +137,10 @@ ENUM_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/enumerate_expecte
 BACKFILL_CMD="python ${ENUM_SCRIPT} --asset-group ${ASSET_GROUP}"
 if [[ -n "$SCRIPT_FLAG" ]]; then
     BACKFILL_CMD="${BACKFILL_CMD} ${SCRIPT_FLAG}"
+fi
+if [[ -n "$MAX_WRITES" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} --max-writes-per-run ${MAX_WRITES}"
+    echo "Using --max-writes-per-run=${MAX_WRITES} (overrides script default 1_000_000)"
 fi
 
 METADATA="VM_TASK=expected-universe-enum"
