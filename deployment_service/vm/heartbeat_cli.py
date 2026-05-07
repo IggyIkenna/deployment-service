@@ -41,6 +41,7 @@ from unified_trading_library import (
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     SignalProtocol,
     get_storage_client,
+    run_lifecycle,
     setup_events,
 )
 
@@ -238,6 +239,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Heartbeat daemon entry-point — wrapped in `run_lifecycle` for STEP 5.63.
+
+    The body is wrapped in `with run_lifecycle(service_name="vm-heartbeat-daemon")`
+    so the workspace QG `setup_events()` ↔ `run_lifecycle()` / `ServiceBootstrap()`
+    pairing rule (STEP 5.63) is satisfied. `run_lifecycle` emits
+    `VM_HEARTBEAT_DAEMON_RUN_STARTED` / `_RUN_COMPLETED` / `_RUN_FAILED` around
+    the daemon's main loop. `_init_events()` initialises the underlying event
+    sink before `run_lifecycle` enters, so the lifecycle events route through
+    the configured sink (PubSub or local fallback).
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     parser = _build_parser()
     raw_args = parser.parse_args(argv)
@@ -268,49 +279,59 @@ def main(argv: list[str] | None = None) -> int:
 
     _init_events()
 
-    registry = DeploymentsRegistry(bucket=bucket)
-    store = _RegistryAdapter(registry)
-    storage_client = get_storage_client()
-
-    entry = HeartbeatEntry(
-        deployment_id=deployment_id,
-        service_name=vm_name,
-        status="pending",
-        started_at="",
-        last_heartbeat_at="",
-        metadata={
+    with run_lifecycle(
+        service_name="vm-heartbeat-daemon",
+        details={
+            "deployment_id": deployment_id,
             "vm_name": vm_name,
             "asset_group": asset_group,
             "task": task,
             "mode": mode,
-            "start_date": start_date,
-            "end_date": end_date,
-            "log_uri": log_uri,
         },
-    )
+    ):
+        registry = DeploymentsRegistry(bucket=bucket)
+        store = _RegistryAdapter(registry)
+        storage_client = get_storage_client()
 
-    signals = SignalProtocol(
-        exit_status_file=pathlib.Path(exit_status_str),
-        stall_breadcrumb=pathlib.Path(stall_str),
-        watchdog_file=pathlib.Path(watchdog_str),
-    )
+        entry = HeartbeatEntry(
+            deployment_id=deployment_id,
+            service_name=vm_name,
+            status="pending",
+            started_at="",
+            last_heartbeat_at="",
+            metadata={
+                "vm_name": vm_name,
+                "asset_group": asset_group,
+                "task": task,
+                "mode": mode,
+                "start_date": start_date,
+                "end_date": end_date,
+                "log_uri": log_uri,
+            },
+        )
 
-    daemon = HeartbeatDaemon(
-        entry=entry,
-        store=store,
-        storage_client=storage_client,
-        local_log=pathlib.Path(local_log_str),
-        remote_log_uri=log_uri,
-        signals=signals,
-        started_event=DEPLOYMENT_STARTED,
-        progress_event=DEPLOYMENT_PROGRESS,
-        completed_event=DEPLOYMENT_COMPLETED,
-        failed_event=DEPLOYMENT_FAILED,
-        heartbeat_interval_sec=heartbeat_interval,
-        upload_interval_sec=upload_interval,
-        payload_builder=_vm_payload,
-    )
-    return daemon.run()
+        signals = SignalProtocol(
+            exit_status_file=pathlib.Path(exit_status_str),
+            stall_breadcrumb=pathlib.Path(stall_str),
+            watchdog_file=pathlib.Path(watchdog_str),
+        )
+
+        daemon = HeartbeatDaemon(
+            entry=entry,
+            store=store,
+            storage_client=storage_client,
+            local_log=pathlib.Path(local_log_str),
+            remote_log_uri=log_uri,
+            signals=signals,
+            started_event=DEPLOYMENT_STARTED,
+            progress_event=DEPLOYMENT_PROGRESS,
+            completed_event=DEPLOYMENT_COMPLETED,
+            failed_event=DEPLOYMENT_FAILED,
+            heartbeat_interval_sec=heartbeat_interval,
+            upload_interval_sec=upload_interval,
+            payload_builder=_vm_payload,
+        )
+        return daemon.run()
 
 
 if __name__ == "__main__":
