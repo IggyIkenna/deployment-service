@@ -145,14 +145,14 @@ filter_symbols_for_year() {
 # Default = all 6 Tier-3 CeFi venues. Override via ONLY_VENUES env var to limit
 # scope (e.g. resume after partial-failure / target a single venue):
 #   ONLY_VENUES="BITGET-SPOT BITGET-FUTURES KRAKEN-SPOT KRAKEN-FUTURES" \
-#     MACHINE_TYPE=e2-highmem-4 \
+#     MACHINE_TYPE=e2-highmem-8 \
 #     bash launch-tier3-cefi-backfill.sh --market-tick
 #
 # Default machine type: e2-highmem-2 (16 GB / $0.10/hr). Streaming-finalize
 # (MTDS f07f3f9 default-on 2026-05-06) keeps Tardis peak RSS bounded by one
 # pyarrow-CSV row-group (~100-300 MB on smoke). 16 GB is comfortable for
 # anything except Coinbase BTC-USD book_snapshot_5 heavy days; bump to
-# e2-highmem-4 (32 GB) only for those.
+# e2-highmem-8 (32 GB) only for those.
 if [[ -n "${ONLY_VENUES:-}" ]]; then
     # shellcheck disable=SC2206
     VENUES=($ONLY_VENUES)
@@ -166,10 +166,10 @@ create_vm() {
         echo "[DRY-RUN] $vm_name"
         return
     fi
-    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-4})"
+    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-8})"
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
-        --machine-type="${MACHINE_TYPE:-e2-highmem-4}" \
+        --machine-type="${MACHINE_TYPE:-e2-highmem-8}" \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
