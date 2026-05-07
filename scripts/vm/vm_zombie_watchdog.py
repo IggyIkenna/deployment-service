@@ -194,6 +194,13 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "expected-universe-enum-": None,
     # ------------------------------------------------------------------
+    # Blank-reason reconciler (writegate Phase 3.D.5 Wave 2.M, 2026-05-07).
+    # Walks an asset_group manifest, reclassifies blank-reason
+    # empty_confirmed rows per the asset-group-specific legitimacy rule.
+    # Heartbeat-only — writes to per-VM manifest shards.
+    # ------------------------------------------------------------------
+    "blank-reason-recon-": None,
+    # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
     "opt-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
