@@ -139,6 +139,14 @@ esac
 if [[ -n "${SKIP_DEPENDENCY_CHECK:-}" ]]; then
     CMD="$CMD --skip-dependency-check"
 fi
+# 2026-05-07: FORCE env var override for reprocess scenarios. Without
+# this, the orchestrator's check_shard_freshness skip-if-exists fires
+# the moment the manifest shows captured rows for the date range —
+# even when the goal is to REWRITE the parquets with new schema (e.g.
+# Phase 9 canonical column emission per features-onchain@7f1b2a1).
+if [[ -n "${FORCE:-}" ]]; then
+    CMD="$CMD --force"
+fi
 if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
