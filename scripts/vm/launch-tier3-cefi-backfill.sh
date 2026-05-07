@@ -166,10 +166,10 @@ create_vm() {
         echo "[DRY-RUN] $vm_name"
         return
     fi
-    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-2})"
+    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-4})"
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
-        --machine-type="${MACHINE_TYPE:-e2-highmem-2}" \
+        --machine-type="${MACHINE_TYPE:-e2-highmem-4}" \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
