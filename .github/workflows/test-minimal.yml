@@ -1,7 +1,8 @@
 name: Quality Gates Test
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [live-defi-rollout]
 
 jobs:
   test:
