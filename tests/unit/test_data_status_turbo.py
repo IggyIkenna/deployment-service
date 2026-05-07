@@ -79,7 +79,7 @@ class TestRequestSizeGuard:
         # Mock path combinatorics: return enough venues so days x venues > 35_000
         # 2020-01-01 to 2026-02-08 ≈ 2238 days; need ~16+ venues per category
         mock_pc = MagicMock()
-        mock_pc.get_all_venues_for_category.return_value = [f"V{i}" for i in range(20)]
+        mock_pc.get_all_venues_for_asset_group.return_value = [f"V{i}" for i in range(20)]
         mock_get_path_combinatorics.return_value = mock_pc
 
         with pytest.raises(HTTPException) as exc_info:
@@ -199,16 +199,16 @@ class TestInstrumentTypeExtraction:
                 service="market-tick-data-handler",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                category=["CEFI"],
+                asset_groups=["CEFI"],
                 include_sub_dimensions=True,
                 include_instrument_types=False,  # instrument_types extraction uses separate code path
             )
         )
 
         # Verify structure
-        assert "categories" in result
-        assert "CEFI" in result["categories"]
-        cefi = result["categories"]["CEFI"]
+        assert "asset_groups" in result
+        assert "CEFI" in result["asset_groups"]
+        cefi = result["asset_groups"]["CEFI"]
 
         # Should have found data for the market-tick service
         assert cefi["dates_found"] > 0
@@ -393,7 +393,7 @@ class TestDimensionWeightedCompletion:
     def test_venue_completion_reflects_all_data_types(self):
         """Test that venue completion accounts for all expected data types.
 
-        Bug: UNISWAPV3-ETH showed 100% because liquidity had 30/30 dates,
+        Bug: UNISWAPV3-ETHEREUM showed 100% because liquidity had 30/30 dates,
         but swaps only had 2/30 dates. The union was 30 dates → 100%.
         Fix: venue completion = (30 + 2) / (30 + 30) = 53.3%
         """
@@ -487,14 +487,14 @@ class TestDimensionWeightedCompletion:
     def test_category_aggregation_uses_dimension_weighted_values(self):
         """Test that category completion uses dimension-weighted venue values."""
         venues = {
-            "UNISWAPV2-ETH": {
+            "UNISWAPV2-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 60,  # Both data types complete
                 "_dim_weighted_expected": 60,
                 "is_expected": True,
             },
-            "UNISWAPV3-ETH": {
+            "UNISWAPV3-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 32,  # liquidity=30, swaps=2
@@ -974,7 +974,7 @@ class TestMetricConsistency:
         response_complete = {
             "overall_completion_pct": 100.0,
             "total_missing": 0,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},
                 "TRADFI": {"dates_missing": 0},
             },
@@ -987,14 +987,14 @@ class TestMetricConsistency:
         response_partial = {
             "overall_completion_pct": 97.4,
             "total_missing": 19,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},  # Category level shows 0!
                 "TRADFI": {"dates_missing": 0},  # Category level shows 0!
             },
         }
         # Category-level dates_missing can be 0 while venue-weighted total_missing > 0
         # This is why we use total_missing (venue-weighted) for consistency
-        sum(cat["dates_missing"] for cat in response_partial["categories"].values())
+        sum(cat["dates_missing"] for cat in response_partial["asset_groups"].values())
         # Category sum might be 0 while overall is not complete
         # This is the bug we fixed: use total_missing, not category sum
         assert response_partial["total_missing"] > 0
@@ -1252,11 +1252,13 @@ class TestDatesFoundListIncluded:
         """Test that dates_found_list is empty when no data exists."""
         # When a category has no data, dates_found_list should be []
         sample_response = {
-            "categories": {"DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}}
+            "asset_groups": {
+                "DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}
+            }
         }
 
-        assert sample_response["categories"]["DEFI"]["dates_found_list"] == []
-        assert sample_response["categories"]["DEFI"]["dates_found"] == 0
+        assert sample_response["asset_groups"]["DEFI"]["dates_found_list"] == []
+        assert sample_response["asset_groups"]["DEFI"]["dates_found"] == 0
 
 
 class TestDefiVenueExtraction:
@@ -1270,19 +1272,19 @@ class TestDefiVenueExtraction:
 
     def test_venue_is_directory_in_defi_structure(self):
         """Test that DEFI venues are directories, not in filenames."""
-        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETH/file.parquet
-        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETH/UNISWAPV2-ETH:POOL:DAI-USDC@ETHEREUM.parquet"
+        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/file.parquet
+        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/UNISWAPV2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
         parts = sample_path.split("/")
 
-        # Venue is in the 6th part (index 5): venue=UNISWAPV2-ETH
+        # Venue is in the 6th part (index 5): venue=UNISWAPV2-ETHEREUM
         venue_part = parts[5]
         assert venue_part.startswith("venue=")
-        assert venue_part.split("=", 1)[1] == "UNISWAPV2-ETH"
+        assert venue_part.split("=", 1)[1] == "UNISWAPV2-ETHEREUM"
 
     def test_venue_vs_underlying_detection(self):
         """Test distinguishing venues from underlyings in directory names.
 
-        Venues: UNISWAPV2-ETH, BINANCE-FUTURES, DERIBIT
+        Venues: UNISWAPV2-ETHEREUM, BINANCE-FUTURES, DERIBIT
         Underlyings: BTC-USD, ETH-USDT (short asset-quote pairs)
         """
 
@@ -1304,7 +1306,7 @@ class TestDefiVenueExtraction:
             return is_underlying
 
         # Test venues (should NOT be underlyings)
-        assert not is_underlying("UNISWAPV2-ETH")
+        assert not is_underlying("UNISWAPV2-ETHEREUM")
         assert not is_underlying("BINANCE-FUTURES")
         assert not is_underlying("DERIBIT")  # No dash
 
@@ -1327,13 +1329,13 @@ class TestDefiVenueExtraction:
         structure = {
             "data_type=liquidity/": {
                 "pool/": {
-                    "UNISWAPV2-ETH/": ["file1.parquet"],
-                    "UNISWAPV3-ETH/": ["file2.parquet"],
+                    "UNISWAPV2-ETHEREUM/": ["file1.parquet"],
+                    "UNISWAPV3-ETHEREUM/": ["file2.parquet"],
                 }
             },
             "data_type=swaps/": {
                 "pool/": {
-                    "UNISWAPV2-ETH/": ["file3.parquet"],
+                    "UNISWAPV2-ETHEREUM/": ["file3.parquet"],
                 }
             },
         }
@@ -1346,7 +1348,7 @@ class TestDefiVenueExtraction:
                     venue = l3.rstrip("/")
                     venues_found.add(venue)
 
-        assert venues_found == {"UNISWAPV2-ETH", "UNISWAPV3-ETH"}
+        assert venues_found == {"UNISWAPV2-ETHEREUM", "UNISWAPV3-ETHEREUM"}
 
 
 class TestExpectedMissingCalculation:

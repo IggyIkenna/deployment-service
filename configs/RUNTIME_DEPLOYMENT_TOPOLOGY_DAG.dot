@@ -1,5 +1,5 @@
 digraph topology {
-	graph [bgcolor="#fafbfc" compound=true fontname=Arial fontsize=11 label="Runtime Deployment Topology DAG v9\n7-layer pipeline: L1-L5 shared | L6-L7 client\nSSOT: runtime-topology.yaml | Decisions: RUNTIME_TOPOLOGY_DECISIONS.md" labelloc=t nodesep=0.4 pad=0.5 rankdir=TB ranksep=0.6]
+	graph [bgcolor="#fafbfc" compound=true fontname=Arial fontsize=11 label="Runtime Deployment Topology DAG v10\n7-layer pipeline: L1-L5 shared | L6-L7 client\nSSOT: unified-trading-pm/configs/runtime-topology.yaml | Decisions: RUNTIME_TOPOLOGY_DECISIONS.md" labelloc=t nodesep=0.4 pad=0.5 rankdir=TB ranksep=0.6]
 	node [fontname=Arial fontsize=9]
 	edge [fontname=Arial fontsize=8]
 	subgraph cluster_l1 {
@@ -46,6 +46,8 @@ digraph topology {
 		ERA [label="execution-results-api\nSSE order lifecycle + fills\nSource: exec-svc (GCS+PS)" color="#7c3aed" fillcolor="#f3e8ff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
 		CRS [label="client-reporting-api\nbatch reports + live SSE PnL\nSource: PnL+risk+PBM (GCS)" color="#7c3aed" fillcolor="#f3e8ff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
 		DEPAPI [label="deployment-api\norchestration + kill-switch\nSource: deployment-engine" color="#7c3aed" fillcolor="#f3e8ff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
+		UTAPI [label="unified-trading-api\nconsolidated domain + audit\n:8030 OAuth" color="#7c3aed" fillcolor="#f3e8ff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
+		AUTHAPI [label="auth-api\nJWT + OAuth token exchange\n:8200" color="#7c3aed" fillcolor="#f3e8ff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
 		STRAPI [label="strategy-api\nbacktest results | signal configs\nSource: strategy-svc (GCS)\n(PLANNED)" color="#ca8a04" fillcolor="#fefce8" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style="dashed,filled"]
 	}
 	subgraph cluster_ui {
@@ -53,7 +55,6 @@ digraph topology {
 		subgraph cluster_ui_trading {
 			color="#94a3b8" label="Trading + Monitoring" style="rounded,dashed"
 			TAUI [label="trading-analytics-ui\nSSE fills, PnL dashboard\n-> ERA :8002" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
-			LHMU [label="live-health-monitor-ui\nSSE health, manual trading\n-> deployment-api :8001" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
 		}
 		subgraph cluster_ui_batch {
 			color="#94a3b8" label="Batch Research (3-tier)" style="rounded,dashed"
@@ -64,9 +65,7 @@ digraph topology {
 		subgraph cluster_ui_ops {
 			color="#94a3b8" label="Ops + Deployment" style="rounded,dashed"
 			DEPUI [label="deployment-ui\nbatch vs live deployment\n-> deploy-api :8001" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
-			BAUI [label="batch-audit-ui\n-> deploy-api :8001" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
-			LGUI [label="logs-dashboard-ui\n-> deploy-api :8001" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
-			OBUI [label="onboarding-ui\nclient wizard\n-> deploy-api :8001" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
+			UTSUI [label="unified-trading-system-ui\nhealth SSE, audit, logs, onboarding\n-> deploy-api + unified-trading-api + auth-api" color="#06b6d4" fillcolor="#ecfeff" fontname=Arial fontsize=10 margin="0.15,0.08" penwidth=2 shape=box style=filled]
 		}
 		subgraph cluster_ui_client {
 			color="#94a3b8" label="Client + Reporting" style="rounded,dashed"
@@ -143,10 +142,9 @@ digraph topology {
 	STRAPI -> STUI [color="#06b6d4" penwidth=1.2 style=dashed]
 	CRS -> CRUI [color="#06b6d4" penwidth=1.2]
 	DEPAPI -> DEPUI [color="#06b6d4" penwidth=1.2]
-	DEPAPI -> LHMU [color="#06b6d4" penwidth=1.2]
-	DEPAPI -> BAUI [color="#06b6d4" penwidth=1.2]
-	DEPAPI -> LGUI [color="#06b6d4" penwidth=1.2]
-	DEPAPI -> OBUI [color="#06b6d4" penwidth=1.2]
+	DEPAPI -> UTSUI [label="health SSE" color="#06b6d4" penwidth=1.2]
+	UTAPI -> UTSUI [label="domain + audit" color="#06b6d4" penwidth=1.2]
+	AUTHAPI -> UTSUI [label="auth" color="#06b6d4" penwidth=1.2]
 	DEPAPI -> MLUI [label="deploy hook" color="#06b6d4" penwidth=1.2]
 	DEPAPI -> STUI [label="deploy hook" color="#06b6d4" penwidth=1.2]
 	DEPAPI -> SIT [label="post-deploy" color="#64748b" style=dashed]

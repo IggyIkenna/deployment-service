@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # Master ML Implementation Plan - Complete System Integration
 
 **Purpose:** Comprehensive guide covering ALL aspects of ML system implementation
@@ -87,7 +91,7 @@ If you have old data with `day-2023-01-01/` format:
 
 ## 2. Service Status Summary
 
-**Audit Date:** February 9, 2026  
+**Audit Date:** February 9, 2026
 **Result:** ✅ All services production-ready with `key=value` format
 
 ### 2.1 instruments-service ✅
@@ -561,7 +565,7 @@ market-tick-data-handler \
 ```bash
 # 3. Generate features (NEW STRUCTURE)
 features-delta-one --mode batch \
-  --category CEFI TRADFI \
+  --asset-group CEFI TRADFI \
   --feature-groups ALL \
   --timeframes ALL \
   --start-date 2020-10-01 --end-date 2021-12-31 \

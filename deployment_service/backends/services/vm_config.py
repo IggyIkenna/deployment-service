@@ -116,6 +116,7 @@ def get_images_client() -> compute_v1.ImagesClient:
 
 
 # Cloud-init template for Container-Optimized OS
+# noqa: qg-print — print() calls below are inside bash `python3 -c` invocations in shell templates, not Python code
 CLOUD_INIT_TEMPLATE = """#cloud-config
 #
 # Cloud-init configuration for Container-Optimized OS

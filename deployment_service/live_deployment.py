@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 Live Deployment Module
 
@@ -20,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import httpx
-from unified_config_interface import UnifiedCloudConfig
+from unified_trading_library import UnifiedCloudConfig
 
 from deployment_service.backends import _gcp_sdk as _gcp_sdk_mod
 

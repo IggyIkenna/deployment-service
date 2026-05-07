@@ -52,16 +52,16 @@ class TestInstrumentTypeExtraction:
                 service="market-tick-data-handler",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                category=["CEFI"],
+                asset_groups=["CEFI"],
                 include_sub_dimensions=True,
                 include_instrument_types=False,  # instrument_types extraction uses separate code path
             )
         )
 
         # Verify structure
-        assert "categories" in result
-        assert "CEFI" in result["categories"]
-        cefi = result["categories"]["CEFI"]
+        assert "asset_groups" in result
+        assert "CEFI" in result["asset_groups"]
+        cefi = result["asset_groups"]["CEFI"]
 
         # Should have data_type breakdown (sub-dimension for market-tick-data-handler)
         # The key is "data_type" (singular) in the API response
@@ -130,19 +130,19 @@ class TestDefiVenueExtraction:
 
     def test_venue_is_directory_in_defi_structure(self):
         """Test that DEFI venues are directories, not in filenames."""
-        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETH/file.parquet
-        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETH/UNISWAPV2-ETH:POOL:DAI-USDC@ETHEREUM.parquet"
+        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/file.parquet
+        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/UNISWAPV2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
         parts = sample_path.split("/")
 
-        # Venue is in the 6th part (index 5): venue=UNISWAPV2-ETH
+        # Venue is in the 6th part (index 5): venue=UNISWAPV2-ETHEREUM
         venue_part = parts[5]
         assert venue_part.startswith("venue=")
-        assert venue_part.split("=", 1)[1] == "UNISWAPV2-ETH"
+        assert venue_part.split("=", 1)[1] == "UNISWAPV2-ETHEREUM"
 
     def test_venue_vs_underlying_detection(self):
         """Test distinguishing venues from underlyings in directory names.
 
-        Venues: UNISWAPV2-ETH, BINANCE-FUTURES, DERIBIT
+        Venues: UNISWAPV2-ETHEREUM, BINANCE-FUTURES, DERIBIT
         Underlyings: BTC-USD, ETH-USDT (short asset-quote pairs)
         """
 
@@ -164,7 +164,7 @@ class TestDefiVenueExtraction:
             return is_underlying
 
         # Test venues (should NOT be underlyings)
-        assert not is_underlying("UNISWAPV2-ETH")
+        assert not is_underlying("UNISWAPV2-ETHEREUM")
         assert not is_underlying("BINANCE-FUTURES")
         assert not is_underlying("DERIBIT")  # No dash
 
@@ -187,13 +187,13 @@ class TestDefiVenueExtraction:
         structure = {
             "data_type=liquidity/": {
                 "pool/": {
-                    "UNISWAPV2-ETH/": ["file1.parquet"],
-                    "UNISWAPV3-ETH/": ["file2.parquet"],
+                    "UNISWAPV2-ETHEREUM/": ["file1.parquet"],
+                    "UNISWAPV3-ETHEREUM/": ["file2.parquet"],
                 }
             },
             "data_type=swaps/": {
                 "pool/": {
-                    "UNISWAPV2-ETH/": ["file3.parquet"],
+                    "UNISWAPV2-ETHEREUM/": ["file3.parquet"],
                 }
             },
         }
@@ -206,4 +206,4 @@ class TestDefiVenueExtraction:
                     venue = l3.rstrip("/")
                     venues_found.add(venue)
 
-        assert venues_found == {"UNISWAPV2-ETH", "UNISWAPV3-ETH"}
+        assert venues_found == {"UNISWAPV2-ETHEREUM", "UNISWAPV3-ETHEREUM"}

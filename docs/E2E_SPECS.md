@@ -1,5 +1,13 @@
 # End-to-End Completion Specs
 
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**Post-2026-05-06 additions** — E2E specs include 4-pillar write-gate per shard, 3-category empty-output decision per adapter, `available_at` per-row check, cluster validation for bundled data_types, per-VM shard isolation for batch clusters. New typed events: `RAW_TICK_PARTITION_MISMATCH`, `CLUSTER_COVERAGE_INSUFFICIENT`, `LIFECYCLE_BOUNDS_VIOLATED`, `LOOKAHEAD_BIAS_DETECTED`, `MANIFEST_PER_VM_SHARD_WRITE`, `MULTI_WORKER_WITHOUT_SHARD_ISOLATION`.
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
+
 **Last consolidated:** 2026-02-09
 
 This document consolidates E2E completion specs for market-data-processing-service and features-calendar-service. Each service has a checklist at `configs/checklist.{service}.yaml`.
@@ -67,7 +75,7 @@ instruments-service
 market-data-processing process --date 2023-05-23 --CEFI --venues BINANCE-FUTURES --dry-run
 
 # Deploy
-python -m deployment_service.cli deploy -s market-data-processing-service -c vm --start-date 2023-05-23 --end-date 2023-05-25 --category CEFI
+python -m deployment_service.cli deploy -s market-data-processing-service -c vm --start-date 2023-05-23 --end-date 2023-05-25 --asset-group CEFI
 
 # Data status
 python -m deployment_service.cli data-status -s market-data-processing-service --start-date 2023-05-23 --end-date 2023-05-25 --check-timeframes
@@ -110,10 +118,10 @@ python -m deployment_service.cli data-status -s market-data-processing-service -
 
 ```bash
 # Local
-python -m features_calendar_service --mode batch --category CEFI --start-date 2024-01-01 --end-date 2024-01-31 --dry-run
+python -m features_calendar_service --mode batch --asset-group CEFI --start-date 2024-01-01 --end-date 2024-01-31 --dry-run
 
 # Deploy
-python -m deployment_service.cli deploy -s features-calendar-service -c vm --start-date 2024-01-01 --end-date 2024-01-31 --category CEFI
+python -m deployment_service.cli deploy -s features-calendar-service -c vm --start-date 2024-01-01 --end-date 2024-01-31 --asset-group CEFI
 
 # Data status
 python -m deployment_service.cli data-status -s features-calendar-service --start-date 2024-01-01 --end-date 2024-01-31 --check-feature-groups

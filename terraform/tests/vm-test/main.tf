@@ -35,7 +35,7 @@ module "test_vm" {
     "--operation", "fetch", "--mode", "batch",
     "--start-date", "2024-01-15",
     "--end-date", "2024-01-15",
-    "--category", "CEFI",
+    "--asset-group", "CEFI",
     "--venues", "BINANCE-SPOT",
     "--max-instruments", "5"
   ]

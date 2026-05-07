@@ -343,7 +343,7 @@ class TestFormatHeaders:
             end_date=datetime(2024, 1, 10),
             total_requested_days=10,
             category_excluded={"CEFI": 2, "TRADFI": 0},
-            categories=["CEFI", "TRADFI"],
+            asset_groups=["CEFI", "TRADFI"],
             category_start_dates={"CEFI": "2024-01-03", "TRADFI": "2024-01-01"},
         )
         captured = capsys.readouterr()
@@ -874,7 +874,7 @@ class TestCheckTimeframesDetailed:
                 "deployment_service.cli.utils.data_status_checkers.SERVICE_GCS_CONFIGS",
                 {
                     "market-data-processing-service": {
-                        "bucket_template": "market-data-{category_lower}-{project_id}",
+                        "bucket_template": "market-data-{asset_group_lower}-{project_id}",
                         "expected_timeframes": ["1m", "5m"],
                     }
                 },
@@ -899,7 +899,7 @@ class TestCheckTimeframesDetailed:
             check_timeframes_detailed(
                 start_date=start,
                 end_date=end,
-                category=("CEFI",),
+                asset_group=("CEFI",),
                 venue=(),
                 config_dir="/fake/configs",
                 output="json",
@@ -908,7 +908,7 @@ class TestCheckTimeframesDetailed:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert data["service"] == "market-data-processing-service"
-        assert "categories" in data
+        assert "asset_groups" in data
         assert "overall" in data
 
     @pytest.mark.unit
@@ -918,7 +918,7 @@ class TestCheckTimeframesDetailed:
             patch("deployment_service.cli.utils.data_status_checkers.ConfigLoader"),
             patch(
                 "deployment_service.cli.utils.data_status_checkers.SERVICE_GCS_CONFIGS",
-                {"market-tick-data-handler": {"bucket_template": "bucket-{category_lower}"}},
+                {"market-tick-data-handler": {"bucket_template": "bucket-{asset_group_lower}"}},
             ),
             patch("deployment_service.cli.utils.data_status_checkers.DeploymentConfig") as MockDC,
         ):
@@ -933,7 +933,7 @@ class TestCheckTimeframesDetailed:
             check_data_types_detailed(
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=("CEFI",),  # Not TRADFI
+                asset_group=("CEFI",),  # Not TRADFI
                 venue=(),
                 config_dir="/fake/configs",
                 output="tree",
@@ -981,7 +981,7 @@ class TestCheckFeatureGroupsDetailed:
                 service="features-calendar-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=("ALL",),
+                asset_group=("ALL",),
                 config_dir="/fake/configs",
                 output="json",
             )
@@ -1012,7 +1012,7 @@ class TestCheckFeatureGroupsDetailed:
                 service="unknown-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=(),
+                asset_group=(),
                 config_dir="/fake/configs",
                 output="tree",
             )
@@ -1041,7 +1041,7 @@ class TestDisplayFixedServiceStatus:
             mock_loader = MagicMock()
             mock_loader.load_service_config.return_value = {"dimensions": []}
             mock_loader.load_venues_config.return_value = {}
-            mock_loader.get_category_start_date.return_value = None
+            mock_loader.get_asset_group_start_date.return_value = None
             MockCL.return_value = mock_loader
 
             from deployment_service.cli.utils.data_status_display_fixed import (
@@ -1052,7 +1052,7 @@ class TestDisplayFixedServiceStatus:
                 service="unknown-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=(),
+                asset_group=(),
                 venue=(),
                 output="tree",
                 show_timestamps=False,
@@ -1094,7 +1094,7 @@ class TestDisplayFixedServiceStatus:
                 "dimensions": [{"name": "category", "type": "fixed", "values": ["CEFI"]}]
             }
             mock_loader.load_venues_config.return_value = {}
-            mock_loader.get_category_start_date.return_value = None
+            mock_loader.get_asset_group_start_date.return_value = None
             MockCL.return_value = mock_loader
 
             mock_cc_instance = MagicMock()
@@ -1111,7 +1111,7 @@ class TestDisplayFixedServiceStatus:
                 service="features-calendar-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 4),
-                category=("CEFI",),
+                asset_group=("CEFI",),
                 venue=(),
                 output="summary",
                 show_timestamps=False,
@@ -1156,7 +1156,7 @@ class TestDisplayDynamicServiceStatus:
                 service="strategy-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=(),
+                asset_group=(),
                 output="tree",
                 config_dir="/fake/configs",
             )
@@ -1219,7 +1219,7 @@ class TestDisplayDynamicServiceStatus:
                 service="execution-service",
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
-                category=("cefi",),
+                asset_group=("cefi",),
                 output="tree",
                 config_dir="/fake/configs",
             )
@@ -1238,18 +1238,12 @@ class TestCheckInstrumentsVenueCoverage:
     def test_runs_with_mocked_io(self, capsys):
         """Smoke test: entire function runs without real GCS calls."""
         with (
-            patch(
-                "deployment_service.cli.utils.data_status_venue_utils.DeploymentConfig"
-            ) as MockDC,
             patch("deployment_service.cli.utils.data_status_venue_utils.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_venue_utils.gcsfs.GCSFileSystem"),
-            patch("deployment_service.cli.utils.data_status_venue_utils.pq.read_table"),
             patch(
                 "deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor"
             ) as MockTPE,
         ):
-            MockDC.return_value = MagicMock(gcp_project_id="test-project")
-
             mock_loader = MagicMock()
             mock_loader.load_expected_start_dates.return_value = {
                 "instruments-service": {
@@ -1292,7 +1286,7 @@ class TestCheckInstrumentsVenueCoverage:
                 check_instruments_venue_coverage(
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 1),
-                    category=("CEFI",),
+                    asset_group=("CEFI",),
                     output="tree",
                     config_dir="/fake/configs",
                 )

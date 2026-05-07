@@ -109,7 +109,7 @@ class TestShardsCalculateRoute:
                     "end_date": "2024-01-31",
                     "cloud_config_path": "gs://bucket/config.yaml",
                     "date_granularity_override": "day",
-                    "extra_filters": {"category": "cefi"},
+                    "extra_filters": {"asset_group": "cefi"},
                     "skip_existing": True,
                 },
             )
@@ -457,7 +457,7 @@ class TestVMEventsRoute:
 class TestRollbackRoute:
     def test_rollback_error(self, client):
         with patch(
-            "unified_cloud_interface.get_compute_client",
+            "unified_trading_library.get_compute_client",
             side_effect=OSError("compute error"),
         ):
             resp = client.post(
@@ -470,7 +470,7 @@ class TestRollbackRoute:
         mock_compute = MagicMock()
         mock_compute.rollback_service.return_value = {"rolled_back": True}
         with patch(
-            "unified_cloud_interface.get_compute_client",
+            "unified_trading_library.get_compute_client",
             return_value=mock_compute,
         ):
             resp = client.post(
@@ -490,7 +490,7 @@ class TestRollbackRoute:
 class TestLiveHealthRoute:
     def test_live_health_error(self, client):
         with patch(
-            "unified_cloud_interface.get_compute_client",
+            "unified_trading_library.get_compute_client",
             side_effect=OSError("compute error"),
         ):
             resp = client.get(
@@ -503,7 +503,7 @@ class TestLiveHealthRoute:
         mock_compute = MagicMock()
         mock_compute.list_revisions.return_value = []
         with patch(
-            "unified_cloud_interface.get_compute_client",
+            "unified_trading_library.get_compute_client",
             return_value=mock_compute,
         ):
             resp = client.get(
@@ -522,7 +522,7 @@ class TestLiveHealthRoute:
             }
         ]
         with patch(
-            "unified_cloud_interface.get_compute_client",
+            "unified_trading_library.get_compute_client",
             return_value=mock_compute,
         ):
             resp = client.get(

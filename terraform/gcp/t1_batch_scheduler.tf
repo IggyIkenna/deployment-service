@@ -3,18 +3,45 @@
 # Each batch service runs independently on its own T+1 schedule so recon data
 # is ready when batch-live-reconciliation-service starts at 06:00 UTC.
 #
-# Cloud Run Job definitions are deployed at runtime by backends/cloud_run.py
-# (see main.tf NOTE). This file only provisions the Cloud Scheduler triggers.
+# NOTE (2026-04-25): the original "Cloud Run Job definitions are deployed at
+# runtime by backends/cloud_run.py" claim is aspirational — that file is a
+# generic backend, not a per-service Job declarer. Net effect: every scheduler
+# entry in this file points at a target that does not exist (verified via
+# workspace-wide grep for "fast-t1-recon" / "cefi-t1-recon"). The DeFi
+# pattern in defi_collection_scheduler.tf demonstrates the correct shape —
+# co-locate `google_cloud_run_v2_job` (via the container-job module) with the
+# `google_cloud_scheduler_job` cron. Existing entries below remain as
+# placeholders pending migration to that pattern.
 #
-# Schedule design:
-#   00:30 — execution-service config snapshot (prerequisite for Stage 3 recon)
-#   01:30 — features-calendar-service
-#   02:00 — features-delta-one, features-volatility
+# Schedule design (pipeline DAG order):
+#
+# Data availability constraints (verified 2026-04-16):
+#   - Tardis (CeFi): ~1.5-6h after UTC midnight (safe at 06:00 UTC)
+#   - Databento (TradFi): T+1 — yesterday's data available after midnight UTC
+#   - Sports (API Football, Odds API): immediate
+#   - DeFi (on-chain, The Graph): immediate
+#   - Prediction (Polymarket): immediate
+#
+# Two phases: FAST (immediate sources) + SLOW (delayed sources)
+#
+# FAST phase (Sports, DeFi, Prediction, TradFi instruments):
+#   00:00 — instruments-service (all categories — DeFi/Sports/Prediction immediate, TradFi T+1 OK)
+#   00:30 — market-tick-data-service SPORTS + DEFI + PREDICTION + TRADFI (all available)
+#   00:30 — execution-service config snapshot
+#   01:30 — market-data-processing-service (for fast-phase tick data)
+#   02:00 — features-calendar, features-delta-one (TradFi), features-volatility
 #   02:30 — features-onchain, features-sports, features-cross-instrument,
 #            features-multi-timeframe, features-commodity
 #   03:00 — ml-inference-service
 #   04:00 — strategy-service
-#   06:00 — batch-live-reconciliation-service (orchestrator, after all upstream done)
+#
+# SLOW phase (CeFi — Tardis delayed):
+#   06:00 — market-tick-data-service CEFI (Tardis data now available)
+#   07:00 — market-data-processing-service CEFI
+#   07:30 — features-delta-one CEFI, features-onchain CEFI
+#   08:00 — ml-inference CEFI
+#
+#   09:00 — batch-live-reconciliation-service (after ALL phases complete)
 
 # Service account for T+1 batch Cloud Scheduler jobs — must exist before scheduler jobs are created
 resource "google_service_account" "t1_batch" {
@@ -36,10 +63,55 @@ locals {
   t1_service_account_email = google_service_account.t1_batch.email
 
   t1_batch_services = {
+    "instruments" = {
+      schedule    = "0 0 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-t1-recon"
+      description = "instruments-service T+1 — all categories (Sports/DeFi/Prediction immediate, TradFi Databento T+1 OK at midnight)"
+    }
+    "instruments-cefi" = {
+      schedule    = "0 6 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-cefi-t1-recon"
+      description = "instruments-service CeFi T+1 — delayed run after Tardis data available (~6h lag)"
+    }
+    "sports-fixtures-6am" = {
+      schedule    = "0 6 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — fetches fixture calendar for next 14 days (6am UTC)"
+    }
+    "sports-fixtures-noon" = {
+      schedule    = "0 12 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — noon UTC"
+    }
+    "sports-fixtures-6pm" = {
+      schedule    = "0 18 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — 6pm UTC"
+    }
+    "sports-fixtures-midnight" = {
+      schedule    = "0 0 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-sports-fixtures"
+      description = "Sports future fixtures refresh — midnight UTC"
+    }
+    "market-tick-data-fast" = {
+      schedule    = "30 0 * * *"
+      job_name    = "${local.env_prefix}-market-tick-data-service-fast-t1-recon"
+      description = "MTDS T+1 FAST — Sports odds, DeFi on-chain, Prediction, TradFi (Databento T+1 available at midnight)"
+    }
+    "market-tick-data-cefi" = {
+      schedule    = "0 6 * * *"
+      job_name    = "${local.env_prefix}-market-tick-data-service-cefi-t1-recon"
+      description = "MTDS T+1 CEFI — Tardis tick data (available ~6h after midnight)"
+    }
     "execution-config-snapshot" = {
       schedule    = "30 0 * * *"
       job_name    = "${local.env_prefix}-execution-service-config-snapshot"
       description = "execution-service EOD config snapshot — prerequisite for Stage 3 recon"
+    }
+    "market-data-processing" = {
+      schedule    = "0 1 * * *"
+      job_name    = "${local.env_prefix}-market-data-processing-service-t1-recon"
+      description = "market-data-processing-service T+1 recon batch — candle aggregation (depends on MTDS)"
     }
     "features-calendar" = {
       schedule    = "30 1 * * *"

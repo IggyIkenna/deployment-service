@@ -1,0 +1,28 @@
+cluster: sports
+description: Sports betting pipeline — pre-match ML features, betting strategies
+category: SPORTS
+services:
+  - instruments-service
+  - market-tick-data-service
+  - market-data-processing-service
+  - features-sports-service
+  - ml-training-service
+  - ml-inference-service
+  - strategy-service
+  - execution-service # LIVE operational mode (automated strategies)
+  - execution-service:manual # MANUAL operational mode (operator booking + backup)
+  - position-balance-monitor-service
+  - pnl-attribution-service
+  - risk-and-exposure-service
+  - alerting-service
+
+# Batch scheduling
+schedule:
+  cron: "0 6 * * *" # 6am UTC daily
+  as_of: yesterday # T+1 convention
+  timezone: UTC
+
+# Live mode settings
+live:
+  health_check_interval_s: 30
+  readiness_timeout_s: 120

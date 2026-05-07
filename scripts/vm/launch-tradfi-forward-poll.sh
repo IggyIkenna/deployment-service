@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Launch a short-lived GCE VM that forward-polls TradFi venues.
+#
+# Purpose: ingest a single day of TradFi market-data ticks for the operator-
+# expected coverage set in EXPECTED_COVERAGE_BY_ASSET_GROUP['tradfi']
+# (CME, ICE, CBOE, FX, YAHOO_FINANCE) — NOT NASDAQ/NYSE/BARCHART (out of
+# scope per operator policy 2026-04-28). Data types per venue:
+#   - CME, ICE: trades + ohlcv_1m + tbbo via Databento
+#                (gated by TRADFI_TICK_DATA_WINDOWS — outside windows
+#                 only ohlcv_1m flows; trades + tbbo are skipped to
+#                 manage Databento cost).
+#   - CBOE: ohlcv_15m (VIX) via Databento.
+#   - FX: ohlcv_24h (KRW/USD) via Yahoo Finance.
+#   - YAHOO_FINANCE: ohlcv_15m rolling VIX + ohlcv_24h FX.
+#
+# Same code path as launch-tradfi-backfill-vm.sh; this launcher just runs the
+# rolling 1-day pass.
+#
+# Writes to: gs://market-data-tick-tradfi-central-element-323112/by_date/...
+#
+# Invocation inside the VM:
+#   python -m market_tick_data_service \
+#     --operation backfill --mode batch --asset-group TRADFI \
+#     --start-date $VM_START_DATE --end-date $VM_END_DATE
+#
+# Default: yesterday only (T-1).
+#
+# Prerequisites:
+#   - Tarballs uploaded: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group TRADFI
+#   - databento-api-key + yahoo-finance access (no key) in Secret Manager
+#
+# Usage:
+#   bash launch-tradfi-forward-poll.sh                       # yesterday (T-1)
+#   bash launch-tradfi-forward-poll.sh 2026-04-15 2026-04-18 # explicit window
+#   bash launch-tradfi-forward-poll.sh --force ...           # bypass singleton
+#
+# Cost: e2-standard-4 ~10-20 min per run.
+#
+# Singleton lock: refuses to launch if any tradfi-fwd-* VM is already running
+# in the zone. Databento has per-key cost meters; concurrent VMs duplicate
+# downloads. Yahoo Finance has soft IP rate-limits.
+set -euo pipefail
+
+FORCE=false
+if [[ "${1:-}" == "--force" ]]; then
+  FORCE=true
+  shift
+fi
+
+if [[ $# -eq 2 ]]; then
+  START_DATE="$1"
+  END_DATE="$2"
+else
+  START_DATE="$(date -v-1d +%Y-%m-%d 2>/dev/null || date -d "yesterday" +%Y-%m-%d)"
+  END_DATE="$START_DATE"
+fi
+
+ZONE="asia-northeast1-c"
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-central-element-323112"
+
+if ! $FORCE; then
+  EXISTING="$(gcloud compute instances list \
+    --filter='name~"^tradfi-fwd-" AND status=RUNNING' \
+    --zones="$ZONE" \
+    --format='value(name)' 2>/dev/null | head -1)"
+  if [[ -n "$EXISTING" ]]; then
+    cat >&2 <<EOF
+ERROR: TradFi VM already running in $ZONE: $EXISTING
+Refusing to launch a duplicate — Databento has per-key cost meters
+and Yahoo Finance soft-rate-limits. Concurrent VMs duplicate downloads
+and burn budget.
+
+Options:
+  Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
+  Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
+  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
+  Force:     bash $0 --force ${START_DATE} ${END_DATE}
+EOF
+    exit 1
+  fi
+fi
+
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+VM_NAME="tradfi-fwd-${RUN_TS}"
+
+echo "Launching $VM_NAME: TradFi market-data ${START_DATE}..${END_DATE}"
+
+METADATA="VM_TASK=cefi-backfill"
+METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
+METADATA="${METADATA},VM_OPERATION=download"
+METADATA="${METADATA},VM_ASSET_GROUP=TRADFI"
+METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
+gcloud compute instances create "$VM_NAME" \
+  --project="$PROJECT" \
+  --zone="$ZONE" \
+  --machine-type=e2-standard-4 \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=50GB \
+  --scopes=cloud-platform \
+  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+  --labels=purpose=tradfi-forward-poll,run-ts="${RUN_TS}"
+
+echo ""
+echo "VM launched: $VM_NAME"
+echo "Logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/backfill.log'"
+echo "GCS log tail: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+echo "Delete when done: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"

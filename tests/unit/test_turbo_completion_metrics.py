@@ -57,7 +57,7 @@ class TestDimensionWeightedCompletion:
     def test_venue_completion_reflects_all_data_types(self, sample_venue_breakdown_uniswap):
         """Test that venue completion accounts for all expected data types.
 
-        Bug: UNISWAPV3-ETH showed 100% because liquidity had 30/30 dates,
+        Bug: UNISWAPV3-ETHEREUM showed 100% because liquidity had 30/30 dates,
         but swaps only had 2/30 dates. The union was 30 dates → 100%.
         Fix: venue completion = (30 + 2) / (30 + 30) = 53.3%
         """
@@ -136,14 +136,14 @@ class TestDimensionWeightedCompletion:
     def test_category_aggregation_uses_dimension_weighted_values(self):
         """Test that category completion uses dimension-weighted venue values."""
         venues = {
-            "UNISWAPV2-ETH": {
+            "UNISWAPV2-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 60,  # Both data types complete
                 "_dim_weighted_expected": 60,
                 "is_expected": True,
             },
-            "UNISWAPV3-ETH": {
+            "UNISWAPV3-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 32,  # liquidity=30, swaps=2
@@ -290,7 +290,7 @@ class TestMetricConsistency:
         response_complete = {
             "overall_completion_pct": 100.0,
             "total_missing": 0,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},
                 "TRADFI": {"dates_missing": 0},
             },
@@ -303,14 +303,14 @@ class TestMetricConsistency:
         response_partial = {
             "overall_completion_pct": 97.4,
             "total_missing": 19,
-            "categories": {
+            "asset_groups": {
                 "CEFI": {"dates_missing": 0},  # Category level shows 0!
                 "TRADFI": {"dates_missing": 0},  # Category level shows 0!
             },
         }
         # Category-level dates_missing can be 0 while venue-weighted total_missing > 0
         # This is why we use total_missing (venue-weighted) for consistency
-        sum(cat["dates_missing"] for cat in response_partial["categories"].values())
+        sum(cat["dates_missing"] for cat in response_partial["asset_groups"].values())
         # Category sum might be 0 while overall is not complete
         # This is the bug we fixed: use total_missing, not category sum
         assert response_partial["total_missing"] > 0

@@ -2,7 +2,7 @@
 Config Loader - Load sharding configurations from YAML files
 
 Handles loading:
-- venues.yaml: Canonical venue-category mappings
+- venues.yaml: Canonical venue–asset-group mappings
 - sharding.SERVICE.yaml: Per-service sharding configurations
 - cloud-providers.yaml: Cloud provider configurations (GCP/AWS)
 """
@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import cast
 
 import yaml
+from unified_api_contracts import VenueMapping
+from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-deep-import
+    is_in_tradfi_tick_window,
+)
 
 from .config.base_config import BaseConfigLoader
 from .config.bootstrap_config import TopologyBootstrapConfig
@@ -33,7 +37,7 @@ class ConfigLoader(BaseConfigLoader):
     Loads sharding configuration files.
 
     Configuration files are expected to be in YAML format:
-    - configs/venues.yaml: Venue-category mappings
+    - configs/venues.yaml: Venue–asset-group mappings
     - configs/sharding.{service}.yaml: Service-specific sharding configs
     - configs/cloud-providers.yaml: Cloud provider configurations
     """
@@ -133,61 +137,47 @@ class ConfigLoader(BaseConfigLoader):
 
         return sorted(services)
 
-    # Venue and category helper methods
-    def get_category_start_date(self, service: str, category: str) -> str | None:
-        """Get the expected start date for a service/category."""
+    # Venue and asset-group helper methods
+    def get_asset_group_start_date(self, service: str, asset_group: str) -> str | None:
+        """Get the expected start date for a service/asset group (YAML key ``category_start``)."""
         config = self.load_expected_start_dates()
         if not config or service not in config:
             return None
 
         service_config_raw = config[service]
-        if not isinstance(service_config_raw, dict) or category not in service_config_raw:
+        if not isinstance(service_config_raw, dict) or asset_group not in service_config_raw:
             return None
 
         service_config_dict = cast(dict[str, object], service_config_raw)
-        category_config = service_config_dict[category]
-        if isinstance(category_config, dict):
-            val = cast(dict[str, object], category_config).get("category_start")
+        ag_config = service_config_dict[asset_group]
+        if isinstance(ag_config, dict):
+            val = cast(dict[str, object], ag_config).get("category_start")
             return str(val) if val is not None else None
         return None
 
-    def get_venue_start_date(self, service: str, category: str, venue: str) -> str | None:
-        """Get the expected start date for a specific venue."""
-        config = self.load_expected_start_dates()
-        if not config:
-            return None
+    def get_venue_start_date(self, service: str, asset_group: str, venue: str) -> str | None:
+        """Get the earliest date the pipeline can produce captures for a venue.
 
-        # Try the requested service first
-        if service in config and isinstance(config[service], dict):
-            service_config = cast(dict[str, object], config[service])
-            if category in service_config and isinstance(service_config[category], dict):
-                category_config = cast(dict[str, object], service_config[category])
-                venues = category_config.get("venues")
-                if isinstance(venues, dict) and venue in venues:
-                    val = cast(dict[str, object], venues)[venue]
-                    return str(val) if val is not None else None
+        SSOT: UAC ``VenueMapping.get_instrument_discovery_start``. Returns the
+        instrument-discovery start date — which equals
+        ``venue_start_dates[venue]`` for venues without a discovery-API gap, but
+        defers to the override (e.g. HYPERLIQUID 2023-11-01 vs market-data
+        archive 2023-04-15) when the discovery API has narrower historical
+        coverage than the market-data archive.
 
-        # Fallback to canonical services
-        fallback_services = ["market-tick-data-service", "instruments-service"]
-        for fallback in fallback_services:
-            if fallback == service or fallback not in config:
-                continue
+        Why discovery-start is the right denominator clip: the orchestrator's
+        ``is_venue_available()`` gates pre-flight on this same value (see
+        ``instruments-service/instruments_service/engine/orchestrator.py:954``),
+        so dates before this floor are never attempted — they should not appear
+        in the data-status "expected" denominator either, otherwise the page
+        renders honestly-skipped dates as "missing" (HYPERLIQUID showed
+        82% / 916-of-1116 instead of the correct ~100% prior to this fix).
+        """
+        return VenueMapping().get_instrument_discovery_start(venue)
 
-            fallback_config_raw = config[fallback]
-            if not isinstance(fallback_config_raw, dict) or category not in fallback_config_raw:
-                continue
-
-            fallback_config_dict = cast(dict[str, object], fallback_config_raw)
-            category_config = fallback_config_dict[category]
-            if isinstance(category_config, dict):
-                venues = cast(dict[str, object], category_config).get("venues")
-                if isinstance(venues, dict) and venue in venues:
-                    val = cast(dict[str, object], venues)[venue]
-                    return str(val) if val is not None else None
-
-        return None
-
-    def get_venue_expected_data_types(self, category: str, venue: str, date_str: str) -> list[str]:
+    def get_venue_expected_data_types(
+        self, asset_group: str, venue: str, date_str: str
+    ) -> list[str]:
         """Get the expected data types for a specific venue on a given date."""
         venues_config = self.load_venues_config()
 
@@ -197,19 +187,19 @@ class ConfigLoader(BaseConfigLoader):
                 dict[str, object],
                 ValidationUtils.get_required(venues_config, "categories", "venues config"),
             )
-            category_config = cast(
+            ag_config = cast(
                 dict[str, object],
-                ValidationUtils.get_required(categories, category, "venues categories"),
+                ValidationUtils.get_required(categories, asset_group, "venues categories"),
             )
         except ConfigurationError:
-            logger.warning("Category '%s' not found in venues config", category)
+            logger.warning("Asset group '%s' not found in venues config", asset_group)
             return []
 
         # Get venue_data_types mapping - optional
-        venue_data_types_raw = category_config.get("venue_data_types")
+        venue_data_types_raw = ag_config.get("venue_data_types")
         if not isinstance(venue_data_types_raw, dict):
-            # Fallback to category-level data types
-            default_types_raw = category_config.get("data_types")
+            # Fallback to asset-group-level data types
+            default_types_raw = ag_config.get("data_types")
             return (
                 [str(x) for x in cast(list[object], default_types_raw)]
                 if isinstance(default_types_raw, list)
@@ -219,8 +209,8 @@ class ConfigLoader(BaseConfigLoader):
         venue_data_types_dict = cast(dict[str, object], venue_data_types_raw)
         venue_types_raw = venue_data_types_dict.get(venue)
         if not isinstance(venue_types_raw, dict):
-            # Fallback to category-level data types
-            default_types_raw = category_config.get("data_types")
+            # Fallback to asset-group-level data types
+            default_types_raw = ag_config.get("data_types")
             return (
                 [str(x) for x in cast(list[object], default_types_raw)]
                 if isinstance(default_types_raw, list)
@@ -229,19 +219,8 @@ class ConfigLoader(BaseConfigLoader):
 
         venue_types_dict = cast(dict[str, object], venue_types_raw)
 
-        # Check if date is within a tick_window
-        tick_windows = category_config.get("tick_windows")
-        is_tick_window = False
-        if isinstance(tick_windows, list):
-            for window_raw in cast(list[object], tick_windows):
-                if not isinstance(window_raw, dict):
-                    continue
-                window = cast(dict[str, object], window_raw)
-                start = window.get("start")
-                end = window.get("end")
-                if start and end and str(start) <= date_str <= str(end):
-                    is_tick_window = True
-                    break
+        # Check if date is within a TradFi tick window (SSOT in UAC)
+        is_tick_window = is_in_tradfi_tick_window(date_str)
 
         # Collect data types from all instrument types for this venue
         expected: set[str] = set()
@@ -262,15 +241,15 @@ class ConfigLoader(BaseConfigLoader):
         return list(expected)
 
     def is_data_type_expected_for_venue(
-        self, category: str, venue: str, data_type: str, date_str: str | None = None
+        self, asset_group: str, venue: str, data_type: str, date_str: str | None = None
     ) -> bool:
         """Check if a data_type is expected for a specific venue."""
         venue_config = self.load_venue_data_types()
         if venue_config:
-            cat_config_raw = venue_config.get(category)
-            if isinstance(cat_config_raw, dict):
-                cat_config = cast(dict[str, object], cat_config_raw)
-                venues = cat_config.get("venues")
+            ag_config_raw = venue_config.get(asset_group)
+            if isinstance(ag_config_raw, dict):
+                ag_config_venue = cast(dict[str, object], ag_config_raw)
+                venues = ag_config_venue.get("venues")
                 if isinstance(venues, dict):
                     venues_dict = cast(dict[str, object], venues)
                     venue_info_raw = venues_dict.get(venue)
@@ -281,19 +260,10 @@ class ConfigLoader(BaseConfigLoader):
                         if data_types_raw:
                             if isinstance(data_types_raw, dict):
                                 data_types_dict = cast(dict[str, object], data_types_raw)
-                                is_tick_window = False
-                                if date_str:
-                                    tick_windows = cat_config.get("tick_windows")
-                                    if isinstance(tick_windows, list):
-                                        for window_raw in cast(list[object], tick_windows):
-                                            if not isinstance(window_raw, dict):
-                                                continue
-                                            window = cast(dict[str, object], window_raw)
-                                            start = window.get("start")
-                                            end = window.get("end")
-                                            if start and end and str(start) <= date_str <= str(end):
-                                                is_tick_window = True
-                                                break
+                                # Check if date is within a TradFi tick window (SSOT in UAC)
+                                is_tick_window = (
+                                    is_in_tradfi_tick_window(date_str) if date_str else False
+                                )
 
                                 resolved_types: list[object] | None = None
                                 if is_tick_window:
@@ -324,7 +294,7 @@ class ConfigLoader(BaseConfigLoader):
 
         # Fallback to venue-specific expectations
         if date_str:
-            expected = self.get_venue_expected_data_types(category, venue, date_str)
+            expected = self.get_venue_expected_data_types(asset_group, venue, date_str)
             return data_type in expected
 
         # Default to allowing all data types if no specific configuration
@@ -340,9 +310,9 @@ class ConfigLoader(BaseConfigLoader):
         return cast(dict[str, object], chain_config) if isinstance(chain_config, dict) else {}
 
     def get_all_venue_data_type_expectations(
-        self, category: str, date_str: str
+        self, asset_group: str, date_str: str
     ) -> dict[str, list[str]]:
-        """Get expected data types for ALL venues in a category for a given date."""
+        """Get expected data types for ALL venues in an asset group for a given date."""
         venues_config = self.load_venues_config()
 
         try:
@@ -350,23 +320,23 @@ class ConfigLoader(BaseConfigLoader):
                 dict[str, object],
                 ValidationUtils.get_required(venues_config, "categories", "venues config"),
             )
-            category_config = cast(
+            ag_config = cast(
                 dict[str, object],
-                ValidationUtils.get_required(categories, category, "venues categories"),
+                ValidationUtils.get_required(categories, asset_group, "venues categories"),
             )
         except ConfigurationError:
-            logger.warning("Category '%s' not found in venues config", category)
+            logger.warning("Asset group '%s' not found in venues config", asset_group)
             return {}
 
-        venues = category_config.get("venues")
+        venues = ag_config.get("venues")
         if not isinstance(venues, list):
-            logger.warning("Venues list not found or invalid for category '%s'", category)
+            logger.warning("Venues list not found or invalid for asset group '%s'", asset_group)
             return {}
 
         result: dict[str, list[str]] = {}
         for venue_raw in cast(list[object], venues):
             venue_str = str(venue_raw)
-            expected = self.get_venue_expected_data_types(category, venue_str, date_str)
+            expected = self.get_venue_expected_data_types(asset_group, venue_str, date_str)
             result[venue_str] = expected
 
         return result
@@ -591,8 +561,10 @@ class ConfigLoader(BaseConfigLoader):
 
         return substitute_env_vars(str(url_pattern)).format(**variables)
 
-    def get_bucket_name(self, domain: str, category: str = "", provider: str | None = None) -> str:
-        """Get the bucket name for a domain/category based on cloud provider."""
+    def get_bucket_name(
+        self, domain: str, asset_group: str = "", provider: str | None = None
+    ) -> str:
+        """Get the bucket name for a domain/asset group based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()
 
@@ -619,21 +591,21 @@ class ConfigLoader(BaseConfigLoader):
 
         bucket_template: object
         if isinstance(domain_config, dict):
-            if not category:
-                logger.warning("Category required for domain '%s' with dict config", domain)
+            if not asset_group:
+                logger.warning("Asset group required for domain '%s' with dict config", domain)
                 return ""
             bucket_template = ValidationUtils.get_with_default(
                 cast(dict[str, object], domain_config),
-                category.upper(),
+                asset_group.upper(),
                 None,
-                f"storage config for {domain}.{category}",
+                f"storage config for {domain}.{asset_group}",
             )
         else:
             bucket_template = domain_config
 
         if not bucket_template:
             logger.warning(
-                "No bucket template found for domain '%s', category '%s'", domain, category
+                "No bucket template found for domain '%s', asset group '%s'", domain, asset_group
             )
             return ""
 

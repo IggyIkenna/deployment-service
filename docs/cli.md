@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # CLI Reference
 
 Deployment CLI, sharding, data catalog, and dependencies.
@@ -22,8 +26,8 @@ All three invoke the same CLI.
 
 ```bash
 deploy-shards list-services
-deploy-shards calculate market-tick-data-handler --start-date 2025-01-01 --end-date 2025-01-07 --category CEFI
-python deploy.py deploy -s market-tick-data-handler -c cloud_run --start-date 2025-01-01 --end-date 2025-01-07 --category CEFI --dry-run
+deploy-shards calculate market-tick-data-handler --start-date 2025-01-01 --end-date 2025-01-07 --asset-group CEFI
+python deploy.py deploy -s market-tick-data-handler -c cloud_run --start-date 2025-01-01 --end-date 2025-01-07 --asset-group CEFI --dry-run
 python deploy.py status <deployment-id>
 ```
 
@@ -37,7 +41,7 @@ python deploy.py deploy -s SERVICE -c cloud_run|vm --start-date YYYY-MM-DD --end
 
 | Option             | Description                                                               |
 | ------------------ | ------------------------------------------------------------------------- |
-| `--category`       | CEFI, TRADFI, DEFI                                                        |
+| `--asset-group`    | CEFI, TRADFI, DEFI                                                        |
 | `--venue`          | Filter venues                                                             |
 | `--force`          | Overwrite existing GCS data                                               |
 | `--dry-run`        | Preview only                                                              |
@@ -117,8 +121,24 @@ deploy-shards venues
 python -m deployment_service.cli catalog -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
 python -m deployment_service.cli catalog-all --start-date 2024-01-01 --end-date 2024-01-31 -o catalog.json
 python -m deployment_service.cli data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
-python -m deployment_service.cli check-deps -s ml-training-service -d 2024-01-15 --category CEFI
+python -m deployment_service.cli check-deps -s ml-training-service -d 2024-01-15 --asset-group CEFI
 ```
+
+### Data Source Toggle
+
+The `data-status` command supports three data source modes:
+
+```
+--source manifest    Fast: reads from Parquet manifests via DuckDB
+--source gcs         Slow: scans GCS blobs directly (original behavior)
+--source auto        Default: tries manifest first, falls back to GCS
+```
+
+Environment variable: `DATA_STATUS_SOURCE=manifest|gcs|auto` (CLI flag overrides).
+
+Manifest-based mode is faster because it queries pre-written metadata instead of listing every GCS
+prefix. Use `--source gcs` for detailed checks (`--check-venues`, `--check-data-types`) that need
+blob-level granularity.
 
 ---
 

@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 #!/usr/bin/env python3
 """
 Validate Test Sample Data Availability
@@ -20,8 +21,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import yaml
-from unified_cloud_interface import StorageClient
-from unified_trading_library import get_storage_client
+from unified_trading_library import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 from _common import get_project_id
@@ -86,6 +86,7 @@ class ValidationReportDict(TypedDict, total=False):
     lookback_days: int
     date_range: DateRangeDict
     categories: dict[str, dict[str, object]]
+    asset_groups: dict[str, dict[str, object]]
     summary: ValidationSummaryDict
     mode: str
     error: str
@@ -109,13 +110,13 @@ def get_date_range(test_date: str, lookback_days: int) -> list[str]:
 
 def check_instruments_bucket(
     storage_client: StorageClient,
-    category: str,
+    asset_group: str,
     project_id: str,
     dates: list[str],
     instruments: list[dict[str, str]],
 ) -> InstrumentsBucketResultDict:
     """Check if instruments exist in the instruments bucket for all dates."""
-    bucket_name = f"instruments-store-{category.lower()}-{project_id}"
+    bucket_name = f"instruments-store-{asset_group.lower()}-{project_id}"
     results = {
         "bucket": bucket_name,
         "missing_dates": [],
@@ -129,7 +130,7 @@ def check_instruments_bucket(
 
         for date in dates:
             # Check if instruments file exists for this date
-            prefix = f"instrument_availability/by_date/day-{date}/"
+            prefix = f"instrument_availability/by_date/day={date}/"
             blobs = list(bucket.list_blobs(prefix=prefix, max_results=1))
 
             if not blobs:
@@ -148,14 +149,14 @@ def check_instruments_bucket(
 
 def check_market_data_bucket(
     storage_client: StorageClient,
-    category: str,
+    asset_group: str,
     project_id: str,
     dates: list[str],
     instruments: list[dict[str, str]],
     data_types: list[str],
 ) -> MarketDataBucketResultDict:
     """Check if market data files exist for instruments."""
-    bucket_name = f"market-data-tick-{category.lower()}-{project_id}"
+    bucket_name = f"market-data-tick-{asset_group.lower()}-{project_id}"
     results = {
         "bucket": bucket_name,
         "missing_data": [],
@@ -171,7 +172,7 @@ def check_market_data_bucket(
                 instrument_key = instrument.get("instrument_key", "")
                 for data_type in data_types:
                     # Build expected path
-                    # Format: processed_candles/by_date/day-{date}/timeframe-{tf}/data_type-{dt}/{asset_class}/{venue}/{instrument_id}.parquet
+                    # Format: processed_candles/by_date/day-{date}/timeframe-{tf}/data_type-{dt}/{asset_group}/{venue}/{instrument_id}.parquet
                     # For raw tick data: raw_tick_data/by_date/day-{date}/{data_type}/{venue}/{instrument_id}.parquet
 
                     # Check raw tick data path
@@ -179,7 +180,7 @@ def check_market_data_bucket(
                     # URL encode the instrument key for file name
                     encoded_key = instrument_key.replace(":", "%3A").replace("@", "%40")
 
-                    prefix = f"raw_tick_data/by_date/day-{date}/{data_type}/{venue}/"
+                    prefix = f"raw_tick_data/by_date/day={date}/{data_type}/{venue}/"
 
                     blobs = list(bucket.list_blobs(prefix=prefix, max_results=10))
                     results["total_checked"] += 1
@@ -256,20 +257,20 @@ def validate_test_sample(
         logger.info("Running in dry-run mode - not checking GCS")
         report["mode"] = "dry_run"
 
-        # Just report what would be checked
-        for category in ["cefi", "tradfi", "defi"]:
-            if category not in config:
+        # Just report what would be checked (YAML keys: cefi / tradfi / defi)
+        for yaml_key in ["cefi", "tradfi", "defi"]:
+            if yaml_key not in config:
                 continue
 
-            category_config = config[category]
-            category_report = {"venues": {}}
+            ag_config = config[yaml_key]
+            ag_report = {"venues": {}}
 
-            for venue, venue_config in category_config.items():
+            for venue, venue_config in ag_config.items():
                 if isinstance(venue_config, dict) and "instruments" in venue_config:
                     instruments = venue_config.get("instruments", [])
                     data_types = venue_config.get("data_types", [])
 
-                    category_report["venues"][venue] = {
+                    ag_report["venues"][venue] = {
                         "instrument_count": len(instruments),
                         "data_types": data_types,
                         "instruments": [i.get("instrument_key") for i in instruments],
@@ -277,20 +278,21 @@ def validate_test_sample(
                     report["summary"]["total_instruments"] += len(instruments)
                     report["summary"]["total_data_types"] += len(data_types)
 
-            report["categories"][category.upper()] = category_report
+            report["categories"][yaml_key.upper()] = ag_report
 
+        report["asset_groups"] = report["categories"]
         return report
 
     # Real validation with GCS
     resolved_project_id = project_id or get_project_id()
     storage_client = get_storage_client()
 
-    for category in ["cefi", "tradfi", "defi"]:
-        if category not in config:
+    for yaml_key in ["cefi", "tradfi", "defi"]:
+        if yaml_key not in config:
             continue
 
-        category_config = config[category]
-        category_report = {
+        ag_config = config[yaml_key]
+        ag_report = {
             "venues": {},
             "instruments_check": None,
             "market_data_check": None,
@@ -299,7 +301,7 @@ def validate_test_sample(
         all_instruments = []
         all_data_types = set()
 
-        for venue, venue_config in category_config.items():
+        for venue, venue_config in ag_config.items():
             if isinstance(venue_config, dict) and "instruments" in venue_config:
                 instruments = venue_config.get("instruments", [])
                 data_types = venue_config.get("data_types", [])
@@ -307,19 +309,19 @@ def validate_test_sample(
                 all_instruments.extend(instruments)
                 all_data_types.update(data_types)
 
-                category_report["venues"][venue] = {
+                ag_report["venues"][venue] = {
                     "instrument_count": len(instruments),
                     "data_types": data_types,
                 }
                 report["summary"]["total_instruments"] += len(instruments)
                 report["summary"]["total_data_types"] += len(data_types)
 
-        # Check instruments bucket
-        logger.info("Checking instruments bucket for %s...", category.upper())
+        # Check instruments bucket (bucket name uses asset group: cefi / tradfi / defi)
+        logger.info("Checking instruments bucket for %s...", yaml_key.upper())
         instruments_result = check_instruments_bucket(
-            storage_client, category, resolved_project_id, dates, all_instruments
+            storage_client, yaml_key, resolved_project_id, dates, all_instruments
         )
-        category_report["instruments_check"] = instruments_result
+        ag_report["instruments_check"] = instruments_result
 
         if instruments_result.get("missing_dates"):
             report["summary"]["missing_instruments_data"] += len(
@@ -327,25 +329,26 @@ def validate_test_sample(
             )
 
         # Check market data bucket (sample check - first few instruments only)
-        logger.info("Checking market data bucket for %s...", category.upper())
+        logger.info("Checking market data bucket for %s...", yaml_key.upper())
         sample_instruments = all_instruments[:3]  # Only check first 3 to avoid long runtime
         sample_dates = dates[-3:]  # Only check last 3 dates
 
         market_data_result = check_market_data_bucket(
             storage_client,
-            category,
+            yaml_key,
             resolved_project_id,
             sample_dates,
             sample_instruments,
             list(all_data_types)[:2],  # Only check first 2 data types
         )
-        category_report["market_data_check"] = market_data_result
+        ag_report["market_data_check"] = market_data_result
 
         if market_data_result.get("missing_data"):
             report["summary"]["missing_market_data"] += len(market_data_result["missing_data"])
 
-        report["categories"][category.upper()] = category_report
+        report["categories"][yaml_key.upper()] = ag_report
 
+    report["asset_groups"] = report["categories"]
     return report
 
 
@@ -377,9 +380,10 @@ def print_report(report: ValidationReportDict) -> None:
         logger.info("Missing Instruments Data: %s", report["summary"]["missing_instruments_data"])
         logger.info("Missing Market Data: %s", report["summary"]["missing_market_data"])
 
-    for category, cat_report in report.get("categories", {}).items():
+    by_group = report.get("asset_groups") or report.get("categories") or {}
+    for ag_label, cat_report in by_group.items():
         logger.info("-" * 40)
-        logger.info("%s", category)
+        logger.info("%s", ag_label)
         logger.info("-" * 40)
 
         for venue, venue_info in cat_report.get("venues", {}).items():

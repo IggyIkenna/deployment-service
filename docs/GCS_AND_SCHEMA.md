@@ -1,8 +1,16 @@
 # GCS and Schema Reference
 
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**Post-2026-05-06 additions** — `asset_group=` canonical hive vocab; `category=` legacy preserved. Bundled data*types (cluster validation mandatory at write): `options_chain`, `futures_chain`, `prediction_canonical_question_group`, sports per-fixture-bundle (`ODDS*\*`). v7 manifest schema bump: `job_id` column for ML/strategy/execution.
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
+
 GCS path format, key=value partitions, and per-service schema changes.
 
-**Last consolidated:** 2026-02-09  
+**Last consolidated:** 2026-02-09
 **Status:** ✅ All production services use `key=value` format
 
 ---
@@ -99,7 +107,7 @@ If you have legacy data with folder names like `day-2023-01-01/`, `feature_group
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **Instruments**        | `instrument_availability/by_date/day={date}/venue={venue}/instruments.parquet`                                    |
 | **Market Tick**        | `raw_tick_data/by_date/day={date}/data_type={type}/instrument_type={type}/venue={venue}/{symbol}.parquet`         |
-| **Processed Candles**  | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_class}/{venue}/{instrument}.parquet` |
+| **Processed Candles**  | `processed_candles/by_date/day={date}/timeframe={tf}/data_type={type}/{asset_group}/{venue}/{instrument}.parquet` |
 | **Features Delta-One** | `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet`                                    |
 | **Features Calendar**  | `calendar/category={category}/by_date/day={date}/features.parquet`                                                |
 

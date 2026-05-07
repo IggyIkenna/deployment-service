@@ -328,8 +328,8 @@ class TestCliArgsMapping:
         loader = ConfigLoader(str(temp_config_with_service))
         mapping = loader.get_cli_args_mapping("test-service")
 
-        assert "category" in mapping
-        assert mapping["category"] == "--category"
+        assert "asset_group" in mapping
+        assert mapping["asset_group"] == "--asset-group"
 
     def test_get_cli_flags(self, temp_config_dir):
         """Test getting CLI flags."""

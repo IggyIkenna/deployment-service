@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 Storage Client - Basic cloud storage operations.
 
@@ -13,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
-from unified_cloud_interface import StorageClient as _UTLStorageClient
+from unified_trading_library import StorageClient as _UTLStorageClient
 from unified_trading_library import get_storage_client as _get_storage_client
 
 from ..deployment_config import DeploymentConfig
@@ -79,7 +80,7 @@ class StorageClient:
         self.project_id: str | None = project_id or cast(str | None, _config.gcp_project_id)
         self.provider = provider
         self._client: _UTLStorageClient | None = None
-        self._mock_mode: bool = bool(_config.cloud_mock_mode)
+        self._mock_mode: bool = _config.is_mock_mode()
 
     @property
     def mock_mode(self) -> bool:

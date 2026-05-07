@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 import click
+from unified_api_contracts.internal import MarketCategory
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient
@@ -23,6 +24,13 @@ from .data_status_formatters import (
     format_summary_output,
     format_tree_output,
 )
+
+# Canonical market categories for data status commands (excludes SPORTS/PREDICTION)
+_DATA_MARKET_CATEGORIES: list[str] = [
+    MarketCategory.CEFI.value,
+    MarketCategory.TRADFI.value,
+    MarketCategory.DEFI.value,
+]
 from .data_status_processing import process_batch_results, process_fast_results
 from .data_status_scanning import (
     scan_buckets_batch_mode,
@@ -37,7 +45,7 @@ def display_fixed_service_status(
     service: str,
     start_date,
     end_date,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     output: str,
     show_timestamps: bool,
@@ -76,13 +84,13 @@ def display_fixed_service_status(
     has_venue_dimension = any(d["name"] == "venue" for d in service_config.get("dimensions") or [])
 
     # Build dimension values
-    categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
+    asset_groups = list(asset_group) if asset_group else list(_DATA_MARKET_CATEGORIES)
 
-    # Filter categories based on service config
+    # Filter asset groups based on service config
     for dim in service_config.get("dimensions") or []:
-        if dim["name"] == "category" and dim["type"] == "fixed":
-            available_cats = dim.get("values") or []
-            categories = [c for c in categories if c in available_cats]
+        if dim["name"] in ("asset_group", "category") and dim["type"] == "fixed":
+            available_groups = dim.get("values") or []
+            asset_groups = [c for c in asset_groups if c in available_groups]
             break
 
     # Generate date list
@@ -99,8 +107,8 @@ def display_fixed_service_status(
     category_excluded = {}  # cat -> number of excluded days
     category_start_date = {}  # cat -> start date string
 
-    for cat in categories:
-        expected_start = loader.get_category_start_date(service, cat)
+    for cat in asset_groups:
+        expected_start = loader.get_asset_group_start_date(service, cat)
         if expected_start:
             # Filter dates to only those >= expected start
             valid = [d for d in all_dates if d >= expected_start]
@@ -114,15 +122,21 @@ def display_fixed_service_status(
             category_excluded[cat] = 0
             category_start_date[cat] = None
 
-    format_fixed_service_header(
-        service,
-        start_date,
-        end_date,
-        total_requested_days,
-        category_excluded,
-        categories,
-        category_start_date,
-    )
+    # Headers + progress chatter go to stderr when output==json so the
+    # deployment-api (and any other JSON consumer) can pipe stdout straight
+    # into json.loads without stripping a banner first.  tree/summary mode
+    # still emits to stdout.
+    is_json = output == "json"
+    if not is_json:
+        format_fixed_service_header(
+            service,
+            start_date,
+            end_date,
+            total_requested_days,
+            category_excluded,
+            asset_groups,
+            category_start_date,
+        )
 
     # Decide on scan mode: fast (targeted queries) vs batch (full bucket scan)
     # Auto-enable fast mode for services with venue dimension + short date range
@@ -131,20 +145,20 @@ def display_fixed_service_status(
 
     if auto_fast:
         click.echo(
-            click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True)
+            click.style(f"Scanning buckets (fast targeted mode - {num_days} dates)...", dim=True),
+            err=is_json,
         )
     else:
-        click.echo(click.style("Scanning buckets (batch mode)...", dim=True))
+        click.echo(click.style("Scanning buckets (batch mode)...", dim=True), err=is_json)
 
     # Live mode: persisted data under live/ prefix (same buckets). See codex batch-live-symmetry.
     path_prefix = "live/" if mode == "live" else ""
 
     # Build bucket/path info for each category
     bucket_info = {}  # cat -> {bucket, prefix_template}
-    for cat in categories:
+    for cat in asset_groups:
         template_vars = {
-            "category": cat,
-            "category_lower": cat.lower(),
+            "asset_group_lower": cat.lower(),
             "project_id": _deployment_config.gcp_project_id,
         }
         try:
@@ -169,7 +183,7 @@ def display_fixed_service_status(
     if auto_fast and has_venue_dimension:
         # FAST MODE: Targeted venuexdate queries (best for large buckets + short date range)
         fast_results = scan_venues_fast_mode(
-            categories,
+            asset_groups,
             bucket_info,
             category_valid_dates,
             all_dates,
@@ -185,15 +199,16 @@ def display_fixed_service_status(
     elif auto_fast:
         # FAST MODE: Targeted date queries for non-venue services
         fast_results = scan_dates_fast_mode(
-            categories, bucket_info, category_valid_dates, cloud_client, num_days
+            asset_groups, bucket_info, category_valid_dates, cloud_client, num_days
         )
     else:
         # BATCH MODE: Scan full bucket (original method - best for small buckets)
-        bucket_indexes = scan_buckets_batch_mode(categories, bucket_info, cloud_client)
+        bucket_indexes = scan_buckets_batch_mode(asset_groups, bucket_info, cloud_client)
 
     scan_time = time.time() - scan_start
-    click.echo(click.style(f"Scan complete in {scan_time:.1f}s", fg="green"))
-    click.echo()
+    click.echo(click.style(f"Scan complete in {scan_time:.1f}s", fg="green"), err=is_json)
+    if not is_json:
+        click.echo()
 
     # Build hierarchical structure: category -> venue -> dates
     hierarchy = defaultdict(
@@ -216,7 +231,7 @@ def display_fixed_service_status(
         # FAST MODE results: fast_results[cat][venue][date] = {"exists": bool, ...}
         overall_complete, overall_total, overall_excluded = process_fast_results(
             fast_results,
-            categories,
+            asset_groups,
             category_valid_dates,
             category_excluded,
             has_venue_dimension,
@@ -231,7 +246,7 @@ def display_fixed_service_status(
         # BATCH MODE results: bucket_indexes[gcs_path] = BucketIndex
         overall_complete, overall_total, overall_excluded = process_batch_results(
             bucket_indexes,
-            categories,
+            asset_groups,
             bucket_info,
             category_valid_dates,
             category_excluded,

@@ -45,7 +45,7 @@ def sample_shard_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "category": "--asset-group",
             "start_date": "--start-date",
             "end_date": "--end-date",
         },
@@ -80,7 +80,7 @@ def hierarchical_shard_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "category": "--asset-group",
             "venue": "--venue",
             "start_date": "--start-date",
             "end_date": "--end-date",
@@ -163,8 +163,8 @@ def expected_start_dates_full_config():
             "DEFI": {
                 "category_start": "2021-01-01",
                 "venues": {
-                    "UNISWAPV2-ETH": "2021-01-01",
-                    "UNISWAPV3-ETH": "2021-05-01",
+                    "UNISWAPV2-ETHEREUM": "2021-01-01",
+                    "UNISWAPV3-ETHEREUM": "2021-05-01",
                 },
             },
         },

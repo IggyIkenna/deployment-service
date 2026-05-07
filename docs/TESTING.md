@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # Testing Walkthrough
 
 **Last consolidated:** 2026-02-09
@@ -136,7 +140,7 @@ python deploy.py status <deployment-id>
 ```bash
 # Test CEFI only
 python deploy.py deploy -s instruments-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI
 ```
 
 ### Step 1.4: Week Test (Backfill)
@@ -189,7 +193,7 @@ gsutil ls gs://instruments-store-cefi-test-project/instrument_availability/by_da
 ```bash
 # Preview shards (will be many - one per venue per day)
 python deploy.py deploy -s market-tick-data-handler -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI --dry-run
 ```
 
 ### Step 2.3: Single Venue Test
@@ -198,7 +202,7 @@ python deploy.py deploy -s market-tick-data-handler -c cloud_run \
 # Test one venue only
 python deploy.py deploy -s market-tick-data-handler -c cloud_run \
   --start-date 2024-01-15 --end-date 2024-01-15 \
-  --category CEFI --venue BINANCE-SPOT
+  --asset-group CEFI --venue BINANCE-SPOT
 ```
 
 ### Step 2.4: Full Category Test
@@ -206,7 +210,7 @@ python deploy.py deploy -s market-tick-data-handler -c cloud_run \
 ```bash
 # Deploy all CEFI venues for one day
 python deploy.py deploy -s market-tick-data-handler -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI --no-wait
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI --no-wait
 ```
 
 ### Step 2.5: Verify Success
@@ -248,14 +252,14 @@ gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024
 
 ```bash
 python deploy.py deploy -s market-data-processing-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI --dry-run
 ```
 
 ### Step 3.3: Single Day Test
 
 ```bash
 python deploy.py deploy -s market-data-processing-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI
 ```
 
 ### Step 3.4: Verify Success
@@ -298,7 +302,7 @@ gsutil ls gs://market-data-tick-cefi-test-project/processed_candles/by_date/day-
 
 ```bash
 python deploy.py deploy -s features-delta-one-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-21 --category CEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI --dry-run
 ```
 
 ### Step 4.3: Single Feature Group Test
@@ -306,7 +310,7 @@ python deploy.py deploy -s features-delta-one-service -c cloud_run \
 ```bash
 # Test one feature group
 python deploy.py deploy -s features-delta-one-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-21 --category CEFI \
+  --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI \
   --extra-args "--feature-group technical_indicators"
 ```
 
@@ -314,7 +318,7 @@ python deploy.py deploy -s features-delta-one-service -c cloud_run \
 
 ```bash
 python deploy.py deploy -s features-delta-one-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-21 --category CEFI --no-wait
+  --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI --no-wait
 ```
 
 ### Step 4.5: Verify Success
@@ -355,14 +359,14 @@ gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024
 
 ```bash
 python deploy.py deploy -s features-volatility-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI --dry-run
 ```
 
 ### Step 5.3: Single Day Test
 
 ```bash
 python deploy.py deploy -s features-volatility-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category CEFI
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group CEFI
 ```
 
 ### Step 5.4: Verify Success
@@ -395,14 +399,14 @@ gsutil ls gs://features-volatility-cefi-test-project/by_date/day-2024-01-15/
 
 ```bash
 python deploy.py deploy -s features-onchain-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category DEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group DEFI --dry-run
 ```
 
 ### Step 6.2: Single Day Test
 
 ```bash
 python deploy.py deploy -s features-onchain-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-15 --category DEFI
+  --start-date 2024-01-15 --end-date 2024-01-15 --asset-group DEFI
 ```
 
 ### Step 6.3: Verify Success
@@ -542,14 +546,14 @@ gsutil ls gs://strategy-store-cefi-test-project/configs_grid/
 
 ```bash
 python deploy.py deploy -s strategy-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-21 --category CEFI --dry-run
+  --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI --dry-run
 ```
 
 ### Step 9.3: Test with Config
 
 ```bash
 python deploy.py deploy -s strategy-service -c cloud_run \
-  --start-date 2024-01-15 --end-date 2024-01-21 --category CEFI \
+  --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI \
   --extra-args "--config-gcs gs://strategy-store-cefi-test-project/configs_grid/my_strategy.json"
 ```
 

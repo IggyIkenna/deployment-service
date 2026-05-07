@@ -181,17 +181,25 @@ def mock_defi_gcs_structure():
         "raw_tick_data/by_date/day=2024-01-01/": {
             "data_type=liquidity/": {
                 "instrument_type=pool/": {
-                    "venue=UNISWAPV2-ETH/": ["UNISWAPV2-ETH:POOL:DAI-USDC@ETHEREUM.parquet"],
-                    "venue=UNISWAPV3-ETH/": ["UNISWAPV3-ETH:POOL:WETH-USDC@ETHEREUM.parquet"],
+                    "venue=UNISWAPV2-ETHEREUM/": [
+                        "UNISWAPV2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
+                    ],
+                    "venue=UNISWAPV3-ETHEREUM/": [
+                        "UNISWAPV3-ETHEREUM:POOL:WETH-USDC@ETHEREUM.parquet"
+                    ],
                 },
                 "instrument_type=lst/": {
-                    "venue=LIDO-ETH/": ["LIDO-ETH:LST:stETH@ETHEREUM.parquet"],
+                    "venue=LIDO-ETHEREUM/": ["LIDO-ETHEREUM:LST:stETH@ETHEREUM.parquet"],
                 },
             },
             "data_type=swaps/": {
                 "instrument_type=pool/": {
-                    "venue=UNISWAPV2-ETH/": ["UNISWAPV2-ETH:POOL:DAI-USDC@ETHEREUM.parquet"],
-                    "venue=UNISWAPV3-ETH/": ["UNISWAPV3-ETH:POOL:WETH-USDC@ETHEREUM.parquet"],
+                    "venue=UNISWAPV2-ETHEREUM/": [
+                        "UNISWAPV2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
+                    ],
+                    "venue=UNISWAPV3-ETHEREUM/": [
+                        "UNISWAPV3-ETHEREUM:POOL:WETH-USDC@ETHEREUM.parquet"
+                    ],
                 },
             },
         },

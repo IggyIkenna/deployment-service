@@ -1,5 +1,6 @@
 """Data status command and related functions."""
 
+import json
 import logging
 import sys
 import time
@@ -14,8 +15,15 @@ from ..utils.data_status_checkers import (
 )
 from ..utils.data_status_display_dynamic import display_dynamic_service_status
 from ..utils.data_status_display_fixed import display_fixed_service_status
+from ..utils.data_status_extended import (
+    run_live_freshness_check,
+    run_ml_experiments_check,
+    run_t1_check,
+)
 from ..utils.data_status_formatters import format_benchmark_info
+from ..utils.data_status_sports import display_sports_league_breakdown
 from ..utils.data_status_venue_utils import check_instruments_venue_coverage
+from ..utils.manifest_reader import ManifestReader
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +43,30 @@ FIXED_DIMENSION_SERVICES = {
     "features-delta-one-service",
     "features-volatility-service",
     "features-onchain-service",
+    "features-sports-service",
+    "features-cross-instrument-service",
+    "features-multi-timeframe-service",
+    "features-commodity-service",
+    "features-calendar-service",
     "ml-inference-service",
 }
 
 
 @click.command("data-status")
-@click.option("--service", "-s", required=True, help="Service to check data status for")
+@click.option("--service", "-s", default=None, help="Service to check data status for")
 @click.option(
     "--start-date",
-    required=True,
+    default=None,
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="Start date (YYYY-MM-DD)",
 )
 @click.option(
     "--end-date",
-    required=True,
+    default=None,
     type=click.DateTime(formats=["%Y-%m-%d"]),
     help="End date (YYYY-MM-DD)",
 )
-@click.option("--category", "-c", multiple=True, help="Filter by category (default: all)")
+@click.option("--asset-group", "-c", multiple=True, help="Filter by asset group (default: all)")
 @click.option("--venue", "-v", multiple=True, help="Filter by venue")
 @click.option(
     "--output",
@@ -86,6 +99,11 @@ FIXED_DIMENSION_SERVICES = {
     help="[market-data-processing-service] Check per-timeframe completion",
 )
 @click.option(
+    "--sports-league-breakdown",
+    is_flag=True,
+    help="[SPORTS] Use fixture-based denominator per league instead of calendar days",
+)
+@click.option(
     "--detailed",
     "-d",
     is_flag=True,
@@ -105,13 +123,43 @@ FIXED_DIMENSION_SERVICES = {
         " (persisted live sink under live/ prefix)."
     ),
 )
+@click.option(
+    "--source",
+    type=click.Choice(["manifest", "gcs", "auto"], case_sensitive=False),
+    default="auto",
+    envvar="DATA_STATUS_SOURCE",
+    help="Data source: manifest (fast, from catalogue), gcs (slow, blob scanning), auto (try manifest first)",
+)
+@click.option(
+    "--t1-check",
+    type=str,
+    default="",
+    metavar="CLUSTER",
+    help=(
+        "T+1 check: verify yesterday's data for all services in a cluster."
+        " Pass cluster name (cefi, tradfi, defi, sports, full)."
+    ),
+)
+@click.option(
+    "--ml-experiments",
+    is_flag=True,
+    help="List ML training experiments from GCS and check model metadata existence.",
+)
+@click.option(
+    "--live-freshness",
+    is_flag=True,
+    help=(
+        "Report live-mode data freshness (staleness) per asset group."
+        " Flags stale if >15min for CeFi/DeFi, >6h for sports."
+    ),
+)
 @click.pass_context
 def data_status(
     ctx,
-    service: str,
-    start_date: datetime,
-    end_date: datetime,
-    category: tuple[str, ...],
+    service: str | None,
+    start_date: datetime | None,
+    end_date: datetime | None,
+    asset_group: tuple[str, ...],
     venue: tuple[str, ...],
     output: str,
     show_timestamps: bool,
@@ -121,9 +169,14 @@ def data_status(
     check_data_types: bool,
     check_feature_groups: bool,
     check_timeframes: bool,
+    sports_league_breakdown: bool,
     detailed: bool,
     fast: bool,
     mode: str,
+    source: str,
+    t1_check: str,
+    ml_experiments: bool,
+    live_freshness: bool,
 ):
     """
     Check data completion status for a service across a date range.
@@ -131,7 +184,7 @@ def data_status(
     OPTIMIZED for speed: Uses batch blob listing (1 API call per bucket instead
     of 1 per date) and parallel scanning. Can check years of data in seconds.
 
-    Shows hierarchical breakdown of data completion by dimensions (category, venue, etc.)
+    Shows hierarchical breakdown of data completion by dimensions (asset group, venue, etc.)
     with percentages and optionally file timestamps.
 
     For dynamic-dimension services (execution-service, ml-training-service, strategy-service),
@@ -156,12 +209,93 @@ def data_status(
         # Check venue coverage within instruments parquet files (instruments-service only)
         data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
           --check-venues
+
+        # Sports fixture-based breakdown per league (denominator = fixture count, not days)
+        data-status -s instruments-service --start-date 2024-01-01 --end-date 2024-01-31
+          --sports-league-breakdown
+
+        # T+1 check: verify yesterday's data across all services in a cluster
+        data-status --t1-check full
+
+        # List ML experiments and model metadata
+        data-status --ml-experiments
+
+        # Live freshness: check staleness of live-mode data
+        data-status -s market-tick-data-service --live-freshness
     """
     config_dir = ctx.obj.get("config_dir", "configs")
+
+    # ── Extended modes (t1-check, ml-experiments, live-freshness) ──
+    # These short-circuit before requiring --service/--start-date/--end-date.
+    if t1_check:
+        run_t1_check(cluster_name=t1_check, config_dir=config_dir, output=output)
+        return
+
+    if ml_experiments:
+        run_ml_experiments_check(output=output)
+        return
+
+    if live_freshness:
+        if not service:
+            click.echo(
+                click.style("--live-freshness requires --service", fg="red"),
+                err=True,
+            )
+            sys.exit(1)
+        run_live_freshness_check(
+            service=service, asset_group=asset_group, config_dir=config_dir, output=output
+        )
+        return
+
+    # ── Standard mode: --service, --start-date, --end-date are required ──
+    if not service:
+        click.echo(click.style("--service is required", fg="red"), err=True)
+        sys.exit(1)
+    if not start_date:
+        click.echo(click.style("--start-date is required", fg="red"), err=True)
+        sys.exit(1)
+    if not end_date:
+        click.echo(click.style("--end-date is required", fg="red"), err=True)
+        sys.exit(1)
+
     total_start = time.time()
 
+    resolved_source = source
+    used_manifest = False
+
+    is_specialized_check = (
+        check_venues
+        or check_data_types
+        or check_feature_groups
+        or check_timeframes
+        or sports_league_breakdown
+    )
+    if not is_specialized_check and resolved_source in ("manifest", "auto"):
+        used_manifest = _try_manifest_source(
+            service=service,
+            start_date=start_date,
+            end_date=end_date,
+            asset_group=asset_group,
+            output=output,
+            show_missing=show_missing,
+            resolved_source=resolved_source,
+            benchmark=benchmark,
+            total_start=total_start,
+        )
+        if used_manifest:
+            logger.info("Data status source: %s (resolved: manifest)", resolved_source)
+            return
+
+    if resolved_source == "manifest" and not used_manifest and not is_specialized_check:
+        click.echo(
+            click.style("Manifest source unavailable or returned no data", fg="red"),
+            err=True,
+        )
+        sys.exit(1)
+
+    logger.info("Data status source: %s (resolved: gcs)", resolved_source)
+
     try:
-        # Import specialized checking functions when needed
         if check_venues:
             if service != "instruments-service":
                 click.echo(
@@ -172,7 +306,7 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_instruments_venue_coverage(start_date, end_date, category, output, config_dir)
+            check_instruments_venue_coverage(start_date, end_date, asset_group, output, config_dir)
 
         elif check_data_types:
             if service != "market-tick-data-service":
@@ -184,7 +318,7 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_data_types_detailed(start_date, end_date, category, venue, config_dir, output)
+            check_data_types_detailed(start_date, end_date, asset_group, venue, config_dir, output)
 
         elif check_feature_groups:
             # Feature groups check for features-*-service
@@ -205,7 +339,7 @@ def data_status(
                 )
                 sys.exit(1)
             check_feature_groups_detailed(
-                service, start_date, end_date, category, config_dir, output
+                service, start_date, end_date, asset_group, config_dir, output
             )
 
         elif check_timeframes:
@@ -218,11 +352,30 @@ def data_status(
                     err=True,
                 )
                 sys.exit(1)
-            check_timeframes_detailed(start_date, end_date, category, venue, config_dir, output)
+            check_timeframes_detailed(start_date, end_date, asset_group, venue, config_dir, output)
+
+        elif sports_league_breakdown:
+            # Sports-specific: fixture-based denominator per league
+            _SPORTS_SERVICES = {
+                "instruments-service",
+                "market-tick-data-service",
+                "features-sports-service",
+            }
+            if service not in _SPORTS_SERVICES:
+                click.echo(
+                    click.style(
+                        "--sports-league-breakdown is only supported for sports services:"
+                        f" {', '.join(sorted(_SPORTS_SERVICES))}",
+                        fg="red",
+                    ),
+                    err=True,
+                )
+                sys.exit(1)
+            display_sports_league_breakdown(service, start_date, end_date, output, show_missing)
 
         elif service in DYNAMIC_DIMENSION_SERVICES:
             display_dynamic_service_status(
-                service, start_date, end_date, category, output, config_dir, mode
+                service, start_date, end_date, asset_group, output, config_dir, mode
             )
 
         else:
@@ -230,7 +383,7 @@ def data_status(
                 service,
                 start_date,
                 end_date,
-                category,
+                asset_group,
                 venue,
                 output,
                 show_timestamps,
@@ -248,3 +401,125 @@ def data_status(
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         logger.exception("Data status check failed")
         sys.exit(1)
+
+
+def _try_manifest_source(
+    *,
+    service: str,
+    start_date: datetime,
+    end_date: datetime,
+    asset_group: tuple[str, ...],
+    output: str,
+    show_missing: bool,
+    resolved_source: str,
+    benchmark: bool,
+    total_start: float,
+) -> bool:
+    """Attempt to get data status from the manifest catalogue.
+
+    Returns True if manifest data was successfully displayed, False to fall through to GCS.
+    """
+    reader = ManifestReader()
+    if not reader.is_available():
+        if resolved_source == "manifest":
+            click.echo(
+                click.style(
+                    "ManifestReader not available (duckdb or cloud access missing)", fg="red"
+                ),
+                err=True,
+            )
+        return False
+
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = end_date.strftime("%Y-%m-%d")
+
+    asset_groups_to_check = list(asset_group) if asset_group else [None]
+    all_results: list[dict[str, object]] = []
+
+    for ag in asset_groups_to_check:
+        result = reader.get_completion(
+            service=service,
+            asset_group=ag or "",
+            start_date=sd,
+            end_date=ed,
+        )
+        if "error" in result:
+            logger.debug("Manifest query error for asset_group=%s: %s", ag, result.get("error"))
+            continue
+        all_results.append(result)
+
+    if not all_results:
+        return False
+
+    if resolved_source == "auto" and all(r.get("overall_completion", 0) == 0 for r in all_results):
+        return False
+
+    _display_manifest_results(all_results, output, show_missing, service, sd, ed)
+
+    if benchmark:
+        format_benchmark_info(total_start, start_date, end_date)
+
+    return True
+
+
+def _display_manifest_results(
+    results: list[dict[str, object]],
+    output: str,
+    show_missing: bool,
+    service: str,
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Format and display manifest-based results to match GCS output style."""
+    if output == "json":
+        click.echo(json.dumps(results, indent=2, default=str))
+        return
+
+    click.echo(
+        click.style(
+            f"[source: manifest] {service} ({start_date} → {end_date})", fg="cyan", bold=True
+        )
+    )
+    click.echo()
+
+    for result in results:
+        cat = result.get("asset_group", "unknown")
+        completion = result.get("overall_completion", 0)
+        days_complete = result.get("days_complete", 0)
+        days_total = result.get("days_total", 0)
+
+        color = "green" if completion == 100 else "yellow" if completion >= 50 else "red"  # type: ignore[operator]
+        click.echo(
+            f"  {cat}: "
+            + click.style(f"{completion}%", fg=color)
+            + f" ({days_complete}/{days_total} days)"
+        )
+
+        venues_raw: object = result.get("venues", {})
+        if isinstance(venues_raw, dict) and venues_raw and output == "tree":
+            venues: dict[str, object] = venues_raw  # type: ignore[assignment]
+            for venue_name, venue_info in venues.items():
+                v_info: dict[str, object] = venue_info  # type: ignore[assignment]
+                v_pct = v_info.get("completion_percent", 0)
+                v_days = v_info.get("days_with_data", 0)
+                v_rows = v_info.get("total_rows", 0)
+                v_color = "green" if v_pct == 100 else "yellow" if v_pct >= 50 else "red"  # type: ignore[operator]
+                click.echo(
+                    f"    └─ {venue_name}: "
+                    + click.style(f"{v_pct}%", fg=v_color)
+                    + f" ({v_days} days, {v_rows} rows)"
+                )
+
+        if show_missing:
+            missing: list[str] = result.get("missing_dates", [])  # type: ignore[assignment]
+            if missing:
+                click.echo(f"    Missing: {', '.join(missing[:10])}")
+                if len(missing) > 10:
+                    click.echo(f"    ... and {len(missing) - 10} more")
+
+    if output == "summary":
+        total_complete = sum(r.get("days_complete", 0) for r in results)  # type: ignore[arg-type]
+        total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]
+        overall = round(total_complete / total_days * 100, 1) if total_days > 0 else 0
+        click.echo()
+        click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} asset-group-days)")

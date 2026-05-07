@@ -19,7 +19,7 @@ from deployment_service.config_loader import ConfigLoader
 logger = logging.getLogger(__name__)
 
 # Maps service name → list of storage domains (from cloud-providers.yaml) used by that service.
-# Per-category domains (e.g. features-delta-one) require a "category" shard dimension.
+# Per-asset-group domains (e.g. features-delta-one) require an "asset_group" shard dimension.
 # Shared domains (e.g. ml-models-store) resolve the same bucket regardless of category.
 _SERVICE_STORAGE_DOMAINS: dict[str, list[str]] = {
     "features-delta-one-service": ["features-delta-one"],
@@ -231,14 +231,14 @@ def build_storage_env_vars(
     os.environ at runtime, giving each env's container the correct bucket name automatically.
 
     Env var naming convention:
-      - Per-category domain + category:  {DOMAIN_UPPER}_{CATEGORY}_GCS_BUCKET
+      - Per-asset-group domain + group:  {DOMAIN_UPPER}_{ASSET_GROUP}_GCS_BUCKET
           e.g. features-delta-one + CEFI  →  FEATURES_DELTA_ONE_CEFI_GCS_BUCKET
-      - Shared domain (no category):     {DOMAIN_UPPER}_GCS_BUCKET
+      - Shared domain (no asset group):     {DOMAIN_UPPER}_GCS_BUCKET
           e.g. ml-models-store           →  ML_MODELS_STORE_GCS_BUCKET
 
     Args:
         service: Service name (e.g. "features-delta-one-service")
-        dimensions: Shard dimensions dict (e.g. {"category": "CEFI", "venue": "binance"})
+        dimensions: Shard dimensions dict (e.g. {"asset_group": "CEFI", "venue": "binance"})
         config_dir: Path to configs directory (default: "configs")
 
     Returns:
@@ -250,15 +250,16 @@ def build_storage_env_vars(
         return {}
 
     loader = ConfigLoader(config_dir)
-    category = str(dimensions.get("category", "")).upper()  # noqa: qg-empty-fallback — no category is valid (shared domain)
+    # Prefer ``asset_group``; legacy plans may only set ``category`` for the same axis.
+    ag = str(dimensions.get("asset_group") or dimensions.get("category") or "").upper()  # noqa: qg-empty-fallback — no asset group is valid (shared domain)
     result: dict[str, str] = {}
 
     for domain in domains:
-        bucket = loader.get_bucket_name(domain, category)
+        bucket = loader.get_bucket_name(domain, ag)
         if not bucket:
             continue
         domain_key = domain.replace("-", "_").upper()
-        env_key = f"{domain_key}_{category}_GCS_BUCKET" if category else f"{domain_key}_GCS_BUCKET"
+        env_key = f"{domain_key}_{ag}_GCS_BUCKET" if ag else f"{domain_key}_GCS_BUCKET"
         result[env_key] = bucket
 
     return result

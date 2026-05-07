@@ -5,6 +5,10 @@ Tracks:
 - Image versions (git commit, build date, deployed version)
 - Deployment status (running, completed, failed)
 - Data completeness per service/date
+
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (DeploymentStatus,
+# ServiceHealthReport) model deployment-service–specific health aggregation.
+# Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 
 import contextlib
@@ -144,7 +148,7 @@ class ServiceHealthReport:
 
     service: str
     date: str
-    category: str
+    asset_group: str
 
     # Status counts
     total_shards: int = 0
@@ -183,7 +187,7 @@ class ServiceHealthReport:
         return {
             "service": self.service,
             "date": self.date,
-            "category": self.category,
+            "asset_group": self.asset_group,
             "status_summary": self.status_summary,
             "completion_percent": self.completion_percent,
             "total_shards": self.total_shards,
@@ -221,7 +225,7 @@ class DeploymentMonitor:
     @property
     def gcs_client(self):
         """Lazy-load GCS client."""
-        if self._gcs_client is None and not _config.cloud_mock_mode:
+        if self._gcs_client is None and not _config.is_mock_mode():
             try:
                 self._gcs_client = get_storage_client(project_id=self.project_id)
             except (OSError, ValueError, RuntimeError) as e:
@@ -266,17 +270,17 @@ class DeploymentMonitor:
         self,
         service: str,
         date: str,
-        category: str,
+        asset_group: str,
     ) -> ServiceHealthReport:
         """Get deployment status for a service on a date."""
         # Check dependencies first
         graph = DependencyGraph(self.config_dir)
-        dep_report = graph.check_dependencies(service, date, category)
+        dep_report = graph.check_dependencies(service, date, asset_group)
 
         report = ServiceHealthReport(
             service=service,
             date=date,
-            category=category,
+            asset_group=asset_group,
             dependencies_met=dep_report.required_passed,
             missing_dependencies=[
                 check.upstream_service
@@ -292,7 +296,7 @@ class DeploymentMonitor:
         try:
             if self.gcs_client:
                 bucket_name = f"deployment-status-{self.project_id}"
-                prefix = f"status/{service}/{date}/{category.lower()}/"
+                prefix = f"status/{service}/{date}/{asset_group.lower()}/"
 
                 bucket = self.gcs_client.bucket(bucket_name)
                 blobs = list(bucket.list_blobs(prefix=prefix))
@@ -324,7 +328,7 @@ class DeploymentMonitor:
     def get_all_service_status(
         self,
         date: str,
-        category: str,
+        asset_group: str,
     ) -> dict[str, ServiceHealthReport]:
         """Get status for all services."""
         loader = ConfigLoader(self.config_dir)
@@ -332,7 +336,7 @@ class DeploymentMonitor:
 
         statuses = {}
         for service in services:
-            statuses[service] = self.get_deployment_status(service, date, category)
+            statuses[service] = self.get_deployment_status(service, date, asset_group)
 
         return statuses
 
@@ -537,7 +541,7 @@ class VersionRegistry:
 
     @property
     def client(self):
-        if self._client is None and not _config.cloud_mock_mode:
+        if self._client is None and not _config.is_mock_mode():
             try:
                 self._client = get_storage_client(project_id=self.project_id)
             except (OSError, ValueError, RuntimeError) as e:

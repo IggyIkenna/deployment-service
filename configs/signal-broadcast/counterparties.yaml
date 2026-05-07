@@ -1,0 +1,78 @@
+# Signal-broadcast counterparty deployment allowlist (Plan B Phase 4).
+#
+# This file is an *infra-side* declaration of which counterparty webhook
+# endpoints the signal-broadcast channel is permitted to reach from
+# staging / production Cloud Run. The source of truth for runtime
+# entitlements (slot allowlist + schema depth + HMAC secret ref) is UAC
+# `Counterparty` records consumed by strategy-service's signal_broadcast
+# sub-package via `CounterpartyCredentialsManager` + the UAC registry.
+#
+# Purpose of this file:
+#   1. Feed an egress allowlist / VPC firewall rule at Cloud Run deploy time
+#      so strategy-service can only reach declared counterparty endpoints.
+#   2. Provide an ops-facing catalogue of live counterparties (admin UI
+#      reads the admin API; this file is the deployment-time mirror).
+#   3. Act as the deploy-time contract for how many Secret Manager entries
+#      the provisioning script must create.
+#
+# Sept 2026 go-live anchor: two counterparties. Post-go-live additions
+# follow the same schema; update this file in the same PR as the UAC
+# `Counterparty` record + `provision-signal-broadcast-secrets.sh` env.
+#
+# Schema matches UAC `unified_api_contracts.signal_broadcast.Counterparty`
+# minus the HMAC secret (which lives in Secret Manager only).
+
+version: 1
+
+staging:
+  counterparties:
+    - counterparty_id: "signal-lease-cp1-staging"
+      name: "Counterparty 1 (staging fixture)"
+      # Live-staging smoke receiver (R&D project central-element-323112, europe-west1).
+      # Deployed via `gcloud run deploy signal-broadcast-smoke-receiver --source
+      # scripts/signal-broadcast-smoke-receiver/`. Delete service post-smoke.
+      webhook_url: "https://signal-broadcast-smoke-receiver-1060025368044.europe-west1.run.app/cp/signal-lease-cp1-staging"
+      schema_depth: "standard" # minimal | standard | rich — D8
+      auth_method: "hmac_webhook" # D3 decision — HMAC-SHA256 on JWT bearer
+      allowed_slots:
+        # Representative slot labels from the STAT_ARB_PAIRS_FIXED
+        # cefi × spot / cefi × perp cells that are PUBLIC in the
+        # strategy-availability registry (path-to-100M SSOT).
+        - "stat_arb_pairs_fixed_cefi_spot_v1"
+        - "stat_arb_pairs_fixed_cefi_perp_v1"
+      active_from: "2026-09-01T00:00:00Z"
+      active_to: null # open-ended
+      rate_limit_per_strategy_per_sec: 10 # D7 default; tune per-contract
+      secret_manager_ref: "projects/{PROJECT_ID}/secrets/signal-broadcast-counterparty-signal-lease-cp1-staging-hmac/versions/latest"
+
+    - counterparty_id: "signal-lease-cp2-staging"
+      name: "Counterparty 2 (staging fixture)"
+      # Live-staging smoke receiver shared with CP1 — same deployment, different path.
+      webhook_url: "https://signal-broadcast-smoke-receiver-1060025368044.europe-west1.run.app/cp/signal-lease-cp2-staging"
+      schema_depth: "minimal"
+      auth_method: "hmac_webhook"
+      allowed_slots:
+        - "stat_arb_pairs_fixed_cefi_spot_v1"
+      active_from: "2026-09-01T00:00:00Z"
+      active_to: null
+      rate_limit_per_strategy_per_sec: 5
+      secret_manager_ref: "projects/{PROJECT_ID}/secrets/signal-broadcast-counterparty-signal-lease-cp2-staging-hmac/versions/latest"
+
+# Production counterparty entries added here after legal sign-off, via the
+# same review flow as UAC `Counterparty` record additions. Secrets created
+# by: bash scripts/provision-signal-broadcast-secrets.sh <prod-project-id>
+production:
+  counterparties: []
+
+# Deployment knobs (global, not per-counterparty). Per-counterparty
+# rate limits live on the UAC `Counterparty` entity; these are the
+# service-wide transport defaults surfaced via env vars.
+transport_defaults:
+  webhook_request_timeout_seconds: 10.0
+  webhook_max_retries: 3
+  webhook_backoff_base_seconds: 0.5
+  jwt_issuer: "odum-research"
+  jwt_audience: "signal-leasing-counterparty"
+  jwt_ttl_seconds: 300
+  credential_refresh_interval_seconds: 300.0
+  pull_endpoint_emission_buffer_size: 256

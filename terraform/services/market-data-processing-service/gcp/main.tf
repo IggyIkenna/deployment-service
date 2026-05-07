@@ -59,7 +59,11 @@ main:
                     - "--CEFI"
                     - "--TRADFI"
                     - "--DEFI"
-                    - "--date"
+                    - "--SPORTS"
+                    - "--PREDICTION"
+                    - "--start-date"
+                    - $${t_plus_1_date}
+                    - "--end-date"
                     - $${t_plus_1_date}
                     - "--timeframes"
                     - "15s,1m,5m,15m,1h,4h,24h"
@@ -216,9 +220,13 @@ module "daily_job" {
     { name = "instruments-store-cefi", bucket = "instruments-store-cefi-${var.project_id}", read_only = true },
     { name = "instruments-store-defi", bucket = "instruments-store-defi-${var.project_id}", read_only = true },
     { name = "instruments-store-tradfi", bucket = "instruments-store-tradfi-${var.project_id}", read_only = true },
+    { name = "instruments-store-sports", bucket = "instruments-store-sports-${var.project_id}", read_only = true },
+    { name = "instruments-store-prediction", bucket = "instruments-store-prediction-${var.project_id}", read_only = true },
     { name = "market-data-tick-cefi", bucket = "market-data-tick-cefi-${var.project_id}", read_only = false },
     { name = "market-data-tick-defi", bucket = "market-data-tick-defi-${var.project_id}", read_only = false },
     { name = "market-data-tick-tradfi", bucket = "market-data-tick-tradfi-${var.project_id}", read_only = false },
+    { name = "market-data-tick-sports", bucket = "market-data-tick-sports-${var.project_id}", read_only = false },
+    { name = "market-data-tick-prediction", bucket = "market-data-tick-prediction-${var.project_id}", read_only = false },
   ]
 
   # No external API secrets needed - reads from tick data buckets

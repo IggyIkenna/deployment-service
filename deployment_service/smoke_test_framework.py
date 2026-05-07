@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 Shard Combinatorics Smoke Test Framework
 
@@ -28,8 +29,7 @@ from datetime import date
 from typing import TypedDict
 from typing import cast as _cast
 
-from unified_cloud_interface import StorageClient
-from unified_trading_library import get_storage_client
+from unified_trading_library import StorageClient, get_storage_client
 
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
@@ -130,7 +130,7 @@ class ShardCombinatoricsGenerator:
         """
         filters = {}
         if category_filter:
-            filters["category"] = category_filter
+            filters["asset_group"] = category_filter
         if venue_filter:
             filters["venue"] = venue_filter
 
@@ -148,12 +148,12 @@ class ShardCombinatoricsGenerator:
 
         return shards
 
-    def get_all_category_venue_combinations(
+    def get_all_asset_group_venue_combinations(
         self,
         service: str,
     ) -> list[dict[str, str]]:
         """
-        Get all valid category-venue combinations for a service.
+        Get all valid asset-group–venue combinations for a service.
 
         Useful for understanding the test matrix without date expansion.
 
@@ -161,18 +161,18 @@ class ShardCombinatoricsGenerator:
             service: Service name
 
         Returns:
-            List of dicts with 'category' and 'venue' keys
+            List of dicts with 'asset_group' and 'venue' keys
         """
         config = self.config_loader.load_service_config(service)
         venues_config = self.config_loader.load_venues_config()
 
         combinations = []
 
-        # Find category dimension
-        category_values: list[object] = []
+        # Find fixed trading-axis dimension (``asset_group`` preferred; legacy ``category``)
+        ag_values: list[object] = []
         for dim in _cast(list[dict[str, object]], config.get("dimensions") or []):
-            if dim["name"] == "category" and dim["type"] == "fixed":
-                category_values = _cast(list[object], dim.get("values") or [])
+            if dim.get("type") == "fixed" and dim.get("name") in ("asset_group", "category"):
+                ag_values = _cast(list[object], dim.get("values") or [])
                 break
 
         # Check if service has hierarchical venue dimension
@@ -182,19 +182,23 @@ class ShardCombinatoricsGenerator:
         )
 
         if has_venue_dim:
-            for category in category_values:
+            for ag in ag_values:
                 categories_dict = _cast(
                     dict[str, dict[str, object]], venues_config.get("categories") or {}
                 )
-                cat_config = categories_dict.get(str(category)) or {}
-                venues = _cast(list[object], cat_config.get("venues") or [])
+                ag_row = categories_dict.get(str(ag)) or {}
+                venues = _cast(list[object], ag_row.get("venues") or [])
                 for venue in venues:
-                    combinations.append({"category": category, "venue": venue})
+                    combinations.append({"asset_group": ag, "venue": venue})
         else:
-            for category in category_values:
-                combinations.append({"category": category, "venue": None})
+            for ag in ag_values:
+                combinations.append({"asset_group": ag, "venue": None})
 
         return combinations
+
+    def get_all_category_venue_combinations(self, service: str) -> list[dict[str, str]]:
+        """Legacy name for :meth:`get_all_asset_group_venue_combinations` (call sites in other repos)."""
+        return self.get_all_asset_group_venue_combinations(service)
 
 
 class GCSTestBucketManager:
@@ -237,18 +241,18 @@ class GCSTestBucketManager:
             self._storage_client = get_storage_client(project_id=self.project_id)
         return self._storage_client
 
-    def get_test_bucket_name(self, service: str, category: str) -> str:
+    def get_test_bucket_name(self, service: str, asset_group: str) -> str:
         """
-        Get the test bucket name for a service and category.
+        Get the test bucket name for a service and asset group.
 
         Args:
             service: Service name
-            category: Category (CEFI, TRADFI, DEFI)
+            asset_group: Asset group (CEFI, TRADFI, DEFI, …)
 
         Returns:
             Test bucket name
         """
-        return f"{self.test_bucket_prefix}{service}-{category.lower()}"
+        return f"{self.test_bucket_prefix}{service}-{asset_group.lower()}"
 
     def clean_test_bucket(self, bucket_name: str, prefix: str = "") -> int:
         """
@@ -330,7 +334,7 @@ class GCSTestBucketManager:
         date_val = shard.dimensions.get("date") or {}
         date_str = date_val.get("start") or "" if isinstance(date_val, dict) else str(date_val)
 
-        prefix = f"by_date/day-{date_str}/"
+        prefix = f"by_date/day={date_str}/"
 
         files = self.list_output_files(bucket_name, prefix)
         return len(files) >= min_files

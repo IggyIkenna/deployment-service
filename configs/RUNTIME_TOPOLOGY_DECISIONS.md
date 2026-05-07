@@ -1,5 +1,7 @@
 # Runtime Topology — Architectural Decisions
 
+**Legacy node names below:** Split UIs and APIs such as `live-health-monitor-ui`, `logs-dashboard-ui`, `batch-audit-ui`, `onboarding-ui`, `batch-audit-api`, and `odum-research-website` are archived or superseded by **`unified-trading-system-ui`**, **`deployment-ui`**, **`unified-trading-api`**, and **`auth-api`**. Canonical wiring: **`unified-trading-pm/configs/runtime-topology.yaml`** (SSOT).
+
 **SSOT:** `unified-trading-pm/configs/runtime-topology.yaml` (moved from `unified-trading-deployment-v3/configs/` — now owned by PM).
 **Companion:** `RUNTIME_DEPLOYMENT_TOPOLOGY_DAG.svg` (deployment-service/configs/) · `runtime-topology.yaml` (`unified-trading-pm/configs/`, machine-readable).
 **Readers:** `unified-trading-codex/04-architecture/` holds symlinks to these files for easy access.
@@ -16,13 +18,12 @@ the principle wins — update the code, not the principle (unless explicitly ove
 
 Every repo falls into exactly one category. The name MUST reflect the category:
 
-| Category           | Naming Pattern                                    | Deploys?             | Owns Domain Data?                                     | Examples                                             |
-| ------------------ | ------------------------------------------------- | -------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
-| **library**        | `*-interface`, `*-library`, `unified-*-interface` | No                   | No — provides protocols, schemas, utilities           | `unified-market-interface`, `execution-algo-library` |
-| **service**        | `*-service`                                       | Yes (Cloud Run / VM) | Yes — produces and persists domain data to GCS        | `instruments-service`, `ml-training-service`         |
-| **api-service**    | `*-api`, `*-reporting-service`                    | Yes (Cloud Run)      | No — thin HTTP/SSE gateway over a service or GCS data | `execution-results-api`, `market-data-api`           |
-| **ui**             | `*-ui`                                            | Yes (static hosting) | No — never reads GCS or PubSub directly               | `trading-analytics-ui`, `deployment-ui`              |
-| **infrastructure** | named by function                                 | Depends              | No                                                    | `ibkr-gateway-infra`, `deployment-engine`            |
+| Category           | Naming Pattern                                    | Deploys?             | Owns Domain Data?                              | Examples                                             |
+| ------------------ | ------------------------------------------------- | -------------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| **library**        | `*-interface`, `*-library`, `unified-*-interface` | No                   | No — provides protocols, schemas, utilities    | `unified-market-interface`, `execution-algo-library` |
+| **service**        | `*-service`                                       | Yes (Cloud Run / VM) | Yes — produces and persists domain data to GCS | `instruments-service`, `ml-training-service`         |
+| **ui**             | `*-ui`                                            | Yes (static hosting) | No — never reads GCS or PubSub directly        | `trading-analytics-ui`, `deployment-ui`              |
+| **infrastructure** | named by function                                 | Depends              | No                                             | `ibkr-gateway-infra`, `deployment-engine`            |
 
 **Rule:** If something doesn't fit a pattern, the architecture is wrong — restructure it, don't
 rename to hide the mismatch.
@@ -44,10 +45,8 @@ The chain is always: **UI → API (HTTP/SSE) → Service (engine) → Storage/Me
 | trading-analytics-ui, execution-analytics-ui, settlement-ui | execution-results-api :8002 | execution-service    |
 
 > **Consolidation note:** `trading-analytics-ui` is functionally overlapped by the batch research UIs: `execution-analytics-ui` (provides live fill viewing via `execution-results-api` SSE) and `client-reporting-ui` (P&L). Candidate for consolidation into `execution-analytics-ui` in a future phase. See `consolidated_remaining_work.plan.md` todo `arch-trading-analytics-ui-consolidate`.
-> | execution-analytics-ui, ml-training-ui | market-data-api :8003 | market-tick-data-service, market-data-processing-service |
 > | strategy-ui | strategy-api :8004 ⟪planned⟫ | strategy-service |
-> | ml-training-ui | deployment-api :8001 (deploy hook) + market-data-api :8003 (feature/candle plots) | ml-training-service |
-> | deployment-ui, live-health-monitor-ui, batch-audit-ui, logs-dashboard-ui, onboarding-ui | deployment-api :8001 | deployment-engine |
+> | deployment-ui, unified-trading-system-ui (health, audit, logs, onboarding) | deployment-api :8001, unified-trading-api, auth-api | deployment-engine |
 > | client-reporting-ui | client-reporting-api :8005 | pnl-attribution-service, risk-and-exposure-service, position-balance-monitor-service |
 
 ---
@@ -56,11 +55,9 @@ The chain is always: **UI → API (HTTP/SSE) → Service (engine) → Storage/Me
 
 Each tier of batch research work has its own dedicated UI. These are separate repos from their backing services.
 
-| Tier                   | Purpose                                                                                           | API Gateway                                       | Service engine      | UI repo                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| **ML training**        | Train models; tune hyperparameters; deploy batch→live; view feature correlations and candle plots | deployment-api (deploy) + market-data-api (plots) | ml-training-service | **ml-training-ui** (renamed from ml-training-ui)                          |
-| **Strategy backtest**  | Signal backtest; parameter tuning; strategy deployment                                            | strategy-api ⟪planned⟫                            | strategy-service    | **strategy-ui**                                                           |
-| **Execution backtest** | TCA; fill analysis; alpha calculation; execution quality                                          | execution-results-api + market-data-api           | execution-service   | **execution-analytics-ui** (rename target of execution-analytics-ui repo) |
+| Tier                  | Purpose                                                | API Gateway            | Service engine   | UI repo         |
+| --------------------- | ------------------------------------------------------ | ---------------------- | ---------------- | --------------- |
+| **Strategy backtest** | Signal backtest; parameter tuning; strategy deployment | strategy-api ⟪planned⟫ | strategy-service | **strategy-ui** |
 
 **Repo naming status:**
 
@@ -161,8 +158,6 @@ or operator would see/experience differently.
   Publishes processed data to PubSub. Persists to GCS.
 - **Data produced:** `processed_candles_ohlcv` (GCS), live candle stream (PubSub)
 - **Data consumed:** raw ticks from MTDH, instruments from instruments-service
-
-**market-data-api**
 
 - **Batch:** Serves historical order book snapshots and candles via HTTP REST from GCS.
 - **Live:** Streams live order book via SSE (from MTDH PubSub), streams live candles via SSE (from MDPS PubSub).
@@ -330,7 +325,7 @@ or operator would see/experience differently.
   - **Circuit breaker commands** to services (PubSub): e.g., "halt all execution" if risk breach
   - **External notifications:** Slack webhooks, PagerDuty alerts, email
   - **Deployment commands:** Can trigger deployment-api to stop/restart services
-- **Architecture:** Uses unified-events-interface EventSink for consuming events. The event
+- **Architecture:** Uses unified-trading-library EventSink for consuming events. The event
   infrastructure (UEI) provides the standardized event schema; alerting-service provides the
   rules engine and dispatch logic.
 - **Disaster recovery:** Alerting-system is the trigger for DR workflows. It publishes circuit
@@ -354,7 +349,7 @@ or operator would see/experience differently.
 - **Same endpoints in both modes.** The "mode" is a parameter on deployment requests, not a
   different set of endpoints. API handles: deployments, services, config, data-status,
   service-status, cloud-builds, checklists.
-- **Live-specific:** SSE endpoint for health monitoring events (consumed by live-health-monitor-ui).
+- **Live-specific:** SSE endpoint for health monitoring events (consumed by unified-trading-system-ui).
 
 ---
 
@@ -657,7 +652,7 @@ Why not enforce at publisher: enforcing ordering adds latency. Different consume
 - Propagates via PubSub topic `kill-switch-commands`
 - Target services: execution-service, strategy-service
 - State persisted in Secret Manager (few ms latency, survives restarts)
-- live-health-monitor-ui shows kill switch status per service
+- unified-trading-system-ui shows kill switch status per service (via deployment-api)
 
 ### Automated Circuit Breaker (alerting-initiated)
 
@@ -776,7 +771,6 @@ On connectivity loss:
 | **pnl-attribution-service**           | Cloud Run Service | always-on                                | Continuous subscriber to execution + risk PubSub events; runs P&L attribution on every update |
 | **features-multi-timeframe-service**  | Cloud Run Service | always-on (live) / scale-to-zero (batch) | Mode-dependent: live subscribes to FDS completion events                                      |
 | **execution-results-api**             | Cloud Run Service | auto-scale                               | Scales with HTTP/SSE connection count; min-instances configurable                             |
-| **market-data-api**                   | Cloud Run Service | auto-scale                               | Scales with HTTP/SSE connection count                                                         |
 | **deployment-api**                    | Cloud Run Service | auto-scale                               | Request-driven; SSE for health monitoring stream                                              |
 | **client-reporting-api**              | Cloud Run Job     | scale-to-zero                            | Batch report generation; occasional live SSE (target state)                                   |
 | **All UIs**                           | Cloud Run Service | auto-scale                               | Serve React static build; scale with concurrent users                                         |

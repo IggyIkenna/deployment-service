@@ -32,7 +32,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
-from unified_cloud_interface import get_storage_client
+from unified_trading_library import get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 import logging
@@ -258,7 +258,7 @@ Examples:
     log(f"Total unique instruments: {len(result)}")
     log(f"Columns: {len(result.columns)}")
 
-    # Show instrument counts by category if available
+    # Show instrument counts by venue (and related breakdowns) if available
     if "venue" in result.columns:
         venue_counts = result.group_by("venue").len().sort("len", descending=True)
         log("\nTop venues by instrument count:")

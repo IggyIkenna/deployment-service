@@ -110,7 +110,7 @@ def make_mock_path_combinatorics(
                 for dt in ["trades", "book_snapshot_5"]:
                     _market_tick_combos.append(
                         _CombinatoricEntry(
-                            category=cat,
+                            asset_group=cat,
                             venue=v,
                             folder="spot",
                             data_type=dt,
@@ -120,17 +120,18 @@ def make_mock_path_combinatorics(
                     )
 
     def _get_combinatorics(
-        category: str | None = None,
+        asset_group: str | None = None,
         venues: list[str] | None = None,
         folders: list[str] | None = None,
         data_types: list[str] | None = None,
+        timeframes: list[str] | None = None,
         service: str | None = None,
     ) -> list[object]:
         if not _market_tick_combos:
             return []
         result = list(_market_tick_combos)
-        if category:
-            result = [c for c in result if c.category.upper() == category.upper()]  # type: ignore[union-attr]
+        if asset_group:
+            result = [c for c in result if c.asset_group.upper() == str(asset_group).upper()]  # type: ignore[union-attr]
         if venues:
             vset = {v.upper() for v in venues}
             result = [c for c in result if c.venue.upper() in vset]  # type: ignore[union-attr]
@@ -146,7 +147,7 @@ def make_mock_path_combinatorics(
 
     def _get_service_prefixes_for_date(
         service: str,
-        category: str,
+        asset_group: str,
         date_str: str,
         venue_filter: list[str] | None = None,
     ) -> list[tuple[str, str | None]]:
@@ -155,7 +156,7 @@ def make_mock_path_combinatorics(
             return []
 
         if service == "instruments-service":
-            cat_venues = effective_venues.get(service, {}).get(category.upper(), [])
+            cat_venues = effective_venues.get(service, {}).get(asset_group.upper(), [])
             if venue_filter:
                 venue_set = {v.upper() for v in venue_filter}
                 cat_venues = [v for v in cat_venues if v.upper() in venue_set]

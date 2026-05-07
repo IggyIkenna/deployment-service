@@ -50,7 +50,7 @@ locals {
           ContainerOverrides = {
             Command = [
               "--operation", "compute", "--mode", "batch",
-              "--category", "CEFI",
+              "--asset-group", "CEFI",
               "--date.$", "$.dateInfo.t_plus_1_date"
             ]
           }

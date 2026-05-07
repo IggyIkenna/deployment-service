@@ -1,8 +1,9 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 #!/usr/bin/env python3
 """Verify bootstrap: confirm all expected resources exist via UCI.
 
 Checks that required S3/GCS buckets exist and required secrets are accessible
-using the unified_cloud_interface factory. Provider is determined by the
+using the unified_trading_library.cloud_interface factory. Provider is determined by the
 CLOUD_PROVIDER environment variable (resolved via UCI's get_cloud_provider()).
 
 Exit codes:
@@ -22,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from unified_cloud_interface import get_secret_client, get_storage_client
+from unified_trading_library import get_secret_client, get_storage_client
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _check_bucket(storage_client: _BucketCheckable, bucket_name: str) -> Resourc
             name=bucket_name,
             status="PASS",
         )
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return ResourceResult(
             resource_type="bucket",
             name=bucket_name,
@@ -114,7 +115,7 @@ def _check_secret(secret_client: _SecretReadable, secret_name: str) -> ResourceR
             name=secret_name,
             status="PASS",
         )
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         return ResourceResult(
             resource_type="secret",
             name=secret_name,

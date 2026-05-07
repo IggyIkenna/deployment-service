@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 FastAPI route handlers for the deployment-service HTTP API.
 
@@ -8,6 +9,7 @@ All routes delegate to StateManager and existing deployment-service internals.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import cast
 
 from fastapi import APIRouter, HTTPException
@@ -110,7 +112,9 @@ class CloudRunStatusBatchRequest(
     job_ids: list[str]
 
 
-class RollbackRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class DeploymentServiceRollbackRequest(
+    BaseModel
+):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     region: str
     target_revision: str | None = None
@@ -136,9 +140,9 @@ async def calculate_shards(request: CalculateShardsRequest) -> dict[str, object]
             "skip_dimensions": request.skip_dimensions,
         }
         if request.start_date is not None:
-            kwargs["start_date"] = request.start_date
+            kwargs["start_date"] = date.fromisoformat(request.start_date)
         if request.end_date is not None:
-            kwargs["end_date"] = request.end_date
+            kwargs["end_date"] = date.fromisoformat(request.end_date)
         if request.cloud_config_path is not None:
             kwargs["cloud_config_path"] = request.cloud_config_path
         if request.date_granularity_override is not None:
@@ -206,7 +210,7 @@ async def get_data_status(
     check_data_types: bool = False,
     check_feature_groups: bool = False,
     check_timeframes: bool = False,
-    categories: list[str] | None = None,
+    asset_groups: list[str] | None = None,
     venues: list[str] | None = None,
 ) -> dict[str, object]:
     """Query data status for a service."""
@@ -444,10 +448,12 @@ async def get_vm_events(deployment_id: str) -> dict[str, object]:
 
 
 @router.post("/deployments/{deployment_id}/rollback")
-async def live_rollback(deployment_id: str, request: RollbackRequest) -> dict[str, object]:
+async def live_rollback(
+    deployment_id: str, request: DeploymentServiceRollbackRequest
+) -> dict[str, object]:
     """Roll back a live Cloud Run Service to a previous revision."""
     try:
-        from unified_cloud_interface import get_compute_client
+        from unified_trading_library import get_compute_client
 
         project_id = _config.gcp_project_id or ""
         compute = get_compute_client(project_id=project_id)
@@ -482,7 +488,7 @@ async def get_live_health(
     try:
         from datetime import UTC, datetime
 
-        from unified_cloud_interface import get_compute_client
+        from unified_trading_library import get_compute_client
 
         project_id = _config.gcp_project_id or ""
         compute = get_compute_client(project_id=project_id)
@@ -513,4 +519,34 @@ async def get_live_health(
         }
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_live_health failed for deployment %s: %s", deployment_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ---------------------------------------------------------------------------
+# Data coverage summary  GET /api/v1/data-coverage-summary
+# ---------------------------------------------------------------------------
+
+
+@router.get("/data-coverage-summary")
+async def get_data_coverage_summary(
+    service: str = "instruments-service",
+    asset_groups: str | None = None,
+) -> dict[str, object]:
+    """Return instrument coverage summary for the deployment UI.
+
+    Fast endpoint: reads manifest parquets (totals) + latest-day parquets
+    (unique instrument counts by type).
+
+    Query params:
+        service: service name (default: instruments-service)
+        asset_groups: comma-separated asset group list (e.g. CEFI,TRADFI,DEFI,SPORTS)
+    """
+    try:
+        from deployment_service.cli.utils.manifest_reader import ManifestReader
+
+        reader = ManifestReader()
+        ag_list = [c.strip().upper() for c in asset_groups.split(",")] if asset_groups else None
+        return reader.get_coverage_summary(service=service, asset_groups=ag_list)
+    except (OSError, ValueError, RuntimeError) as e:
+        logger.error("get_data_coverage_summary failed for %s: %s", service, e)
         raise HTTPException(status_code=500, detail=str(e)) from e

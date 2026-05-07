@@ -167,8 +167,8 @@ class TestRotateExchangeKeys:
 
             importlib.reload(m)
 
-            # Patch AFTER reload: reload re-runs `from unified_cloud_interface import ...`
-            # and `from unified_events_interface import ...`, which rebinds module-level
+            # Patch AFTER reload: reload re-runs `from unified_trading_library.cloud_interface import ...`
+            # and `from unified_trading_library.events import ...`, which rebinds module-level
             # names, so patches must be applied post-reload.
             with (
                 patch.object(m, "get_secret_client", return_value=mock_sm),
@@ -270,7 +270,7 @@ class TestRotateExchangeKeys:
         secrets = [
             _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": ok_last}),
             _make_secret("bybit-api-key", {"key_category": "trade", "last_rotated": overdue_last}),
-            _make_secret("kraken-api-key", {"key_category": "trade", "last_rotated": warn_last}),
+            _make_secret("okx-api-key", {"key_category": "trade", "last_rotated": warn_last}),
             _make_secret("tardis-api-key", {"key_category": "data"}),  # unknown age
         ]
         response, _ = self._run_function(secrets)

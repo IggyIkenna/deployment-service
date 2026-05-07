@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setup GCS Lifecycle Policies for Cost Optimization
-# 
+#
 # Automatically transitions objects between storage classes:
 # - 7 days: STANDARD → NEARLINE ($0.023 → $0.013 per GB/month)
 # - 30 days: NEARLINE → COLDLINE ($0.013 → $0.007 per GB/month)
@@ -73,28 +73,29 @@ BUCKETS=(
   "instruments-store-cefi-${PROJECT}"
   "instruments-store-tradfi-${PROJECT}"
   "instruments-store-defi-${PROJECT}"
-  
+  "instruments-store-sports-${PROJECT}"
+  "instruments-store-prediction-${PROJECT}"
+
   # Market tick data (rarely accessed after features generation)
+  # NOTE: processed_candles/ live co-located under market-data-tick-*
+  # (MDPS output). The separate market-data-candles-* buckets were retired
+  # 2026-04-18 as empty shells — see
+  # unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
   "market-data-tick-cefi-${PROJECT}"
   "market-data-tick-tradfi-${PROJECT}"
   "market-data-tick-defi-${PROJECT}"
-  
-  # Processed candles (rarely accessed after features generation)
-  "market-data-candles-cefi-${PROJECT}"
-  "market-data-candles-tradfi-${PROJECT}"
-  "market-data-candles-defi-${PROJECT}"
-  
+
   # Features (frequently accessed during ML training)
   # Consider more conservative policy: 30d→NEARLINE, 90d→COLDLINE
   "features-delta-one-cefi-${PROJECT}"
   "features-delta-one-tradfi-${PROJECT}"
   "features-delta-one-defi-${PROJECT}"
   "features-calendar-${PROJECT}"
-  
+
   # ML artifacts (rarely accessed after training)
   "ml-training-artifacts-${PROJECT}"
   "ml-models-store-${PROJECT}"
-  
+
   # ML predictions (accessed by strategy service)
   # Consider keeping in STANDARD longer: 14d→NEARLINE, 60d→COLDLINE
   "ml-predictions-store-${PROJECT}"
@@ -103,20 +104,20 @@ BUCKETS=(
 # Apply policy to each bucket
 for BUCKET in "${BUCKETS[@]}"; do
   echo "Processing: gs://${BUCKET}"
-  
+
   # Check if bucket exists
   if ! gsutil ls "gs://${BUCKET}" &>/dev/null; then
     echo "  ⚠️  Bucket does not exist, skipping"
     continue
   fi
-  
+
   # Apply lifecycle policy
   if gsutil lifecycle set "$TEMP_FILE" "gs://${BUCKET}"; then
     echo "  ✅ Lifecycle policy applied"
   else
     echo "  ❌ Failed to apply policy"
   fi
-  
+
   # Verify
   echo "  Current policy:"
   gsutil lifecycle get "gs://${BUCKET}" 2>&1 | grep -E "(age|storageClass)" | sed 's/^/    /'

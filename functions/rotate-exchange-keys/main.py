@@ -46,8 +46,7 @@ import flask
 import functions_framework
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from unified_cloud_interface import get_pubsub_client, get_secret_client
-from unified_events_interface import log_event, setup_events
+from unified_trading_library import get_pubsub_client, get_secret_client, log_event, setup_events
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +78,12 @@ _TRADE_KEY_PATTERNS = frozenset(
         "bybit-api-secret",
         "deribit-api-key",
         "deribit-api-secret",
-        "kraken-api-key",
-        "kraken-api-secret",
         "okx-api-key",
         "okx-api-secret",
         "coinbase-api-key",
         "coinbase-api-secret",
         "betfair-session-token",
         "kalshi-api-key",
-        "bloxroute-api-key",
     ]
 )
 
@@ -99,9 +95,7 @@ _DATA_KEY_PATTERNS = frozenset(
         "thegraph-api-key",
         "alchemy-api-key",
         "coinglass-api-key",
-        "arkham-api-key",
         "odds-api-key",
-        "pinnacle-api-key",
         "aws-hyperliquid-s3",
     ]
 )

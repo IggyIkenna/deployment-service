@@ -177,6 +177,133 @@ resource "google_storage_bucket" "instruments_defi" {
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
+resource "google_storage_bucket" "instruments_sports" {
+  name     = "instruments-store-sports-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "instruments_prediction" {
+  name     = "instruments-store-prediction-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
+}
+
+# Test buckets for instruments (30-day lifecycle)
+resource "google_storage_bucket" "instruments_cefi_test" {
+  name     = "instruments-store-cefi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "instruments_tradfi_test" {
+  name     = "instruments-store-tradfi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "instruments_defi_test" {
+  name     = "instruments-store-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "instruments_sports_test" {
+  name     = "instruments-store-sports-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "instruments_prediction_test" {
+  name     = "instruments-store-prediction-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
+}
+
 resource "google_storage_bucket" "market_data_cefi" {
   name     = "market-data-tick-cefi-${var.project_id}"
   project  = var.project_id
@@ -231,6 +358,141 @@ resource "google_storage_bucket" "market_data_defi" {
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
 
+resource "google_storage_bucket" "market_data_sports" {
+  name     = "market-data-tick-sports-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_prediction" {
+  name     = "market-data-tick-prediction-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+# Test buckets for market data tick (30-day lifecycle)
+resource "google_storage_bucket" "market_data_cefi_test" {
+  name     = "market-data-tick-cefi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_tradfi_test" {
+  name     = "market-data-tick-tradfi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_test" {
+  name     = "market-data-tick-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_sports_test" {
+  name     = "market-data-tick-sports-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_prediction_test" {
+  name     = "market-data-tick-prediction-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
+}
+
+# Candles buckets retired 2026-04-18: MDPS writes co-located under
+# market-data-tick-{category}-* in the `processed_candles/` subprefix, not to a
+# separate bucket. All 10 market-data-candles-* buckets (5 prod + 5 test) were
+# verified empty (0 objects / 0 bytes) before retirement. See
+# unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
+# terraform will `destroy` the resources below on next apply; the `gcp/main.tf`
+# block that once defined them has been deleted intentionally (no recreation).
+
 # Calendar data is shared across envs (no env suffix)
 resource "google_storage_bucket" "features_calendar" {
   name     = "features-calendar-${var.project_id}"
@@ -248,6 +510,114 @@ resource "google_storage_bucket" "features_calendar" {
     }
   }
   labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "gas_fees" {
+  name     = "gas-fees-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "gas-fees-reference", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "gas_fees_test" {
+  name     = "gas-fees-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "gas-fees-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "solana_defi" {
+  name     = "solana-defi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "solana-defi-reference", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "solana_defi_test" {
+  name     = "solana-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "solana-defi-test", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "evm_defi" {
+  name     = "evm-defi-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "evm-defi-reference", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "evm_defi_test" {
+  name     = "evm-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "evm-defi-test", "tier" = "group-a" })
 }
 
 # =============================================================================
@@ -309,6 +679,133 @@ resource "google_storage_bucket" "features_delta_one_defi" {
   labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
 }
 
+resource "google_storage_bucket" "features_delta_one_sports" {
+  name     = "features-delta-one-sports-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_prediction" {
+  name     = "features-delta-one-prediction-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
+}
+
+# Test buckets for features-delta-one (30-day lifecycle)
+resource "google_storage_bucket" "features_delta_one_cefi_test" {
+  name     = "features-delta-one-cefi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_tradfi_test" {
+  name     = "features-delta-one-tradfi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_defi_test" {
+  name     = "features-delta-one-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_sports_test" {
+  name     = "features-delta-one-sports-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_delta_one_prediction_test" {
+  name     = "features-delta-one-prediction-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
+}
+
 resource "google_storage_bucket" "features_volatility_cefi" {
   name     = "features-volatility-cefi-${var.environment}-${var.project_id}"
   project  = var.project_id
@@ -345,6 +842,152 @@ resource "google_storage_bucket" "features_volatility_tradfi" {
   labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
 }
 
+resource "google_storage_bucket" "features_volatility_defi" {
+  name     = "features-volatility-defi-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_sports" {
+  name     = "features-volatility-sports-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_prediction" {
+  name     = "features-volatility-prediction-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 365 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
+}
+
+# Test buckets for features-volatility (30-day lifecycle)
+resource "google_storage_bucket" "features_volatility_cefi_test" {
+  name     = "features-volatility-cefi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_tradfi_test" {
+  name     = "features-volatility-tradfi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_defi_test" {
+  name     = "features-volatility-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_sports_test" {
+  name     = "features-volatility-sports-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_volatility_prediction_test" {
+  name     = "features-volatility-prediction-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
+}
+
+# Onchain features — cefi + defi only (cross-aspect)
 resource "google_storage_bucket" "features_onchain_cefi" {
   name     = "features-onchain-cefi-${var.environment}-${var.project_id}"
   project  = var.project_id
@@ -414,6 +1057,17 @@ resource "google_storage_bucket" "ml_configs" {
   labels = merge(local.common_labels, { "purpose" = "ml-configs", "tier" = "group-b" })
 }
 
+resource "google_storage_bucket" "ml_training_artifacts" {
+  name     = "ml-training-artifacts-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "ml-training-artifacts", "tier" = "group-b" })
+}
+
 resource "google_storage_bucket" "strategy_cefi" {
   name     = "strategy-store-cefi-${var.environment}-${var.project_id}"
   project  = var.project_id
@@ -478,6 +1132,143 @@ resource "google_storage_bucket" "execution_defi" {
   force_destroy               = false
   versioning { enabled = true }
   labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "strategy_sports" {
+  name     = "strategy-store-sports-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "strategy_prediction" {
+  name     = "strategy-store-prediction-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "execution_sports" {
+  name     = "execution-store-sports-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "execution_prediction" {
+  name     = "execution-store-prediction-${var.environment}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
+}
+
+# Features-sports (dedicated bucket, no env suffix — raw sports features)
+resource "google_storage_bucket" "features_sports" {
+  name     = "features-sports-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-sports", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "features_sports_test" {
+  name     = "features-sports-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-sports-test", "tier" = "group-a" })
+}
+
+# Features-calendar test bucket
+resource "google_storage_bucket" "features_calendar_test" {
+  name     = "features-calendar-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-calendar-test", "tier" = "group-a" })
+}
+
+# Onchain features test buckets
+resource "google_storage_bucket" "features_onchain_cefi_test" {
+  name     = "features-onchain-cefi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-onchain-test", "tier" = "group-b" })
+}
+
+resource "google_storage_bucket" "features_onchain_defi_test" {
+  name     = "features-onchain-defi-test-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 30 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "features-onchain-test", "tier" = "group-b" })
 }
 
 # Deployment config and state (per-env, used by Cloud Scheduler + audit)

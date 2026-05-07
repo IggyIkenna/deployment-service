@@ -40,7 +40,7 @@ from deployment_service.shard_calculator import Shard
 def _make_shard(
     index: int = 0,
     total: int = 1,
-    category: str = "CEFI",
+    asset_group: str = "CEFI",
     start: str = "2024-01-01",
     end: str = "2024-01-01",
 ) -> Shard:
@@ -49,7 +49,7 @@ def _make_shard(
         shard_index=index,
         total_shards=total,
         dimensions={
-            "category": category,
+            "asset_group": asset_group,
             "date": {"start": start, "end": end},
         },
     )
@@ -59,7 +59,7 @@ def _make_summary(service: str = "instruments-service", total: int = 1) -> dict[
     return {
         "service": service,
         "total_shards": total,
-        "breakdown": {"category": 3, "date": total},
+        "breakdown": {"asset_group": 3, "date": total},
     }
 
 
@@ -430,15 +430,15 @@ class TestCalculateStandaloneCommand:
                 [
                     "--service",
                     "instruments-service",
-                    "--category",
+                    "--asset-group",
                     "CEFI",
-                    "--category",
+                    "--asset-group",
                     "TRADFI",
                 ],
                 obj=ctx_obj,
             )
         call_kwargs = mock_calculator.calculate_shards.call_args.kwargs
-        assert cast(list[str], call_kwargs.get("category", [])) == ["CEFI", "TRADFI"]
+        assert cast(list[str], call_kwargs.get("asset_group", [])) == ["CEFI", "TRADFI"]
 
     @pytest.mark.unit
     def test_ignore_start_dates_flag(self, tmp_path) -> None:
@@ -552,7 +552,7 @@ class TestInfoStandaloneCommand:
         mock_loader.load_service_config.return_value = {
             "description": "Test Desc",
             "dimensions": [{"name": "category", "type": "fixed", "values": ["A", "B"]}],
-            "cli_args": {"category": "--category"},
+            "cli_args": {"category": "--asset-group"},
             "compute": {"vm": {"machine_type": "c2-standard-4"}},
         }
         mock_loader.load_venues_config.return_value = {}

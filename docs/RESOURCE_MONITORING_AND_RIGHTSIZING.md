@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # Resource Monitoring and Machine Rightsizing
 
 **Purpose:** Track actual CPU/RAM/disk usage per job to optimize machine sizing
@@ -727,7 +731,7 @@ For each service, validate machine specs against:
 
 ```bash
 # Run any service locally, check logs for INFO-level summaries
-python -m instruments_service.cli.main --category CEFI --start-date 2024-01-15 --end-date 2024-01-15
+python -m instruments_service.cli.main --asset-group CEFI --start-date 2024-01-15 --end-date 2024-01-15
 
 # Should see:
 # INFO: Resource monitoring started (machine_type=local, allocated_cpu=8, allocated_memory_gb=16)
@@ -894,7 +898,7 @@ curl http://localhost:8000/api/deployments/20240115-123456/resource-metrics | jq
 ```bash
 # Run with DEBUG level
 export LOG_LEVEL=DEBUG
-python -m features_delta_one_service.cli.main --category CEFI --start-date 2024-01-15 --end-date 2024-01-15
+python -m features_delta_one_service.cli.main --asset-group CEFI --start-date 2024-01-15 --end-date 2024-01-15
 
 # Check logs for periodic metrics
 # Should see every 30 seconds: "System metrics: CPU=X%, Memory=Y%, Disk=Z%"

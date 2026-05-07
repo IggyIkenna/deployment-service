@@ -88,9 +88,9 @@ REPOS_TO_RUN=()
 
 # Phase 0a: Observability migration - only UTD v2 may use setup_cloud_logging/observability
 if [ -f "$SCRIPT_DIR/check_observability_migration.py" ]; then
-    echo -e "${BLUE}[Phase 0a] Checking observability migration (services must use unified_events_interface)...${NC}"
+    echo -e "${BLUE}[Phase 0a] Checking observability migration (services must use unified_trading_library.events)...${NC}"
     if ! python3 "$SCRIPT_DIR/check_observability_migration.py"; then
-        echo -e "${RED}❌ Services must use unified_events_interface. Only deployment-service may use setup_cloud_logging.${NC}"
+        echo -e "${RED}❌ Services must use unified_trading_library.events. Only deployment-service may use setup_cloud_logging.${NC}"
         exit 1
     fi
     echo ""

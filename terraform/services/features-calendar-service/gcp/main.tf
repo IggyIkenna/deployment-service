@@ -53,7 +53,7 @@ main:
                     - "compute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
                     - "--start-date"
                     - $${t_plus_1_date}
@@ -103,7 +103,7 @@ main:
                     - "compute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "TRADFI"
                     - "--start-date"
                     - $${t_plus_1_date}
@@ -152,7 +152,7 @@ main:
                     - "compute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "DEFI"
                     - "--start-date"
                     - $${t_plus_1_date}
@@ -222,7 +222,7 @@ main:
                     - "compute"
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - $${category}
                     - "--start-date"
                     - $${start_date}

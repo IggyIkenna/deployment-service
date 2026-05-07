@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 Dependencies - Service dependency graph management.
 
@@ -170,7 +171,7 @@ class DependencyGraph:
         self,
         service: str,
         date: str,
-        category: str | None = None,
+        asset_group: str | None = None,
         domain: str | None = None,
         mode: str = "batch",
         deployment_profile: str | None = None,
@@ -182,7 +183,7 @@ class DependencyGraph:
         Args:
             service: Service to check dependencies for
             date: Date to check (YYYY-MM-DD)
-            category: Category (CEFI/TRADFI/DEFI) for category-specific checks
+            asset_group: Asset group (CEFI/TRADFI/DEFI) for axis-specific checks
             domain: Domain (cefi/tradfi/defi) for domain-specific checks
             **template_vars: Additional template variables
 
@@ -207,9 +208,11 @@ class DependencyGraph:
             **template_vars,
         }
 
-        if category:
-            vars_dict["category"] = category
-            vars_dict["category_lower"] = category.lower()
+        if asset_group:
+            # Legacy path templates use ``category``; SSOT name is ``asset_group``.
+            vars_dict["category"] = asset_group
+            vars_dict["asset_group"] = asset_group
+            vars_dict["asset_group_lower"] = asset_group.lower()
 
         if domain:
             vars_dict["domain"] = domain
@@ -429,7 +432,7 @@ class DependencyGraph:
         self,
         service: str,
         date: str,
-        category: str | None = None,
+        asset_group: str | None = None,
         domain: str | None = None,
         mode: str = "batch",
         deployment_profile: str | None = None,
@@ -442,7 +445,7 @@ class DependencyGraph:
         Args:
             service: Service to validate
             date: Date to check
-            category: Optional category filter
+            asset_group: Optional asset group filter
             domain: Optional domain filter
             fail_on_optional: Whether to fail on missing optional deps
             **template_vars: Additional template variables
@@ -456,7 +459,7 @@ class DependencyGraph:
         report = self.check_dependencies(
             service=service,
             date=date,
-            category=category,
+            asset_group=asset_group,
             domain=domain,
             mode=mode,
             deployment_profile=deployment_profile,

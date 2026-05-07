@@ -76,9 +76,9 @@ variable "backfill_workflow_name" {
 }
 
 variable "schedule" {
-  description = "Cron schedule (default: 11:00 AM UTC - parallel with other feature services)"
+  description = "Cron schedule (default: 07:00 UTC - one hour after Tier-1 discovery at 06:00 UTC so fixtures rolling window is fresh before fixture_features compute)"
   type        = string
-  default     = "0 11 * * *"
+  default     = "0 7 * * *"
 }
 
 variable "time_zone" {

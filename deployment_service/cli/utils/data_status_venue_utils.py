@@ -8,17 +8,27 @@ from typing import cast as _cast
 
 import click
 import gcsfs
-import pyarrow.parquet as pq
+from unified_api_contracts import VenueMapping
+from unified_api_contracts.internal import MarketCategory
 
 from ...config_loader import ConfigLoader
-from ...deployment_config import DeploymentConfig
 from .data_status_formatters import format_venue_coverage_header, format_venue_coverage_results
+
+# Canonical market categories for data status commands (excludes SPORTS/PREDICTION)
+_DATA_MARKET_CATEGORIES: list[str] = [
+    MarketCategory.CEFI.value,
+    MarketCategory.TRADFI.value,
+    MarketCategory.DEFI.value,
+]
+
+# Earliest date for pre-launch data; used when a category has no explicit start date configured
+DEFAULT_CATEGORY_START_DATE = "2020-01-01"
 
 
 def check_instruments_venue_coverage(
     start_date: datetime,
     end_date: datetime,
-    category: tuple[str, ...],
+    asset_group: tuple[str, ...],
     output: str,
     config_dir: str,
 ):
@@ -32,19 +42,19 @@ def check_instruments_venue_coverage(
     indicates an issue with that venue's adapter (rate limits, API errors, etc.)
     rather than waiting for market-tick-data-handler to fail.
     """
-    _deployment_config = DeploymentConfig()
-
     scan_start = time.time()
     loader = ConfigLoader(config_dir)
 
     # Create shared GCS filesystem instance
     gcs_fs = gcsfs.GCSFileSystem()
 
-    # Load expected start dates for venues
+    # YAML config for category-level start dates and bucket config only.
+    # Venue start dates come exclusively from UAC VenueMapping (SSOT).
     expected_dates = loader.load_expected_start_dates()
     instruments_config = expected_dates.get("instruments-service") or {}
+    _venue_mapping = VenueMapping()
 
-    categories = list(category) if category else ["CEFI", "TRADFI", "DEFI"]
+    asset_groups = list(asset_group) if asset_group else list(_DATA_MARKET_CATEGORIES)
 
     format_venue_coverage_header(start_date, end_date)
     click.echo(
@@ -65,12 +75,30 @@ def check_instruments_venue_coverage(
     missing_files = 0
 
     def check_parquet_venues(cat: str, date_str: str, gcs_path: str, fs) -> dict[str, object]:
-        """Read venue column from a single parquet file using pyarrow."""
+        """Discover venues from the per-venue directory structure.
+
+        Instruments are stored at: {bucket}/instrument_availability/by_date/
+        day={date}/venue={venue}/instruments.parquet
+
+        gcs_path is the day-level prefix (without trailing slash).
+        We list venue= subdirectories to discover which venues are present.
+        """
         try:
-            # Use pyarrow with gcsfs for efficient column-only reads
-            # Path should be without gs:// prefix for gcsfs
-            table = pq.read_table(gcs_path, filesystem=fs, columns=["venue"])
-            found_venues = set(table.to_pandas()["venue"].unique())
+            # List venue=* subdirectories under the day prefix
+            entries = fs.ls(gcs_path, detail=False)
+            found_venues: set[str] = set()
+            for entry in entries:
+                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVEV3-ETHEREUM
+                basename = entry.rstrip("/").rsplit("/", 1)[-1]
+                if basename.startswith("venue="):
+                    found_venues.add(basename[len("venue=") :])
+            if not found_venues:
+                return {
+                    "date": date_str,
+                    "cat": cat,
+                    "found_venues": set(),
+                    "error": "file_not_found",
+                }
             return {
                 "date": date_str,
                 "cat": cat,
@@ -79,7 +107,6 @@ def check_instruments_venue_coverage(
             }
         except (OSError, ValueError, RuntimeError) as e:
             error_msg = str(e)
-            # File not found is common for pre-launch dates
             if (
                 "404" in error_msg
                 or "NotFound" in error_msg
@@ -101,9 +128,9 @@ def check_instruments_venue_coverage(
 
     # Build tasks for parallel execution
     tasks = []
-    for cat in categories:
+    for cat in asset_groups:
         cat_config = instruments_config.get(cat, {})
-        cat_start = cat_config.get("category_start", "2020-01-01")
+        cat_start = cat_config.get("category_start", DEFAULT_CATEGORY_START_DATE)
         expected_venues = set(cat_config.get("venues") or {}.keys())
 
         for date_str in all_dates:
@@ -111,16 +138,15 @@ def check_instruments_venue_coverage(
             if date_str < cat_start:
                 continue
 
-            bucket = f"instruments-store-{cat.lower()}-{_deployment_config.gcp_project_id}"
-            # Path without gs:// prefix for gcsfs
-            gcs_path = (
-                f"{bucket}/instrument_availability/by_date/day={date_str}/instruments.parquet"
-            )
+            bucket = loader.get_bucket_name("instruments-store", cat)
+            # Day-level prefix (no trailing slash) — venue= subdirs live beneath this.
+            # Structure: {bucket}/instrument_availability/by_date/day={date}/venue={venue}/instruments.parquet
+            gcs_path = f"{bucket}/instrument_availability/by_date/day={date_str}"
 
             tasks.append((cat, date_str, gcs_path, expected_venues))
             total_files += 1
 
-    click.echo(f"  Checking {total_files} parquet files across {len(categories)} categories...")
+    click.echo(f"  Checking {total_files} parquet files across {len(asset_groups)} asset groups...")
 
     # Execute in parallel
     with ThreadPoolExecutor(max_workers=16) as executor:
@@ -156,13 +182,16 @@ def check_instruments_venue_coverage(
                 }
             else:
                 found = result["found_venues"]
-                cat_config = instruments_config.get(cat, {})
-                venues_config = cat_config.get("venues") or {}
 
-                # Calculate expected venues for this date (venue must have started)
+                # UAC VenueMapping is the SSOT for venue start dates.
+                # For each found venue, check if it should exist on this date.
+                # Use ``get_instrument_discovery_start`` so venues with a
+                # discovery-API gap narrower than the market-data archive
+                # (e.g. HYPERLIQUID 2023-11-01) clip correctly.
                 expected_for_date = set()
-                for venue, venue_start in venues_config.items():
-                    if date_str >= venue_start:
+                for venue in found:
+                    uac_start = _venue_mapping.get_instrument_discovery_start(venue)
+                    if uac_start and date_str >= uac_start:
                         expected_for_date.add(venue)
 
                 missing = expected_for_date - found

@@ -640,3 +640,26 @@ The `FUNCTION_SIZE_EXTRA_EXCLUDES` variable in `scripts/quality-gates.sh` now ex
 **Status:** IMPLEMENTED 2026-03-12 — exclusions active in `scripts/quality-gates.sh`
 
 **Target:** Remove baseline when upstream type stubs are available.
+
+---
+
+## 2.17 Schema Provenance — Service-Internal @dataclass Types
+
+**Date:** 2026-03-24
+**Files:**
+
+- `deployment_service/catalog.py`: `CatalogEntry`, `ExecutionConfigStatus`, `ServiceCatalog`
+- `deployment_service/monitor.py`: `DeploymentStatus`, `ServiceHealthReport`
+
+**Classification:** CORRECT-LOCAL — service-internal calculation types that do not cross repo boundaries.
+
+These `@dataclass` types are used exclusively within deployment-service for:
+
+- `CatalogEntry` / `ServiceCatalog` / `ExecutionConfigStatus` (`catalog.py`): GCS file count tracking and completion percentage calculations for the data status CLI.
+- `DeploymentStatus` / `ServiceHealthReport` (`monitor.py`): Service health aggregation for the deployment monitor.
+
+None of these types are exported in `deployment_service/__init__.py`, imported by any sibling repo, or used as cross-service contracts. They are service-internal implementation details equivalent to FastAPI DTOs in a service's API layer.
+
+**Why not in UIC:** These types model deployment-service–specific operational state (GCS blob counts, completion percentages, health aggregations). They are not domain data contracts shared across services and do not belong in `unified-internal-contracts`. Moving them to UIC would create a circular dependency (deployment-service exists to MANAGE other services, not to share contracts with them).
+
+**Status:** JUSTIFIED — no migration required.

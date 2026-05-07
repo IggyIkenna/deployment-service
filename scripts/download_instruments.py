@@ -28,8 +28,8 @@ Usage:
     # Dry-run to see file count
     python scripts/download_instruments.py --dry-run
 
-    # Download specific category
-    python scripts/download_instruments.py --category CEFI
+    # Download specific asset group
+    python scripts/download_instruments.py --asset-group CEFI
 
     # Test with limited date range
     python scripts/download_instruments.py --start-date 2026-01-01 --end-date 2026-01-07
@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Optional
 
 import polars as pl
-from unified_cloud_interface import StorageClient, get_storage_client
+from unified_trading_library import StorageClient, get_storage_client
 
 sys.path.insert(0, str(Path(__file__).parent))
 import logging
@@ -110,26 +110,26 @@ def log(msg: str) -> None:
     )
 
 
-def get_last_aggregated_date(categories: list[str] | None = None) -> date | None:
+def get_last_aggregated_date(asset_groups: list[str] | None = None) -> date | None:
     """
     Detect the most recent aggregated instrument file date from GCS.
 
-    Scans the aggregated/ prefix in each category bucket for files matching:
+    Scans the aggregated/ prefix in each per–asset-group bucket for files matching:
     aggregated_instruments_YYYY-MM-DD.parquet
 
-    Returns the most recent date found across all categories, or None if no files exist.
+    Returns the most recent date found across all selected groups, or None if no files exist.
     """
-    categories = categories or list(BUCKETS.keys())
+    groups = asset_groups or list(BUCKETS.keys())
     client = get_storage_client()
     latest_date: date | None = None
 
     log("Detecting last aggregated instrument date from GCS...")
 
-    for category in categories:
-        if category not in BUCKETS:
+    for ag in groups:
+        if ag not in BUCKETS:
             continue
 
-        bucket_name = BUCKETS[category]
+        bucket_name = BUCKETS[ag]
         bucket = client.bucket(bucket_name)
 
         try:
@@ -143,7 +143,7 @@ def get_last_aggregated_date(categories: list[str] | None = None) -> date | None
                     )
                     if latest_date is None or blob_date > latest_date:
                         latest_date = blob_date
-                        log(f"  {category}: Found aggregated file dated {blob_date}")
+                        log(f"  {ag}: Found aggregated file dated {blob_date}")
         except (OSError, PermissionError) as e:
             log(f"  Warning: Failed to check aggregated files: {e}")
 
@@ -203,13 +203,13 @@ class InstrumentDownloader:
         self,
         download_workers: int = DEFAULT_DOWNLOAD_WORKERS,
         list_workers: int = DEFAULT_LIST_WORKERS,
-        categories: list[str] | None = None,
+        asset_groups: list[str] | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
     ):
         self.download_workers = download_workers
         self.list_workers = list_workers
-        self.categories = categories or list(BUCKETS.keys())
+        self.asset_groups = asset_groups or list(BUCKETS.keys())
         self.start_date = start_date
         self.end_date = end_date
         self._clients: dict[str, StorageClient] = {}
@@ -217,20 +217,20 @@ class InstrumentDownloader:
 
     def warmup_connections(self) -> None:
         """Pre-create GCS clients for each bucket (connection warmup)."""
-        log(f"Warming up connections to {len(self.categories)} buckets...")
-        for category in self.categories:
-            if category not in BUCKETS:
-                log(f"  WARNING: Unknown category '{category}', skipping")
+        log(f"Warming up connections to {len(self.asset_groups)} buckets...")
+        for ag in self.asset_groups:
+            if ag not in BUCKETS:
+                log(f"  WARNING: Unknown asset group '{ag}', skipping")
                 continue
-            bucket_name = BUCKETS[category]
-            self._clients[category] = get_storage_client()
-            self._buckets[category] = self._clients[category].bucket(bucket_name)
+            bucket_name = BUCKETS[ag]
+            self._clients[ag] = get_storage_client()
+            self._buckets[ag] = self._clients[ag].bucket(bucket_name)
             # Warmup: make a small request to establish connection
             try:
-                list(self._buckets[category].list_blobs(prefix=PREFIX, max_results=1))
-                log(f"  {category}: Connected to {bucket_name}")
+                list(self._buckets[ag].list_blobs(prefix=PREFIX, max_results=1))
+                log(f"  {ag}: Connected to {bucket_name}")
             except (OSError, ValueError, RuntimeError) as e:
-                log(f"  {category}: WARNING - Connection test failed: {e}")
+                log(f"  {ag}: WARNING - Connection test failed: {e}")
 
     def _filter_by_date(self, blob_name: str) -> bool:
         """Filter blob by date range if specified."""
@@ -251,14 +251,14 @@ class InstrumentDownloader:
     def list_all_blobs_parallel(self) -> dict[str, list[str]]:
         """List blobs from all buckets in parallel using ThreadPoolExecutor."""
         log(
-            f"Listing blobs from {len(self.categories)} buckets with {self.list_workers} workers..."
+            f"Listing blobs from {len(self.asset_groups)} buckets with {self.list_workers} workers..."
         )
 
-        def list_bucket_blobs(category: str) -> tuple[str, list[str]]:
-            if category not in self._buckets:
-                return category, []
+        def list_bucket_blobs(ag: str) -> tuple[str, list[str]]:
+            if ag not in self._buckets:
+                return ag, []
 
-            bucket = self._buckets[category]
+            bucket = self._buckets[ag]
             try:
                 blobs = list(bucket.list_blobs(prefix=PREFIX))
                 blob_names = [
@@ -266,14 +266,14 @@ class InstrumentDownloader:
                     for b in blobs
                     if b.name.endswith(".parquet") and self._filter_by_date(b.name)
                 ]
-                log(f"  {category}: Found {len(blob_names)} parquet files")
-                return category, blob_names
+                log(f"  {ag}: Found {len(blob_names)} parquet files")
+                return ag, blob_names
             except (OSError, ValueError, RuntimeError) as e:
-                log(f"  {category}: ERROR listing blobs: {e}")
-                return category, []
+                log(f"  {ag}: ERROR listing blobs: {e}")
+                return ag, []
 
         with ThreadPoolExecutor(max_workers=self.list_workers) as executor:
-            results = dict(executor.map(list_bucket_blobs, self.categories))
+            results = dict(executor.map(list_bucket_blobs, self.asset_groups))
 
         total_files = sum(len(files) for files in results.values())
         log(f"Total files to download: {total_files}")
@@ -289,35 +289,35 @@ class InstrumentDownloader:
         stats = {"total": 0, "success": 0, "failed": 0, "skipped": 0}
         dest_path = Path(dest_dir)
 
-        for category, blob_names in blob_map.items():
+        for ag, blob_names in blob_map.items():
             if not blob_names:
-                log(f"  {category}: No files to download")
+                log(f"  {ag}: No files to download")
                 continue
 
-            if category not in self._buckets:
-                log(f"  {category}: WARNING - No bucket connection, skipping")
+            if ag not in self._buckets:
+                log(f"  {ag}: WARNING - No bucket connection, skipping")
                 continue
 
-            bucket = self._buckets[category]
-            category_dest = dest_path / category
-            category_dest.mkdir(parents=True, exist_ok=True)
+            bucket = self._buckets[ag]
+            ag_dest = dest_path / ag
+            ag_dest.mkdir(parents=True, exist_ok=True)
 
             # Filter out existing files if skip_existing is enabled
             if skip_existing:
                 original_count = len(blob_names)
-                blob_names = [name for name in blob_names if not (category_dest / name).exists()]
+                blob_names = [name for name in blob_names if not (ag_dest / name).exists()]
                 skipped = original_count - len(blob_names)
                 stats["skipped"] += skipped
                 if skipped > 0:
-                    log(f"  {category}: Skipping {skipped} existing files")
+                    log(f"  {ag}: Skipping {skipped} existing files")
 
             if not blob_names:
-                log(f"  {category}: All files already exist")
+                log(f"  {ag}: All files already exist")
                 continue
 
             stats["total"] += len(blob_names)
             log(
-                f"  {category}: Downloading {len(blob_names)} files with {self.download_workers} workers..."
+                f"  {ag}: Downloading {len(blob_names)} files with {self.download_workers} workers..."
             )
 
             def _download_one(args: tuple[str, object, Path]) -> Exception | None:
@@ -333,7 +333,7 @@ class InstrumentDownloader:
                     return exc
 
             try:
-                work_items = [(name, bucket, category_dest) for name in blob_names]
+                work_items = [(name, bucket, ag_dest) for name in blob_names]
                 with ThreadPoolExecutor(max_workers=self.download_workers) as executor:
                     download_results = list(executor.map(_download_one, work_items))
 
@@ -345,37 +345,37 @@ class InstrumentDownloader:
                     else:
                         stats["success"] += 1
 
-                log(f"  {category}: Downloaded {stats['success']} files")
+                log(f"  {ag}: Downloaded {stats['success']} files")
 
             except (OSError, ValueError, RuntimeError) as e:
-                log(f"  {category}: ERROR during download: {e}")
+                log(f"  {ag}: ERROR during download: {e}")
                 stats["failed"] += len(blob_names)
 
         return stats
 
 
 class InstrumentAggregator:
-    """Aggregates instrument parquet files per category using Polars."""
+    """Aggregates instrument parquet files per asset group using Polars."""
 
-    def __init__(self, input_dir: str, categories: list[str] | None = None):
+    def __init__(self, input_dir: str, asset_groups: list[str] | None = None):
         self.input_dir = Path(input_dir)
-        self.categories = categories or list(BUCKETS.keys())
+        self.asset_groups = asset_groups or list(BUCKETS.keys())
 
-    def find_parquet_files(self, category: str) -> list[Path]:
-        """Find all parquet files for a category."""
-        category_path = self.input_dir / category
-        if not category_path.exists():
+    def find_parquet_files(self, asset_group: str) -> list[Path]:
+        """Find all parquet files for an asset group."""
+        group_path = self.input_dir / asset_group
+        if not group_path.exists():
             return []
-        return list(category_path.rglob("*.parquet"))
+        return list(group_path.rglob("*.parquet"))
 
-    def aggregate_category(self, category: str) -> Optional["pl.DataFrame"]:
-        """Aggregate all parquet files for a single category."""
-        parquet_files = self.find_parquet_files(category)
+    def aggregate_for_asset_group(self, asset_group: str) -> Optional["pl.DataFrame"]:
+        """Aggregate all parquet files for a single asset group."""
+        parquet_files = self.find_parquet_files(asset_group)
         if not parquet_files:
-            log(f"  {category}: No parquet files found")
+            log(f"  {asset_group}: No parquet files found")
             return None
 
-        log(f"  {category}: Found {len(parquet_files)} parquet files")
+        log(f"  {asset_group}: Found {len(parquet_files)} parquet files")
 
         # Lazy scan all files
         lazy_frames = []
@@ -387,7 +387,7 @@ class InstrumentAggregator:
                 log(f"    WARNING: Could not scan {f.name}: {e}")
 
         if not lazy_frames:
-            log(f"  {category}: No valid parquet files could be scanned")
+            log(f"  {asset_group}: No valid parquet files could be scanned")
             return None
 
         # Concatenate with diagonal_relaxed to handle schema mismatches
@@ -411,7 +411,7 @@ class InstrumentAggregator:
 
         # Collect
         result = deduped.collect()
-        log(f"  {category}: Aggregated to {len(result)} unique instruments")
+        log(f"  {asset_group}: Aggregated to {len(result)} unique instruments")
         return result
 
     def aggregate_all(
@@ -419,7 +419,7 @@ class InstrumentAggregator:
         output_dir: str | None = None,
         upload_to_gcs: bool = False,
     ) -> dict[str, Path]:
-        """Aggregate all categories and optionally upload to GCS."""
+        """Aggregate all asset groups and optionally upload to GCS."""
         today = date.today().isoformat()
         output_path = Path(output_dir) if output_dir else self.input_dir.parent
         output_path.mkdir(parents=True, exist_ok=True)
@@ -430,31 +430,31 @@ class InstrumentAggregator:
         if upload_to_gcs:
             gcs_client = get_storage_client()
 
-        for category in self.categories:
-            log(f"\nAggregating {category}...")
-            df = self.aggregate_category(category)
+        for ag in self.asset_groups:
+            log(f"\nAggregating {ag}...")
+            df = self.aggregate_for_asset_group(ag)
 
             if df is None or len(df) == 0:
                 continue
 
             # Write local file
-            local_file = output_path / f"aggregated_instruments_{category}_{today}.parquet"
+            local_file = output_path / f"aggregated_instruments_{ag}_{today}.parquet"
             df.write_parquet(local_file)
             file_size_mb = local_file.stat().st_size / (1024 * 1024)
-            log(f"  {category}: Wrote {local_file} ({file_size_mb:.2f} MB)")
-            results[category] = local_file
+            log(f"  {ag}: Wrote {local_file} ({file_size_mb:.2f} MB)")
+            results[ag] = local_file
 
             # Upload to GCS if requested
             if upload_to_gcs and gcs_client:
-                bucket_name = BUCKETS[category]
+                bucket_name = BUCKETS[ag]
                 gcs_path = f"aggregated/aggregated_instruments_{today}.parquet"
                 try:
                     bucket = gcs_client.bucket(bucket_name)
                     blob = bucket.blob(gcs_path)
                     blob.upload_from_filename(str(local_file))
-                    log(f"  {category}: Uploaded to gs://{bucket_name}/{gcs_path}")
+                    log(f"  {ag}: Uploaded to gs://{bucket_name}/{gcs_path}")
                 except (OSError, ValueError, RuntimeError) as e:
-                    log(f"  Warning: Failed to upload {category}: {e}")
+                    log(f"  Warning: Failed to upload {ag}: {e}")
 
         return results
 
@@ -496,7 +496,7 @@ Examples:
   # Aggregate only (no download) - use existing local data
   python scripts/download_instruments.py --aggregate-only
 
-  # Aggregate only and upload to GCS (one file per category)
+  # Aggregate only and upload to GCS (one file per asset group)
   python scripts/download_instruments.py --aggregate-only --upload-to-gcs
         """,
     )
@@ -513,11 +513,11 @@ Examples:
         help=f"Parallel listing workers (default: {DEFAULT_LIST_WORKERS})",
     )
     parser.add_argument(
-        "--category",
+        "--asset-group",
         type=str,
         choices=["CEFI", "TRADFI", "DEFI"],
         action="append",
-        help="Filter to specific category (can be repeated)",
+        help="Filter to a specific asset group (can be repeated)",
     )
     parser.add_argument(
         "--start-date",
@@ -560,7 +560,7 @@ Examples:
     parser.add_argument(
         "--upload-to-gcs",
         action="store_true",
-        help="Upload aggregated files to GCS (one per category in same bucket)",
+        help="Upload aggregated files to GCS (one per asset group in same bucket)",
     )
     parser.add_argument(
         "--aggregate-output-dir",
@@ -595,7 +595,7 @@ Examples:
 
     # Auto date detection mode
     if args.auto and not args.aggregate_only:
-        last_date = get_last_aggregated_date(args.category)
+        last_date = get_last_aggregated_date(args.asset_group)
 
         if last_date is None:
             log("ERROR: No existing aggregated files found. Cannot use --auto mode.")
@@ -633,7 +633,7 @@ Examples:
     if not args.aggregate_only:
         log(f"Download workers: {args.download_workers}")
         log(f"List workers: {args.list_workers}")
-    log(f"Categories: {args.category or 'ALL'}")
+    log(f"Asset groups: {args.asset_group or 'ALL'}")
     if not args.aggregate_only:
         log(f"Date range: {args.start_date or 'beginning'} to {args.end_date or 'now'}")
     log(f"Data directory: {args.output_dir}")
@@ -649,7 +649,7 @@ Examples:
         log("\n[AGGREGATE-ONLY MODE] Using existing local data...")
         aggregator = InstrumentAggregator(
             input_dir=args.output_dir,
-            categories=args.category,
+            asset_groups=args.asset_group,
         )
 
         log("\n[PHASE 1] Aggregating local parquet files...")
@@ -663,8 +663,8 @@ Examples:
         log("\n" + "=" * 60)
         log("AGGREGATION COMPLETE")
         log("=" * 60)
-        for category, path in results.items():
-            log(f"  {category}: {path}")
+        for ag, path in results.items():
+            log(f"  {ag}: {path}")
 
         return 0
 
@@ -672,7 +672,7 @@ Examples:
     downloader = InstrumentDownloader(
         download_workers=args.download_workers,
         list_workers=args.list_workers,
-        categories=args.category,
+        asset_groups=args.asset_group,
         start_date=args.start_date,
         end_date=args.end_date,
     )
@@ -693,8 +693,8 @@ Examples:
     # Dry run: just show file count
     if args.dry_run:
         log("\n[DRY RUN] Would download:")
-        for category, blobs in blob_map.items():
-            log(f"  {category}: {len(blobs)} files")
+        for ag, blobs in blob_map.items():
+            log(f"  {ag}: {len(blobs)} files")
             if blobs:
                 log(f"    First: {blobs[0]}")
                 log(f"    Last:  {blobs[-1]}")
@@ -724,7 +724,7 @@ Examples:
         log("\n[PHASE 4] Aggregating downloaded data...")
         aggregator = InstrumentAggregator(
             input_dir=args.output_dir,
-            categories=args.category,
+            asset_groups=args.asset_group,
         )
         agg_output = args.aggregate_output_dir or str(Path(args.output_dir).parent)
         results = aggregator.aggregate_all(
@@ -735,8 +735,8 @@ Examples:
         log("\n" + "=" * 60)
         log("AGGREGATION COMPLETE")
         log("=" * 60)
-        for category, path in results.items():
-            log(f"  {category}: {path}")
+        for ag, path in results.items():
+            log(f"  {ag}: {path}")
 
     return 0 if stats["failed"] == 0 else 1
 

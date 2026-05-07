@@ -5,7 +5,7 @@ Usage:
     python -m src.cli calculate --service instruments-service
         --start-date 2024-01-01 --end-date 2024-12-31
     python -m src.cli calculate --service market-tick-data-handler
-        --category CEFI --max-shards 100
+        --asset-group CEFI --max-shards 100
 """
 
 import logging
@@ -18,9 +18,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic.
 warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince.*")
 
 import click
-from unified_events_interface import setup_events
 from unified_trading_library import (
     GracefulShutdownHandler,
+    ServiceBootstrap,
+    setup_events,
     setup_tracing,
 )
 
@@ -85,7 +86,8 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
     global _shutdown_handler
 
     # Event logging for UTD v2 progress/observability (before any log_event)
-    setup_events(service_name="deployment-service", mode="batch", sink=None)
+    # CLI tools use mode="local" — no event sink required (events logged to stdout)
+    setup_events(service_name="deployment-service", mode="local", sink=None)
     setup_tracing("deployment-service")
 
     # Initialize graceful shutdown handler (handles SIGTERM/SIGINT)
@@ -113,19 +115,26 @@ def cli(ctx, verbose: bool, config_dir: str | None, cloud: str):
 # Import command modules after defining cli
 from .commands.analysis import analysis_commands
 from .commands.calculation import calculation_commands
+from .commands.cluster import cluster_commands
+from .commands.data_status import data_status
+from .commands.deploy_missing import deploy_missing_commands
 from .commands.deployment import deployment_commands
 from .commands.management import management_commands
 from .commands.reporting import reporting_commands
+from .commands.sports_trigger import sports_trigger
 from .commands.validation import validation_commands
 
 # Add command groups
 for command in (
     calculation_commands
+    + cluster_commands
     + deployment_commands
     + management_commands
     + analysis_commands
     + validation_commands
     + reporting_commands
+    + deploy_missing_commands
+    + [data_status, sports_trigger]
 ):
     cli.add_command(command)
 
@@ -133,6 +142,36 @@ for command in (
 def main():
     """Entry point for the CLI."""
     cli()
+
+
+class _DeployBootstrapHandler:  # pragma: no cover
+    """Minimal UnifiedServiceHandler wrapper for ServiceBootstrap compliance.
+
+    deployment-service uses a click-based CLI for its workload; this class
+    satisfies the QG STEP 5.61 ServiceBootstrap pattern without changing the
+    actual dispatch path.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def preflight(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def process(self, *args: object, **kwargs: object) -> None:
+        cli(standalone_mode=False)
+
+
+def main_service_cli() -> None:  # pragma: no cover
+    """ServiceBootstrap entry point for deployment-service (QG STEP 5.61 compliance)."""
+    ServiceBootstrap(
+        service_name="deployment-service",
+        operations={"deploy": _DeployBootstrapHandler},
+        config=DeploymentConfig(),
+        add_date_args=False,
+        add_asset_group_arg=False,
+        description="Unified Trading deployment shard calculator and cluster manager",
+    ).run()
 
 
 if __name__ == "__main__":

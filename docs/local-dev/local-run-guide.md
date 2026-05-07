@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # Local Service Development Run Guide
 
 Run each core service locally in batch mode with `CLOUD_PROVIDER=local`.
@@ -167,7 +171,7 @@ export LOG_LEVEL=DEBUG
 cd features-delta-one-service
 SERVICE_MODE=batch CLOUD_PROVIDER=local USE_SECRET_MANAGER=false USE_NUMBA=false \
   python -m features_delta_one_service.cli.main \
-  --mode batch --category CEFI --feature-group technical_indicators \
+  --mode batch --asset-group CEFI --feature-group technical_indicators \
   --start-date 2024-01-02 --end-date 2024-01-02 \
   --log-level DEBUG
 ```
@@ -279,7 +283,7 @@ mkdir -p data/samples
 
 ### 2. Mock PubSub
 
-Each service uses `unified_events_interface` with a configurable sink:
+Each service uses `unified_trading_library.events` with a configurable sink:
 
 - `MockEventSink` — fully in-memory, no PubSub required (strategy-service uses this already)
 - `LocalFsEventSink` — writes events to local JSON files (features-delta-one uses this)

@@ -1,0 +1,25 @@
+cluster: prediction
+description: Prediction markets — subset of sports pipeline
+category: PREDICTION
+services:
+  - instruments-service
+  - market-tick-data-service
+  - market-data-processing-service
+  - features-sports-service
+  - ml-inference-service
+  - strategy-service
+  - execution-service # LIVE operational mode (automated strategies)
+  - execution-service:manual # MANUAL operational mode (operator booking + backup)
+  - position-balance-monitor-service
+  - pnl-attribution-service
+
+# Batch scheduling
+schedule:
+  cron: "0 6 * * *" # 6am UTC daily
+  as_of: yesterday # T+1 convention
+  timezone: UTC
+
+# Live mode settings
+live:
+  health_check_interval_s: 30
+  readiness_timeout_s: 120

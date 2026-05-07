@@ -1,0 +1,33 @@
+cluster: cefi
+description: CeFi pipeline — crypto spot, perpetuals, futures
+category: CEFI
+services:
+  - instruments-service
+  - market-tick-data-service
+  - market-data-processing-service
+  - features-calendar-service
+  - features-delta-one-service
+  - features-onchain-service
+  - features-cross-instrument-service
+  - features-multi-timeframe-service
+  - ml-training-service
+  - ml-inference-service
+  - strategy-service
+  - execution-service # LIVE operational mode (automated strategies)
+  - execution-service:manual # MANUAL operational mode (operator booking + backup)
+  - position-balance-monitor-service
+  - pnl-attribution-service
+  - risk-and-exposure-service
+  - alerting-service
+  - batch-live-reconciliation-service
+
+# Batch scheduling
+schedule:
+  cron: "0 6 * * *" # 6am UTC daily
+  as_of: yesterday # T+1 convention
+  timezone: UTC
+
+# Live mode settings
+live:
+  health_check_interval_s: 30
+  readiness_timeout_s: 120

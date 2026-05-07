@@ -21,6 +21,45 @@ logger = logging.getLogger(__name__)
 # Initialize configuration for project ID
 _config = DeploymentConfig()
 
+_LEGACY_AXIS_FILTER = "category"
+_TRADING_AXIS_FILTER = "asset_group"
+
+
+def _coalesce_trading_axis_filters(
+    service_config: dict[str, object],
+    raw_filters: dict[str, object],
+) -> dict[str, object]:
+    """Allow legacy extra_filters key ``category`` to apply to the ``asset_group`` dimension."""
+    names = {
+        str(d.get("name"))
+        for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])
+    }
+    if _TRADING_AXIS_FILTER not in names:
+        return raw_filters
+    out = dict(raw_filters)
+    if _LEGACY_AXIS_FILTER in out and _TRADING_AXIS_FILTER not in out:
+        out[_TRADING_AXIS_FILTER] = out[_LEGACY_AXIS_FILTER]
+    return out
+
+
+def _map_legacy_skip_dimensions(
+    service_config: dict[str, object], skip_dims: list[str]
+) -> list[str]:
+    """Map legacy ``category`` skip to ``asset_group`` when the service defines that dimension."""
+    names = {
+        str(d.get("name"))
+        for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])
+    }
+    if _TRADING_AXIS_FILTER not in names:
+        return list(skip_dims)
+    mapped: list[str] = []
+    for s in skip_dims:
+        if s == _LEGACY_AXIS_FILTER:
+            mapped.append(_TRADING_AXIS_FILTER)
+        else:
+            mapped.append(s)
+    return mapped
+
 
 class DimensionProcessor:
     """Handles processing of different dimension types for shard calculation."""
@@ -59,6 +98,11 @@ class DimensionProcessor:
         Returns:
             Tuple of (dimension_values, dimension_counts, hierarchical_dims)
         """
+        effective_skip = _map_legacy_skip_dimensions(service_config, list(skip_dimensions))
+        filter_dict: dict[str, object] = _coalesce_trading_axis_filters(
+            service_config, cast(dict[str, object], dict(filters))
+        )
+
         dimension_values: dict[str, list[object]] = {}
         dimension_counts: dict[str, int] = {}
         hierarchical_dims: dict[str, str] = {}  # Maps hier dim -> parent dim
@@ -68,14 +112,14 @@ class DimensionProcessor:
             dim_type = str(dim["type"])
 
             # Skip dimension if requested
-            if dim_name in skip_dimensions:
+            if dim_name in effective_skip:
                 logger.info("Skipping dimension '%s' from sharding", dim_name)
                 continue
 
             if dim_type == "fixed":
-                values = self._get_fixed_values(dim, filters)
+                values = self._get_fixed_values(dim, filter_dict)
             elif dim_type == "hierarchical":
-                values = self._get_hierarchical_values(dim, dimension_values, filters)
+                values = self._get_hierarchical_values(dim, dimension_values, filter_dict)
                 hierarchical_dims[dim_name] = str(dim["parent"])
             elif dim_type == "date_range":
                 values = self._get_date_values(dim, start_date, end_date, date_granularity_override)

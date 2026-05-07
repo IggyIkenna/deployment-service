@@ -94,4 +94,4 @@ chmod +x /usr/local/bin/ibgateway-healthcheck.sh
 echo "*/5 * * * * root /usr/local/bin/ibgateway-healthcheck.sh >> /var/log/ibgw-health.log 2>&1" > /etc/cron.d/ibgateway-health
 
 echo "[$(date -u)] IB Gateway setup complete. NEXT STEP: SSH with X11 forwarding for first-time login."
-echo "[$(date -u)] Command: gcloud compute ssh ibkr-gateway-vm --zone=us-central1-a -- -X"
+echo "[$(date -u)] Command: gcloud compute ssh ibkr-gateway-vm --zone=asia-northeast1-a -- -X"

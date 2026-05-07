@@ -108,10 +108,26 @@ TOPIC_REGISTRY=(
     "strategy-sports-signals|7|strategy-sports-signals-execution,strategy-sports-signals-monitor|7"
     "strategy-signals|7|strategy-signals-execution,strategy-signals-risk|7"
 
+    # Reference data — instruments-service signals DATA_READY after each scheduled write
+    # Downstream consumers (strategy, ML, features) subscribe to reload their instrument cache
+    "instruments-data-ready|3|instruments-data-ready-strategy,instruments-data-ready-ml,instruments-data-ready-features,instruments-data-ready-monitor|3"
+    # Instruments service lifecycle + operational events (log_event via PubSubEventSink)
+    "instruments-service-events|7|instruments-service-events-monitor,instruments-service-events-audit|7"
+
     # Config / ops
     "config-updates|14|config-updates-execution,config-updates-strategy,config-updates-risk,config-updates-features|14"
     "system-health-events|7|system-health-alerting,system-health-monitor|7"
     "audit-log-events|30|audit-log-sink|30"
+
+    # Prediction markets — Polymarket + Kalshi fill events (execution only, NOT domain data)
+    # Domain data (instruments, tick data) flows through GCS — no Pub/Sub needed
+    "fill-events-polymarket|3|fill-events-polymarket-pnl,fill-events-polymarket-risk,fill-events-polymarket-strategy|3"
+    "fill-events-kalshi|3|fill-events-kalshi-pnl,fill-events-kalshi-risk,fill-events-kalshi-strategy|3"
+
+    # Sports live streaming — per-fixture odds + stats for real-time visualization
+    # MTDS publishes live odds (Odds API + Betfair), instruments-service publishes live stats (API Football)
+    "sports-live-odds|3|sports-live-odds-api,sports-live-odds-features|3"
+    "sports-live-stats|3|sports-live-stats-api,sports-live-stats-features|3"
 )
 
 # ---------------------------------------------------------------------------

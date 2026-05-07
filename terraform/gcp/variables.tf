@@ -6,7 +6,7 @@ variable "project_id" {
 variable "region" {
   description = "GCP region"
   type        = string
-  default     = "us-central1"
+  default     = "asia-northeast1"
 }
 
 variable "environment" {
@@ -72,4 +72,10 @@ variable "protocol_service_env_overrides" {
   description = "Per-service PROTOCOL_* env overrides: {service-name -> {VAR -> value}}"
   type        = map(map(string))
   default     = {}
+}
+
+variable "project_number" {
+  description = "GCP project number — used to derive default compute service account email (PROJECT_NUMBER-compute@developer.gserviceaccount.com) for IAM grants on UI Cloud Run services."
+  type        = string
+  default     = "1060025368044"
 }

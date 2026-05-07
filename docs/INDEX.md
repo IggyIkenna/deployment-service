@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # Documentation Index
 
 **Last Updated:** February 28, 2026
@@ -32,13 +36,17 @@
 
 ### Deployment & Operations
 
-| Task                                                        | Document                                 |
-| ----------------------------------------------------------- | ---------------------------------------- |
-| Deploy services, sharding, data catalog                     | [CLI.md](CLI.md)                         |
-| **Live mode:** data-status --mode live, live job monitoring | [LIVE_MODE.md](LIVE_MODE.md)             |
-| Backfill runbook, troubleshooting                           | [RUNBOOKS.md](RUNBOOKS.md)               |
-| Cache strategy, deployment state, VM self-deletion          | [CACHE_AND_STATE.md](CACHE_AND_STATE.md) |
-| Dashboard UI spec                                           | [UI_SPEC.md](UI_SPEC.md)                 |
+| Task                                                         | Document                                                                                                                |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| **Runtime tiers (T0-T6) & cluster orchestration**            | [codex: runtime-tiers-and-deployment.md](../../unified-trading-codex/05-infrastructure/runtime-tiers-and-deployment.md) |
+| **Cluster configs** (cefi, tradfi, defi, sports, full)       | [configs/clusters/](../configs/clusters/)                                                                               |
+| **Cluster CLI** (bootstrap, teardown, batch, live, schedule) | See `deploy-shards cluster --help`                                                                                      |
+| **Deployment API** (for Deployment UI)                       | `POST /deployment/clusters/{name}/bootstrap`, `GET /deployment/live/status`, etc.                                       |
+| Deploy services, sharding, data catalog                      | [CLI.md](CLI.md)                                                                                                        |
+| **Live mode:** data-status --mode live, live job monitoring  | [LIVE_MODE.md](LIVE_MODE.md)                                                                                            |
+| Backfill runbook, troubleshooting                            | [RUNBOOKS.md](RUNBOOKS.md)                                                                                              |
+| Cache strategy, deployment state, VM self-deletion           | [CACHE_AND_STATE.md](CACHE_AND_STATE.md)                                                                                |
+| Dashboard UI spec                                            | [UI_SPEC.md](UI_SPEC.md)                                                                                                |
 
 ### Quality & Hardening
 

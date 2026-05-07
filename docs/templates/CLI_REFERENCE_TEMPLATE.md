@@ -1,3 +1,7 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # {Service Name} CLI Reference
 
 ## Usage
@@ -27,7 +31,7 @@ Process data in batch mode (per codex cli-standards).
 Validate upstream dependencies exist.
 
 ```bash
-{console-script} check-deps --category CEFI --date 2024-01-15
+{console-script} check-deps --asset-group CEFI --date 2024-01-15
 ```
 
 ### Health Check: `health`
@@ -40,13 +44,13 @@ Check service health status.
 
 ## Required Arguments
 
-| Argument       | Description                    | Values                                |
-| -------------- | ------------------------------ | ------------------------------------- |
-| `--operation`  | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
-| `--mode`       | How to run                     | `batch`, `live`                       |
-| `--category`   | Market category                | `CEFI`, `TRADFI`, `DEFI`              |
-| `--start-date` | Start date                     | `YYYY-MM-DD`                          |
-| `--end-date`   | End date                       | `YYYY-MM-DD`                          |
+| Argument        | Description                    | Values                                |
+| --------------- | ------------------------------ | ------------------------------------- |
+| `--operation`   | What to run (service-specific) | e.g. `instrument`, `fetch`, `compute` |
+| `--mode`        | How to run                     | `batch`, `live`                       |
+| `--asset-group` | Market category                | `CEFI`, `TRADFI`, `DEFI`              |
+| `--start-date`  | Start date                     | `YYYY-MM-DD`                          |
+| `--end-date`    | End date                       | `YYYY-MM-DD`                          |
 
 ## Optional Arguments
 
@@ -78,7 +82,7 @@ Check service health status.
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-31
 ```
@@ -89,7 +93,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --venue BINANCE-FUTURES \
     --start-date 2024-01-01 \
     --end-date 2024-01-31
@@ -101,7 +105,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category CEFI \
+    --asset-group CEFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-01 \
     --dry-run
@@ -113,7 +117,7 @@ python -m {service_package}.cli.main \
 python -m {service_package}.cli.main \
     --operation <op> \
     --mode batch \
-    --category TRADFI \
+    --asset-group TRADFI \
     --start-date 2024-01-01 \
     --end-date 2024-01-07 \
     --force \
@@ -124,7 +128,7 @@ python -m {service_package}.cli.main \
 
 ```bash
 python -m {service_package}.cli.main check-deps \
-    --category CEFI \
+    --asset-group CEFI \
     --date 2024-01-15
 ```
 

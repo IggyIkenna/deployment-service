@@ -1,5 +1,13 @@
 # Standardized Event Logging Specification
 
+<!-- POST_PLAN_SECTION_2026_05_06 -->
+
+## Post-2026-05-06 additions
+
+**Post-2026-05-06 additions** — new typed events for write-gate failures: `RAW_TICK_PARTITION_MISMATCH` (path B), `CLUSTER_COVERAGE_INSUFFICIENT`, `LIFECYCLE_BOUNDS_VIOLATED`, `LOOKAHEAD_BIAS_DETECTED`, `MANIFEST_PER_VM_SHARD_WRITE`, `MULTI_WORKER_WITHOUT_SHARD_ISOLATION`, `WRITE_GATE_FAILED`, `UPSTREAM_TIMESTAMP_BIAS`, `INSTRUMENT_PROCESSED` (per-instrument progress with row count). Per-shard event payload includes full v6 row key + typed error reason.
+
+**Workspace SSOTs**: [POST_PLAN_REALITY](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) (10 cross-cutting principles + active plans), [availability-manifest-and-data-status](../../unified-trading-pm/codex/02-data/availability-manifest-and-data-status.md), [deployment-clusters-live-vs-batch](../../unified-trading-pm/codex/05-infrastructure/deployment-clusters-live-vs-batch.md), [shard-level-failure-isolation](../../unified-trading-pm/codex/04-architecture/shard-level-failure-isolation.md), [error-handling](../../unified-trading-pm/codex/06-coding-standards/error-handling.md), [validation-patterns](../../unified-trading-pm/codex/06-coding-standards/validation-patterns.md).
+
 ## Overview
 
 This document defines the **standardized event logging system** for all services in the unified trading system. Events enable:
@@ -213,18 +221,18 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
         pytest.skip("No event markers found")
     for py in find_python_files(Path.cwd()):
         text = py.read_text()
-        if "from unified_events_interface import" in text and "log_event" in text:
+        if "from unified_trading_library.events import" in text and "log_event" in text:
             return
         if "from unified_trading_library import" in text and "log_event" in text:
             return
         if "from unified_trading_library.observability import log_event" in text:
             pytest.fail(
                 "log_event must not be imported from unified_trading_library.observability (deleted). "
-                "Use: from unified_events_interface import setup_events, log_event "
+                "Use: from unified_trading_library.events import setup_events, log_event "
                 "or: from unified_trading_library import setup_service, log_event"
             )
     pytest.fail(
-        "log_event not imported. Add: from unified_events_interface import log_event "
+        "log_event not imported. Add: from unified_trading_library.events import log_event "
         "or: from unified_trading_library import log_event"
     )
 ```
@@ -235,12 +243,12 @@ def test_event_helper_imported(all_event_markers: set[str]) -> None:
 
 ### 1. Helper Function (Common Utility)
 
-Use **unified-events-interface** or **unified-trading-library** (top-level `log_event`). Do not use `unified_trading_library.observability` (module deleted).
+Use **unified-trading-library** or **unified-trading-library** (top-level `log_event`). Do not use `unified_trading_library.observability` (module deleted).
 
 Import in services:
 
 ```python
-from unified_events_interface import setup_events, log_event
+from unified_trading_library.events import setup_events, log_event
 # or with sink config:
 # from unified_trading_library import setup_service, GCSEventSink, log_event
 ```
@@ -250,7 +258,7 @@ from unified_events_interface import setup_events, log_event
 ```python
 import sys
 import logging
-from unified_events_interface import setup_events, log_event
+from unified_trading_library.events import setup_events, log_event
 # Or: from unified_trading_library import setup_service, log_event (with sink)
 
 logger = logging.getLogger(__name__)

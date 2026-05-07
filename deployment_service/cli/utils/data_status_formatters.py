@@ -278,7 +278,7 @@ def format_fixed_service_header(
     end_date: datetime,
     total_requested_days: int,
     category_excluded: dict[str, object],
-    categories: list[str],
+    asset_groups: list[str],
     category_start_dates: dict[str, object],
 ) -> None:
     """Format header for fixed service status."""
@@ -291,11 +291,11 @@ def format_fixed_service_header(
     click.echo("=" * 70)
 
     # Show expected start dates info
-    has_exclusions = any(int(cast(int, category_excluded.get(c, 0))) > 0 for c in categories)
+    has_exclusions = any(int(cast(int, category_excluded.get(c, 0))) > 0 for c in asset_groups)
     if has_exclusions:
         click.echo()
         click.echo(click.style("Expected Start Dates (pre-launch dates excluded):", bold=True))
-        for cat in categories:
+        for cat in asset_groups:
             start_dt = category_start_dates.get(cat)
             excluded: int = int(cast(int, category_excluded.get(cat, 0)))
             valid_count = total_requested_days - excluded
@@ -408,7 +408,9 @@ def format_venue_coverage_results(
             click.echo(
                 "  • Venue adapter errors (check logs with: logs <deployment-id> --severity ERROR)"
             )
-            click.echo("  • Venue not yet available on that date (check expected_start_dates.yaml)")
+            click.echo(
+                "  • Venue not yet available on that date (check UAC VenueMapping start dates)"
+            )
         else:
             click.echo()
             click.echo(

@@ -117,8 +117,8 @@ class TestShardSummary:
         summary = calculator.get_shard_summary(shards)
 
         assert summary["service"] == "test-service"
-        assert summary["total_shards"] == 9  # 3 days * 3 categories
-        assert "category" in summary["breakdown"]
+        assert summary["total_shards"] == 9  # 3 days * 3 asset groups
+        assert "asset_group" in summary["breakdown"]
         assert "date" in summary["breakdown"]
 
     def test_empty_shards_summary(self, temp_config_with_service, mock_env_vars):
@@ -139,13 +139,13 @@ class TestShardSummary:
             start_date=date(2024, 1, 1),
             end_date=date(2024, 1, 2),
             max_shards=100,
-            category=["CEFI", "TRADFI"],  # Only 2 categories
+            asset_group=["CEFI", "TRADFI"],  # Only 2 asset groups
         )
 
         summary = calculator.get_shard_summary(shards)
 
-        # Should reflect filtered categories (2 not 3)
-        assert summary["breakdown"]["category"] == 2
+        # Should reflect filtered asset groups (2 not 3)
+        assert summary["breakdown"]["asset_group"] == 2
         assert summary["breakdown"]["date"] == 2  # 2 days
         assert summary["total_shards"] == 4  # 2 categories * 2 days
 
@@ -166,7 +166,7 @@ class TestSkipExistingFilter:
                 {"name": "category", "type": "fixed", "values": ["CEFI", "TRADFI"]},
                 {"name": "date", "type": "date_range", "granularity": "daily"},
             ],
-            "cli_args": {"category": "--category"},
+            "cli_args": {"category": "--asset-group"},
         }
         with open(config_dir / "sharding.instruments-service.yaml", "w") as f:
             yaml.dump(service_config, f)
@@ -236,9 +236,9 @@ class TestSkipExistingFilter:
             skip_existing=True,
         )
 
-        # Should have filtered out shards where data exists
-        # With mocked storage, 2 blobs exist so 4 shards should remain
-        assert len(shards) == 4
+        # skip_existing delegates filtering to the caller (deployment orchestrator);
+        # calculate_shards returns all shards regardless — 3 dates x 2 categories = 6
+        assert len(shards) == 6
 
     def test_skip_existing_parameter_in_signature(
         self, temp_config_for_skip_existing, mock_env_vars

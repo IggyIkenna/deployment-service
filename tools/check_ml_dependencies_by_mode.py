@@ -32,9 +32,7 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-from unified_cloud_interface import StorageClient
-from unified_config_interface import UnifiedCloudConfig
-from unified_trading_library import get_storage_client
+from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,8 +65,8 @@ QUARTERLY_PERIODS = {
 }
 
 
-def get_category_from_instrument_id(instrument_id: str) -> str:
-    """Extract category from instrument ID."""
+def get_asset_group_from_instrument_id(instrument_id: str) -> str:
+    """Map instrument ID prefix to the trading asset group (CEFI / TRADFI / DEFI)."""
     if instrument_id.startswith(("BINANCE-SPOT", "BINANCE-FUTURES", "BINANCE", "COINBASE")):
         return "CEFI"
     elif instrument_id.startswith("NASDAQ") or instrument_id.startswith("NYSE"):
@@ -76,7 +74,7 @@ def get_category_from_instrument_id(instrument_id: str) -> str:
     elif instrument_id.startswith("UNISWAP") or instrument_id.startswith("AAVE"):
         return "DEFI"
     else:
-        logger.warning("Unknown category for %s, defaulting to CEFI", instrument_id)
+        logger.warning("Unknown asset group for %s, defaulting to CEFI", instrument_id)
         return "CEFI"
 
 
@@ -94,8 +92,8 @@ def check_stage1_dependencies(
     - Feature data from features-delta-one-service
     - Data for all dates in the training period
     """
-    category = get_category_from_instrument_id(instrument_id)
-    category_lower = category.lower()
+    asset_group = get_asset_group_from_instrument_id(instrument_id)
+    asset_group_lower = asset_group.lower()
 
     if training_period not in QUARTERLY_PERIODS:
         return {
@@ -108,7 +106,7 @@ def check_stage1_dependencies(
     start_date = datetime.strptime(start_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
     end_date = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=UTC)
 
-    bucket_name = f"features-delta-one-{category_lower}-{project_id}"
+    bucket_name = f"features-delta-one-{asset_group_lower}-{project_id}"
     logger.info("Checking feature data in gs://%s/", bucket_name)
 
     try:

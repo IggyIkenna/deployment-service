@@ -158,7 +158,7 @@ def create_exclude_dates_filter():
 
         for shard in shards:
             dims = shard.get("dimensions", {})
-            cat = dims.get("category", "")
+            cat = dims.get("asset_group") or dims.get("category", "")
             date_val = dims.get("date", {})
 
             date_str = (

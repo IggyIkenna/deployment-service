@@ -22,7 +22,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import requests
-from unified_config_interface import UnifiedCloudConfig
+from unified_trading_library import UnifiedCloudConfig
 
 logger = logging.getLogger(__name__)
 

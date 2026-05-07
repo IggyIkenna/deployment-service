@@ -42,7 +42,7 @@ locals {
           ContainerOverrides = {
             Command = [
               "--operation", "refresh", "--mode", "live", "--single-cycle",
-              "--category", "CEFI"
+              "--asset-group", "CEFI"
             ]
           }
         }

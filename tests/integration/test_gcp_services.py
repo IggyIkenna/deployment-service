@@ -550,6 +550,6 @@ labels."run.googleapis.com/execution_name"="{execution_name}"
             assert hasattr(output, "contents")
         except (PermissionDenied, Forbidden) as e:
             pytest.skip(f"No GCP permissions: {e}")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             # Other errors (e.g. instance not found) fail normally
             pytest.fail(f"Serial console access failed: {e}")

@@ -46,11 +46,11 @@ main:
                     - "--mode"
                     - "live"
                     - "--single-cycle"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
-                    - "--category"
+                    - "--asset-group"
                     - "TRADFI"
-                    - "--category"
+                    - "--asset-group"
                     - "DEFI"
         result: refresh_response
 

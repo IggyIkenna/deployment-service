@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 T+1 Job Orchestrator
 
@@ -6,6 +7,20 @@ Handles:
 - Cascade failure propagation (if upstream fails, skip downstream)
 - Parallel execution of independent services
 - Progress tracking and reporting
+
+Lifecycle: ``T1Orchestrator`` is constructed from inside the deployment-service
+entry-point (``deployment_service.cli`` / ``deployment-api`` request handler)
+that wraps its main() in ``ServiceBootstrap(service_name="deployment-service")``
+(long-running services) or ``with run_lifecycle(service_name=...) as run:``
+(one-off scripts). The caller's ``ServiceBootstrap`` / ``run_lifecycle`` owns
+the paired RUN_STARTED / RUN_COMPLETED / RUN_FAILED lifecycle events. The
+``T1Orchestrator.__init__`` invokes ``setup_events(...)`` lazily (once per
+process) only as a safety-net for ad-hoc invocations from notebooks or
+unit-test fixtures that bypass the service entry-point — production callers
+have already initialised the event sink via ``ServiceBootstrap`` /
+``run_lifecycle`` before constructing the orchestrator. STEP 5.63 (QG): this
+docstring is what makes the ``setup_events()`` ↔ ``ServiceBootstrap`` /
+``run_lifecycle`` pairing explicit for the static-analysis gate.
 """
 
 import json
@@ -16,8 +31,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import cast
 
-from unified_events_interface import log_event, setup_events
-from unified_trading_library import get_storage_client
+from unified_trading_library import get_storage_client, log_event, setup_events
 
 from .dependencies import DependencyGraph
 from .deployment_config import DeploymentConfig
@@ -48,7 +62,7 @@ class OrchestratedJob:
 
     service: str
     date: str
-    category: str
+    asset_group: str
     shard_id: str
 
     state: JobState = JobState.PENDING
@@ -68,18 +82,20 @@ class OrchestratedJob:
     @property
     def job_id(self) -> str:
         """Unique identifier for this job."""
-        return f"{self.service}:{self.date}:{self.category}:{self.shard_id}"
+        return f"{self.service}:{self.date}:{self.asset_group}:{self.shard_id}"
 
     @property
     def is_terminal(self) -> bool:
         return self.state in (JobState.COMPLETED, JobState.FAILED, JobState.SKIPPED)
 
     def to_dict(self) -> dict[str, object]:
+        # ``category`` mirrors ``asset_group`` for plan.json blobs already in GCS / old consumers.
         return {
             "job_id": self.job_id,
             "service": self.service,
             "date": self.date,
-            "category": self.category,
+            "asset_group": self.asset_group,
+            "category": self.asset_group,
             "shard_id": self.shard_id,
             "state": self.state.value,
             "upstream_jobs": self.upstream_jobs,
@@ -96,7 +112,7 @@ class OrchestrationPlan:
     """Plan for orchestrating a batch of jobs."""
 
     date: str
-    category: str
+    asset_group: str
 
     # All jobs in the plan
     jobs: dict[str, OrchestratedJob] = field(default_factory=dict)
@@ -175,9 +191,11 @@ class OrchestrationPlan:
         return (terminal / self.total_jobs) * 100
 
     def to_dict(self) -> dict[str, object]:
+        # ``category`` mirrors ``asset_group`` for plan.json blobs already in GCS / old consumers.
         return {
             "date": self.date,
-            "category": self.category,
+            "asset_group": self.asset_group,
+            "category": self.asset_group,
             "created_at": self.created_at.isoformat(),
             "execution_order": self.execution_order,
             "total_jobs": self.total_jobs,
@@ -217,7 +235,7 @@ class T1Orchestrator:
     @property
     def gcs_client(self):
         """Lazy-load GCS client."""
-        if self._gcs_client is None and not _config.cloud_mock_mode:
+        if self._gcs_client is None and not _config.is_mock_mode():
             try:
                 self._gcs_client = get_storage_client(project_id=self.project_id)
             except ConnectionError as e:
@@ -247,7 +265,7 @@ class T1Orchestrator:
     def create_daily_plan(
         self,
         target_date: str,
-        category: str,
+        asset_group: str,
         services: list[str] | None = None,
     ) -> OrchestrationPlan:
         """
@@ -255,7 +273,7 @@ class T1Orchestrator:
 
         Args:
             target_date: Date to process (YYYY-MM-DD)
-            category: Category (CEFI/TRADFI/DEFI)
+            asset_group: Asset group (CEFI/TRADFI/DEFI)
             services: Optional list of services to include (defaults to all)
 
         Returns:
@@ -264,12 +282,12 @@ class T1Orchestrator:
         log_event(
             "orchestrator.plan.creation.started",
             target_date=target_date,
-            category=category,
+            asset_group=asset_group,
             requested_services=services,
         )
 
         _plan_start = time.monotonic()
-        plan = OrchestrationPlan(date=target_date, category=category)
+        plan = OrchestrationPlan(date=target_date, asset_group=asset_group)
 
         # Get execution order from dependency graph
         execution_order = self.graph.get_execution_order()
@@ -294,14 +312,14 @@ class T1Orchestrator:
                     .date(),
                     end_date=datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=UTC).date(),
                     max_shards=1000,  # High limit for single day
-                    category=[category],
+                    asset_group=[asset_group],
                 )
 
                 for shard in shards:
                     job = OrchestratedJob(
                         service=service,
                         date=target_date,
-                        category=category,
+                        asset_group=asset_group,
                         shard_id=str(shard.shard_index),
                         dimensions=cast(dict[str, str], shard.dimensions),
                     )
@@ -320,7 +338,7 @@ class T1Orchestrator:
                     "orchestrator.shard_calculation.configuration_error",
                     service=service,
                     target_date=target_date,
-                    category=category,
+                    asset_group=asset_group,
                     error_type="configuration_error",
                     error_message=str(e),
                 )
@@ -329,7 +347,7 @@ class T1Orchestrator:
                     "orchestrator.shard_calculation.file_not_found",
                     service=service,
                     target_date=target_date,
-                    category=category,
+                    asset_group=asset_group,
                     error_type="file_not_found",
                     error_message=str(e),
                 )
@@ -338,7 +356,7 @@ class T1Orchestrator:
                     "orchestrator.shard_calculation.failed",
                     service=service,
                     target_date=target_date,
-                    category=category,
+                    asset_group=asset_group,
                     error_type="unexpected_error",
                     error_message=str(e),
                     stack_trace=True,
@@ -347,7 +365,7 @@ class T1Orchestrator:
                 job = OrchestratedJob(
                     service=service,
                     date=target_date,
-                    category=category,
+                    asset_group=asset_group,
                     shard_id="0",
                 )
                 plan.add_job(job)
@@ -361,7 +379,7 @@ class T1Orchestrator:
         log_event(
             "orchestrator.plan.creation.completed",
             target_date=target_date,
-            category=category,
+            asset_group=asset_group,
             total_jobs=plan.total_jobs,
             services_included=len(execution_order),
             execution_tiers=len(self.get_execution_tiers(plan)),
@@ -430,7 +448,7 @@ class T1Orchestrator:
             failed_job_id=failed_job_id,
             failed_service=failed_job.service,
             plan_date=plan.date,
-            plan_category=plan.category,
+            plan_asset_group=plan.asset_group,
         )
 
         # Mark all downstream as skipped
@@ -455,7 +473,7 @@ class T1Orchestrator:
             skipped_job_count=len(skipped),
             skipped_jobs=skipped,
             plan_date=plan.date,
-            plan_category=plan.category,
+            plan_asset_group=plan.asset_group,
         )
 
         return skipped
@@ -465,7 +483,7 @@ class T1Orchestrator:
         lines: list[str] = []
 
         lines.append("=" * 70)
-        lines.append(f"T+1 ORCHESTRATION PLAN: {plan.date} ({plan.category})")
+        lines.append(f"T+1 ORCHESTRATION PLAN: {plan.date} ({plan.asset_group})")
         lines.append("=" * 70)
         lines.append("")
 
@@ -532,13 +550,14 @@ class T1Orchestrator:
 
     def save_plan(self, plan: OrchestrationPlan) -> bool:
         """Save orchestration plan to GCS."""
+        # GCS: ``plan.to_dict()`` serializes both ``asset_group`` and legacy ``category`` (same value) for older readers; paths stay ``plans/{date}/{axis}/plan.json`` with axis = CEFI|… not the string "category".
         if not self.gcs_client:
             logger.warning("No GCS client available for saving plan")
             return False
 
         try:
             bucket = self.gcs_client.bucket(f"deployment-orchestration-{self.project_id}")
-            blob = bucket.blob(f"plans/{plan.date}/{plan.category}/plan.json")
+            blob = bucket.blob(f"plans/{plan.date}/{plan.asset_group}/plan.json")
 
             upload_fn = cast(object, getattr(blob, "upload_from_string", None))
             if callable(upload_fn):
@@ -547,7 +566,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.saved",
                 date=plan.date,
-                category=plan.category,
+                asset_group=plan.asset_group,
                 project_id=self.project_id,
                 total_jobs=plan.total_jobs,
                 execution_tiers=len(self.get_execution_tiers(plan)),
@@ -557,7 +576,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.save_failed",
                 date=plan.date,
-                category=plan.category,
+                asset_group=plan.asset_group,
                 project_id=self.project_id,
                 error_type="connection_error",
                 error_message=str(e),
@@ -567,7 +586,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.save_failed",
                 date=plan.date,
-                category=plan.category,
+                asset_group=plan.asset_group,
                 project_id=self.project_id,
                 error_type="file_system_error",
                 error_message=str(e),
@@ -577,7 +596,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.save_failed",
                 date=plan.date,
-                category=plan.category,
+                asset_group=plan.asset_group,
                 project_id=self.project_id,
                 error_type="invalid_data",
                 error_message=str(e),
@@ -587,7 +606,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.save_failed",
                 date=plan.date,
-                category=plan.category,
+                asset_group=plan.asset_group,
                 project_id=self.project_id,
                 error_type="unexpected_error",
                 error_message=str(e),
@@ -595,39 +614,42 @@ class T1Orchestrator:
             )
             return False
 
-    def load_plan(self, target_date: str, category: str) -> OrchestrationPlan | None:
+    def load_plan(self, target_date: str, asset_group: str) -> OrchestrationPlan | None:
         """Load an existing orchestration plan from GCS."""
         if not self.gcs_client:
             return None
 
         try:
             bucket = self.gcs_client.bucket(f"deployment-orchestration-{self.project_id}")
-            blob = bucket.blob(f"plans/{target_date}/{category}/plan.json")
+            blob = bucket.blob(f"plans/{target_date}/{asset_group}/plan.json")
 
             if not blob.exists():
                 return None
 
             data = cast(dict[str, object], json.loads(blob.download_as_text()))
+            _plan_axis = str(data.get("asset_group") or data.get("category", ""))
 
             plan = OrchestrationPlan(
                 date=str(data["date"]),
-                category=str(data["category"]),
+                asset_group=_plan_axis,
                 execution_order=cast(list[str], data["execution_order"]),
             )
 
             for job_id, job_data in cast(
                 dict[str, dict[str, object]], data.get("jobs") or {}
             ).items():
+                _jd = cast(dict[str, object], job_data)
+                _job_axis = str(_jd.get("asset_group") or _jd.get("category", ""))
                 job = OrchestratedJob(
-                    service=str(job_data["service"]),
-                    date=str(job_data["date"]),
-                    category=str(job_data["category"]),
-                    shard_id=str(job_data["shard_id"]),
-                    state=JobState(str(job_data["state"])),
-                    upstream_jobs=cast(list[str], job_data.get("upstream_jobs") or []),
-                    downstream_jobs=cast(list[str], job_data.get("downstream_jobs") or []),
-                    error_message=cast(str | None, job_data.get("error_message")),
-                    dimensions=cast(dict[str, str], job_data.get("dimensions") or {}),
+                    service=str(_jd["service"]),
+                    date=str(_jd["date"]),
+                    asset_group=_job_axis,
+                    shard_id=str(_jd["shard_id"]),
+                    state=JobState(str(_jd["state"])),
+                    upstream_jobs=cast(list[str], _jd.get("upstream_jobs") or []),
+                    downstream_jobs=cast(list[str], _jd.get("downstream_jobs") or []),
+                    error_message=cast(str | None, _jd.get("error_message")),
+                    dimensions=cast(dict[str, str], _jd.get("dimensions") or {}),
                 )
                 plan.jobs[job_id] = job
 
@@ -636,7 +658,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.load_failed",
                 target_date=target_date,
-                category=category,
+                asset_group=asset_group,
                 project_id=self.project_id,
                 error_type="connection_error",
                 error_message=str(e),
@@ -646,7 +668,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.not_found",
                 target_date=target_date,
-                category=category,
+                asset_group=asset_group,
                 project_id=self.project_id,
                 level="debug",
             )
@@ -655,7 +677,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.load_failed",
                 target_date=target_date,
-                category=category,
+                asset_group=asset_group,
                 project_id=self.project_id,
                 error_type="invalid_data_format",
                 error_message=str(e),
@@ -665,7 +687,7 @@ class T1Orchestrator:
             log_event(
                 "orchestrator.plan.load_failed",
                 target_date=target_date,
-                category=category,
+                asset_group=asset_group,
                 project_id=self.project_id,
                 error_type="unexpected_error",
                 error_message=str(e),

@@ -53,8 +53,13 @@ locals {
               "--operation", "process",
               "--mode", "batch",
               "--CEFI",
-              "--timeframes", "1m,5m,15m,1h,4h,24h",
-              "--date.$", "$.dateInfo.t_plus_1_date"
+              "--TRADFI",
+              "--DEFI",
+              "--SPORTS",
+              "--PREDICTION",
+              "--timeframes", "15s,1m,5m,15m,1h,4h,24h",
+              "--start-date.$", "$.dateInfo.t_plus_1_date",
+              "--end-date.$", "$.dateInfo.t_plus_1_date"
             ]
           }
         }

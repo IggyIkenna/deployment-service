@@ -1,3 +1,4 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 sync-secrets.py — Diff and optionally sync secrets between AWS Secrets Manager and GCP Secret Manager.
 
@@ -96,13 +97,17 @@ def _aws_secret_path(env: str, name: str) -> str:
 
 
 def _make_aws_client(env: str, region: str) -> object:
-    from unified_cloud_interface.providers.aws import AWSSecretClient  # type: ignore[attr-defined]
+    from unified_trading_library import (
+        AWSSecretClient,  # type: ignore[attr-defined]
+    )
 
     return AWSSecretClient(region=region)
 
 
 def _make_gcp_client(project_id: str) -> object:
-    from unified_cloud_interface.providers.gcp import GCPSecretClient  # type: ignore[attr-defined]
+    from unified_trading_library import (
+        GCPSecretClient,  # type: ignore[attr-defined]
+    )
 
     return GCPSecretClient(project_id=project_id)
 
@@ -182,7 +187,7 @@ def diff_secrets(
                     gcp_value=gcp_val,
                 )
             )
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError, RuntimeError) as e:
             diffs.append(SecretDiff(name=canonical, status="error", error=str(e)))
 
     return diffs
@@ -223,8 +228,8 @@ def sync_secrets(
                     gcp_client.create_secret(diff.name, value)  # type: ignore[attr-defined]
                 print(f"   {diff.name}")
             written += 1
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to sync {diff.name}: {e}")
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error("Failed to sync %s: %s", diff.name, e)
 
     return written
 
@@ -279,7 +284,7 @@ def main() -> int:
     try:
         aws_client = _make_aws_client(args.env, args.aws_region)
         gcp_client = _make_gcp_client(args.gcp_project)
-    except Exception as e:
+    except (ImportError, OSError, ValueError, RuntimeError) as e:
         print(f"ERROR: Failed to initialise secret clients: {e}", file=sys.stderr)
         return 1
 

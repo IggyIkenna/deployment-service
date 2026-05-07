@@ -6,6 +6,13 @@ import contextlib
 import json
 import os
 import subprocess
+
+# Set mock environment BEFORE any deployment_service modules are imported.
+# Module-level singletons like _config = DeploymentConfig() run at import time
+# and need these env vars present to avoid Pydantic validation failures.
+os.environ.setdefault("CLOUD_MOCK_MODE", "true")
+os.environ.setdefault("CLOUD_PROVIDER", "local")
+os.environ.setdefault("GCP_PROJECT_ID", "test-project-123")
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -39,7 +46,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def mock_secret_client(monkeypatch):
     """Prevent real secret access in all unit tests."""
     mock = MagicMock(return_value="fake-secret-value")
-    monkeypatch.setattr("unified_cloud_interface.get_secret_client", lambda *a, **kw: mock)
+    monkeypatch.setattr(
+        "unified_trading_library.cloud_interface.get_secret_client", lambda *a, **kw: mock
+    )
     return mock
 
 
@@ -128,7 +137,9 @@ def mock_env_vars(monkeypatch):
     """Set mock environment variables for testing and patch module-level config singletons."""
     monkeypatch.setenv("CLOUD_MOCK_MODE", "true")
     monkeypatch.setenv("GCP_PROJECT_ID", "test-project-123")
-    # Patch module-level _config singletons that are already initialized at import time
+    # Patch module-level _config singletons that are already initialized at import time.
+    # Pydantic v2 models use __slots__ and validate on setattr, so we must bypass
+    # validation using object.__setattr__ for non-field attributes (methods).
     for mod_path in [
         "deployment_service.cloud.storage_client",
         "deployment_service.cloud_client",
@@ -136,8 +147,9 @@ def mock_env_vars(monkeypatch):
     ]:
         try:
             mod = __import__(mod_path, fromlist=["_config"])
-            monkeypatch.setattr(mod._config, "cloud_mock_mode", True)
-            monkeypatch.setattr(mod._config, "gcp_project_id", "test-project-123")
+            # Patch method via the class, not the instance (Pydantic v2 safe)
+            monkeypatch.setattr(type(mod._config), "is_mock_mode", lambda self: True)
+            object.__setattr__(mod._config, "gcp_project_id", "test-project-123")
         except (ImportError, AttributeError):
             pass
     try:
@@ -169,7 +181,7 @@ def temp_config_dir(tmp_path):
             },
             "DEFI": {
                 "description": "Test DEFI",
-                "venues": ["UNISWAPV3-ETH", "AAVE_V3_ETH"],
+                "venues": ["UNISWAPV3-ETHEREUM", "AAVEV3-ETHEREUM"],
                 "data_types": ["swaps", "oracle_prices"],
             },
         }
@@ -189,7 +201,7 @@ def sample_service_config():
         "description": "Test service for unit tests",
         "dimensions": [
             {
-                "name": "category",
+                "name": "asset_group",
                 "type": "fixed",
                 "values": ["CEFI", "TRADFI", "DEFI"],
             },
@@ -200,7 +212,7 @@ def sample_service_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "asset_group": "--asset-group",
             "start_date": "--start-date",
             "end_date": "--end-date",
         },
@@ -228,14 +240,14 @@ def hierarchical_service_config():
         "description": "Test hierarchical dimensions",
         "dimensions": [
             {
-                "name": "category",
+                "name": "asset_group",
                 "type": "fixed",
                 "values": ["CEFI", "TRADFI"],
             },
             {
                 "name": "venue",
                 "type": "hierarchical",
-                "parent": "category",
+                "parent": "asset_group",
             },
             {
                 "name": "date",
@@ -244,7 +256,7 @@ def hierarchical_service_config():
             },
         ],
         "cli_args": {
-            "category": "--category",
+            "asset_group": "--asset-group",
             "venue": "--venue",
             "start_date": "--start-date",
             "end_date": "--end-date",
@@ -341,8 +353,8 @@ def expected_start_dates_config():
             "DEFI": {
                 "category_start": "2024-01-10",  # DEFI launches later
                 "venues": {
-                    "UNISWAPV3-ETH": "2024-01-10",
-                    "AAVE_V3_ETH": "2024-01-15",  # Launches even later
+                    "UNISWAPV3-ETHEREUM": "2024-01-10",
+                    "AAVEV3-ETHEREUM": "2024-01-15",  # Launches even later
                 },
             },
         },
@@ -374,3 +386,34 @@ def temp_config_with_start_dates(
         yaml.dump(expected_start_dates_config, f)
 
     return temp_config_dir
+
+
+@pytest.fixture
+def mock_venue_start_dates(monkeypatch, expected_start_dates_config):
+    """Patch VenueMapping.get_venue_start_date to return test fixture dates.
+
+    Production code delegates venue start date lookups to UAC VenueMapping,
+    which returns real historical dates. Tests need controlled dates from
+    expected_start_dates_config to exercise filtering logic.
+    """
+    # Build a flat venue -> start_date lookup from the nested config
+    venue_dates: dict[str, str] = {}
+    for _service, categories in expected_start_dates_config.items():
+        if not isinstance(categories, dict):
+            continue
+        for _category, cat_config in categories.items():
+            if not isinstance(cat_config, dict):
+                continue
+            venues = cat_config.get("venues")
+            if isinstance(venues, dict):
+                for venue, start_date in venues.items():
+                    venue_dates[venue] = str(start_date)
+
+    def _mock_get_venue_start_date(self, venue: str) -> str | None:  # noqa: ANN001
+        return venue_dates.get(venue)
+
+    monkeypatch.setattr(
+        "unified_api_contracts.VenueMapping.get_venue_start_date",
+        _mock_get_venue_start_date,
+    )
+    return venue_dates

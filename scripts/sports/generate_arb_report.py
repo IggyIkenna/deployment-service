@@ -24,8 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-from unified_cloud_interface import StorageClient, get_storage_client
-from unified_config_interface import UnifiedCloudConfig
+from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
 logger = logging.getLogger(__name__)
 

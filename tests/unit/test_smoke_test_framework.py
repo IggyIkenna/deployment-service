@@ -6,7 +6,7 @@ Covers:
 - ShardCombinatoricsGenerator.__init__: stores config_dir
 - ShardCombinatoricsGenerator.get_smoke_test_shards: delegates to ShardCalculator,
   passes filters correctly
-- ShardCombinatoricsGenerator.get_all_category_venue_combinations: fixed + hierarchical paths,
+- ShardCombinatoricsGenerator.get_all_asset_group_venue_combinations: fixed + hierarchical paths,
   no-venue fallback
 - GCSTestBucketManager.__init__: raises ValueError when no project_id, stores values
 - GCSTestBucketManager.get_test_bucket_name: returns prefixed name
@@ -48,7 +48,7 @@ def _make_shard(
     service: str = "test-service",
     shard_index: int = 0,
 ) -> Shard:
-    dims: dict[str, object] = dimensions or {"category": "CEFI", "venue": "BINANCE-SPOT"}
+    dims: dict[str, object] = dimensions or {"asset_group": "CEFI", "venue": "BINANCE-SPOT"}
     return Shard(service=service, shard_index=shard_index, total_shards=10, dimensions=dims)
 
 
@@ -91,7 +91,7 @@ def test_smoke_test_result_to_dict_failed() -> None:
 
 @pytest.mark.unit
 def test_smoke_test_result_shard_dimensions_included() -> None:
-    dims = {"category": "TRADFI", "venue": "CME"}
+    dims = {"asset_group": "TRADFI", "venue": "CME"}
     shard = _make_shard(dimensions=dims)
     result = SmokeTestResult(shard=shard, passed=True, output_files=[])
     assert result.to_dict()["shard_dimensions"] == dims
@@ -158,14 +158,14 @@ def test_get_smoke_test_shards_applies_category_filter(
     )
 
     call_kwargs = mock_calc.calculate_shards.call_args.kwargs
-    assert call_kwargs.get("category") == ["CEFI"]
+    assert call_kwargs.get("asset_group") == ["CEFI"]
     assert call_kwargs.get("venue") == ["BINANCE-SPOT"]
 
 
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.ShardCalculator")
 @patch("deployment_service.smoke_test_framework.ConfigLoader")
-def test_get_all_category_venue_combinations_hierarchical(
+def test_get_all_asset_group_venue_combinations_hierarchical(
     mock_loader_cls: MagicMock, mock_calc_cls: MagicMock
 ) -> None:
     mock_calc_cls.return_value = MagicMock()
@@ -189,10 +189,10 @@ def test_get_all_category_venue_combinations_hierarchical(
     mock_loader_cls.return_value = mock_loader
 
     gen = ShardCombinatoricsGenerator()
-    combos = gen.get_all_category_venue_combinations("market-tick-data")
+    combos = gen.get_all_asset_group_venue_combinations("market-tick-data")
 
     assert len(combos) == 3  # CEFI×2 + TRADFI×1
-    categories = [c["category"] for c in combos]
+    categories = [c["asset_group"] for c in combos]
     assert "CEFI" in categories
     assert "TRADFI" in categories
 
@@ -200,7 +200,7 @@ def test_get_all_category_venue_combinations_hierarchical(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.ShardCalculator")
 @patch("deployment_service.smoke_test_framework.ConfigLoader")
-def test_get_all_category_venue_combinations_no_venue_dim(
+def test_get_all_asset_group_venue_combinations_no_venue_dim(
     mock_loader_cls: MagicMock, mock_calc_cls: MagicMock
 ) -> None:
     """Service with no hierarchical venue dim should get one combo per category."""
@@ -219,7 +219,7 @@ def test_get_all_category_venue_combinations_no_venue_dim(
     mock_loader_cls.return_value = mock_loader
 
     gen = ShardCombinatoricsGenerator()
-    combos = gen.get_all_category_venue_combinations("simple-service")
+    combos = gen.get_all_asset_group_venue_combinations("simple-service")
 
     assert len(combos) == 2
     assert all(c["venue"] is None for c in combos)

@@ -72,11 +72,11 @@ main:
                 - args:
                     - "--mode"
                     - "batch"
-                    - "--category"
+                    - "--asset-group"
                     - "CEFI"
-                    - "--category"
+                    - "--asset-group"
                     - "TRADFI"
-                    - "--category"
+                    - "--asset-group"
                     - "DEFI"
                     - "--feature-group"
                     - "all"
@@ -148,7 +148,7 @@ main:
           steps:
             - append_cat:
                 assign:
-                  - base_args: $${list.concat(base_args, ["--category", cat])}
+                  - base_args: $${list.concat(base_args, ["--asset-group", cat])}
 
     - add_feature_groups:
         for:

@@ -262,11 +262,13 @@ class TestDatesFoundListIncluded:
         """Test that dates_found_list is empty when no data exists."""
         # When a category has no data, dates_found_list should be []
         sample_response = {
-            "categories": {"DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}}
+            "asset_groups": {
+                "DEFI": {"dates_found": 0, "dates_expected": 3, "dates_found_list": []}
+            }
         }
 
-        assert sample_response["categories"]["DEFI"]["dates_found_list"] == []
-        assert sample_response["categories"]["DEFI"]["dates_found"] == 0
+        assert sample_response["asset_groups"]["DEFI"]["dates_found_list"] == []
+        assert sample_response["asset_groups"]["DEFI"]["dates_found"] == 0
 
 
 class TestDateHandlingConsistency:

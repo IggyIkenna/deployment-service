@@ -1,7 +1,11 @@
+<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+
+> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.plan.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.plan.md`, `data_status_multi_axis_shard_propagation_2026_05_06.plan.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+
 # GCS Lifecycle Cost Optimization
 
-**Purpose:** Automatic storage class transitions to reduce costs  
-**Status:** Ready to apply to all buckets  
+**Purpose:** Automatic storage class transitions to reduce costs
+**Status:** Ready to apply to all buckets
 **Estimated Savings:** $800-1,500/year (MVP: BTC + SPY)
 
 ---
@@ -69,8 +73,8 @@
 
 ### At Scale (Full MVP: 11 Venues)
 
-**Current (All STANDARD):** $14,000/year  
-**With Lifecycle Policy:** $8,540/year  
+**Current (All STANDARD):** $14,000/year
+**With Lifecycle Policy:** $8,540/year
 **Annual Savings:** **$5,460/year (39% reduction)**
 
 ---
@@ -151,11 +155,18 @@
 
 ---
 
-### 3. Processed Candles (Aggressive Tiering)
+### 3. Processed Candles (Co-located under MTDS, 2026-04-18)
 
-**Access Pattern:** Accessed during feature generation, then rarely
+**Access Pattern:** Accessed during feature generation, then rarely.
 
-**Policy:**
+**Retirement note:** The standalone `market-data-candles-{category}-{project}`
+buckets were retired 2026-04-18 (all 10 prod + test variants verified empty).
+MDPS now writes candles **co-located** under the MTDS tick bucket at
+`market-data-tick-{category}-{project}/processed_candles/...`. The lifecycle
+policy applied to `market-data-tick-*` (see section 2) now covers candles too,
+and no separate policy is required.
+
+Historical reference — the policy previously applied to the retired buckets:
 
 ```json
 {
@@ -178,13 +189,8 @@
 }
 ```
 
-**Buckets:**
-
-- `market-data-candles-cefi-{project}`
-- `market-data-candles-tradfi-{project}`
-- `market-data-candles-defi-{project}`
-
-**Savings:** ~39%
+See `unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md`
+Phase 5a for the full retirement manifest.
 
 ---
 
@@ -393,8 +399,8 @@ gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/day=2023-01-01/ | gr
 
 ### Cost-Benefit
 
-**Annual Storage Savings:** $767-5,460/year  
-**Estimated Retrieval Costs:** $50-200/year (quarterly training + occasional backtests)  
+**Annual Storage Savings:** $767-5,460/year
+**Estimated Retrieval Costs:** $50-200/year (quarterly training + occasional backtests)
 **Net Savings:** **$600-5,200/year**
 
 ---
