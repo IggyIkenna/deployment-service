@@ -39,6 +39,24 @@ gcp:
     features-prediction: "features-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     strategy-store-prediction: "strategy-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     execution-store-prediction: "execution-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # DeFi raw on-chain pools / swaps / events (Phase 2 AWS migration parity, 2026-05-07).
+    # Existing GCS buckets were created ad-hoc per asset_group; codifying templates here so
+    # both backends resolve from the same SSOT and the UCI bucket-resolver no longer relies
+    # on hardcoded fallbacks. Project-suffixed names match existing GCS layout.
+    dex-pools: "dex-pools-${GCP_PROJECT_ID}"
+    dex-swaps: "dex-swaps-${GCP_PROJECT_ID}"
+    evm-defi: "evm-defi-${GCP_PROJECT_ID}"
+    eigenlayer-rewards: "eigenlayer-rewards-${GCP_PROJECT_ID}"
+    solana-defi: "solana-defi-${GCP_PROJECT_ID}"
+    # Per-asset-group pnl/positions/risk DeFi stores. Existing GCS layout is
+    # `pnl-store-${GCP_PROJECT_ID}-defi` (asset_group as suffix); codified here so reads
+    # always go through UCI bucket-resolver instead of inline f-string formatters.
+    pnl-store-defi: "pnl-store-${GCP_PROJECT_ID}-defi"
+    positions-store-defi: "positions-store-${GCP_PROJECT_ID}-defi"
+    risk-store-defi: "risk-store-defi-${GCP_PROJECT_ID}"
+    # Cross-cutting service buckets (events stream + config snapshots).
+    events: "${GCP_PROJECT_ID}-events"
+    config-store: "config-store-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -74,6 +92,22 @@ aws:
     features-prediction: "unified-trading-features-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     strategy-store-prediction: "unified-trading-strategy-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     execution-store-prediction: "unified-trading-execution-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # DeFi raw on-chain pools / swaps / events (Phase 2 AWS migration parity, 2026-05-07).
+    # Mirrors GCP keys 1:1 so UCI bucket-resolver dispatches by CLOUD_PROVIDER env without
+    # any per-key special-casing. Names follow `unified-trading-{kind}-{env}-{account}`
+    # convention used by existing AWS templates.
+    dex-pools: "unified-trading-dex-pools-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    dex-swaps: "unified-trading-dex-swaps-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    evm-defi: "unified-trading-evm-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    eigenlayer-rewards: "unified-trading-eigenlayer-rewards-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    solana-defi: "unified-trading-solana-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Per-asset-group DeFi pnl/positions/risk stores.
+    pnl-store-defi: "unified-trading-pnl-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    positions-store-defi: "unified-trading-positions-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    risk-store-defi: "unified-trading-risk-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Cross-cutting service buckets (events stream + config snapshots).
+    events: "unified-trading-events-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    config-store: "unified-trading-config-store-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
