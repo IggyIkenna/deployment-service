@@ -53,6 +53,7 @@ fi
 
 ASSET_GROUP="${1:-cefi}"
 APPLY_FLAG="${2:---scan-only}"
+MAX_FLIPS="${3:-}"  # optional integer override for --max-flips-per-run (default in script: 100000)
 
 case "$ASSET_GROUP" in
     cefi|defi|tradfi|prediction|sports) ;;
@@ -62,6 +63,12 @@ case "$APPLY_FLAG" in
     --scan-only|--apply-flips) ;;
     *) echo "ERROR: second arg must be --scan-only (default) or --apply-flips (got: $APPLY_FLAG)" >&2; exit 2 ;;
 esac
+if [[ -n "$MAX_FLIPS" ]]; then
+    if ! [[ "$MAX_FLIPS" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: third arg (max-flips-per-run) must be a positive integer (got: $MAX_FLIPS)" >&2
+        exit 2
+    fi
+fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -105,6 +112,10 @@ RECON_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/reconcile_blank_
 BACKFILL_CMD="python ${RECON_SCRIPT} --asset-group ${ASSET_GROUP}"
 if [[ -n "$SCRIPT_FLAG" ]]; then
     BACKFILL_CMD="${BACKFILL_CMD} ${SCRIPT_FLAG}"
+fi
+if [[ -n "$MAX_FLIPS" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} --max-flips-per-run ${MAX_FLIPS}"
+    echo "Using --max-flips-per-run=${MAX_FLIPS} (overrides script default 100000)"
 fi
 
 METADATA="VM_TASK=phantom-recon"
