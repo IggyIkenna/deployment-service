@@ -40,11 +40,20 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
 # Default e2-standard-8 (32GB) is sufficient for cefi/defi/sports/prediction.
 # TradFi options-heavy days (legacy ticks.parquet bundles with 4000+ symbols
-# loaded into one Polars DataFrame) hit OOM/SIGKILL on 32GB — incident
-# 2026-05-06: 2 of 7 sharded VMs killed mid-flight.
-# Override via ``MACHINE_TYPE=e2-highmem-8`` (64GB) env var when launching
-# tradfi until the MDPS streaming refactor lazifies the bundle reader.
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+# loaded into one Polars DataFrame) hit OOM/SIGKILL on 32GB — incidents
+# 2026-05-06 (2 of 7 sharded VMs killed mid-flight) + 2026-05-07
+# (mdps-tradfi-2025 OOM-killed at 86.5% RSS).
+#
+# Auto-defaults below are chosen per-asset_group; explicit MACHINE_TYPE /
+# MDPS_MAX_WORKERS env overrides still win. TradFi gets e2-highmem-8 (64GB) +
+# max-workers=2 (halves concurrent peak footprint vs default 4) until the MDPS
+# streaming refactor lazifies the bundle reader. Operator override pattern:
+#   MACHINE_TYPE=e2-standard-8 MDPS_MAX_WORKERS=4 bash launch-mdps-sharded-backfill.sh tradfi
+MACHINE_TYPE_OVERRIDE="${MACHINE_TYPE:-}"
+MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
+
+# Optional CLI flag --max-workers N forwards to the in-VM MDPS CLI.
+CLI_MAX_WORKERS=""
 BOOT_DISK_GB="50"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 
@@ -71,11 +80,20 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
+        --max-workers)
+            shift
+            CLI_MAX_WORKERS="${1:-}"
+            if [[ -z "$CLI_MAX_WORKERS" ]]; then
+                echo "--max-workers requires a value"
+                exit 2
+            fi
+            shift
+            ;;
         cefi|tradfi|defi|sports|prediction)
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N]"; exit 2 ;;
     esac
 done
 
@@ -118,6 +136,24 @@ _filter_year() {
     return 1
 }
 
+# Per-asset-group resource defaults.
+# tradfi: high-memory + halved concurrency (legacy ticks.parquet bundles with
+# 4000+ symbols hit OOM on 32GB; halving max_workers further bounds peak).
+# All others: standard 32GB / default workers.
+_machine_type_for() {
+    case "$1" in
+        tradfi) echo "e2-highmem-8" ;;
+        *) echo "e2-standard-8" ;;
+    esac
+}
+
+_max_workers_for() {
+    case "$1" in
+        tradfi) echo "2" ;;
+        *) echo "" ;;  # empty = use MDPS CLI default (4)
+    esac
+}
+
 launch_year_shard() {
     local cat="$1"
     local year="$2"
@@ -138,6 +174,23 @@ launch_year_shard() {
         start_date="2022-11-01"
     fi
 
+    # Resolve machine type + max-workers (env override > CLI flag > per-AG default).
+    local machine_type
+    if [[ -n "$MACHINE_TYPE_OVERRIDE" ]]; then
+        machine_type="$MACHINE_TYPE_OVERRIDE"
+    else
+        machine_type="$(_machine_type_for "$cat")"
+    fi
+
+    local resolved_max_workers=""
+    if [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]; then
+        resolved_max_workers="$MDPS_MAX_WORKERS_OVERRIDE"
+    elif [[ -n "$CLI_MAX_WORKERS" ]]; then
+        resolved_max_workers="$CLI_MAX_WORKERS"
+    else
+        resolved_max_workers="$(_max_workers_for "$cat")"
+    fi
+
     local source_bucket="market-data-tick-${cat}-${PROJECT}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
@@ -146,11 +199,14 @@ launch_year_shard() {
     fi
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $start_date --end-date $end_date"
+    if [[ -n "$resolved_max_workers" ]]; then
+        cmd="$cmd --max-workers $resolved_max_workers"
+    fi
     if $DRY; then
         cmd="$cmd --dry-run"
     fi
 
-    echo "[$cat $year] $vm_name  ${start_date}..${end_date}"
+    echo "[$cat $year] $vm_name  ${start_date}..${end_date}  (machine=$machine_type, max_workers=${resolved_max_workers:-default})"
     echo "  cmd: $cmd"
 
     if $PREVIEW; then
@@ -171,7 +227,7 @@ launch_year_shard() {
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
-        --machine-type="$MACHINE_TYPE" \
+        --machine-type="$machine_type" \
         --boot-disk-size="${BOOT_DISK_GB}GB" \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
