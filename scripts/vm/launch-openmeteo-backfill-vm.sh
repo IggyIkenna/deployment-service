@@ -41,12 +41,14 @@ ENTITY=""
 LOOKBACK=""
 LOOKAHEAD=""
 FORCE_WINDOW=false
+RECOVERY_FIXTURE_IDS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --entity) ENTITY="$2"; shift 2 ;;
     --lookback) LOOKBACK="$2"; shift 2 ;;
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
+    --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     *) break ;;
   esac
 done
@@ -128,6 +130,7 @@ else
 fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=OPEN_METEO"
 METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY:-WEATHER}"
+[[ -n "$RECOVERY_FIXTURE_IDS" ]] && METADATA="${METADATA},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \

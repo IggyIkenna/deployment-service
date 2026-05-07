@@ -78,12 +78,14 @@ FORCE=false
 ENTITY=""
 CHUNKS=""
 DRY_RUN=false
+RECOVERY_FIXTURE_IDS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
     --entity) ENTITY="$2"; shift 2 ;;
     --chunks) CHUNKS="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     *) break ;;
   esac
 done
@@ -196,6 +198,7 @@ launch_one_vm() {
   metadata="${metadata},VM_END_DATE=${end_date}"
   metadata="${metadata},VM_SPORTS_PROVIDER=SOCCER_FOOTBALL_INFO"
   [[ -n "$ENTITY" ]] && metadata="${metadata},VM_SPORTS_ENTITY=${ENTITY}"
+  [[ -n "$RECOVERY_FIXTURE_IDS" ]] && metadata="${metadata},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
   $FORCE && metadata="${metadata},VM_FORCE=true"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
