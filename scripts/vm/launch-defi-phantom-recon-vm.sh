@@ -94,7 +94,10 @@ echo "Launching $VM_NAME: phantom recon for asset_group=${ASSET_GROUP} (${APPLY_
 # 2026-05-07): the setup script pulls the instruments-service tarball
 # (because VM_SERVICE=instruments_service) + sets up the venv, then runs
 # VM_BACKFILL_CMD verbatim with `python` rewritten to `$VENV/bin/python`.
-RECON_SCRIPT="/workspace/instruments-service/scripts/reconcile_phantom_manifest_rows_all.py"
+# setup-data-pipeline-vm.sh extracts instruments-service-code tarball to
+# $WORKSPACE/instruments (not /instruments-service) per the TARBALL_DIRS
+# alias in that script. $WORKSPACE = /home/ikennaigboaka/workspace.
+RECON_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/reconcile_phantom_manifest_rows_all.py"
 BACKFILL_CMD="python ${RECON_SCRIPT} --asset-group ${ASSET_GROUP} ${APPLY_FLAG}"
 
 METADATA="VM_TASK=phantom-recon"
