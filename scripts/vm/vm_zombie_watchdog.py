@@ -205,6 +205,12 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
+    # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
+    # from e2e-testing/scripts/defi/. Each launcher emits a single VM
+    # with a fixed name; bucket = market-data-tick-defi-{pid}.
+    "mtds-dex-pools-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-eigenlayer-rewards-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-solana-drift-backfill": f"market-data-tick-defi-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # MTDS per-AG generic backfill (launch-mtds-backfill-vm.sh emits
     # mtds-backfill-{ag}-{ts}, the canonical entry-point for the
