@@ -33,6 +33,19 @@ gcp:
       DEFI: "execution-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # Per-asset-group market-data + instruments (NO env tier — single per asset_group).
+    # Added 2026-05-08 (Tab 4 AWS Phase 1 smoke surfaced missing yaml entries — actual
+    # buckets exist on both clouds but resolver couldn't find them).
+    market-data:
+      CEFI: "market-data-cefi-${GCP_PROJECT_ID}"
+      DEFI: "market-data-defi-${GCP_PROJECT_ID}"
+      TRADFI: "market-data-tradfi-${GCP_PROJECT_ID}"
+    instruments-store:
+      CEFI: "instruments-store-cefi-${GCP_PROJECT_ID}"
+      DEFI: "instruments-store-defi-${GCP_PROJECT_ID}"
+      TRADFI: "instruments-store-tradfi-${GCP_PROJECT_ID}"
+    # Cross-cutting features-calendar (no asset_group, no env — single bucket).
+    features-calendar: "features-calendar-${GCP_PROJECT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi)
     instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
     market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
@@ -86,6 +99,19 @@ aws:
       DEFI: "unified-trading-execution-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Per-asset-group market-data + instruments (NO env tier — single per asset_group).
+    # Mirrors GCP shape; AWS buckets actually exist (verified 2026-05-08 Tab 4
+    # `aws s3 ls`): unified-trading-{market-data,instruments}-{cefi,defi,tradfi}-${AWS_ACCOUNT_ID}.
+    market-data:
+      CEFI: "unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}"
+      DEFI: "unified-trading-market-data-defi-${AWS_ACCOUNT_ID}"
+      TRADFI: "unified-trading-market-data-tradfi-${AWS_ACCOUNT_ID}"
+    instruments-store:
+      CEFI: "unified-trading-instruments-cefi-${AWS_ACCOUNT_ID}"
+      DEFI: "unified-trading-instruments-defi-${AWS_ACCOUNT_ID}"
+      TRADFI: "unified-trading-instruments-tradfi-${AWS_ACCOUNT_ID}"
+    # Cross-cutting features-calendar (no asset_group, no env — single bucket).
+    features-calendar: "unified-trading-features-calendar-${AWS_ACCOUNT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi)
     instruments-store-prediction: "unified-trading-instruments-prediction-${AWS_ACCOUNT_ID}"
     market-data-tick-prediction: "unified-trading-market-data-prediction-${AWS_ACCOUNT_ID}"
