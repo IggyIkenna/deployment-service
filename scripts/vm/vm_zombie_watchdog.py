@@ -150,6 +150,14 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "instr-backfill-tradfi": f"instruments-store-tradfi-{PROJECT_ID}",
     "instr-backfill-sports": f"instruments-store-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
+    # features-sports-service parallel backfill (launch-features-sports-
+    # parallel-backfill-vm.sh emits N VMs `fss-backfill-vm-{i}` for a
+    # date range chunk-split). Bucket = features-sports-{pid}. Migrated
+    # 2026-05-08 (Tab 11) from
+    # `features-sports-service/scripts/launch_parallel_backfill.sh`.
+    # ------------------------------------------------------------------
+    "fss-backfill-vm-": f"features-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
     "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
