@@ -229,6 +229,14 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # mtds-gas-fees-solana: distinct from generic mtds-gas-fees- (EVM chains)
     # — Solana-specific gas/priority-fee feed. Same target bucket as defi.
     "mtds-gas-fees-solana": f"market-data-tick-defi-{PROJECT_ID}",
+    # Phase 3 orchestrator-emitted VM name patterns (2026-05-08).
+    # Each orchestrator launcher emits N child VMs with these prefixes.
+    # sports-full-sweep-{year}: full_api_football_sweep year-chunk fan-out (8 VMs).
+    "sports-full-sweep-": f"market-data-tick-sports-{PROJECT_ID}",
+    # sports-entity-{type}: full_sports_entity_sweep per-entity fan-out (17 VMs).
+    "sports-entity-": f"market-data-tick-sports-{PROJECT_ID}",
+    # prediction-pipeline-{N}: prediction multi-stage pipeline VMs (MDPS + features-cross-instrument + features-delta-one).
+    "prediction-pipeline-": f"market-data-tick-prediction-{PROJECT_ID}",
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
