@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
+# For NEW single-VM features-sports backfills use the consolidated launcher:
+#   bash launch-features-vm.sh --feature-family sports --asset-group SPORTS ...
+# This launcher is preserved for its multi-VM chunk-split parallelisation
+# (10-way fan-out for multi-year windows) the consolidated launcher does not
+# model. Will be archived alongside the legacy features-sports-service repo
+# when Phase 7 lands.
+#
 # Sports Features Parallel Backfill — launch N VMs to cover a date range
 #
 # Uses the proven GCS tarball + editable install pattern from e2e-testing.

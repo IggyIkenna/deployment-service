@@ -322,11 +322,16 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # slow chronological af-backfill iteration.
     "fill-missing-player-stats-": f"instruments-store-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
-    # Features pipeline VMs (heartbeat-only — bucket varies by features-{group}-{asset_group}-).
-    # Group ∈ {calendar, commodity, cross-instrument, delta-one, multi-timeframe, onchain, volatility,
-    # sfi-progressive (sports halftime backfill, e2-standard-4)}.
+    # Features pipeline VMs (heartbeat-only — bucket varies by
+    # features-{family}-{asset_group}-).
+    # Family ∈ {calendar, commodity, cross-instrument, delta-one,
+    # multi-timeframe, onchain, sports, volatility} — 8 families served by
+    # the consolidated `launch-features-vm.sh --feature-family <name>` per
+    # Phase 8A of features_repo_consolidation_2026_05_08. Specialty
+    # halftime-backfill VMs (sfi-progressive-, e2-standard-4) also match
+    # the catch-all features-* prefix.
     # ------------------------------------------------------------------
-    "features-": None,  # features-{calendar,commodity,cross-instrument,delta-one,multi-timeframe,onchain,volatility}-{asset_group}-
+    "features-": None,  # features-{family-dashed}-{asset_group}-{ts} per launch-features-vm.sh
     # ------------------------------------------------------------------
     # Long-lived daemons + audits + one-offs (heartbeat-only)
     # ------------------------------------------------------------------

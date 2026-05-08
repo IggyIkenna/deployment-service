@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# DEPRECATED 2026-05-08 (Phase 8A of features_repo_consolidation_2026_05_08).
+# Superseded by `launch-features-vm.sh --feature-family onchain --asset-group DEFI`.
+# This wrapper still works (delegates to the new launcher with onchain DEFI
+# baked in); new callers should use `launch-features-vm.sh` directly.
+#
 # Launch GCE VM for features-onchain-service backfill (DeFi-only).
 #
 # features-onchain-service is the DeFi-only feature service in the

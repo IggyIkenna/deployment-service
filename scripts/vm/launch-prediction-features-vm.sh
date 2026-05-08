@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
+# For NEW single-VM prediction features backfills use the consolidated launcher:
+#   bash launch-features-vm.sh --feature-family cross_instrument \
+#       --asset-group PREDICTION --start-date YYYY-MM-DD --end-date YYYY-MM-DD ...
+# This launcher is preserved for its chunk-staging logic (CHUNK_SIZE=7d) the
+# consolidated launcher does not model. Will be archived when Phase 7 lands.
+#
 # Launch GCE VM for Polymarket prediction features computation
 #
 # Runs features-cross-instrument-service for PREDICTION category.

@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# DEPRECATED 2026-05-08 (Phase 8A of features_repo_consolidation_2026_05_08).
+# Superseded by `launch-features-vm.sh`, which dispatches the consolidated
+# features-service via `--feature-family <name>` (8 families) instead of
+# requiring a separate launcher per family. Mapping:
+#     bash launch-features-backfill-vm.sh delta-one CEFI 2020-01-01 2026-04-18 full
+#   becomes
+#     bash launch-features-vm.sh \
+#         --feature-family delta_one --asset-group CEFI \
+#         --start-date 2020-01-01 --end-date 2026-04-18 --launch-mode full
+# Note the underscore (`delta_one`) in --feature-family — UAC FeatureFamily
+# enum uses underscores; legacy positional arg used dashes (`delta-one`).
+# This wrapper preserves the legacy positional invocation by translating to
+# the new launcher; new callers should use `launch-features-vm.sh` directly.
+#
 # Phase 5c.3 features backfill VM launcher — spawn one VM per
 # (feature_service × category) cell. The service CLIs follow the standardised
 # axes defined in codex/06-coding-standards/cli-convention.md:

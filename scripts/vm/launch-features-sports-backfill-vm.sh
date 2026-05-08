@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
+# For NEW single-cell features-sports backfills use the consolidated launcher:
+#   bash launch-features-vm.sh --feature-family sports --asset-group SPORTS \
+#       --start-date YYYY-MM-DD --end-date YYYY-MM-DD --launch-mode full
+# This launcher is preserved for the singleton-lock + --skip-existing semantics
+# the consolidated launcher does not model. Will be archived alongside the
+# legacy features-sports-service repo when Phase 7 lands.
+#
 # Launch a GCE VM that backfills FIXTURE_FEATURES (per-fixture denormalised
 # join of Transfermarkt team value, pre-match standings, kickoff-hour
 # weather) via features-sports-service batch compute. Same code path as the
