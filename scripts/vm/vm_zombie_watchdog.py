@@ -217,6 +217,18 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
     # Heartbeat-only (no shard bucket — UI service VM, not data-pipeline writer).
     "deployment-dashboard-vm": None,
+    # Phase 2 lift-and-shift 2026-05-08 — launchers migrated from
+    # e2e-testing/scripts/defi/ + e2e-testing/scripts/prediction/ per
+    # vm_launcher_consolidation_audit_2026_05_08.md.
+    # mtds-liquidations-backfill: hardcoded VM name (singleton) — DEX/CEX
+    # liquidation events feed for risk + carry archetypes.
+    "mtds-liquidations-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    # prediction-features-: feature-engineering VMs for prediction asset_group.
+    # VM_NAME pattern is `prediction-features-{N}` (numbered shards).
+    "prediction-features-": f"market-data-tick-prediction-{PROJECT_ID}",
+    # mtds-gas-fees-solana: distinct from generic mtds-gas-fees- (EVM chains)
+    # — Solana-specific gas/priority-fee feed. Same target bucket as defi.
+    "mtds-gas-fees-solana": f"market-data-tick-defi-{PROJECT_ID}",
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
