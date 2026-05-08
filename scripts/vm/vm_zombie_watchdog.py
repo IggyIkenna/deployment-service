@@ -211,6 +211,11 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-dex-pools-backfill": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-eigenlayer-rewards-backfill": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-solana-drift-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    # CeFi instrument_type partition migrations (one-off cleanup VMs).
+    # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
+    # but doesn't write per-VM manifest shards. Migrated 2026-05-08
+    # (Tab 11) from e2e-testing/scripts/common/launch_cefi_migration_vm.sh.
+    "mtds-migrate-": None,
     # ------------------------------------------------------------------
     # MTDS per-AG generic backfill (launch-mtds-backfill-vm.sh emits
     # mtds-backfill-{ag}-{ts}, the canonical entry-point for the
