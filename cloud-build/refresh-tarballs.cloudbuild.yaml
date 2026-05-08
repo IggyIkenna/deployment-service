@@ -1,0 +1,158 @@
+# Cloud Build trigger: refresh code tarballs for one asset_group.
+#
+# Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.plan.md.
+# Invoked via REST by the deployment-api auto-launch endpoint (Phase 2)
+# when the staleness-check helper finds the asset_group's tarball mtime
+# is older than the latest live-defi-rollout commit. Returns a build_id
+# the caller polls for completion before launching the VM.
+#
+# Manual / smoke trigger:
+#   gcloud builds submit \
+#     --config=deployment-service/cloud-build/refresh-tarballs.cloudbuild.yaml \
+#     --region=asia-northeast1 \
+#     --substitutions=_ASSET_GROUP=CEFI,_BRANCH=live-defi-rollout
+#
+# Programmatic trigger (deployment-api Phase 2 wire-in):
+#   from google.cloud.devtools import cloudbuild_v1
+#   client = cloudbuild_v1.CloudBuildClient()
+#   build = cloudbuild_v1.Build(...)  # loaded from this YAML
+#   op = client.create_build(project_id=PID, build=build)
+#   build_id = op.metadata.build.id
+#
+# Substitutions:
+#   _ASSET_GROUP   CEFI | TRADFI | DEFI | SPORTS | PREDICTION | ALL  (required)
+#   _BRANCH        Branch to clone before tarballing  (default: live-defi-rollout)
+#   _BUCKET        Override the upload bucket         (default: deployment-scripts-${PROJECT_ID})
+#
+# Per CLAUDE.md "VM tarball deployment" SSOT — refreshes
+# `gs://deployment-scripts-${PROJECT_ID}/code/` by re-bundling the
+# in-checkout repos. The clone step pulls every workspace repo at the
+# requested branch; per-repo path resolution mirrors the operator-side
+# create-code-tarballs.sh behaviour (`$WORKSPACE_ROOT/<repo>`).
+#
+# Per CLAUDE.md "no fire-and-forget VM launches" — the wrapped
+# refresh-tarballs-for-shard-key.sh emits TARBALLS_REFRESH_REQUESTED /
+# TARBALLS_REFRESHED / TARBALLS_REFRESH_FAILED to
+# gs://${PROJECT_ID}-events/events/deployment-service/{date}/
+# {tarball-refresh-<asset_group>-<run_ts>}/ — the deployment-api
+# staleness-check helper polls there for the completion signal in
+# addition to the Cloud Build status field.
+
+substitutions:
+  _ASSET_GROUP: ""
+  _BRANCH: "live-defi-rollout"
+  _BUCKET: "deployment-scripts-${PROJECT_ID}"
+
+# Logging only via Cloud Logging (no GCS log bucket required).
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # Tarballing 14+ repos is I/O-bound; HIGHCPU helps the parallel tar.
+  machineType: "E2_HIGHCPU_8"
+  diskSizeGb: 200
+
+# Total budget: cloning ~14 repos (~10GB workspace) + tarballing all of
+# them takes ~5-7 minutes in steady state. 30min ceiling protects
+# against pathological timeouts without blocking the auto-launch flow.
+timeout: "1800s"
+
+steps:
+  # Step 1: Validate _ASSET_GROUP substitution. Cloud Build doesn't
+  # natively reject empty substitutions; we fail loud here so the
+  # programmatic caller (deployment-api) gets a clear error rather than
+  # a tarball of CORE only.
+  - name: "ubuntu"
+    id: "validate-asset-group"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        AG="${_ASSET_GROUP}"
+        if [[ -z "$$AG" ]]; then
+          echo "ERROR: _ASSET_GROUP substitution is required (CEFI/TRADFI/DEFI/SPORTS/PREDICTION/ALL)"
+          exit 1
+        fi
+        case "$$AG" in
+          CEFI|TRADFI|DEFI|SPORTS|PREDICTION|ALL) echo "asset_group=$$AG branch=${_BRANCH} bucket=${_BUCKET}" ;;
+          *) echo "ERROR: Unknown _ASSET_GROUP '$$AG'"; exit 1 ;;
+        esac
+
+  # Step 2: Clone every workspace repo at the requested branch into
+  # $WORKSPACE_ROOT (= /workspace/repos). The list mirrors the union of
+  # CORE_REPOS + ALL_SERVICE_REPOS in
+  # deployment-service/scripts/vm/create-code-tarballs.sh — kept in
+  # sync by the rollout discipline (when adding a new service repo,
+  # update both files in the same commit).
+  #
+  # Auth: relies on the Cloud Build SA having read on the GitHub
+  # mirror bucket OR a github-app installation. Org-specific wiring
+  # lives outside this YAML; the comment in setup-data-pipeline-vm.sh
+  # documents the same protocol for VM-side cloning.
+  - name: "gcr.io/cloud-builders/git"
+    id: "clone-workspace"
+    waitFor: ["validate-asset-group"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        mkdir -p /workspace/repos
+        cd /workspace/repos
+        REPOS=(
+          unified-api-contracts
+          unified-trading-library
+          deployment-service
+          instruments-service
+          market-tick-data-service
+          market-data-processing-service
+          features-delta-one-service
+          features-cross-instrument-service
+          features-multi-timeframe-service
+          features-calendar-service
+          features-volatility-service
+          features-onchain-service
+          features-sports-service
+          features-commodity-service
+          ml-training-service
+          ml-inference-service
+          strategy-service
+          execution-service
+          pnl-attribution-service
+          risk-and-exposure-service
+          position-balance-monitor-service
+        )
+        for repo in "$${REPOS[@]}"; do
+          if [[ ! -d "$$repo/.git" ]]; then
+            # Use IggyIkenna org per workspace-manifest.json convention.
+            git clone --depth 1 --branch "${_BRANCH}" \
+              "https://github.com/IggyIkenna/$$repo.git" "$$repo" \
+              || { echo "WARN: failed to clone $$repo (skipping — may not exist on $${_BRANCH})"; }
+          fi
+        done
+
+  # Step 3: Run the refresh-tarballs-for-shard-key.sh wrapper. Drives
+  # create-code-tarballs.sh under the hood + emits the
+  # TARBALLS_REFRESHED event the deployment-api Phase 2 helper polls.
+  #
+  # GCP_PROJECT_ID is exported so the wrapper's GCS event-write
+  # short-path lights up; without it the wrapper still emits to stdout
+  # (Cloud Build log) but skips the bucket write.
+  - name: "google/cloud-sdk:slim"
+    id: "refresh-tarballs"
+    waitFor: ["clone-workspace"]
+    env:
+      - "WORKSPACE_ROOT=/workspace/repos"
+      - "GCP_PROJECT_ID=${PROJECT_ID}"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        bash /workspace/repos/deployment-service/scripts/vm/refresh-tarballs-for-shard-key.sh \
+          "${_ASSET_GROUP}" \
+          --bucket "${_BUCKET}"
+
+# No image artefacts — this build only writes to the deployment-scripts-*
+# bucket via gsutil inside the tarball script. The Cloud Build status
+# field (SUCCESS / FAILURE) + the TARBALLS_REFRESHED event are the
+# completion signals the auto-launch endpoint waits on.
