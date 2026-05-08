@@ -138,6 +138,34 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "cefi-instr-": None,  # cefi-instr-{venue}-{ts} from instruments-service launchers
     "cefi-rogue-": None,  # cefi-rogue-rekey one-off cleanup
     # ------------------------------------------------------------------
+    # Instruments-service per-AG parallel backfill (launch-instruments-
+    # backfill-vm.sh emits 5 VMs: instr-backfill-cefi-{1,2,3} +
+    # instr-backfill-{defi,tradfi,sports}). Migrated 2026-05-08 (Tab 11)
+    # from `e2e-testing/scripts/common/launch_instruments_backfill_vms.sh`.
+    # Bucket = `instruments-store-{ag}-{pid}` (where the launcher writes
+    # _vm_staging + the per-AG instruments parquet).
+    # ------------------------------------------------------------------
+    "instr-backfill-cefi-": f"instruments-store-cefi-{PROJECT_ID}",
+    "instr-backfill-defi": f"instruments-store-defi-{PROJECT_ID}",
+    "instr-backfill-tradfi": f"instruments-store-tradfi-{PROJECT_ID}",
+    "instr-backfill-sports": f"instruments-store-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
+    # features-sports-service parallel backfill (launch-features-sports-
+    # parallel-backfill-vm.sh emits N VMs `fss-backfill-vm-{i}` for a
+    # date range chunk-split). Bucket = features-sports-{pid}. Migrated
+    # 2026-05-08 (Tab 11) from
+    # `features-sports-service/scripts/launch_parallel_backfill.sh`.
+    # ------------------------------------------------------------------
+    "fss-backfill-vm-": f"features-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
+    # Sports instruments-reference v3 backfill (launch-sports-instruments-
+    # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
+    # date-range coverage of api_football reference entities). Bucket =
+    # instruments-store-sports-{pid}. Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/sports/launch_instruments_reference_v3.sh`.
+    # ------------------------------------------------------------------
+    "sports-ref-v3-": f"instruments-store-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
     "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
@@ -177,6 +205,33 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
+    # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
+    # from e2e-testing/scripts/defi/. Each launcher emits a single VM
+    # with a fixed name; bucket = market-data-tick-defi-{pid}.
+    "mtds-dex-pools-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-eigenlayer-rewards-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-solana-drift-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    # CeFi instrument_type partition migrations (one-off cleanup VMs).
+    # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
+    # but doesn't write per-VM manifest shards. Migrated 2026-05-08
+    # (Tab 11) from e2e-testing/scripts/common/launch_cefi_migration_vm.sh.
+    "mtds-migrate-": None,
+    # ------------------------------------------------------------------
+    # MTDS per-AG generic backfill (launch-mtds-backfill-vm.sh emits
+    # mtds-backfill-{ag}-{ts}, the canonical entry-point for the
+    # Deploy-Missing UI button on the market-tick-data-service service).
+    # Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh`.
+    # ------------------------------------------------------------------
+    "mtds-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "mtds-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mtds-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mtds-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    # mtds-backfill-odds-{N} from launch-mtds-sports-odds-backfill-vm.sh
+    # (sports-Odds-API specific). Migrated 2026-05-08 (Tab 11) from
+    # e2e-testing/scripts/sports/launch_mtds_backfill_vm.sh.
+    "mtds-backfill-odds-": f"market-data-tick-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # Phantom-row reconciliation (read-only audit, 2026-05-07).
     # Read-only on the asset_group's manifest bucket — heartbeat-only
