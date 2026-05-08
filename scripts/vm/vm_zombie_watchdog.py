@@ -209,6 +209,10 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
     "mtds-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    # mtds-backfill-odds-{N} from launch-mtds-sports-odds-backfill-vm.sh
+    # (sports-Odds-API specific). Migrated 2026-05-08 (Tab 11) from
+    # e2e-testing/scripts/sports/launch_mtds_backfill_vm.sh.
+    "mtds-backfill-odds-": f"market-data-tick-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
     # Phantom-row reconciliation (read-only audit, 2026-05-07).
     # Read-only on the asset_group's manifest bucket — heartbeat-only
