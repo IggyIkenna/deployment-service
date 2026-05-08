@@ -36,16 +36,21 @@ gcp:
     # Per-asset-group market-data + instruments (NO env tier — single per asset_group).
     # Added 2026-05-08 (Tab 4 AWS Phase 1 smoke surfaced missing yaml entries — actual
     # buckets exist on both clouds but resolver couldn't find them).
+    # NOTE: GCP shape includes `tick-` infix (e.g. market-data-tick-defi-...);
+    # AWS shape does NOT (e.g. unified-trading-market-data-defi-...). Per-cloud
+    # template captures the asymmetry; resolver hides it behind same `kind` key.
     market-data:
-      CEFI: "market-data-cefi-${GCP_PROJECT_ID}"
-      DEFI: "market-data-defi-${GCP_PROJECT_ID}"
-      TRADFI: "market-data-tradfi-${GCP_PROJECT_ID}"
+      CEFI: "market-data-tick-cefi-${GCP_PROJECT_ID}"
+      DEFI: "market-data-tick-defi-${GCP_PROJECT_ID}"
+      TRADFI: "market-data-tick-tradfi-${GCP_PROJECT_ID}"
     instruments-store:
       CEFI: "instruments-store-cefi-${GCP_PROJECT_ID}"
       DEFI: "instruments-store-defi-${GCP_PROJECT_ID}"
       TRADFI: "instruments-store-tradfi-${GCP_PROJECT_ID}"
     # Cross-cutting features-calendar (no asset_group, no env — single bucket).
-    features-calendar: "features-calendar-${GCP_PROJECT_ID}"
+    # NOTE: GCP doesn't have a features-calendar bucket today; AWS does.
+    # If a calendar workload migrates to GCP, provision + uncomment below.
+    # features-calendar: "features-calendar-${GCP_PROJECT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi)
     instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
     market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
