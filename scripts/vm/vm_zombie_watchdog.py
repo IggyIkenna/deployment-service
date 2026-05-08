@@ -178,6 +178,18 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
     # ------------------------------------------------------------------
+    # MTDS per-AG generic backfill (launch-mtds-backfill-vm.sh emits
+    # mtds-backfill-{ag}-{ts}, the canonical entry-point for the
+    # Deploy-Missing UI button on the market-tick-data-service service).
+    # Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh`.
+    # ------------------------------------------------------------------
+    "mtds-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "mtds-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mtds-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mtds-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # Phantom-row reconciliation (read-only audit, 2026-05-07).
     # Read-only on the asset_group's manifest bucket — heartbeat-only
     # signal (None) since the script doesn't write per-VM shards. The
