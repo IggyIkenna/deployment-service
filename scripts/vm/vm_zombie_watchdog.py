@@ -158,6 +158,14 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "fss-backfill-vm-": f"features-sports-{PROJECT_ID}",
     # ------------------------------------------------------------------
+    # Sports instruments-reference v3 backfill (launch-sports-instruments-
+    # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
+    # date-range coverage of api_football reference entities). Bucket =
+    # instruments-store-sports-{pid}. Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/sports/launch_instruments_reference_v3.sh`.
+    # ------------------------------------------------------------------
+    "sports-ref-v3-": f"instruments-store-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
     "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
