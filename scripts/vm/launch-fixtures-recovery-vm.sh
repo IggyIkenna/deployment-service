@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch a GCE VM that runs the Phase 2 fixtures recovery from the Phase 1 truth-set.
 #
-# Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.plan.md
+# Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md
 # Script: instruments-service/scripts/recover_fixtures_from_truthset.py
 #
 # What it does

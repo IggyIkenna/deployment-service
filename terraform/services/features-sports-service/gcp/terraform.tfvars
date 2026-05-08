@@ -1,6 +1,6 @@
 # Terraform variables for features-sports-service
 #
-# SSOT: plans/active/features_sports_pipeline_deployment_2026_04_21.plan.md (Phase 2).
+# SSOT: plans/active/features_sports_pipeline_deployment_2026_04_21.md (Phase 2).
 # Cloud Run job + daily Workflow + Scheduler at 07:00 UTC + backfill Workflow.
 # Image published by cloudbuild.yaml in features-sports-service repo to shared
 # AR `unified-trading-system/features-sports-service:latest`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tier-3 CeFi backfill launcher — Bitfinex / Bitget / Kraken venues via Tardis.
 #
-# Phase 1 of cefi_venue_universe_expansion_2026_05_01.plan.md (initial 8-symbol
+# Phase 1 of cefi_venue_universe_expansion_2026_05_01.md (initial 8-symbol
 # fanout). 2026-05-04 expansion: top-25 perp universe per venue covers >90%
 # of liquid volume per Tardis availableSymbols probe.
 #

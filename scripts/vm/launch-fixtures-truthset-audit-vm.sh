@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch a GCE VM that runs the api_football fixtures truth-set audit.
 #
-# Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.plan.md
+# Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md
 # Script: instruments-service/scripts/audit_fixtures_via_api_football.py
 #
 # What it does

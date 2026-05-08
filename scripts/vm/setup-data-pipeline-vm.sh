@@ -134,7 +134,7 @@ VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
 # Recovery-mode fixture-id allowlist (instruments-service --recovery-fixture-ids).
 # Path to a parquet on GCS or local disk that scopes per-fixture entity fetches
 # to a specific af_fixture_id allowlist. Used for targeted recovery work — see
-# unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.plan.md.
+# unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md.
 VM_RECOVERY_FIXTURE_IDS=$(_meta VM_RECOVERY_FIXTURE_IDS)
 # VM_INSTRUMENT_IDS: semicolon-separated raw venue-native symbols. Added
 # 2026-04-19 so cefi-backfill launchers can restrict Tardis downloads to a

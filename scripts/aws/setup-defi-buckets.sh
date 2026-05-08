@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Provision the 10 DeFi-relevant S3 buckets needed for May-23 AWS cutover.
 #
-# Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.plan.md Phase 2.
+# Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.plan Phase 2.
 # Triggered by Agent 4 (work_split_2026_05_07_ikenna_5tab_layout.md Item 3).
 #
 # Idempotent: each bucket is created only if missing. Reads bucket templates from
@@ -55,7 +55,7 @@ echo "Deployment:    $DEPLOYMENT_ENV"
 echo "Mode:          $([[ "$APPLY" == "true" ]] && echo APPLY || echo DRY-RUN)"
 echo
 
-# 10 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan.md Phase 2.
+# 10 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan Phase 2.
 # Names mirror cloud-providers.yaml aws.storage entries; if those entries change, this
 # list must be regenerated from yq.
 BUCKETS=(

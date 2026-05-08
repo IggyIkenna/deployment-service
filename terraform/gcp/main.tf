@@ -489,7 +489,7 @@ resource "google_storage_bucket" "market_data_prediction_test" {
 # market-data-tick-{category}-* in the `processed_candles/` subprefix, not to a
 # separate bucket. All 10 market-data-candles-* buckets (5 prod + 5 test) were
 # verified empty (0 objects / 0 bytes) before retirement. See
-# unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
+# unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan Phase 5a.
 # terraform will `destroy` the resources below on next apply; the `gcp/main.tf`
 # block that once defined them has been deleted intentionally (no recreation).
 

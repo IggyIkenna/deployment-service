@@ -190,7 +190,7 @@ _create_vm() {
     # availability_index.parquet. Default kept true for backward compat with
     # the migration-era phantom captured-row period; pass --no-force-window
     # to disable once the tradfi phantom audit (master plan
-    # unified-trading-pm/plans/active/sp500_ml_readiness_master_2026_05_05.plan.md
+    # unified-trading-pm/plans/active/sp500_ml_readiness_master_2026_05_05.plan
     # Phase 1) has reconciled the manifest. Then narrow-window VMs skip
     # already-captured shards instead of refetching the entire window.
     metadata="VM_TASK=cefi-backfill"

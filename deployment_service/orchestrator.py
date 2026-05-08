@@ -280,7 +280,7 @@ class T1Orchestrator:
             OrchestrationPlan with all jobs and dependencies mapped
         """
         log_event(
-            "orchestrator.plan.creation.started",
+            "orchestrator.md.creation.started",
             target_date=target_date,
             asset_group=asset_group,
             requested_services=services,
@@ -377,7 +377,7 @@ class T1Orchestrator:
                     job.downstream_jobs.append(other_job.job_id)
 
         log_event(
-            "orchestrator.plan.creation.completed",
+            "orchestrator.md.creation.completed",
             target_date=target_date,
             asset_group=asset_group,
             total_jobs=plan.total_jobs,
@@ -564,7 +564,7 @@ class T1Orchestrator:
                 upload_fn(json.dumps(plan.to_dict(), indent=2), content_type="application/json")
 
             log_event(
-                "orchestrator.plan.saved",
+                "orchestrator.md.saved",
                 date=plan.date,
                 asset_group=plan.asset_group,
                 project_id=self.project_id,
@@ -574,7 +574,7 @@ class T1Orchestrator:
             return True
         except ConnectionError as e:
             log_event(
-                "orchestrator.plan.save_failed",
+                "orchestrator.md.save_failed",
                 date=plan.date,
                 asset_group=plan.asset_group,
                 project_id=self.project_id,
@@ -584,7 +584,7 @@ class T1Orchestrator:
             return False
         except OSError as e:
             log_event(
-                "orchestrator.plan.save_failed",
+                "orchestrator.md.save_failed",
                 date=plan.date,
                 asset_group=plan.asset_group,
                 project_id=self.project_id,
@@ -594,7 +594,7 @@ class T1Orchestrator:
             return False
         except ValueError as e:
             log_event(
-                "orchestrator.plan.save_failed",
+                "orchestrator.md.save_failed",
                 date=plan.date,
                 asset_group=plan.asset_group,
                 project_id=self.project_id,
@@ -604,7 +604,7 @@ class T1Orchestrator:
             return False
         except RuntimeError as e:
             log_event(
-                "orchestrator.plan.save_failed",
+                "orchestrator.md.save_failed",
                 date=plan.date,
                 asset_group=plan.asset_group,
                 project_id=self.project_id,
@@ -656,7 +656,7 @@ class T1Orchestrator:
             return plan
         except ConnectionError as e:
             log_event(
-                "orchestrator.plan.load_failed",
+                "orchestrator.md.load_failed",
                 target_date=target_date,
                 asset_group=asset_group,
                 project_id=self.project_id,
@@ -666,7 +666,7 @@ class T1Orchestrator:
             return None
         except FileNotFoundError:
             log_event(
-                "orchestrator.plan.not_found",
+                "orchestrator.md.not_found",
                 target_date=target_date,
                 asset_group=asset_group,
                 project_id=self.project_id,
@@ -675,7 +675,7 @@ class T1Orchestrator:
             return None
         except (ValueError, KeyError) as e:
             log_event(
-                "orchestrator.plan.load_failed",
+                "orchestrator.md.load_failed",
                 target_date=target_date,
                 asset_group=asset_group,
                 project_id=self.project_id,
@@ -685,7 +685,7 @@ class T1Orchestrator:
             return None
         except (OSError, RuntimeError) as e:
             log_event(
-                "orchestrator.plan.load_failed",
+                "orchestrator.md.load_failed",
                 target_date=target_date,
                 asset_group=asset_group,
                 project_id=self.project_id,

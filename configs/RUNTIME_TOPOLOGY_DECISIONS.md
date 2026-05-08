@@ -44,7 +44,7 @@ The chain is always: **UI → API (HTTP/SSE) → Service (engine) → Storage/Me
 | ----------------------------------------------------------- | --------------------------- | -------------------- |
 | trading-analytics-ui, execution-analytics-ui, settlement-ui | execution-results-api :8002 | execution-service    |
 
-> **Consolidation note:** `trading-analytics-ui` is functionally overlapped by the batch research UIs: `execution-analytics-ui` (provides live fill viewing via `execution-results-api` SSE) and `client-reporting-ui` (P&L). Candidate for consolidation into `execution-analytics-ui` in a future phase. See `consolidated_remaining_work.plan.md` todo `arch-trading-analytics-ui-consolidate`.
+> **Consolidation note:** `trading-analytics-ui` is functionally overlapped by the batch research UIs: `execution-analytics-ui` (provides live fill viewing via `execution-results-api` SSE) and `client-reporting-ui` (P&L). Candidate for consolidation into `execution-analytics-ui` in a future phase. See `consolidated_remaining_work.md` todo `arch-trading-analytics-ui-consolidate`.
 > | strategy-ui | strategy-api :8004 ⟪planned⟫ | strategy-service |
 > | deployment-ui, unified-trading-system-ui (health, audit, logs, onboarding) | deployment-api :8001, unified-trading-api, auth-api | deployment-engine |
 > | client-reporting-ui | client-reporting-api :8005 | pnl-attribution-service, risk-and-exposure-service, position-balance-monitor-service |

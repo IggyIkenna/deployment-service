@@ -216,7 +216,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "fs-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     "af-backfill-": f"instruments-store-sports-{PROJECT_ID}",
     # api_football fixtures truth-set audit (launch-fixtures-truthset-audit-vm.sh,
-    # 2026-05-06 — Phase 1 of sports_fixtures_truthset_recovery_2026_05_06.plan.md).
+    # 2026-05-06 — Phase 1 of sports_fixtures_truthset_recovery_2026_05_06.md).
     # Writes to gs://instruments-store-sports-{pid}/_audits/, so the watchdog
     # checks the same shard bucket — its progress signal is the truth-set
     # parquet checkpoint mtime under _audits/.

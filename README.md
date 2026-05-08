@@ -84,7 +84,7 @@ not forget the flag.
 Local-emulator smoke: `bash scripts/smoke-signal-broadcast.sh` (uses
 `responses`; no live HTTP). Live-staging smoke is an operator follow-up.
 
-SSOT: `unified-trading-pm/plans/active/signal_leasing_broadcast_architecture_2026_04_20.plan.md`
+SSOT: `unified-trading-pm/plans/active/signal_leasing_broadcast_architecture_2026_04_20.md`
 Phase 4. D-decisions (D1 sub-package, D3 HMAC webhook auth, D7 per-cp-
 per-strategy rate limit, D10 shard-level failure isolation) locked
 2026-04-20.

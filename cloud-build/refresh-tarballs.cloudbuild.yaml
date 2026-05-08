@@ -1,6 +1,6 @@
 # Cloud Build trigger: refresh code tarballs for one asset_group.
 #
-# Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.plan.md.
+# Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.md.
 # Invoked via REST by the deployment-api auto-launch endpoint (Phase 2)
 # when the staleness-check helper finds the asset_group's tarball mtime
 # is older than the latest live-defi-rollout commit. Returns a build_id

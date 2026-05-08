@@ -2,7 +2,7 @@
 # Launch a single GCE VM that backfills sfi_progressive halftime features
 # for the entire SFI coverage window via features-sports-service.
 #
-# Phase 0.6 of features_sports_honest_coverage_2026_05_05.plan.md.
+# Phase 0.6 of features_sports_honest_coverage_2026_05_05.plan.
 #
 # Why standalone (not part of full derived_features):
 #   sfi_progressive features are computed from already-captured SFI

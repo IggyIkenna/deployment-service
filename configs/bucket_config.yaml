@@ -328,7 +328,7 @@ aws_bucket_mappings:
   market-data-tick: "unified-trading-market-data-{category}-{account_id}"
   # market-data-candles retired 2026-04-18: MDPS writes co-located under
   # market-data-tick-{category}-* in `processed_candles/` subprefix
-  # (see unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a).
+  # (see unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.md Phase 5a).
   features-delta-one: "unified-trading-features-delta-one-{category}-{account_id}"
   features-volatility: "unified-trading-features-volatility-{category}-{account_id}"
   features-onchain: "unified-trading-features-onchain-{category}-{account_id}"

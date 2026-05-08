@@ -6,8 +6,8 @@
 # multi-year runs don't block a laptop.
 #
 # SSOT:
-#   plans/active/features_sports_pipeline_deployment_2026_04_21.plan.md
-#   plans/active/features_sports_denormalisation_pipeline_2026_04_21.plan.md
+#   plans/active/features_sports_pipeline_deployment_2026_04_21.plan
+#   plans/active/features_sports_denormalisation_pipeline_2026_04_21.plan
 #
 # Invocation inside the VM (VM_BACKFILL_CMD metadata; see
 # setup-data-pipeline-vm.sh line 455 branch for features-backfill):

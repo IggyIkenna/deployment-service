@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refresh the tarball bundle for ONE asset_group's pipeline.
 #
-# Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.plan.md.
+# Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.md.
 # Wraps `create-code-tarballs.sh --asset-group <X>` so the deployment-api
 # auto-launch endpoint (Phase 2) can refresh just the bundle the about-to-
 # launch VM needs, not all five asset_groups. Emits a TARBALLS_REFRESHED
