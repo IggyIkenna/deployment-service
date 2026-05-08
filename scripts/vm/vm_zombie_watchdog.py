@@ -138,6 +138,18 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "cefi-instr-": None,  # cefi-instr-{venue}-{ts} from instruments-service launchers
     "cefi-rogue-": None,  # cefi-rogue-rekey one-off cleanup
     # ------------------------------------------------------------------
+    # Instruments-service per-AG parallel backfill (launch-instruments-
+    # backfill-vm.sh emits 5 VMs: instr-backfill-cefi-{1,2,3} +
+    # instr-backfill-{defi,tradfi,sports}). Migrated 2026-05-08 (Tab 11)
+    # from `e2e-testing/scripts/common/launch_instruments_backfill_vms.sh`.
+    # Bucket = `instruments-store-{ag}-{pid}` (where the launcher writes
+    # _vm_staging + the per-AG instruments parquet).
+    # ------------------------------------------------------------------
+    "instr-backfill-cefi-": f"instruments-store-cefi-{PROJECT_ID}",
+    "instr-backfill-defi": f"instruments-store-defi-{PROJECT_ID}",
+    "instr-backfill-tradfi": f"instruments-store-tradfi-{PROJECT_ID}",
+    "instr-backfill-sports": f"instruments-store-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
     "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
