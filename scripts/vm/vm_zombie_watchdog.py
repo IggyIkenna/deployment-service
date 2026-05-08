@@ -212,6 +212,11 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # historical RPC (free, slow) → CoinGecko historical daily (free, daily
     # granularity). Operator-decision pending on Birdeye paid-tier add.
     "mtds-pyth-archive-": f"market-data-tick-defi-{PROJECT_ID}",
+    # Deployment dashboard VM (single instance, hardcoded name "deployment-dashboard-vm")
+    # Migrated 2026-05-08 from intra-repo deployment-service/scripts/deploy-dashboard-gce-vm.sh
+    # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
+    # Heartbeat-only (no shard bucket — UI service VM, not data-pipeline writer).
+    "deployment-dashboard-vm": None,
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
