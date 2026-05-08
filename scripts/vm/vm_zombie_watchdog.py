@@ -205,6 +205,13 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
     "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
+    # Pyth Hermes archive backfill (Solana SOL/USD pre-2023-10 gap window).
+    # Hermes archive starts ~2023-10-01 per UAC ORACLE_COVERAGE_START SSOT
+    # (UAC@3adee82 2026-05-08). Pre-2023-10 SOL/USD oracle valuation needed
+    # for carry_staked_basis Solana-leg backtest. Sources cascade: Pythnet
+    # historical RPC (free, slow) → CoinGecko historical daily (free, daily
+    # granularity). Operator-decision pending on Birdeye paid-tier add.
+    "mtds-pyth-archive-": f"market-data-tick-defi-{PROJECT_ID}",
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
