@@ -92,6 +92,8 @@ def gcp_auth_info() -> tuple[object | None, str, str | None]:
         return credentials, project_id or "test-project", None
     except DefaultCredentialsError:
         pass
+    except Exception:  # noqa: BLE001 — pytest-socket / metadata-server blocked on CI; treat as no creds
+        pass
 
     return None, "test-project", None
 
