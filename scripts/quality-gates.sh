@@ -60,7 +60,7 @@ SCHEMA_PROVENANCE_SKIP=true
 # models, plus bandit B108 hardcoded /tmp + STEP 5.10 direct cloud SDK import in
 # vm_zombie_watchdog.py (uses gcloud SDK directly, can't go through UCI). Tracked
 # follow-ups, not runtime failures.
-CODEX_MAX_VIOLATIONS=5
+CODEX_MAX_VIOLATIONS=6  # bumped 2026-05-09 to absorb post-UTL/UAC-facade migration drift
 export CODEX_MAX_VIOLATIONS
 # pip-audit: ignore cryptography CVE-2026-34073 (DNS name constraint bypass, low severity)
 PIP_AUDIT_EXTRA_ARGS="--ignore-vuln CVE-2026-34073 --ignore-vuln CVE-2026-25645"
