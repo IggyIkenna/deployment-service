@@ -6,11 +6,11 @@ or builds Cloud Run images via `gcloud builds submit` lives here.
 
 ## Scripts
 
-| Script | What it deploys | Original location (now wrapper) |
-|--------|-----------------|----------------------------------|
+| Script             | What it deploys                                                                    | Original location (now wrapper)                            |
+| ------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `deploy-shared.sh` | `uts-shared-deployment-api` (FastAPI + bundled deployment-ui SPA, asia-northeast1) | `unified-trading-pm/scripts/dev/deploy-shared-cloudrun.sh` |
-| `canary-deploy.sh` | Generic Cloud Run canary framework (any service, any region) | `unified-trading-pm/scripts/deployment/canary-deploy.sh` |
-| `deploy-ui.sh` | `odum-portal` / `odum-portal-staging` (UI, europe-west4) | `unified-trading-system-ui/scripts/deploy-cloud-run.sh` |
+| `canary-deploy.sh` | Generic Cloud Run canary framework (any service, any region)                       | `unified-trading-pm/scripts/deployment/canary-deploy.sh`   |
+| `deploy-ui.sh`     | `odum-portal` / `odum-portal-staging` (UI, europe-west4)                           | `unified-trading-system-ui/scripts/deploy-cloud-run.sh`    |
 
 ## Adding a new Cloud Run deploy script
 
