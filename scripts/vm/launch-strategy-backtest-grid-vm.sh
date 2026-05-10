@@ -196,7 +196,14 @@ $SMOKE && SMOKE_FLAG=" --smoke"
 # routing — setup-data-pipeline-vm.sh already has a branch matching
 # `strategy-backtest-grid` that cd's into $WORKSPACE/strategy and execs
 # VM_BACKFILL_CMD via _launch_with_tee.
-RUNNER_CMD="python -m strategy_service.scripts.run_2yr_config_grid_backtest \
+#
+# IMPORTANT: invoke as `python scripts/run_2yr_config_grid_backtest.py`
+# (script path), NOT as `python -m strategy_service.scripts.run_...` —
+# `scripts/` lives at the repo root and is NOT part of the
+# `strategy_service` package (no __init__.py there). The 2026-05-10 first
+# launch failed with `ModuleNotFoundError: No module named
+# 'strategy_service.scripts'` because of this confusion.
+RUNNER_CMD="python scripts/run_2yr_config_grid_backtest.py \
 --archetype ${ARCHETYPE} \
 --start ${START_DATE} \
 --end ${END_DATE} \
