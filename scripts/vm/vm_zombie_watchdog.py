@@ -293,6 +293,17 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "defi-phantom-recon-": None,
     # ------------------------------------------------------------------
+    # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
+    # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
+    # pre-audit doc (drift-axis histogram + manifest shape + phantom
+    # baseline) for the gcs_migration_bundle_pipeline_mode_2026_05_08
+    # plan. Single VM iterates cefi/defi/tradfi/sports/prediction
+    # sequentially. Heartbeat-only — same as defi-phantom-recon-,
+    # script doesn't write per-VM shards. Launcher:
+    # launch-gcs-migration-phase0-calibration.sh.
+    # ------------------------------------------------------------------
+    "gcs-migration-phase0-": None,
+    # ------------------------------------------------------------------
     # Expected-universe enumerator (Phase 3.D.4 writegate, 2026-05-07).
     # In --apply-write mode it writes per-VM manifest shards under
     # gs://market-data-tick-{asset_group}-{pid}/_index/per_vm/{vm_name}.parquet
