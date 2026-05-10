@@ -230,6 +230,14 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
     # Heartbeat-only (no shard bucket — UI service VM, not data-pipeline writer).
     "deployment-dashboard-vm": None,
+    # alerting-service Phase 7 quietness baseline VM (2026-05-10) — runs the
+    # alerting-service in live mode against staging-noise Telegram channel for
+    # 48h continuous so the operator can measure per-AlertCode false-positive
+    # rate before tuning ALERT_THRESHOLDS pre-cutover. Heartbeat-only — the
+    # service emits to events stream + AlertStorageStore, not to a per-VM
+    # manifest shard. Launcher: launch-alerting-quietness-baseline.sh; plan:
+    # alerting_service_live_rules_2026_05_07.md Phase 7.
+    "alerting-quietness-": None,
     # Phase 2 lift-and-shift 2026-05-08 — launchers migrated from
     # e2e-testing/scripts/defi/ + e2e-testing/scripts/prediction/ per
     # vm_launcher_consolidation_audit_2026_05_08.md.
