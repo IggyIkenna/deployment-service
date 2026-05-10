@@ -212,6 +212,19 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # historical RPC (free, slow) → CoinGecko historical daily (free, daily
     # granularity). Operator-decision pending on Birdeye paid-tier add.
     "mtds-pyth-archive-": f"market-data-tick-defi-{PROJECT_ID}",
+    # ------------------------------------------------------------------
+    # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
+    # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
+    # Two archetypes lead the May-23 live-DeFi cutover:
+    #   - carry_staked_basis        → strategy-backtest-grid-carry-staked-basis-...
+    #   - ARBITRAGE_PRICE_DISPERSION → strategy-backtest-grid-arbitrage-price-...
+    # Heartbeat-only — strategy-service does NOT write per-VM manifest
+    # shards under _index/per_vm/. Output goes to
+    # gs://strategy-store-{pid}/backtests/config_grid_2yr/{archetype}/{run_id}/
+    # so watchdog falls back to the GCS heartbeat sidecar at
+    # gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt.
+    # ------------------------------------------------------------------
+    "strategy-backtest-grid-": None,
     # Deployment dashboard VM (single instance, hardcoded name "deployment-dashboard-vm")
     # Migrated 2026-05-08 from intra-repo deployment-service/scripts/deploy-dashboard-gce-vm.sh
     # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".

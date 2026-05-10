@@ -640,6 +640,25 @@ EOF_LOOP
   _launch_with_tee \
     "$WORKSPACE/manifest_consolidator_loop.sh" \
     "$LOGS/manifest-consolidator.log"
+elif [[ "$VM_TASK" == "strategy-backtest-grid" ]]; then
+  # 2026-05-10 — 2-yr config-grid backtest runner for the May-23 live-DeFi
+  # cutover (audit Item #2 + master Group F Item 18). VM_BACKFILL_CMD carries
+  # the full strategy_service.scripts.run_2yr_config_grid_backtest invocation
+  # so the host-side launcher controls --archetype / --start / --end /
+  # --grid-density / --smoke flags. Runs in $WORKSPACE/strategy.
+  # Writes per-config + summary parquets to
+  # gs://strategy-store-{pid}/backtests/config_grid_2yr/{archetype}/{run_id}/
+  # via the runner's internal GCS writer. Self-deletes on completion via
+  # the launcher-attached shutdown-script (VM_SHUTDOWN_ON_COMPLETION=true).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/strategy" || { log "ERROR: $WORKSPACE/strategy missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/strategy-backtest-grid.log"
+  else
+    log "ERROR: strategy-backtest-grid task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
   # (Phase 3.D.4 writegate, 2026-05-07): BACKFILL_CMD metadata carries the
