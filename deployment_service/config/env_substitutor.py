@@ -33,6 +33,42 @@ def get_cloud_provider() -> str:
     return _config.cloud_provider.lower()
 
 
+# ``${DEPLOYMENT_ENV}`` (workspace vocab: ``development`` / ``staging`` / ``prod``)
+# -> 3-char form used in bucket-name strings (per bucket_name_ssot Q5/A5 Scope A —
+# keeps long bucket names under the 63-char GCS/S3 cap; workspace vocab keeps the
+# long form everywhere except IN bucket names). ``${DEPLOYMENT_ENV_SHORT}``
+# placeholders in ``cloud-providers.yaml`` resolve through this map. Mirrors
+# ``unified_trading_library.cloud_interface.bucket_naming._DEPLOYMENT_ENV_SHORT_FORM``
+# so both yaml-readers (deployment-service config_loader + UTL bucket_naming
+# resolver) produce identical bucket names.
+_DEPLOYMENT_ENV_SHORT_FORM: dict[str, str] = {
+    "dev": "dev",
+    "development": "dev",
+    "staging": "stg",
+    "stg": "stg",
+    "prod": "prd",
+    "prd": "prd",
+    "production": "prd",
+    "test": "test",  # 4 chars — the E2E `-test-` variant; well under the cap.
+    "ci": "ci",
+}
+
+
+def _resolve_deployment_env_short(env: dict[str, str]) -> str:
+    """Resolve ``${DEPLOYMENT_ENV_SHORT}`` from an env snapshot.
+
+    Reads ``DEPLOYMENT_ENV`` (then ``ENVIRONMENT``), defaulting to ``prod`` when
+    unset (same default as the rest of the config-bootstrap layer), and maps the
+    result to its 3-char form. Raises :class:`ValueError` on an unrecognised value.
+    """
+    raw = env.get("DEPLOYMENT_ENV") or env.get("ENVIRONMENT") or "prod"
+    short = _DEPLOYMENT_ENV_SHORT_FORM.get(raw.strip().lower())
+    if short is None:
+        valid = ", ".join(sorted(_DEPLOYMENT_ENV_SHORT_FORM))
+        raise ValueError(f"DEPLOYMENT_ENV={raw!r} has no known 3-char short form. Valid: {valid}.")
+    return short
+
+
 def substitute_env_vars(value: str) -> str:
     """
     Substitute environment variables in a string.
@@ -40,6 +76,7 @@ def substitute_env_vars(value: str) -> str:
     Supports patterns:
     - ${VAR_NAME} - required variable
     - ${VAR_NAME:-default} - with default value
+    - ${DEPLOYMENT_ENV_SHORT} - derived 3-char form of DEPLOYMENT_ENV
     """
     pattern = r"\$\{([^}:]+)(?::-([^}]*))?\}"
     env = _get_env_snapshot()
@@ -47,6 +84,9 @@ def substitute_env_vars(value: str) -> str:
     def replace(match: re.Match[str]) -> str:
         var_name = match.group(1)
         default = match.group(2)
+
+        if var_name == "DEPLOYMENT_ENV_SHORT":
+            return _resolve_deployment_env_short(env)
 
         env_value = env.get(var_name)
         if env_value:
