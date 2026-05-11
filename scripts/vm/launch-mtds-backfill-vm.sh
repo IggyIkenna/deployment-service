@@ -12,9 +12,13 @@
 # on disk; Deploy-Missing UI button silently broke for MTDS).
 # Plan: launcher_scripts_consolidation_into_deployment_service_2026_05_07.plan.md.
 #
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Usage:
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --start 2024-04-05 --end 2026-04-05
-#   bash launch-mtds-backfill-vm.sh --asset-group DEFI --start 2024-04-05 --end 2026-04-05
+#   bash launch-mtds-backfill-vm.sh --asset-group DEFI --start 2024-04-05 --end 2026-04-05 --env staging
 #   bash launch-mtds-backfill-vm.sh --asset-group TRADFI --start 2026-03-29 --end 2026-04-05
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --dry-run
 set -euo pipefail
@@ -33,6 +37,7 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,9 +55,15 @@ while [[ $# -gt 0 ]]; do
     --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
     --venues) VENUES="$2"; shift 2 ;;
     --data-types) DATA_TYPES="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ -z "$ASSET_GROUP" ]]; then
   echo "ERROR: --asset-group is required (CEFI, DEFI, TRADFI, SPORTS, PREDICTION)"
@@ -186,6 +197,7 @@ exec > >(tee /var/log/mtds-backfill.log) 2>&1
 
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 # --- Streaming log upload (every 60s) ---
 LOG_GCS_PATH="${GCS_STAGING}/logs/${VM_NAME}.log"
@@ -267,7 +279,9 @@ else
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=mtds-backfill,asset-group="${CATEGORY_LOWER}",env="${DEPLOYMENT_ENV}"
 
   rm "$STARTUP_FILE"
   echo "  VM created: ${VM_NAME}"

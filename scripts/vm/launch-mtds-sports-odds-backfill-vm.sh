@@ -13,11 +13,16 @@
 # 2. Uploads tarball + backfill script to GCS
 # 3. Provisions a VM that downloads odds for all dates and shuts down
 #
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Usage:
 #   bash launch-mtds-sports-odds-backfill-vm.sh                              # Full 5.8yr run
 #   bash launch-mtds-sports-odds-backfill-vm.sh --dry-run                    # Print plan
 #   bash launch_mtds_backfill_vm.sh --start 2025-01-04 --end 2025-01-04  # 1-day test
 #   bash launch_mtds_backfill_vm.sh --tier 2 --start 2025-01-01 --end 2026-03-28  # Tier 2
+#   bash launch-mtds-sports-odds-backfill-vm.sh --env staging  # Staging env tier
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -31,6 +36,7 @@ FORCE=false
 CHUNK_SIZE="${CHUNK_SIZE:-7}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 VM_NAME_OVERRIDE=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,9 +51,15 @@ while [[ $# -gt 0 ]]; do
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Helper `vm_mtds_backfill.sh` was at `../common/` relative to the source
@@ -157,6 +169,7 @@ exec > >(tee /var/log/mtds-backfill.log) 2>&1
 
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Range: ${START_DATE} → ${END_DATE}"
@@ -228,7 +241,9 @@ else
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=mtds-sports-odds-backfill,env="${DEPLOYMENT_ENV}"
 
   rm "$STARTUP_FILE"
   echo "  VM created: ${VM_NAME}"

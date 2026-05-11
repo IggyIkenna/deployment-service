@@ -41,27 +41,44 @@
 # in the zone. Polymarket gamma API rate-limits per-IP and concurrent VMs from
 # the same project share the egress NAT, so multiple concurrent runs collide
 # on 429 backoffs. --force bypasses for legitimate parallel investigations.
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-    FORCE=true
-    shift
-fi
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --force) FORCE=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
+        -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # Default: yesterday only. Pass two dates for explicit window.
-if [[ $# -eq 2 ]]; then
-    START_DATE="$1"
-    END_DATE="$2"
-elif [[ $# -eq 0 ]]; then
+if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
+    START_DATE="${POSITIONAL[0]}"
+    END_DATE="${POSITIONAL[1]}"
+elif [[ ${#POSITIONAL[@]} -eq 0 ]]; then
     START_DATE="$(date -v-1d +%Y-%m-%d 2>/dev/null || date -d "yesterday" +%Y-%m-%d)"
     END_DATE="$START_DATE"
 else
     cat >&2 <<EOF
-Usage: $0 [--force] [START_DATE END_DATE]
+Usage: $0 [--force] [--env prod|staging|dev] [START_DATE END_DATE]
 
 Defaults to yesterday (T-1). Pass two YYYY-MM-DD dates for an explicit window.
-Pass --force as the first arg to bypass the singleton lock.
+Pass --force to bypass the singleton lock.
+Pass --env to override the env tier (default: \$DEPLOYMENT_ENV or 'prod').
 EOF
     exit 1
 fi
@@ -111,6 +128,7 @@ METADATA="${METADATA},VM_DATA_TYPES=trades"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
@@ -121,7 +139,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=mtds-prediction-backfill,run-ts="${RUN_TS}"
+    --labels=purpose=mtds-prediction-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

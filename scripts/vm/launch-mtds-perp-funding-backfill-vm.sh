@@ -5,10 +5,15 @@
 # and writes daily parquet files to GCS. No API keys required — Hyperliquid
 # S3 data is publicly accessible.
 #
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Usage:
 #   bash launch_perp_funding_vm.sh               # Launch VM
 #   bash launch_perp_funding_vm.sh --dry-run      # Print plan only
 #   bash launch_perp_funding_vm.sh --end 2025-01-01  # Custom end date
+#   bash launch_perp_funding_vm.sh --env staging # Staging env tier
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -16,6 +21,7 @@ ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Hyperliquid mainnet launched 2023-11-01
 START_DATE="2023-11-01"
@@ -29,9 +35,15 @@ while [[ $# -gt 0 ]]; do
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
     --start) START_DATE="$2"; shift 2 ;;
     --end) END_DATE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 TICK_BUCKET="gs://market-data-tick-defi-${PROJECT_ID}"
 GCS_STAGING="${TICK_BUCKET}/_vm_staging/perp_funding"
@@ -118,6 +130,7 @@ export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export CLOUD_PROVIDER=gcp
 export CLOUD_MOCK_MODE=false
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Operation: collect-perp-funding"
@@ -219,9 +232,11 @@ else
     --no-restart-on-failure \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
     --boot-disk-size=50GB \
-    --boot-disk-type=pd-ssd
+    --boot-disk-type=pd-ssd \
+    --labels=purpose=mtds-perp-funding-backfill,env="${DEPLOYMENT_ENV}"
   echo "  VM ${VM_NAME} created."
   rm "$STARTUP_FILE"
 fi
