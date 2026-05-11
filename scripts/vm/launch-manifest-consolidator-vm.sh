@@ -92,10 +92,13 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-${PROJECT}}"
 
 # Default buckets: every bucket family that uses ManifestWriter v5 — reference
 # data (instruments-store-*), market tick + processed data (market-data-tick-*),
-# and derived features (features-sports-*). Buckets without an
-# ``_index/availability_index.parquet`` are no-ops at the consolidator's first
-# probe; safe to include broadly. Add new bucket families here when they
-# adopt the manifest pattern.
+# per-data_type DeFi buckets (lending-indices / dex-swaps / evm-defi / gas-fees
+# / oracle-prices / perp-funding / solana-defi / lst-rates — deployment-api's
+# _BUCKET_CATEGORY_OVERRIDES routes each DeFi data_type to its own bucket),
+# strategy stores (strategy-store-*), and derived features (features-sports-*).
+# Buckets without an ``_index/availability_index.parquet`` are no-ops at the
+# consolidator's first probe; safe to include broadly. Add new bucket families
+# here when they adopt the manifest pattern.
 if [[ -z "$BUCKETS" ]]; then
   BUCKETS="instruments-store-sports-${PROJECT}"
   BUCKETS="${BUCKETS},instruments-store-cefi-${PROJECT}"
@@ -107,6 +110,25 @@ if [[ -z "$BUCKETS" ]]; then
   BUCKETS="${BUCKETS},market-data-tick-defi-${PROJECT}"
   BUCKETS="${BUCKETS},market-data-tick-tradfi-${PROJECT}"
   BUCKETS="${BUCKETS},market-data-tick-prediction-${PROJECT}"
+  # Per-data_type DeFi buckets — deployment-api's _BUCKET_CATEGORY_OVERRIDES
+  # routes each DeFi data_type to its own dedicated bucket (lending-indices /
+  # dex-swaps / evm-defi / gas-fees / oracle-prices / perp-funding / solana-defi
+  # / lst-rates), distinct from the asset-group canonical market-data-tick-defi-*.
+  # Without these in the poll list, those buckets' canonical
+  # _index/availability_index.parquet drifts stale relative to per-VM shards →
+  # data-status shows wrong DeFi coverage (e.g. 2026-05-08 lending-indices VM run
+  # captured LINEA/BSC AAVEV3 post-launch + flipped pre-launch days to
+  # empty_confirmed in its per-VM shard, but the canonical kept showing
+  # attempted_failed because nothing consolidated). Added 2026-05-11 (slot 3,
+  # defi_master Priority #5).
+  BUCKETS="${BUCKETS},lending-indices-${PROJECT}"
+  BUCKETS="${BUCKETS},dex-swaps-${PROJECT}"
+  BUCKETS="${BUCKETS},evm-defi-${PROJECT}"
+  BUCKETS="${BUCKETS},gas-fees-${PROJECT}"
+  BUCKETS="${BUCKETS},oracle-prices-${PROJECT}"
+  BUCKETS="${BUCKETS},perp-funding-${PROJECT}"
+  BUCKETS="${BUCKETS},solana-defi-${PROJECT}"
+  BUCKETS="${BUCKETS},lst-rates-${PROJECT}"
   BUCKETS="${BUCKETS},features-sports-${PROJECT}"
   BUCKETS="${BUCKETS},strategy-store-cefi-${PROJECT}"
   BUCKETS="${BUCKETS},strategy-store-sports-${PROJECT}"
