@@ -19,13 +19,35 @@
 #   bash launch-canonical-smoke-vm.sh tradfi 2024-06-15           # TradFi CME, 1 day
 #   bash launch-canonical-smoke-vm.sh defi 2024-06-15             # DeFi Aave V3 Ethereum, 1 day
 #   bash launch-canonical-smoke-vm.sh all 2024-06-15              # all three sequentially
+#   bash launch-canonical-smoke-vm.sh cefi 2024-06-15 --env staging  # smoke against staging tier
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Pre-parse --env <val> in any position before positional args.
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]:-}"
 
 ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-2024-06-15}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 
@@ -43,6 +65,7 @@ launch_vm() {
     md="${md},VM_START_DATE=${SMOKE_DATE}"
     md="${md},VM_END_DATE=${SMOKE_DATE}"
     [[ -n "$data_types" ]] && md="${md},VM_DATA_TYPES=${data_types}"
+    md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},IS_TEST_RUN=true"
 
     gcloud compute instances create "$vm_name" \
@@ -53,7 +76,7 @@ launch_vm() {
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        --labels=purpose=canonical-smoke,category="${cat}",run-ts="${RUN_TS}"
+        --labels=purpose=canonical-smoke,category="${cat}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
     echo "  → SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }

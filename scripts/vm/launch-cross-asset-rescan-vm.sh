@@ -50,12 +50,19 @@
 # `deployment-service/scripts/vm/vm_zombie_watchdog.py` VM_PREFIX_TO_BUCKET
 # before launching — without it the watchdog can't see this VM and zombie
 # state goes undetected.
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# Rescan operates on env-tiered buckets — passing `--env staging` rescans only
+# staging-tier manifests; default prod.
 set -euo pipefail
 
 FORCE=false
 APPLY=false
 TARBALL_MODE="prod"  # prod | local
 ASSET_GROUP="cross_asset_all"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,17 +78,26 @@ while [[ $# -gt 0 ]]; do
       TARBALL_MODE="local"
       shift
       ;;
+    --env)
+      DEPLOYMENT_ENV="$2"
+      shift 2
+      ;;
     cefi|defi|tradfi|sports|prediction|cross_asset_all)
       ASSET_GROUP="$1"
       shift
       ;;
     *)
       echo "ERROR: unknown arg: $1" >&2
-      echo "Usage: $0 [--force] [--apply] [--tarball-from-local] [cefi|defi|tradfi|sports|prediction|cross_asset_all]" >&2
+      echo "Usage: $0 [--force] [--apply] [--tarball-from-local] [--env prod|staging|dev] [cefi|defi|tradfi|sports|prediction|cross_asset_all]" >&2
       exit 1
       ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -143,6 +159,7 @@ METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=cross_asset_rescan"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # Per-VM shard isolation env vars (CLAUDE.md workspace rule). Without these,
 # the writer's MultiWorkerWithoutShardIsolationError guard fires on launch.
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
@@ -170,7 +187,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=100GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",run-ts="${RUN_TS}"
+  --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -57,13 +57,28 @@
 #      `unified-trading-pm/plans/active/issues/gcs_migration_bundle_preaudit_2026_05_08.md`
 #      with the populated tables for §§(c)(d)(e) per Phase 0 doc.
 #   4. Flip Phase 0 plan checkbox once the run results land in the issue doc.
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-    FORCE=true
-    shift
-fi
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Pre-parse named flags before any positional args.
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --force) FORCE=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) break ;;
+    esac
+done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -126,6 +141,7 @@ METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=gcs-migration-phase0-calibration"
 METADATA="${METADATA},VM_ASSET_GROUP=ALL"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -137,7 +153,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=gcs-migration-phase0,run-ts="${RUN_TS}"
+    --labels=purpose=gcs-migration-phase0,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

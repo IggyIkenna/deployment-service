@@ -25,12 +25,16 @@
 #   VM3: CeFi  2025-01-01 → 2026-02-28
 #   VM4: DeFi  2020-01-01 → 2026-02-28  (fetches universe once, date-filters)
 #   VM5: TradFi 2020-01-01 → 2026-02-28
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 
 while [[ $# -gt 0 ]]; do
@@ -39,9 +43,15 @@ while [[ $# -gt 0 ]]; do
     --project) PROJECT_ID="$2"; shift 2 ;;
     --zone) ZONE="$2"; shift 2 ;;
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GCS_BUCKET="gs://instruments-store-defi-${PROJECT_ID}"
@@ -143,6 +153,9 @@ exec > >(tee /var/log/instruments-backfill.log) 2>&1
 # Set GCP project for ServiceRuntime
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+# Env tier for bucket-resolution (Phase 0f, 2026-05-11). resolve_bucket_name(env=...)
+# reads DEPLOYMENT_ENV; this VM operates entirely against \${DEPLOYMENT_ENV}-tier buckets.
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Category: ${ASSET_GROUP}"
@@ -208,8 +221,10 @@ STARTUP_EOF
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
       --metadata-from-file=startup-script="${STARTUP_FILE}" \
+      --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
       --boot-disk-size=50GB \
-      --boot-disk-type=pd-ssd
+      --boot-disk-type=pd-ssd \
+      --labels=purpose=instruments-backfill,asset-group="${ASSET_GROUP,,}",env="${DEPLOYMENT_ENV}"
     echo "  VM ${VM_NAME} created."
     rm "$STARTUP_FILE"
   fi

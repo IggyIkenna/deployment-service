@@ -157,8 +157,16 @@ IS_TEST_RUN=$(_meta IS_TEST_RUN)
 if [[ -n "$IS_TEST_RUN" ]]; then
   export IS_TEST_RUN
 fi
+# DEPLOYMENT_ENV (env-tier for bucket-resolution per bucket_name_ssot Phase 0f,
+# 2026-05-11). Every Phase-0f launcher propagates this via
+# --metadata=DEPLOYMENT_ENV=<prod|staging|dev>. Default prod when absent so
+# legacy launchers that haven't been migrated still target the prod-tier
+# buckets without surprises. Export BEFORE any downstream env-aware code path
+# fires (bucket-resolution, manifest writes, GCS-tee, heartbeat).
+DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
+export DEPLOYMENT_ENV
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
-log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
+log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
 # ── 3. Deploy code ──
 # Core repos (always required) + optional service repos.

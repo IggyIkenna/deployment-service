@@ -30,8 +30,24 @@
 #   bash launch-mdps-backfill-vm.sh sports     2019-01-01 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Pre-parse --env <val> before positional args.
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]:-}"
 
 ASSET_GROUP="${1:-}"
 START_DATE="${2:-}"
@@ -45,9 +61,14 @@ MACHINE_TYPE="e2-standard-8"
 BOOT_DISK_GB="50"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 
@@ -110,6 +131,7 @@ _launch() {
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=${MODE}"
+    md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
 
     gcloud compute instances create "$vm_name" \
@@ -121,7 +143,7 @@ _launch() {
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",run-ts="${RUN_TS}"
+        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
     echo ""

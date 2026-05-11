@@ -33,11 +33,16 @@
 # density. Tarball pull + venv setup ~3-5 min per VM (one-time).
 #
 # Each VM auto-deletes via VM_SHUTDOWN_ON_COMPLETION=true.
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-central-element-323112"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Default e2-standard-8 (32GB) is sufficient for cefi/defi/sports/prediction.
 # TradFi options-heavy days (legacy ticks.parquet bundles with 4000+ symbols
 # loaded into one Polars DataFrame) hit OOM/SIGKILL on 32GB — incidents
@@ -73,6 +78,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry) DRY=true; shift ;;
         --preview) PREVIEW=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --year)
             shift
             while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
@@ -93,9 +99,14 @@ while [[ $# -gt 0 ]]; do
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev]"; exit 2 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # Default: all 4 asset_groups
 if [[ -z "$SELECTED_AGS" ]]; then
@@ -222,6 +233,7 @@ launch_year_shard() {
     md="${md},VM_END_DATE=${end_date}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=$($DRY && echo dry || echo full)"
+    md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
 
     gcloud compute instances create "$vm_name" \
@@ -233,7 +245,7 @@ launch_year_shard() {
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
-        --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",run-ts="${RUN_TS}" \
+        --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
         > /dev/null
     echo "  → RUNNING"
 }
