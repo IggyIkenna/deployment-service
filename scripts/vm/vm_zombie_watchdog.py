@@ -371,6 +371,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "data-status-rollup-": None,  # */5 min Cloud Run Job — offline rollup of /api/data-status/manifest
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
+    "cross-asset-rescan-": None,  # manifest_cross_asset_rescan_design_2026_05_08 Phase 3.A; manifest_schema_final_gate_2026_05_09 Phase 3.A — class-A auto-flips + class-C triage routing across all 5 asset_groups; singleton-locked launcher.
     "tradfi-audit-aggregate-": None,  # tradfi phantom audit + ES_OPT legacy aggregation one-off
     "instr-": None,  # tier3-cefi instr-{venue}-{ts} + e2e-testing instr-backfill-defi-targeted
     "instruments-smoke-": None,
