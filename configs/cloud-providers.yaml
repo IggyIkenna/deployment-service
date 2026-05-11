@@ -16,9 +16,16 @@ gcp:
     #     `${DEPLOYMENT_ENV}=test` naturally yields the E2E `-test-` variant — that's the
     #     CANONICAL `-test-` shape (`{prefix}-{ag}-test-{pid}`); the legacy before-AG variants
     #     (`market-data-tick-test-cefi-...`) are deprecated test-mode artifacts, not modelled here.
-    #   * `instruments-store` / `market-data` / `features-calendar` = Group A (raw / cross-cutting):
-    #     env-less. The `-test-` E2E variant for these is a per-consumer override (route_to_test_bucket
-    #     flag / `{DOMAIN}_GCS_BUCKET_{AG}` env), not a yaml key.
+    #   * `instruments-store` / `market-data` / `features-calendar` / `*-prediction` = Group A (raw /
+    #     cross-cutting): env-tiered too as of Phase 0e (operator (b+) 2026-05-11 — env tier on ALL kinds).
+    #     `${DEPLOYMENT_ENV}=test` is the canonical `-test-` shape; on-disk flat (no-env) buckets migrate
+    #     in code_freeze Phase 2.6 (2026-05-15→05-19). STILL env-less (pending Phase-0e follow-up — see
+    #     plan § "Deferred work"): GCP `dex-pools` / `dex-swaps` / `evm-defi` / `eigenlayer-rewards` /
+    #     `solana-defi` (AWS already env-tiered); `pnl-store-defi` / `positions-store-defi` /
+    #     `risk-store-defi` (GCP shape-alignment needed — AWS env-tiered, GCP asset-group-as-suffix);
+    #     `events` / `config-store` (GCP — `events` has workspace-wide `{pid}-events` blast radius, needs
+    #     operator confirm). The only legitimately env-less kinds workspace-wide are `terraform-state` +
+    #     `secrets` (not modelled in this yaml).
     #   * Prediction = dedicated flat keys (`instruments-store-prediction`, `market-data-tick-prediction`,
     #     `features-prediction`, `strategy-store-prediction`, `execution-store-prediction`).
     #     Sports = `asset_group="sports"` in the per-AG dicts (+ the dedicated `features-sports` flat key).
@@ -57,29 +64,31 @@ gcp:
       DEFI: "execution-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    # Per-asset-group market-data + instruments (NO env tier — single per asset_group).
-    # Added 2026-05-08 (Tab 4 AWS Phase 1 smoke surfaced missing yaml entries — actual
-    # buckets exist on both clouds but resolver couldn't find them).
+    # Per-asset-group market-data + instruments. Env-tiered AFTER asset_group per (b+)
+    # (operator direction 2026-05-11 — env tier extends to ALL bucket kinds incl. Group-A
+    # raw-tick / instruments-store). bucket_name_ssot Phase 0e. The flat
+    # `market-data-tick-cefi-{pid}` (no env) buckets on disk are legacy — env-tiered ones
+    # get provisioned + the flat-bucket data migrated in code_freeze Phase 2.6.
     # NOTE: GCP shape includes `tick-` infix (e.g. market-data-tick-defi-...);
     # AWS shape does NOT (e.g. unified-trading-market-data-defi-...). Per-cloud
     # template captures the asymmetry; resolver hides it behind same `kind` key.
     market-data:
-      CEFI: "market-data-tick-cefi-${GCP_PROJECT_ID}"
-      DEFI: "market-data-tick-defi-${GCP_PROJECT_ID}"
-      TRADFI: "market-data-tick-tradfi-${GCP_PROJECT_ID}"
-      SPORTS: "market-data-tick-sports-${GCP_PROJECT_ID}"
+      CEFI: "market-data-tick-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      DEFI: "market-data-tick-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      TRADFI: "market-data-tick-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      SPORTS: "market-data-tick-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     instruments-store:
-      CEFI: "instruments-store-cefi-${GCP_PROJECT_ID}"
-      DEFI: "instruments-store-defi-${GCP_PROJECT_ID}"
-      TRADFI: "instruments-store-tradfi-${GCP_PROJECT_ID}"
-      SPORTS: "instruments-store-sports-${GCP_PROJECT_ID}"
-    # Cross-cutting features-calendar (no asset_group, no env — single bucket).
-    # Uncommented 2026-05-11 (Phase 0): the GCP bucket `features-calendar-${GCP_PROJECT_ID}`
-    # exists on disk (probed) — the prior "GCP doesn't have it" comment was stale.
-    features-calendar: "features-calendar-${GCP_PROJECT_ID}"
-    # Prediction pipeline buckets (Polymarket, Kalshi)
-    instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
-    market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
+      CEFI: "instruments-store-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      DEFI: "instruments-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      TRADFI: "instruments-store-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      SPORTS: "instruments-store-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # Cross-cutting features-calendar (no asset_group; env-tiered per (b+) Phase 0e).
+    # Uncommented 2026-05-11 (Phase 0): the flat GCP bucket exists on disk (probed); env tier
+    # added Phase 0e — flat `features-calendar-{pid}` migrates in code_freeze Phase 2.6.
+    features-calendar: "features-calendar-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi) — env-tiered per (b+) Phase 0e.
+    instruments-store-prediction: "instruments-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    market-data-tick-prediction: "market-data-tick-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     features-prediction: "features-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     strategy-store-prediction: "strategy-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     execution-store-prediction: "execution-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
@@ -140,24 +149,24 @@ aws:
       DEFI: "unified-trading-execution-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    # Per-asset-group market-data + instruments (NO env tier — single per asset_group).
-    # Mirrors GCP shape; AWS buckets actually exist (verified 2026-05-08 Tab 4
-    # `aws s3 ls`): unified-trading-{market-data,instruments}-{cefi,defi,tradfi}-${AWS_ACCOUNT_ID}.
+    # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
+    # The flat `unified-trading-market-data-cefi-{account}` buckets on disk migrate to the
+    # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19).
     market-data:
-      CEFI: "unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-market-data-defi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-market-data-tradfi-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-market-data-sports-${AWS_ACCOUNT_ID}"
+      CEFI: "unified-trading-market-data-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      DEFI: "unified-trading-market-data-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      TRADFI: "unified-trading-market-data-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-market-data-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     instruments-store:
-      CEFI: "unified-trading-instruments-cefi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-instruments-defi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-instruments-tradfi-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-instruments-sports-${AWS_ACCOUNT_ID}"
-    # Cross-cutting features-calendar (no asset_group, no env — single bucket).
-    features-calendar: "unified-trading-features-calendar-${AWS_ACCOUNT_ID}"
-    # Prediction pipeline buckets (Polymarket, Kalshi)
-    instruments-store-prediction: "unified-trading-instruments-prediction-${AWS_ACCOUNT_ID}"
-    market-data-tick-prediction: "unified-trading-market-data-prediction-${AWS_ACCOUNT_ID}"
+      CEFI: "unified-trading-instruments-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      DEFI: "unified-trading-instruments-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      TRADFI: "unified-trading-instruments-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-instruments-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Cross-cutting features-calendar (no asset_group; env-tiered per (b+) Phase 0e).
+    features-calendar: "unified-trading-features-calendar-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi) — env-tiered per (b+) Phase 0e.
+    instruments-store-prediction: "unified-trading-instruments-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    market-data-tick-prediction: "unified-trading-market-data-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     features-prediction: "unified-trading-features-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     strategy-store-prediction: "unified-trading-strategy-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     execution-store-prediction: "unified-trading-execution-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
