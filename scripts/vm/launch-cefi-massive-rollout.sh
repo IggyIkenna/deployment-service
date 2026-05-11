@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Massive CeFi backfill launcher — 364 week-VMs (one per ISO week x 7 years)
 # OR 364 day-VMs on a single day for concurrency probing. Inherits the
 # 100-VM-per-batch rate-limit pattern from the legacy unified-trading-deployment-v2
@@ -35,6 +39,23 @@
 # Run ``gcloud compute project-info describe --project=$PROJECT --format='value(quotas)'``
 # pre-launch to verify headroom.
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Parse --env flag (anywhere in args) while preserving positional MODE+dates.
+_positional=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) _positional+=("$1"); shift ;;
+    esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 MODE="${1:-}"
 shift || true
@@ -156,6 +177,7 @@ _common_meta() {
     echo -n ",VM_SERVICE=market_tick_data_service"
     echo -n ",VM_OPERATION=download"
     echo -n ",VM_ASSET_GROUP=CEFI"
+    echo -n ",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     echo -n ",VM_SHUTDOWN_ON_COMPLETION=true"
     echo -n ",MANIFEST_PER_VM_SHARDS=true"
 }
@@ -181,7 +203,7 @@ _launch_one() {
                 --image-project=ubuntu-os-cloud \
                 --scopes=cloud-platform \
                 --metadata="$meta" \
-                --labels=purpose=cefi-massive-rollout,run-ts="$RUN_TS",mode="$MODE" \
+                --labels=purpose=cefi-massive-rollout,env="${DEPLOYMENT_ENV}",run-ts="$RUN_TS",mode="$MODE" \
                 > /dev/null 2>&1; then
             echo "ok" > "$RESULTS_DIR/$vm_name"
             return 0

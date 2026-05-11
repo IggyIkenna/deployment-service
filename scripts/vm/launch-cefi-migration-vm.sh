@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch GCE VM to migrate CeFi tick data instrument_type partitions.
 # Runs the migration script from within the same region as GCS (fast).
 #
@@ -14,6 +18,20 @@ MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-8}"
 VM_NAME="mtds-migrate-cefi-itype"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT).
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 GCS_BUCKET="gs://market-data-tick-cefi-${PROJECT_ID}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging/migration"
@@ -128,7 +146,9 @@ gcloud compute instances create "${VM_NAME}" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \
-  --metadata-from-file=startup-script="${STARTUP_FILE}"
+  --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+  --metadata-from-file=startup-script="${STARTUP_FILE}" \
+  --labels=purpose=cefi-migration,env="${DEPLOYMENT_ENV}"
 
 rm -f "$STARTUP_FILE" "${STARTUP_FILE}.bak"
 

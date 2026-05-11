@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is forwarded to each underlying launch-cefi-forward-poll.sh call so the
+# spawned VMs target the right env tier.
+#
 # Throughput probe — fan out 7 parallel CeFi raw-tick VMs, one per day in
 # a 7-day window, to measure Tardis API parallelism scaling before
 # committing to the full 7-year sharded backfill.
@@ -32,6 +37,22 @@
 # and the deployment-api manifest endpoint to confirm 7 days x N venues
 # captured.
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+_positional=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) _positional+=("$1"); shift ;;
+    esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -eq 2 ]]; then
     START_DATE="$1"
@@ -70,7 +91,7 @@ echo "Launching $DAY_COUNT parallel day-VMs (one per day):"
 LAUNCH_T0="$(date +%s)"
 for d in $DAY_LIST; do
     echo "  → cefi-fwd $d $d --force"
-    bash "$SCRIPT_DIR/launch-cefi-forward-poll.sh" --force "$d" "$d" \
+    bash "$SCRIPT_DIR/launch-cefi-forward-poll.sh" --force --env "$DEPLOYMENT_ENV" "$d" "$d" \
         > "/tmp/cefi-week-test-${RUN_TS}-${d}.log" 2>&1 &
     # Stagger 2s between launches: VM names use RUN_TS=YYYYMMDD-HHMMSS so
     # same-second launches collide on gcloud create. 2s gap > 1s timestamp

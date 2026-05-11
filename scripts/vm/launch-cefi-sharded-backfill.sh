@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch sharded CeFi + TradFi Tardis backfill VMs.
 #
 # Operator instrument filter (authoritative, 2026-04-19):
@@ -65,6 +69,23 @@ DRY_RUN="${DRY_RUN:-0}"
 FORCE="${FORCE:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT). The legacy
+# behavior (no CLI args, env-var overrides only) is preserved — only --env is
+# accepted on the command line. Other config still flows via env vars
+# (DRY_RUN / FORCE / MACHINE_TYPE_HEAVY / etc.) per the comment block above.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) echo "ERROR: unknown flag '$1' (only --env is supported; other config via env vars)" >&2; exit 1 ;;
+  esac
+done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # ─── Singleton lock: shared Tardis account + project egress NAT ──────────────
 # This launcher fans out across CeFi venues (Tardis) AND TradFi (Tardis-carried
@@ -253,6 +274,7 @@ launch_cefi_shard() {
   meta+=",VM_DATA_TYPES=$data_types"
   meta+=",VM_INSTRUMENT_IDS=$symbols"
   meta+=",VM_FORCE=${VM_FORCE:-false}"
+  meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
   # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
@@ -271,6 +293,7 @@ launch_cefi_shard() {
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --scopes=cloud-platform --metadata="$meta" \
+      --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
     _stagger
     _batch_guard
@@ -319,6 +342,7 @@ launch_tradfi_shard() {
   meta+=",VM_DATA_TYPES=$data_types"
   meta+=",VM_INSTRUMENT_IDS=$symbols"
   meta+=",VM_FORCE=${VM_FORCE:-false}"
+  meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253).
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
@@ -334,6 +358,7 @@ launch_tradfi_shard() {
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --scopes=cloud-platform --metadata="$meta" \
+      --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
     _stagger
     _batch_guard

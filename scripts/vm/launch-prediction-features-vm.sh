@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
 # For NEW single-VM prediction features backfills use the consolidated launcher:
 #   bash launch-features-vm.sh --feature-family cross_instrument \
@@ -30,12 +34,14 @@ FORCE=false
 CHUNK_SIZE="${CHUNK_SIZE:-7}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 VM_NAME_OVERRIDE=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --project) PROJECT_ID="$2"; shift 2 ;;
     --zone) ZONE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --start) START_DATE="$2"; shift 2 ;;
     --end) END_DATE="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
@@ -46,6 +52,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GCS_BUCKET="gs://market-data-tick-prediction-${PROJECT_ID}"
@@ -161,10 +172,12 @@ STARTUP_EOF
 cat >> "$STARTUP_FILE" << STARTUP_EOF
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Range: ${START_DATE} → ${END_DATE}"
 echo "  Chunk: ${CHUNK_SIZE} days"
+echo "  Env:   ${DEPLOYMENT_ENV}"
 date
 
 # Install Python 3.13
@@ -281,7 +294,9 @@ else
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=prediction-features,env="${DEPLOYMENT_ENV}"
 
   rm "$STARTUP_FILE"
   echo "  VM created: ${VM_NAME}"
