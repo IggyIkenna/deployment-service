@@ -392,6 +392,45 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # tick bucket that the canonical-migration step writes raw data to.
     # ------------------------------------------------------------------
     "mdps-sports-bucket-": f"market-data-tick-sports-{PROJECT_ID}",
+    # ------------------------------------------------------------------
+    # Live-pipeline VMs (Phase 13 of live_pipeline_mtds_mdps_features_2026_05_08.md;
+    # shipped 2026-05-11 by Ikenna slot 4). Five VM types: per-asset_group MTDS-
+    # live producer + per-asset_group MDPS+features-live consumer + singleton
+    # features-cross-cutting + singleton replay-cascade. Alerting-service uses
+    # an existing launcher (no new prefix needed).
+    #
+    # VM names embed asset_group + RUN_TS (per CLAUDE.md "VM Naming Convention"):
+    #   mtds-live-{ag}-{ts}                 — one per asset_group
+    #   mdps-features-live-{ag}-{ts}        — one per asset_group
+    #   features-xc-{ts}                    — singleton
+    #   replay-{ag}-{ts}                    — singleton (one window at a time)
+    #
+    # All four write to per-VM manifest shards under
+    # `_index/per_vm/{vm_name}.parquet` per workspace per-VM-shard-isolation
+    # rule. Bucket NAMES use the (b+) env-aware shape resolved at runtime via
+    # `unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name`;
+    # the watchdog uses prod-tier flat naming below since flat-bucket data
+    # still lives there until Phase 2 of bucket-name-ssot ships (window
+    # 2026-05-15→05-19). When env-tiered buckets land, replace the flat names
+    # below with `f"market-data-tick-{ag}-prod-{PROJECT_ID}"` etc.
+    # ------------------------------------------------------------------
+    "mtds-live-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "mtds-live-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-live-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mtds-live-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mtds-live-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mdps-features-live-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
+    "mdps-features-live-defi-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mdps-features-live-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "mdps-features-live-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mdps-features-live-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    # Singletons — cross-cutting features bucket-resolves at runtime; replay
+    # writes to the same per-asset_group market-data buckets the live producer
+    # uses. Heartbeat-only (None) for replay since its actual writes are routed
+    # through whichever asset_group's bucket the --asset-group flag selects;
+    # watchdog can't statically know which.
+    "features-xc-": None,
+    "replay-": None,
 }
 
 
