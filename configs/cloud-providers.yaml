@@ -10,13 +10,37 @@
 
 gcp:
   storage:
+    # NOTE on shapes (Phase 0, 2026-05-11 — bucket_name_ssot_canonicalisation_2026_05_10.md):
+    #   * `features-*` / `ml-*` / `strategy-store` / `execution-store` = Group B (derived,
+    #     per-env): `{prefix}-{ag}-${DEPLOYMENT_ENV}-${PROJECT_ID}` (env tier AFTER asset_group).
+    #     `${DEPLOYMENT_ENV}=test` naturally yields the E2E `-test-` variant — that's the
+    #     CANONICAL `-test-` shape (`{prefix}-{ag}-test-{pid}`); the legacy before-AG variants
+    #     (`market-data-tick-test-cefi-...`) are deprecated test-mode artifacts, not modelled here.
+    #   * `instruments-store` / `market-data` / `features-calendar` = Group A (raw / cross-cutting):
+    #     env-less. The `-test-` E2E variant for these is a per-consumer override (route_to_test_bucket
+    #     flag / `{DOMAIN}_GCS_BUCKET_{AG}` env), not a yaml key.
+    #   * Prediction = dedicated flat keys (`instruments-store-prediction`, `market-data-tick-prediction`,
+    #     `features-prediction`, `strategy-store-prediction`, `execution-store-prediction`).
+    #     Sports = `asset_group="sports"` in the per-AG dicts (+ the dedicated `features-sports` flat key).
+    #     Deliberate asymmetry matching how the codebase routes them; consolidate if it ever bites.
+    #   * Per option (b) 2026-05-11 (operator/Ikenna): yaml is canonical → `features-*` env-tiered.
+    #     The flat `features-delta-one-cefi-{pid}` (no env) buckets on disk are legacy; the env-tiered
+    #     ones get provisioned + the flat-bucket data migrated in code_freeze Phase 2.6 (2026-05-15→05-19).
     features-delta-one:
       CEFI: "features-delta-one-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       TRADFI: "features-delta-one-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       DEFI: "features-delta-one-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      PREDICTION: "features-delta-one-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      SPORTS: "features-delta-one-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
     features-volatility:
       CEFI: "features-volatility-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       TRADFI: "features-volatility-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      DEFI: "features-volatility-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      PREDICTION: "features-volatility-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      SPORTS: "features-volatility-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    # features-onchain = on-chain DeFi metrics; per-AG outputs for cefi (assets with on-chain
+    # legs) + defi. The flat `features-onchain-{pid}` ("shared") bucket on disk is legacy — the
+    # config.py `get_output_bucket()` migration resolves onchain to asset_group="defi".
     features-onchain:
       CEFI: "features-onchain-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
       DEFI: "features-onchain-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
@@ -43,14 +67,16 @@ gcp:
       CEFI: "market-data-tick-cefi-${GCP_PROJECT_ID}"
       DEFI: "market-data-tick-defi-${GCP_PROJECT_ID}"
       TRADFI: "market-data-tick-tradfi-${GCP_PROJECT_ID}"
+      SPORTS: "market-data-tick-sports-${GCP_PROJECT_ID}"
     instruments-store:
       CEFI: "instruments-store-cefi-${GCP_PROJECT_ID}"
       DEFI: "instruments-store-defi-${GCP_PROJECT_ID}"
       TRADFI: "instruments-store-tradfi-${GCP_PROJECT_ID}"
+      SPORTS: "instruments-store-sports-${GCP_PROJECT_ID}"
     # Cross-cutting features-calendar (no asset_group, no env — single bucket).
-    # NOTE: GCP doesn't have a features-calendar bucket today; AWS does.
-    # If a calendar workload migrates to GCP, provision + uncomment below.
-    # features-calendar: "features-calendar-${GCP_PROJECT_ID}"
+    # Uncommented 2026-05-11 (Phase 0): the GCP bucket `features-calendar-${GCP_PROJECT_ID}`
+    # exists on disk (probed) — the prior "GCP doesn't have it" comment was stale.
+    features-calendar: "features-calendar-${GCP_PROJECT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi)
     instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
     market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
@@ -81,13 +107,23 @@ gcp:
 
 aws:
   storage:
+    # See the GCP § header comment for the shape conventions (Group A/B, env-tier-after-AG,
+    # prediction-dedicated-keys-vs-sports-asset_group-routing, option-(b) 2026-05-11). AWS
+    # mirrors GCP key-for-key (the resolver dispatches by cloud) — AWS prefix `unified-trading-`,
+    # GCP `market-data` carries a `tick-` infix AWS lacks. AWS `features-*` buckets need the
+    # same Phase-2.6 provision-+-migrate (probe via `aws s3 ls` — couldn't run from the slot machine).
     features-delta-one:
       CEFI: "unified-trading-features-delta-one-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-features-delta-one-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       DEFI: "unified-trading-features-delta-one-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      PREDICTION: "unified-trading-features-delta-one-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-features-delta-one-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     features-volatility:
       CEFI: "unified-trading-features-volatility-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-features-volatility-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      DEFI: "unified-trading-features-volatility-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      PREDICTION: "unified-trading-features-volatility-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-features-volatility-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
     features-onchain:
       CEFI: "unified-trading-features-onchain-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
       DEFI: "unified-trading-features-onchain-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
@@ -111,10 +147,12 @@ aws:
       CEFI: "unified-trading-market-data-cefi-${AWS_ACCOUNT_ID}"
       DEFI: "unified-trading-market-data-defi-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-market-data-tradfi-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-market-data-sports-${AWS_ACCOUNT_ID}"
     instruments-store:
       CEFI: "unified-trading-instruments-cefi-${AWS_ACCOUNT_ID}"
       DEFI: "unified-trading-instruments-defi-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-instruments-tradfi-${AWS_ACCOUNT_ID}"
+      SPORTS: "unified-trading-instruments-sports-${AWS_ACCOUNT_ID}"
     # Cross-cutting features-calendar (no asset_group, no env — single bucket).
     features-calendar: "unified-trading-features-calendar-${AWS_ACCOUNT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi)
