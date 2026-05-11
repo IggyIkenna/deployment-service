@@ -92,9 +92,11 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-${PROJECT}}"
 
 # Default buckets: every bucket family that uses ManifestWriter v5 — reference
 # data (instruments-store-*), market tick + processed data (market-data-tick-*),
-# per-data_type DeFi buckets (lending-indices / dex-swaps / evm-defi / gas-fees
-# / oracle-prices / perp-funding / solana-defi / lst-rates — deployment-api's
-# _BUCKET_CATEGORY_OVERRIDES routes each DeFi data_type to its own bucket),
+# per-data_type DeFi buckets (dex-pools / dex-swaps / evm-defi / gas-fees /
+# lending-indices / liquidations / lst-rates / oracle-prices / perp-funding /
+# solana-defi — these are exactly the 10 keys in deployment-api's
+# _BUCKET_CATEGORY_OVERRIDES + _MTDS_DEFI_SUB_DIMENSIONS, each written via
+# get_write_bucket_name(<kind>) in the corresponding MTDS DeFi handler),
 # strategy stores (strategy-store-*), and derived features (features-sports-*).
 # Buckets without an ``_index/availability_index.parquet`` are no-ops at the
 # consolidator's first probe; safe to include broadly. Add new bucket families
@@ -111,24 +113,35 @@ if [[ -z "$BUCKETS" ]]; then
   BUCKETS="${BUCKETS},market-data-tick-tradfi-${PROJECT}"
   BUCKETS="${BUCKETS},market-data-tick-prediction-${PROJECT}"
   # Per-data_type DeFi buckets — deployment-api's _BUCKET_CATEGORY_OVERRIDES
-  # routes each DeFi data_type to its own dedicated bucket (lending-indices /
-  # dex-swaps / evm-defi / gas-fees / oracle-prices / perp-funding / solana-defi
-  # / lst-rates), distinct from the asset-group canonical market-data-tick-defi-*.
-  # Without these in the poll list, those buckets' canonical
-  # _index/availability_index.parquet drifts stale relative to per-VM shards →
-  # data-status shows wrong DeFi coverage (e.g. 2026-05-08 lending-indices VM run
-  # captured LINEA/BSC AAVEV3 post-launch + flipped pre-launch days to
-  # empty_confirmed in its per-VM shard, but the canonical kept showing
-  # attempted_failed because nothing consolidated). Added 2026-05-11 (slot 3,
-  # defi_master Priority #5).
-  BUCKETS="${BUCKETS},lending-indices-${PROJECT}"
+  # routes each DeFi data_type to its own dedicated bucket, distinct from the
+  # asset-group canonical market-data-tick-defi-*. The full set (= the 10 keys
+  # in _BUCKET_CATEGORY_OVERRIDES + _MTDS_DEFI_SUB_DIMENSIONS) is:
+  # dex-pools / dex-swaps / evm-defi / gas-fees / lending-indices / liquidations
+  # / lst-rates / oracle-prices / perp-funding / solana-defi. Each is written
+  # via get_write_bucket_name(<kind>) in the matching MTDS handler
+  # (dex_pools_handler.py / dex_swaps_handler.py / evm_defi_handler.py /
+  # gas_fee_handler.py / lending_indices_handler.py / etc.). Without these in
+  # the poll list, those buckets' canonical _index/availability_index.parquet
+  # drifts stale relative to per-VM shards → data-status shows wrong DeFi
+  # coverage (e.g. 2026-05-08 lending-indices VM run captured LINEA/BSC AAVEV3
+  # post-launch + flipped pre-launch days to empty_confirmed in its per-VM shard,
+  # but the canonical kept showing attempted_failed because nothing consolidated).
+  # First 8 added 2026-05-11 (slot 3, defi_master Priority #5); dex-pools +
+  # liquidations added 2026-05-11 (slot 6, consolidator poll-list completeness
+  # audit — they were in _BUCKET_CATEGORY_OVERRIDES + written by MTDS but missed
+  # from the poll list). solana-defi is legacy (the Solana handler now writes to
+  # dex_pools/perp_funding/lst_rates buckets per check_solana_defi_paths.py) —
+  # kept as a no-op probe for any orphaned legacy data.
+  BUCKETS="${BUCKETS},dex-pools-${PROJECT}"
   BUCKETS="${BUCKETS},dex-swaps-${PROJECT}"
   BUCKETS="${BUCKETS},evm-defi-${PROJECT}"
   BUCKETS="${BUCKETS},gas-fees-${PROJECT}"
+  BUCKETS="${BUCKETS},lending-indices-${PROJECT}"
+  BUCKETS="${BUCKETS},liquidations-${PROJECT}"
+  BUCKETS="${BUCKETS},lst-rates-${PROJECT}"
   BUCKETS="${BUCKETS},oracle-prices-${PROJECT}"
   BUCKETS="${BUCKETS},perp-funding-${PROJECT}"
   BUCKETS="${BUCKETS},solana-defi-${PROJECT}"
-  BUCKETS="${BUCKETS},lst-rates-${PROJECT}"
   BUCKETS="${BUCKETS},features-sports-${PROJECT}"
   BUCKETS="${BUCKETS},strategy-store-cefi-${PROJECT}"
   BUCKETS="${BUCKETS},strategy-store-sports-${PROJECT}"
