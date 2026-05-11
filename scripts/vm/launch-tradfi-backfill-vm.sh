@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch sharded TRADFI backfill VMs — Databento CME futures (ES + crypto:
 # BTC, ETH) via the unified MTDS download CLI.
 #
@@ -84,6 +88,7 @@ START_DATE_OVERRIDE=""
 END_DATE_OVERRIDE=""
 SKIP_MONTHS=""
 FORCE_WINDOW=true
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -100,6 +105,7 @@ while [[ $# -gt 0 ]]; do
         --start-date)       START_DATE_OVERRIDE="$2"; shift 2 ;;
         --end-date)         END_DATE_OVERRIDE="$2"; shift 2 ;;
         --skip-months)      SKIP_MONTHS="$2"; shift 2 ;;
+        --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
         --help|-h)
             grep '^#' "$0" | head -70
             exit 0
@@ -111,6 +117,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -203,6 +214,7 @@ _create_vm() {
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=${data_types}"
     metadata="${metadata},VM_INSTRUMENT_IDS=${instrument_ids}"
+    metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
     local run_ts
@@ -229,7 +241,7 @@ _create_vm() {
             --boot-disk-size="${BOOT_DISK_GB}GB" \
             --scopes=cloud-platform \
             --metadata="startup-script-url=${STARTUP},${metadata}" \
-            --labels=purpose=tradfi-backfill,run-ts="${run_ts}",root="${root,,}",tier="${tier}"
+            --labels=purpose=tradfi-backfill,env="${DEPLOYMENT_ENV}",run-ts="${run_ts}",root="${root,,}",tier="${tier}"
         echo "  VM launched."
         # Brief stagger so RUN_TS timestamps stay unique + gcloud create calls
         # don't race quota prechecks.

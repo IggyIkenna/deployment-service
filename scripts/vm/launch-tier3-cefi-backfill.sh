@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Tier-3 CeFi backfill launcher — Bitfinex / Bitget / Kraken venues via Tardis.
 #
 # Phase 1 of cefi_venue_universe_expansion_2026_05_01.md (initial 8-symbol
@@ -20,14 +24,21 @@ set -euo pipefail
 DRY_RUN=false
 DO_INSTRUMENTS=true
 DO_MARKET_TICK=true
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)        DRY_RUN=true; shift ;;
         --instruments)    DO_MARKET_TICK=false; shift ;;
         --market-tick)    DO_INSTRUMENTS=false; shift ;;
+        --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -172,8 +183,8 @@ create_vm() {
         --machine-type="${MACHINE_TYPE:-e2-highmem-8}" \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
-        --metadata="startup-script-url=${STARTUP},${md}" \
-        --labels=purpose=cefi-tier3-fullbackfill 2>&1 | tail -1
+        --metadata="startup-script-url=${STARTUP},${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+        --labels=purpose=cefi-tier3-fullbackfill,env="${DEPLOYMENT_ENV}" 2>&1 | tail -1
     sleep 2
 }
 
