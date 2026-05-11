@@ -34,12 +34,12 @@ gcp:
     #   * `instruments-store` / `market-data` / `features-calendar` / `*-prediction` = Group A (raw /
     #     cross-cutting): env-tiered too as of Phase 0e (operator (b+) 2026-05-11 — env tier on ALL kinds).
     #     `DEPLOYMENT_ENV=test` is the canonical `-test-` shape; on-disk flat (no-env) buckets migrate
-    #     in code_freeze Phase 2.6 (2026-05-15→05-19). STILL env-less (pending Phase-0e follow-up — see
-    #     plan § "Deferred work"): GCP `dex-pools` / `dex-swaps` / `evm-defi` / `eigenlayer-rewards` /
-    #     `solana-defi` (AWS already env-tiered); `pnl-store-defi` / `positions-store-defi` /
-    #     `risk-store-defi` (GCP shape-alignment needed — AWS env-tiered, GCP asset-group-as-suffix);
-    #     `events` / `config-store` (GCP — `events` has workspace-wide `{pid}-events` blast radius, needs
-    #     operator confirm). The only legitimately env-less kinds workspace-wide are `terraform-state` +
+    #     in code_freeze Phase 2.6 (2026-05-15→05-19). GCP `dex-pools` / `dex-swaps` / `evm-defi` /
+    #     `eigenlayer-rewards` / `solana-defi` / `config-store` env-tiered 2026-05-11 (Phase 0e follow-up).
+    #     STILL env-less (pending — see plan § "Deferred work"): GCP `pnl-store-defi` / `positions-store-defi` /
+    #     `risk-store-defi` (shape-alignment needed — AWS env-tiered, GCP asset-group-as-suffix/infix; needs an
+    #     operator call + data migration) and GCP `events` (`{pid}-events` referenced workspace-wide — high blast
+    #     radius, needs operator confirm). The only legitimately env-less kinds workspace-wide are `terraform-state` +
     #     `secrets` (not modelled in this yaml).
     #   * Prediction = dedicated flat keys (`instruments-store-prediction`, `market-data-tick-prediction`,
     #     `features-prediction`, `strategy-store-prediction`, `execution-store-prediction`) PLUS per-AG
@@ -130,24 +130,29 @@ gcp:
     features-prediction: "features-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     strategy-store-prediction: "strategy-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    # DeFi raw on-chain pools / swaps / events (Phase 2 AWS migration parity, 2026-05-07).
-    # Existing GCS buckets were created ad-hoc per asset_group; codifying templates here so
-    # both backends resolve from the same SSOT and the UCI bucket-resolver no longer relies
-    # on hardcoded fallbacks. Project-suffixed names match existing GCS layout.
-    dex-pools: "dex-pools-${GCP_PROJECT_ID}"
-    dex-swaps: "dex-swaps-${GCP_PROJECT_ID}"
-    evm-defi: "evm-defi-${GCP_PROJECT_ID}"
-    eigenlayer-rewards: "eigenlayer-rewards-${GCP_PROJECT_ID}"
-    solana-defi: "solana-defi-${GCP_PROJECT_ID}"
-    # Per-asset-group pnl/positions/risk DeFi stores. Existing GCS layout is
-    # `pnl-store-${GCP_PROJECT_ID}-defi` (asset_group as suffix); codified here so reads
-    # always go through UCI bucket-resolver instead of inline f-string formatters.
+    # DeFi raw on-chain pools / swaps / events. Env-tiered per (b+) Phase 0e follow-up
+    # (2026-05-11 — env tier extends to ALL kinds; mirrors the AWS side which was already
+    # env-tiered). The existing flat `dex-pools-{pid}` etc. buckets on disk migrate to the
+    # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19). UCI bucket-resolver +
+    # DeFi adapters resolve from this SSOT (no hardcoded fallbacks).
+    dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-asset-group pnl/positions/risk DeFi stores. STILL env-less on GCP (pending a
+    # shape-alignment decision — GCP layout is `pnl-store-{pid}-defi` / `risk-store-defi-{pid}`,
+    # AWS is `unified-trading-pnl-store-defi-{env}-{account}`; the shapes diverge so this needs
+    # an operator call + a data migration, not a mechanical add — see plan § "Deferred work").
     pnl-store-defi: "pnl-store-${GCP_PROJECT_ID}-defi"
     positions-store-defi: "positions-store-${GCP_PROJECT_ID}-defi"
     risk-store-defi: "risk-store-defi-${GCP_PROJECT_ID}"
-    # Cross-cutting service buckets (events stream + config snapshots).
+    # Cross-cutting service buckets. `config-store` env-tiered per (b+) Phase 0e follow-up
+    # (mirrors AWS). `events` STILL env-less on GCP — `{pid}-events` is referenced workspace-wide
+    # (per "no fire-and-forget VM launches": `gs://{pid}-events/events/{service}/...`) — needs
+    # an operator confirm before env-tiering (high blast radius).
     events: "${GCP_PROJECT_ID}-events"
-    config-store: "config-store-${GCP_PROJECT_ID}"
+    config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
