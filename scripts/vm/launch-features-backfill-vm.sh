@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # DEPRECATED 2026-05-08 (Phase 8A of features_repo_consolidation_2026_05_08).
 # Superseded by `launch-features-vm.sh`, which dispatches the consolidated
 # features-service via `--feature-family <name>` (8 families) instead of
@@ -64,6 +68,30 @@ ASSET_GROUP="${2:-}"
 START_DATE="${3:-}"
 END_DATE="${4:-}"
 MODE="${5:-dry}"  # dry | full
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Allow --env <prod|staging|dev> override (kept as a 6th positional-or-flag
+# slot for legacy callers). Shift positional args to the end if --env flag
+# is supplied via remaining tail-args.
+_REMAINING_ARGS=("${@:6}")
+_PARSED_ARGS=()
+while [[ ${#_REMAINING_ARGS[@]} -gt 0 ]]; do
+    case "${_REMAINING_ARGS[0]}" in
+        --env)
+            DEPLOYMENT_ENV="${_REMAINING_ARGS[1]:-prod}"
+            _REMAINING_ARGS=("${_REMAINING_ARGS[@]:2}")
+            ;;
+        *)
+            _PARSED_ARGS+=("${_REMAINING_ARGS[0]}")
+            _REMAINING_ARGS=("${_REMAINING_ARGS[@]:1}")
+            ;;
+    esac
+done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -73,7 +101,7 @@ BOOT_DISK_GB="50"
 
 if [[ -z "$SERVICE_SHORT" || -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     cat <<EOF
-Usage: $0 <feature_service_short> <ASSET_GROUP> <start-date> <end-date> [dry|full]
+Usage: $0 <feature_service_short> <ASSET_GROUP> <start-date> <end-date> [dry|full] [--env <prod|staging|dev>]
 
 feature_service_short ∈ {
   delta-one, volatility, onchain, sports,
@@ -177,6 +205,7 @@ MD="${MD},VM_START_DATE=${START_DATE}"
 MD="${MD},VM_END_DATE=${END_DATE}"
 MD="${MD},VM_BACKFILL_CMD=${CMD}"
 MD="${MD},VM_BACKFILL_MODE=${MODE}"
+MD="${MD},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # 2026-05-01: opt-in auto-delete after task completion (read by
 # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
 # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
@@ -191,7 +220,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP_LOWER}",mode="${MODE}",run-ts="${RUN_TS}"
+    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP_LOWER}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
 echo ""

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch a 48h GCE VM that runs alerting-service in "quietness baseline" mode.
 #
 # Purpose: Phase 7 of `alerting_service_live_rules_2026_05_07` — run alerting-
@@ -31,9 +35,10 @@
 # Pass --force for legitimate re-runs after stop.
 #
 # Usage:
-#   bash launch-alerting-quietness-baseline.sh                 # default 48h
-#   bash launch-alerting-quietness-baseline.sh --hours 72      # custom duration
-#   bash launch-alerting-quietness-baseline.sh --force         # bypass singleton
+#   bash launch-alerting-quietness-baseline.sh                                # default 48h, prod
+#   bash launch-alerting-quietness-baseline.sh --hours 72                     # custom duration
+#   bash launch-alerting-quietness-baseline.sh --env staging                  # staging env tier
+#   bash launch-alerting-quietness-baseline.sh --force                        # bypass singleton
 #
 # DO NOT FIRE without operator green-light: Phases 4-6 must be green first
 # (paging targets wired, DART panel up, runbooks landed). The Phase 7 todo in
@@ -47,6 +52,7 @@ set -euo pipefail
 
 FORCE=false
 DURATION_HOURS=48
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
@@ -57,13 +63,22 @@ while [[ $# -gt 0 ]]; do
       DURATION_HOURS="$2"
       shift 2
       ;;
+    --env)
+      DEPLOYMENT_ENV="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown arg: $1" >&2
-      echo "Usage: $0 [--force] [--hours <N>]" >&2
+      echo "Usage: $0 [--force] [--hours <N>] [--env <prod|staging|dev>]" >&2
       exit 2
       ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -112,6 +127,7 @@ echo "  name:      $VM_NAME"
 echo "  zone:      $ZONE"
 echo "  duration:  ${DURATION_HOURS}h"
 echo "  project:   $PROJECT"
+echo "  env:       $DEPLOYMENT_ENV"
 echo "  channel:   uts-staging-noise (Telegram only — PagerDuty DISABLED)"
 echo "  events:    gs://${PROJECT}-events/events/alerting-service/$(date -u +%Y-%m-%d)/${VM_NAME}/"
 
@@ -139,8 +155,10 @@ PAGERDUTY_DISABLED=true,\
 TELEGRAM_CHANNEL_OVERRIDE=uts-staging-noise,\
 TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
 TELEGRAM_CHAT_ID_SECRET=alerting-telegram-chat-id,\
+DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
 CODE_BUCKET=${CODE_BUCKET},\
 PROJECT_ID=${PROJECT}" \
+  --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
   --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
 
 echo ""

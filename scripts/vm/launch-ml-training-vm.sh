@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch an ML training VM for ml-training-service — trains a single
 # model-family / instrument / target-type combination on GCE, writing the
 # artefact to the ml model_registry in GCS. Used for the CME S&P 500 ML
@@ -63,6 +67,7 @@ END_DATE=""
 MACHINE_CHOICE="cpu"
 OPERATION="train"
 EXTRA_METADATA=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -76,13 +81,14 @@ while [[ $# -gt 0 ]]; do
         --machine)         MACHINE_CHOICE="${2,,}"; shift 2 ;;
         --operation)       OPERATION="$2"; shift 2 ;;
         --extra-metadata)  EXTRA_METADATA="$2"; shift 2 ;;
+        --env)             DEPLOYMENT_ENV="$2"; shift 2 ;;
         --help|-h)
             grep '^#' "$0" | head -60
             exit 0
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--dry-run] [--asset-group TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline]" >&2
+            echo "Usage: $0 [--dry-run] [--asset-group TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline] [--env <prod|staging|dev>]" >&2
             exit 1
             ;;
     esac
@@ -92,6 +98,11 @@ if [[ -z "$INSTRUMENTS" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "ERROR: --instruments, --start-date, --end-date are required" >&2
     exit 1
 fi
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -161,6 +172,7 @@ METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_BACKFILL_CMD=${ML_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 [[ -n "$EXTRA_METADATA" ]] && METADATA="${METADATA},${EXTRA_METADATA}"
 
@@ -190,7 +202,7 @@ else
         --scopes=cloud-platform \
         $ACCELERATOR \
         --metadata="startup-script-url=${STARTUP},${METADATA}" \
-        --labels=purpose=ml-training,run-ts="${RUN_TS}",category="${ASSET_GROUP,,}"
+        --labels=purpose=ml-training,run-ts="${RUN_TS}",category="${ASSET_GROUP,,}",env="${DEPLOYMENT_ENV}"
     echo ""
     echo "VM launched: $VM_NAME"
     echo "Logs:        gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/features-backfill.log'"

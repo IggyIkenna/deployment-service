@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# The watchdog VM itself reads the events bucket (gs://{pid}-events) — env-aware
+# resolution lets the watchdog scope its event-stream + heartbeat reads to the
+# correct env tier. The watchdog Python (vm_zombie_watchdog.py) keys VM filters
+# by VM-NAME prefix; env-tier acts as an orthogonal axis for any future
+# per-env bucket reads.
+#
 # Launch always-on VM zombie watchdog daemon.
 #
 # Polls every 5 min via vm_zombie_watchdog.py:
@@ -48,6 +57,7 @@ FORCE=false
 HB_STALE=15
 SHARD_STALE=120
 MIN_AGE=15
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -57,10 +67,16 @@ while [[ $# -gt 0 ]]; do
         --heartbeat-stale) HB_STALE="$2"; shift 2 ;;
         --shard-stale)     SHARD_STALE="$2"; shift 2 ;;
         --min-age)         MIN_AGE="$2"; shift 2 ;;
+        --env)             DEPLOYMENT_ENV="$2"; shift 2 ;;
         --help|-h)         grep '^#' "$0" | head -40; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if ! $FORCE; then
     EXISTING=$(gcloud compute instances list \
@@ -176,8 +192,9 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=20GB \
     --scopes=cloud-platform \
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
     --metadata-from-file=startup-script="$STARTUP_FILE" \
-    --labels=purpose=vm-zombie-watchdog,tier=daemon 2>&1 | tail -5
+    --labels=purpose=vm-zombie-watchdog,tier=daemon,env="${DEPLOYMENT_ENV}" 2>&1 | tail -5
 
 echo ""
 echo "VM running. Tail logs:"

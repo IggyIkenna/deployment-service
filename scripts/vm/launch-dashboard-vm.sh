@@ -1,6 +1,10 @@
 #!/bin/bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Deploy the Deployment Dashboard to a GCE VM (more resources than Cloud Run).
-# Prerequisites: gcloud auth, Docker. Usage: ./scripts/deploy-dashboard-gce-vm.sh [--machine-type TYPE] [--workers N]
+# Prerequisites: gcloud auth, Docker. Usage: ./scripts/deploy-dashboard-gce-vm.sh [--machine-type TYPE] [--workers N] [--env <prod|staging|dev>]
 set -e
 
 PROJECT_ID="${GCP_PROJECT_ID:?GCP_PROJECT_ID required}"
@@ -11,15 +15,23 @@ ARTIFACT_REPO="deployment-dashboard"
 VM_NAME="deployment-dashboard-vm"
 WORKERS="8"
 MACHINE_TYPE="n2-standard-8"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 for arg in "$@"; do
   case $arg in
     --machine-type=*) MACHINE_TYPE="${arg#*=}" ;;
     --workers=*)      WORKERS="${arg#*=}" ;;
+    --env=*)          DEPLOYMENT_ENV="${arg#*=}" ;;
     --machine-type)   shift; MACHINE_TYPE="$1" ;;
     --workers)        shift; WORKERS="$1" ;;
+    --env)            shift; DEPLOYMENT_ENV="$1" ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "local-$(date +%Y%m%d-%H%M%S)")
 IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAME}:${COMMIT_SHA}"
@@ -27,7 +39,7 @@ IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAM
 echo "============================================"
 echo "Deploy Dashboard to GCE VM"
 echo "============================================"
-echo "Project:       $PROJECT_ID" "Zone: $ZONE" "VM: $VM_NAME" "Machine: $MACHINE_TYPE"
+echo "Project:       $PROJECT_ID" "Zone: $ZONE" "VM: $VM_NAME" "Machine: $MACHINE_TYPE" "Env: $DEPLOYMENT_ENV"
 echo ""
 
 gcloud auth print-access-token &>/dev/null || { echo "Not authenticated. Run: gcloud auth login"; exit 1; }
@@ -54,7 +66,7 @@ if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJE
 fi
 
 echo "Creating GCE VM with container..."
-gcloud compute instances create-with-container "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --machine-type="$MACHINE_TYPE" --tags=deployment-dashboard-vm --container-image="$IMAGE_URI" --container-env="GCP_PROJECT_ID=${PROJECT_ID},STATE_BUCKET=deployment-orchestration-${PROJECT_ID},WORKERS=${WORKERS},PYTHONUNBUFFERED=1" --container-restart-policy=always --scopes=cloud-platform
+gcloud compute instances create-with-container "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --machine-type="$MACHINE_TYPE" --tags=deployment-dashboard-vm --container-image="$IMAGE_URI" --container-env="GCP_PROJECT_ID=${PROJECT_ID},STATE_BUCKET=deployment-orchestration-${PROJECT_ID},WORKERS=${WORKERS},DEPLOYMENT_ENV=${DEPLOYMENT_ENV},PYTHONUNBUFFERED=1" --container-restart-policy=always --scopes=cloud-platform --labels=purpose=deployment-dashboard,env="${DEPLOYMENT_ENV}"
 
 IP=$(gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
 echo ""

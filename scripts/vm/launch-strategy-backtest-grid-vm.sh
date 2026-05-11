@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch a GCE VM to run the 2-yr config-grid backtest for a single
 # DeFi archetype (carry_staked_basis | ARBITRAGE_PRICE_DISPERSION).
 #
@@ -66,6 +70,7 @@ DRY_RUN=false
 FORCE=false
 SMOKE=false
 VM_NAME=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 usage() {
     cat <<EOF
@@ -83,6 +88,7 @@ Optional:
   --machine-type <t>      GCE machine type (default: ${MACHINE_TYPE})
   --disk-size <s>         Boot disk size (default: ${DISK_SIZE})
   --project <pid>         GCP project (default: ${PROJECT_ID})
+  --env <env>             Deployment env tier (prod|staging|dev; default: ${DEPLOYMENT_ENV})
   --vm-name <name>        Override generated VM name.
   --smoke                 Forwarded to runner — 5-config / 2-slot smoke run.
   --force                 Bypass singleton lock (allow same-archetype VM RUNNING).
@@ -102,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
         --disk-size)     DISK_SIZE="$2"; shift 2 ;;
         --project)       PROJECT_ID="$2"; CODE_BUCKET="deployment-scripts-${PROJECT_ID}"; shift 2 ;;
+        --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
         --vm-name)       VM_NAME="$2"; shift 2 ;;
         --smoke)         SMOKE=true; shift ;;
         --force)         FORCE=true; shift ;;
@@ -110,6 +117,11 @@ while [[ $# -gt 0 ]]; do
         *)               echo "Unknown option: $1"; usage ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # Validate required args
 if [[ -z "$ARCHETYPE" || -z "$START_DATE" || -z "$END_DATE" ]]; then
@@ -152,6 +164,7 @@ log "Zone:         ${ZONE}"
 log "Machine:      ${MACHINE_TYPE}"
 log "Disk:         ${DISK_SIZE}"
 log "Project:      ${PROJECT_ID}"
+log "Env:          ${DEPLOYMENT_ENV}"
 log "Output:       gs://${OUTPUT_BUCKET}/backtests/config_grid_2yr/${ARCHETYPE}/"
 log "=========================================="
 
@@ -222,6 +235,7 @@ METADATA_ITEMS=(
     "VM_SHUTDOWN_ON_COMPLETION=true"
     "VM_BACKFILL_CMD=${RUNNER_CMD}"
     "OUTPUT_BUCKET=${OUTPUT_BUCKET}"
+    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 )
 
@@ -257,7 +271,8 @@ gcloud compute instances create "${VM_NAME}" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="${METADATA_STR}" \
-    --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}"
+    --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
+    --labels=purpose=strategy-backtest-grid,archetype="${ARCHETYPE_SLUG}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 log ""
 log "VM created: ${VM_NAME}"

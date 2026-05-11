@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Consolidated features-service VM launcher (2026-05-08, Phase 8A of
 # `unified-trading-pm/plans/active/features_repo_consolidation_2026_05_08.md`).
 #
@@ -87,6 +91,7 @@ END_DATE=""
 MODE="batch"
 OPERATION="compute"
 LAUNCH_MODE="dry"  # dry | full
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 print_usage() {
     cat <<'EOF'
@@ -97,7 +102,8 @@ Usage: launch-features-vm.sh \
     --end-date YYYY-MM-DD \
     [--mode {batch|live}] \
     [--operation <op>] \
-    [--launch-mode {dry|full}]
+    [--launch-mode {dry|full}] \
+    [--env <prod|staging|dev>]
 
 feature-family ∈ {
   calendar, commodity, cross_instrument, delta_one,
@@ -123,6 +129,7 @@ while [[ $# -gt 0 ]]; do
         --mode)           MODE="${2:-}";           shift 2 ;;
         --operation)      OPERATION="${2:-}";      shift 2 ;;
         --launch-mode)    LAUNCH_MODE="${2:-}";    shift 2 ;;
+        --env)            DEPLOYMENT_ENV="${2:-}"; shift 2 ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; print_usage; exit 2 ;;
     esac
@@ -132,6 +139,11 @@ if [[ -z "$FEATURE_FAMILY" || -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_
     print_usage
     exit 2
 fi
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # ---------- viability matrix ----------
 _is_viable_cell() {
@@ -217,6 +229,7 @@ MD="${MD},VM_START_DATE=${START_DATE}"
 MD="${MD},VM_END_DATE=${END_DATE}"
 MD="${MD},VM_BACKFILL_CMD=${CMD}"
 MD="${MD},VM_BACKFILL_MODE=${LAUNCH_MODE}"
+MD="${MD},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # Per-VM shard isolation (workspace rule, codified 2026-05-06):
 MD="${MD},VM_NAME=${VM_NAME}"
 MD="${MD},MANIFEST_PER_VM_SHARDS=true"
@@ -233,7 +246,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",mode="${LAUNCH_MODE}",run-ts="${RUN_TS}"
+    --labels=purpose=features-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",mode="${LAUNCH_MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
