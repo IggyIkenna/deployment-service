@@ -154,9 +154,29 @@ if [[ "$TARBALL_MODE" == "local" ]]; then
   bash "${REPO_ROOT}/scripts/vm/create-code-tarballs.sh" --all
 fi
 
+# Direct script invocation via VM_BACKFILL_CMD — bypasses the
+# `python -m instruments_service --operation X` CLI dispatch, which only
+# registers the `instruments` operation. The rescan is a one-shot orchestrator
+# on top of the existing phantom-audit reconciler, not a payload-processor in
+# the UnifiedServiceHandler shape — so the launcher invokes the script entry
+# point directly via setup-data-pipeline-vm.sh's VM_BACKFILL_CMD branch
+# (which rewrites `python ` to `$VENV/bin/python ` then runs the cmd verbatim).
+# Path: instruments-service tarball extracts to $WORKSPACE/instruments per
+# TARBALL_DIRS["instruments-service-code"]="instruments"; the tarball is
+# created with `-C $repo_path .` so scripts/ ends up at
+# $WORKSPACE/instruments/scripts/. Same pattern as launch-defi-phantom-recon-vm.sh.
+# Fix shipped 2026-05-11 after `cross-asset-rescan-20260511-153940` failed at
+# argparse with `--operation: invalid choice: 'cross_asset_rescan'`.
+APPLY_ARG=""
+if $APPLY; then
+  APPLY_ARG=" --apply"
+fi
+RESCAN_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/cross_asset_rescan.py"
+BACKFILL_CMD="python ${RESCAN_SCRIPT} --asset-group ${ASSET_GROUP}${APPLY_ARG}"
+
 METADATA="VM_TASK=cross-asset-rescan"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
-METADATA="${METADATA},VM_OPERATION=cross_asset_rescan"
+METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
@@ -170,7 +190,9 @@ METADATA="${METADATA},WORKERS=64"
 METADATA="${METADATA},HTTP_POOL_SIZE=128"
 # Apply mode toggle — the rescan script reads VM_APPLY_FLIPS at runtime
 # to decide whether to flip class-A drift rows or just produce the triage
-# report. Default false = dry-run; explicit --apply enables flips.
+# report. Default false = dry-run; explicit --apply enables flips. The
+# env var is read by the script (script docstring lines 35-37) in addition
+# to the --apply CLI flag set in VM_BACKFILL_CMD above; both ways agree.
 if $APPLY; then
   METADATA="${METADATA},VM_APPLY_FLIPS=true"
 else
