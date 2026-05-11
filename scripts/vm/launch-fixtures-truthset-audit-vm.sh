@@ -40,27 +40,37 @@
 # Cost: e2-standard-2 for ~3-4h. Audit is tiny pandas + ~thousand HTTP gets, so
 # memory pressure is low; the existing -2 default is fine. Override with
 # MACHINE_TYPE=e2-standard-4 if you want headroom.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
 SEASON_START=2018
 SEASON_END=2026
 RESUME=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
     --season-start) SEASON_START="$2"; shift 2 ;;
     --season-end) SEASON_END="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     -h|--help)
       cat <<EOF
 Usage: bash launch-fixtures-truthset-audit-vm.sh [--force] \\
-         [--season-start YEAR] [--season-end YEAR] [--resume RUN_TS]
+         [--season-start YEAR] [--season-end YEAR] [--resume RUN_TS] [--env prod|staging|dev]
 EOF
       exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if ! [[ "$SEASON_START" =~ ^[0-9]{4}$ ]] || ! [[ "$SEASON_END" =~ ^[0-9]{4}$ ]]; then
   echo "ERROR: --season-start and --season-end must be 4-digit years" >&2
@@ -125,6 +135,7 @@ METADATA="VM_TASK=sports-gap-fill"
 # is unpacked and the sports-gap-fill branch's `cd $WORKSPACE/instruments` fails.
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_MIGRATION_CMD=${AUDIT_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
@@ -138,7 +149,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=50GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=fixtures-truthset-audit,run-ts="${RUN_TS}"
+  --labels=purpose=fixtures-truthset-audit,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

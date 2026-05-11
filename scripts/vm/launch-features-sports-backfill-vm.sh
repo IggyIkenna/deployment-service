@@ -53,17 +53,27 @@
 # day, not network fanout. Pass --force only when you have a genuinely
 # disjoint reason (e.g. two different feature groups / two different
 # non-overlapping date windows).
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
 SKIP_EXISTING=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
     --skip-existing) SKIP_EXISTING=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
@@ -133,6 +143,7 @@ METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -144,7 +155,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=100GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=features-sports-backfill,run-ts="${RUN_TS}"
+  --labels=purpose=features-sports-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

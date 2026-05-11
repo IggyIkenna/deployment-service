@@ -18,6 +18,9 @@
 #   bash full_sports_entity_sweep.sh
 #   bash full_sports_entity_sweep.sh --dry-run
 #   bash full_sports_entity_sweep.sh --entity API_FOOTBALL_INJURIES   # single entity only
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -25,6 +28,7 @@ ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 DRY_RUN=false
 SINGLE_ENTITY=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 TODAY="$(date +%F)"
 
 while [[ $# -gt 0 ]]; do
@@ -34,12 +38,18 @@ while [[ $# -gt 0 ]]; do
     --project) PROJECT_ID="$2"; shift 2 ;;
     --zone) ZONE="$2"; shift 2 ;;
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--dry-run] [--entity <ENTITY_NAME>] [--project ID] [--zone Z]"
+      echo "Usage: $0 [--dry-run] [--entity <ENTITY_NAME>] [--project ID] [--zone Z] [--env prod|staging|dev]"
       exit 0 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="$(cd "${SCRIPT_DIR}/../common" && pwd)"
@@ -193,6 +203,7 @@ exec > >(tee /var/log/instruments-reference.log) 2>&1
 
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 export CLOUD_PROVIDER=gcp
 export CLOUD_MOCK_MODE=false
 export DATA_MODE=real
@@ -249,7 +260,8 @@ STARTUP_EOF
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=30GB \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=sports-entity-sweep,env="${DEPLOYMENT_ENV}"
 
   rm "$STARTUP_FILE"
   echo "  Created: ${vm_name} (entity=${entity_label})"

@@ -55,15 +55,25 @@
 #
 # VM naming: features-sfi-progressive-{TS} — covered by the heartbeat-only
 # `features-` prefix entry in vm_zombie_watchdog.VM_PREFIX_TO_BUCKET.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 DEFAULT_START="2020-01-01"
 DEFAULT_END="$(date -u +%Y-%m-%d)"
@@ -144,6 +154,7 @@ METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -155,7 +166,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=100GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=features-sfi-progressive,run-ts="${RUN_TS}"
+  --labels=purpose=features-sfi-progressive,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

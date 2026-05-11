@@ -14,21 +14,31 @@
 # Usage:
 #   bash full_api_football_sweep.sh
 #   bash full_api_football_sweep.sh --dry-run
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 DRY_RUN=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --project) PROJECT_ID="$2"; shift 2 ;;
     --zone) ZONE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMON_DIR="$(cd "${SCRIPT_DIR}/../common" && pwd)"
@@ -136,6 +146,7 @@ exec > >(tee /var/log/instruments-reference.log) 2>&1
 # Production service flags — explicit to prevent any env pollution on the VM
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 export CLOUD_PROVIDER=gcp
 export CLOUD_MOCK_MODE=false
 export DATA_MODE=real
@@ -189,7 +200,8 @@ STARTUP_EOF
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=30GB \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=sports-full-sweep,env="${DEPLOYMENT_ENV}"
 
   rm "$STARTUP_FILE"
   echo "  Created: ${vm_name} (${start_date} → ${end_date})"

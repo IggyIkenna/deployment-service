@@ -60,14 +60,19 @@
 # sharing one rate-limited API key produced ~4 useful writes in 6 hours.
 # The singleton pattern below copies launch-sfi-forward-poll.sh to prevent
 # the same thing happening for sports-scheduler state-bucket coordination.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
 DRY_RUN=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
     --force) FORCE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --help|-h)
       sed -n '1,55p' "$0"
       exit 0
@@ -78,6 +83,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -122,6 +132,7 @@ METADATA="${METADATA},VM_MODE=live"
 if $DRY_RUN; then
   METADATA="${METADATA},VM_SCHEDULER_DRY_RUN=true"
 fi
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # No VM_SHUTDOWN_ON_COMPLETION — this is a daemon, not a one-shot backfill.
 
 gcloud compute instances create "$VM_NAME" \
@@ -133,7 +144,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=30GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=sports-scheduler,run-ts="${RUN_TS}",tier=scheduler
+  --labels=purpose=sports-scheduler,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",tier=scheduler
 
 echo ""
 echo "VM launched: $VM_NAME"

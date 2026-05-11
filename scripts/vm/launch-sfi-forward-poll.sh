@@ -35,13 +35,29 @@
 # `soccer-football-info-api-key` thrash on 429 (proven in 2026-04-19 incident:
 # 10 VMs ran for ~6h producing ~4 successful writes total). Pass --force to
 # bypass for legitimate parallel investigations.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-  FORCE=true
-  shift
-fi
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Strip --force / --env <val> from anywhere in args without disturbing positional shape.
+NEW_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) FORCE=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) NEW_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # Default: yesterday only (T-1). Pass two dates for an explicit window.
 if [[ $# -eq 2 ]]; then
@@ -90,6 +106,7 @@ METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SPORTS_PROVIDER=SOCCER_FOOTBALL_INFO"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -101,7 +118,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=50GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=sfi-forward-poll,run-ts="${RUN_TS}"
+  --labels=purpose=sfi-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

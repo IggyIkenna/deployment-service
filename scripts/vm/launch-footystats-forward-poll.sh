@@ -27,7 +27,26 @@
 #                                                                # legacy explicit-date mode
 #
 # Cost: e2-small for ~5 min per run = ~$0.004 per fire. Delete on completion.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Strip --env <val> from anywhere in the leading args without disturbing positional shape.
+NEW_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) NEW_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${NEW_ARGS[@]+"${NEW_ARGS[@]}"}"
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 USE_EXPLICIT=false
 if [[ "${1:-}" == "--explicit" ]]; then
@@ -81,6 +100,7 @@ else
 fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=FOOTYSTATS"
 [[ -n "$SPORTS_ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${SPORTS_ENTITY}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -91,7 +111,7 @@ gcloud compute instances create "$VM_NAME" \
   --image-project=ubuntu-os-cloud \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=footystats-forward-poll,run-ts="${RUN_TS}"
+  --labels=purpose=footystats-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -41,6 +41,9 @@
 # --entity FIXTURES | MATCH_STATS | ODDS_SNAPSHOTS | PREDICTIONS | PLAYER_PERFORMANCE
 #
 # Singleton lock: refuses if any fs-backfill-* VM is running (per-key rate limits).
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
@@ -49,6 +52,7 @@ LOOKBACK=""
 LOOKAHEAD=""
 FORCE_WINDOW=false
 RECOVERY_FIXTURE_IDS=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
@@ -57,9 +61,15 @@ while [[ $# -gt 0 ]]; do
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 USE_ROLLING=false
 if [[ -n "$LOOKBACK" || -n "$LOOKAHEAD" ]]; then
@@ -160,6 +170,7 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=FOOTYSTATS"
 [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
 [[ -n "$RECOVERY_FIXTURE_IDS" ]] && METADATA="${METADATA},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -171,7 +182,7 @@ gcloud compute instances create "$VM_NAME" \
   --boot-disk-size=50GB \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=footystats-backfill,run-ts="${RUN_TS}"
+  --labels=purpose=footystats-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

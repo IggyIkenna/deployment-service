@@ -29,6 +29,9 @@
 # `e2e-testing/scripts/common/vm_fss_features.sh` (preserved at the
 # original location — used by other ad-hoc launchers too; will land
 # alongside this script in the next migration cycle).
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -41,6 +44,7 @@ TABLES=""
 DRY_RUN=false
 STATUS_ONLY=false
 FORCE=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # WORKSPACE_ROOT default: 3 levels up (deployment-service/scripts/vm/ →
 # unified-trading-system-repos/). Was `../..` at the source location
 # (features-sports-service/scripts/); fixed for the new canonical path.
@@ -66,9 +70,15 @@ while [[ $# -gt 0 ]]; do
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
     --bucket) GCS_BUCKET="$2"; GCS_STAGING="${GCS_BUCKET}/_vm_staging/fss_backfill"; shift 2 ;;
     --service-account) SERVICE_ACCOUNT="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Status mode — check progress via VM logs in GCS
@@ -287,6 +297,7 @@ exec > >(tee /var/log/fss-backfill.log) 2>&1
 
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
 # --- Streaming log upload (every 60s) ---
 LOG_GCS_PATH="${GCS_STAGING}/logs/${VM_NAME}.log"
@@ -364,7 +375,8 @@ STARTUP_EOF
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
     ${SA_FLAG} \
-    --metadata-from-file=startup-script="${STARTUP_FILE}"
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
 
   rm -f "$STARTUP_FILE"
   echo "  ${VM_NAME} created."
