@@ -748,6 +748,11 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
       log "ERROR: $E2E_DIR not found — e2e-testing-code tarball may be missing"
       exit 1
     fi
+    # run-paper.sh / run-live.sh look for ${WORKSPACE}/.venv-workspace/bin/python
+    # (local-dev convention). On VM the venv lives at $VENV. Symlink so the scripts
+    # find Python without modification. (promote_workflow Phase 1 fix 2026-05-12)
+    ln -sfn "$VENV" "${WORKSPACE}/.venv-workspace"
+    log "Symlinked ${WORKSPACE}/.venv-workspace → $VENV for run-{paper,live}.sh"
     cd "$E2E_DIR" || { log "ERROR: cannot cd into $E2E_DIR"; exit 1; }
     _launch_with_tee "$VM_BACKFILL_CMD" "$LOGS/${VM_TASK}.log"
   else
