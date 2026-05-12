@@ -133,7 +133,7 @@ def parse_storage_path(storage_path: str) -> tuple[str, str]:
         path = storage_path[5:]
     else:
         raise ValueError(
-            f"Invalid storage path: {storage_path}. Must start with 'gs://' or 's3://'"
+            f"Invalid storage path: {storage_path}. Must start with 'gs://' or 's3://'"  # noqa: gs-uri — validation error message; not a bucket URI constructor
         )
 
     parts = path.split("/", 1)
@@ -146,6 +146,8 @@ def parse_storage_path(storage_path: str) -> tuple[str, str]:
 def parse_gcs_path(gcs_path: str) -> tuple[str, str]:
     """Parse a GCS path into bucket and prefix. DEPRECATED: Use parse_storage_path()."""
     if not gcs_path.startswith("gs://"):  # noqa: gs-uri — env_substitutor validates GCS path prefix for template substitution
-        raise ValueError(f"Invalid GCS path: {gcs_path}. Must start with 'gs://'")
+        raise ValueError(
+            f"Invalid GCS path: {gcs_path}. Must start with 'gs://'"  # noqa: gs-uri — validation error message; not a bucket URI constructor
+        )
 
     return parse_storage_path(gcs_path)

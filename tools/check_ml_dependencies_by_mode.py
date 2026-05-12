@@ -32,8 +32,12 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
-from unified_trading_library.cloud_interface.bucket_naming import resolve_bucket_name
+from unified_trading_library import (
+    StorageClient,
+    UnifiedCloudConfig,
+    get_storage_client,
+    resolve_bucket_name,
+)
 
 logging.basicConfig(
     level=logging.INFO,

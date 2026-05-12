@@ -279,7 +279,7 @@ class StorageClient:
             path = cloud_path[5:]
         else:
             raise ValueError(
-                f"Invalid cloud path: {cloud_path}. Must start with 'gs://' or 's3://'"
+                f"Invalid cloud path: {cloud_path}. Must start with 'gs://' or 's3://'"  # noqa: gs-uri — validation error message; not a bucket URI constructor
             )
         parts = path.split("/", 1)
         bucket_name = parts[0]
