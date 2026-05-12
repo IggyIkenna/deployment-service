@@ -171,6 +171,10 @@ gcp:
     # `gs://archetype-state-{env}-{pid}/tenderly_budget/{archetype}/day={YYYY-MM-DD}.json`
     # per `execution_service/providers/tenderly_budget.py`.
     archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-client NAV / PnL / positions / attribution parquets for the client-reporting MVP
+    # (client_reporting_pnl_attribution_mvp_2026_05_10.md Phase 2). Cross-cutting; no asset_group axis.
+    # Path: gs://{pid}-client-reports/{client_id}/{archetype}/{YYYY-MM-DD}/attribution.parquet
+    client-reports: "${GCP_PROJECT_ID}-client-reports"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -267,6 +271,8 @@ aws:
     # Per-archetype daily Tenderly bundle-sim budget state (mirrors GCP). Single env-tiered
     # bucket; asset_group axis ignored (flat-string kind). See GCP § for full reference.
     archetype-state: "unified-trading-archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-client reports (mirrors GCP). Cross-cutting; no asset_group axis.
+    client-reports: "unified-trading-client-reports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
