@@ -46,7 +46,7 @@ def list_running_vm_names(project_id: str) -> set[str]:
                     running.add(name)
         logger.info("list_running_vm_names(%s): %d RUNNING VMs", project_id, len(running))
         return running
-    except Exception as exc:  # noqa: BLE001 — shard-level isolation; reaper must never raise
+    except Exception as exc:
         logger.warning("list_running_vm_names(%s) failed: %s", project_id, exc)
         return set()
 

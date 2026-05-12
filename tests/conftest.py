@@ -92,7 +92,7 @@ def gcp_auth_info() -> tuple[object | None, str, str | None]:
         return credentials, project_id or "test-project", None
     except DefaultCredentialsError:
         pass
-    except Exception:  # noqa: BLE001 — pytest-socket / metadata-server blocked on CI; treat as no creds
+    except Exception:
         pass
 
     return None, "test-project", None
@@ -411,7 +411,7 @@ def mock_venue_start_dates(monkeypatch, expected_start_dates_config):
                 for venue, start_date in venues.items():
                     venue_dates[venue] = str(start_date)
 
-    def _mock_get_venue_start_date(self, venue: str) -> str | None:  # noqa: ANN001
+    def _mock_get_venue_start_date(self, venue: str) -> str | None:
         return venue_dates.get(venue)
 
     monkeypatch.setattr(

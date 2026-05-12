@@ -81,7 +81,7 @@ _LEAGUE_NORMALIZER: dict[str, str] = {}
 
 def _normalize_league_id(raw_league_id: str) -> str:
     """Normalize a raw league partition value to a canonical league ID."""
-    global _LEAGUE_NORMALIZER  # noqa: PLW0603
+    global _LEAGUE_NORMALIZER
     if not _LEAGUE_NORMALIZER:
         _LEAGUE_NORMALIZER.update(_build_league_id_normalizer())
     return _LEAGUE_NORMALIZER.get(raw_league_id, raw_league_id)

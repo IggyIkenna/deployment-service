@@ -559,7 +559,7 @@ def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:
         if blob.updated is None:
             return None
         return (datetime.now(UTC) - blob.updated).total_seconds() / 60.0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -635,13 +635,13 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     """
     try:
         op = compute_client.delete(project=PROJECT_ID, zone=zone, instance=vm_name)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("kill API call failed for %s in %s: %s", vm_name, zone, exc)
         return False
 
     try:
         op.result(timeout=120)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "kill confirm-poll failed for %s in %s (delete in-flight, counting as kill): %s",
             vm_name,

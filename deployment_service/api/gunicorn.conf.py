@@ -54,11 +54,11 @@ tmp_upload_dir = None
 preload_app = True
 
 
-def pre_fork(server, worker):  # noqa: ARG001
+def pre_fork(server, worker):
     """Called just before a worker is forked."""
 
 
-def post_fork(server, worker):  # noqa: ARG001
+def post_fork(server, worker):
     """Called just after a worker has been forked."""
 
 

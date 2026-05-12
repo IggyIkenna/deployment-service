@@ -109,7 +109,7 @@ class ConfigReport:
 
 
 def _md5(data: bytes) -> str:
-    return hashlib.md5(data).hexdigest()  # noqa: S324
+    return hashlib.md5(data).hexdigest()
 
 
 def _list_blobs(storage_client: object, bucket: str, prefix: str) -> set[str]:
@@ -148,11 +148,11 @@ def diff_configs(
             if not files or path in (files or []):
                 try:
                     gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # type: ignore[attr-defined]
-                except (OSError, ValueError):  # noqa: BLE001
+                except (OSError, ValueError):
                     gcs_data = None
                 try:
                     s3_data = s3_client.download_bytes(s3_bucket, path)  # type: ignore[attr-defined]
-                except (OSError, ValueError):  # noqa: BLE001
+                except (OSError, ValueError):
                     s3_data = None
 
             if gcs_data is not None and s3_data is not None:

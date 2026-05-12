@@ -52,6 +52,7 @@ def _resolve_ml_training_artifacts_bucket(project_id: str) -> str:
     del project_id  # resolver pulls from env; arg kept for back-compat
     return resolve_bucket_name(cloud="gcp", kind="ml-training-artifacts")
 
+
 # Training periods are quarters, named by end month (e.g., 2021-03 = Q1 2021)
 QUARTERLY_PERIODS = {
     "2021-03": ("2020-01-01", "2021-03-31"),

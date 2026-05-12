@@ -142,7 +142,7 @@ class ManifestReader:
         if self._project_id is None:
             try:
                 self._project_id = get_project_id()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 self._project_id = "unknown"
         return self._project_id
 
@@ -162,7 +162,7 @@ class ManifestReader:
             probe_bucket = get_bucket_name("instruments", "CEFI", project_id=project_id)
             read_availability_index(probe_bucket)
             self._available = True
-        except Exception:  # noqa: BLE001 — broad catch is intentional for probe
+        except Exception:
             self._available = False
         return self._available
 
@@ -193,7 +193,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if index.empty:
@@ -223,7 +223,7 @@ class ManifestReader:
                 if "venue" in filtered.columns
                 else [],
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("ManifestReader.get_completion failed: %s", exc)
             return {"error": str(exc), "asset_group": asset_group}
 
@@ -261,7 +261,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001 — bucket or index may not exist yet
+                except Exception:
                     logger.debug("No manifest index in %s — treating as empty", bkt)
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -597,7 +597,7 @@ class ManifestReader:
             result["top_instruments"] = top
 
             return result
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("ManifestReader.get_venue_detail failed: %s", exc)
             return {"error": str(exc), "venue": venue}
 
@@ -635,7 +635,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001 — extra buckets may not exist
+                except Exception:
                     logger.debug("Extra bucket %s not found or empty", bkt)
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
