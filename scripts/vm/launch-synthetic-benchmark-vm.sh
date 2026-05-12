@@ -10,13 +10,15 @@
 # matrix; this launcher fans out over a list of machine types in one call.
 #
 # ┌──────────────────────────────────────────────────────────────────────────────────────┐
-# │ PREREQUISITE FOR `--mode subprocess` (the meaningful mode) — NOT YET MET (2026-05-12): │
-# │   The harness `subprocess` mode shells out to each service CLI with `--synthetic-input-│
-# │   uri`; that flag is Phase-4 tail across MTDS / MDPS / features-* / ML / strategy /     │
-# │   execution and is NOT yet wired (a placeholder stage raises HarnessStageNotWiredError).│
-# │   Until it is, only `--mode stub` runs (stub stages → meaningless profiles, useful only │
-# │   for exercising the VM-launch + event-stream path). DO NOT run the real matrix until   │
-# │   Phase 4 tail lands — see the plan's "Deferred work" table.                            │
+# │ PREREQUISITE FOR `--mode subprocess` — MET 2026-05-12 (slot 7 Day-2):                  │
+# │   - `--synthetic-input-uri` declared at the ServiceCLI framework level (UTL@5aa356b);  │
+# │   - `set_synthetic_input_override` installed after parse_args (UTL@c80bfbf);           │
+# │   - `default_subprocess_pipeline()` ships real command templates (UTL@04044bf).        │
+# │   Services using `resolve_bucket_uri` (MDPS / features-service / execution-service)    │
+# │   get full reader redirection automatically. Services whose readers bypass that helper │
+# │   (MTDS / ml-inference / strategy direct config reads) accept the flag but the deep    │
+# │   reader wire-in is Phase 3.D — those stages may exit nonzero in subprocess mode but   │
+# │   still emit per-stage profile data (start time / wall-clock / CPU / RSS) for Phase 6. │
 # └──────────────────────────────────────────────────────────────────────────────────────┘
 #
 # No fire-and-forget (CLAUDE.md): each VM emits STARTED + per-stage progress + STOPPED to
@@ -64,9 +66,9 @@ if [[ -z "$ARCHETYPE" ]]; then
   exit 1
 fi
 if [[ "$MODE" == "subprocess" ]]; then
-  echo "WARNING: --mode subprocess requires the Phase-4 tail (--synthetic-input-uri in 6 service CLIs)" >&2
-  echo "         which is not yet wired — placeholder stages will raise HarnessStageNotWiredError." >&2
-  echo "         Continuing anyway (the operator confirmed Phase-4 tail is landed)." >&2
+  echo "INFO: --mode subprocess (Phase 4.A-tail landed 2026-05-12 — framework SSOT wired)" >&2
+  echo "      Stages where the reader uses resolve_bucket_uri get full data redirection;" >&2
+  echo "      MTDS / ml-inference / strategy may exit nonzero pending Phase 3.D (still emits profile data)." >&2
 fi
 
 ARCH_SHORT="$(echo "$ARCHETYPE" | tr '[:upper:]_' '[:lower:]-' | cut -c1-16)"
