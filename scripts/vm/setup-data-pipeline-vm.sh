@@ -211,6 +211,7 @@ declare -A TARBALL_DIRS=(
   ["unified-trading-library-code"]="utl"
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
+  ["features-service-code"]="features"
   ["features-sports-service-code"]="fss"
   ["features-onchain-service-code"]="fos"
   ["market-data-processing-service-code"]="mdps"
@@ -238,12 +239,31 @@ declare -A TARBALL_DIRS=(
 # can import deployment_service.deployments_registry — without it every
 # VM silently drops DEPLOYMENT_STARTED/PROGRESS/COMPLETED events.
 NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "deployment-service-code")
-SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
-if [ -n "$SERVICE_TARBALL" ]; then
-  NEEDED_TARBALLS+=("$SERVICE_TARBALL")
+# synthetic-benchmark VMs (Phase 5 of mock_data_pipeline_benchmarking_2026_05_10):
+# the harness shells out to all 6 cutover-pipeline service CLIs in subprocess
+# mode (mtds_read → mdps_compute → features → ml_inference → strategy →
+# matching_engine), so every per-service tarball must land in $WORKSPACE
+# before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
+# triggers the multi-service install path here instead of the single-service
+# default.
+if [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
+  log "VM_TASK=synthetic-benchmark — installing all 6 pipeline service tarballs"
+  NEEDED_TARBALLS+=(
+    "mtds-code"
+    "market-data-processing-service-code"
+    "features-service-code"
+    "ml-inference-service-code"
+    "strategy-service-code"
+    "execution-service-code"
+  )
 else
-  log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
-  for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
+  SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
+  if [ -n "$SERVICE_TARBALL" ]; then
+    NEEDED_TARBALLS+=("$SERVICE_TARBALL")
+  else
+    log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
+    for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
+  fi
 fi
 
 # Transitive sibling dependency: MDPS + features-* services declare
