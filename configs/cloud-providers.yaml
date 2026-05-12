@@ -153,6 +153,14 @@ gcp:
     # an operator confirm before env-tiering (high blast radius).
     events: "${GCP_PROJECT_ID}-events"
     config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-archetype daily Tenderly bundle-sim budget state (Phase 5C of
+    # `defi_catalogue_chain_primitives_2026_05_10.md`). Single env-tiered bucket;
+    # asset_group axis ignored (resolver exempts flat strings — see `bucket_naming.py`
+    # § "flat string template ... asset_group argument is accepted but ignored when the
+    # kind is flat"). Daily state at
+    # `gs://archetype-state-{env}-{pid}/tenderly_budget/{archetype}/day={YYYY-MM-DD}.json`
+    # per `execution_service/providers/tenderly_budget.py`.
+    archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -244,6 +252,9 @@ aws:
     # Cross-cutting service buckets (events stream + config snapshots).
     events: "unified-trading-events-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     config-store: "unified-trading-config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-archetype daily Tenderly bundle-sim budget state (mirrors GCP). Single env-tiered
+    # bucket; asset_group axis ignored (flat-string kind). See GCP § for full reference.
+    archetype-state: "unified-trading-archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
