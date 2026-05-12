@@ -238,6 +238,12 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # manifest shard. Launcher: launch-alerting-quietness-baseline.sh; plan:
     # alerting_service_live_rules_2026_05_07.md Phase 7.
     "alerting-quietness-": None,
+    # Synthetic-data pipeline benchmark VMs (launch-synthetic-benchmark-vm.sh; plan:
+    # mock_data_pipeline_benchmarking_2026_05_10.md Phase 5). One VM per (archetype, machine-type);
+    # name `synbench-{archetype-short}-{shape-short}-{ts}`. Heartbeat-only — the VM writes
+    # stage_profile.parquet + synthetic_run_manifest.json to the benchmark-reports prefix, not a
+    # per-vm manifest shard. Auto-shutdown via VM_SHUTDOWN_ON_COMPLETION at run completion.
+    "synbench-": None,
     # Phase 2 lift-and-shift 2026-05-08 — launchers migrated from
     # e2e-testing/scripts/defi/ + e2e-testing/scripts/prediction/ per
     # vm_launcher_consolidation_audit_2026_05_08.md.

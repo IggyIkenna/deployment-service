@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Launch GCE VM(s) that run the synthetic-data pipeline benchmark for a cutover archetype.
+#
+# Phase 5.A of `unified-trading-pm/plans/active/mock_data_pipeline_benchmarking_2026_05_10.md`.
+# Each VM runs `python -m unified_trading_library.synthetic` (the Phase-4.A benchmark CLI):
+# generates realism-axis-1..3 synthetic parquet input, drives the prod pipeline DAG
+# (mtds_read → mdps_compute → features → ml_inference → strategy → matching_engine), and
+# writes `stage_profile.parquet` + `synthetic_run_manifest.json` to the benchmark-reports
+# prefix. One VM per (archetype, machine-type) so the Phase-6 aggregation gets a per-shape
+# matrix; this launcher fans out over a list of machine types in one call.
+#
+# ┌──────────────────────────────────────────────────────────────────────────────────────┐
+# │ PREREQUISITE FOR `--mode subprocess` (the meaningful mode) — NOT YET MET (2026-05-12): │
+# │   The harness `subprocess` mode shells out to each service CLI with `--synthetic-input-│
+# │   uri`; that flag is Phase-4 tail across MTDS / MDPS / features-* / ML / strategy /     │
+# │   execution and is NOT yet wired (a placeholder stage raises HarnessStageNotWiredError).│
+# │   Until it is, only `--mode stub` runs (stub stages → meaningless profiles, useful only │
+# │   for exercising the VM-launch + event-stream path). DO NOT run the real matrix until   │
+# │   Phase 4 tail lands — see the plan's "Deferred work" table.                            │
+# └──────────────────────────────────────────────────────────────────────────────────────┘
+#
+# No fire-and-forget (CLAUDE.md): each VM emits STARTED + per-stage progress + STOPPED to
+# `gs://${PROJECT}-events/events/unified-trading-library/{YYYY-MM-DD}/{VM_NAME}/`. After
+# launch, verify the event stream within 90s and re-check every ~30min until STOPPED.
+#
+# Zombie watchdog: VM names are `synbench-{archetype-short}-{shape-short}-{ts}`; the `synbench-`
+# prefix is registered in `vm_zombie_watchdog.py:VM_PREFIX_TO_BUCKET` (heartbeat-only — the
+# report bucket is not a per-vm shard writer). If you add this launcher and the prefix is
+# missing from the dict, RELAUNCH THE WATCHDOG VM after adding it (silent money-burn otherwise).
+#
+# Usage:
+#   bash launch-synthetic-benchmark-vm.sh --archetype carry_staked_basis \
+#     --shapes "c2-standard-8 c2-standard-16 c2-standard-32 c3-highcpu-44" \
+#     --date-start 2024-01-01 --date-end 2024-01-07 --mode stub --env staging
+#   bash launch-synthetic-benchmark-vm.sh --archetype leveraged_funding_arb --shapes "c2-standard-16"
+set -euo pipefail
+
+ZONE="asia-northeast1-c"
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+ARCHETYPE=""
+SHAPES="c2-standard-8 c2-standard-16 c2-standard-32 c3-highcpu-44"
+DATE_START="2024-01-01"
+DATE_END="2024-01-07"
+MODE="stub"
+ROW_COUNT_SCALE="1.0"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --archetype) ARCHETYPE="$2"; shift 2 ;;
+    --shapes) SHAPES="$2"; shift 2 ;;
+    --date-start) DATE_START="$2"; shift 2 ;;
+    --date-end) DATE_END="$2"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
+    --row-count-scale) ROW_COUNT_SCALE="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$ARCHETYPE" ]]; then
+  echo "ERROR: --archetype is required (e.g. carry_staked_basis, leveraged_funding_arb)" >&2
+  exit 1
+fi
+if [[ "$MODE" == "subprocess" ]]; then
+  echo "WARNING: --mode subprocess requires the Phase-4 tail (--synthetic-input-uri in 6 service CLIs)" >&2
+  echo "         which is not yet wired — placeholder stages will raise HarnessStageNotWiredError." >&2
+  echo "         Continuing anyway (the operator confirmed Phase-4 tail is landed)." >&2
+fi
+
+ARCH_SHORT="$(echo "$ARCHETYPE" | tr '[:upper:]_' '[:lower:]-' | cut -c1-16)"
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+# benchmark-reports prefix — the report bucket kind is pending in cloud-providers.yaml; until
+# it lands, the launcher uses the conventional `${PROJECT}-benchmark-reports` name. When the
+# kind is added, switch the VM CLI to derive it via resolve_bucket_name(kind="benchmark-reports").
+REPORT_URI="gs://${PROJECT}-benchmark-reports"
+INPUT_URI="gs://${PROJECT}-benchmark-synthetic-input"
+
+for SHAPE in $SHAPES; do
+  SHAPE_SHORT="$(echo "$SHAPE" | tr '.' '-' | cut -c1-20)"
+  VM_NAME="synbench-${ARCH_SHORT}-${SHAPE_SHORT}-${RUN_TS}"
+  echo "Launching synthetic-benchmark VM:"
+  echo "  name:       $VM_NAME"
+  echo "  archetype:  $ARCHETYPE   shape: $SHAPE   mode: $MODE   window: ${DATE_START}..${DATE_END}"
+  echo "  report:     ${REPORT_URI}/${ARCHETYPE}/{run_id}/stage_profile.parquet"
+  echo "  events:     gs://${PROJECT}-events/events/unified-trading-library/$(date -u +%Y-%m-%d)/${VM_NAME}/"
+  gcloud compute instances create "$VM_NAME" \
+    --zone="$ZONE" \
+    --project="$PROJECT" \
+    --machine-type="$SHAPE" \
+    --image-family=debian-12 \
+    --image-project=debian-cloud \
+    --boot-disk-size=50GB \
+    --service-account="data-pipeline-vm@${PROJECT}.iam.gserviceaccount.com" \
+    --scopes=cloud-platform \
+    --metadata="\
+SERVICE_REPO=unified-trading-library,\
+SERVICE_MODULE=unified_trading_library.synthetic,\
+VM_NAME=${VM_NAME},\
+VM_SHUTDOWN_ON_COMPLETION=true,\
+RUN_OPERATION=synthetic-benchmark,\
+SYNTHETIC_ARCHETYPE=${ARCHETYPE},\
+SYNTHETIC_MODE=${MODE},\
+SYNTHETIC_DATE_START=${DATE_START},\
+SYNTHETIC_DATE_END=${DATE_END},\
+SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE},\
+SYNTHETIC_INPUT_URI=${INPUT_URI},\
+SYNTHETIC_REPORT_URI=${REPORT_URI},\
+BENCHMARK_VM_SHAPE=${SHAPE},\
+DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
+CODE_BUCKET=${CODE_BUCKET},\
+PROJECT_ID=${PROJECT}" \
+    --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+    --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
+done
+
+echo ""
+echo "VM(s) launched. Verify event streams within 90s, e.g.:"
+echo "  gcloud storage ls gs://${PROJECT}-events/events/unified-trading-library/$(date -u +%Y-%m-%d)/synbench-${ARCH_SHORT}-*/"
+echo "Per CLAUDE.md 'No fire-and-forget VM launches', re-check every ~30min until each VM emits STOPPED;"
+echo "auto-shutdown fires at run completion via VM_SHUTDOWN_ON_COMPLETION=true. Then run the Phase-6"
+echo "aggregation over ${REPORT_URI}/${ARCHETYPE}/*/stage_profile.parquet."
