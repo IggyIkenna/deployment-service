@@ -253,13 +253,19 @@ NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "de
 # default.
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
-  # run-paper.sh / run-live.sh. They need strategy-service + execution-service
-  # importable from the venv, plus e2e-testing extracted to $WORKSPACE/e2e-testing
-  # so the scripts are findable. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
-  log "VM_TASK=${VM_TASK} — installing strategy-service + execution-service + e2e-testing"
+  # run-paper.sh / run-live.sh. colocated_engine.py imports:
+  #   strategy_service, execution_service (core logic)
+  #   position_balance_monitor_service (treasury state, line 195)
+  #   pnl_attribution_service (P&L breakdown, line 558)
+  #   risk_and_exposure_service (risk metrics, line 635)
+  # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  log "VM_TASK=${VM_TASK} — installing strategy/execution/pbm/pnl/risk + e2e-testing"
   NEEDED_TARBALLS+=(
     "strategy-service-code"
     "execution-service-code"
+    "position-balance-monitor-service-code"
+    "pnl-attribution-service-code"
+    "risk-and-exposure-service-code"
     "e2e-testing-code"
   )
 elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
@@ -377,7 +383,7 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution)
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   _route_to_nodeps=false
