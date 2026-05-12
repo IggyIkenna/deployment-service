@@ -667,17 +667,22 @@ elif [[ "$VM_TASK" == "strategy-backtest-grid" ]]; then
   else
     log "ERROR: strategy-backtest-grid task without VM_BACKFILL_CMD metadata"
   fi
-elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" ]]; then
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
   # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of
   # manifest_schema_final_gate_2026_05_09, fix shipped 2026-05-11 after
   # `cross-asset-rescan-20260511-153940` failed at `python -m instruments_service`
-  # CLI dispatch — no `cross_asset_rescan` operation registered): BACKFILL_CMD
-  # metadata carries the full command (e.g. "python /workspace/instruments-service/scripts/
+  # CLI dispatch — no `cross_asset_rescan` operation registered) +
+  # synthetic-benchmark (Phase 4.A-tail of mock_data_pipeline_benchmarking_2026_05_10,
+  # 2026-05-12: launch-synthetic-benchmark-vm.sh passes the UTL benchmark CLI via
+  # VM_BACKFILL_CMD = "python -m unified_trading_library.synthetic --archetype <X>
+  # --date-start <date> --date-end <date> --input-uri gs://{pid}-synthetic-input
+  # --report-uri gs://{pid}-benchmark-reports --mode stub|subprocess ..."):
+  # BACKFILL_CMD metadata carries the full command (e.g. "python /workspace/instruments-service/scripts/
   # reconcile_phantom_manifest_rows_all.py --asset-group defi --dry-run").
   # This route lets one-off-script launchers (phantom-recon,
-  # expected-universe-enum, cross-asset-rescan, future) reuse the workspace
-  # tarball-pull + venv setup without bespoke startup scripts.
+  # expected-universe-enum, cross-asset-rescan, synthetic-benchmark, future) reuse
+  # the workspace tarball-pull + venv setup without bespoke startup scripts.
   VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
   if [[ -n "$VM_BACKFILL_CMD" ]]; then
