@@ -383,7 +383,7 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution)
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   _route_to_nodeps=false
@@ -424,6 +424,14 @@ uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | ta
 # the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
+# position_balance_monitor_service.storage.database eagerly imports sqlalchemy
+# at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
+# version-pinning conflicts; sqlalchemy itself has no such conflict so install
+# it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
+  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3
+fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
 INSTALL_ARGS=("${INSTALL_ARGS_STD[@]}")
