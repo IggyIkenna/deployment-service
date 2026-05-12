@@ -1,0 +1,68 @@
+# Anthropic API budget cap configuration.
+#
+# Plan: api_keys_wallets_accounts_readiness_2026_05_10.md Phase 6.D
+# (P2 — Anthropic API budget cap; low-risk but unbounded today).
+#
+# Reader: deployment-service/scripts/audit/anthropic_budget_check.py
+# (Phase 6.D sub-deliverable) — runs as daily cron + per-workflow pre-check.
+#
+# Per-workflow caps prevent runaway spend on advisory + audit workflows that
+# call Anthropic API (currently audit-only; no live-trading dependency).
+
+version: 1
+created: 2026-05-12
+owner: ikenna-keys-wallets-tab (slot 4)
+schema_ref: dict[workflow_id, BudgetCap]
+
+# Global daily cap across all workflows
+global_daily_usd_cap: "100"
+
+# Per-workflow caps (cap exceedance fires WORKFLOW_BUDGET_EXCEEDED alert + blocks subsequent calls)
+workflows:
+  # Code review / advisory
+  ultrareview:
+    daily_usd_cap: "50"
+    description: "Multi-agent cloud review per PR — operator-triggered"
+  pre_pr_review:
+    daily_usd_cap: "20"
+    description: "Pre-PR review agent run by CI on every push"
+
+  # Audit + governance
+  workspace_audit:
+    daily_usd_cap: "10"
+    description: "Daily workspace audit (data drift, manifest phantoms, etc.)"
+  manifest_phantom_audit:
+    daily_usd_cap: "5"
+    description: "Weekly manifest phantom-row reconciliation advisory"
+
+  # Misc
+  default:
+    daily_usd_cap: "5"
+    description: "Default cap for unregistered workflows"
+
+# Telemetry: every Anthropic call emits ANTHROPIC_API_USAGE event with
+# workflow_id + token count + cost_usd. Reader sums per-workflow over rolling
+# 24h window.
+telemetry:
+  event_type: "ANTHROPIC_API_USAGE"
+  rolling_window_hours: 24
+  emit_threshold_usd: "0.10"  # only emit for non-trivial calls
+
+# Alerting on threshold breach
+alerting:
+  # Threshold % of cap at which to alert (without blocking)
+  warning_threshold_pct: 75
+  warning_alert_code: "WORKFLOW_BUDGET_WARNING"
+  # Threshold % of cap at which to block subsequent calls
+  block_threshold_pct: 100
+  block_alert_code: "WORKFLOW_BUDGET_EXCEEDED"
+  # Severity routing
+  warning_severity: "WARN"
+  block_severity: "HIGH"
+
+# Per Runbook Execution-Owner SSOT
+execution:
+  owner: deployment-service maintainer + ikennaigboaka (operator)
+  cadence: daily cron VM `anthropic-budget-probe-vm` (per Phase 6.D)
+  verifier: `anthropic_budget_check.py --report` returns within-budget per-workflow
+  last_executed: NEVER
