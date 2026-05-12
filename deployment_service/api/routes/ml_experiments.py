@@ -2,8 +2,14 @@
 """
 FastAPI route handlers for ML experiment and model browsing.
 
-Provides read-only endpoints for listing experiments from
-ml-training-artifacts-{project_id} and models from ml-models-store-{project_id}.
+Provides read-only endpoints for listing experiments from the
+``ml-training-artifacts`` bucket and models from the ``ml-models-store`` bucket.
+Both bucket names are resolved via the canonical SSOT
+``unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name``
+(reading ``deployment-service/configs/cloud-providers.yaml``) — see
+Bucket-name SSOT (b+). Local helpers ``_artifacts_bucket()`` / ``_models_bucket()``
+keep delegating through ``get_bucket_name(...)`` for now; the resolver migration is
+tracked under the ml_artefact_path_resolver_consumer_sweep_2026_05_12 issue.
 """
 
 from __future__ import annotations

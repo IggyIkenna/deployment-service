@@ -92,6 +92,16 @@ gcp:
     ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # ml-training-artifacts = training metrics / experiment outputs (model checkpoints + SHAP +
+    # variant metrics). Distinct from `ml-models-store` (final model artefacts). Existing flat
+    # bucket `ml-training-artifacts-${GCP_PROJECT_ID}` (no env tier) migrates in code_freeze
+    # Phase 2.6 — added here 2026-05-12 per ml_artefact_path_resolver_consumer_sweep issue.
+    ml-training-artifacts: "ml-training-artifacts-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # ml-artifacts = generic model-artefact bucket consumed by UTL CloudModelArtifactStore (the
+    # cross-service helper that ML services inject via protocol interface). Historically flat
+    # `ml-artifacts-${GCP_PROJECT_ID}` — added here 2026-05-12 per ml_artefact_path_resolver
+    # issue. Migrates with the rest of the env-less GCP buckets in code_freeze Phase 2.6.
+    ml-artifacts: "ml-artifacts-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     strategy-store:
       CEFI: "strategy-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
       TRADFI: "strategy-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
@@ -205,6 +215,8 @@ aws:
     ml-models-store: "unified-trading-ml-models-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     ml-predictions-store: "unified-trading-ml-predictions-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     ml-configs-store: "unified-trading-ml-configs-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-training-artifacts: "unified-trading-ml-training-artifacts-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-artifacts: "unified-trading-ml-artifacts-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     strategy-store:
       CEFI: "unified-trading-strategy-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
       TRADFI: "unified-trading-strategy-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"

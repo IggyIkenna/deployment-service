@@ -214,6 +214,9 @@ SERVICE_GCS_CONFIGS = {
         "expected_feature_groups": ["temporal", "scheduled_events", "event_actuals"],
     },
     "ml-training-service": {
+        # CORRECT-LOCAL — legacy `bucket_template` field for catalog dispatch; canonical
+        # SSOT is `cloud-providers.yaml` kind="ml-models-store". This catalog dict will be
+        # consolidated to `resolve_bucket_name()` in a follow-up sweep.
         "bucket_template": "ml-models-store-{project_id}",
         "path_template": "models/",
         "dimensions": ["instrument", "timeframe", "target_type"],

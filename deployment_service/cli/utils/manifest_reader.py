@@ -50,6 +50,10 @@ _BUCKET_TEMPLATES: dict[str, str] = {
     "features-multi-timeframe-service": "features-multi-timeframe-{asset_group_lower}-{project_id}",
     "features-cross-instrument-service": "features-cross-instrument-{asset_group_lower}-{project_id}",
     "features-commodity-service": "features-commodity-{asset_group_lower}-{project_id}",
+    # CORRECT-LOCAL — legacy local template dict; canonical SSOT is
+    # `cloud-providers.yaml` kind="ml-models-store"/"ml-predictions-store". This
+    # dict is consumed only by deployment-service CLI tooling for ad-hoc manifest
+    # reads and consolidates via `resolve_bucket_name()` in a follow-up sweep.
     "ml-training-service": "ml-models-store-{project_id}",
     "ml-inference-service": "ml-predictions-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
