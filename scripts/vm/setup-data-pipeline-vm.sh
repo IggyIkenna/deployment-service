@@ -351,8 +351,30 @@ log "Installing Python dependencies..."
 # failure that stops the whole VM. Everything else installs normally.
 INSTALL_ARGS_STD=("--no-sources")
 INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
+# For synthetic-benchmark VMs, install every service package (mdps / features /
+# ml-infer / strategy / execution + deployment) via --no-deps. Reason: the
+# 6 service pyproject.tomls each pin transitive deps (e.g. execution-service
+# pins requests<2.33.0; another pyproject in the union wants >=2.33.0) and the
+# combined resolve raises `requirements are unsatisfiable`. The harness only
+# needs the service modules importable (it shells out to their CLIs which
+# run in the same venv UAC + UTL + MTDS set up); --no-deps gives that without
+# trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
+# install with full deps in STD — they're the SSOT for what the workspace
+# expects in the venv.
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution)
 for dir in "${INSTALLED_DIRS[@]}"; do
-  if [[ "$dir" == */deployment ]]; then
+  _base="$(basename "$dir")"
+  _route_to_nodeps=false
+  for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
+    if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
+  done
+  # Outside synthetic-benchmark, only `deployment` historically routes to
+  # NODEPS — preserve that by checking VM_TASK so non-benchmark VMs aren't
+  # affected by the broader benchmark routing list.
+  if [[ "$VM_TASK" != "synthetic-benchmark" && "$_base" != "deployment" ]]; then
+    _route_to_nodeps=false
+  fi
+  if $_route_to_nodeps; then
     INSTALL_ARGS_NODEPS+=("-e" "$dir")
   else
     INSTALL_ARGS_STD+=("-e" "$dir")
