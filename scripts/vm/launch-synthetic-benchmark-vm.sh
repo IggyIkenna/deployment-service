@@ -92,11 +92,19 @@ INPUT_URI="gs://${PROJECT}-benchmark-synthetic-input"
 for SHAPE in $SHAPES; do
   SHAPE_SHORT="$(echo "$SHAPE" | tr '.' '-' | cut -c1-20)"
   VM_NAME="synbench-${ARCH_SHORT}-${SHAPE_SHORT}-${RUN_TS}"
+  # Compose the synthetic-benchmark CLI invocation that `VM_TASK=synthetic-benchmark`
+  # dispatch in `setup-data-pipeline-vm.sh` will run (deployment-service@3fde508
+  # added the branch; reads VM_BACKFILL_CMD verbatim). Per-VM input prefix scopes
+  # the bucket-resolver override to this run (Phase 4.A-tail of mock_data_pipeline_benchmarking).
+  VM_INPUT_URI="${INPUT_URI}/${VM_NAME}"
+  VM_REPORT_URI="${REPORT_URI}"
+  VM_BACKFILL_CMD="python -m unified_trading_library.synthetic --archetype ${ARCHETYPE} --date-start ${DATE_START} --date-end ${DATE_END} --input-uri ${VM_INPUT_URI} --report-uri ${VM_REPORT_URI} --mode ${MODE} --row-count-scale ${ROW_COUNT_SCALE} --vm-shape ${SHAPE} --run-id ${VM_NAME}"
   echo "Launching synthetic-benchmark VM:"
   echo "  name:       $VM_NAME"
   echo "  archetype:  $ARCHETYPE   shape: $SHAPE   mode: $MODE   window: ${DATE_START}..${DATE_END}"
-  echo "  report:     ${REPORT_URI}/${ARCHETYPE}/{run_id}/stage_profile.parquet"
+  echo "  report:     ${VM_REPORT_URI}/${ARCHETYPE}/${VM_NAME}/stage_profile.parquet"
   echo "  events:     gs://${PROJECT}-events/events/unified-trading-library/$(date -u +%Y-%m-%d)/${VM_NAME}/"
+  echo "  cmd:        ${VM_BACKFILL_CMD}"
   gcloud compute instances create "$VM_NAME" \
     --zone="$ZONE" \
     --project="$PROJECT" \
@@ -111,14 +119,15 @@ SERVICE_REPO=unified-trading-library,\
 SERVICE_MODULE=unified_trading_library.synthetic,\
 VM_NAME=${VM_NAME},\
 VM_SHUTDOWN_ON_COMPLETION=true,\
-RUN_OPERATION=synthetic-benchmark,\
+VM_TASK=synthetic-benchmark,\
+VM_BACKFILL_CMD=${VM_BACKFILL_CMD},\
 SYNTHETIC_ARCHETYPE=${ARCHETYPE},\
 SYNTHETIC_MODE=${MODE},\
 SYNTHETIC_DATE_START=${DATE_START},\
 SYNTHETIC_DATE_END=${DATE_END},\
 SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE},\
-SYNTHETIC_INPUT_URI=${INPUT_URI},\
-SYNTHETIC_REPORT_URI=${REPORT_URI},\
+SYNTHETIC_INPUT_URI=${VM_INPUT_URI},\
+SYNTHETIC_REPORT_URI=${VM_REPORT_URI},\
 BENCHMARK_VM_SHAPE=${SHAPE},\
 DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
 CODE_BUCKET=${CODE_BUCKET},\
