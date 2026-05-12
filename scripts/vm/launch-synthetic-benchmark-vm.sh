@@ -32,9 +32,13 @@
 #
 # Usage:
 #   bash launch-synthetic-benchmark-vm.sh --archetype carry_staked_basis \
-#     --shapes "c2-standard-8 c2-standard-16 c2-standard-32 c3-highcpu-44" \
-#     --date-start 2024-01-01 --date-end 2024-01-07 --mode stub --env staging
+#     --shapes "c2-standard-8 c2-standard-16 c2-standard-30 c3-highcpu-44" \
+#     --date-start 2024-01-01 --date-end 2024-01-07 --mode subprocess --env staging
 #   bash launch-synthetic-benchmark-vm.sh --archetype leveraged_funding_arb --shapes "c2-standard-16"
+#
+# Note: asia-northeast1-c offers `c2-standard-{4,8,16,30,60}` + `c3-highcpu-{4,8,22,44,88,176}`.
+# `c2-standard-32` is NOT in this zone (use 30) — verified 2026-05-12 via
+# `gcloud compute machine-types list --zones=asia-northeast1-c --filter='name~^c2-standard'`.
 set -euo pipefail
 
 ZONE="asia-northeast1-c"
@@ -43,7 +47,7 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-1060025368044}"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 ARCHETYPE=""
-SHAPES="c2-standard-8 c2-standard-16 c2-standard-32 c3-highcpu-44"
+SHAPES="c2-standard-8 c2-standard-16 c2-standard-30 c3-highcpu-44"
 DATE_START="2024-01-01"
 DATE_END="2024-01-07"
 MODE="stub"
