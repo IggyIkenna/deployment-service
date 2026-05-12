@@ -225,6 +225,14 @@ STARTUP_EOF
     --zone="${ZONE}" \
     --quiet 2>/dev/null || true
 
+  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
+  # concurrency safety + canonical VM lifecycle metadata. Applied to both
+  # START_NOW and scheduled-start branches below.
+  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
   if $START_NOW; then
     # Create and start immediately
     gcloud compute instances create "${VM_NAME}" \
@@ -236,6 +244,7 @@ STARTUP_EOF
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
       --boot-disk-size=30GB \
+      --metadata="${METADATA}" \
       --metadata-from-file=startup-script="${STARTUP_FILE}" \
       --labels=purpose=sports-instruments-reference,env="${DEPLOYMENT_ENV}"
     echo "  VM created and RUNNING: ${VM_NAME}"
@@ -251,6 +260,7 @@ STARTUP_EOF
       --image-project=ubuntu-os-cloud \
       --boot-disk-size=30GB \
       --no-address \
+      --metadata="${METADATA}" \
       --metadata-from-file=startup-script="${STARTUP_FILE}" \
       --labels=purpose=sports-instruments-reference,env="${DEPLOYMENT_ENV}"
 

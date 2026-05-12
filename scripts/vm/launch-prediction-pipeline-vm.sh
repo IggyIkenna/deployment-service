@@ -384,6 +384,13 @@ else
     --zone="${ZONE}" \
     --quiet 2>/dev/null || true
 
+  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
+  # concurrency safety + canonical VM lifecycle metadata.
+  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
@@ -392,7 +399,7 @@ else
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=100GB \
     --scopes=cloud-platform \
-    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
     --labels=purpose=prediction-pipeline,env="${DEPLOYMENT_ENV}" \
     --no-restart-on-failure

@@ -235,6 +235,13 @@ if $DRY_RUN; then
   rm "$STARTUP_FILE"
 else
   echo "  Creating VM..."
+  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
+  # concurrency safety + canonical VM lifecycle metadata.
+  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
@@ -243,7 +250,7 @@ else
     --no-restart-on-failure \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
-    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
     --boot-disk-size=50GB \
     --boot-disk-type=pd-ssd \

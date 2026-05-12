@@ -365,6 +365,13 @@ STARTUP_EOF
     SA_FLAG="--service-account=${SERVICE_ACCOUNT}"
   fi
 
+  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
+  # concurrency safety + canonical VM lifecycle metadata.
+  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
@@ -375,6 +382,7 @@ STARTUP_EOF
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
     ${SA_FLAG} \
+    --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
 

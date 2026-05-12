@@ -4,6 +4,13 @@
 # is forwarded to each underlying launch-cefi-forward-poll.sh call so the
 # spawned VMs target the right env tier.
 #
+# O-1 β remediation 2026-05-12: this script is a thin orchestrator — it
+# fans out N calls to launch-cefi-forward-poll.sh, which is the actual
+# `gcloud compute instances create` caller. Observability invariants
+# (`VM_NAME=` / `MANIFEST_PER_VM_SHARDS=true` / `VM_SHUTDOWN_ON_COMPLETION=true`)
+# are injected at that downstream launcher, not here. See
+# launch-cefi-forward-poll.sh METADATA accumulator (lines 104-113).
+#
 # Throughput probe — fan out 7 parallel CeFi raw-tick VMs, one per day in
 # a 7-day window, to measure Tardis API parallelism scaling before
 # committing to the full 7-year sharded backfill.
