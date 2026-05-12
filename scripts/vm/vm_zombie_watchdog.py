@@ -388,6 +388,7 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
     "cross-asset-rescan-": None,  # manifest_cross_asset_rescan_design_2026_05_08 Phase 3.A; manifest_schema_final_gate_2026_05_09 Phase 3.A — class-A auto-flips + class-C triage routing across all 5 asset_groups; singleton-locked launcher.
+    "measure-honest-coverage-": None,  # cross_asset_group_catalogue_audit_2026_05_10 Phase 2B — daily cross-AG coverage % measurement; output → gs://{pid}-honest-coverage/{date}/coverage.json
     "tradfi-audit-aggregate-": None,  # tradfi phantom audit + ES_OPT legacy aggregation one-off
     "instr-": None,  # tier3-cefi instr-{venue}-{ts} + e2e-testing instr-backfill-defi-targeted
     "instruments-smoke-": None,
