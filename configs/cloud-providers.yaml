@@ -175,6 +175,10 @@ gcp:
     # (client_reporting_pnl_attribution_mvp_2026_05_10.md Phase 2). Cross-cutting; no asset_group axis.
     # Path: gs://{pid}-client-reports/{client_id}/{archetype}/{YYYY-MM-DD}/attribution.parquet
     client-reports: "${GCP_PROJECT_ID}-client-reports"
+    # DART manual-action audit log persistence (≥7 years retention per compliance).
+    # Consumed by UAC unified_api_contracts/internal/manual_audit_paths.py BUCKET_KIND_MANUAL_AUDIT.
+    # Phase 0i tail of bucket_name_ssot_canonicalisation_2026_05_10.md.
+    manual-audit: "manual-audit-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -273,6 +277,8 @@ aws:
     archetype-state: "unified-trading-archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Per-client reports (mirrors GCP). Cross-cutting; no asset_group axis.
     client-reports: "unified-trading-client-reports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # DART manual-action audit log (mirrors GCP). ≥7 years retention per compliance.
+    manual-audit: "unified-trading-manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
