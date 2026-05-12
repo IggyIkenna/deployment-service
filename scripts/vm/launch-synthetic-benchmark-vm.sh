@@ -39,6 +39,7 @@ set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
+PROJECT_NUMBER="${PROJECT_NUMBER:-1060025368044}"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 ARCHETYPE=""
@@ -47,6 +48,15 @@ DATE_START="2024-01-01"
 DATE_END="2024-01-07"
 MODE="stub"
 ROW_COUNT_SCALE="1.0"
+# SA: default to the Compute Engine default SA (matches running watchdog +
+# every other actively-deployed VM in this project — see `gcloud compute
+# instances list --format='value(serviceAccounts.email)'`). The historical
+# `data-pipeline-vm@${PROJECT}.iam.gserviceaccount.com` SA referenced in some
+# launchers does not exist in this project (verified 2026-05-12 — every
+# `gcloud iam service-accounts list` enumeration; absence is the cause of
+# the `serviceAccount of type was not found` failure mode). Override via
+# `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -94,7 +104,7 @@ for SHAPE in $SHAPES; do
     --image-family=debian-12 \
     --image-project=debian-cloud \
     --boot-disk-size=50GB \
-    --service-account="data-pipeline-vm@${PROJECT}.iam.gserviceaccount.com" \
+    --service-account="${SERVICE_ACCOUNT}" \
     --scopes=cloud-platform \
     --metadata="\
 SERVICE_REPO=unified-trading-library,\
