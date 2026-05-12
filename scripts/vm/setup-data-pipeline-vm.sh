@@ -229,6 +229,11 @@ declare -A TARBALL_DIRS=(
   ["features-multi-timeframe-service-code"]="fmt"
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
+  # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
+  # strategy paper/live VMs. No editable install (no pyproject.toml Python package
+  # to install from e2e-testing root — strategy-service + execution-service packages
+  # are installed from their own tarballs and colocated_engine.py imports from those).
+  ["e2e-testing-code"]="e2e-testing"
 )
 
 # Always install core (UAC + UTL + deployment-service) + the service
@@ -246,7 +251,18 @@ NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "de
 # before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
 # triggers the multi-service install path here instead of the single-service
 # default.
-if [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
+  # run-paper.sh / run-live.sh. They need strategy-service + execution-service
+  # importable from the venv, plus e2e-testing extracted to $WORKSPACE/e2e-testing
+  # so the scripts are findable. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  log "VM_TASK=${VM_TASK} — installing strategy-service + execution-service + e2e-testing"
+  NEEDED_TARBALLS+=(
+    "strategy-service-code"
+    "execution-service-code"
+    "e2e-testing-code"
+  )
+elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
   log "VM_TASK=synthetic-benchmark — installing all 6 pipeline service tarballs"
   NEEDED_TARBALLS+=(
     "mtds-code"
@@ -708,6 +724,26 @@ elif [[ "$VM_TASK" == "strategy-backtest-grid" ]]; then
     _launch_with_tee "$FULL_CMD" "$LOGS/strategy-backtest-grid.log"
   else
     log "ERROR: strategy-backtest-grid task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  # Strategy paper/live trading VMs — run colocated_engine.py via run-paper.sh /
+  # run-live.sh from $WORKSPACE/e2e-testing/scripts/defi/.
+  # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  # VM_BACKFILL_CMD carries the full run-paper.sh / run-live.sh invocation set
+  # by the launcher (e.g. "bash scripts/defi/run-paper.sh --strategy carry_staked_basis
+  # --tick-interval 3600 --continuous").
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    E2E_DIR="$WORKSPACE/e2e-testing"
+    if [[ ! -d "$E2E_DIR" ]]; then
+      log "ERROR: $E2E_DIR not found — e2e-testing-code tarball may be missing"
+      exit 1
+    fi
+    cd "$E2E_DIR" || { log "ERROR: cannot cd into $E2E_DIR"; exit 1; }
+    _launch_with_tee "$VM_BACKFILL_CMD" "$LOGS/${VM_TASK}.log"
+  else
+    log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum

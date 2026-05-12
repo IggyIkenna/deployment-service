@@ -63,6 +63,7 @@ DEFI_REPOS=(
     features-onchain-service features-delta-one-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
+    e2e-testing
 )
 SPORTS_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service

@@ -225,6 +225,16 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt.
     # ------------------------------------------------------------------
     "strategy-backtest-grid-": None,
+    # Strategy paper-trade VMs (launch-strategy-paper-vm.sh; plan:
+    # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
+    # `strategy-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
+    # to event-archive only (no per-VM manifest shards).
+    "strategy-paper-": None,
+    # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
+    # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
+    # `strategy-live-{archetype-slug}-{ts}`. Heartbeat-only — live VMs write
+    # to event-archive only (no per-VM manifest shards).
+    "strategy-live-": None,
     # Deployment dashboard VM (single instance, hardcoded name "deployment-dashboard-vm")
     # Migrated 2026-05-08 from intra-repo deployment-service/scripts/deploy-dashboard-gce-vm.sh
     # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
