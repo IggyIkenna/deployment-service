@@ -309,6 +309,14 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "defi-phantom-recon-": None,
     # ------------------------------------------------------------------
+    # Combined manifest reconciliation audit (2026-05-13) — read-only
+    # all-3-reconciler dry-run per asset_group: phantom rows (--dry-run) +
+    # expected-absence null-reason scan + legacy-blank reclassification scan.
+    # Singleton-locked per asset_group. Launcher:
+    # launch-manifest-recon-all-vm.sh.
+    # ------------------------------------------------------------------
+    "manifest-recon-": None,
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom
