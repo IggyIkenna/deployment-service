@@ -188,6 +188,11 @@ uv pip install --override /tmp/uv-overrides.txt --find-links "\$WHEEL_CACHE" --i
 echo "=== Running Phase 3C Aave V3 lending rate validation ==="
 cd execution-service
 
+# PYTHONPATH ensures `tests.defi_execution.*` imports resolve (CLI imports harness
+# functions from the test module; sys.path.insert() in-script doesn't always take
+# effect when invoked as `python3 scripts/...`).
+export PYTHONPATH="\${WORK_DIR}/execution-service:\${PYTHONPATH:-}"
+
 python3 scripts/run_lending_rate_validation.py \
   --block-start ${BLOCK_START} \
   --block-end ${BLOCK_END} \

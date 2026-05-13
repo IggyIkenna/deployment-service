@@ -256,6 +256,9 @@ uv pip install --override /tmp/uv-overrides.txt --find-links "\$WHEEL_CACHE" --i
 echo "=== Running Phase 2 AMM golden validation: ${SHAPE} ==="
 cd execution-service
 
+# PYTHONPATH ensures `tests.*` imports resolve.
+export PYTHONPATH="\${WORK_DIR}/execution-service:\${PYTHONPATH:-}"
+
 python3 scripts/run_amm_golden_validation.py \
   --shape "${SHAPE}" \
   ${CAPTURE_CLI_FLAG} \
