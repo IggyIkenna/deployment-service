@@ -153,12 +153,15 @@ export PATH="/root/.local/bin:\$PATH"
 WORK_DIR=/opt/lending-rate-validation
 
 # Download and unpack execution-service tarball
+# NOTE: pre-built tarballs from create-code-tarballs.sh are FLAT (no subdir prefix);
+# we extract each into its own named subdir so 'uv pip install -e <repo>' can find it.
 mkdir -p \${WORK_DIR}
 echo "Downloading codebase tarballs..."
-for tarball in unified-api-contracts-code unified-trading-library-code execution-service-code; do
-  gsutil -q cp "gs://${CODE_BUCKET}/code/\${tarball}.tar.gz" "\${WORK_DIR}/\${tarball}.tar.gz"
-  tar xzf "\${WORK_DIR}/\${tarball}.tar.gz" -C "\${WORK_DIR}"
-  rm "\${WORK_DIR}/\${tarball}.tar.gz"
+for repo in unified-api-contracts unified-trading-library execution-service; do
+  gsutil -q cp "gs://${CODE_BUCKET}/code/\${repo}-code.tar.gz" "\${WORK_DIR}/\${repo}.tar.gz"
+  mkdir -p "\${WORK_DIR}/\${repo}"
+  tar xzf "\${WORK_DIR}/\${repo}.tar.gz" -C "\${WORK_DIR}/\${repo}"
+  rm "\${WORK_DIR}/\${repo}.tar.gz"
 done
 
 # Create venv and install
