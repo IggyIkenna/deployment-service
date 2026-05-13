@@ -457,6 +457,15 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # watchdog can't statically know which.
     "features-xc-": None,
     "replay-": None,
+    # ------------------------------------------------------------------
+    # DR (disaster-recovery) drill VMs — disaster_recovery_circuit_breakers_2026_05_10.md
+    # Phase 6.A + 9.A.
+    #   disaster-drill-cron-{ts}: nightly chaos-drill cron VM (run_chaos_drill.py).
+    #   dr-drill-cutover-{ts}: per-archetype cutover evidence VM (run_dr_drill_cutover.py).
+    # Both write drill reports/evidence to the events bucket — heartbeat-only (None).
+    # ------------------------------------------------------------------
+    "disaster-drill-cron-": None,
+    "dr-drill-cutover-": None,
 }
 
 
