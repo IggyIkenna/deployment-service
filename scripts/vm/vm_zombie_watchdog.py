@@ -71,6 +71,8 @@ from datetime import UTC, datetime
 
 from google.cloud import compute_v1, storage
 from requests.adapters import HTTPAdapter
+from unified_api_contracts import VmPrefixSpec
+from unified_api_contracts.canonical.crosscutting import LifecycleClass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -99,7 +101,8 @@ def _bump_pool_size(session, size: int = POOL_SIZE) -> None:
     session.mount("http://", adapter)
 
 
-# VM prefix → manifest-shard bucket. None = no shard check (heartbeat-only).
+# VM prefix → VmPrefixSpec: manifest-shard bucket + lifecycle_class.
+# VmPrefixSpec(bucket=None) = no shard check (heartbeat-only).
 #
 # Grouped by asset_group / pipeline so it's obvious where a new launcher slots
 # in. To extend coverage, add a row in the matching block then relaunch the
@@ -108,30 +111,68 @@ def _bump_pool_size(session, size: int = POOL_SIZE) -> None:
 #
 # Bucket selection rule: set the asset_group's market-data bucket if the VM
 # uses ManifestWriter to write `_index/per_vm/{vm_name}.parquet`; otherwise
-# `None` so the watchdog falls back to the heartbeat sidecar (which the
+# bucket=None so the watchdog falls back to the heartbeat sidecar (which the
 # `setup-data-pipeline-vm.sh` bootstrap writes every 60s).
-VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
+# lifecycle_class field tags the LifecycleClass of VMs with this prefix (per
+# deployment-ui-architecture.md § VM Naming Convention).
+VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     # CeFi market-data backfill / forward-poll (per-vm shard writers)
     # ------------------------------------------------------------------
-    "cefi-mr-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-fwd-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-binance-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bybit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-coinbase-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-okx-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-upbit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-hyperliquid-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bitfinex-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bitget-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-kraken-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-aster-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-cme-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-extended-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-lighter-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-pacifica-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "aster-fwd-": f"market-data-tick-cefi-{PROJECT_ID}",  # launch-aster-forward-poll.sh
+    "cefi-mr-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-fwd-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-binance-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-bybit-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-deribit-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-coinbase-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-okx-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-upbit-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-hyperliquid-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-bitfinex-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-bitget-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-kraken-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-aster-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-cme-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-extended-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-lighter-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "cefi-pacifica-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "aster-fwd-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),  # launch-aster-forward-poll.sh
     # ------------------------------------------------------------------
     # CeFi instrument discovery + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
@@ -145,10 +186,22 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # Bucket = `instruments-store-{ag}-{pid}` (where the launcher writes
     # _vm_staging + the per-AG instruments parquet).
     # ------------------------------------------------------------------
-    "instr-backfill-cefi-": f"instruments-store-cefi-{PROJECT_ID}",
-    "instr-backfill-defi": f"instruments-store-defi-{PROJECT_ID}",
-    "instr-backfill-tradfi": f"instruments-store-tradfi-{PROJECT_ID}",
-    "instr-backfill-sports": f"instruments-store-sports-{PROJECT_ID}",
+    "instr-backfill-cefi-": VmPrefixSpec(
+        bucket=f"instruments-store-cefi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-defi": VmPrefixSpec(
+        bucket=f"instruments-store-defi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-tradfi": VmPrefixSpec(
+        bucket=f"instruments-store-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-sports": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # features-sports-service parallel backfill (launch-features-sports-
     # parallel-backfill-vm.sh emits N VMs `fss-backfill-vm-{i}` for a
@@ -156,7 +209,9 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # 2026-05-08 (Tab 11) from
     # `features-sports-service/scripts/launch_parallel_backfill.sh`.
     # ------------------------------------------------------------------
-    "fss-backfill-vm-": f"features-sports-{PROJECT_ID}",
+    "fss-backfill-vm-": VmPrefixSpec(
+        bucket=f"features-sports-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # ------------------------------------------------------------------
     # Sports instruments-reference v3 backfill (launch-sports-instruments-
     # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
@@ -164,13 +219,25 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # instruments-store-sports-{pid}. Migrated 2026-05-08 (Tab 11) from
     # `e2e-testing/scripts/sports/launch_instruments_reference_v3.sh`.
     # ------------------------------------------------------------------
-    "sports-ref-v3-": f"instruments-store-sports-{PROJECT_ID}",
+    "sports-ref-v3-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
-    "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "tradfi-fwd-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "tradfi-recent-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "tradfi-bf-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-fwd-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-recent-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # TradFi instrument discovery + audits (heartbeat-only)
     # ------------------------------------------------------------------
@@ -179,10 +246,20 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     # MDPS sharded backfill (per asset_group)
     # ------------------------------------------------------------------
-    "mdps-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mdps-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mdps-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mdps-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mdps-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mdps-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mdps-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MDPS per-AG backfill (launch-mdps-backfill-vm.sh emits
     # mdps-backfill-{ag}-{ts}, distinct from the sharded prefix above).
@@ -191,27 +268,55 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # watchdog never inspected it, (b) the launcher omitted
     # VM_SHUTDOWN_ON_COMPLETION=true.
     # ------------------------------------------------------------------
-    "mdps-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mdps-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mdps-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mdps-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mdps-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mdps-backfill-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mdps-backfill-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-backfill-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mdps-backfill-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-backfill-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MTDS asset-group-scoped backfills (DeFi onchain feeds + prediction)
     # ------------------------------------------------------------------
-    "mtds-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mtds-perp-funding-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-gas-fees-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
+    "mtds-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-perp-funding-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-gas-fees-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-lst-rates-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-vault-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-lending-indices-": VmPrefixSpec(
+        bucket=f"lending-indices-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # Pyth Hermes archive backfill (Solana SOL/USD pre-2023-10 gap window).
     # Hermes archive starts ~2023-10-01 per UAC ORACLE_COVERAGE_START SSOT
     # (UAC@3adee82 2026-05-08). Pre-2023-10 SOL/USD oracle valuation needed
     # for carry_staked_basis Solana-leg backtest. Sources cascade: Pythnet
     # historical RPC (free, slow) → CoinGecko historical daily (free, daily
     # granularity). Operator-decision pending on Birdeye paid-tier add.
-    "mtds-pyth-archive-": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-pyth-archive-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # ------------------------------------------------------------------
     # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
     # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
@@ -277,9 +382,15 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
-    "mtds-dex-pools-backfill": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-eigenlayer-rewards-backfill": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-solana-drift-backfill": f"market-data-tick-defi-{PROJECT_ID}",
+    "mtds-dex-pools-backfill": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-solana-drift-backfill": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
     # but doesn't write per-VM manifest shards. Migrated 2026-05-08
@@ -292,15 +403,31 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # Migrated 2026-05-08 (Tab 11) from
     # `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh`.
     # ------------------------------------------------------------------
-    "mtds-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mtds-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mtds-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mtds-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mtds-backfill-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-backfill-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-backfill-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "mtds-backfill-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-backfill-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # mtds-backfill-odds-{N} from launch-mtds-sports-odds-backfill-vm.sh
     # (sports-Odds-API specific). Migrated 2026-05-08 (Tab 11) from
     # e2e-testing/scripts/sports/launch_mtds_backfill_vm.sh.
-    "mtds-backfill-odds-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mtds-backfill-odds-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Phantom-row reconciliation (read-only audit, 2026-05-07).
     # Read-only on the asset_group's manifest bucket — heartbeat-only
@@ -346,37 +473,75 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
-    "opt-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "opt-cboe-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "opt-cme-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "opt-deribit-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "opt-cboe-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "opt-cme-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # CME event-contract backfill (TradFi)
     # ------------------------------------------------------------------
-    "cme-events-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "cme-events-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Sports reference-data backfill (per-source launcher prefixes)
     # ------------------------------------------------------------------
-    "fs-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "af-backfill-": f"instruments-store-sports-{PROJECT_ID}",
+    "fs-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "af-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # api_football fixtures truth-set audit (launch-fixtures-truthset-audit-vm.sh,
     # 2026-05-06 — Phase 1 of sports_fixtures_truthset_recovery_2026_05_06.md).
     # Writes to gs://instruments-store-sports-{pid}/_audits/, so the watchdog
     # checks the same shard bucket — its progress signal is the truth-set
     # parquet checkpoint mtime under _audits/.
-    "af-audit-": f"instruments-store-sports-{PROJECT_ID}",
+    "af-audit-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # Phase 2 fixtures recovery from the truth-set
     # (launch-fixtures-recovery-vm.sh). Writes per-league sub-partition
     # fixtures parquets + per-VM manifest shards.
-    "af-recover-": f"instruments-store-sports-{PROJECT_ID}",
-    "tm-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "sfi-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "us-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "weather-backfill-": f"instruments-store-sports-{PROJECT_ID}",  # open_meteo (launcher emits weather-* not openmeteo-*)
+    "af-recover-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tm-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "sfi-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "us-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "weather-backfill-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),  # open_meteo (launcher emits weather-* not openmeteo-*)
     # Targeted (date, league_id) gap-fill — reads canonical manifest, fires
     # only at the missing-shard set. First use: PLAYER_STATS via
     # launch-fill-missing-player-stats-vm.sh (2026-05-06), replacing the
     # slow chronological af-backfill iteration.
-    "fill-missing-player-stats-": f"instruments-store-sports-{PROJECT_ID}",
+    "fill-missing-player-stats-": VmPrefixSpec(
+        bucket=f"instruments-store-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Features pipeline VMs (heartbeat-only — bucket varies by
     # features-{family}-{asset_group}-).
@@ -406,18 +571,34 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # naming: canonical-migration-{cefi|tradfi|defi|prediction|sports}-{ts}
     # writes per-VM manifest shards under each asset_group's tick bucket.
     # ------------------------------------------------------------------
-    "canonical-migration-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "canonical-migration-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "canonical-migration-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "canonical-migration-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "canonical-migration-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "canonical-migration-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "canonical-migration-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "canonical-migration-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MDPS sports bucket-pass VMs — launch-mdps-sports-bucket-vm.sh
     # naming: mdps-sports-bucket-{ts}
     # writes per-(league_id, horizon) bucketed parquets to the same sports
     # tick bucket that the canonical-migration step writes raw data to.
     # ------------------------------------------------------------------
-    "mdps-sports-bucket-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mdps-sports-bucket-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Live-pipeline VMs (Phase 13 of live_pipeline_mtds_mdps_features_2026_05_08.md;
     # shipped 2026-05-11 by Ikenna slot 4). Five VM types: per-asset_group MTDS-
@@ -440,16 +621,42 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # 2026-05-15→05-19). When env-tiered buckets land, replace the flat names
     # below with `f"market-data-tick-{ag}-prod-{PROJECT_ID}"` etc.
     # ------------------------------------------------------------------
-    "mtds-live-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mtds-live-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-live-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mtds-live-sports-": f"market-data-tick-sports-{PROJECT_ID}",
-    "mtds-live-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mdps-features-live-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mdps-features-live-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mdps-features-live-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mdps-features-live-sports-": f"market-data-tick-sports-{PROJECT_ID}",
-    "mdps-features-live-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mtds-live-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
+    ),
+    "mtds-live-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
+    ),
+    "mtds-live-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mtds-live-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mtds-live-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
+    ),
+    "mdps-features-live-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
+    ),
+    "mdps-features-live-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
     # Singletons — cross-cutting features bucket-resolves at runtime; replay
     # writes to the same per-asset_group market-data buckets the live producer
     # uses. Heartbeat-only (None) for replay since its actual writes are routed
@@ -466,6 +673,21 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "disaster-drill-cron-": None,
     "dr-drill-cutover-": None,
+    # ------------------------------------------------------------------
+    # Reserved live- prefixes (LONG_LIVED_LIVE, heartbeat-only allocation)
+    # ------------------------------------------------------------------
+    "live-strategy-": None,
+    "live-execution-": None,
+    "live-mtds-": None,
+    "live-pbm-": None,
+    "live-risk-": None,
+    "live-alerting-": None,
+    # ------------------------------------------------------------------
+    # Reserved exp- prefixes (EPHEMERAL_EXPERIMENT, heartbeat-only allocation)
+    # ------------------------------------------------------------------
+    "exp-ml-": None,
+    "exp-strategy-": None,
+    "exp-execution-": None,
 }
 
 
