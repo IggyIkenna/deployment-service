@@ -174,7 +174,13 @@ WHEEL_GCS="gs://${CODE_BUCKET}/wheels/py313-linux-x86_64"
 mkdir -p "\$WHEEL_CACHE"
 gsutil -m -q cp "\$WHEEL_GCS/*.whl" "\$WHEEL_CACHE/" 2>/dev/null || true
 
-uv pip install --find-links "\$WHEEL_CACHE" --index-url https://pypi.org/simple --no-sources \
+# betfairlightweight forces requests<2.33.0 but execution-service requires >=2.33.0
+# (CVE-2026-25645). Locally resolved via [tool.uv].override-dependencies in pyproject;
+# uv pip install needs explicit --override flag with a constraints file.
+cat > /tmp/uv-overrides.txt <<EOF
+requests>=2.33.0,<3.0.0
+EOF
+uv pip install --override /tmp/uv-overrides.txt --find-links "\$WHEEL_CACHE" --index-url https://pypi.org/simple --no-sources \
   -e unified-api-contracts \
   -e unified-trading-library \
   -e execution-service
