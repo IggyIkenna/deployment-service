@@ -99,21 +99,36 @@ RUN_TS="$(date -u +%Y%m%d-%H%M%S)"
 VM_NAME="${SINGLETON_PREFIX}${RUN_TS}"
 RECON_DATE="$(date -u +%Y-%m-%d)"
 
-# Build the chained backfill command. Uses explicit VENV path (not the `python`
-# prefix that setup-data-pipeline-vm.sh substitutes) because the single-
-# substitution only fixes the first `python ` occurrence in a chained command.
-# VENV="/home/ikennaigboaka/venv" + SCRIPTS extracted from instruments-service-code.tar.gz.
-VENV_PY="/home/ikennaigboaka/venv/bin/python"
+# Build the chained backfill command.
+#
+# Python-substitution discipline (critical — learned from first run 2026-05-13):
+# setup-data-pipeline-vm.sh runs:
+#   FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+# This SINGLE-OCCURRENCE substitution matches the first `python ` in the string.
+# Using an explicit "/path/to/venv/bin/python " prefix fails because the trailing
+# `python ` in the path is itself the match target → double-path corruption
+# ("/home/.../venv/bin//home/.../venv/bin/python").
+#
+# Correct pattern:
+#   cmd1: bare `python` prefix → setup-script substitution handles it correctly.
+#   cmd2+: use `\$PYTHON_BIN` (literal dollar-sign-PYTHON_BIN in metadata).
+#          _launch_with_tee exports PYTHON_BIN="$VENV/bin/python" before calling
+#          `bash -c "$FULL_CMD"`, so $PYTHON_BIN expands at runtime to the right
+#          venv python. No setup-script substitution fires (string doesn't have `python `).
+#
+# SCRIPTS path: instruments-service-code.tar.gz is extracted to $WORKSPACE/instruments/
+# (alias defined in setup-data-pipeline-vm.sh TARBALL_DIRS), so scripts live at:
 SCRIPTS="/home/ikennaigboaka/workspace/instruments/scripts"
 RECON_LOGS="gs://${CODE_BUCKET}/recon-logs/${RECON_DATE}"
-# \$VM_NAME is intentionally NOT expanded here — it expands at runtime
-# inside the VM's bash context where VM_NAME is exported by _launch_with_tee.
-BACKFILL_CMD="${VENV_PY} ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group ${ASSET_GROUP} --dry-run"
-BACKFILL_CMD="${BACKFILL_CMD} && ${VENV_PY} ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP}"
-BACKFILL_CMD="${BACKFILL_CMD} && ${VENV_PY} ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP}"
-# Upload combined log to recon-logs/ after all 3 scripts complete.
+
+# cmd1: bare `python` — setup script substitutes it to $VENV/bin/python correctly.
+BACKFILL_CMD="python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group ${ASSET_GROUP} --dry-run"
+# cmd2+: \$PYTHON_BIN — literal in metadata, expanded by bash -c at runtime.
+BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP}"
+BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP}"
+# Upload combined log to recon-logs/ after all 3 scripts complete (no-fail).
 # /home/ikennaigboaka/logs/phantom-recon.log = $LOGS/$VM_TASK.log (VM_TASK=phantom-recon).
-BACKFILL_CMD="${BACKFILL_CMD} && gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true"
+BACKFILL_CMD="${BACKFILL_CMD} && { gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true; }"
 
 METADATA="VM_TASK=phantom-recon"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
