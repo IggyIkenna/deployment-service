@@ -768,7 +768,13 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
     ln -sfn "$VENV" "${WORKSPACE}/.venv-workspace"
     log "Symlinked ${WORKSPACE}/.venv-workspace → $VENV for run-{paper,live}.sh"
     cd "$E2E_DIR" || { log "ERROR: cannot cd into $E2E_DIR"; exit 1; }
-    _launch_with_tee "$VM_BACKFILL_CMD" "$LOGS/${VM_TASK}.log"
+    # Self-delete: resolve zone at launch so the delete works even if metadata
+    # server is unavailable at engine-exit time. Chain with ';' so delete
+    # runs regardless of whether the engine exits 0 or non-zero.
+    _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
+    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: VM self-delete failed'"
+    _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/${VM_TASK}.log"
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
