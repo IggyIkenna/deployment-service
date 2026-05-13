@@ -4,7 +4,7 @@
 # Launch a short-lived GCE VM that runs TWO manifest reconciliation scripts
 # in APPLY mode (writes back to manifest) for a given asset_group:
 #
-#   1. reconcile_phantom_manifest_rows_all.py      --apply
+#   1. reconcile_phantom_manifest_rows_all.py      --unphantom
 #   2. reconcile_expected_absence_reasons.py       --apply-flips
 #
 # NOTE: reconcile_legacy_blank_to_typed_reason.py (Script 3) is intentionally
@@ -122,7 +122,8 @@ SCRIPTS="/home/ikennaigboaka/workspace/instruments/scripts"
 RECON_LOGS="gs://${CODE_BUCKET}/recon-logs/${RECON_DATE}"
 
 # cmd1: phantom flip (Script 1) — bare `python`, MANIFEST_PER_VM_SHARDS inlined.
-BACKFILL_CMD="MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group ${ASSET_GROUP} --apply"
+# Note: reconcile_phantom_manifest_rows_all.py uses --unphantom (not --apply) for apply mode.
+BACKFILL_CMD="MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group ${ASSET_GROUP} --unphantom"
 # cmd2: null-reason stamp (Script 2) — \$PYTHON_BIN expanded at runtime.
 BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP} --apply-flips"
 # Upload combined log to recon-logs/ after both scripts complete (no-fail).
@@ -137,7 +138,7 @@ METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 echo "Launching $VM_NAME: apply-flips manifest recon (Scripts 1+2) for asset_group=${ASSET_GROUP}"
-echo "  Script 1: reconcile_phantom_manifest_rows_all.py --apply"
+echo "  Script 1: reconcile_phantom_manifest_rows_all.py --unphantom"
 echo "  Script 2: reconcile_expected_absence_reasons.py  --apply-flips"
 echo "  Script 3: EXCLUDED (classifier fixture_manifest kwarg issue — see issue P1)"
 echo "  Log dest: ${RECON_LOGS}/${VM_NAME}.log"
