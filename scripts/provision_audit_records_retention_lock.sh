@@ -47,7 +47,7 @@ gcloud storage buckets update "gs://${GCP_BUCKET}" \
   --retention-period="${SEVEN_YEARS_SECS}s" \
   --project="${GCP_PROJECT_ID}"
 echo "[GCP] Locking retention policy (irreversible — caution in non-prod)..."
-echo "y" | gcloud storage buckets update "gs://${GCP_BUCKET}" \
+gcloud storage buckets update "gs://${GCP_BUCKET}" \
   --lock-retention-period \
   --project="${GCP_PROJECT_ID}"
 echo "[GCP] Done. Verify with:"
