@@ -177,6 +177,9 @@ gcp:
     # Consumed by UAC unified_api_contracts/internal/manual_audit_paths.py BUCKET_KIND_MANUAL_AUDIT.
     # Phase 0i tail of bucket_name_ssot_canonicalisation_2026_05_10.md.
     manual-audit: "manual-audit-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Immutable execution audit log — GCP Object Retention Lock ≥7 years (220752000s).
+    # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
+    audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -277,6 +280,9 @@ aws:
     client-reports: "unified-trading-client-reports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # DART manual-action audit log (mirrors GCP). ≥7 years retention per compliance.
     manual-audit: "unified-trading-manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Immutable execution audit log — S3 Object Lock COMPLIANCE mode ≥7 years.
+    # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
+    audit-records: "unified-trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
