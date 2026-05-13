@@ -266,10 +266,11 @@ aws:
     evm-defi: "unified-trading-evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     eigenlayer-rewards: "unified-trading-eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     solana-defi: "unified-trading-solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Per-asset-group DeFi pnl/positions/risk stores.
-    pnl-store-defi: "unified-trading-pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    positions-store-defi: "unified-trading-positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    risk-store-defi: "unified-trading-risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-asset-group DeFi pnl/positions/risk stores. Drop "unified-trading-" prefix per Q7(b)
+    # operator decision 2026-05-13 (symmetric with GCP shape; on-disk migration → Phase 2.6).
+    pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Cross-cutting service buckets (events stream + config snapshots).
     events: "unified-trading-events-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     config-store: "unified-trading-config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
