@@ -464,6 +464,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "expected-universe-enum-": None,
     # ------------------------------------------------------------------
+    # Per-instrument v2 expected-universe enumerator (Gate G3
+    # manifest_evolution_master_2026_05_08 / Phase 2.B, 2026-05-13).
+    # Writes per-VM manifest shards only; no canonical data bucket to poll.
+    # Heartbeat-only (None) is correct — same rationale as v1 above.
+    "expected-universe-v2-": None,
+    # ------------------------------------------------------------------
     # Blank-reason reconciler (writegate Phase 3.D.5 Wave 2.M, 2026-05-07).
     # Walks an asset_group manifest, reclassifies blank-reason
     # empty_confirmed rows per the asset-group-specific legitimacy rule.
