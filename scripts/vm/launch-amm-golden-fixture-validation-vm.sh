@@ -242,7 +242,7 @@ WHEEL_GCS="gs://${CODE_BUCKET}/wheels/py313-linux-x86_64"
 mkdir -p "\$WHEEL_CACHE"
 gsutil -m -q cp "\$WHEEL_GCS/*.whl" "\$WHEEL_CACHE/" 2>/dev/null || true
 
-uv pip install --find-links "\$WHEEL_CACHE" --no-sources \
+uv pip install --find-links "\$WHEEL_CACHE" --index-url https://pypi.org/simple --no-sources \
   -e unified-api-contracts \
   -e unified-trading-library \
   -e execution-service
