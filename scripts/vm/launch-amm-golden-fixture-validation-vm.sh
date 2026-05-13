@@ -134,7 +134,7 @@ fi
 SHAPE_LOWER="$(echo "$SHAPE" | tr '[:upper:]' '_' | tr -d '_' | tr '[:upper:]' '[:lower:]')"
 # Normalize: UNISWAP_V3 → uniswap-v3 for VM name
 SHAPE_SLUG="${SHAPE//_/-}"
-SHAPE_SLUG="${SHAPE_SLUG,,}"
+SHAPE_SLUG="$(echo "$SHAPE_SLUG" | tr '[:upper:]' '[:lower:]')"
 
 # ── Per-shape singleton lock ──
 VM_PREFIX="amm-golden-${SHAPE_SLUG}-"
