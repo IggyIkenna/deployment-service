@@ -699,6 +699,19 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "aave-lending-rate-val-": None,  # Phase 3C lending rate validation
     "amm-golden-": None,             # Phase 2 AMM golden-swap validation (per-shape)
+    # ------------------------------------------------------------------
+    # Wallet/treasury cutover dry-run VM (Phase 9.A of
+    # wallet_treasury_client_flow_2026_05_10.md). One singleton VM named
+    # `wallet-treasury-cutover-{ts}` runs a 24h demo-client lifecycle:
+    # onboarding → treasury ping → allocation → paper-trade → settle →
+    # fee accrual + HWM-ledger → statement → withdrawal → crystallization.
+    # Heartbeat-only (None) — writes to event-archive + client-statements
+    # but NOT to a per-VM manifest shard. Singleton-locked.
+    # Launcher: deployment-service/scripts/vm/launch-wallet-treasury-cutover-vm.sh
+    # Registered 2026-05-13 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "wallet-treasury-cutover-": None,
 }
 
 
