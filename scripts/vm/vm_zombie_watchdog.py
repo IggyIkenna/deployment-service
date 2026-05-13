@@ -688,6 +688,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "exp-ml-": None,
     "exp-strategy-": None,
     "exp-execution-": None,
+    # ------------------------------------------------------------------
+    # DeFi execution validation VMs (Phase 2 + Phase 3C, 2026-05-13).
+    # Heartbeat-only (None) — these VMs do NOT write per-VM manifest
+    # shards; output is results.json to the defi-validation bucket.
+    # Launchers: launch-aave-lending-rate-validation-vm.sh (singleton,
+    # Alchemy shared key) + launch-amm-golden-fixture-validation-vm.sh
+    # (per-shape singleton). After updating this dict, operator MUST
+    # relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "aave-lending-rate-val-": None,  # Phase 3C lending rate validation
+    "amm-golden-": None,             # Phase 2 AMM golden-swap validation (per-shape)
 }
 
 

@@ -180,6 +180,14 @@ gcp:
     # Immutable execution audit log — GCP Object Retention Lock ≥7 years (220752000s).
     # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
     audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # DeFi execution validation results — Phase 2 AMM golden-swap + Phase 3C lending rate.
+    # Flat naming (no env tier) intentional: validation runs target mainnet state and results
+    # are environment-neutral. Path pattern:
+    #   gs://{pid}-defi-validation/results/lending/{DATE}/{CORRELATION_ID}/results.json
+    #   gs://{pid}-defi-validation/results/amm/{DATE}/{SHAPE}/{CORRELATION_ID}/results.json
+    # Launchers: launch-aave-lending-rate-validation-vm.sh + launch-amm-golden-fixture-validation-vm.sh
+    # Added 2026-05-13 (V2 VM-orchestration — defi_simulation_realism_2026_05_10.md Phase 2 + 3C).
+    defi-validation: "${GCP_PROJECT_ID}-defi-validation"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
