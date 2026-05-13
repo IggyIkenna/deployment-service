@@ -530,6 +530,8 @@ class ManifestReader:
         asset_group: str,
         venue: str,
         date: str | None = None,
+        instrument_offset: int = 0,
+        instrument_limit: int = 200,
     ) -> dict[str, object]:
         """Read a single venue parquet and return instrument_type breakdown.
 
@@ -582,10 +584,12 @@ class ManifestReader:
                 status_counts = df["status"].value_counts().to_dict()
                 result["statuses"] = {str(k): int(v) for k, v in status_counts.items()}
 
-            # Top instruments sample
+            # Paginated instruments sample
+            result["total_instruments_unfiltered"] = len(df)
+            page_df = df.iloc[instrument_offset : instrument_offset + instrument_limit]
             top: list[dict[str, str]] = []
             key_col = "instrument_key" if "instrument_key" in df.columns else "raw_symbol"
-            for _, row in df.head(30).iterrows():
+            for _, row in page_df.iterrows():
                 top.append(
                     {
                         "key": str(row.get(key_col, "")),
