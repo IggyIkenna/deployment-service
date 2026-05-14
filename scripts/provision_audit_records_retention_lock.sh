@@ -53,6 +53,13 @@ gcloud storage buckets update "gs://${GCP_BUCKET}" \
 echo "[GCP] Done. Verify with:"
 echo "  gcloud storage buckets describe gs://${GCP_BUCKET} --format='value(retentionPolicy.retentionPeriod,retentionPolicy.isLocked)'"
 
+# Enable Object Versioning (separate from retention lock — creates immutable version history)
+echo "[GCP] Enabling Object Versioning on audit bucket..."
+gcloud storage buckets update "gs://${GCP_BUCKET}" \
+  --versioning
+echo "[GCP] Object Versioning: ENABLED"
+echo "  Verify with: gcloud storage buckets describe gs://${GCP_BUCKET} --format='value(versioning)'"
+
 echo ""
 
 # --- AWS: enable S3 Object Lock (must be enabled at bucket creation; otherwise recreate) ---
