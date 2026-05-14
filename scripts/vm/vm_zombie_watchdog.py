@@ -317,6 +317,14 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-pyth-archive-": VmPrefixSpec(
         bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),
+    # Pyth Hermes LST oracle_prices backfill (2023-10-01 → today).
+    # Covers JitoSOL/USD, mSOL/USD, bSOL/USD, INF/USD feeds for
+    # carry_staked_basis Solana leg. Singleton-locked per launcher.
+    # Launcher: launch-mtds-pyth-lst-backfill-vm.sh (MTDS@0636dd4 2026-05-14).
+    # Awaiting operator [ack] in pings/slot_2.md before launch.
+    "pyth-lst-backfill-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # ------------------------------------------------------------------
     # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
     # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
