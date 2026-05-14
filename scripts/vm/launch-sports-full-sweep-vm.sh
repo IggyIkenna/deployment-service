@@ -133,7 +133,6 @@ launch_vm() {
   fi
 
   STARTUP_FILE=$(mktemp)
-  # shellcheck disable=SC2cat
   cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
 set -euo pipefail

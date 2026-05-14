@@ -718,6 +718,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # After updating this dict, relaunch the watchdog VM.
     # ------------------------------------------------------------------
     "wallet-treasury-cutover-": None,
+    # QG snapshot cron VM (B-018 Phase 4.A). Heartbeat-only; no manifest shard writes.
+    # Launcher: deployment-service/scripts/vm/launch-qg-snapshot-vm.sh
+    # Registered 2026-05-14 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    "qg-snapshot-": None,
 }
 
 
