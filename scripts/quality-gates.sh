@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Repo-specific settings only. Body: unified-trading-pm/scripts/quality-gates-base/base-service.sh
-# SSOT: unified-trading-codex/06-coding-standards/quality-gates-service-template.sh
+# SSOT: unified-trading-pm/codex/06-coding-standards/quality-gates-service-template.sh
 #
 # Instructions for a new service:
 #   1. Copy this to scripts/quality-gates.sh in your repo (rollout-quality-gates-unified.py does this)
@@ -9,8 +9,6 @@
 #   4. Add LOCAL_DEPS entries if your service has local editable deps (e.g. unified-trading-library)
 SERVICE_NAME="deployment-service"
 SOURCE_DIR="deployment_service"
-# ISS-031: coverage dropped after stale test cleanup. Per-repo MIN_COVERAGE must
-# match [tool.coverage.report].fail_under in pyproject.toml (70).
 MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
@@ -35,42 +33,20 @@ EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calcula
 EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py" --glob "!**/orchestrator.py")
 # GCP_PROJECT_ID: docstrings, template substitution strings, error messages, bash heredocs
 GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_framework.py" "!**/deployment_config.py" "!**/config_loader.py" "!**/cloud_client.py" "!**/backends/services/vm_config.py" "!**/dependencies.py" "!**/shard_builder.py" "!**/backends/services/vm_lifecycle.py")
-# Broad except: manifest_reader.py intentional probe (noqa: BLE001)
-BE_EXCLUDE_GLOBS=("**/cli/utils/manifest_reader.py")
-# Direct cloud SDK: gcp_instance_lister.py wraps compute_v1.aggregated_list specifically
-# to cross-reference live GCE VMs vs registry (read-only, failure-isolated). UCI's
-# storage/pubsub/firestore providers don't cover compute_v1; this is the documented
-# carve-out used exclusively by DeploymentsRegistry.reap_stale().
-CLOUD_SDK_EXCLUDE_GLOBS=("!**/vm/gcp_instance_lister.py")
-# Deep UAC imports: CLI utils legitimately import MarketCategory from unified_api_contracts.internal
-DEEP_IMPORT_EXCLUDE_GLOBS=(
-    "!**/cli/utils/data_status_checkers.py"
-    "!**/cli/utils/data_status_display_fixed.py"
-    "!**/cli/utils/data_status_venue_utils.py"
-    "!**/cli/utils/data_status_sports.py"
-    "!**/cli/utils/manifest_reader.py"
-    "!**/client_isolation.py"
-)
-# ml_experiments.py BaseModel definitions are API response models, not domain contracts.
-# client_isolation.py wraps deployment materialisation state — treated as internal
-# contracts because no other repo consumes the specific response shapes.
-SCHEMA_PROVENANCE_SKIP=true
-# Pre-existing tolerance: client_isolation.py + sports_trigger_scheduler.py TypedDicts
-# (awaiting promotion to UAC), one BaseModel subclass in ml_experiments response
-# models, plus bandit B108 hardcoded /tmp + STEP 5.10 direct cloud SDK import in
-# vm_zombie_watchdog.py (uses gcloud SDK directly, can't go through UCI). Tracked
-# follow-ups, not runtime failures.
-CODEX_MAX_VIOLATIONS=7  # 2026-05-09: absorbs CI-only pip-audit hit (CI image has different uv.lock state) on top of local 6
-export CODEX_MAX_VIOLATIONS
-# pip-audit: ignore cryptography CVE-2026-34073 (DNS name constraint bypass, low severity)
-PIP_AUDIT_EXTRA_ARGS="--ignore-vuln CVE-2026-34073 --ignore-vuln CVE-2026-25645"
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
 
-# Codex enforcement: every entrypoint must emit STARTED, STOPPED, FAILED
-# See: unified-trading-codex/03-observability/lifecycle-events.md § Lifecycle Event QG Enforcement
+# Codex enforcement: lifecycle triple (STARTED / STOPPED / FAILED) via UTL — not duplicated in service code.
+# See: unified-trading-pm/codex/03-observability/lifecycle-events.md § Lifecycle Event QG Enforcement
 log_section "[5.X/6] UEI LIFECYCLE EVENT ENFORCEMENT (STARTED/STOPPED/FAILED)"
-for event in STARTED STOPPED FAILED; do
-    run_timeout 30 rg "log_event.*\"${event}\"" "${SOURCE_DIR}" --type py -q \
-        || log_warn "Missing log_event('${event}') in ${SERVICE_NAME} — see codex 03-observability/lifecycle-events.md"
-done
+if rg -q 'fastapi_uei_lifespan\s*\(' --type py "$SOURCE_DIR" 2>/dev/null; then
+    log_success "UEI lifecycle: fastapi_uei_lifespan (canonical HTTP wiring in UTL)"
+elif rg -q 'ServiceBootstrap\s*\(' --type py "$SOURCE_DIR" 2>/dev/null; then
+    log_success "UEI lifecycle: ServiceBootstrap (canonical CLI wiring in UTL)"
+else
+    for event in STARTED STOPPED FAILED; do
+        # -U: allow multiline call sites (e.g. log_event(\n  "STARTED", ...))
+        run_timeout 30 rg "log_event.*\"${event}\"" "${SOURCE_DIR}" --type py -U -q \
+            || log_warn "Missing log_event('${event}') in ${SERVICE_NAME} — see codex 03-observability/lifecycle-events.md"
+    done
+fi
