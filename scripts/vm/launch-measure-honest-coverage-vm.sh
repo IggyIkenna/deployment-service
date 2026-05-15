@@ -88,7 +88,10 @@ VM_NAME="measure-honest-coverage-${RUN_TS}"
 MEASURE_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/measure_honest_coverage.py"
 BACKFILL_CMD="python ${MEASURE_SCRIPT} --asset-group ${ASSET_GROUP}"
 
-METADATA="VM_TASK=measure-honest-coverage"
+# VM_TASK=features-backfill: setup script reads VM_BACKFILL_CMD verbatim (no CLI dispatch).
+# VM_TASK=measure-honest-coverage was not registered in setup-data-pipeline-vm.sh and
+# fell through to the default instruments-service CLI path which rejects --asset-group=all.
+METADATA="VM_TASK=features-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
