@@ -39,9 +39,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-small"
 BOOT_DISK_GB="30"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
@@ -55,7 +58,7 @@ while [[ $# -gt 0 ]]; do
         --force)     FORCE=true; shift ;;
         --dry-run)   DRY_RUN=true; shift ;;
         --env)       DEPLOYMENT_ENV="$2"; shift 2 ;;
-        --project)   PROJECT="$2"; CODE_BUCKET="deployment-scripts-${PROJECT}"; shift 2 ;;
+        --project)   PROJECT="$2"; shift 2 ;;
         --zone)      ZONE="$2"; shift 2 ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
@@ -65,32 +68,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-case "$DEPLOYMENT_ENV" in
-    prod|staging|dev) ;;
-    *) echo "ERROR: --env must be prod|staging|dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
-esac
+CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
+lc_validate_env "$DEPLOYMENT_ENV"
+lc_singleton_check "$VM_PREFIX" "$ZONE" "$PROJECT" "$FORCE"
 
-# ── Singleton lock ────────────────────────────────────────────────────────────
-if ! $FORCE; then
-    EXISTING="$(gcloud compute instances list \
-        --filter="name~\"^${VM_PREFIX}\" AND status=RUNNING" \
-        --zones="$ZONE" \
-        --format='value(name)' 2>/dev/null | head -1)"
-    if [[ -n "$EXISTING" ]]; then
-        cat >&2 <<EOF
-ERROR: QG snapshot VM already running in $ZONE: $EXISTING
-Refusing to launch a duplicate (singleton lock).
-
-Options:
-  Inspect:   gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log | tail -50
-  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
-  Force:     bash $0 --force
-EOF
-        exit 1
-    fi
-fi
-
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
+RUN_TS="$(lc_run_ts)"
 VM_NAME="${VM_PREFIX}${RUN_TS}"
 
 # Startup command passed to the VM via metadata
@@ -109,28 +91,20 @@ METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},GCP_PROJECT_ID=${PROJECT}"
 METADATA="${METADATA},WORKSPACE_ROOT=/home/unified/workspace"
 
-GCLOUD_CMD=(
-    gcloud compute instances create "$VM_NAME"
-    --project="$PROJECT"
-    --zone="$ZONE"
-    --machine-type="$MACHINE_TYPE"
-    --image-family=ubuntu-2404-lts-amd64
-    --image-project=ubuntu-os-cloud
-    --boot-disk-size="${BOOT_DISK_GB}GB"
-    --scopes=cloud-platform
-    "--metadata=startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
-    "--labels=purpose=qg-snapshot,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
-)
+FULL_METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
+LABELS="purpose=qg-snapshot,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
 
 echo "Launching $VM_NAME: QG snapshot → GCS (env=${DEPLOYMENT_ENV})"
 
 if $DRY_RUN; then
-    echo "[DRY-RUN] Would run:"
-    printf '  %s \\\n' "${GCLOUD_CMD[@]}"
+    echo "[DRY-RUN] Would run: lc_gcloud_create $VM_NAME $PROJECT $ZONE $MACHINE_TYPE $BOOT_DISK_GB ..."
+    echo "  metadata: $FULL_METADATA"
+    echo "  labels:   $LABELS"
     exit 0
 fi
 
-"${GCLOUD_CMD[@]}"
+lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "$MACHINE_TYPE" "$BOOT_DISK_GB" \
+    "$FULL_METADATA" "$LABELS"
 
 echo ""
 echo "VM launched: $VM_NAME"

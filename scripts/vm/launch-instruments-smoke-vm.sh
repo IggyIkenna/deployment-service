@@ -29,6 +29,10 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Pre-parse --env <val> in any position before positional args.
@@ -45,14 +49,11 @@ ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-${PROJECT}"
+CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
 
-case "$DEPLOYMENT_ENV" in
-    prod|staging|dev) ;;
-    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
-esac
+lc_validate_env "$DEPLOYMENT_ENV"
 
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
+RUN_TS="$(lc_run_ts)"
 
 launch_vm() {
     local cat="$1"; local venue="$2"; local vm_name="instruments-smoke-${cat}-${RUN_TS}"
@@ -68,15 +69,9 @@ launch_vm() {
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},IS_TEST_RUN=true"
 
-    gcloud compute instances create "$vm_name" \
-        --project="$PROJECT" \
-        --zone="$ZONE" \
-        --machine-type=e2-standard-4 \
-        --image-family=ubuntu-2404-lts-amd64 \
-        --image-project=ubuntu-os-cloud \
-        --scopes=cloud-platform \
-        --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        --labels=purpose=instruments-smoke,category="${cat}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    lc_gcloud_create "$vm_name" "$PROJECT" "$ZONE" "e2-standard-4" "30" \
+        "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
+        "purpose=instruments-smoke,category=${cat},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
     echo "  → SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
