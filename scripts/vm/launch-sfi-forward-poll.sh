@@ -70,7 +70,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Singleton lock: 10 concurrent VMs sharing one API key thrash on 429s ──
 if ! $FORCE; then

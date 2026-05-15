@@ -69,7 +69,7 @@ shift || true
 REGION="asia-northeast1"
 ZONES=("asia-northeast1-a" "asia-northeast1-b" "asia-northeast1-c")
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Resolve machine type via the empirical resource matrix in MTDS unless the
 # operator overrides via env. e2-standard-8 (32 GB) deterministically OOMs on

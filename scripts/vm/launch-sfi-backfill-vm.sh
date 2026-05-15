@@ -158,7 +158,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # --- Singleton lock (sibling-aware when --chunks is used) ---
 RUN_ID=""

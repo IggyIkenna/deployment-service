@@ -82,7 +82,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 

@@ -29,7 +29,7 @@ set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # 2026-05-01: bumped from e2-standard-2 (8GB) to e2-standard-4 (16GB) after
 # DERIBIT 2024-2026 options_chain OOM-killed at peak RSS. Tardis options_chain
