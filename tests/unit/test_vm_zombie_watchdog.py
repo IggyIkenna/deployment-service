@@ -107,20 +107,8 @@ class TestVmPrefixRegistration:
         # Prefixes with confirmed blindspot that are NOT yet fixed in watchdog.
         # These are tracked; test documents them rather than failing (to allow
         # incremental registration). Remove entries as they get registered.
-        _KNOWN_UNREGISTERED_PREFIXES: frozenset[str] = frozenset(
-            {
-                "defi-fwd-",  # launch-defi-forward-poll.sh — needs "defi-fwd-" key
-                "footystats-fwd-",  # launch-footystats-forward-poll.sh — needs key
-                "ml-train-",  # launch-ml-training-vm.sh — needs key
-                "prediction-fwd-",  # launch-prediction-forward-poll.sh — needs key
-                "sfi-fwd-",  # launch-sfi-forward-poll.sh — needs key
-                "sports-manifest-rescan-",  # launch-sports-manifest-rescan-vm.sh
-                "sports-manifest-rescan-coord-",  # sub-variant
-                "sports-manifest-rescan-chunk-",  # sub-variant
-                "sports-scheduler-",  # launch-sports-scheduler-vm.sh — needs key
-                "strategy-test-",  # launch-strategy-test-vm.sh — needs key
-            }
-        )
+        # All 8 B-011 blindspots registered 2026-05-15 (slot-2 blindspot audit).
+        _KNOWN_UNREGISTERED_PREFIXES: frozenset[str] = frozenset()
 
         truly_missing: list[str] = []
         for prefix, launcher in launch_prefixes.items():
@@ -147,16 +135,8 @@ class TestVmPrefixRegistration:
         This test documents the existing blindspots. Each should eventually
         be removed from the known-list as watchdog entries are added.
         """
-        known_unregistered = {
-            "defi-fwd-": "launch-defi-forward-poll.sh",
-            "footystats-fwd-": "launch-footystats-forward-poll.sh",
-            "ml-train-": "launch-ml-training-vm.sh",
-            "prediction-fwd-": "launch-prediction-forward-poll.sh",
-            "sfi-fwd-": "launch-sfi-forward-poll.sh",
-            "sports-manifest-rescan-": "launch-sports-manifest-rescan-vm.sh",
-            "sports-scheduler-": "launch-sports-scheduler-vm.sh",
-            "strategy-test-": "launch-strategy-test-vm.sh",
-        }
+        # All 8 B-011 blindspots registered 2026-05-15 (slot-2 blindspot audit).
+        known_unregistered: dict[str, str] = {}
         known_prefixes = tuple(_VM_PREFIX_TO_BUCKET.keys())
         # If any known-unregistered prefix is NOW registered, it should be removed from the list.
         newly_registered = [

@@ -174,6 +174,19 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-aster-forward-poll.sh
     # ------------------------------------------------------------------
+    # DeFi forward-poll (launch-defi-forward-poll.sh). Heartbeat-only —
+    # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS. Writes
+    # to market-data-tick-defi-* but does NOT write _index/per_vm/ shards.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "defi-fwd-": None,  # launch-defi-forward-poll.sh — DeFi on-chain forward poll
+    # ------------------------------------------------------------------
+    # Prediction forward-poll (launch-prediction-forward-poll.sh).
+    # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "prediction-fwd-": None,  # launch-prediction-forward-poll.sh — Polymarket/Kalshi forward poll
+    # ------------------------------------------------------------------
     # CeFi instrument discovery + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
     "cefi-instr-": None,  # cefi-instr-{venue}-{ts} from instruments-service launchers
@@ -223,6 +236,22 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=f"instruments-store-sports-{PROJECT_ID}",
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # ------------------------------------------------------------------
+    # Sports instruments forward-polls (heartbeat-only — no MANIFEST_PER_VM_SHARDS).
+    # Both write to instruments-store-sports-* but via non-shard paths.
+    # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "footystats-fwd-": None,  # launch-footystats-forward-poll.sh — FootyStats entity poll
+    "sfi-fwd-": None,  # launch-sfi-forward-poll.sh — SFI (SoccerFootballInfo) entity poll
+    # ------------------------------------------------------------------
+    # Sports manifest rescan VMs (launch-sports-manifest-rescan-vm.sh).
+    # Three launch shapes: singleton coordinator + N chunk VMs.
+    # VM_SHUTDOWN_ON_COMPLETION=true; writes _index/partial/<run-id>/ NOT
+    # _index/per_vm/ (non-standard shard path → heartbeat-only).
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "sports-manifest-rescan-": None,  # coordinator + chunk VMs (all shapes share prefix)
     # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
@@ -338,6 +367,16 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt.
     # ------------------------------------------------------------------
     "strategy-backtest-grid-": None,
+    # Strategy test VMs (launch-strategy-test-vm.sh). Heartbeat-only — runs
+    # backtests for CI/validation; writes to deployment-scripts bucket (logs),
+    # no per-VM manifest shards. EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    "strategy-test-": None,  # launch-strategy-test-vm.sh — CI strategy validation
+    # ML training VMs (launch-ml-training-vm.sh). Heartbeat-only — writes
+    # model artefacts to model_registry bucket, no per-VM manifest shards.
+    # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    "ml-train-": None,  # launch-ml-training-vm.sh — ml-training-service model training
     # Strategy paper-trade VMs (launch-strategy-paper-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
     # `strategy-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
@@ -582,6 +621,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "manifest-consolidator-": None,  # long-lived consolidator daemon
     "data-status-rollup-": None,  # */5 min Cloud Run Job — offline rollup of /api/data-status/manifest
+    # Sports scheduler daemon (launch-sports-scheduler-vm.sh). Long-lived
+    # fixture-aware poll loop (300s cadence). No VM_SHUTDOWN_ON_COMPLETION.
+    # Has tier=scheduler label → _is_daemon() exempts from heartbeat-staleness
+    # alerts. Registered here for prefix recognition (not zombie alerts).
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    "sports-scheduler-": None,  # launch-sports-scheduler-vm.sh — fixture trigger daemon
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
     "cross-asset-rescan-": None,  # manifest_cross_asset_rescan_design_2026_05_08 Phase 3.A; manifest_schema_final_gate_2026_05_09 Phase 3.A — class-A auto-flips + class-C triage routing across all 5 asset_groups; singleton-locked launcher.
