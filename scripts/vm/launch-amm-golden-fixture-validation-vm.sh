@@ -37,10 +37,13 @@
 #   bash deployment-service/scripts/vm/launch-vm-zombie-watchdog.sh
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-a}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-2}"
-CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 DRY_RUN=false
@@ -75,10 +78,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$DEPLOYMENT_ENV" in
-  prod|staging|dev) ;;
-  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
-esac
+CODE_BUCKET="$(lc_code_bucket "$PROJECT_ID")"
+lc_validate_env "$DEPLOYMENT_ENV"
 
 # If --all-shapes, recurse for each shape
 if $ALL_SHAPES_FLAG; then
@@ -284,8 +285,7 @@ METADATA="${METADATA},AMM_SHAPE=${SHAPE}"
 METADATA="${METADATA},CORRELATION_ID=${CORRELATION_ID}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-STARTUP_FILE="$(mktemp /tmp/startup-amm-golden-XXXX.sh)"
-printf '%s' "$STARTUP_SCRIPT" > "$STARTUP_FILE"
+lc_write_startup_file "$STARTUP_SCRIPT"
 
 echo "Creating VM ${VM_NAME}..."
 gcloud compute instances create "${VM_NAME}" \
@@ -301,8 +301,6 @@ gcloud compute instances create "${VM_NAME}" \
   --boot-disk-size=30GB \
   --boot-disk-type=pd-ssd \
   --labels="purpose=amm-golden-validation,env=${DEPLOYMENT_ENV},shape=${SHAPE_SLUG},run-ts=${RUN_TS}"
-
-rm "${STARTUP_FILE}"
 
 echo ""
 echo "============================================================"

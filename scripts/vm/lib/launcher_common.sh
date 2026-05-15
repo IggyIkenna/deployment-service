@@ -111,6 +111,34 @@ lc_gcloud_create() {
 }
 
 # ---------------------------------------------------------------------------
+# lc_write_startup_file <script_content>
+# ---------------------------------------------------------------------------
+# Write <script_content> to a mktemp file, set STARTUP_FILE, and register
+# a trap to delete it on EXIT. Centralises temp-file lifecycle management.
+#
+# After calling this function, pass STARTUP_FILE to gcloud:
+#   gcloud compute instances create ... \
+#       --metadata-from-file="startup-script=${STARTUP_FILE}"
+#
+# Example:
+#   STARTUP_SCRIPT=$(cat << 'STARTUP_EOF'
+#   #!/bin/bash
+#   echo "hello from VM"
+#   STARTUP_EOF
+#   )
+#   lc_write_startup_file "$STARTUP_SCRIPT"
+#   # STARTUP_FILE is now set; cleanup registered via trap EXIT
+lc_write_startup_file() {
+    local content="${1:?lc_write_startup_file: script content required}"
+    STARTUP_FILE="$(mktemp /tmp/startup-XXXX.sh)"
+    printf '%s' "$content" > "$STARTUP_FILE"
+    # Register cleanup — if caller already has an EXIT trap, this appends to it.
+    # shellcheck disable=SC2064
+    trap "rm -f '${STARTUP_FILE}'" EXIT
+    export STARTUP_FILE
+}
+
+# ---------------------------------------------------------------------------
 # lc_code_bucket <project>
 # ---------------------------------------------------------------------------
 # Emit the canonical code/tarballs GCS bucket name for a given project.
