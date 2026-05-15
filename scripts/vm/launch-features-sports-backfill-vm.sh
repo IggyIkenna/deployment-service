@@ -98,7 +98,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Singleton lock — prevent duplicate fs-backfill-* VMs in the zone.
 if ! $FORCE; then
