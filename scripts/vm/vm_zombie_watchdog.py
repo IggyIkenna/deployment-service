@@ -377,6 +377,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
     # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
     "ml-train-": None,  # launch-ml-training-vm.sh — ml-training-service model training
+    # Execution-alpha parallel measurement VMs (launch-execution-alpha-vm.sh; plan:
+    # compute_optimization_mock_data_2026_05_13.md Phase 3). VM name pattern:
+    # `exec-alpha-{ts}`. Heartbeat-only — the VM writes per-chunk JSON results to
+    # gs://strategy-store-{pid}/backtests/execution_alpha/, not a per-VM manifest shard.
+    "exec-alpha-": None,
     # Strategy paper-trade VMs (launch-strategy-paper-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
     # `strategy-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
