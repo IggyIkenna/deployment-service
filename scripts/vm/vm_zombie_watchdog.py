@@ -463,6 +463,16 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "gcs-migration-phase0-": None,
     # ------------------------------------------------------------------
+    # Batch-live reconciliation cron (GAP-18, topology_qgroup_gap_closure,
+    # 2026-05-15). Nightly T+1 run of batch-live-reconciliation-service.
+    # Reads from live/ + t1-recon/ GCS paths; outputs JSON report to
+    # gs://recon-store-{pid}/reports/{date}/. Heartbeat-only (None) since
+    # the script writes a single JSON report, not per-VM manifest shards.
+    # Singleton-locked to prevent concurrent nightly runs.
+    # Launcher: launch-batch-live-recon-cron-vm.sh.
+    # ------------------------------------------------------------------
+    "batch-live-recon-": None,
+    # ------------------------------------------------------------------
     # Expected-universe enumerator (Phase 3.D.4 writegate, 2026-05-07).
     # In --apply-write mode it writes per-VM manifest shards under
     # gs://market-data-tick-{asset_group}-{pid}/_index/per_vm/{vm_name}.parquet

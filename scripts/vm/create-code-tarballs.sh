@@ -99,6 +99,7 @@ ALL_SERVICE_REPOS=(
     ml-training-service ml-inference-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
+    batch-live-reconciliation-service
 )
 
 usage() {

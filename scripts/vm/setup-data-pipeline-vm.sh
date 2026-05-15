@@ -202,6 +202,7 @@ declare -A SERVICE_TARBALLS=(
   ["features_multi_timeframe_service"]="features-multi-timeframe-service-code"
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
+  ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -229,6 +230,7 @@ declare -A TARBALL_DIRS=(
   ["features-multi-timeframe-service-code"]="fmt"
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
+  ["batch-live-reconciliation-service-code"]="blr"
   # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
   # strategy paper/live VMs. No editable install (no pyproject.toml Python package
   # to install from e2e-testing root — strategy-service + execution-service packages
