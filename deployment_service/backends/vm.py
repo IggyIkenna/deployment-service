@@ -73,9 +73,7 @@ class VMBackend(ComputeBackend):
         elif zone:
             # Single zone specified - use it as primary with fallback to others
             suffixes = self._config_manager.get_zone_suffixes(region)
-            self.zones = [zone] + [
-                f"{region}-{suffix}" for suffix in suffixes if f"{region}-{suffix}" != zone
-            ]
+            self.zones = [zone] + [f"{region}-{suffix}" for suffix in suffixes if f"{region}-{suffix}" != zone]
         else:
             # Default: try all zones in the region
             self.zones = self._config_manager.get_zones_for_region(region)

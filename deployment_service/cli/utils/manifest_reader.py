@@ -219,9 +219,7 @@ class ManifestReader:
                 "overall_completion": completion,
                 "dates_present": dates_present,
                 "total_days": total_days,
-                "venues": sorted(filtered["venue"].unique().tolist())
-                if "venue" in filtered.columns
-                else [],
+                "venues": sorted(filtered["venue"].unique().tolist()) if "venue" in filtered.columns else [],
             }
         except Exception as exc:
             logger.debug("ManifestReader.get_completion failed: %s", exc)
@@ -323,10 +321,7 @@ class ManifestReader:
                     # orchestrator's ``is_venue_available`` gate).
                     base_venue = venue_val.split(":")[0] if ":" in venue_val else venue_val
                     venue_start = self._venue_mapping.get_instrument_discovery_start(base_venue)
-                    if venue_start:
-                        effective_start = max(clamped_start, venue_start)
-                    else:
-                        effective_start = clamped_start
+                    effective_start = max(clamped_start, venue_start) if venue_start else clamped_start
                     v_expected = max(
                         1,
                         len(
@@ -369,26 +364,19 @@ class ManifestReader:
                         "dates_found_count": len(v_found_list),
                         "dates_found_list": v_found_list[:_MAX_LIST],
                         "dates_found_truncated": v_found_truncated,
-                        "dates_found_list_tail": v_found_list[-_TAIL:]
-                        if v_found_truncated
-                        else None,
+                        "dates_found_list_tail": v_found_list[-_TAIL:] if v_found_truncated else None,
                         # Missing dates (red dropdown)
                         "dates_missing": max(0, v_expected - v_dates),
                         "dates_missing_count": len(v_missing),
                         "dates_missing_list": v_missing[:_MAX_LIST],
                         "dates_missing_truncated": v_missing_truncated,
-                        "dates_missing_list_tail": v_missing[-_TAIL:]
-                        if v_missing_truncated
-                        else None,
+                        "dates_missing_list_tail": v_missing[-_TAIL:] if v_missing_truncated else None,
                         "missing_dates": v_missing[:_MAX_LIST],
                     }
 
                     # League sub-breakdown: when league_id column has non-empty
                     # values, build per-league stats nested under this venue.
-                    if (
-                        "league_id" in filtered.columns
-                        and filtered.loc[v_mask, "league_id"].str.len().sum() > 0
-                    ):
+                    if "league_id" in filtered.columns and filtered.loc[v_mask, "league_id"].str.len().sum() > 0:
                         venue_entry["leagues"] = self._build_league_breakdown(
                             filtered.loc[v_mask],
                             clamped_start,
@@ -401,11 +389,7 @@ class ManifestReader:
             # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
             if sub_dims:
                 earliest_venue = min(
-                    (
-                        sd["venue_start_date"]
-                        for sd in sub_dims.values()
-                        if sd.get("venue_start_date")
-                    ),
+                    (sd["venue_start_date"] for sd in sub_dims.values() if sd.get("venue_start_date")),
                     default=clamped_start,
                 )
                 cat_effective_start = max(clamped_start, str(earliest_venue))
@@ -417,8 +401,7 @@ class ManifestReader:
             _cat_schedule = "24_7"
             if sub_dims:
                 schedules = {
-                    self._venue_mapping.get_venue_schedule(v.split(":")[0] if ":" in v else v)
-                    for v in sub_dims
+                    self._venue_mapping.get_venue_schedule(v.split(":")[0] if ":" in v else v) for v in sub_dims
                 }
                 if schedules == {"weekdays"} or schedules == {"weekdays", "weekdays_minus_cme"}:
                     _cat_schedule = "weekdays"
@@ -434,10 +417,7 @@ class ManifestReader:
                     end_date,
                 )
             else:
-                _cat_expected = [
-                    d.strftime("%Y-%m-%d")
-                    for d in pd.date_range(cat_effective_start, end_date, freq="D")
-                ]
+                _cat_expected = [d.strftime("%Y-%m-%d") for d in pd.date_range(cat_effective_start, end_date, freq="D")]
             found_dates = set(filtered["date"].unique())
             missing_dates = sorted(d for d in _cat_expected if d not in found_dates)
 
@@ -661,9 +641,7 @@ class ManifestReader:
                 index["venue"] = index["venue"].replace(_VENUE_ALIASES)
 
             total_shards = len(index)
-            total_rows = (
-                int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
-            )
+            total_rows = int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
             unique_dates = int(index["date"].nunique())
             unique_venues = int(index["venue"].nunique()) if "venue" in index.columns else 0
             date_min = str(index["date"].min())
@@ -674,9 +652,7 @@ class ManifestReader:
             latest_day_total = 0
             latest_date = date_max
             if "venue" in index.columns:
-                latest_venues = sorted(
-                    index.loc[index["date"] == latest_date, "venue"].unique().tolist()
-                )
+                latest_venues = sorted(index.loc[index["date"] == latest_date, "venue"].unique().tolist())
                 for venue_name in latest_venues:
                     detail = self.get_venue_detail(
                         service=service,

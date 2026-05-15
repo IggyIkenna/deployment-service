@@ -126,9 +126,7 @@ def create_filter_dates_function():
         if not category_start:
             return all_dates
         start_dt = datetime.strptime(category_start, "%Y-%m-%d").replace(tzinfo=UTC)
-        return {
-            d for d in all_dates if datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=UTC) >= start_dt
-        }
+        return {d for d in all_dates if datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=UTC) >= start_dt}
 
     return filter_dates_by_category_start
 
@@ -161,13 +159,7 @@ def create_exclude_dates_filter():
             cat = dims.get("asset_group") or dims.get("category", "")
             date_val = dims.get("date", {})
 
-            date_str = (
-                date_val.get("start", "")
-                if isinstance(date_val, dict)
-                else str(date_val)
-                if date_val
-                else ""
-            )
+            date_str = date_val.get("start", "") if isinstance(date_val, dict) else str(date_val) if date_val else ""
 
             # Skip if this category+date is in exclude_dates
             if cat in exclude_sets and date_str in exclude_sets[cat]:

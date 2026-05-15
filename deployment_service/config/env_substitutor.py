@@ -23,9 +23,7 @@ def _get_env_snapshot() -> dict[str, str]:
     # config-bootstrap: This is the intentional config substitution boundary.
     # All env var reads for template substitution must go through this function.
     """
-    return dict(
-        os.environ
-    )  # config-bootstrap: intentional full env snapshot for template substitution
+    return dict(os.environ)  # config-bootstrap: intentional full env snapshot for template substitution
 
 
 def get_cloud_provider() -> str:

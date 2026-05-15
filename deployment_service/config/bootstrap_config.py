@@ -27,7 +27,5 @@ class TopologyBootstrapConfig:
             runtime_topology_path=os.environ.get(
                 "RUNTIME_TOPOLOGY_PATH"
             ),  # config-bootstrap: read before UnifiedCloudConfig exists
-            workspace_root=os.environ.get(
-                "WORKSPACE_ROOT"
-            ),  # config-bootstrap: read before UnifiedCloudConfig exists
+            workspace_root=os.environ.get("WORKSPACE_ROOT"),  # config-bootstrap: read before UnifiedCloudConfig exists
         )

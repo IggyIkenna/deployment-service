@@ -32,9 +32,7 @@ class MaintenanceHandler:
         self.deployment_service = DeploymentService(self.config_dir)
         self.status_service = StatusService(self.project_id)
 
-    def handle_cleanup_gcs(
-        self, state_bucket: str, dry_run: bool = True, older_than_days: int = 30
-    ) -> None:
+    def handle_cleanup_gcs(self, state_bucket: str, dry_run: bool = True, older_than_days: int = 30) -> None:
         """Handle GCS cleanup command.
 
         Args:
@@ -208,9 +206,7 @@ class MaintenanceHandler:
 
         click.echo(f"Found {len(stale_deployments)} stale deployments")
 
-        if not auto_fix and not click.confirm(
-            f"Fix all {len(stale_deployments)} stale deployments?"
-        ):
+        if not auto_fix and not click.confirm(f"Fix all {len(stale_deployments)} stale deployments?"):
             return
 
         fixed_count = 0
@@ -243,9 +239,7 @@ class MaintenanceHandler:
         logger.info("Fixing stale deployment %s", deployment_id)
         return True
 
-    def handle_validate_buckets(
-        self, service: str, categories: tuple[str, ...] = (), fix_issues: bool = False
-    ) -> None:
+    def handle_validate_buckets(self, service: str, categories: tuple[str, ...] = (), fix_issues: bool = False) -> None:
         """Handle bucket validation command.
 
         Args:
@@ -267,9 +261,7 @@ class MaintenanceHandler:
             config = service_info.get("config") or {}
 
             # Find bucket configurations
-            bucket_configs = self._extract_bucket_configs(
-                cast("dict[str, object]", config), categories
-            )
+            bucket_configs = self._extract_bucket_configs(cast("dict[str, object]", config), categories)
 
             if not bucket_configs:
                 click.echo("No bucket configurations found")
@@ -330,9 +322,7 @@ class MaintenanceHandler:
 
         return bucket_configs
 
-    def _validate_single_bucket(
-        self, bucket_name: str, bucket_config: dict[str, object]
-    ) -> list[str]:
+    def _validate_single_bucket(self, bucket_name: str, bucket_config: dict[str, object]) -> list[str]:
         """Validate a single bucket.
 
         Args:
@@ -466,9 +456,7 @@ class MaintenanceHandler:
         except subprocess.CalledProcessError as e:
             click.echo(f"Failed to create bucket {bucket_name}: {e}")
 
-    def handle_retry_failed(
-        self, deployment_id: str, shard_id: str | None = None, max_retries: int = 3
-    ) -> None:
+    def handle_retry_failed(self, deployment_id: str, shard_id: str | None = None, max_retries: int = 3) -> None:
         """Handle retry failed command.
 
         Args:

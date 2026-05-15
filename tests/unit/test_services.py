@@ -278,9 +278,7 @@ class TestStatusServiceGetDeploymentStatus:
     @pytest.mark.unit
     def test_returns_error_dict_on_exception(self) -> None:
         svc = StatusService("proj")
-        with patch.object(
-            svc, "_fetch_deployment_status", side_effect=RuntimeError("backend down")
-        ):
+        with patch.object(svc, "_fetch_deployment_status", side_effect=RuntimeError("backend down")):
             status = svc.get_deployment_status("dep-001")
         assert status["deployment_id"] == "dep-001"
         assert status["status"] == "unknown"
@@ -400,9 +398,7 @@ class TestStatusServiceDisplayHierarchicalStatus:
             },
         ):
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 svc.display_hierarchical_status("dep-001")
 
         combined = "\n".join(output_lines)
@@ -427,9 +423,7 @@ class TestStatusServiceDisplayHierarchicalStatus:
             },
         ):
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 svc.display_hierarchical_status("dep-001", show_details=True)
 
         combined = "\n".join(output_lines)

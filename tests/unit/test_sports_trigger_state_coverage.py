@@ -21,7 +21,6 @@ from deployment_service.sports_trigger_state import (
     resolve_source_key,
 )
 
-
 # ---------------------------------------------------------------------------
 # PeriodicTierState — storage adapter stub
 # ---------------------------------------------------------------------------

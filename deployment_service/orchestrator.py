@@ -307,9 +307,7 @@ class T1Orchestrator:
                 # For T+1, we only need single-day shards
                 shards = calculator.calculate_shards(
                     service=service,
-                    start_date=datetime.strptime(target_date, "%Y-%m-%d")
-                    .replace(tzinfo=UTC)
-                    .date(),
+                    start_date=datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=UTC).date(),
                     end_date=datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=UTC).date(),
                     max_shards=1000,  # High limit for single day
                     asset_group=[asset_group],
@@ -409,9 +407,7 @@ class T1Orchestrator:
 
             # Find the tier this service belongs to
             tier_idx = 0
-            graph_services = cast(
-                dict[str, dict[str, object]], self.graph.config.get("services") or {}
-            )
+            graph_services = cast(dict[str, dict[str, object]], self.graph.config.get("services") or {})
             for up in upstream:
                 if up not in graph_services:
                     continue
@@ -516,17 +512,15 @@ class T1Orchestrator:
         # Dependency flow
         lines.append("DEPENDENCY FLOW:")
         lines.append("-" * 40)
-        services_config = cast(
-            dict[str, dict[str, object]], self.graph.config.get("services") or {}
-        )
+        services_config = cast(dict[str, dict[str, object]], self.graph.config.get("services") or {})
         for service in plan.execution_order:
             upstream = self.graph.get_upstream_services(service)
             required_up = [
                 u
                 for u in upstream
-                if cast(
-                    list[dict[str, object]], services_config.get(u, {}).get("upstream") or [{}]
-                )[0].get("required", True)
+                if cast(list[dict[str, object]], services_config.get(u, {}).get("upstream") or [{}])[0].get(
+                    "required", True
+                )
                 if not services_config.get(u, {}).get("is_library")
             ]
 
@@ -635,9 +629,7 @@ class T1Orchestrator:
                 execution_order=cast(list[str], data["execution_order"]),
             )
 
-            for job_id, job_data in cast(
-                dict[str, dict[str, object]], data.get("jobs") or {}
-            ).items():
+            for job_id, job_data in cast(dict[str, dict[str, object]], data.get("jobs") or {}).items():
                 _jd = cast(dict[str, object], job_data)
                 _job_axis = str(_jd.get("asset_group") or _jd.get("category", ""))
                 job = OrchestratedJob(

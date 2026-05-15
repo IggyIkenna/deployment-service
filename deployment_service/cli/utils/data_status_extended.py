@@ -156,11 +156,7 @@ def run_t1_check(
     ok_count = 0
     for row in rows:
         color = status_colors.get(row["status"], "white")
-        click.echo(
-            f"{row['service']:<40} "
-            + click.style(f"{row['status']:<10}", fg=color)
-            + f" {row['details']}"
-        )
+        click.echo(f"{row['service']:<40} " + click.style(f"{row['status']:<10}", fg=color) + f" {row['details']}")
         if row["status"] == "OK":
             ok_count += 1
 
@@ -220,9 +216,7 @@ def run_ml_experiments_check(output: str) -> None:
             model_part = parts[0]  # model-{model_id}
             period_part = parts[1]  # training-period={tp}
 
-            model_id = (
-                model_part.removeprefix("model-") if model_part.startswith("model-") else model_part
-            )
+            model_id = model_part.removeprefix("model-") if model_part.startswith("model-") else model_part
             training_period = (
                 period_part.removeprefix("training-period=")
                 if period_part.startswith("training-period=")
@@ -276,9 +270,7 @@ def run_ml_experiments_check(output: str) -> None:
     meta_ok = 0
     for r in results:
         has_meta = bool(r["has_metadata"])
-        meta_status = (
-            click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
-        )
+        meta_status = click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
         if has_meta:
             meta_ok += 1
         click.echo(f"{str(r['model_id']):<30} {str(r['training_period']):<25} {meta_status}")
@@ -332,9 +324,7 @@ def run_live_freshness_check(
         )
         raise SystemExit(1)
 
-    asset_groups_to_check = (
-        list(asset_group) if asset_group else ["cefi", "defi", "tradfi", "sports"]
-    )
+    asset_groups_to_check = list(asset_group) if asset_group else ["cefi", "defi", "tradfi", "sports"]
     now = datetime.now(tz=UTC)
 
     click.echo()

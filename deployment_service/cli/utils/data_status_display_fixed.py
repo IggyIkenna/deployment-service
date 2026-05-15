@@ -163,11 +163,7 @@ def display_fixed_service_status(
         }
         try:
             bucket = gcs_config["bucket_template"].format(**template_vars)
-            path_template = (
-                path_prefix + gcs_config["path_template"]
-                if path_prefix
-                else gcs_config["path_template"]
-            )
+            path_template = path_prefix + gcs_config["path_template"] if path_prefix else gcs_config["path_template"]
             bucket_info[cat] = {
                 "bucket": bucket,
                 "path_template": path_template,
@@ -198,9 +194,7 @@ def display_fixed_service_status(
         )
     elif auto_fast:
         # FAST MODE: Targeted date queries for non-venue services
-        fast_results = scan_dates_fast_mode(
-            asset_groups, bucket_info, category_valid_dates, cloud_client, num_days
-        )
+        fast_results = scan_dates_fast_mode(asset_groups, bucket_info, category_valid_dates, cloud_client, num_days)
     else:
         # BATCH MODE: Scan full bucket (original method - best for small buckets)
         bucket_indexes = scan_buckets_batch_mode(asset_groups, bucket_info, cloud_client)

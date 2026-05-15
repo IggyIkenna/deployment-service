@@ -153,9 +153,7 @@ def recommend_deployment_settings(
         )
 
     if skip_feature_group_sharding:
-        notes.append(
-            "skip_feature_group_sharding reduces shard count but increases per-shard work."
-        )
+        notes.append("skip_feature_group_sharding reduces shard count but increases per-shard work.")
 
     return AdvisorRecommendation(
         recommended_date_granularity=recommended_granularity,

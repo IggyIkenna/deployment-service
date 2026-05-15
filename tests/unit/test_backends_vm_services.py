@@ -69,13 +69,9 @@ _PATCH_GET_INSTANCES_CLIENT = "deployment_service.backends.services.vm_config.ge
 _PATCH_COMPUTE_V1 = "deployment_service.backends.services.vm_monitoring.compute_v1"
 _PATCH_GET_STORAGE = "deployment_service.backends.services.vm_monitoring.get_storage_client"
 _PATCH_LIFECYCLE_COMPUTE_V1 = "deployment_service.backends.services.vm_lifecycle.compute_v1"
-_PATCH_LIFECYCLE_GET_INSTANCES = (
-    "deployment_service.backends.services.vm_lifecycle.get_instances_client"
-)
+_PATCH_LIFECYCLE_GET_INSTANCES = "deployment_service.backends.services.vm_lifecycle.get_instances_client"
 _PATCH_VM_CONFIG_MANAGER = "deployment_service.backends.services.vm_lifecycle.VMConfigManager"
-_PATCH_VM_MONITORING_MANAGER = (
-    "deployment_service.backends.services.vm_lifecycle.VMMonitoringManager"
-)
+_PATCH_VM_MONITORING_MANAGER = "deployment_service.backends.services.vm_lifecycle.VMMonitoringManager"
 
 
 # ===========================================================================
@@ -189,9 +185,7 @@ class TestVMMonitoringGetStatus:
 
     def test_running_with_gcs_success_returns_succeeded(self) -> None:
         mgr, mock_client, mock_cv1 = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "RUNNING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("RUNNING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="SUCCESS"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -200,9 +194,7 @@ class TestVMMonitoringGetStatus:
 
     def test_running_with_gcs_failed_returns_failed(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "RUNNING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("RUNNING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="FAILED"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -211,9 +203,7 @@ class TestVMMonitoringGetStatus:
 
     def test_running_with_gcs_zombie_returns_failed(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "RUNNING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("RUNNING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="ZOMBIE"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -222,9 +212,7 @@ class TestVMMonitoringGetStatus:
 
     def test_running_with_no_gcs_returns_running(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "RUNNING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("RUNNING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value=None):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -233,18 +221,14 @@ class TestVMMonitoringGetStatus:
 
     def test_staging_returns_pending(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "STAGING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("STAGING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
         assert result.status == JobStatus.PENDING
 
     def test_terminated_with_gcs_success_returns_succeeded(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="SUCCESS"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -253,9 +237,7 @@ class TestVMMonitoringGetStatus:
 
     def test_terminated_with_gcs_failed_returns_failed(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="FAILED"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -264,9 +246,7 @@ class TestVMMonitoringGetStatus:
 
     def test_terminated_with_gcs_zombie_returns_failed(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value="ZOMBIE"):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -276,9 +256,7 @@ class TestVMMonitoringGetStatus:
     def test_terminated_no_gcs_returns_running(self) -> None:
         """TERMINATED without GCS confirmation treats as still running."""
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("TERMINATED", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value=None):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -288,9 +266,7 @@ class TestVMMonitoringGetStatus:
     def test_stopped_no_gcs_returns_running(self) -> None:
         """STOPPED without GCS confirmation treats as still running (same as TERMINATED)."""
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "STOPPED", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("STOPPED", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value=None):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -299,9 +275,7 @@ class TestVMMonitoringGetStatus:
 
     def test_unknown_vm_state_returns_unknown(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "PROVISIONING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("PROVISIONING", {"shard-id": "s1", "deployment-id": "dep1"})
         result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
         assert result.status == JobStatus.UNKNOWN
 
@@ -383,9 +357,7 @@ class TestVMMonitoringGetStatus:
 
     def test_metadata_includes_vm_status_and_zone(self) -> None:
         mgr, mock_client, _ = _make_monitoring()
-        mock_client.get.return_value = self._make_instance(
-            "RUNNING", {"shard-id": "s1", "deployment-id": "dep1"}
-        )
+        mock_client.get.return_value = self._make_instance("RUNNING", {"shard-id": "s1", "deployment-id": "dep1"})
 
         with patch.object(mgr, "check_gcs_status", return_value=None):
             result = mgr.get_status("vm-1")  # type: ignore[attr-defined]
@@ -453,9 +425,7 @@ class TestVMMonitoringCheckGcsStatus:
 
         mock_blob = MagicMock()
         mock_blob.exists.return_value = True
-        mock_blob.download_as_string.return_value = (
-            b"ZOMBIE:2026-01-01T00:00:00:failed-to-self-delete"
-        )
+        mock_blob.download_as_string.return_value = b"ZOMBIE:2026-01-01T00:00:00:failed-to-self-delete"
         mock_bucket = MagicMock()
         mock_bucket.blob.return_value = mock_blob
         mock_storage = MagicMock()

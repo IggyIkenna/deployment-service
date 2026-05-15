@@ -225,9 +225,7 @@ class TestShardCalculatorDateRangeDimensions:
 class TestShardCalculatorHierarchicalDimensions:
     """Tests for hierarchical dimension handling."""
 
-    def test_hierarchical_venues_cefi(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_venues_cefi(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test hierarchical venues for CEFI category."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -250,9 +248,7 @@ class TestShardCalculatorHierarchicalDimensions:
         # Should NOT include TRADFI venues
         assert "CME" not in venues
 
-    def test_hierarchical_venues_tradfi(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_venues_tradfi(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test hierarchical venues for TRADFI category."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -274,9 +270,7 @@ class TestShardCalculatorHierarchicalDimensions:
         # Should NOT include CEFI venues
         assert "BINANCE-SPOT" not in venues
 
-    def test_hierarchical_with_venue_filter(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_with_venue_filter(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test filtering hierarchical dimension."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -329,13 +323,9 @@ class TestShardCalculatorGCSDynamicDimensions:
 
         # Should have shards for each config file (2 cefi configs * 1 day)
         configs = {s.dimensions.get("config") for s in shards if s.dimensions.get("config")}
-        assert (
-            "gs://test-configs-cefi/grid_configs/btc_momentum.json" in configs or len(configs) == 0
-        )
+        assert "gs://test-configs-cefi/grid_configs/btc_momentum.json" in configs or len(configs) == 0
 
-    def test_gcs_dynamic_empty_bucket(
-        self, temp_config_dir, gcs_dynamic_service_config, mock_env_vars
-    ):
+    def test_gcs_dynamic_empty_bucket(self, temp_config_dir, gcs_dynamic_service_config, mock_env_vars):
         """Test handling of empty GCS bucket."""
         with open(temp_config_dir / "sharding.gcs-dynamic-test-service.yaml", "w") as f:
             yaml.dump(gcs_dynamic_service_config, f)
@@ -505,9 +495,7 @@ class TestVenueStartDateFiltering:
 
         # All dates should be >= 2024-01-05
         for date_str in dates:
-            assert date_str >= "2024-01-05", (
-                f"Found shard for {date_str} which is before venue start date"
-            )
+            assert date_str >= "2024-01-05", f"Found shard for {date_str} which is before venue start date"
 
     def test_ignore_start_dates_includes_all_combinations(
         self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
@@ -573,9 +561,7 @@ class TestVenueStartDateFiltering:
         assert "BINANCE-SPOT" in venues_in_shards
         assert "DERIBIT" in venues_in_shards
 
-    def test_category_start_date_fallback(
-        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
-    ):
+    def test_category_start_date_fallback(self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars):
         """Test that category start date is used when venue start date is not configured."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
 
@@ -593,13 +579,9 @@ class TestVenueStartDateFiltering:
         # All dates should be >= 2024-01-03
         for s in shards:
             date_start = s.dimensions["date"]["start"]
-            assert date_start >= "2024-01-03", (
-                f"Found shard for {date_start} which is before venue start date"
-            )
+            assert date_start >= "2024-01-03", f"Found shard for {date_start} which is before venue start date"
 
-    def test_no_start_dates_configured_includes_all(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_no_start_dates_configured_includes_all(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test that when no expected_start_dates.yaml exists, all shards are included."""
         # Create service config without expected_start_dates.yaml
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
@@ -678,9 +660,7 @@ class TestAsymmetricVenueCounts:
         assert len(cefi_venues) == 3, f"Expected 3 CEFI venues, got {cefi_venues}"
         assert len(tradfi_venues) == 2, f"Expected 2 TRADFI venues, got {tradfi_venues}"
 
-    def test_total_shards_calculation_with_asymmetric_venues(
-        self, temp_config_with_start_dates, mock_env_vars
-    ):
+    def test_total_shards_calculation_with_asymmetric_venues(self, temp_config_with_start_dates, mock_env_vars):
         """Test that total shard count correctly reflects asymmetric venue counts.
 
         For a single day after all venues launched:
@@ -752,9 +732,7 @@ class TestSkipExistingFilter:
 
         return config_dir
 
-    def test_skip_existing_false_returns_all_shards(
-        self, temp_config_for_skip_existing, mock_env_vars
-    ):
+    def test_skip_existing_false_returns_all_shards(self, temp_config_for_skip_existing, mock_env_vars):
         """Test that skip_existing=False returns all shards."""
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 
@@ -799,9 +777,7 @@ class TestSkipExistingFilter:
         # calculate_shards returns all shards regardless — 3 dates x 2 categories = 6
         assert len(shards) == 6
 
-    def test_skip_existing_parameter_in_signature(
-        self, temp_config_for_skip_existing, mock_env_vars
-    ):
+    def test_skip_existing_parameter_in_signature(self, temp_config_for_skip_existing, mock_env_vars):
         """Test that skip_existing parameter is accepted by calculate_shards."""
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 
@@ -905,9 +881,7 @@ class TestExcludeDatesDeploymentFiltering:
         assert len(filtered_shards) == 3
 
         # Verify correct shards remain
-        remaining = [
-            (s.dimensions["asset_group"], s.dimensions["date"]["start"]) for s in filtered_shards
-        ]
+        remaining = [(s.dimensions["asset_group"], s.dimensions["date"]["start"]) for s in filtered_shards]
         assert ("CEFI", "2024-01-04") in remaining
         assert ("CEFI", "2024-01-05") in remaining
         assert ("DEFI", "2024-01-02") in remaining

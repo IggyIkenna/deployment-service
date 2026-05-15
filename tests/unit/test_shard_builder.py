@@ -226,9 +226,7 @@ class TestBuildShardArgsExtras:
     def test_extra_args_string_split(self):
         shard = _make_shard_dict({})
         config = _simple_config()
-        result = build_shard_args(
-            shard, config, extra_options={"extra_args": "--verbose --retry 3"}
-        )
+        result = build_shard_args(shard, config, extra_options={"extra_args": "--verbose --retry 3"})
         assert "--verbose" in result
         assert "--retry" in result
         assert "3" in result
@@ -451,9 +449,7 @@ class TestBuildStorageEnvVars:
         loader = self._mock_loader("features-delta-one-cefi-staging-myproject")
         with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
             result = build_storage_env_vars("features-delta-one-service", {"asset_group": "CEFI"})
-        assert result == {
-            "FEATURES_DELTA_ONE_CEFI_GCS_BUCKET": "features-delta-one-cefi-staging-myproject"
-        }
+        assert result == {"FEATURES_DELTA_ONE_CEFI_GCS_BUCKET": "features-delta-one-cefi-staging-myproject"}
         loader.get_bucket_name.assert_called_once_with("features-delta-one", "CEFI")
 
     @pytest.mark.unit

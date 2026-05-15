@@ -147,9 +147,7 @@ class TestBuildCluterPlanIntegration:
     just assert the orchestrator wires subscription → plan correctly.
     """
 
-    def test_premium_subscription_produces_isolated_exec_strategy_pbm_risk(
-        self, tmp_path: Path
-    ) -> None:
+    def test_premium_subscription_produces_isolated_exec_strategy_pbm_risk(self, tmp_path: Path) -> None:
         sub = ClientSubscription(
             client_id="client_alpha",
             sla_tier=SLATier.PREMIUM,

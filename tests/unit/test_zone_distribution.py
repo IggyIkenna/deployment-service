@@ -16,12 +16,8 @@ def _make_vm_backend(**kwargs):
     """Create a VMBackend with mocked GCP auth to avoid credential errors in unit tests."""
     with (
         patch("deployment_service.backends.services.vm_config.get_images_client") as mock_images,
-        patch(
-            "deployment_service.backends.services.vm_lifecycle.get_instances_client"
-        ) as mock_instances,
-        patch(
-            "deployment_service.backends.services.vm_monitoring.get_instances_client"
-        ) as mock_monitoring_instances,
+        patch("deployment_service.backends.services.vm_lifecycle.get_instances_client") as mock_instances,
+        patch("deployment_service.backends.services.vm_monitoring.get_instances_client") as mock_monitoring_instances,
         patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}),
     ):
         mock_images.return_value = MagicMock()

@@ -69,9 +69,7 @@ def build_shard_args(
     # Support both object.dimensions and dict["dimensions"] access
     dimensions = cast(
         dict[str, object],
-        getattr(shard, "dimensions", None)
-        or cast(dict[str, object], shard).get("dimensions")
-        or {},
+        getattr(shard, "dimensions", None) or cast(dict[str, object], shard).get("dimensions") or {},
     )
 
     for dim_name, dim_value in dimensions.items():
@@ -196,9 +194,7 @@ def build_shard_id(shard: object, index: int) -> str:
     # Support both object.dimensions and dict["dimensions"] access
     dimensions = cast(
         dict[str, object],
-        getattr(shard, "dimensions", None)
-        or cast(dict[str, object], shard).get("dimensions")
-        or {},
+        getattr(shard, "dimensions", None) or cast(dict[str, object], shard).get("dimensions") or {},
     )
 
     parts = []

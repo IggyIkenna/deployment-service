@@ -183,9 +183,7 @@ class ShardCombinatoricsGenerator:
 
         if has_venue_dim:
             for ag in ag_values:
-                categories_dict = _cast(
-                    dict[str, dict[str, object]], venues_config.get("categories") or {}
-                )
+                categories_dict = _cast(dict[str, dict[str, object]], venues_config.get("categories") or {})
                 ag_row = categories_dict.get(str(ag)) or {}
                 venues = _cast(list[object], ag_row.get("venues") or [])
                 for venue in venues:

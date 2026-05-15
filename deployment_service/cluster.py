@@ -766,9 +766,7 @@ class ClusterOrchestrator:
                 result.success = True
                 result.jobs_completed = 1
             else:
-                result.error_message = (
-                    completed.stderr[:500] if completed.stderr else "Non-zero exit"
-                )
+                result.error_message = completed.stderr[:500] if completed.stderr else "Non-zero exit"
                 result.jobs_failed = 1
 
         except subprocess.TimeoutExpired:

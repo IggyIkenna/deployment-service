@@ -148,9 +148,7 @@ class CalculationHandler:
         else:
             raise click.ClickException(f"Unknown output format: {output_format}")
 
-    def _output_table(
-        self, shards: list[dict[str, object]], summary: dict[str, object], dry_run: bool
-    ) -> None:
+    def _output_table(self, shards: list[dict[str, object]], summary: dict[str, object], dry_run: bool) -> None:
         """Output results in table format.
 
         Args:

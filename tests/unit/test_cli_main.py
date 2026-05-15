@@ -154,9 +154,7 @@ class TestCliGroup:
             patch(_PATCH_TRACING),
             patch(_PATCH_GRACEFUL),
         ):
-            result = runner.invoke(
-                cli, ["--config-dir", str(tmp_path), "--cloud", "aws", "list-services"]
-            )
+            result = runner.invoke(cli, ["--config-dir", str(tmp_path), "--cloud", "aws", "list-services"])
         # May fail at list-services level (no configs), not at option-parsing level.
         assert result.exit_code in (0, 1)
 

@@ -425,9 +425,7 @@ def test_build_storage_path_variables_uses_provided() -> None:
 
 @pytest.mark.unit
 def test_build_storage_path_variables_extra_vars() -> None:
-    variables = build_storage_path_variables(
-        project_id="proj", region="us-central1", service="instruments"
-    )
+    variables = build_storage_path_variables(project_id="proj", region="us-central1", service="instruments")
     assert variables["service"] == "instruments"
     assert variables["service_lower"] == "instruments"
 

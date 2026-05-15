@@ -23,9 +23,7 @@ from deployment_service.shard_calculator import (
 class TestShardLimitExceeded:
     """Tests for shard limit enforcement."""
 
-    def test_exceeds_max_shards(
-        self, temp_config_with_service, mock_env_vars, shard_limit_test_cases
-    ):
+    def test_exceeds_max_shards(self, temp_config_with_service, mock_env_vars, shard_limit_test_cases):
         """Test that exceeding max_shards raises exception."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
@@ -44,16 +42,12 @@ class TestShardLimitExceeded:
         assert exc_info.value.max_shards == test_case["max_shards"]
         assert "breakdown" in str(exc_info.value)
 
-    def test_exactly_at_max_shards(
-        self, temp_config_with_service, mock_env_vars, shard_limit_test_cases
-    ):
+    def test_exactly_at_max_shards(self, temp_config_with_service, mock_env_vars, shard_limit_test_cases):
         """Test that exactly max_shards is allowed."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
         # Find a test case that should pass at exactly the limit
-        test_case = next(
-            case for case in shard_limit_test_cases if case["name"] == "exactly_at_limit"
-        )
+        test_case = next(case for case in shard_limit_test_cases if case["name"] == "exactly_at_limit")
 
         shards = calculator.calculate_shards(
             service="test-service",
@@ -64,9 +58,7 @@ class TestShardLimitExceeded:
 
         assert len(shards) == test_case["max_shards"]
 
-    def test_within_limit_passes(
-        self, temp_config_with_service, mock_env_vars, shard_limit_test_cases
-    ):
+    def test_within_limit_passes(self, temp_config_with_service, mock_env_vars, shard_limit_test_cases):
         """Test that staying within limit works correctly."""
         calculator = ShardCalculator(str(temp_config_with_service))
 
@@ -193,9 +185,7 @@ class TestSkipExistingFilter:
 
         return config_dir
 
-    def test_skip_existing_false_returns_all_shards(
-        self, temp_config_for_skip_existing, mock_env_vars
-    ):
+    def test_skip_existing_false_returns_all_shards(self, temp_config_for_skip_existing, mock_env_vars):
         """Test that skip_existing=False returns all shards."""
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 
@@ -240,9 +230,7 @@ class TestSkipExistingFilter:
         # calculate_shards returns all shards regardless — 3 dates x 2 categories = 6
         assert len(shards) == 6
 
-    def test_skip_existing_parameter_in_signature(
-        self, temp_config_for_skip_existing, mock_env_vars
-    ):
+    def test_skip_existing_parameter_in_signature(self, temp_config_for_skip_existing, mock_env_vars):
         """Test that skip_existing parameter is accepted by calculate_shards."""
         calculator = ShardCalculator(str(temp_config_for_skip_existing))
 

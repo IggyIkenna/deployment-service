@@ -306,11 +306,7 @@ class TestCalculateStandaloneCommand:
                 obj=ctx_obj,
             )
         assert result.exit_code == 1
-        assert (
-            "SHARD LIMIT EXCEEDED" in result.output
-            or "99999" in result.output
-            or result.exit_code == 1
-        )
+        assert "SHARD LIMIT EXCEEDED" in result.output or "99999" in result.output or result.exit_code == 1
 
     @pytest.mark.unit
     def test_value_error_exits_1(self, tmp_path) -> None:

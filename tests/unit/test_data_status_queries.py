@@ -117,9 +117,7 @@ class TestVenueExtraction:
         for filename, expected_venue in pattern_data["examples"]:
             match = pattern.search(filename)
             assert match is not None, f"Pattern should match {filename}"
-            assert match.group(1) == expected_venue, (
-                f"Should extract {expected_venue} from {filename}"
-            )
+            assert match.group(1) == expected_venue, f"Should extract {expected_venue} from {filename}"
 
 
 class TestTimeframeExtraction:

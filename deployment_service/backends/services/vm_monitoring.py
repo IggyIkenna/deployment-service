@@ -67,9 +67,7 @@ class VMMonitoringManager:
         combined_context = {**(job_context or {}), **temp_context}
         return self.get_status(job_id, combined_context)
 
-    def get_status(
-        self, job_id: str, job_context: dict[str, tuple[str, str, str | None]] | None = None
-    ) -> JobInfo:
+    def get_status(self, job_id: str, job_context: dict[str, tuple[str, str, str | None]] | None = None) -> JobInfo:
         """
         Get the current status of a VM.
 
@@ -218,9 +216,7 @@ class VMMonitoringManager:
 
             # Log ZOMBIE status for visibility
             if status_part == "ZOMBIE":
-                logger.warning(
-                    "VM %s marked as ZOMBIE (failed to self-delete): %s", shard_id, content
-                )
+                logger.warning("VM %s marked as ZOMBIE (failed to self-delete): %s", shard_id, content)
 
             return status_part  # "SUCCESS", "FAILED", or "ZOMBIE"
         except (OSError, ValueError, KeyError):
@@ -300,9 +296,7 @@ class VMMonitoringManager:
                 error_message=str(e),
             )
 
-    def _get_zone_for_job(
-        self, job_id: str, job_context: dict[str, tuple[str, str, str | None]] | None = None
-    ) -> str:
+    def _get_zone_for_job(self, job_id: str, job_context: dict[str, tuple[str, str, str | None]] | None = None) -> str:
         """Get the zone for a job from context or try to find it."""
         if job_context and job_id in job_context:
             context = job_context[job_id]

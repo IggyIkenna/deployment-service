@@ -140,9 +140,7 @@ async def get_experiment(experiment_id: str) -> ExperimentDetail:
         metrics: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
         return ExperimentDetail(experiment_id=experiment_id, metrics=metrics)
     except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=404, detail=f"Experiment '{experiment_id}' not found"
-        ) from e
+        raise HTTPException(status_code=404, detail=f"Experiment '{experiment_id}' not found") from e
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as e:
         logger.error("get_experiment failed for %s: %s", experiment_id, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -162,9 +160,7 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
 
         # Try reading the manifest first (faster than scanning)
         try:
-            manifest_bytes = storage_client.download_bytes(
-                bucket=bucket, blob_path="model_registry/manifest.json"
-            )
+            manifest_bytes = storage_client.download_bytes(bucket=bucket, blob_path="model_registry/manifest.json")
             manifest: dict[str, object] = json.loads(manifest_bytes.decode("utf-8"))
             models_dict = manifest.get("models", {})
             if isinstance(models_dict, dict):
@@ -197,9 +193,7 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
             if len(model_ids) >= limit:
                 break
 
-        return [
-            ModelSummary(model_id=mid, latest_training_period=None) for mid in sorted(model_ids)
-        ][:limit]
+        return [ModelSummary(model_id=mid, latest_training_period=None) for mid in sorted(model_ids)][:limit]
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("list_models failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -211,9 +205,7 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
 
 
 @router.get("/models/{model_id}/metadata")
-async def get_model_metadata(
-    model_id: str, training_period: str | None = None
-) -> ModelMetadataResponse:
+async def get_model_metadata(model_id: str, training_period: str | None = None) -> ModelMetadataResponse:
     """Read metadata.json for a specific model from the ml-models-store bucket.
 
     If training_period is not specified, reads the manifest to find the latest period.
@@ -231,9 +223,7 @@ async def get_model_metadata(
                     detail=f"No training periods found for model '{model_id}'",
                 )
 
-        gcs_path = (
-            f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
-        )
+        gcs_path = f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
         metadata: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
         return ModelMetadataResponse(model_id=model_id, metadata=metadata)

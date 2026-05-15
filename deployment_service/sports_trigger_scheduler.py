@@ -46,9 +46,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class FixtureInfo(
-    TypedDict
-):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
+class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
     """Minimal fixture data read from GCS parquets."""
 
     fixture_id: str
@@ -118,9 +116,7 @@ class SportsTriggerScheduler:
         self._config = self._load_config()
         self._running = False
         self._periodic_state = (
-            periodic_state
-            if periodic_state is not None
-            else self._build_periodic_state(state_bucket)
+            periodic_state if periodic_state is not None else self._build_periodic_state(state_bucket)
         )
 
     def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
@@ -134,9 +130,7 @@ class SportsTriggerScheduler:
             bucket = state_bucket or resolve_state_bucket()
             return PeriodicTierState(bucket=bucket)
         except (OSError, ValueError, RuntimeError) as exc:
-            logger.warning(
-                "Periodic-tier state unavailable (%s) — cadence will reset on restart", exc
-            )
+            logger.warning("Periodic-tier state unavailable (%s) — cadence will reset on restart", exc)
             return None
 
     def _load_config(self) -> dict[str, object]:
@@ -214,9 +208,7 @@ class SportsTriggerScheduler:
                                     continue
 
                                 try:
-                                    kickoff = datetime.fromisoformat(
-                                        kickoff_str.replace("Z", "+00:00")
-                                    )
+                                    kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
                                 except ValueError:
                                     continue
 
@@ -501,9 +493,7 @@ class SportsTriggerScheduler:
             ag = str(svc_config.get("asset_group") or svc_config.get("category", "SPORTS"))
             description = str(svc_config.get("description", ""))
             extra_args_raw = svc_config.get("args", {})
-            extra_args: dict[str, object] = (
-                extra_args_raw if isinstance(extra_args_raw, dict) else {}
-            )
+            extra_args: dict[str, object] = extra_args_raw if isinstance(extra_args_raw, dict) else {}
 
             cmd = self._build_cli_cmd(
                 service=service,

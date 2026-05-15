@@ -359,9 +359,7 @@ class TestEC2DeployShardError:
 
 @pytest.mark.unit
 class TestEC2GetStatus:
-    def _setup_instance(
-        self, mock_client: MagicMock, state: str, tags: list[dict[str, str]] | None = None
-    ) -> None:
+    def _setup_instance(self, mock_client: MagicMock, state: str, tags: list[dict[str, str]] | None = None) -> None:
         instance: dict[str, object] = {
             "InstanceId": INSTANCE_ID,
             "State": {"Name": state},
@@ -403,9 +401,7 @@ class TestEC2GetStatus:
 
     def test_shard_id_extracted_from_tags(self) -> None:
         backend, mock_client, *_ = _make_backend()
-        self._setup_instance(
-            mock_client, "running", tags=[{"Key": "shard_id", "Value": "my-shard-42"}]
-        )
+        self._setup_instance(mock_client, "running", tags=[{"Key": "shard_id", "Value": "my-shard-42"}])
         result = backend.get_status(INSTANCE_ID)  # type: ignore[attr-defined]
         assert result.shard_id == "my-shard-42"
 

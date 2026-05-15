@@ -120,9 +120,7 @@ class TestVmPrefixRegistration:
             # Form (a): static prefix is covered by a registered key
             covered_a = any(prefix.startswith(k) for k in known_prefixes)
             # Form (b): template family — a registered key starts with our prefix
-            covered_b = prefix in self._TEMPLATE_FAMILY_PREFIXES and any(
-                k.startswith(prefix) for k in known_prefixes
-            )
+            covered_b = prefix in self._TEMPLATE_FAMILY_PREFIXES and any(k.startswith(prefix) for k in known_prefixes)
             if not covered_a and not covered_b and prefix not in _KNOWN_UNREGISTERED_PREFIXES:
                 truly_missing.append(f"{prefix!r} (from {launcher})")
 
@@ -142,13 +140,10 @@ class TestVmPrefixRegistration:
         known_unregistered: dict[str, str] = {}
         known_prefixes = tuple(_VM_PREFIX_TO_BUCKET.keys())
         # If any known-unregistered prefix is NOW registered, it should be removed from the list.
-        newly_registered = [
-            p for p in known_unregistered if any(p.startswith(k) for k in known_prefixes)
-        ]
+        newly_registered = [p for p in known_unregistered if any(p.startswith(k) for k in known_prefixes)]
         assert not newly_registered, (
             "These prefixes are now registered in VM_PREFIX_TO_BUCKET — "
-            "remove them from _KNOWN_UNREGISTERED_PREFIXES:\n"
-            + "\n".join(f"  {p!r}" for p in newly_registered)
+            "remove them from _KNOWN_UNREGISTERED_PREFIXES:\n" + "\n".join(f"  {p!r}" for p in newly_registered)
         )
 
     def test_vm_prefix_to_bucket_has_entries(self) -> None:
@@ -296,9 +291,7 @@ class TestShellcheckClean:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, (
-            f"shellcheck errors in {script.name}:\n{result.stdout}\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"shellcheck errors in {script.name}:\n{result.stdout}\n{result.stderr}"
 
 
 # ── per-prefix idle thresholds ────────────────────────────────────────────────
@@ -315,41 +308,31 @@ class TestPerPrefixIdleThresholds:
 
     def test_live_service_prefix_gets_longer_threshold(self) -> None:
         """Live-service VMs (mtds-live-*) use 240-min shard tolerance vs 120-min global."""
-        hb, shard = _resolve_idle_thresholds(
-            "mtds-live-cefi-20260515-123456", self._GLOBAL_HB, self._GLOBAL_SHARD
-        )
+        hb, shard = _resolve_idle_thresholds("mtds-live-cefi-20260515-123456", self._GLOBAL_HB, self._GLOBAL_SHARD)
         assert hb == 30.0
         assert shard == 240.0
 
     def test_backfill_prefix_gets_shorter_threshold(self) -> None:
         """Short-job VMs (af-backfill-*) use 60-min shard tolerance vs 120-min global."""
-        hb, shard = _resolve_idle_thresholds(
-            "af-backfill-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD
-        )
+        hb, shard = _resolve_idle_thresholds("af-backfill-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD)
         assert hb == 10.0
         assert shard == 60.0
 
     def test_unknown_prefix_returns_global(self) -> None:
         """VMs with no matching prefix fall back to the supplied global thresholds."""
-        hb, shard = _resolve_idle_thresholds(
-            "some-unknown-vm-20260515", self._GLOBAL_HB, self._GLOBAL_SHARD
-        )
+        hb, shard = _resolve_idle_thresholds("some-unknown-vm-20260515", self._GLOBAL_HB, self._GLOBAL_SHARD)
         assert hb == self._GLOBAL_HB
         assert shard == self._GLOBAL_SHARD
 
     def test_longest_prefix_wins_on_ambiguity(self) -> None:
         """When multiple prefixes match, the longest one wins."""
         # af-backfill- (11 chars) beats af- (3 chars) — both are in PREFIX_IDLE_THRESHOLDS
-        hb, shard = _resolve_idle_thresholds(
-            "af-backfill-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD
-        )
+        hb, shard = _resolve_idle_thresholds("af-backfill-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD)
         af_backfill_hb, af_backfill_shard = _PREFIX_IDLE_THRESHOLDS["af-backfill-"]
         assert hb == af_backfill_hb and shard == af_backfill_shard
 
     def test_prefix_thresholds_dict_non_empty(self) -> None:
-        assert len(_PREFIX_IDLE_THRESHOLDS) >= 5, (
-            "Expected at least 5 per-prefix threshold overrides"
-        )
+        assert len(_PREFIX_IDLE_THRESHOLDS) >= 5, "Expected at least 5 per-prefix threshold overrides"
 
     def test_all_prefix_thresholds_are_positive(self) -> None:
         for prefix, (hb, shard) in _PREFIX_IDLE_THRESHOLDS.items():

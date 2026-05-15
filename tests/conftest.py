@@ -46,9 +46,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def mock_secret_client(monkeypatch):
     """Prevent real secret access in all unit tests."""
     mock = MagicMock(return_value="fake-secret-value")
-    monkeypatch.setattr(
-        "unified_trading_library.cloud_interface.get_secret_client", lambda *a, **kw: mock
-    )
+    monkeypatch.setattr("unified_trading_library.cloud_interface.get_secret_client", lambda *a, **kw: mock)
     return mock
 
 
@@ -375,9 +373,7 @@ def expected_start_dates_config():
 
 
 @pytest.fixture
-def temp_config_with_start_dates(
-    temp_config_dir, hierarchical_service_config, expected_start_dates_config
-):
+def temp_config_with_start_dates(temp_config_dir, hierarchical_service_config, expected_start_dates_config):
     """Create a temp config dir with service config and expected_start_dates.yaml."""
     # Write the service config
     with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:

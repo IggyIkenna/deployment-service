@@ -92,8 +92,7 @@ def _load_fixture_calendar(
 
     with ThreadPoolExecutor(max_workers=min(max_workers, len(date_strings))) as executor:
         futures = {
-            executor.submit(_load_fixture_counts_for_date, cloud_client, bucket_name, d): d
-            for d in date_strings
+            executor.submit(_load_fixture_counts_for_date, cloud_client, bucket_name, d): d for d in date_strings
         }
         for future in as_completed(futures):
             date_str = futures[future]
@@ -136,8 +135,7 @@ def display_sports_league_breakdown(
     click.echo()
     click.echo(f"SPORTS LEAGUE BREAKDOWN: {click.style(service, fg='cyan', bold=True)}")
     click.echo(
-        f"Date Range: {start_date.strftime('%Y-%m-%d')} to"
-        f" {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
+        f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
     )
     click.echo("=" * 70)
     click.echo()
@@ -384,9 +382,7 @@ def _display_json(
         "start_date": start_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
         "denominator": "fixture_count",
-        "overall_completion": round(
-            (total_actual / total_expected * 100) if total_expected > 0 else 100.0, 1
-        ),
+        "overall_completion": round((total_actual / total_expected * 100) if total_expected > 0 else 100.0, 1),
         "overall_expected": total_expected,
         "overall_actual": total_actual,
         "leagues": leagues_json,

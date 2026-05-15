@@ -97,7 +97,12 @@ class TestCleanupNameVersioned:
 
     def test_no_sha_entries_are_skipped(self) -> None:
         simple_entries = [
-            {"gcs_path": "gs://bucket/code/svc-code.tar.gz", "service": "svc", "mtime": datetime.now(UTC), "has_sha": False}
+            {
+                "gcs_path": "gs://bucket/code/svc-code.tar.gz",
+                "service": "svc",
+                "mtime": datetime.now(UTC),
+                "has_sha": False,
+            }
         ]
         with (
             patch("cleanup_old_tarballs._parse_tarballs", return_value=simple_entries),
@@ -126,9 +131,11 @@ class TestCleanupNoncurrentVersions:
         return [(datetime.now(UTC) - timedelta(hours=h), p) for p, h in paths_ages]
 
     def test_skips_live_versions(self) -> None:
-        rows = self._ls_rows([
-            ("gs://bucket/code/svc-code.tar.gz", 100),  # no # → live
-        ])
+        rows = self._ls_rows(
+            [
+                ("gs://bucket/code/svc-code.tar.gz", 100),  # no # → live
+            ]
+        )
         with (
             patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
             patch("cleanup_old_tarballs._delete_object") as mock_del,
@@ -138,9 +145,11 @@ class TestCleanupNoncurrentVersions:
         mock_del.assert_not_called()
 
     def test_skips_recent_noncurrent(self) -> None:
-        rows = self._ls_rows([
-            ("gs://bucket/code/svc-code.tar.gz#123456", 10),  # noncurrent, 10h old → within 7d
-        ])
+        rows = self._ls_rows(
+            [
+                ("gs://bucket/code/svc-code.tar.gz#123456", 10),  # noncurrent, 10h old → within 7d
+            ]
+        )
         with (
             patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
             patch("cleanup_old_tarballs._delete_object") as mock_del,
@@ -150,9 +159,11 @@ class TestCleanupNoncurrentVersions:
         mock_del.assert_not_called()
 
     def test_deletes_old_noncurrent(self) -> None:
-        rows = self._ls_rows([
-            ("gs://bucket/code/svc-code.tar.gz#123456", 24 * 10),  # 10 days old → delete
-        ])
+        rows = self._ls_rows(
+            [
+                ("gs://bucket/code/svc-code.tar.gz#123456", 24 * 10),  # 10 days old → delete
+            ]
+        )
         with (
             patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
             patch("cleanup_old_tarballs._delete_object", return_value=True) as mock_del,

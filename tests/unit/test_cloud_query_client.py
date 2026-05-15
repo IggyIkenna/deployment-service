@@ -359,9 +359,7 @@ class TestCheckVenueDataTypesDetailed:
         storage = _make_storage(mock_mode=True)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_data_types_detailed(
-            "bucket", "p/{date}/", "BINANCE", ["2024-01-01"]
-        )
+        result = qc.check_venue_data_types_detailed("bucket", "p/{date}/", "BINANCE", ["2024-01-01"])
         assert result == {}
 
     def test_data_type_extracted_from_path(self) -> None:
@@ -373,9 +371,7 @@ class TestCheckVenueDataTypesDetailed:
         storage.client.bucket.return_value = _make_bucket(blobs)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_data_types_detailed(
-            "bucket", "p/{date}/", "BINANCE", ["2024-01-05"]
-        )
+        result = qc.check_venue_data_types_detailed("bucket", "p/{date}/", "BINANCE", ["2024-01-05"])
         assert "2024-01-05" in result
         data_types = result["2024-01-05"]
         assert "trades" in data_types
@@ -388,9 +384,7 @@ class TestCheckVenueDataTypesDetailed:
         storage.client.bucket.return_value = _make_bucket(blobs)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_data_types_detailed(
-            "bucket", "p/{date}/", "BINANCE", ["2024-01-05"]
-        )
+        result = qc.check_venue_data_types_detailed("bucket", "p/{date}/", "BINANCE", ["2024-01-05"])
         data_types = result.get("2024-01-05", {})
         # No data_type= in path → classified as 'unknown'
         assert "unknown" in data_types
@@ -406,9 +400,7 @@ class TestCheckVenueDatesFast:
         storage = _make_storage(mock_mode=True)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_dates_fast(
-            "bucket", "p/{date}/", ["BINANCE", "CME"], ["2024-01-01"]
-        )
+        result = qc.check_venue_dates_fast("bucket", "p/{date}/", ["BINANCE", "CME"], ["2024-01-01"])
         assert result == {}
 
     def test_multiple_venues_and_dates(self) -> None:
@@ -420,9 +412,7 @@ class TestCheckVenueDatesFast:
         storage.client.bucket.return_value = _make_bucket(blobs)
         qc = QueryClient(storage)
 
-        result = qc.check_venue_dates_fast(
-            "bucket", "p/{date}/", ["BINANCE", "CME"], ["2024-01-05"]
-        )
+        result = qc.check_venue_dates_fast("bucket", "p/{date}/", ["BINANCE", "CME"], ["2024-01-05"])
         assert "BINANCE" in result
         assert "CME" in result
         assert result["BINANCE"]["2024-01-05"]["exists"] is True

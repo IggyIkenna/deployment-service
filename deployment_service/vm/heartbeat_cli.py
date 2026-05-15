@@ -198,9 +198,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", required=True, help="VM name")
     p.add_argument("--asset-group", required=True)
     p.add_argument("--task", required=True)
-    p.add_argument(
-        "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]
-    )
+    p.add_argument("--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"])
     p.add_argument("--start-date", required=True)
     p.add_argument("--end-date", required=True)
     p.add_argument("--log-uri", required=True, help="gs://bucket/key for the tailed log")  # noqa: gs-uri

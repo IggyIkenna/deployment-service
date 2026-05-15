@@ -59,9 +59,7 @@ def get_config_dir() -> Path:
         if parent.name == "deployment-service":
             return parent / "configs"
 
-    raise click.ClickException(
-        "Could not find configs directory. Run from deployment-service or specify --config-dir"
-    )
+    raise click.ClickException("Could not find configs directory. Run from deployment-service or specify --config-dir")
 
 
 @click.group()

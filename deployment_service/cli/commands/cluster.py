@@ -126,9 +126,7 @@ def live(ctx: click.Context):
 
 @live.command("start")
 @click.option("--service", required=True, help="Service to start in live mode")
-@click.option(
-    "--cluster", "cluster_name", default=None, help="Cluster context (auto-detected if omitted)"
-)
+@click.option("--cluster", "cluster_name", default=None, help="Cluster context (auto-detected if omitted)")
 @click.pass_context
 def live_start(ctx: click.Context, service: str, cluster_name: str | None):
     """Start a service in live mode."""
@@ -146,9 +144,7 @@ def live_stop(ctx: click.Context, service: str):
 
 
 @live.command("status")
-@click.option(
-    "--cluster", "cluster_name", default=None, help="Cluster to filter by (shows all if omitted)"
-)
+@click.option("--cluster", "cluster_name", default=None, help="Cluster to filter by (shows all if omitted)")
 @click.pass_context
 def live_status(ctx: click.Context, cluster_name: str | None):
     """Check status of live services."""

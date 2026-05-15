@@ -103,9 +103,7 @@ class LiveDeployer:
         deployment_id = f"live-{request.service}-{uuid.uuid4().hex[:8]}"
         accumulated_events: list[ShardEvent] = []
 
-        def record(
-            event_type: VMEventType, message: str, meta: dict[str, str] | None = None
-        ) -> None:
+        def record(event_type: VMEventType, message: str, meta: dict[str, str] | None = None) -> None:
             ev = ShardEvent(
                 deployment_id=deployment_id,
                 shard_id="live",
@@ -230,9 +228,7 @@ class LiveDeployer:
         """
         accumulated_events: list[ShardEvent] = []
 
-        def record(
-            event_type: VMEventType, message: str, meta: dict[str, str] | None = None
-        ) -> None:
+        def record(event_type: VMEventType, message: str, meta: dict[str, str] | None = None) -> None:
             ev = ShardEvent(
                 deployment_id=deployment_id,
                 shard_id="live",

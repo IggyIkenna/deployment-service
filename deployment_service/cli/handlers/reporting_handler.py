@@ -64,9 +64,7 @@ class ReportingHandler:
                 click.echo(f"Service filter: {service_filter}")
 
             # Generate report data
-            report_data = self._generate_report_data(
-                start_date, end_date, service_filter, include_details
-            )
+            report_data = self._generate_report_data(start_date, end_date, service_filter, include_details)
 
             # Output in requested format
             self._output_report(report_data, output_format)
@@ -209,9 +207,7 @@ class ReportingHandler:
             "status_breakdown": status_counts,
         }
 
-    def _generate_service_breakdown(
-        self, deployments: list[dict[str, object]]
-    ) -> dict[str, object]:
+    def _generate_service_breakdown(self, deployments: list[dict[str, object]]) -> dict[str, object]:
         """Generate service breakdown statistics.
 
         Args:
@@ -289,13 +285,9 @@ class ReportingHandler:
             day_stats = {
                 "date": current_date.isoformat(),
                 "total": len(day_deployments),
-                "successful": len(
-                    [d for d in day_deployments if d.get("status") in ("completed", "success")]
-                ),
+                "successful": len([d for d in day_deployments if d.get("status") in ("completed", "success")]),
                 "failed": len([d for d in day_deployments if d.get("status") == "failed"]),
-                "running": len(
-                    [d for d in day_deployments if d.get("status") in ("running", "in_progress")]
-                ),
+                "running": len([d for d in day_deployments if d.get("status") in ("running", "in_progress")]),
             }
 
             daily_stats.append(day_stats)
@@ -372,10 +364,7 @@ class ReportingHandler:
 
             for day in daily_stats:
                 if int(cast(int, day["total"])) > 0:  # Only show days with activity
-                    click.echo(
-                        f"{day['date']:<12} {day['total']:<8}"
-                        f" {day['successful']:<8} {day['failed']:<8}"
-                    )
+                    click.echo(f"{day['date']:<12} {day['total']:<8} {day['successful']:<8} {day['failed']:<8}")
 
     def _output_json_report(self, report_data: dict[str, object]) -> None:
         """Output report in JSON format.
@@ -410,9 +399,7 @@ class ReportingHandler:
         daily_stats = cast("list[dict[str, object]]", report_data["daily_statistics"])
         for day in daily_stats:
             if int(cast(int, day["total"])) > 0:
-                click.echo(
-                    f"{day['date']},{day['total']},{day['successful']},{day['failed']},{day['running']}"
-                )
+                click.echo(f"{day['date']},{day['total']},{day['successful']},{day['failed']},{day['running']}")
 
     def handle_versions(self, service: str | None = None) -> None:
         """Handle versions command.

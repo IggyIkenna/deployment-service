@@ -546,12 +546,8 @@ class TestRealDependencies:
         # batch-live-reconciliation-service comes after risk (it reads risk outputs),
         # and risk-and-exposure-service depends on position/execution chain.
         # Assert their relative ordering rather than a fixed tail element.
-        assert order.index("risk-and-exposure-service") < order.index(
-            "batch-live-reconciliation-service"
-        )
-        assert order.index("position-balance-monitor-service") < order.index(
-            "risk-and-exposure-service"
-        )
+        assert order.index("risk-and-exposure-service") < order.index("batch-live-reconciliation-service")
+        assert order.index("position-balance-monitor-service") < order.index("risk-and-exposure-service")
 
     def test_real_upstream_deps(self, real_config_dir, mock_env_vars):
         """Test real upstream dependencies."""

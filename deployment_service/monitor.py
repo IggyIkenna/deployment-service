@@ -81,15 +81,9 @@ class ServiceVersion:
             git_commit=str(data["git_commit"]),
             git_branch=str(data["git_branch"]),
             build_date=(
-                datetime.fromisoformat(str(data["build_date"]))
-                if data.get("build_date")
-                else datetime.now(UTC)
+                datetime.fromisoformat(str(data["build_date"])) if data.get("build_date") else datetime.now(UTC)
             ),
-            deployed_at=(
-                datetime.fromisoformat(str(data["deployed_at"]))
-                if data.get("deployed_at")
-                else None
-            ),
+            deployed_at=(datetime.fromisoformat(str(data["deployed_at"])) if data.get("deployed_at") else None),
         )
 
 
@@ -283,9 +277,7 @@ class DeploymentMonitor:
             asset_group=asset_group,
             dependencies_met=dep_report.required_passed,
             missing_dependencies=[
-                check.upstream_service
-                for check in dep_report.checks
-                if check.required and not check.passed
+                check.upstream_service for check in dep_report.checks if check.required and not check.passed
             ],
         )
 
@@ -393,8 +385,7 @@ class DeploymentMonitor:
             lines.append("⏳ RUNNING:")
             for service, report in running:
                 lines.append(
-                    f"   {service}: {report.completion_percent:.0f}%"
-                    f" ({report.completed}/{report.total_shards})"
+                    f"   {service}: {report.completion_percent:.0f}% ({report.completed}/{report.total_shards})"
                 )
             lines.append("")
 
@@ -507,9 +498,7 @@ class DeploymentMonitor:
             else:
                 prefix = f"deployments/{deployment_id}/shards/"
                 raw_blobs = list(bucket.list_blobs(prefix=prefix))
-                blobs = [
-                    b for b in raw_blobs if str(getattr(b, "name", "")).endswith("events.jsonl")
-                ]
+                blobs = [b for b in raw_blobs if str(getattr(b, "name", "")).endswith("events.jsonl")]
 
             for blob in blobs:
                 events.extend(self._parse_events_blob(blob))

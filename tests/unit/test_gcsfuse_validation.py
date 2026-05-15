@@ -120,17 +120,13 @@ def test_gcsfuse_buckets_in_whitelist():
 
         for bucket in gcsfuse_buckets:
             if bucket not in ALLOWED_GCSFUSE_BUCKETS:
-                violations.append(
-                    f"{service_name}: bucket '{bucket}' not in whitelist (is it safe to mount?)"
-                )
+                violations.append(f"{service_name}: bucket '{bucket}' not in whitelist (is it safe to mount?)")
 
     if violations:
         error_msg = (
             "\n\n"
             "⚠️  GCSFUSE WHITELIST WARNING\n"
-            "The following buckets are not in the whitelist:\n\n"
-            + "\n".join(f"  - {v}" for v in violations)
-            + "\n\n"
+            "The following buckets are not in the whitelist:\n\n" + "\n".join(f"  - {v}" for v in violations) + "\n\n"
             "If these buckets are small (<10k files), add them to ALLOWED_GCSFUSE_BUCKETS.\n"
             "If they are large, remove them from gcsfuse_buckets and use GCS API.\n"
         )
@@ -170,9 +166,7 @@ def test_domain_services_have_no_gcsfuse():
         gcsfuse_buckets = vm_config.get("gcsfuse_buckets", [])
 
         if gcsfuse_buckets:
-            violations.append(
-                f"{service_name}: has {len(gcsfuse_buckets)} gcsfuse_buckets (should be [])"
-            )
+            violations.append(f"{service_name}: has {len(gcsfuse_buckets)} gcsfuse_buckets (should be [])")
 
     if violations:
         error_msg = (
@@ -199,6 +193,4 @@ def test_gcsfuse_disabled_for_all_services():
         vm_config = cfg.get("compute", {}).get("vm", {})
         gcsfuse_buckets = vm_config.get("gcsfuse_buckets", [])
 
-        assert not gcsfuse_buckets, (
-            f"{service_name}: gcsfuse should be disabled (gcsfuse_buckets: [])"
-        )
+        assert not gcsfuse_buckets, f"{service_name}: gcsfuse should be disabled (gcsfuse_buckets: [])"

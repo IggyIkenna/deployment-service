@@ -151,9 +151,7 @@ class TestValidateRegionEndpoint:
         assert data["gcs_region"] == gcs_region
         assert data["cross_region"] is True
         assert data.get("warning") is not None
-        assert (
-            "cross-region egress" in data["warning"].lower() or "egress" in data["warning"].lower()
-        )
+        assert "cross-region egress" in data["warning"].lower() or "egress" in data["warning"].lower()
 
     @pytest.mark.integration
     def test_validate_region_requires_requested_region_param(self, app):

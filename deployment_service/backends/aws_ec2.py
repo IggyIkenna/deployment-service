@@ -237,9 +237,7 @@ shutdown -h now
                 )
 
             if self._instance_profile_arn:
-                launch_params["IamInstanceProfile"] = cast(
-                    object, {"Arn": self._instance_profile_arn}
-                )
+                launch_params["IamInstanceProfile"] = cast(object, {"Arn": self._instance_profile_arn})
 
             if self._key_name:
                 launch_params["KeyName"] = self._key_name
