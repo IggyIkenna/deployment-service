@@ -9,8 +9,9 @@
 # which is Ikenna/owner territory — harshkantariya@odum-research.com gets PERMISSION_DENIED).
 #
 # Terraform SSOT: deployment-service/terraform/gcp/honest_coverage_scheduler.tf
-# VM Launcher:    deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh
-#   (uploaded to GCS: gs://deployment-scripts-central-element-323112/vm/launch-measure-honest-coverage-vm.sh)
+# VM Launcher:    deployment-service/scripts/vm/launch-honest-coverage-vm.sh  (cron, --asset-group all)
+#   (uploaded to GCS: gs://deployment-scripts-central-element-323112/vm/launch-honest-coverage-vm.sh)
+# Ad-hoc:        deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh  (supports --asset-group filter)
 # Cloud Run Job:  honest-coverage-daily-launcher (CREATED 2026-05-15)
 # Plan:           plans/active/issues/honest_coverage_cron_vm_scheduling_2026_05_14.md
 #
