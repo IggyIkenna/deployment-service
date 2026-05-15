@@ -406,7 +406,7 @@ class TestZombieNotification:
 
         captured_data: list[bytes] = []
 
-        def fake_urlopen(req: object, _timeout: int = 0) -> object:
+        def fake_urlopen(req: object, **_kwargs: object) -> object:
             captured_data.append(req.data)  # type: ignore[attr-defined]
             mock_resp = MagicMock()
             mock_resp.__enter__ = lambda s: s
