@@ -857,6 +857,82 @@ DAEMON_PURPOSE_OPT_OUT: frozenset[str] = frozenset(
     }
 )
 
+# Per-prefix idle-time overrides: (heartbeat_stale_min, shard_stale_min).
+# Overrides the global --heartbeat-stale / --shard-stale CLI args for matching
+# VM name prefixes. Long-lived pipeline VMs need larger windows; fast backfills
+# can use tighter ones for quicker zombie detection.
+#
+# Lookup: sorted by prefix length descending so longer (more-specific) prefixes
+# win (e.g. "cefi-fwd-" beats "cefi-"). Uses same longest-match logic as
+# VM_PREFIX_TO_BUCKET.
+PREFIX_IDLE_THRESHOLDS: dict[str, tuple[float, float]] = {
+    # Live-pipeline VMs: long-lived continuous writers; allow wider idle window
+    "mtds-live-": (30.0, 240.0),
+    "mdps-features-live-": (30.0, 240.0),
+    "features-xc-": (30.0, 240.0),
+    "replay-": (30.0, 240.0),
+    # Forward-poll VMs: poll-loop cadence ~60s; 30min heartbeat window is safe
+    "cefi-fwd-": (30.0, 180.0),
+    "defi-fwd-": (30.0, 180.0),
+    "aster-fwd-": (30.0, 180.0),
+    "sfi-fwd-": (30.0, 180.0),
+    "footystats-fwd-": (30.0, 180.0),
+    # Fast API-football backfills: per-league row; tighter threshold
+    "af-backfill-": (10.0, 60.0),
+    "af-audit-": (10.0, 60.0),
+    "af-recover-": (10.0, 60.0),
+}
+
+
+def _resolve_idle_thresholds(
+    vm_name: str, global_hb_stale: float, global_shard_stale: float
+) -> tuple[float, float]:
+    """Return (heartbeat_stale_min, shard_stale_min) for this VM name.
+
+    Uses longest-prefix match from PREFIX_IDLE_THRESHOLDS; falls back to the
+    global CLI-arg thresholds if no override is configured.
+    """
+    for prefix, (hb, shard) in sorted(PREFIX_IDLE_THRESHOLDS.items(), key=lambda x: -len(x[0])):
+        if vm_name.startswith(prefix):
+            return hb, shard
+    return global_hb_stale, global_shard_stale
+
+
+def _send_zombie_notification(webhook_url: str, zombies: list["WatchdogVerdict"]) -> None:
+    """POST a JSON zombie-alert payload to ``webhook_url`` (e.g. Slack incoming webhook).
+
+    Silently suppresses network errors — notifications are best-effort; a failed
+    POST must never prevent the watchdog from killing zombies.
+    """
+    import json
+    import urllib.request
+
+    payload = {
+        "text": f":rotating_light: Zombie watchdog: {len(zombies)} zombie(s) detected",
+        "zombies": [
+            {
+                "vm": v.vm_name,
+                "zone": v.zone,
+                "age_min": round(v.age_minutes, 1),
+                "reason": v.verdict,
+                "heartbeat_age_min": round(v.heartbeat_age_min, 1) if v.heartbeat_age_min is not None else None,
+                "shard_age_min": round(v.shard_age_min, 1) if v.shard_age_min is not None else None,
+            }
+            for v in zombies
+        ],
+    }
+    try:
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload).encode(),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            logger.info("zombie notification sent to webhook: status=%d", resp.status)
+    except Exception as exc:
+        logger.warning("zombie notification failed (best-effort, continuing): %s", exc)
+
 
 def _is_daemon(labels: object) -> bool:
     """True if VM labels mark it as a long-lived daemon (heartbeat-watch opt-out)."""
@@ -953,6 +1029,8 @@ def _evaluate_vm(
     if age < min_age:
         return WatchdogVerdict(vm_name, zone, age, None, None, "too_young")
 
+    heartbeat_stale, shard_stale = _resolve_idle_thresholds(vm_name, heartbeat_stale, shard_stale)
+
     hb_bucket = storage_client.bucket(HEARTBEAT_BUCKET)
 
     # FIRST — check if the workload wrote an EXIT_STATUS file. If yes the
@@ -1046,6 +1124,11 @@ def main(argv: list[str]) -> int:
         ),
     )
     parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument(
+        "--notify-url",
+        default="",
+        help="Webhook URL for zombie notifications (Slack-compatible). Empty = skip.",
+    )
     args = parser.parse_args(argv)
 
     compute_client = compute_v1.InstancesClient()
@@ -1113,6 +1196,10 @@ def main(argv: list[str]) -> int:
             f"{v.shard_age_min:.0f}min" if v.shard_age_min is not None else "MISSING",
             v.verdict,
         )
+
+    notify_url: str = args.notify_url
+    if zombies and notify_url:
+        _send_zombie_notification(notify_url, zombies)
 
     if args.dry_run:
         logger.info("DRY RUN — no VMs killed")
