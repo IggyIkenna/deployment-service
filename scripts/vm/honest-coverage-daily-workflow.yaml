@@ -1,0 +1,84 @@
+# Cloud Workflow — honest-coverage-daily
+#
+# Triggered daily at 00:30 UTC by Cloud Scheduler (honest-coverage-daily trigger).
+# Launches a GCE VM that runs measure_honest_coverage.py for all asset_groups and
+# writes the result to gs://central-element-323112-honest-coverage/{date}/coverage.json.
+#
+# SA: instruments-service-cloud-run@central-element-323112.iam.gserviceaccount.com
+#   — already holds roles/compute.instanceAdmin.v1 (instruments-service workflow reuse)
+#
+# The VM self-deletes on completion (VM_SHUTDOWN_ON_COMPLETION=true → gcloud delete
+# in setup-data-pipeline-vm.sh's shutdown hook). VM name is epoch-seconds-unique so
+# daily re-runs never collide.
+#
+# SSOT: deployment-service/terraform/gcp/honest_coverage_scheduler.tf
+# Plan: plans/active/issues/honest_coverage_cron_vm_scheduling_2026_05_14.md
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - project_id: "central-element-323112"
+          - zone: "asia-northeast1-c"
+          - code_bucket: "deployment-scripts-central-element-323112"
+          - asset_group: "all"
+          - deployment_env: "prod"
+
+    - compute_vm_name:
+        assign:
+          - epoch_secs: ${string(int(sys.now()))}
+          - vm_name: ${"measure-honest-coverage-" + epoch_secs}
+
+    - create_vm:
+        call: http.post
+        args:
+          url: ${"https://compute.googleapis.com/compute/v1/projects/" + project_id + "/zones/" + zone + "/instances"}
+          auth:
+            type: OAuth2
+          body:
+            name: ${vm_name}
+            machineType: ${"zones/" + zone + "/machineTypes/e2-standard-2"}
+            disks:
+              - boot: true
+                autoDelete: true
+                initializeParams:
+                  sourceImage: "projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64"
+                  diskSizeGb: "50"
+            networkInterfaces:
+              - accessConfigs:
+                  - name: "External NAT"
+                    type: "ONE_TO_ONE_NAT"
+            serviceAccounts:
+              - email: "1060025368044-compute@developer.gserviceaccount.com"
+                scopes:
+                  - "https://www.googleapis.com/auth/cloud-platform"
+            metadata:
+              items:
+                - key: "startup-script-url"
+                  value: ${"gs://" + code_bucket + "/vm/setup-data-pipeline-vm.sh"}
+                - key: "VM_TASK"
+                  value: "measure-honest-coverage"
+                - key: "VM_SERVICE"
+                  value: "instruments_service"
+                - key: "VM_BACKFILL_CMD"
+                  value: ${"python /home/ikennaigboaka/workspace/instruments/scripts/measure_honest_coverage.py --asset-group " + asset_group}
+                - key: "VM_ASSET_GROUP"
+                  value: ${asset_group}
+                - key: "VM_NAME"
+                  value: ${vm_name}
+                - key: "DEPLOYMENT_ENV"
+                  value: ${deployment_env}
+                - key: "VM_SHUTDOWN_ON_COMPLETION"
+                  value: "true"
+            labels:
+              purpose: "measure-honest-coverage"
+              asset-group: ${asset_group}
+              env: ${deployment_env}
+        result: create_result
+
+    - return_result:
+        return:
+          vm_name: ${vm_name}
+          operation: ${create_result.body.name}
+          status: "VM_LAUNCHED"
