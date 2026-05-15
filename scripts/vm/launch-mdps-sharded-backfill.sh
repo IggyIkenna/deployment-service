@@ -41,7 +41,7 @@ set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Default e2-standard-8 (32GB) is sufficient for cefi/defi/sports/prediction.
 # TradFi options-heavy days (legacy ticks.parquet bundles with 4000+ symbols

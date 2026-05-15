@@ -56,7 +56,7 @@ MODE="${3:-dry}"  # dry | full | force
 WORKERS="${WORKERS:-16}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 

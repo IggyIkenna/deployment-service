@@ -74,7 +74,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
