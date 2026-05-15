@@ -50,6 +50,10 @@ STAGING_DIR=$(mktemp -d)
 echo "Packaging market-tick-data-service..."
 mkdir -p "${STAGING_DIR}/market-tick-data-service"
 rsync -a \
+  --include='unified_api_contracts/registry/data/' \
+  --include='unified_api_contracts/registry/data/**' \
+  --include='unified_api_contracts/canonical/domain/sports/data/' \
+  --include='unified_api_contracts/canonical/domain/sports/data/**' \
   --filter=':- .gitignore' \
   --exclude='.git' --exclude='.venv*' --exclude='__pycache__' \
   --exclude='*.egg-info' --exclude='node_modules' \

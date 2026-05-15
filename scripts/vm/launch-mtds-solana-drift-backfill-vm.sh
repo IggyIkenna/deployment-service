@@ -81,6 +81,10 @@ if ! $DRY_RUN; then
     echo "  Syncing ${repo}..."
     mkdir -p "${STAGING_DIR}/${repo}"
     rsync -a \
+      --include='unified_api_contracts/registry/data/' \
+      --include='unified_api_contracts/registry/data/**' \
+      --include='unified_api_contracts/canonical/domain/sports/data/' \
+      --include='unified_api_contracts/canonical/domain/sports/data/**' \
       --filter=':- .gitignore' \
       --exclude='.git' \
       --exclude='.venv*' \
