@@ -108,7 +108,6 @@ fi
 echo ""
 echo "=== Step 2: Uploading to GCS ==="
 GCS_TARBALL="${GCS_STAGING}/${TARBALL_NAME}"
-TICK_BUCKET_NAME="market-data-tick-defi-${PROJECT_ID}"
 
 if ! $DRY_RUN; then
   echo "  Uploading tarball..."

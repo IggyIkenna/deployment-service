@@ -202,17 +202,6 @@ METADATA_ITEMS=(
 
 METADATA_STR=$(IFS=','; echo "${METADATA_ITEMS[*]}")
 
-CREATE_CMD="gcloud compute instances create ${VM_NAME} \
-    --project=${PROJECT_ID} \
-    --zone=${ZONE} \
-    --machine-type=${MACHINE_TYPE} \
-    --boot-disk-size=${DISK_SIZE} \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --scopes=cloud-platform \
-    --metadata=${METADATA_STR} \
-    --metadata-from-file=shutdown-script=<(echo '${SHUTDOWN_SCRIPT}')"
-
 if $DRY_RUN; then
     log "[DRY RUN] Would create VM:"
     log "  Name:     ${VM_NAME}"

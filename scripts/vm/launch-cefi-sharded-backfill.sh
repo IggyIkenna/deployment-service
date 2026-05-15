@@ -170,7 +170,6 @@ SYMBOLS_UPBIT="KRW-BTC;KRW-ETH;KRW-SOL;KRW-XRP;KRW-DOGE;KRW-ADA;KRW-AVAX;KRW-LIN
 # Options venue (DERIBIT) adds options_chain to light.
 DATA_HEAVY="trades;book_snapshot_5"
 DATA_LIGHT_PERPS="derivative_ticker;liquidations;futures_chain"
-DATA_LIGHT_SPOT="trades"  # spot venues only do trades+book; everything else N/A
 DATA_LIGHT_DERIBIT="derivative_ticker;options_chain;futures_chain"
 
 # TradFi symbols. ES = S&P 500 E-mini (CME). VIX futures ticker = VX (CFE).

@@ -87,17 +87,17 @@ if $ALL_SHAPES_FLAG; then
   for s in "${SHAPES[@]}"; do
     echo ""
     echo "--- Launching shape: ${s} ---"
-    CAPTURE_FLAG=""
-    $CAPTURE && CAPTURE_FLAG="--capture"
+    EXTRA_FLAGS=()
+    $CAPTURE && EXTRA_FLAGS+=("--capture")
+    $FORCE && EXTRA_FLAGS+=("--force")
+    $DRY_RUN && EXTRA_FLAGS+=("--dry-run")
     if bash "${BASH_SOURCE[0]}" \
         --shape "${s}" \
         --zone "${ZONE}" \
         --project "${PROJECT_ID}" \
         --env "${DEPLOYMENT_ENV}" \
         --target-swaps "${TARGET_SWAPS}" \
-        ${CAPTURE_FLAG} \
-        $( $FORCE && echo "--force" ) \
-        $( $DRY_RUN && echo "--dry-run" ); then
+        "${EXTRA_FLAGS[@]}"; then
       echo "  ${s}: launched OK"
     else
       echo "  ${s}: FAILED to launch" >&2
@@ -131,7 +131,6 @@ if ! $VALID_SHAPE; then
   exit 1
 fi
 
-SHAPE_LOWER="$(echo "$SHAPE" | tr '[:upper:]' '_' | tr -d '_' | tr '[:upper:]' '[:lower:]')"
 # Normalize: UNISWAP_V3 → uniswap-v3 for VM name
 SHAPE_SLUG="${SHAPE//_/-}"
 SHAPE_SLUG="$(echo "$SHAPE_SLUG" | tr '[:upper:]' '[:lower:]')"

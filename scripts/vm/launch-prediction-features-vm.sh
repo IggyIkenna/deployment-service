@@ -58,7 +58,6 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GCS_BUCKET="gs://market-data-tick-prediction-${PROJECT_ID}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging/prediction_features"
 TARBALL_NAME="prediction_features_codebase.tar.gz"

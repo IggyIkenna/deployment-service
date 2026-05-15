@@ -17,7 +17,6 @@ ZONE="${ZONE:-us-central1-a}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-8}"
 VM_NAME="mtds-migrate-cefi-itype"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT).
