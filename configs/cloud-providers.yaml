@@ -173,6 +173,11 @@ gcp:
     # (client_reporting_pnl_attribution_mvp_2026_05_10.md Phase 2). Cross-cutting; no asset_group axis.
     # Path: gs://{pid}-client-reports/{client_id}/{archetype}/{YYYY-MM-DD}/attribution.parquet
     client-reports: "${GCP_PROJECT_ID}-client-reports"
+    # Per-client fee recognition + HWM ledger + daily statements
+    # (wallet_treasury_client_flow_2026_05_10 Phase 4.C + 5.A).
+    # Path: gs://{pid}-client-statements/{client_id}/fee_recognition/{YYYY-MM-DD}/*.parquet
+    # Consumed by: client-reporting-api /hwm-timeline (Phase 5.C2).
+    client-statements: "${GCP_PROJECT_ID}-client-statements"
     # DART manual-action audit log persistence (≥7 years retention per compliance).
     # Consumed by UAC unified_api_contracts/internal/manual_audit_paths.py BUCKET_KIND_MANUAL_AUDIT.
     # Phase 0i tail of bucket_name_ssot_canonicalisation_2026_05_10.md.
@@ -287,6 +292,8 @@ aws:
     archetype-state: "unified-trading-archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Per-client reports (mirrors GCP). Cross-cutting; no asset_group axis.
     client-reports: "unified-trading-client-reports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-client fee recognition + HWM ledger + daily statements (mirrors GCP).
+    client-statements: "unified-trading-client-statements-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # DART manual-action audit log (mirrors GCP). ≥7 years retention per compliance.
     manual-audit: "unified-trading-manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Immutable execution audit log — S3 Object Lock COMPLIANCE mode ≥7 years.
