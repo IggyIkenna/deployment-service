@@ -772,7 +772,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # relaunch the watchdog VM.
     # ------------------------------------------------------------------
     "aave-lending-rate-val-": None,  # Phase 3C lending rate validation
-    "amm-golden-": None,             # Phase 2 AMM golden-swap validation (per-shape)
+    "amm-golden-": None,  # Phase 2 AMM golden-swap validation (per-shape)
     # ------------------------------------------------------------------
     # Wallet/treasury cutover dry-run VM (Phase 9.A of
     # wallet_treasury_client_flow_2026_05_10.md). One singleton VM named
@@ -786,6 +786,19 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # After updating this dict, relaunch the watchdog VM.
     # ------------------------------------------------------------------
     "wallet-treasury-cutover-": None,
+    # ------------------------------------------------------------------
+    # Client-reporting PnL attribution cutover VM (Phase 8.A of
+    # client_reporting_pnl_attribution_mvp_2026_05_10.md). One singleton VM named
+    # `client-reporting-cutover-{ts}` runs a 24h paper-trade attribution loop:
+    # carry_staked_basis + arbitrage_price_dispersion for demo_client_001.
+    # Emits per-archetype attribution parquets + hourly invariant checks.
+    # Heartbeat-only (None) — writes to event-archive + client-reports bucket,
+    # NOT to a per-VM manifest shard. Singleton-locked.
+    # Launcher: deployment-service/scripts/vm/launch-client-reporting-cutover-vm.sh
+    # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "client-reporting-cutover-": None,
     # QG snapshot cron VM (B-018 Phase 4.A). Heartbeat-only; no manifest shard writes.
     # Launcher: deployment-service/scripts/vm/launch-qg-snapshot-vm.sh
     # Registered 2026-05-14 per CLAUDE.md "VM Naming Convention" HARD RULE.
