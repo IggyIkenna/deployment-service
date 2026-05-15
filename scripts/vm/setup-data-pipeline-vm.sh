@@ -466,36 +466,7 @@ export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
 # merges shards back into `_index/availability_index.parquet`.
 export MANIFEST_PER_VM_SHARDS="${MANIFEST_PER_VM_SHARDS:-true}"
 
-if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
-  # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
-  # deployment-service (uploaded alongside this script).
-  BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
-  BACKFILL_ARGS="--cluster ${VM_ASSET_GROUP,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
-  [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
-
-  if [[ -f "$BACKFILL_SCRIPT" ]]; then
-    log "Backtest mode: running full pipeline via backfill-cluster.sh"
-    log "  Args: $BACKFILL_ARGS"
-    nohup bash "$BACKFILL_SCRIPT" $BACKFILL_ARGS \
-      > "$LOGS/backtest-pipeline.log" 2>&1 &
-    log "Backtest pipeline launched PID: $!"
-  else
-    log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
-    # Try e2e-testing run-full-pipeline.sh as fallback
-    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_ASSET_GROUP,,}/run-full-pipeline.sh"
-    if [[ -f "$E2E_SCRIPT" ]]; then
-      nohup bash "$E2E_SCRIPT" --start-date "$VM_START_DATE" --end-date "$VM_END_DATE" \
-        > "$LOGS/backtest-pipeline.log" 2>&1 &
-      log "E2E pipeline launched PID: $!"
-    else
-      log "ERROR: No pipeline script found for asset_group $VM_ASSET_GROUP"
-    fi
-  fi
-  exit 0
-fi
-
-# Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
-# monitor any VM task from outside even when SSH is broken).
+# ── 5a. VM identity + observability setup (all task modes, including backtest) ──
 VM_NAME_SELF=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name" || echo "unknown-vm")
 GCS_LOG_DIR="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}"
 GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
@@ -520,6 +491,8 @@ else
   log "WARNING: vm_heartbeat_sidecar.sh not found in GCS — external zombie-watchdog will fall back to manifest shard staleness"
 fi
 
+# Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
+# monitor any VM task from outside even when SSH is broken).
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
@@ -568,6 +541,32 @@ _launch_with_tee() {
   fi
   log "Task launched PID: $!"
 }
+
+if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
+  # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
+  # deployment-service (uploaded alongside this script).
+  # Routes through _launch_with_tee so DEPLOYMENT_STARTED/COMPLETED/FAILED
+  # events are emitted and GCS log is streamed (fixes 2026-05-15 audit gap:
+  # original path used bare nohup + exit 0 before heartbeat setup).
+  BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
+  BACKFILL_ARGS="--cluster ${VM_ASSET_GROUP,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
+  [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
+
+  if [[ -f "$BACKFILL_SCRIPT" ]]; then
+    log "Backtest mode: running full pipeline via backfill-cluster.sh"
+    log "  Args: $BACKFILL_ARGS"
+    _launch_with_tee "bash $BACKFILL_SCRIPT $BACKFILL_ARGS" "$LOGS/backtest-pipeline.log"
+  else
+    log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
+    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_ASSET_GROUP,,}/run-full-pipeline.sh"
+    if [[ -f "$E2E_SCRIPT" ]]; then
+      _launch_with_tee "bash $E2E_SCRIPT --start-date $VM_START_DATE --end-date $VM_END_DATE" "$LOGS/backtest-pipeline.log"
+    else
+      log "ERROR: No pipeline script found for asset_group $VM_ASSET_GROUP"
+    fi
+  fi
+  exit 0  # skip generic VM_TASK routing — backtest handled above via _launch_with_tee
+fi
 
 if [[ "$VM_TASK" == "canonical-migration" ]]; then
   # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full

@@ -168,8 +168,8 @@ def _init_events() -> None:
     project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
         logger.warning("GCP_PROJECT_ID unset; falling back to mode=local (events only in stdout)")
-        from unified_trading_library import (
-            LocalFsEventSink,  # noqa: qg-inside-import — lazy import only on local fallback path
+        from unified_trading_library import (  # noqa: imports-inside-functions
+            LocalFsEventSink,
         )
 
         local_sink = LocalFsEventSink(
