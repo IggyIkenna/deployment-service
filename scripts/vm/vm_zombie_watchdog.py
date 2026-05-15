@@ -791,6 +791,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Registered 2026-05-14 per CLAUDE.md "VM Naming Convention" HARD RULE.
     # After updating this dict, relaunch the watchdog VM.
     "qg-snapshot-": None,
+    # Honest-coverage cron VM (B-018 Phase 8.A). Heartbeat-only; output is project-level JSON,
+    # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
+    # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "honest-coverage-": None,
 }
 
 
