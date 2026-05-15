@@ -106,7 +106,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 BOOT_DISK_GB="100"  # feature parquet + model artefacts can be 10-30 GB per run
 

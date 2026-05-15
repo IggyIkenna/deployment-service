@@ -96,7 +96,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Mode validation ─────────────────────────────────────────────────────
 if [[ -n "$CHUNKS" && "$COORDINATE" == "true" ]]; then

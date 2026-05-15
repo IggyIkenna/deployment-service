@@ -156,7 +156,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Singleton lock: API-Football rate-limits per-key ──
 # Catches both af-backfill-* (this script) and af-audit-* (truth-set audit

@@ -117,7 +117,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="weather-backfill-${RUN_TS}"

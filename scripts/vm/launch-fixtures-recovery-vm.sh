@@ -88,7 +88,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Singleton lock — same scope as launch-fixtures-truthset-audit-vm.sh
 # (api_football key shared between recovery + audit + backfill VMs).

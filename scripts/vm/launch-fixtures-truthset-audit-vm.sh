@@ -87,7 +87,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Singleton lock: BOTH af-backfill-* AND af-audit-* share the api_football
 # rate limit. Refuse if either is running.

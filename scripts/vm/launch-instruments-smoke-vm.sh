@@ -45,7 +45,7 @@ ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 case "$DEPLOYMENT_ENV" in
     prod|staging|dev) ;;

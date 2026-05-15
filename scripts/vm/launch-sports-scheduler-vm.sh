@@ -91,7 +91,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Singleton lock: only ONE scheduler VM at a time ──
 # Two schedulers would double-dispatch every Tier-1 / Tier-2 cycle and race
