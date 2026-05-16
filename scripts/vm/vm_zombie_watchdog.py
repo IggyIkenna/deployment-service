@@ -813,6 +813,14 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.
     # Registered 2026-05-16 per CLAUDE.md "VM Naming Convention" HARD RULE.
     "bucket-rsync-": None,
+    # Watchdog VM itself — registered for self-documentation per
+    # service_registry_drift_audit_2026_05_15.md P3 recommendation.
+    # The watchdog does NOT reap itself: see EXEMPT_LABELS at line ~861
+    # which checks `purpose=vm-zombie-watchdog` GCE label — that's the
+    # actual exemption mechanism, not this dict entry. This None entry
+    # exists so `VM_PREFIX_TO_BUCKET` is a complete + self-documenting
+    # registry of every prefix the watchdog knows about.
+    "vm-zombie-watchdog-": None,
 }
 
 
