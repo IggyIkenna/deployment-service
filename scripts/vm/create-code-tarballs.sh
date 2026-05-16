@@ -216,7 +216,12 @@ create_tarball() {
 
     if [[ ! -d "$repo_path" ]]; then
         log "SKIP $repo_dir — not found at $repo_path"
-        return 1
+        # SKIP is non-fatal: upload step uses $TMP_DIR/*.tar.gz glob which only
+        # matches actually-created tarballs. Return 0 so set -e doesn't abort
+        # the outer for-loop (features-delta-one-service / features-onchain-service
+        # were consolidated into features-service; their entries in the category
+        # arrays are historical and should not block builds for present repos).
+        return 0
     fi
 
     local tarball="$TMP_DIR/${tarball_name}.tar.gz"
