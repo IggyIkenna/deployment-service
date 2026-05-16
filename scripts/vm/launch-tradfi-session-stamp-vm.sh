@@ -57,8 +57,11 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="canonical-migration-tradfi-sessionstamp-${RUN_TS}"
 
-# Build the command to run on the VM.
-CMD="python3 scripts/migrate_tradfi_ohlcv_session_stamps.py --project ${PROJECT}"
+# Build the command to run on the VM. The canonical-migration dispatch in
+# setup-data-pipeline-vm.sh cd's into $WORKSPACE/mtds first, so `python ...`
+# resolves relative to that repo root. The setup script rewrites the leading
+# `python ` → `$VENV/bin/python ` so we just use bare `python`.
+CMD="python scripts/migrate_tradfi_ohlcv_session_stamps.py --project ${PROJECT}"
 [[ -n "$START_DATE" ]] && CMD="$CMD --start-date ${START_DATE}"
 [[ -n "$END_DATE" ]]   && CMD="$CMD --end-date ${END_DATE}"
 [[ -n "$VENUE" ]]      && CMD="$CMD --venue ${VENUE}"
@@ -72,7 +75,10 @@ fi
 
 echo "Launching $VM_NAME — $CMD"
 
-md="VM_TASK=tradfi-session-stamp"
+# Use VM_TASK=canonical-migration so setup-data-pipeline-vm.sh dispatches to the
+# same generic migration path used by launch-canonical-migration-vm.sh (cd into
+# mtds repo dir + run VM_MIGRATION_CMD verbatim via _launch_with_tee).
+md="VM_TASK=canonical-migration"
 md="${md},VM_SERVICE=market_tick_data_service"
 md="${md},VM_OPERATION=migrate-tradfi-session-stamps"
 md="${md},VM_ASSET_GROUP=TRADFI"
