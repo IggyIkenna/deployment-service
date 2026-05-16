@@ -395,14 +395,19 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   # Outside synthetic-benchmark / strategy-paper / strategy-live, only
   # `deployment` historically routes to NODEPS — preserve that by checking
   # VM_TASK so other VMs aren't affected.
-  # strategy-paper / strategy-live: same reason as synthetic-benchmark —
-  # execution-service's betfairlightweight dep declares requests<2.33.0 which
-  # conflicts with workspace canonical requests>=2.33.0. betfairlightweight is
-  # Betfair-specific and not used in DeFi strategy/execution; --no-deps installs
-  # the service modules without triggering the unsatisfiable conflict.
+  # strategy-paper / strategy-live / features-backfill: same reason as
+  # synthetic-benchmark — execution-service's betfairlightweight dep declares
+  # requests<2.33.0 which conflicts with workspace canonical requests>=2.33.0.
+  # betfairlightweight is Betfair-specific and not used in DeFi strategy /
+  # execution / features-onchain; --no-deps installs the service modules
+  # without triggering the unsatisfiable conflict.
+  # features-backfill added 2026-05-16 after attempt 4 of features-onchain
+  # DeFi VM hit the same conflict (see
+  # plans/active/issues/execution_service_betfairlightweight_requests_dep_conflict_2026_05_16.md).
   if [[ "$VM_TASK" != "synthetic-benchmark" && \
         "$VM_TASK" != "strategy-paper" && \
         "$VM_TASK" != "strategy-live" && \
+        "$VM_TASK" != "features-backfill" && \
         "$_base" != "deployment" ]]; then
     _route_to_nodeps=false
   fi
