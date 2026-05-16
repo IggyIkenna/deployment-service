@@ -187,6 +187,12 @@ declare -A SERVICE_TARBALLS=(
   ["instruments_service"]="instruments-service-code"
   ["features_sports_service"]="features-sports-service-code"
   ["features_onchain_service"]="features-onchain-service-code"
+  # features_service is the consolidated post-2026-05-08 module (features_repo_consolidation_2026_05_08.md).
+  # Without this mapping the script falls through to "install all" which pulls
+  # execution-service + e2e-testing transitive deps and hits the unsatisfiable
+  # betfairlightweight/requests resolve. Added 2026-05-16 after attempts 3-5 of
+  # features-onchain DeFi VM all failed at uv pip install with conflicting pins.
+  ["features_service"]="features-service-code"
   ["market_data_processing_service"]="market-data-processing-service-code"
   ["features_delta_one_service"]="features-delta-one-service-code"
   ["strategy_service"]="strategy-service-code"
@@ -306,6 +312,7 @@ MTDS_DEPENDENT_SERVICES=(
   "features_cross_instrument_service"
   "features_commodity_service"
   "features_sports_service"
+  "features_service"
 )
 for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
   if [[ "$VM_SERVICE" == "$dep_svc" ]]; then
@@ -395,19 +402,14 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   # Outside synthetic-benchmark / strategy-paper / strategy-live, only
   # `deployment` historically routes to NODEPS — preserve that by checking
   # VM_TASK so other VMs aren't affected.
-  # strategy-paper / strategy-live / features-backfill: same reason as
-  # synthetic-benchmark — execution-service's betfairlightweight dep declares
-  # requests<2.33.0 which conflicts with workspace canonical requests>=2.33.0.
-  # betfairlightweight is Betfair-specific and not used in DeFi strategy /
-  # execution / features-onchain; --no-deps installs the service modules
-  # without triggering the unsatisfiable conflict.
-  # features-backfill added 2026-05-16 after attempt 4 of features-onchain
-  # DeFi VM hit the same conflict (see
-  # plans/active/issues/execution_service_betfairlightweight_requests_dep_conflict_2026_05_16.md).
+  # strategy-paper / strategy-live: same reason as synthetic-benchmark —
+  # execution-service's betfairlightweight dep declares requests<2.33.0 which
+  # conflicts with workspace canonical requests>=2.33.0. betfairlightweight is
+  # Betfair-specific and not used in DeFi strategy/execution; --no-deps installs
+  # the service modules without triggering the unsatisfiable conflict.
   if [[ "$VM_TASK" != "synthetic-benchmark" && \
         "$VM_TASK" != "strategy-paper" && \
         "$VM_TASK" != "strategy-live" && \
-        "$VM_TASK" != "features-backfill" && \
         "$_base" != "deployment" ]]; then
     _route_to_nodeps=false
   fi
