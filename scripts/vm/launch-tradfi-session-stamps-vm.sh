@@ -53,8 +53,13 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="canonical-migration-tradfi-session-stamps-${RUN_TS}"
 
 # Build the migration command. Default is --dry-run via script default; full
-# mode adds --no-dry-run explicitly.
-CMD="python scripts/migrate_tradfi_ohlcv_session_stamps.py"
+# mode adds --no-dry-run explicitly. UTL's `_find_workspace_root` walks up
+# from `unified_trading_library/cloud_interface/bucket_naming.py` looking for
+# a `deployment-service/` sibling — but the VM tarball extracts deployment to
+# `$WORKSPACE/deployment/` (no `-service` suffix), so the SSOT yaml is not
+# auto-found. Override via env var.
+CMD="UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/home/ikennaigboaka/workspace/deployment/configs/cloud-providers.yaml"
+CMD="$CMD python scripts/migrate_tradfi_ohlcv_session_stamps.py"
 CMD="$CMD --project ${PROJECT}"
 CMD="$CMD --start-date ${START_DATE}"
 CMD="$CMD --end-date ${END_DATE}"
