@@ -193,20 +193,26 @@ cd execution-service
 # effect when invoked as `python3 scripts/...`).
 export PYTHONPATH="\${WORK_DIR}/execution-service:\${PYTHONPATH:-}"
 
-python3 scripts/run_lending_rate_validation.py \
-  --block-start ${BLOCK_START} \
-  --block-end ${BLOCK_END} \
-  --target-events ${TARGET_EVENTS} \
-  --output-gcs-path "${GCS_RESULTS}" \
+# Run validation. Disable set -e around the call so that a non-zero exit
+# (e.g., pass_rate < threshold → FAILED gate → sys.exit(1)) doesn't halt
+# the startup script before the self-shutdown step below.
+# Closes aave_lending_rate_val_vm_no_shutdown_2026_05_16.md root cause.
+set +e
+python3 scripts/run_lending_rate_validation.py \\
+  --block-start ${BLOCK_START} \\
+  --block-end ${BLOCK_END} \\
+  --target-events ${TARGET_EVENTS} \\
+  --output-gcs-path "${GCS_RESULTS}" \\
   --correlation-id "${CORRELATION_ID}"
-
 EXIT_CODE=\$?
+set -e
+
 echo ""
 echo "=== Validation complete: exit=\${EXIT_CODE} ==="
 date
 
-# Final log upload
-gsutil -q cp /var/log/lending-rate-validation.log \
+# Final log upload (always runs, even on validation FAILED gate)
+gsutil -q cp /var/log/lending-rate-validation.log \\
   "gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log" 2>/dev/null || true
 
 echo "Auto-shutdown in 30s..."
