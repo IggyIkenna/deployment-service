@@ -808,6 +808,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
     # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
     "honest-coverage-": None,
+    # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
+    # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
+    # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.
+    # Registered 2026-05-16 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "bucket-rsync-": None,
 }
 
 
