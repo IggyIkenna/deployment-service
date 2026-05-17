@@ -57,7 +57,10 @@ for spec in "${ICE_ROOTS[@]}"; do
         end="${shard##*:}"
         year="${start:0:4}"
         run_ts="$(date +%Y%m%d-%H%M%S)"
-        vm_name="tradfi-bf-ice-ohlcv-1m-${root,,}-${year}-${run_ts}"
+        # bash-3-compat: ${var,,} is bash 4+; macOS ships bash 3.2.
+        root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
+        root_safe="${root_lower//./-}"
+        vm_name="tradfi-bf-ice-ohlcv-1m-${root_safe}-${year}-${run_ts}"
         ohlcv_create_vm "$vm_name" "ICE" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
     done
 done

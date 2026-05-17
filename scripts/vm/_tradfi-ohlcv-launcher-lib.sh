@@ -102,7 +102,7 @@ ohlcv_create_vm() {
             --boot-disk-size="${TRADFI_OHLCV_BOOT_GB}GB" \
             --scopes=cloud-platform \
             --metadata="startup-script-url=${TRADFI_OHLCV_STARTUP},${metadata}" \
-            --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="${vm_venue,,}"
+            --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="$(echo "$vm_venue" | tr '[:upper:]' '[:lower:]')"
         echo "  VM launched: $vm_name_safe"
         sleep 3
     fi
