@@ -474,6 +474,12 @@ uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
   uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3
+  # execution_service/__init__.py eagerly imports algorithms.py which imports
+  # adaptive_twap which needs nautilus_trader. execution-service is installed
+  # --no-deps (to skip betfairlightweight/requests conflict), so nautilus_trader
+  # must be installed explicitly. Declared dep: nautilus-trader>=1.221.0,<2.0.0.
+  log "  uv pip install nautilus-trader  (execution_service adaptive_twap eager import)"
+  uv pip install --find-links "$WHEEL_CACHE" "nautilus-trader>=1.221.0,<2.0.0" 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
