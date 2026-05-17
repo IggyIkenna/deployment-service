@@ -485,6 +485,10 @@ if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # solana must be installed explicitly. Declared dep: solana>=0.36.0,<1.0.0.
   log "  uv pip install solana  (execution_service defi_execution solana_base eager import)"
   uv pip install --find-links "$WHEEL_CACHE" "solana>=0.36.0,<1.0.0" 2>&1 | tail -5
+  # solders (Solana serialization) imported at module level in solana_base, kamino,
+  # marinade, raydium, orca, jupiter. Declared dep: solders>=0.27.0,<1.0.0.
+  log "  uv pip install solders  (execution_service defi_execution Solana serialization)"
+  uv pip install --find-links "$WHEEL_CACHE" "solders>=0.27.0,<1.0.0" 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
