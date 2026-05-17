@@ -417,7 +417,7 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk e2e-testing)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   _route_to_nodeps=false
