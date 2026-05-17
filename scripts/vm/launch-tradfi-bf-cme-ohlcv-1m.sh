@@ -53,7 +53,11 @@ for spec in "${CME_ROOTS[@]}"; do
         end="${shard##*:}"
         year="${start:0:4}"
         run_ts="$(date +%Y%m%d-%H%M%S)"
-        vm_name="tradfi-bf-cme-ohlcv-1m-${root,,}-${year}-${run_ts}"
+        # bash-3-compat (${var,,} is bash 4+; macOS + many Ubuntu images ship bash 3).
+        # gcloud VM names can't contain '.' either — `ES.FUT` → `es-fut`.
+        root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
+        root_safe="${root_lower//./-}"
+        vm_name="tradfi-bf-cme-ohlcv-1m-${root_safe}-${year}-${run_ts}"
         ohlcv_create_vm "$vm_name" "CME" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
     done
 done
