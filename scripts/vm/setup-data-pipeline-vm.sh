@@ -399,10 +399,10 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
     if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
   done
-  # Outside synthetic-benchmark / strategy-paper / strategy-live / features-backfill,
-  # only `deployment` historically routes to NODEPS — preserve that by checking
+  # Outside synthetic-benchmark / strategy-paper / strategy-live, only
+  # `deployment` historically routes to NODEPS — preserve that by checking
   # VM_TASK so other VMs aren't affected.
-  # strategy-paper / strategy-live / features-backfill: same reason as synthetic-benchmark —
+  # strategy-paper / strategy-live: same reason as synthetic-benchmark —
   # execution-service's betfairlightweight dep declares requests<2.33.0 which
   # conflicts with workspace canonical requests>=2.33.0. betfairlightweight is
   # Betfair-specific and not used in DeFi strategy/execution; --no-deps installs
@@ -410,7 +410,6 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   if [[ "$VM_TASK" != "synthetic-benchmark" && \
         "$VM_TASK" != "strategy-paper" && \
         "$VM_TASK" != "strategy-live" && \
-        "$VM_TASK" != "features-backfill" && \
         "$_base" != "deployment" ]]; then
     _route_to_nodeps=false
   fi
