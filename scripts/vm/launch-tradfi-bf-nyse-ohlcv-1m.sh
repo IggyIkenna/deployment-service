@@ -30,6 +30,18 @@ if [[ "${1:-}" != *"--start-floor"* ]]; then
 fi
 ohlcv_parse_common_args "$@"
 
+# Equity venue START_FLOOR overrides shared default. Databento XNYS.PILLAR /
+# XCHI.PITCH coverage starts 2023-04-15 per UAC `VENUE_DATA_TYPE_CAPABILITIES['NYSE']`.
+# Pre-2023-04-15 year-shards trigger orchestrator's `is_venue_available()`
+# filter → "No active venues" warnings → rc=0 self-delete with 0 parquets.
+# Empirical evidence at `tradfi-bf-nyse-ohlcv-1m-2019-20260517-101526` (2-min
+# run, 365 warnings, 0 parquets). Override with `--start-floor` for vendor
+# coverage expansion.
+if [[ "$START_FLOOR" == "2019-01-01" ]]; then
+    START_FLOOR="2023-04-15"
+    echo "NYSE equity venue: START_FLOOR auto-clipped to Databento XNYS coverage floor $START_FLOOR"
+fi
+
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 UAC_DIR="${WORKSPACE_ROOT}/unified-api-contracts"
 if [[ ! -d "$UAC_DIR" ]]; then
