@@ -66,6 +66,7 @@ DRY_RUN=false
 FORCE=false
 VM_NAME=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+PREFLIGHT_WAIVE_FLAGS=""
 
 usage() {
     cat <<EOF
@@ -102,6 +103,8 @@ while [[ $# -gt 0 ]]; do
         --vm-name)       VM_NAME="$2"; shift 2 ;;
         --force)         FORCE=true; shift ;;
         --dry-run)       DRY_RUN=true; shift ;;
+        --waive-*)       PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} $1"; shift ;;
+        --skip-preflight) PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} --skip-preflight"; shift ;;
         --help|-h)       usage ;;
         *)               echo "Unknown option: $1"; usage ;;
     esac
@@ -173,6 +176,9 @@ fi
 PAPER_ARGS="--strategy ${ARCHETYPE} --tick-interval ${TICK_INTERVAL}"
 if $CONTINUOUS; then
     PAPER_ARGS="${PAPER_ARGS} --continuous"
+fi
+if [[ -n "$PREFLIGHT_WAIVE_FLAGS" ]]; then
+    PAPER_ARGS="${PAPER_ARGS}${PREFLIGHT_WAIVE_FLAGS}"
 fi
 
 # VM_BACKFILL_CMD carries the colocated_engine invocation; setup-data-pipeline-vm.sh
