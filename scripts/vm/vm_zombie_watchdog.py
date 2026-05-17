@@ -346,6 +346,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-pyth-archive-": VmPrefixSpec(
         bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),
+    # Governance proposals backfill (launch-governance-backfill-vm.sh).
+    # Writes governance_proposals data_type to market-data-tick-defi-* for
+    # Aave V3 / Compound V3 / Spark / Lido (Phase 4A defi_simulation_realism).
+    # Registered 2026-05-17 (slot-7 Phase 4D).
+    "governance-backfill-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # Pyth Hermes LST oracle_prices backfill (2023-10-01 → today).
     # Covers JitoSOL/USD, mSOL/USD, bSOL/USD, INF/USD feeds for
     # carry_staked_basis Solana leg. Singleton-locked per launcher.
