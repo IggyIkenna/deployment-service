@@ -44,6 +44,9 @@ ASSET_GROUP=""
 ALL_REPOS=false
 ML_TRAINING=false
 ALLOW_DIRTY_TARBALL=false
+TRIGGER_IMAGE_BUILDS=false
+GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
+GCP_REGION="${GCP_REGION:-asia-northeast1}"
 
 # ── Category → service repo mappings ──
 # Each category includes the full pipeline from instruments through risk.
@@ -116,6 +119,8 @@ usage() {
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
     echo "  --allow-dirty-tarball Build even if repo has uncommitted changes (audit log written)"
+    echo "  --trigger-image-builds After upload, fire async gcloud builds submit for repos with"
+    echo "                        cloudbuild.yaml (so staging image exists at promote time)"
     exit 1
 }
 
@@ -129,6 +134,7 @@ while [[ $# -gt 0 ]]; do
         --all) ALL_REPOS=true; shift ;;
         --ml-training) ML_TRAINING=true; shift ;;
         --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
+        --trigger-image-builds) TRIGGER_IMAGE_BUILDS=true; shift ;;
         --help|-h) usage ;;
         *) echo "Unknown arg: $1"; usage ;;
     esac
@@ -170,6 +176,10 @@ done
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Populated by create_tarball() for use in the async image-build trigger phase.
+# Each entry: "repo_dir:tarball_name:sha"
+IMAGE_BUILD_QUEUE=()
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
 
@@ -277,6 +287,11 @@ create_tarball() {
         "$repo_dir" "$tarball_name" "$sha" "$pyproject_version" \
         "$git_status_clean" "$created_at" "${USER:-unknown}" > "$manifest"
     log "  Manifest: ${tarball_name}@${sha}.manifest.json"
+
+    # Queue for async image-build trigger (Phase 3.3)
+    if $TRIGGER_IMAGE_BUILDS && [[ -f "$repo_path/cloudbuild.yaml" ]]; then
+        IMAGE_BUILD_QUEUE+=("${repo_dir}:${tarball_name}:${sha}")
+    fi
 }
 
 # Create tarballs
@@ -331,6 +346,7 @@ if $DRY_RUN; then
     log ""
     log "[DRY RUN] Would upload *.tar.gz + *.manifest.json to gs://$BUCKET/code/"
     log "[DRY RUN] Would upload setup script to gs://$BUCKET/vm/"
+    $TRIGGER_IMAGE_BUILDS && log "[DRY RUN] Would trigger async image builds for repos with cloudbuild.yaml"
     exit 0
 fi
 
@@ -366,3 +382,27 @@ log ""
 log "=== Done. VMs can now use: ==="
 log "  startup-script-url=gs://$BUCKET/vm/setup-data-pipeline-vm.sh"
 log "  Or SSH: gsutil cp gs://$BUCKET/vm/setup-data-pipeline-vm.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm.sh"
+
+# ── Phase 3.3: Async image-build trigger ───────────────────────────────────
+# Fires gcloud builds submit --async for repos with cloudbuild.yaml so Docker
+# images are pre-built at the commit SHA before dev→staging promotion.
+# Enabled with --trigger-image-builds; default off to avoid unintended builds.
+if $TRIGGER_IMAGE_BUILDS && [[ ${#IMAGE_BUILD_QUEUE[@]} -gt 0 ]]; then
+    log ""
+    log "Triggering async image builds (${#IMAGE_BUILD_QUEUE[@]} repos)..."
+    for entry in "${IMAGE_BUILD_QUEUE[@]}"; do
+        IFS=':' read -r repo_dir tarball_name sha <<< "$entry"
+        repo_path="$WORKSPACE_ROOT/$repo_dir"
+        tarball_gcs="gs://$BUCKET/code/${tarball_name}.tar.gz"
+        log "  Triggering image build: $repo_dir@$sha (source: $tarball_gcs)"
+        gcloud builds submit "$tarball_gcs" \
+            --config="$repo_path/cloudbuild.yaml" \
+            --substitutions="COMMIT_SHA=$sha,_TARBALL_NAME=$tarball_name" \
+            --region="$GCP_REGION" \
+            --project="$GCP_PROJECT_ID" \
+            --async \
+            2>&1 | sed 's/^/    /' \
+        || log "  WARN: cloud-build trigger failed for $repo_dir — skipping (non-fatal)"
+    done
+    log "Image builds queued asynchronously — monitor via: gcloud builds list --region=$GCP_REGION --project=$GCP_PROJECT_ID"
+fi
