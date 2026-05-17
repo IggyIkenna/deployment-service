@@ -20,6 +20,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
+# NYSE ohlcv_1m starts 2023-04-15 per UAC VENUE_DATA_TYPE_CAPABILITIES
+# (Phase 2 of tradfi_ohlcv_only_mvp_backfill_2026_05_15.md). Pre-2023-04-15
+# requests return "No active venues" warnings + 0 rows. Caller can override
+# with --start-floor for ad-hoc backfills if Databento adds earlier coverage.
+START_FLOOR_DEFAULT="2023-04-15"
+if [[ "${1:-}" != *"--start-floor"* ]]; then
+    set -- --start-floor "$START_FLOOR_DEFAULT" "$@"
+fi
 ohlcv_parse_common_args "$@"
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
