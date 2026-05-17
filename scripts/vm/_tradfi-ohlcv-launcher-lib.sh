@@ -136,26 +136,28 @@ ohlcv_year_shards() {
 }
 
 # Standard arg parser used by each wrapper. Sets globals:
-#   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR
+#   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR | FORCE_WINDOW
 ohlcv_parse_common_args() {
     FORCE=false
     DRY_RUN=false
     DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
     START_FLOOR="2019-01-01"
+    FORCE_WINDOW="true"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --force)       FORCE=true; shift ;;
-            --dry-run)     DRY_RUN=true; shift ;;
-            --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
-            --start-floor) START_FLOOR="$2"; shift 2 ;;
+            --force)            FORCE=true; shift ;;
+            --dry-run)          DRY_RUN=true; shift ;;
+            --no-force-window)  FORCE_WINDOW="false"; shift ;;
+            --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
+            --start-floor)      START_FLOOR="$2"; shift 2 ;;
             --help|-h)
                 grep '^#' "${BASH_SOURCE[1]}" | head -40
                 exit 0
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--no-force-window] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac

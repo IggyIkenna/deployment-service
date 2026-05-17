@@ -54,7 +54,7 @@ for shard in "${_shards[@]}"; do
     year="${start:0:4}"
     run_ts="$(date +%Y%m%d-%H%M%S)"
     vm_name="tradfi-bf-nasdaq-ohlcv-1m-${year}-${run_ts}"
-    ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$TICKER_LIST" "$DRY_RUN" "$DEPLOYMENT_ENV" "true"
+    ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$TICKER_LIST" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
 done
 
 echo ""
