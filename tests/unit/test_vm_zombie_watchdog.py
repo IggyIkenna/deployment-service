@@ -243,19 +243,27 @@ class TestVmPrefixSpecBucketPatterns:
     """
 
     def test_vmprefix_spec_entries_have_bucket_or_none(self) -> None:
-        """All VmPrefixSpec entries expose a .bucket attribute (str or None)."""
+        """All VmPrefixSpec entries expose a .bucket attribute (str or None).
+
+        None is valid for heartbeat-only VMs (e.g. strategy-live-, strategy-paper-,
+        defi-recursive-) that write to event-archive only and have no manifest-shard bucket.
+        """
         for key, spec in _VM_PREFIX_TO_BUCKET.items():
             if spec is None:
                 continue
             if isinstance(spec, _VmPrefixSpec):
                 bucket = spec.bucket
-                assert isinstance(bucket, str), f"{key!r}: bucket must be str, got {type(bucket)}"
+                assert bucket is None or isinstance(bucket, str), (
+                    f"{key!r}: bucket must be str or None, got {type(bucket)}"
+                )
 
     def test_no_entries_use_wrong_cloud(self) -> None:
         """No bucket name should contain 's3://' — all are GCS."""
         for key, spec in _VM_PREFIX_TO_BUCKET.items():
             if spec is None or not isinstance(spec, _VmPrefixSpec):
                 continue
+            if spec.bucket is None:
+                continue  # heartbeat-only VMs have no manifest-shard bucket
             assert "s3://" not in spec.bucket, f"{key!r}: bucket must not be S3 URI"
             assert "gs://" not in spec.bucket, f"{key!r}: bucket should be name only, not full URI"
 
@@ -265,7 +273,9 @@ class TestVmPrefixSpecBucketPatterns:
         for key, spec in _VM_PREFIX_TO_BUCKET.items():
             if spec is None or not isinstance(spec, _VmPrefixSpec):
                 continue
-            bucket: str = spec.bucket
+            bucket: str | None = spec.bucket
+            if bucket is None:
+                continue  # heartbeat-only VMs have no manifest-shard bucket
             for ag in asset_groups:
                 if f"market-data-tick-{ag}" in bucket:
                     # Must follow convention: market-data-tick-{ag}-{project_id}
