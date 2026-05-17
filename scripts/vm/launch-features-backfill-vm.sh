@@ -70,6 +70,51 @@ END_DATE="${4:-}"
 MODE="${5:-dry}"  # dry | full
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
+# DEPRECATED 2026-05-08 / hard-redirect 2026-05-17 (slot-1-main).
+# Per `plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md`
+# Phase 3 action item: redirect to the consolidated launcher rather than
+# silently invoking per-family legacy modules against stale per-family
+# tarballs. Mapping rule: legacy positional dashes → consolidated
+# `--feature-family` underscores. `calendar` legacy positional must still
+# pass `--asset-group GLOBAL` since the consolidated launcher requires
+# the flag.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONSOLIDATED="${SCRIPT_DIR}/launch-features-vm.sh"
+if [[ -x "$CONSOLIDATED" || -f "$CONSOLIDATED" ]] && [[ -n "$SERVICE_SHORT" ]] && [[ -n "$ASSET_GROUP" ]] && [[ -n "$START_DATE" ]] && [[ -n "$END_DATE" ]]; then
+    _FAMILY="${SERVICE_SHORT//-/_}"
+    _CONS_ASSET_GROUP="$ASSET_GROUP"
+    # calendar family does not take --asset-group in the per-family CLI, but
+    # the consolidated launcher's required flag is satisfied by the special
+    # sentinel GLOBAL (see launch-features-vm.sh header line 67-68).
+    if [[ "$SERVICE_SHORT" == "calendar" ]]; then
+        _CONS_ASSET_GROUP="GLOBAL"
+    fi
+    cat >&2 <<EOM
+==> [DEPRECATED] launch-features-backfill-vm.sh
+    Redirecting to consolidated launcher (Phase 8A canonical path):
+        bash launch-features-vm.sh --feature-family ${_FAMILY} --asset-group ${_CONS_ASSET_GROUP} \\
+            --start-date ${START_DATE} --end-date ${END_DATE} \\
+            --launch-mode ${MODE} --env ${DEPLOYMENT_ENV}
+    New callers should use launch-features-vm.sh directly.
+    See plans/active/features_repo_consolidation_2026_05_08.md § Phase 8A.
+
+EOM
+    exec env \
+        "FEATURE_GROUP=${FEATURE_GROUP:-ALL}" \
+        "SKIP_DEPENDENCY_CHECK=${SKIP_DEPENDENCY_CHECK:-}" \
+        "FORCE=${FORCE:-}" \
+        bash "$CONSOLIDATED" \
+            --feature-family "${_FAMILY}" \
+            --asset-group "${_CONS_ASSET_GROUP}" \
+            --start-date "${START_DATE}" \
+            --end-date "${END_DATE}" \
+            --launch-mode "${MODE}" \
+            --env "${DEPLOYMENT_ENV}"
+fi
+# If we get here, args were incomplete — fall through to the usage banner
+# (the legacy per-family code path below is unreachable in the common case;
+# it stays only as a hard-fail safety net for callers passing partial args).
+
 # Allow --env <prod|staging|dev> override (kept as a 6th positional-or-flag
 # slot for legacy callers). Shift positional args to the end if --env flag
 # is supplied via remaining tail-args.
