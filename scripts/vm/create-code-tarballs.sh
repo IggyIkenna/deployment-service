@@ -274,39 +274,17 @@ done
 # checked separately).
 if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     log ""
-    log "Pre-flight: scanning per-repo pyproject pins for mis-floored peer-repo deps..."
-    _PEER_VERSIONS=""
-    for _peer in unified-api-contracts unified-trading-library; do
-        _peer_path="$WORKSPACE_ROOT/$_peer/pyproject.toml"
-        if [[ -f "$_peer_path" ]]; then
-            _ver=$(grep -m1 '^version' "$_peer_path" | sed -E 's/^version[^"]*"([^"]+)".*/\1/')
-            _PEER_VERSIONS="${_PEER_VERSIONS}${_peer}=${_ver} "
-        fi
-    done
-    log "  Workspace peers: ${_PEER_VERSIONS}"
-    _CONFLICTS=0
-    for entry in "${CORE_REPOS[@]}" "${MERGED_EXTRA_REPOS[@]}"; do
-        # CORE_REPOS use "dir:tarball" syntax; MERGED_EXTRA is bare dir.
-        _dir="${entry%%:*}"
-        _pyproject="$WORKSPACE_ROOT/$_dir/pyproject.toml"
-        [[ -f "$_pyproject" ]] || continue
-        # Scan for too-high UAC/UTL floors (>0.1.x for UAC, >0.3.x for UTL given
-        # current workspace state). Catches the mis-floor class of bugs that
-        # killed VMs 2-5 of the B-015 chain.
-        if grep -qE 'unified-api-contracts>=0\.[2-9][0-9]?\.|unified-api-contracts>=[1-9]' "$_pyproject" 2>/dev/null; then
-            log "  WARN: $_dir pyproject pins unified-api-contracts above 0.1.x — verify against workspace peer"
-            _CONFLICTS=$((_CONFLICTS + 1))
-        fi
-        if grep -qE 'unified-trading-library>=0\.[4-9][0-9]?\.|unified-trading-library>=[1-9]' "$_pyproject" 2>/dev/null; then
-            log "  WARN: $_dir pyproject pins unified-trading-library above 0.3.x — verify against workspace peer"
-            _CONFLICTS=$((_CONFLICTS + 1))
-        fi
-    done
-    if [[ "$_CONFLICTS" -gt 0 ]]; then
-        log "  Pre-flight found $_CONFLICTS mis-floored peer-repo pin(s) — VM may hit unsatisfiable resolution."
-        log "  Fix by relaxing the offending pyproject.toml pin(s) OR set SKIP_PREFLIGHT=true to bypass."
+    log "Pre-flight: workspace-wide pyproject pin-drift audit..."
+    # Delegate to canonical workspace-wide audit (unified-trading-pm@3eb05d9b).
+    # It scans ALL peer repos dynamically (vs the prior hardcoded UAC/UTL-only
+    # check) and exits non-zero on drift. We surface output but do NOT block —
+    # VM_TASK-specific NODEPS routing in setup-data-pipeline-vm.sh covers most
+    # real cases; operator can act on the warning before re-launch.
+    _PINDRIFT_SCRIPT="$WORKSPACE_ROOT/unified-trading-pm/scripts/quality_gates/check_workspace_pyproject_pin_drift.py"
+    if [[ -f "$_PINDRIFT_SCRIPT" ]]; then
+        python3 "$_PINDRIFT_SCRIPT" 2>&1 | sed 's/^/  /' || true
     else
-        log "  Pre-flight OK: no mis-floored peer-repo pins detected."
+        log "  WARN: pin-drift script missing at $_PINDRIFT_SCRIPT — skipping pre-flight"
     fi
 fi
 
