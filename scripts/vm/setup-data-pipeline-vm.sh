@@ -480,6 +480,11 @@ if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # must be installed explicitly. Declared dep: nautilus-trader>=1.221.0,<2.0.0.
   log "  uv pip install nautilus-trader  (execution_service adaptive_twap eager import)"
   uv pip install --find-links "$WHEEL_CACHE" "nautilus-trader>=1.221.0,<2.0.0" 2>&1 | tail -5
+  # execution_service/defi_execution/protocols/solana_base.py eagerly imports
+  # solana.rpc.async_api at module load. execution-service is --no-deps so
+  # solana must be installed explicitly. Declared dep: solana>=0.36.0,<1.0.0.
+  log "  uv pip install solana  (execution_service defi_execution solana_base eager import)"
+  uv pip install --find-links "$WHEEL_CACHE" "solana>=0.36.0,<1.0.0" 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
