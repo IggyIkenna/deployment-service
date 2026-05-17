@@ -136,13 +136,14 @@ ohlcv_year_shards() {
 }
 
 # Standard arg parser used by each wrapper. Sets globals:
-#   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR | FORCE_WINDOW
+#   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR | FORCE_WINDOW | ONLY_YEAR
 ohlcv_parse_common_args() {
     FORCE=false
     DRY_RUN=false
     DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
     START_FLOOR="2019-01-01"
     FORCE_WINDOW="true"
+    ONLY_YEAR=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -151,13 +152,14 @@ ohlcv_parse_common_args() {
             --no-force-window)  FORCE_WINDOW="false"; shift ;;
             --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
             --start-floor)      START_FLOOR="$2"; shift 2 ;;
+            --year)             ONLY_YEAR="$2"; shift 2 ;;
             --help|-h)
                 grep '^#' "${BASH_SOURCE[1]}" | head -40
                 exit 0
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--no-force-window] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac
@@ -167,4 +169,27 @@ ohlcv_parse_common_args() {
         prod|staging|dev) ;;
         *) echo "ERROR: --env must be prod|staging|dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
     esac
+
+    if [[ -n "$ONLY_YEAR" ]] && ! [[ "$ONLY_YEAR" =~ ^[0-9]{4}$ ]]; then
+        echo "ERROR: --year must be a 4-digit year (got: $ONLY_YEAR)" >&2; exit 1
+    fi
+}
+
+# Filter year-shards down to a single year if ONLY_YEAR is set. Echoes the
+# (possibly-filtered) shard list. Pass the original shard string as $1.
+ohlcv_apply_year_filter() {
+    local shards="$1"
+    if [[ -z "$ONLY_YEAR" ]]; then
+        printf '%s' "$shards"
+        return
+    fi
+    local out=""
+    local IFS=';'
+    for shard in $shards; do
+        local start="${shard%%:*}"
+        if [[ "${start:0:4}" == "$ONLY_YEAR" ]]; then
+            out="${out}${out:+;}${shard}"
+        fi
+    done
+    printf '%s' "$out"
 }

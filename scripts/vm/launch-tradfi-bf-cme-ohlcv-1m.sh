@@ -43,7 +43,11 @@ declare -a CME_ROOTS=(
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
 YEAR_SHARDS="$(ohlcv_year_shards "${START_FLOOR:0:4}" "$START_FLOOR")"
+YEAR_SHARDS="$(ohlcv_apply_year_filter "$YEAR_SHARDS")"
 IFS=';' read -ra _shards <<< "$YEAR_SHARDS"
+if (( ${#_shards[@]} == 0 )); then
+    echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
+fi
 
 for spec in "${CME_ROOTS[@]}"; do
     root="${spec%%|*}"
