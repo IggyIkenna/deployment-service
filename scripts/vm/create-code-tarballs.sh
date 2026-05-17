@@ -260,6 +260,56 @@ for repo in "${MERGED_EXTRA_REPOS[@]}"; do
     create_tarball "$repo" "$tarball_name"
 done
 
+# ── Pre-flight: dep-pin conflict check ─────────────────────────────────────
+# Per plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md
+# Phase 2 action item: catch pyproject.toml dep-pin conflicts at tarball-build
+# time, before they kill a VM at uv-pip-install time. Background: 5 features-onchain
+# VMs in a row died on (risk@UAC-pin, ml-training@UTL-pin, betfair/requests,
+# e2e-testing→execution-service chain) before slot-1-main shipped each fix.
+# Each round-trip cost ~30 min (rebuild tarball + relaunch VM + wait for fail).
+# This pre-flight runs `uv pip compile --no-deps` against the canonical set
+# and surfaces unsatisfiable pins as WARNINGS (does not block upload — the
+# VM_TASK-specific NODEPS routing in setup-data-pipeline-vm.sh covers most
+# real cases). Skip with --skip-preflight (CI builds where deps already
+# checked separately).
+if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
+    log ""
+    log "Pre-flight: scanning per-repo pyproject pins for mis-floored peer-repo deps..."
+    _PEER_VERSIONS=""
+    for _peer in unified-api-contracts unified-trading-library; do
+        _peer_path="$WORKSPACE_ROOT/$_peer/pyproject.toml"
+        if [[ -f "$_peer_path" ]]; then
+            _ver=$(grep -m1 '^version' "$_peer_path" | sed -E 's/^version[^"]*"([^"]+)".*/\1/')
+            _PEER_VERSIONS="${_PEER_VERSIONS}${_peer}=${_ver} "
+        fi
+    done
+    log "  Workspace peers: ${_PEER_VERSIONS}"
+    _CONFLICTS=0
+    for entry in "${CORE_REPOS[@]}" "${MERGED_EXTRA_REPOS[@]}"; do
+        # CORE_REPOS use "dir:tarball" syntax; MERGED_EXTRA is bare dir.
+        _dir="${entry%%:*}"
+        _pyproject="$WORKSPACE_ROOT/$_dir/pyproject.toml"
+        [[ -f "$_pyproject" ]] || continue
+        # Scan for too-high UAC/UTL floors (>0.1.x for UAC, >0.3.x for UTL given
+        # current workspace state). Catches the mis-floor class of bugs that
+        # killed VMs 2-5 of the B-015 chain.
+        if grep -qE 'unified-api-contracts>=0\.[2-9][0-9]?\.|unified-api-contracts>=[1-9]' "$_pyproject" 2>/dev/null; then
+            log "  WARN: $_dir pyproject pins unified-api-contracts above 0.1.x — verify against workspace peer"
+            _CONFLICTS=$((_CONFLICTS + 1))
+        fi
+        if grep -qE 'unified-trading-library>=0\.[4-9][0-9]?\.|unified-trading-library>=[1-9]' "$_pyproject" 2>/dev/null; then
+            log "  WARN: $_dir pyproject pins unified-trading-library above 0.3.x — verify against workspace peer"
+            _CONFLICTS=$((_CONFLICTS + 1))
+        fi
+    done
+    if [[ "$_CONFLICTS" -gt 0 ]]; then
+        log "  Pre-flight found $_CONFLICTS mis-floored peer-repo pin(s) — VM may hit unsatisfiable resolution."
+        log "  Fix by relaxing the offending pyproject.toml pin(s) OR set SKIP_PREFLIGHT=true to bypass."
+    else
+        log "  Pre-flight OK: no mis-floored peer-repo pins detected."
+    fi
+fi
+
 if $DRY_RUN; then
     log ""
     log "[DRY RUN] Would upload to gs://$BUCKET/code/"
