@@ -43,6 +43,7 @@ EXTRA_REPOS=()
 ASSET_GROUP=""
 ALL_REPOS=false
 ML_TRAINING=false
+ALLOW_DIRTY_TARBALL=false
 
 # ── Category → service repo mappings ──
 # Each category includes the full pipeline from instruments through risk.
@@ -114,6 +115,7 @@ usage() {
     echo "                        (CORE + ml-training-service + features-*)"
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
+    echo "  --allow-dirty-tarball Build even if repo has uncommitted changes (audit log written)"
     exit 1
 }
 
@@ -126,6 +128,7 @@ while [[ $# -gt 0 ]]; do
         --asset-group) ASSET_GROUP="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;  # uppercase (bash3-safe)
         --all) ALL_REPOS=true; shift ;;
         --ml-training) ML_TRAINING=true; shift ;;
+        --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
         --help|-h) usage ;;
         *) echo "Unknown arg: $1"; usage ;;
     esac
@@ -224,20 +227,56 @@ create_tarball() {
         return 0
     fi
 
+    # ── Phase 3: commit-SHA + dirty-state probe ──────────────────────────────
+    local sha="unknown"
+    local git_status_clean="true"
+    if git -C "$repo_path" rev-parse HEAD &>/dev/null 2>&1; then
+        sha=$(git -C "$repo_path" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        local dirty_count
+        dirty_count=$(git -C "$repo_path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$dirty_count" -gt 0 ]]; then
+            git_status_clean="false"
+            if ! $ALLOW_DIRTY_TARBALL; then
+                log "ERROR: $repo_dir has $dirty_count uncommitted change(s). Refusing to package dirty repo."
+                log "  Use --allow-dirty-tarball to override (audit entry written to manifest)."
+                exit 1
+            fi
+            log "  WARN: $repo_dir is dirty ($dirty_count change(s)) — packaging anyway (--allow-dirty-tarball)"
+        fi
+    fi
+
+    # ── pyproject version probe ───────────────────────────────────────────────
+    local pyproject_version="unknown"
+    if [[ -f "$repo_path/pyproject.toml" ]]; then
+        pyproject_version=$(grep -E '^version = ' "$repo_path/pyproject.toml" 2>/dev/null \
+            | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "unknown")
+    fi
+
     local tarball="$TMP_DIR/${tarball_name}.tar.gz"
-    log "Creating $tarball_name.tar.gz from $repo_dir..."
+    log "Creating $tarball_name.tar.gz from $repo_dir (sha=$sha)..."
 
     if $DRY_RUN; then
         local size
         size=$(du -sh "$repo_path" 2>/dev/null | cut -f1)
-        log "  [DRY RUN] Would create tarball from $repo_dir ($size)"
+        log "  [DRY RUN] Would create tarball from $repo_dir ($size, sha=$sha, clean=$git_status_clean)"
         return 0
     fi
 
     tar czf "$tarball" -C "$repo_path" "${EXCLUDES[@]}" .
     local size
     size=$(ls -lh "$tarball" | awk '{print $5}')
-    log "  Created: $tarball_name.tar.gz ($size)"
+    log "  Created: $tarball_name.tar.gz ($size, sha=$sha)"
+
+    # ── Write sibling manifest.json (Phase 3 SHA pinning) ────────────────────
+    # Named ${tarball_name}@${sha}.manifest.json so GCS listings are human-readable
+    # and the SHA is self-evident without opening the file.
+    local manifest="$TMP_DIR/${tarball_name}@${sha}.manifest.json"
+    local created_at
+    created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    printf '{\n  "repo": "%s",\n  "tarball_name": "%s",\n  "commit_sha": "%s",\n  "pyproject_version": "%s",\n  "git_status_clean": %s,\n  "created_at": "%s",\n  "created_by": "%s"\n}\n' \
+        "$repo_dir" "$tarball_name" "$sha" "$pyproject_version" \
+        "$git_status_clean" "$created_at" "${USER:-unknown}" > "$manifest"
+    log "  Manifest: ${tarball_name}@${sha}.manifest.json"
 }
 
 # Create tarballs
@@ -290,7 +329,7 @@ fi
 
 if $DRY_RUN; then
     log ""
-    log "[DRY RUN] Would upload to gs://$BUCKET/code/"
+    log "[DRY RUN] Would upload *.tar.gz + *.manifest.json to gs://$BUCKET/code/"
     log "[DRY RUN] Would upload setup script to gs://$BUCKET/vm/"
     exit 0
 fi
@@ -299,6 +338,12 @@ fi
 log ""
 log "Uploading to gs://$BUCKET/code/..."
 gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
+
+# Upload SHA-pinned manifests (Phase 3 tarball SHA pinning)
+if ls "$TMP_DIR/"*.manifest.json &>/dev/null 2>&1; then
+    log "Uploading SHA manifests to gs://$BUCKET/code/..."
+    gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
+fi
 
 # Also upload the setup + execution wrapper scripts. Without the wrapper
 # upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,

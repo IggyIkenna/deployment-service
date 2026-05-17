@@ -337,6 +337,31 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
       tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
       log "Deployed $tarball_name → $WORKSPACE/$dir"
+
+      # ── Phase 3: manifest SHA validation ─────────────────────────────────
+      # Download the latest SHA-pinned manifest for this tarball (newest by sort).
+      # Validates commit_sha against VM_EXPECTED_SHA_<TARBALL_NAME> if set.
+      manifest_path="/tmp/${tarball_name}.manifest.json"
+      latest_manifest=$(gsutil ls "gs://${CODE_BUCKET}/code/${tarball_name}@*.manifest.json" 2>/dev/null \
+          | sort -r | head -1 || true)
+      if [[ -n "$latest_manifest" ]]; then
+          if gsutil -q cp "$latest_manifest" "$manifest_path" 2>/dev/null; then
+              deployed_sha=$(python3 -c \
+                  "import json,sys; d=json.load(open('$manifest_path')); print(d.get('commit_sha','unknown'))" \
+                  2>/dev/null || echo "unknown")
+              log "  SHA pin: $tarball_name@$deployed_sha (manifest: $latest_manifest)"
+              # Validate against expected SHA if VM metadata declares one.
+              # Variable name: VM_EXPECTED_SHA_<TARBALL_NAME_UPPER_SNAKE>
+              expected_sha_var="VM_EXPECTED_SHA_$(echo "$tarball_name" | tr '[:lower:]-' '[:upper:]_')"
+              expected_sha="${!expected_sha_var:-}"
+              if [[ -n "$expected_sha" && "$deployed_sha" != "$expected_sha" ]]; then
+                  log "ERROR: ManifestShaDriftError — $tarball_name: expected sha=$expected_sha got sha=$deployed_sha"
+                  log "  This means the GCS tarball was not built from the expected commit."
+                  log "  Re-run create-code-tarballs.sh at the expected commit and retry."
+                  exit 1
+              fi
+          fi
+      fi
     else
       log "WARNING: tarball $tarball_name not found in GCS — skipping"
     fi
