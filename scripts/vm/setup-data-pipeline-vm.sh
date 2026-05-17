@@ -420,6 +420,15 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 _SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk e2e-testing)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
+  # e2e-testing is scripts-only (run-paper.sh/run-live.sh/colocated_engine.py) — NOT
+  # a Python package to be installed. Its pyproject.toml has no [build-system] so
+  # any editable install attempt (even --no-deps) fails with setuptools discovery error.
+  # colocated_engine.py imports from strategy_service/execution_service etc. which are
+  # already installed as siblings — e2e-testing itself needs no pip install.
+  if [[ "$_base" == "e2e-testing" ]]; then
+    log "  Skipping editable install of e2e-testing (scripts-only, no build-system)"
+    continue
+  fi
   _route_to_nodeps=false
   for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
     if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
