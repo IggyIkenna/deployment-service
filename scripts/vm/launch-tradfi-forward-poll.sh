@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     *) _positional+=("$1"); shift ;;
   esac
 done
-set -- "${_positional[@]}"
+set -- "${_positional[@]+"${_positional[@]}"}"  # bash-3-safe empty-array guard under set -u
 
 case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
