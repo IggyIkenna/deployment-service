@@ -26,6 +26,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
+# Extract optional --only-root <ROOT> before passing remaining args to the
+# common parser. Allows surgical per-root rollouts to stagger load on the
+# shared GLBX.MDP3 dataset.
+ONLY_ROOT=""
+_remaining_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --only-root) ONLY_ROOT="$2"; shift 2 ;;
+        *)           _remaining_args+=("$1"); shift ;;
+    esac
+done
+set -- "${_remaining_args[@]+"${_remaining_args[@]}"}"
+
 ohlcv_parse_common_args "$@"
 
 # CME root universe (parent-symbol set). Each entry: "root|parent_symbols"
@@ -39,6 +52,21 @@ declare -a CME_ROOTS=(
     "GC|GC.FUT"
     "ES_OPT|ES.OPT;EW.OPT;EW1.OPT;EW2.OPT;EW4.OPT;E1A.OPT;E2A.OPT;E3A.OPT;E4A.OPT;E5A.OPT;EOM.OPT"
 )
+
+if [[ -n "$ONLY_ROOT" ]]; then
+    _filtered=()
+    for spec in "${CME_ROOTS[@]}"; do
+        if [[ "${spec%%|*}" == "$ONLY_ROOT" ]]; then
+            _filtered+=("$spec")
+        fi
+    done
+    if (( ${#_filtered[@]} == 0 )); then
+        echo "ERROR: --only-root '$ONLY_ROOT' does not match any CME_ROOTS entry" >&2
+        echo "Available roots: ES MES NQ MNQ CL GC ES_OPT" >&2
+        exit 1
+    fi
+    CME_ROOTS=("${_filtered[@]}")
+fi
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
