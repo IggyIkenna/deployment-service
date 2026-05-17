@@ -835,6 +835,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # exists so `VM_PREFIX_TO_BUCKET` is a complete + self-documenting
     # registry of every prefix the watchdog knows about.
     "vm-zombie-watchdog-": None,
+    # Deploy-missing auto-launch VMs (deploy_missing_auto_launch_2026_05_07.md Phase 2).
+    # VM naming: dm-{shard_key_hash16}-{YYYYMMDD-HHMMSS}. Launched by deployment-api
+    # POST /api/data-status/deploy-missing-launch for surgical per-shard backfill.
+    # bucket=None (heartbeat-only); each VM writes to its own service-specific data bucket.
+    # Registered 2026-05-17 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "dm-": None,
 }
 
 
