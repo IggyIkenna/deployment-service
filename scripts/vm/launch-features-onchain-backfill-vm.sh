@@ -71,21 +71,46 @@ EOF
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DELEGATE="${SCRIPT_DIR}/launch-features-backfill-vm.sh"
 
-if [[ ! -x "$DELEGATE" ]]; then
-    echo "ERROR: required delegate launcher not found / not executable: $DELEGATE" >&2
+# Redirect 2026-05-17 (slot-3): the prior body delegated to
+# `launch-features-backfill-vm.sh onchain DEFI ...` which sets
+# `VM_SERVICE=features_onchain_service` (legacy module name) → runs `python
+# -m features_onchain_service` against the stale `features-onchain-service-code`
+# tarball (last rebuilt 2026-05-08). After features_repo_consolidation_2026_05_08
+# Phase 8A, the canonical module is `features_service` invoked via the
+# consolidated launcher. Caused 1 wasted VM (features-onchain-defi-backfill-
+# 20260516-220052 PREFLIGHT_SKIPPED rc=1) per
+# `plans/active/issues/features_service_deprecated_launcher_wrappers_misroute_2026_05_16.md`.
+# Redirect with a deprecation warning so old callers still work but route
+# through the canonical path.
+CONSOLIDATED="${SCRIPT_DIR}/launch-features-vm.sh"
+
+if [[ ! -x "$CONSOLIDATED" ]]; then
+    echo "ERROR: consolidated launcher not found / not executable: $CONSOLIDATED" >&2
     exit 1
 fi
 
-echo "==> Delegating to $(basename "$DELEGATE") with onchain DEFI baked in"
-echo "    start=$START_DATE end=$END_DATE mode=$MODE"
+cat >&2 <<EOM
+==> [DEPRECATED] launch-features-onchain-backfill-vm.sh
+    Redirecting to consolidated launcher (Phase 8A canonical path):
+        bash launch-features-vm.sh --feature-family onchain --asset-group DEFI \\
+            --start-date $START_DATE --end-date $END_DATE \\
+            --mode batch --launch-mode $MODE
+    New callers should use launch-features-vm.sh directly.
+    See plans/active/features_repo_consolidation_2026_05_08.md § Phase 8A.
 
-# Forward env overrides explicitly so the delegate sees them in its
-# `${FEATURE_GROUP:-ALL}` / `${SKIP_DEPENDENCY_CHECK:-}` / `${FORCE:-}`
-# expansions even if shells run in a stricter inherit mode.
+EOM
+
+# Forward env overrides explicitly so the consolidated launcher's positional
+# args + env reads pick them up.
 exec env \
     "FEATURE_GROUP=${FEATURE_GROUP:-ALL}" \
     "SKIP_DEPENDENCY_CHECK=${SKIP_DEPENDENCY_CHECK:-}" \
     "FORCE=${FORCE:-}" \
-    bash "$DELEGATE" onchain DEFI "$START_DATE" "$END_DATE" "$MODE"
+    bash "$CONSOLIDATED" \
+        --feature-family onchain \
+        --asset-group DEFI \
+        --start-date "$START_DATE" \
+        --end-date "$END_DATE" \
+        --mode batch \
+        --launch-mode "$MODE"
