@@ -399,6 +399,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # `strategy-live-{archetype-slug}-{ts}`. Heartbeat-only — live VMs write
     # to event-archive only (no per-VM manifest shards).
     "strategy-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # DeFi recursive-borrow live-trading VMs (launch-defi-recursive-borrow-vm.sh;
+    # plan: defi_recursive_borrow_archetypes_2026_05_10.md Phase 13). VM name
+    # pattern: `defi-recursive-{variant-slug}-{ts}`. Heartbeat-only — live VMs
+    # write to event-archive only (no per-VM manifest shards). Singleton-locked
+    # per variant (refuses launch if same-variant VM RUNNING). Registered
+    # 2026-05-17 (slot-5 Phase 13 launcher).
+    "defi-recursive-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # Deployment dashboard VM (single instance, hardcoded name "deployment-dashboard-vm")
     # Migrated 2026-05-08 from intra-repo deployment-service/scripts/deploy-dashboard-gce-vm.sh
     # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
@@ -904,9 +911,7 @@ PREFIX_IDLE_THRESHOLDS: dict[str, tuple[float, float]] = {
 }
 
 
-def _resolve_idle_thresholds(
-    vm_name: str, global_hb_stale: float, global_shard_stale: float
-) -> tuple[float, float]:
+def _resolve_idle_thresholds(vm_name: str, global_hb_stale: float, global_shard_stale: float) -> tuple[float, float]:
     """Return (heartbeat_stale_min, shard_stale_min) for this VM name.
 
     Uses longest-prefix match from PREFIX_IDLE_THRESHOLDS; falls back to the
@@ -918,7 +923,7 @@ def _resolve_idle_thresholds(
     return global_hb_stale, global_shard_stale
 
 
-def _send_zombie_notification(webhook_url: str, zombies: list["WatchdogVerdict"]) -> None:
+def _send_zombie_notification(webhook_url: str, zombies: list[WatchdogVerdict]) -> None:
     """POST a JSON zombie-alert payload to ``webhook_url`` (e.g. Slack incoming webhook).
 
     Silently suppresses network errors — notifications are best-effort; a failed
@@ -1122,15 +1127,9 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Report zombies but do not delete.")
-    parser.add_argument(
-        "--min-age", type=float, default=15.0, help="Minimum VM age (min) before considered."
-    )
-    parser.add_argument(
-        "--heartbeat-stale", type=float, default=15.0, help="Heartbeat staleness threshold (min)."
-    )
-    parser.add_argument(
-        "--shard-stale", type=float, default=120.0, help="Manifest shard staleness fallback (min)."
-    )
+    parser.add_argument("--min-age", type=float, default=15.0, help="Minimum VM age (min) before considered.")
+    parser.add_argument("--heartbeat-stale", type=float, default=15.0, help="Heartbeat staleness threshold (min).")
+    parser.add_argument("--shard-stale", type=float, default=120.0, help="Manifest shard staleness fallback (min).")
     parser.add_argument(
         "--finished-grace",
         type=float,
