@@ -12,6 +12,7 @@ from pathlib import Path
 
 import click
 import yaml
+from typing import cast
 from unified_trading_library import (
     PATH_REGISTRY,
     UnifiedCloudConfig,
@@ -82,7 +83,7 @@ def run_t1_check(
         cluster_cfg: dict[str, object] = yaml.safe_load(fh)
 
     services: list[str] = []
-    raw_services: list[str] = cluster_cfg.get("services") or []  # type: ignore[assignment]
+    raw_services = cast("list[str]", cluster_cfg.get("services") or [])
     for svc in raw_services:
         svc_name = str(svc).split(":")[0]  # strip operational-mode suffix
         if svc_name not in services:

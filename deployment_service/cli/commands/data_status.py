@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 from datetime import datetime
+from typing import cast
 
 import click
 
@@ -473,9 +474,9 @@ def _display_manifest_results(
 
         venues_raw: object = result.get("venues", {})
         if isinstance(venues_raw, dict) and venues_raw and output == "tree":
-            venues: dict[str, object] = venues_raw  # type: ignore[assignment]
+            venues = cast("dict[str, object]", venues_raw)
             for venue_name, venue_info in venues.items():
-                v_info: dict[str, object] = venue_info  # type: ignore[assignment]
+                v_info = cast("dict[str, object]", venue_info)
                 v_pct = v_info.get("completion_percent", 0)
                 v_days = v_info.get("days_with_data", 0)
                 v_rows = v_info.get("total_rows", 0)
@@ -485,7 +486,7 @@ def _display_manifest_results(
                 )
 
         if show_missing:
-            missing: list[str] = result.get("missing_dates", [])  # type: ignore[assignment]
+            missing = cast("list[str]", result.get("missing_dates", []))
             if missing:
                 click.echo(f"    Missing: {', '.join(missing[:10])}")
                 if len(missing) > 10:
