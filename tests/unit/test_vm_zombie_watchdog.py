@@ -449,3 +449,94 @@ class TestNotifyUrlArgument:
         ns = p.parse_args(parser_argv)
         assert ns.notify_url == "https://hooks.example.com/test"
         assert ns.dry_run is True
+
+
+# ── Live-strategy VM prefix hardening (item 13) ───────────────────────────────
+
+_LifecycleClass = _mod.LifecycleClass  # type: ignore[attr-defined]
+
+
+class TestLiveStrategyVmPrefixes:
+    """strategy-paper-, strategy-live-, defi-recursive- must be registered as
+    heartbeat-only LONG_LIVED_LIVE entries.  These prefixes were added for the
+    May-23 live-defi cutover and are the primary paper/live VM families.
+    """
+
+    def test_strategy_paper_registered(self) -> None:
+        assert "strategy-paper-" in _VM_PREFIX_TO_BUCKET, (
+            "strategy-paper- missing from VM_PREFIX_TO_BUCKET (launch-strategy-paper-vm.sh)"
+        )
+
+    def test_strategy_live_registered(self) -> None:
+        assert "strategy-live-" in _VM_PREFIX_TO_BUCKET, (
+            "strategy-live- missing from VM_PREFIX_TO_BUCKET (launch-strategy-live-vm.sh)"
+        )
+
+    def test_defi_recursive_registered(self) -> None:
+        assert "defi-recursive-" in _VM_PREFIX_TO_BUCKET, (
+            "defi-recursive- missing from VM_PREFIX_TO_BUCKET (launch-defi-recursive-vm.sh)"
+        )
+
+    def test_live_strategy_vms_have_null_bucket(self) -> None:
+        """Live-strategy VMs write to event-archive only — no manifest-shard bucket."""
+        for prefix in ("strategy-paper-", "strategy-live-", "defi-recursive-"):
+            spec = _VM_PREFIX_TO_BUCKET[prefix]
+            assert isinstance(spec, _VmPrefixSpec), f"{prefix!r}: entry must be VmPrefixSpec not None"
+            assert spec.bucket is None, f"{prefix!r}: live-strategy VM must have bucket=None (heartbeat-only)"
+
+    def test_live_strategy_vms_have_long_lived_lifecycle(self) -> None:
+        """Live-strategy VMs use LONG_LIVED_LIVE lifecycle class."""
+        for prefix in ("strategy-paper-", "strategy-live-", "defi-recursive-"):
+            spec = _VM_PREFIX_TO_BUCKET[prefix]
+            assert isinstance(spec, _VmPrefixSpec)
+            assert spec.lifecycle_class == _LifecycleClass.LONG_LIVED_LIVE, (
+                f"{prefix!r}: lifecycle_class must be LONG_LIVED_LIVE, got {spec.lifecycle_class!r}"
+            )
+
+
+# ── Verdict edge cases: STARTED-but-no-progress + FAILED-but-restarting ──────
+
+
+class TestVerdictEdgeCases:
+    """WatchdogVerdict construction for edge cases not in TestWatchdogVerdict.
+
+    Tests the verdict *strings* for the STARTED-but-no-progress and
+    FAILED-but-restarting edge cases described in item 13.
+    """
+
+    def _make(
+        self,
+        verdict: str,
+        hb_age: float | None = None,
+        shard_age: float | None = None,
+        age: float = 45.0,
+    ) -> object:
+        return _WatchdogVerdict(
+            vm_name="cefi-backfill-20260515",
+            zone="asia-northeast1-a",
+            age_minutes=age,
+            heartbeat_age_min=hb_age,
+            shard_age_min=shard_age,
+            verdict=verdict,
+        )
+
+    def test_started_no_progress_is_zombie(self) -> None:
+        """STARTED-but-no-progress: no heartbeat, no shard, old VM → zombie_no_heartbeat."""
+        v = self._make("zombie_no_heartbeat", hb_age=None, shard_age=None)
+        assert "zombie" in v.verdict  # type: ignore[attr-defined]
+
+    def test_stale_shard_no_heartbeat_is_zombie(self) -> None:
+        """Shard-only fallback: no heartbeat but shard > threshold → zombie_stale_shard."""
+        v = self._make("zombie_stale_shard", hb_age=None, shard_age=200.0)
+        assert "zombie" in v.verdict  # type: ignore[attr-defined]
+
+    def test_failed_not_shutdown_is_zombie(self) -> None:
+        """FAILED-but-restarting proxy: EXIT_STATUS written, VM still RUNNING → zombie_finished_not_shutdown."""
+        v = self._make("zombie_finished_not_shutdown", hb_age=None, shard_age=None)
+        assert "zombie" in v.verdict  # type: ignore[attr-defined]
+
+    def test_recently_started_vm_is_too_young(self) -> None:
+        """VM age < 30 min must be classified too_young regardless of heartbeat state."""
+        v = self._make("too_young", hb_age=None, shard_age=None, age=5.0)
+        assert v.verdict == "too_young"  # type: ignore[attr-defined]
+        assert "zombie" not in v.verdict  # type: ignore[attr-defined]
