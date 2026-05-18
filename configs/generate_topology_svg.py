@@ -28,10 +28,6 @@ from ._topology_panels import _add_reference_panels
 
 logger = logging.getLogger(__name__)
 
-# Re-export colour palette and helpers so existing consumers of
-# this module continue to work unchanged.
-from ._topology_nodes import PLANNED_COLOR, C, panel_node, svc
-
 
 def build() -> graphviz.Digraph:
     """Build and return the full topology Digraph."""
