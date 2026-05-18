@@ -235,7 +235,7 @@ def _clean_stale_league_entries(
 
     index_path = "_index/availability_index.parquet"
     try:
-        raw = storage_client.download_bytes(bucket, index_path)  # type: ignore[union-attr]
+        raw = storage_client.download_bytes(bucket, index_path)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         df = pq.read_table(io.BytesIO(raw)).to_pandas()
     except Exception:
         return  # No existing index — nothing to clean
@@ -254,7 +254,7 @@ def _clean_stale_league_entries(
 
     buf = io.BytesIO()
     df.to_parquet(buf, index=False, coerce_timestamps="us", allow_truncated_timestamps=True)
-    storage_client.upload_bytes(bucket, index_path, buf.getvalue())  # type: ignore[union-attr]
+    storage_client.upload_bytes(bucket, index_path, buf.getvalue())  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
     logger.info(
         "Cleaned %d stale league entries from %s (kept %d)",
         removed,
@@ -270,7 +270,7 @@ def _list_blobs(
 ) -> list[str]:
     """List all blobs under a prefix, returning path strings."""
     try:
-        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]
+        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         return [b.name if hasattr(b, "name") else str(b) for b in blobs]
     except Exception:
         return []

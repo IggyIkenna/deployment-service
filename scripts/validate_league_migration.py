@@ -46,7 +46,7 @@ _PREFIXES: dict[str, list[str]] = {
 
 def _list_blobs(storage_client: object, bucket: str, prefix: str) -> list[str]:
     try:
-        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]
+        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         return [b.name if hasattr(b, "name") else str(b) for b in blobs]
     except Exception:
         return []
@@ -54,7 +54,7 @@ def _list_blobs(storage_client: object, bucket: str, prefix: str) -> list[str]:
 
 def _count_rows(storage_client: object, bucket: str, blob_path: str) -> int:
     try:
-        raw = storage_client.download_bytes(bucket, blob_path)  # type: ignore[union-attr]
+        raw = storage_client.download_bytes(bucket, blob_path)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         table = pq.read_table(io.BytesIO(raw))
         return table.num_rows
     except Exception:

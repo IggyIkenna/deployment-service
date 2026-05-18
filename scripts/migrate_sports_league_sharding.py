@@ -72,7 +72,7 @@ def _extract_league_from_instrument_id(instrument_id: str) -> str:
 def _resolve_af_league_id(af_id: object) -> str:
     """Resolve API Football numeric league ID to canonical name."""
     try:
-        numeric_id = int(af_id)  # type: ignore[arg-type]
+        numeric_id = int(af_id)  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
         league = get_league_by_api_football_id(numeric_id)
         if league:
             return league.league_id
@@ -130,7 +130,7 @@ def _list_blobs(
 ) -> list[str]:
     """List all blob paths under a prefix."""
     try:
-        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]
+        blobs = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         return [str(b.name) if hasattr(b, "name") else str(b) for b in blobs]
     except Exception:
         return []
@@ -148,14 +148,14 @@ def _migrate_blob(
     Returns total rows processed.
     """
     try:
-        raw_data = storage_client.download_bytes(bucket, blob_path)  # type: ignore[union-attr]
+        raw_data = storage_client.download_bytes(bucket, blob_path)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         table = pq.read_table(io.BytesIO(raw_data))
         df = table.to_pandas()
 
         if df.empty:
             return 0
 
-        df = extractor(df)  # type: ignore[operator]
+        df = extractor(df)  # type: ignore[operator]  # value may be float|None from dict.get; None excluded by conditional
 
         total_rows = 0
         for league_id, league_df in df.groupby("league_id"):
@@ -183,7 +183,7 @@ def _migrate_blob(
                 out_table = pa.Table.from_pandas(league_df)
                 buf = io.BytesIO()
                 pq.write_table(out_table, buf)
-                storage_client.upload_bytes(  # type: ignore[union-attr]
+                storage_client.upload_bytes(  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
                     bucket, new_path, buf.getvalue()
                 )
                 logger.info(

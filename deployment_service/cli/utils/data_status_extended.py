@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import click
 import yaml
@@ -117,7 +118,7 @@ def run_t1_check(
                 status = "ERROR"
                 details = str(result["error"])
             else:
-                completion = float(result.get("overall_completion", 0))  # type: ignore[arg-type]
+                completion = float(result.get("overall_completion", 0))  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
                 if completion == 100:
                     status = "OK"
                 elif completion == 0:

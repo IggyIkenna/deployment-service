@@ -115,7 +115,7 @@ def _md5(data: bytes) -> str:
 def _list_blobs(storage_client: object, bucket: str, prefix: str) -> set[str]:
     """Return set of blob paths under prefix."""
     try:
-        blobs: list[str] = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[attr-defined]
+        blobs: list[str] = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
         return set(blobs)
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("Failed to list %s/%s: %s", bucket, prefix, e)
@@ -147,11 +147,11 @@ def diff_configs(
 
             if not files or path in (files or []):
                 try:
-                    gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # type: ignore[attr-defined]
+                    gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 except (OSError, ValueError):
                     gcs_data = None
                 try:
-                    s3_data = s3_client.download_bytes(s3_bucket, path)  # type: ignore[attr-defined]
+                    s3_data = s3_client.download_bytes(s3_bucket, path)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 except (OSError, ValueError):
                     s3_data = None
 
@@ -213,17 +213,17 @@ def sync_configs(
 
         try:
             if source == "gcs":
-                data = gcs_client.download_bytes(gcs_bucket, diff.path)  # type: ignore[attr-defined]
+                data = gcs_client.download_bytes(gcs_bucket, diff.path)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 dest_client = s3_client
                 dest_bucket = s3_bucket
                 dest_label = f"s3://{s3_bucket}/{diff.path}"
             else:
-                data = s3_client.download_bytes(s3_bucket, diff.path)  # type: ignore[attr-defined]
+                data = s3_client.download_bytes(s3_bucket, diff.path)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 dest_client = gcs_client
                 dest_bucket = gcs_bucket
                 dest_label = f"gs://{gcs_bucket}/{diff.path}"
 
-            dest_client.upload_bytes(dest_bucket, diff.path, data)  # type: ignore[attr-defined]
+            dest_client.upload_bytes(dest_bucket, diff.path, data)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
             print(f"  → {dest_label} ({len(data)} bytes)")
             written += 1
         except (OSError, ValueError, RuntimeError) as e:
@@ -275,8 +275,8 @@ def main() -> int:
     print("Connecting to GCS and S3 storage clients...")
     try:
         from unified_trading_library import (
-            AWSStorageClient,  # type: ignore[attr-defined]
-            GCPStorageClient,  # type: ignore[attr-defined]
+            AWSStorageClient,  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+            GCPStorageClient,  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
         )
 
         gcs_client = GCPStorageClient(project_id=args.gcp_project or None)

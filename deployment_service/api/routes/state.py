@@ -210,8 +210,8 @@ async def get_data_status(
         catalog = DataCatalog()
         result = catalog.catalog_service(
             service=service,
-            start_date=start_date,  # type: ignore[arg-type]
-            end_date=end_date,  # type: ignore[arg-type]
+            start_date=start_date,  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
+            end_date=end_date,  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
         )
         return result.to_dict()
     except (OSError, ValueError, RuntimeError) as e:

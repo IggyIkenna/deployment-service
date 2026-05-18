@@ -32,7 +32,7 @@ from vm_zombie_watchdog import PROJECT_ID, VM_PREFIX_TO_BUCKET  # noqa: E402
 
 
 def _bucket_exists(project_id: str, bucket_name: str) -> bool:
-    from google.cloud import storage  # type: ignore[import-untyped]
+    from google.cloud import storage  # type: ignore[import-untyped]  # library has no py.typed marker
 
     client = storage.Client(project=project_id)
     bucket = client.bucket(bucket_name)
@@ -64,11 +64,11 @@ def main() -> int:
         if isinstance(spec, str):
             # Legacy entries: raw bucket name string directly in the dict.
             bucket_name = spec
-        elif spec.bucket is None:  # type: ignore[union-attr]
+        elif spec.bucket is None:  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
             heartbeat_only.append(prefix)
             continue
         else:
-            bucket_name = spec.bucket  # type: ignore[union-attr]
+            bucket_name = spec.bucket  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
 
         if dry_run:
             print(f"  [DRY-RUN] would check: {prefix!r} → {bucket_name}")
@@ -84,7 +84,7 @@ def main() -> int:
 
     if dry_run:
         print(f"\n{len(heartbeat_only)} heartbeat-only prefixes (no GCS check needed)")
-        prefixes_with_bucket = sum(1 for s in VM_PREFIX_TO_BUCKET.values() if s is not None and s.bucket is not None)  # type: ignore[union-attr]
+        prefixes_with_bucket = sum(1 for s in VM_PREFIX_TO_BUCKET.values() if s is not None and s.bucket is not None)  # type: ignore[union-attr]  # storage_client is narrowed to non-None by caller guard; union is Optional[StorageClient]
         print(f"{prefixes_with_bucket} prefixes with bucket (would check)")
         return 0
 

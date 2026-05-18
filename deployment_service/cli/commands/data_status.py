@@ -469,7 +469,7 @@ def _display_manifest_results(
         days_complete = result.get("days_complete", 0)
         days_total = result.get("days_total", 0)
 
-        color = "green" if completion == 100 else "yellow" if completion >= 50 else "red"  # type: ignore[operator]
+        color = "green" if completion == 100 else "yellow" if completion >= 50 else "red"  # type: ignore[operator]  # value may be float|None from dict.get; None excluded by conditional
         click.echo(f"  {cat}: " + click.style(f"{completion}%", fg=color) + f" ({days_complete}/{days_total} days)")
 
         venues_raw: object = result.get("venues", {})
@@ -480,7 +480,7 @@ def _display_manifest_results(
                 v_pct = v_info.get("completion_percent", 0)
                 v_days = v_info.get("days_with_data", 0)
                 v_rows = v_info.get("total_rows", 0)
-                v_color = "green" if v_pct == 100 else "yellow" if v_pct >= 50 else "red"  # type: ignore[operator]
+                v_color = "green" if v_pct == 100 else "yellow" if v_pct >= 50 else "red"  # type: ignore[operator]  # value may be float|None from dict.get; None excluded by conditional
                 click.echo(
                     f"    └─ {venue_name}: " + click.style(f"{v_pct}%", fg=v_color) + f" ({v_days} days, {v_rows} rows)"
                 )
@@ -493,8 +493,8 @@ def _display_manifest_results(
                     click.echo(f"    ... and {len(missing) - 10} more")
 
     if output == "summary":
-        total_complete = sum(r.get("days_complete", 0) for r in results)  # type: ignore[arg-type]
-        total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]
+        total_complete = sum(r.get("days_complete", 0) for r in results)  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
+        total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
         overall = round(total_complete / total_days * 100, 1) if total_days > 0 else 0
         click.echo()
         click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} asset-group-days)")
