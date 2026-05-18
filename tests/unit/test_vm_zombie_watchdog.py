@@ -540,3 +540,122 @@ class TestVerdictEdgeCases:
         v = self._make("too_young", hb_age=None, shard_age=None, age=5.0)
         assert v.verdict == "too_young"  # type: ignore[attr-defined]
         assert "zombie" not in v.verdict  # type: ignore[attr-defined]
+
+    def test_verdict_carries_both_hb_and_shard_ages(self) -> None:
+        """WatchdogVerdict can encode both heartbeat AND shard staleness simultaneously."""
+        v = _WatchdogVerdict(
+            vm_name="cefi-fwd-20260515",
+            zone="asia-northeast1-a",
+            age_minutes=90.0,
+            heartbeat_age_min=20.0,
+            shard_age_min=150.0,
+            verdict="zombie_stale_shard",
+        )
+        assert v.heartbeat_age_min == 20.0  # type: ignore[attr-defined]
+        assert v.shard_age_min == 150.0  # type: ignore[attr-defined]
+        assert "zombie" in v.verdict  # type: ignore[attr-defined]
+
+
+# ── New-prefix coverage hardening (S9) ───────────────────────────────────────
+
+
+class TestNewPrefixRegistration:
+    """Newly-registered prefixes from slot-2 B-011 blindspot audit + May-23 cutover.
+
+    These prefixes were added after the initial vm_zombie_watchdog shipped.
+    Each test documents the business reason to prevent regression.
+    """
+
+    def test_exec_alpha_registered(self) -> None:
+        """Execution-alpha parallel measurement VMs must be watched (heartbeat-only)."""
+        assert "exec-alpha-" in _VM_PREFIX_TO_BUCKET
+
+    def test_synbench_registered(self) -> None:
+        """Synthetic-data benchmark VMs must be watched (heartbeat-only)."""
+        assert "synbench-" in _VM_PREFIX_TO_BUCKET
+
+    def test_batch_live_recon_registered(self) -> None:
+        """Nightly batch-live-reconciliation cron VM must be watched."""
+        assert "batch-live-recon-" in _VM_PREFIX_TO_BUCKET
+
+    def test_strategy_backtest_grid_registered(self) -> None:
+        """Strategy parameter grid-search VMs must be watched (heartbeat-only)."""
+        assert "strategy-backtest-grid-" in _VM_PREFIX_TO_BUCKET
+
+    def test_prediction_fwd_registered(self) -> None:
+        """Prediction forward-poll VMs must be watched after B-011 blindspot audit."""
+        assert "prediction-fwd-" in _VM_PREFIX_TO_BUCKET
+
+    def test_strategy_test_registered(self) -> None:
+        """Strategy CI validation VMs (launch-strategy-test-vm.sh) must be watched."""
+        assert "strategy-test-" in _VM_PREFIX_TO_BUCKET
+
+    def test_ml_train_registered(self) -> None:
+        """ML training VMs must be watched after B-011 blindspot audit."""
+        assert "ml-train-" in _VM_PREFIX_TO_BUCKET
+
+    def test_new_prefixes_have_heartbeat_only_signal(self) -> None:
+        """None or VmPrefixSpec(bucket=None) is correct for non-manifest-shard VMs."""
+        heartbeat_only = ("exec-alpha-", "synbench-", "batch-live-recon-", "strategy-backtest-grid-")
+        for prefix in heartbeat_only:
+            spec = _VM_PREFIX_TO_BUCKET.get(prefix)
+            if isinstance(spec, _VmPrefixSpec):
+                assert spec.bucket is None, f"{prefix!r}: must be heartbeat-only (bucket=None)"
+            else:
+                assert spec is None, f"{prefix!r}: must be None (heartbeat-only)"
+
+
+# ── Lifecycle class completeness (S9) ────────────────────────────────────────
+
+
+class TestLifecycleClassCompleteness:
+    """VmPrefixSpec entries with a lifecycle_class must use a known LifecycleClass value."""
+
+    def test_all_vmprefix_spec_lifecycle_classes_are_valid(self) -> None:
+        """Every VmPrefixSpec.lifecycle_class is a recognised LifecycleClass member."""
+        valid_classes = set(_LifecycleClass)
+        for key, spec in _VM_PREFIX_TO_BUCKET.items():
+            if not isinstance(spec, _VmPrefixSpec):
+                continue
+            lc = spec.lifecycle_class
+            if lc is None:
+                continue
+            assert lc in valid_classes, f"{key!r}: unknown lifecycle_class {lc!r}"
+
+    def test_cefi_backfill_prefixes_use_ephemeral_batch(self) -> None:
+        """CeFi per-venue backfill VMs are short-lived EPHEMERAL_BATCH jobs."""
+        ephemeral_cefi = ("cefi-binance-", "cefi-bybit-", "cefi-okx-", "cefi-kraken-")
+        for prefix in ephemeral_cefi:
+            spec = _VM_PREFIX_TO_BUCKET.get(prefix)
+            assert isinstance(spec, _VmPrefixSpec), f"{prefix!r}: expected VmPrefixSpec"
+            assert spec.lifecycle_class == _LifecycleClass.EPHEMERAL_BATCH, (
+                f"{prefix!r}: expected EPHEMERAL_BATCH, got {spec.lifecycle_class!r}"
+            )
+
+
+# ── Forward-poll idle thresholds (S9) ────────────────────────────────────────
+
+
+class TestForwardPollIdleThresholds:
+    """Forward-poll VMs use wider heartbeat windows since they poll every ~60s."""
+
+    _GLOBAL_HB = 15.0
+    _GLOBAL_SHARD = 120.0
+
+    def test_cefi_fwd_uses_wider_threshold(self) -> None:
+        """cefi-fwd-* must get 30 min heartbeat tolerance (wider than 15 min global)."""
+        hb, shard = _resolve_idle_thresholds("cefi-fwd-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD)
+        assert hb == 30.0
+        assert shard == 180.0
+
+    def test_defi_fwd_uses_wider_threshold(self) -> None:
+        """defi-fwd-* must get 30 min heartbeat tolerance."""
+        hb, shard = _resolve_idle_thresholds("defi-fwd-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD)
+        assert hb == 30.0
+        assert shard == 180.0
+
+    def test_mdps_features_live_uses_wider_threshold(self) -> None:
+        """Live MDPS feature-engineering VMs must get 240-min shard tolerance."""
+        hb, shard = _resolve_idle_thresholds("mdps-features-live-defi-20260515", self._GLOBAL_HB, self._GLOBAL_SHARD)
+        assert hb == 30.0
+        assert shard == 240.0
