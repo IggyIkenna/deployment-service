@@ -333,7 +333,7 @@ def main() -> int:
 
     if violations:
         for violation in violations:
-            logger.error(violation)
+            logger.error("%s", violation)
         return 1
 
     logger.info("runtime-topology.yaml is consistent with workspace-manifest.json")

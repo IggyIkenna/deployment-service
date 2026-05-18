@@ -398,7 +398,7 @@ class VMLifecycleManager:
                 f"Failed to create VM for shard {shard_id} in any zone. Tried zones: {tried_zones}. Error: {error_str}"
             )
 
-        logger.error(error_msg)
+        logger.error("%s", error_msg)
         return JobInfo(
             job_id=f"failed-{shard_id}",
             shard_id=shard_id,

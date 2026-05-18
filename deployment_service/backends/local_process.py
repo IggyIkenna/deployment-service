@@ -147,7 +147,7 @@ class LocalProcessBackend(ComputeBackend):
 
         if not repo_dir.is_dir():
             msg = f"Service repo not found: {repo_dir}"
-            logger.error(msg)
+            logger.error("%s", msg)
             return JobInfo(
                 job_id=shard_id,
                 shard_id=shard_id,
@@ -159,7 +159,7 @@ class LocalProcessBackend(ComputeBackend):
 
         if not venv_python.is_file():
             msg = f"Venv python not found: {venv_python}"
-            logger.error(msg)
+            logger.error("%s", msg)
             return JobInfo(
                 job_id=shard_id,
                 shard_id=shard_id,
