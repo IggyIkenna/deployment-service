@@ -489,6 +489,21 @@ if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # marinade, raydium, orca, jupiter. Declared dep: solders>=0.27.0,<1.0.0.
   log "  uv pip install solders  (execution_service defi_execution Solana serialization)"
   uv pip install --find-links "$WHEEL_CACHE" "solders>=0.27.0,<1.0.0" 2>&1 | tail -5
+  # execution_service/adapters/__init__.py eagerly imports SportsAdapter →
+  # sports_execution.adapters → sports_execution.adapters.exchanges.betfair →
+  # `import betfairlightweight`. Declared dep: betfairlightweight>=2.20,<3.0.
+  log "  uv pip install betfairlightweight  (execution_service sports_execution betfair eager import)"
+  uv pip install --find-links "$WHEEL_CACHE" "betfairlightweight>=2.20,<3.0" 2>&1 | tail -5
+  # sports_execution.adapters.__init__.py eagerly imports 14 scraper adapters
+  # (DEFERRED-INDEFINITELY 2026-05-12 per operator but still on the load path).
+  # Each scraper module-level imports `from playwright.async_api import async_playwright`.
+  # Declared dep: playwright>=1.40,<2.0.
+  log "  uv pip install playwright  (execution_service sports_execution scrapers eager import)"
+  uv pip install --find-links "$WHEEL_CACHE" "playwright>=1.40,<2.0" 2>&1 | tail -5
+  # Same scraper chain eagerly imports bs4 for HTML odds extraction.
+  # Declared dep: beautifulsoup4>=4.12,<5.0.
+  log "  uv pip install beautifulsoup4  (execution_service sports_execution scrapers HTML extraction)"
+  uv pip install --find-links "$WHEEL_CACHE" "beautifulsoup4>=4.12,<5.0" 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
