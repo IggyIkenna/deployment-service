@@ -361,6 +361,20 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "pyth-lst-backfill-": VmPrefixSpec(
         bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),
+    # JITO-SOLANA lst_rates historical backfill (2022-08-01 → today).
+    # jitoSOL staking APY for carry_staked_basis Solana leg.
+    # Launcher: launch-jito-solana-backfill-vm.sh (deployment-service 2026-05-18).
+    # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
+    "jito-solana-backfill-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    # MARINADE-SOLANA lst_rates historical backfill (2021-02-01 → today).
+    # mSOL staking APY for carry_staked_basis Solana leg.
+    # Launcher: launch-marinade-solana-backfill-vm.sh (deployment-service 2026-05-18).
+    # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
+    "marinade-backfill-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # ------------------------------------------------------------------
     # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
     # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
