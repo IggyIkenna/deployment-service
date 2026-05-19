@@ -166,16 +166,21 @@ gcloud storage cp "${STAGING_GCS}/gcs_migration_bundle_2026_05_08.py" "\${WORK_D
 echo ""
 echo "=== Starting Migration ==="
 date
+MIGRATION_EXIT=0
 python3 "\${WORK_DIR}/gcs_migration_bundle_2026_05_08.py" \\
   --bucket "${BUCKET}" \\
   --prefix-slice "${PREFIX_SLICE}" \\
   --workers "${WORKERS}" \\
   --rescan-asset-group "${ASSET_GROUP}" \\
   --skip-rescan \\
-  ${APPLY_FLAG}
+  ${APPLY_FLAG} || MIGRATION_EXIT=\$?
 
 echo ""
-echo "=== Migration Complete: ${ASSET_GROUP} / ${YEAR} ==="
+if [ "\${MIGRATION_EXIT}" -eq 0 ]; then
+  echo "=== Migration Complete: ${ASSET_GROUP} / ${YEAR} ==="
+else
+  echo "=== Migration FAILED: ${ASSET_GROUP} / ${YEAR} exit_code=\${MIGRATION_EXIT} ==="
+fi
 date
 gcloud storage cp /var/log/gcs-migration-bundle.log "\${LOG_GCS}" 2>/dev/null || true
 shutdown -h now
