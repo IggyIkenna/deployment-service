@@ -38,11 +38,19 @@
 #   - instruments-service/scripts/cross_asset_rescan.py shipped (Phase 3.D)
 #
 # Usage:
-#   bash launch-cross-asset-rescan-vm.sh                    # cross-asset-all, dry-run (default)
-#   bash launch-cross-asset-rescan-vm.sh cefi                # cefi only, dry-run
-#   bash launch-cross-asset-rescan-vm.sh --apply cefi        # cefi, apply flips
-#   bash launch-cross-asset-rescan-vm.sh --force cefi        # bypass singleton lock
+#   bash launch-cross-asset-rescan-vm.sh                         # cross-asset-all, dry-run
+#   bash launch-cross-asset-rescan-vm.sh cefi                    # cefi only, dry-run
+#   bash launch-cross-asset-rescan-vm.sh --apply cefi            # cefi, sequential 4-pass apply
+#   bash launch-cross-asset-rescan-vm.sh --apply --pass 1 cefi   # cefi, pass 1 only (resume)
+#   bash launch-cross-asset-rescan-vm.sh --force cefi            # bypass singleton lock
 #   bash launch-cross-asset-rescan-vm.sh --tarball-from-local cefi  # use local working tree
+#
+# Pass ordering (--apply without --pass launches all 4 sequentially with SERIAL gate):
+#   --pass 1  instruments,venue_trading_calendar (SERIAL root — must complete before pass 2)
+#   --pass 2  MTDS raw market data (parallel across asset_groups, serial after pass 1)
+#   --pass 3  MDPS processed outputs (serial after pass 2)
+#   --pass 4  features services (serial after pass 3)
+# Dry-run mode (default): no ordering enforced; --pass still scopes the data_types filter.
 #
 # Cost: e2-standard-4 for ~2-8 hours depending on asset_group + apply mode.
 #
@@ -63,6 +71,7 @@ APPLY=false
 TARBALL_MODE="prod"  # prod | local
 ASSET_GROUP="cross_asset_all"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+PASS="all"  # all | 1 | 2 | 3 | 4
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -82,13 +91,21 @@ while [[ $# -gt 0 ]]; do
       DEPLOYMENT_ENV="$2"
       shift 2
       ;;
+    --pass)
+      PASS="$2"
+      case "$PASS" in
+        1|2|3|4|all) ;;
+        *) echo "ERROR: --pass must be 1|2|3|4|all (got: $PASS)" >&2; exit 1 ;;
+      esac
+      shift 2
+      ;;
     cefi|defi|tradfi|sports|prediction|cross_asset_all)
       ASSET_GROUP="$1"
       shift
       ;;
     *)
       echo "ERROR: unknown arg: $1" >&2
-      echo "Usage: $0 [--force] [--apply] [--tarball-from-local] [--env prod|staging|dev] [cefi|defi|tradfi|sports|prediction|cross_asset_all]" >&2
+      echo "Usage: $0 [--force] [--apply] [--pass 1|2|3|4|all] [--tarball-from-local] [--env prod|staging|dev] [cefi|defi|tradfi|sports|prediction|cross_asset_all]" >&2
       exit 1
       ;;
   esac
@@ -102,6 +119,33 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+
+# Poll until the given VM reaches TERMINATED (self-deleted or completed).
+# Used for sequential multi-pass orchestration — pass N+1 must not start
+# until pass N's VM has stopped (SERIAL gate per reconciliation ordering).
+# Max wait 8h covers the largest cefi run observed (~55 min at 41 prefix/sec).
+wait_for_vm_stopped() {
+  local vm="$1"
+  local deadline=$(( $(date +%s) + 28800 ))
+  echo "Waiting for $vm to reach TERMINATED (serial gate, max 8h)..."
+  while [[ $(date +%s) -lt $deadline ]]; do
+    local status
+    status=$(gcloud compute instances describe "$vm" \
+      --zone="$ZONE" --project="$PROJECT" \
+      --format="value(status)" 2>/dev/null) || {
+        echo "$vm is gone (deleted after completion) — continuing."
+        return 0
+    }
+    if [[ "$status" == "TERMINATED" ]]; then
+      echo "$vm TERMINATED — serial gate cleared."
+      return 0
+    fi
+    echo "  $vm status=$status — sleeping 30s..."
+    sleep 30
+  done
+  echo "ERROR: $vm did not TERMINATE within 8h — aborting sequential run." >&2
+  return 1
+}
 
 # ── Singleton lock: concurrent rescans race on GCS list() pagination ──
 if ! $FORCE; then
@@ -126,19 +170,10 @@ EOF
   fi
 fi
 
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="cross-asset-rescan-${RUN_TS}"
-
-# Use unique VM_NAME for per-VM shard isolation (workspace rule per CLAUDE.md
-# "Per-VM shard isolation for concurrent backfills"). The consolidator daemon
-# merges _index/per_vm/{vm_name}.parquet into the canonical manifest with
-# last-writer-wins on identical row_key — same machinery as normal MTDS / MDPS
-# per-VM shard writes.
 MODE_LABEL="dry-run"
 if $APPLY; then
   MODE_LABEL="apply"
 fi
-echo "Launching $VM_NAME: cross-asset-rescan asset_group=${ASSET_GROUP} mode=${MODE_LABEL} tarball=${TARBALL_MODE}"
 
 # ── Optional: refresh tarballs from local working tree ──
 # CLAUDE.md "VM tarball deployment" rule — tarball-from-local for developer
@@ -154,6 +189,10 @@ if [[ "$TARBALL_MODE" == "local" ]]; then
   bash "${REPO_ROOT}/scripts/vm/create-code-tarballs.sh" --all
 fi
 
+APPLY_ARG=""
+if $APPLY; then
+  APPLY_ARG=" --apply"
+fi
 # Direct script invocation via VM_BACKFILL_CMD — bypasses the
 # `python -m instruments_service --operation X` CLI dispatch, which only
 # registers the `instruments` operation. The rescan is a one-shot orchestrator
@@ -167,57 +206,96 @@ fi
 # $WORKSPACE/instruments/scripts/. Same pattern as launch-defi-phantom-recon-vm.sh.
 # Fix shipped 2026-05-11 after `cross-asset-rescan-20260511-153940` failed at
 # argparse with `--operation: invalid choice: 'cross_asset_rescan'`.
-APPLY_ARG=""
-if $APPLY; then
-  APPLY_ARG=" --apply"
-fi
 RESCAN_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/cross_asset_rescan.py"
 BACKFILL_CMD="python ${RESCAN_SCRIPT} --asset-group ${ASSET_GROUP}${APPLY_ARG}"
 
-METADATA="VM_TASK=cross-asset-rescan"
-METADATA="${METADATA},VM_SERVICE=instruments_service"
-METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
-METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-# Per-VM shard isolation env vars (CLAUDE.md workspace rule). Without these,
-# the writer's MultiWorkerWithoutShardIsolationError guard fires on launch.
-METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-# Concurrency tuning (per design doc + CLAUDE.md "phantom audit" rule:
-# HTTP_POOL_SIZE = 2 × WORKERS to avoid the default-10 silent truncation
-# under 64-worker concurrency).
-METADATA="${METADATA},WORKERS=64"
-METADATA="${METADATA},HTTP_POOL_SIZE=128"
-# Apply mode toggle — the rescan script reads VM_APPLY_FLIPS at runtime
-# to decide whether to flip class-A drift rows or just produce the triage
-# report. Default false = dry-run; explicit --apply enables flips. The
-# env var is read by the script (script docstring lines 35-37) in addition
-# to the --apply CLI flag set in VM_BACKFILL_CMD above; both ways agree.
-if $APPLY; then
-  METADATA="${METADATA},VM_APPLY_FLIPS=true"
+# ── Single-VM launch helper (used by both single-pass and sequential modes) ──
+# Args: $1=pass_num (1|2|3|4|all)  $2=vm_name (pre-computed unique tag)
+launch_single_vm() {
+  local pass_num="$1"
+  local vm_name="$2"
+
+  # Use unique VM_NAME for per-VM shard isolation (workspace rule per CLAUDE.md
+  # "Per-VM shard isolation for concurrent backfills"). The consolidator daemon
+  # merges _index/per_vm/{vm_name}.parquet into the canonical manifest with
+  # last-writer-wins on identical row_key — same machinery as normal MTDS / MDPS
+  # per-VM shard writes.
+  local metadata="VM_TASK=cross-asset-rescan"
+  metadata="${metadata},VM_SERVICE=instruments_service"
+  metadata="${metadata},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+  metadata="${metadata},VM_ASSET_GROUP=${ASSET_GROUP}"
+  metadata="${metadata},VM_NAME=${vm_name}"
+  metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  # RESCAN_PASS is read by cross_asset_rescan.py to pass --data-types to the
+  # reconciler (pass ordering per manifest_cross_asset_rescan_design §"ordering").
+  metadata="${metadata},RESCAN_PASS=${pass_num}"
+  # Per-VM shard isolation env vars (CLAUDE.md workspace rule). Without these,
+  # the writer's MultiWorkerWithoutShardIsolationError guard fires on launch.
+  metadata="${metadata},MANIFEST_PER_VM_SHARDS=true"
+  # Concurrency tuning (per design doc + CLAUDE.md "phantom audit" rule:
+  # HTTP_POOL_SIZE = 2 × WORKERS to avoid the default-10 silent truncation
+  # under 64-worker concurrency).
+  metadata="${metadata},WORKERS=64"
+  metadata="${metadata},HTTP_POOL_SIZE=128"
+  # Apply mode toggle — the rescan script reads VM_APPLY_FLIPS at runtime
+  # to decide whether to flip class-A drift rows or just produce the triage
+  # report. Default false = dry-run; explicit --apply enables flips. The
+  # env var is read by the script (script docstring lines 35-37) in addition
+  # to the --apply CLI flag set in VM_BACKFILL_CMD above; both ways agree.
+  if $APPLY; then
+    metadata="${metadata},VM_APPLY_FLIPS=true"
+  else
+    metadata="${metadata},VM_APPLY_FLIPS=false"
+  fi
+  metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+
+  local run_ts="${vm_name##*-}"  # last segment of vm_name is the timestamp
+  echo "Launching $vm_name (pass=${pass_num} asset_group=${ASSET_GROUP} mode=${MODE_LABEL})"
+  gcloud compute instances create "$vm_name" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-4 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=100GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
+    --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",pass="${pass_num}"
+
+  echo ""
+  echo "VM launched: $vm_name"
+  echo "Logs: gcloud compute ssh $vm_name --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/backfill.log'"
+  echo "GCS log tail: gsutil cat gs://${CODE_BUCKET}/vm-logs/${vm_name}/run.log"
+  echo "Events: gsutil ls gs://${PROJECT}-events/events/instruments-service/\$(date +%Y-%m-%d)/${vm_name}/"
+  echo "Triage output (when complete): gsutil cat gs://${PROJECT}-rescan-triage/${run_ts}/triage.jsonl"
+  echo "Delete when done: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
+  echo ""
+}
+
+# ── Orchestration: sequential 4-pass (apply) or single VM (dry-run / --pass N) ──
+#
+# Serial gate (manifest_cross_asset_rescan_design_2026_05_08.md §"ordering"):
+#   "dry-run reads commute; --apply-flips requires strict ordering 1→2→3→4."
+if $APPLY && [[ "$PASS" == "all" ]]; then
+  echo "Sequential 4-pass --apply run: asset_group=${ASSET_GROUP} env=${DEPLOYMENT_ENV}"
+  echo "SERIAL gate: each pass waits for TERMINATED before starting the next."
+  echo ""
+  for p in 1 2 3 4; do
+    vm_ts="$(date +%Y%m%d-%H%M%S)"
+    vm_name="cross-asset-rescan-p${p}-${vm_ts}"
+    launch_single_vm "$p" "$vm_name"
+    if [[ $p -lt 4 ]]; then
+      wait_for_vm_stopped "$vm_name"
+    fi
+  done
+  echo "All 4 passes complete."
 else
-  METADATA="${METADATA},VM_APPLY_FLIPS=false"
+  # Single VM: dry-run (no ordering needed) or manual --pass N resume/override.
+  vm_ts="$(date +%Y%m%d-%H%M%S)"
+  if [[ "$PASS" == "all" ]]; then
+    vm_name="cross-asset-rescan-${vm_ts}"
+  else
+    vm_name="cross-asset-rescan-p${PASS}-${vm_ts}"
+  fi
+  launch_single_vm "$PASS" "$vm_name"
 fi
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
-
-echo ""
-echo "VM launched: $VM_NAME"
-echo "Asset group: $ASSET_GROUP"
-echo "Mode: $MODE_LABEL"
-echo ""
-echo "Logs: gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/backfill.log'"
-echo "GCS log tail: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
-echo "Events: gsutil ls gs://${PROJECT}-events/events/instruments-service/\$(date +%Y-%m-%d)/${VM_NAME}/"
-echo "Triage output (when complete): gsutil cat gs://${PROJECT}-rescan-triage/${RUN_TS}/triage.jsonl"
-echo "Delete when done: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
