@@ -47,7 +47,13 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-1060025368044}"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 ARCHETYPE=""
-SHAPES="c2-standard-8 c2-standard-16 c2-standard-30 c3-highcpu-44"
+# Phase 5 SKU matrix v2 (2026-05-19): extended beyond c3-highcpu-44 to cover high-vCPU + high-mem shapes.
+# c3-highcpu-88 / c3-highcpu-176: compute-bound stages (features, strategy, ML training).
+# m3-megamem-128 / m3-ultramem-160: memory-heavy stages (onchain DAG, multi-timeframe cross-family chains).
+# Note: m3-* series is in asia-northeast1-c; verify quota via
+#   gcloud compute machine-types list --zones=asia-northeast1-c --filter='name~^m3-'
+# before launching.  STOCKOUT fallback = asia-northeast1-b (same region, same GCS locality).
+SHAPES="c2-standard-8 c2-standard-16 c2-standard-30 c3-highcpu-44 c3-highcpu-88 c3-highcpu-176 m3-megamem-128 m3-ultramem-160"
 DATE_START="2024-01-01"
 DATE_END="2024-01-07"
 MODE="stub"
