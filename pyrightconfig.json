@@ -1,7 +1,9 @@
 {
   "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
-  "include": ["deployment_service"],
+  "include": [
+    "deployment_service"
+  ],
   "reportAny": "error",
   "reportMissingTypeStubs": false,
   "reportUnknownMemberType": "none",
@@ -29,5 +31,12 @@
   "reportMissingImports": "none",
   "venvPath": ".",
   "venv": ".venv",
-  "exclude": ["tests"]
+  "exclude": [
+    "tests",
+    "node_modules",
+    "dist",
+    "build",
+    ".venv*",
+    "**/__pycache__"
+  ]
 }
