@@ -408,6 +408,27 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # `strategy-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
     # to event-archive only (no per-VM manifest shards).
     "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
+    # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
+    # `gcs-migration-bundle-{asset_group}-{year}-{ts}`. Heartbeat-only — migration
+    # VMs write to per-asset-group market-data-tick buckets but the mapping is
+    # dynamic (asset_group is a runtime arg), so watchdog falls back to heartbeat.
+    # Registered 2026-05-19 (slot-8 fix pre-existing blindspot in remote fast-forward).
+    "gcs-migration-bundle-": None,
+    # DeFi batch backtest VMs (launch-defi-backtest-vm.sh; plan:
+    # batch_live_symmetry_2026_05_10.md Tab 8). VM name pattern:
+    # `defi-backtest-{archetype-slug}-{ts}`. Heartbeat-only — writes backtest
+    # scores to gs://strategy-store-{pid}/backtests/defi/, no per-VM manifest shards.
+    # EPHEMERAL_BATCH lifecycle (completes and self-deletes).
+    # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
+    "defi-backtest-": None,
+    # DeFi paper-trading VMs (launch-defi-paper-trading-vm.sh; plan:
+    # batch_live_symmetry_2026_05_10.md Tab 8 Step 3). VM name pattern:
+    # `defi-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
+    # to event-archive only (no per-VM manifest shards). LONG_LIVED_LIVE
+    # lifecycle (runs 7+ days during paper-soak).
+    # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
+    "defi-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
     # `strategy-live-{archetype-slug}-{ts}`. Heartbeat-only — live VMs write
