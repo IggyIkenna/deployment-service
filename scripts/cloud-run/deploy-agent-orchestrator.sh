@@ -104,10 +104,14 @@ else
 fi
 
 # Runtime env for the Cloud Run service.
-# JWT secret is mounted from Secret Manager at Phase 3 (--update-secrets); for
-# Phase 1 the server self-generates an ephemeral secret per restart (tokens
-# 401 on restart, fine for the first smoke test).
-RUNTIME_ENV="ORCHESTRATOR_MODE=live"
+# Phase 3 (strict-auth flip): JWT secret + users.json mounted from GCP Secret Manager.
+# - ORCHESTRATOR_JWT_SECRET (env var)   ← from Secret Manager
+# - /secrets/users.json (file mount)    ← from Secret Manager (ORCHESTRATOR_USERS_JSON points at it)
+# - ORCHESTRATOR_ALLOW_ANONYMOUS=false  ← strict mode (all Cloud Run traffic carries
+#   X-Forwarded-For from GFE so the ALLOW_ANONYMOUS branch is never hit anyway, but
+#   we set it defensively per the P3 plan).
+RUNTIME_ENV="ORCHESTRATOR_MODE=live,ORCHESTRATOR_ALLOW_ANONYMOUS=false,ORCHESTRATOR_USERS_JSON=/secrets/users.json"
+RUNTIME_SECRETS="ORCHESTRATOR_JWT_SECRET=ORCHESTRATOR_JWT_SECRET:latest,/secrets/users.json=ORCHESTRATOR_USERS_JSON:latest"
 
 echo "=== Deploying to Cloud Run (${SERVICE} @ ${REGION}) ==="
 gcloud run deploy "${SERVICE}" \
@@ -118,6 +122,7 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --port=8080 \
   --set-env-vars "${RUNTIME_ENV}" \
+  --update-secrets "${RUNTIME_SECRETS}" \
   --memory=1Gi \
   --cpu=1 \
   --min-instances=0 \
