@@ -209,6 +209,7 @@ declare -A SERVICE_TARBALLS=(
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
   ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
+  ["alerting_service"]="alerting-service-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -237,6 +238,7 @@ declare -A TARBALL_DIRS=(
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
   ["batch-live-reconciliation-service-code"]="blr"
+  ["alerting-service-code"]="alerting"
   # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
   # strategy paper/live VMs. No editable install (no pyproject.toml Python package
   # to install from e2e-testing root — strategy-service + execution-service packages
@@ -259,7 +261,10 @@ NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "de
 # before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
 # triggers the multi-service install path here instead of the single-service
 # default.
-if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+if [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
+  log "VM_TASK=alerting-quietness-baseline — installing alerting-service-code"
+  NEEDED_TARBALLS+=("alerting-service-code")
+elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
   # run-paper.sh / run-live.sh. colocated_engine.py imports:
   #   strategy_service, execution_service (core logic)
