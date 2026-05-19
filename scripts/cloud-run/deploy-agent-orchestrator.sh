@@ -118,7 +118,7 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --port=8080 \
   --set-env-vars "${RUNTIME_ENV}" \
-  --memory=512Mi \
+  --memory=1Gi \
   --cpu=1 \
   --min-instances=0 \
   --max-instances=3
