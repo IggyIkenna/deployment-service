@@ -80,25 +80,65 @@ SYNCED=0
 SKIPPED=0
 FAILED=0
 
+# Robust bucket existence check. `aws s3api head-bucket` exits non-zero for both
+# "does not exist" (NoSuchBucket) and "you can't see it" (PermanentRedirect /
+# AccessDenied / region-mismatch). The original script collapsed all of these
+# into "does not exist", false-flagging buckets that actually exist when the
+# caller's IAM policy quirks or the bucket's home-region differed from
+# $REGION. We now use `aws s3api list-buckets` (account-scoped, region-agnostic)
+# to check existence, and surface real head-bucket failures separately.
+# `--output text` returns names tab-delimited on a single line; normalize tabs
+# to newlines so the per-name framing test below is unambiguous.
+ACCOUNT_BUCKETS="$(aws s3api list-buckets --query 'Buckets[].Name' --output text 2>/dev/null | tr '\t' '\n' || true)"
+_bucket_exists() {
+    local bucket="$1"
+    # newline-delimited list; match the bucket as a whole line with grep -Fx.
+    printf '%s\n' "$ACCOUNT_BUCKETS" | grep -qFx -- "$bucket"
+}
+
+# Robust object-counter. The previous `aws s3 ls --recursive | wc -l || echo 0`
+# pipeline ran under `set -o pipefail`: any transient retry / SlowDown / Throttle
+# from S3 mid-pagination caused the whole pipeline to exit non-zero, the
+# `|| echo 0` fallback fired AFTER wc -l had already printed the partial count,
+# and OLD_COUNT/NEW_COUNT became the two-line string "N\n0" — which broke the
+# `[[ ... -eq ... ]]` arithmetic compare in verify-mode and `--summarize` line
+# wrap in display-mode (the observed `dst: 20000\n0 objs` for dex-swaps).
+#
+# Switch to `aws s3 ls --recursive --summarize` and parse the canonical
+# "Total Objects: N" trailer line. Falls back to 0 only on full pipeline
+# failure, never on partial-success retries. No pipe-to-wc, no pipefail trap.
+_count_objects() {
+    local bucket="$1"
+    local out
+    out="$(aws s3 ls --recursive --summarize "s3://${bucket}" --region "$REGION" 2>/dev/null)" || true
+    local n
+    n="$(printf '%s\n' "$out" | awk '/^Total Objects:/ {print $3; exit}')"
+    [[ -z "$n" ]] && n=0
+    printf '%s' "$n"
+}
+
 for OLD_BUCKET in "${!BUCKET_MAP[@]}"; do
     NEW_BUCKET="${BUCKET_MAP[$OLD_BUCKET]}"
 
-    # Check old bucket exists
-    if ! aws s3api head-bucket --bucket "$OLD_BUCKET" --region "$REGION" 2>/dev/null; then
-        echo "  [skip-no-source] $OLD_BUCKET (does not exist — already migrated or never created)"
+    # Check old bucket exists (account-scoped, region-agnostic — fixes the
+    # false-negative observed for evm-defi-prod / risk-store-defi-prod /
+    # solana-defi-prod where head-bucket transient-errored and the script
+    # mis-reported them as already-migrated).
+    if ! _bucket_exists "$OLD_BUCKET"; then
+        echo "  [skip-no-source] $OLD_BUCKET (does not exist in account — already migrated or never created)"
         SKIPPED=$((SKIPPED + 1))
         continue
     fi
 
     # Check new bucket exists (precondition: GAP-2.4.B must have run)
-    if ! aws s3api head-bucket --bucket "$NEW_BUCKET" --region "$REGION" 2>/dev/null; then
+    if ! _bucket_exists "$NEW_BUCKET"; then
         echo "  [BLOCKED] $NEW_BUCKET does not exist — run provision-aws-buckets.sh --apply first" >&2
         FAILED=$((FAILED + 1))
         continue
     fi
 
-    OLD_COUNT=$(aws s3 ls --recursive "s3://${OLD_BUCKET}" --region "$REGION" 2>/dev/null | wc -l || echo "0")
-    NEW_COUNT=$(aws s3 ls --recursive "s3://${NEW_BUCKET}" --region "$REGION" 2>/dev/null | wc -l || echo "0")
+    OLD_COUNT="$(_count_objects "$OLD_BUCKET")"
+    NEW_COUNT="$(_count_objects "$NEW_BUCKET")"
     echo "  $OLD_BUCKET → $NEW_BUCKET  (src: ${OLD_COUNT} objs, dst: ${NEW_COUNT} objs)"
 
     if [[ "$VERIFY_ONLY" == "true" ]]; then
@@ -130,8 +170,8 @@ for OLD_BUCKET in "${!BUCKET_MAP[@]}"; do
             --region "$REGION" \
             --source-region "$REGION" \
             --only-show-errors 2>&1; then
-            # Post-sync verification
-            NEW_COUNT_AFTER=$(aws s3 ls --recursive "s3://${NEW_BUCKET}" --region "$REGION" 2>/dev/null | wc -l || echo "0")
+            # Post-sync verification (use the same robust counter as pre-sync).
+            NEW_COUNT_AFTER="$(_count_objects "$NEW_BUCKET")"
             if [[ "$NEW_COUNT_AFTER" -ge "$OLD_COUNT" ]]; then
                 echo "    [synced] ${OLD_COUNT} → ${NEW_COUNT_AFTER} objects in $NEW_BUCKET"
                 SYNCED=$((SYNCED + 1))
