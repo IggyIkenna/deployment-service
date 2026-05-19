@@ -52,33 +52,31 @@ GCP_REGION="${GCP_REGION:-asia-northeast1}"
 # Each category includes the full pipeline from instruments through risk.
 CEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-delta-one-service features-cross-instrument-service
-    features-multi-timeframe-service features-calendar-service
+    features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
 TRADFI_REPOS=(
     "${CEFI_REPOS[@]}"
-    features-volatility-service
 )
 DEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-onchain-service features-delta-one-service
+    features-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     e2e-testing
 )
 SPORTS_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-sports-service
+    features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
 PREDICTION_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-cross-instrument-service
+    features-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
@@ -89,17 +87,13 @@ PREDICTION_REPOS=(
 # the model artefact is registered.
 ML_TRAINING_REPOS=(
     instruments-service market-tick-data-service
-    features-multi-timeframe-service features-calendar-service
-    features-volatility-service features-cross-instrument-service
+    features-service
     ml-training-service
 )
 # All known service repos (union of all categories)
 ALL_SERVICE_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-delta-one-service features-cross-instrument-service
-    features-multi-timeframe-service features-calendar-service
-    features-volatility-service features-onchain-service features-sports-service
-    features-commodity-service
+    features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
