@@ -855,6 +855,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # bucket=None (heartbeat-only); each VM writes to its own service-specific data bucket.
     # Registered 2026-05-17 per CLAUDE.md "VM Naming Convention" HARD RULE.
     "dm-": None,
+    # ------------------------------------------------------------------
+    # Scenario regression matrix VMs (launch-scenario-runner-vm.sh).
+    # VM naming: scenario-matrix-{archetype}-{YYYYMMDD-HHMMSS}.
+    # Launched by deployment-service/scripts/vm/launch-scenario-runner-vm.sh;
+    # writes ScenarioReport parquets to scenario-reports-{pid}.
+    # Registered 2026-05-19 per simulation_scenarios_topology §Phase 9 prereq.
+    # ------------------------------------------------------------------
+    "scenario-matrix-": VmPrefixSpec(
+        bucket=f"scenario-reports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
 }
 
 
