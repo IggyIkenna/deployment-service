@@ -144,9 +144,7 @@ def aggregate_instruments(
     log(f"Deduplicating by '{dedup_col}'...")
     if timestamp_col and timestamp_col in sample_schema:
         # Sort by timestamp descending, then take first per instrument_key
-        deduped = (
-            combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
-        )
+        deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
     else:
         # No timestamp column, just take first occurrence
         log("WARNING: No timestamp column found, taking first occurrence per instrument")

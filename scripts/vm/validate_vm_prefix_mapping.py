@@ -88,9 +88,9 @@ def main() -> int:
         print(f"{prefixes_with_bucket} prefixes with bucket (would check)")
         return 0
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"VM_PREFIX_TO_BUCKET validation  (project={project})")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     for prefix, bucket in sorted(ok):
         print(f"  ✅  {prefix!r:45s} → {bucket}")

@@ -48,16 +48,10 @@ def _load_from_gcs(
     prefix: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Load the four analysis DataFrames from GCS Parquet."""
-    bookmaker_liq = _read_parquet_from_gcs(
-        client, bucket_name, f"{prefix}/bookmaker_liquidity.parquet"
-    )
+    bookmaker_liq = _read_parquet_from_gcs(client, bucket_name, f"{prefix}/bookmaker_liquidity.parquet")
     market_liq = _read_parquet_from_gcs(client, bucket_name, f"{prefix}/market_liquidity.parquet")
-    spread_lines = _read_parquet_from_gcs(
-        client, bucket_name, f"{prefix}/spread_line_popularity.parquet"
-    )
-    totals_lines = _read_parquet_from_gcs(
-        client, bucket_name, f"{prefix}/totals_line_popularity.parquet"
-    )
+    spread_lines = _read_parquet_from_gcs(client, bucket_name, f"{prefix}/spread_line_popularity.parquet")
+    totals_lines = _read_parquet_from_gcs(client, bucket_name, f"{prefix}/totals_line_popularity.parquet")
     return bookmaker_liq, market_liq, spread_lines, totals_lines
 
 
@@ -174,15 +168,9 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Generate arbitrage/liquidity HTML report")
-    parser.add_argument(
-        "--bucket", type=str, default="", help="GCS bucket for liquidity analysis data"
-    )
-    parser.add_argument(
-        "--prefix", type=str, default="sports/liquidity_analysis", help="GCS prefix"
-    )
-    parser.add_argument(
-        "--local-dir", type=str, default="", help="Read from local directory instead of GCS"
-    )
+    parser.add_argument("--bucket", type=str, default="", help="GCS bucket for liquidity analysis data")
+    parser.add_argument("--prefix", type=str, default="sports/liquidity_analysis", help="GCS prefix")
+    parser.add_argument("--local-dir", type=str, default="", help="Read from local directory instead of GCS")
     parser.add_argument(
         "--output",
         type=str,
@@ -195,16 +183,12 @@ def main() -> None:
 
     if args.local_dir:
         logger.info("Loading data from local directory: %s", args.local_dir)
-        bookmaker_liq, market_liq, spread_lines, totals_lines = _load_from_local(
-            Path(args.local_dir)
-        )
+        bookmaker_liq, market_liq, spread_lines, totals_lines = _load_from_local(Path(args.local_dir))
     else:
         bucket_name = args.bucket or f"sports-analysis-{config.gcp_project_id}"
         logger.info("Loading data from GCS: gs://%s/%s", bucket_name, args.prefix)
         client = get_storage_client(project_id=config.gcp_project_id)
-        bookmaker_liq, market_liq, spread_lines, totals_lines = _load_from_gcs(
-            client, bucket_name, args.prefix
-        )
+        bookmaker_liq, market_liq, spread_lines, totals_lines = _load_from_gcs(client, bucket_name, args.prefix)
 
     logger.info("Generating HTML report...")
     html = generate_html(bookmaker_liq, market_liq, spread_lines, totals_lines)

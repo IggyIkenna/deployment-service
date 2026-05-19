@@ -238,21 +238,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Diff and sync secrets between AWS Secrets Manager and GCP Secret Manager"
     )
-    parser.add_argument(
-        "--env", required=True, choices=["dev", "staging", "prod"], help="Environment to operate on"
-    )
+    parser.add_argument("--env", required=True, choices=["dev", "staging", "prod"], help="Environment to operate on")
     parser.add_argument("--gcp-project", required=True, help="GCP project ID")
     parser.add_argument(
         "--aws-region",
         default=os.environ.get("AWS_REGION", "ap-northeast-1"),
         help="AWS region (default: ap-northeast-1)",
     )
-    parser.add_argument(
-        "--names", default="", help="Comma-separated list of canonical secret names to check/sync"
-    )
-    parser.add_argument(
-        "--sync", action="store_true", help="Sync differences (write source values to dest)"
-    )
+    parser.add_argument("--names", default="", help="Comma-separated list of canonical secret names to check/sync")
+    parser.add_argument("--sync", action="store_true", help="Sync differences (write source values to dest)")
     parser.add_argument(
         "--source",
         choices=["aws", "gcp"],
@@ -265,9 +259,7 @@ def main() -> int:
         default="gcp",
         help="Destination for --sync (default: gcp)",
     )
-    parser.add_argument(
-        "--check", action="store_true", help="Exit 1 if any differences found (CI gate mode)"
-    )
+    parser.add_argument("--check", action="store_true", help="Exit 1 if any differences found (CI gate mode)")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -278,9 +270,7 @@ def main() -> int:
 
     names = [n.strip() for n in args.names.split(",") if n.strip()] if args.names else None
 
-    print(
-        f"Connecting to AWS Secrets Manager ({args.aws_region}) and GCP Secret Manager ({args.gcp_project})..."
-    )
+    print(f"Connecting to AWS Secrets Manager ({args.aws_region}) and GCP Secret Manager ({args.gcp_project})...")
     try:
         aws_client = _make_aws_client(args.env, args.aws_region)
         gcp_client = _make_gcp_client(args.gcp_project)

@@ -45,6 +45,7 @@ class VmRow(TypedDict):
     cost_usd: str
     exit_code: str
 
+
 # ---------------------------------------------------------------------------
 # GCE on-demand pricing — asia-northeast1 (Tokyo) region, 2026-05 rates
 # Source: https://cloud.google.com/compute/vm-instance-pricing
@@ -179,9 +180,7 @@ def _gsutil_ls(pattern: str) -> list[str]:
 
 def _gsutil_ls_l(pattern: str) -> list[tuple[datetime, str]]:
     """Run gsutil ls -l and parse (mtime, gcs_path) pairs."""
-    result = subprocess.run(
-        ["gsutil", "ls", "-l", pattern], capture_output=True, text=True, check=False
-    )
+    result = subprocess.run(["gsutil", "ls", "-l", pattern], capture_output=True, text=True, check=False)
     out: list[tuple[datetime, str]] = []
     for line in result.stdout.splitlines():
         m = _LS_L_RE.match(line)
@@ -246,9 +245,7 @@ def analyze(project: str, days: int, output_path: str | None) -> None:
                 if filename == "EXIT_STATUS" or vm not in end_mtimes:
                     end_mtimes[vm] = mtime
 
-    print(
-        f"[analyze_vm_costs] end-time timestamps found for {len(end_mtimes)} VMs", file=sys.stderr
-    )
+    print(f"[analyze_vm_costs] end-time timestamps found for {len(end_mtimes)} VMs", file=sys.stderr)
 
     # 4. Compute rows
     rows: list[VmRow] = []
@@ -358,9 +355,7 @@ def analyze(project: str, days: int, output_path: str | None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--project", default="central-element-323112")
     parser.add_argument("--days", type=int, default=30, help="Past days to analyze (0=all)")
     parser.add_argument("--output", help="CSV output path (default: stdout)")

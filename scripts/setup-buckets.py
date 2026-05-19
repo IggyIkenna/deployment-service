@@ -224,9 +224,7 @@ def get_all_required_buckets(
             # Handle shared bucket services (no category)
             if not categories:
                 # Shared bucket - resolve without category
-                bucket_name = resolve_bucket_name(
-                    bucket_template, "", project_id, cloud, cloud_config, env
-                )
+                bucket_name = resolve_bucket_name(bucket_template, "", project_id, cloud, cloud_config, env)
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -259,9 +257,7 @@ def get_all_required_buckets(
             else:
                 # Category-specific buckets
                 for category in categories:
-                    bucket_name = resolve_bucket_name(
-                        bucket_template, category, project_id, cloud, cloud_config, env
-                    )
+                    bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config, env)
 
                     if bucket_name and bucket_name not in seen_buckets:
                         # Add production bucket (unless test_only)
@@ -306,9 +302,7 @@ def get_all_required_buckets(
             categories = dep_categories if dep_categories else get_service_categories(service_name)
 
             for category in categories:
-                bucket_name = resolve_bucket_name(
-                    bucket_template, category, project_id, cloud, cloud_config, env
-                )
+                bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config, env)
 
                 if bucket_name and bucket_name not in seen_buckets:
                     # Add production bucket (unless test_only)
@@ -409,11 +403,7 @@ def convert_to_aws_bucket_name(
     # Find matching pattern in mappings
     for pattern, template in mappings.items():
         if pattern in gcp_template:
-            return (
-                template.replace("{category}", category)
-                .replace("{account_id}", account_id)
-                .replace("{env}", env)
-            )
+            return template.replace("{category}", category).replace("{account_id}", account_id).replace("{env}", env)
 
     # Fallback: replace default project with account_id
     defaults = config["defaults"]["gcp"]
@@ -563,9 +553,7 @@ def create_gcs_bucket(
             timeout=30,
         )
 
-        logger.info(
-            f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})"
-        )
+        logger.info(f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})")
         return True
 
     except subprocess.TimeoutExpired:
@@ -632,13 +620,7 @@ def create_s3_bucket(
 
         # Enable encryption from configuration
         encryption_config = {
-            "Rules": [
-                {
-                    "ApplyServerSideEncryptionByDefault": {
-                        "SSEAlgorithm": settings["encryption"]["algorithm"]
-                    }
-                }
-            ]
+            "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": settings["encryption"]["algorithm"]}}]
         }
         subprocess.run(
             [
@@ -837,9 +819,7 @@ def main():
                 for bucket in test_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     logger.info(f"  {prefix}{bucket['name']}")
-                    logger.info(
-                        f"      Service: {bucket['service']}, Category: {bucket['category']}"
-                    )
+                    logger.info(f"      Service: {bucket['service']}, Category: {bucket['category']}")
                 logger.info("")
         else:
             logger.info("Required buckets:")
@@ -916,11 +896,7 @@ def main():
             )
 
         if success:
-            if (
-                bucket_exists_gcs(bucket["name"])
-                if args.cloud == "gcp"
-                else bucket_exists_s3(bucket["name"])
-            ):
+            if bucket_exists_gcs(bucket["name"]) if args.cloud == "gcp" else bucket_exists_s3(bucket["name"]):
                 skipped += 1
             else:
                 created += 1

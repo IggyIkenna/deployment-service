@@ -175,7 +175,9 @@ def main(argv: list[str]) -> int:
         default="",
         help="GCS bucket name (default: deployment-scripts-{project})",
     )
-    parser.add_argument("--keep", type=int, default=5, help="Number of most-recent tarballs to keep per service (name-versioned mode)")
+    parser.add_argument(
+        "--keep", type=int, default=5, help="Number of most-recent tarballs to keep per service (name-versioned mode)"
+    )
     parser.add_argument(
         "--noncurrent",
         action="store_true",
@@ -197,7 +199,9 @@ def main(argv: list[str]) -> int:
     dry_run: bool = cast(bool, args.dry_run)
     noncurrent: bool = cast(bool, args.noncurrent)
 
-    logger.info("bucket=gs://%s  dry_run=%s  mode=%s", bucket, dry_run, "noncurrent" if noncurrent else "name-versioned")
+    logger.info(
+        "bucket=gs://%s  dry_run=%s  mode=%s", bucket, dry_run, "noncurrent" if noncurrent else "name-versioned"
+    )
 
     if noncurrent:
         deleted = cleanup_noncurrent_versions(bucket, max_age_days, dry_run)

@@ -138,9 +138,7 @@ def get_last_aggregated_date(asset_groups: list[str] | None = None) -> date | No
                 # Match: aggregated/aggregated_instruments_2026-02-04.parquet
                 match = re.search(r"aggregated_instruments_(\d{4}-\d{2}-\d{2})\.parquet", blob.name)
                 if match:
-                    blob_date = (
-                        datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=UTC).date()
-                    )
+                    blob_date = datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=UTC).date()
                     if latest_date is None or blob_date > latest_date:
                         latest_date = blob_date
                         log(f"  {ag}: Found aggregated file dated {blob_date}")
@@ -155,9 +153,7 @@ def get_last_aggregated_date(asset_groups: list[str] | None = None) -> date | No
     return latest_date
 
 
-def prompt_date_range_confirmation(
-    start_date: date, end_date: date, skip_prompt: bool = False
-) -> bool:
+def prompt_date_range_confirmation(start_date: date, end_date: date, skip_prompt: bool = False) -> bool:
     """
     Prompt user to confirm the date range for downloading instrument definitions.
 
@@ -250,9 +246,7 @@ class InstrumentDownloader:
 
     def list_all_blobs_parallel(self) -> dict[str, list[str]]:
         """List blobs from all buckets in parallel using ThreadPoolExecutor."""
-        log(
-            f"Listing blobs from {len(self.asset_groups)} buckets with {self.list_workers} workers..."
-        )
+        log(f"Listing blobs from {len(self.asset_groups)} buckets with {self.list_workers} workers...")
 
         def list_bucket_blobs(ag: str) -> tuple[str, list[str]]:
             if ag not in self._buckets:
@@ -261,11 +255,7 @@ class InstrumentDownloader:
             bucket = self._buckets[ag]
             try:
                 blobs = list(bucket.list_blobs(prefix=PREFIX))
-                blob_names = [
-                    b.name
-                    for b in blobs
-                    if b.name.endswith(".parquet") and self._filter_by_date(b.name)
-                ]
+                blob_names = [b.name for b in blobs if b.name.endswith(".parquet") and self._filter_by_date(b.name)]
                 log(f"  {ag}: Found {len(blob_names)} parquet files")
                 return ag, blob_names
             except (OSError, ValueError, RuntimeError) as e:
@@ -316,9 +306,7 @@ class InstrumentDownloader:
                 continue
 
             stats["total"] += len(blob_names)
-            log(
-                f"  {ag}: Downloading {len(blob_names)} files with {self.download_workers} workers..."
-            )
+            log(f"  {ag}: Downloading {len(blob_names)} files with {self.download_workers} workers...")
 
             def _download_one(args: tuple[str, object, Path]) -> Exception | None:
                 """Download a single blob to its local destination path."""
@@ -401,11 +389,7 @@ class InstrumentAggregator:
 
         # Deduplicate: keep latest by timestamp for each instrument_key
         if timestamp_col:
-            deduped = (
-                combined.sort(timestamp_col, descending=True)
-                .group_by(dedup_col)
-                .agg(pl.all().first())
-            )
+            deduped = combined.sort(timestamp_col, descending=True).group_by(dedup_col).agg(pl.all().first())
         else:
             deduped = combined.group_by(dedup_col).agg(pl.all().first())
 

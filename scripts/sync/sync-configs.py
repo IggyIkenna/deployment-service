@@ -178,11 +178,7 @@ def diff_configs(
                     )
                 )
             elif s3_data is not None:
-                diffs.append(
-                    BlobDiff(
-                        path=path, status="s3_only", s3_md5=_md5(s3_data), size_bytes=len(s3_data)
-                    )
-                )
+                diffs.append(BlobDiff(path=path, status="s3_only", s3_md5=_md5(s3_data), size_bytes=len(s3_data)))
         except (OSError, ValueError, RuntimeError) as e:
             diffs.append(BlobDiff(path=path, status="error", error=str(e)))
 
@@ -237,24 +233,16 @@ def main() -> int:
     parser.add_argument("--env", required=True, choices=["dev", "staging", "prod"])
     parser.add_argument("--gcs-bucket", required=True, help="GCS bucket name")
     parser.add_argument("--s3-bucket", required=True, help="S3 bucket name")
-    parser.add_argument(
-        "--prefix", default="configs/", help="Blob prefix/path to compare (default: configs/)"
-    )
-    parser.add_argument(
-        "--files", default="", help="Comma-separated specific file paths to compare"
-    )
-    parser.add_argument(
-        "--sync", action="store_true", help="Write source files to dest for any differences"
-    )
+    parser.add_argument("--prefix", default="configs/", help="Blob prefix/path to compare (default: configs/)")
+    parser.add_argument("--files", default="", help="Comma-separated specific file paths to compare")
+    parser.add_argument("--sync", action="store_true", help="Write source files to dest for any differences")
     parser.add_argument(
         "--source",
         choices=["gcs", "s3"],
         default="gcs",
         help="Source of truth for --sync (default: gcs)",
     )
-    parser.add_argument(
-        "--dest", choices=["gcs", "s3"], default="s3", help="Destination for --sync (default: s3)"
-    )
+    parser.add_argument("--dest", choices=["gcs", "s3"], default="s3", help="Destination for --sync (default: s3)")
     parser.add_argument(
         "--gcp-project",
         default=os.environ.get("GCP_PROJECT_ID", ""),
@@ -287,9 +275,7 @@ def main() -> int:
 
     print(f"Diffing configs (prefix={args.prefix!r})...")
     diffs = diff_configs(gcs_client, s3_client, args.gcs_bucket, args.s3_bucket, args.prefix, files)
-    report = ConfigReport(
-        env=args.env, gcs_bucket=args.gcs_bucket, s3_bucket=args.s3_bucket, diffs=diffs
-    )
+    report = ConfigReport(env=args.env, gcs_bucket=args.gcs_bucket, s3_bucket=args.s3_bucket, diffs=diffs)
     report.print_report()
 
     if args.sync:

@@ -102,9 +102,7 @@ def _extract_league_fixtures(df: pd.DataFrame) -> pd.DataFrame:
 
     if "league" in df.columns:
         try:
-            df["league_id"] = df["league"].apply(
-                lambda x: str(x.get("league_id", "")) if isinstance(x, dict) else ""
-            )
+            df["league_id"] = df["league"].apply(lambda x: str(x.get("league_id", "")) if isinstance(x, dict) else "")
         except (AttributeError, TypeError):
             df["league_id"] = ""
     else:
