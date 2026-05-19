@@ -322,6 +322,15 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
+    # TradFi reference data — Databento batch-download registry (mirrors GCP databento-batch-registry-asia-{project_id})
+    - name_template: "unified-trading-databento-batch-registry-{account_id}"
+      service: market-tick-data-service
+      type: reference_data
+      category: tradfi
+    - name_template: "unified-trading-databento-batch-registry-test-{account_id}"
+      service: market-tick-data-service
+      type: reference_data_test
+      category: tradfi
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
