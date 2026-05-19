@@ -29,6 +29,7 @@ import logging
 import os
 import pathlib
 import sys
+import tempfile
 from typing import cast
 
 from unified_trading_library import (
@@ -173,7 +174,7 @@ def _init_events() -> None:
         )
 
         local_sink = LocalFsEventSink(
-            path=pathlib.Path("/tmp/vm-heartbeat-events.jsonl"),
+            path=pathlib.Path(tempfile.gettempdir()) / "vm-heartbeat-events.jsonl",
             service_name="vm-heartbeat-daemon",
         )
         setup_events(service_name="vm-heartbeat-daemon", mode="local", sink=local_sink)

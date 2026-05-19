@@ -19,6 +19,7 @@ import argparse
 import json
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 import solcx
@@ -223,7 +224,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="/tmp/receiver-address.txt",
+        default=str(Path(tempfile.gettempdir()) / "receiver-address.txt"),
         help="File to write the deployed address.",
     )
     parser.add_argument(

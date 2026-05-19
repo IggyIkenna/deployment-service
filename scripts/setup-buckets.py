@@ -52,6 +52,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -528,7 +529,7 @@ def create_gcs_bucket(
             ]
         }
 
-        lifecycle_file = f"/tmp/lifecycle_{bucket_name}.json"
+        lifecycle_file = os.path.join(tempfile.gettempdir(), f"lifecycle_{bucket_name}.json")
         with open(lifecycle_file, "w") as f:
             json.dump(lifecycle_config, f)
 
