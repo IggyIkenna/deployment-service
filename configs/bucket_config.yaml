@@ -322,7 +322,7 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
-    # TradFi reference data — Databento batch-download registry (mirrors GCP databento-batch-registry-asia-{project_id})
+    # TradFi reference data — Databento (upstream) + non-DeFi risk-store parity (slot 2 2026-05-19)
     - name_template: "unified-trading-databento-batch-registry-{account_id}"
       service: market-tick-data-service
       type: reference_data
@@ -331,6 +331,38 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: tradfi
+    - name_template: "risk-store-cefi-{account_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: cefi
+    - name_template: "risk-store-cefi-test-{account_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: cefi
+    - name_template: "risk-store-tradfi-{account_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: tradfi
+    - name_template: "risk-store-tradfi-test-{account_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: tradfi
+    - name_template: "risk-store-prediction-{account_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: prediction
+    - name_template: "risk-store-prediction-test-{account_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: prediction
+    - name_template: "risk-store-sports-{account_id}"
+      service: risk-and-exposure-service
+      type: output
+      category: sports
+    - name_template: "risk-store-sports-test-{account_id}"
+      service: risk-and-exposure-service
+      type: test
+      category: sports
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
