@@ -111,10 +111,6 @@ defi_prod_buckets:
   # Pre-existing (provisioned before 2026-05-08):
   - "unified-trading-instruments-defi-427895769566"
   - "unified-trading-market-data-defi-427895769566"
-# TODO Phase 2 QG: create deployment-service/scripts/aws/apply-bucket-policies.sh
-# that reads this YAML and applies aws s3api put-bucket-policy for each bucket.
-# The script should:
-#   1. Generate a per-bucket IAM policy JSON from the rules above
-#   2. Apply via: aws s3api put-bucket-policy --bucket $B --policy "$JSON"
-#   3. Verify via: aws s3api get-bucket-policy --bucket $B
-# This item is Phase 2 [QG] P0 in aws_migration_defi_first_2026_05_07.md.
+# Phase 2 QG: apply-bucket-policies.sh created (deployment-service@Phase-1B).
+# Run: bash scripts/aws/apply-bucket-policies.sh --apply  (requires AWS auth as admin_od)
+# IAM roles: bash scripts/aws/setup-iam-roles.sh --apply  (creates 30 uts-*-{env} roles)
