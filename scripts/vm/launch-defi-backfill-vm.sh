@@ -45,6 +45,7 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 GCS_BUCKET="gs://instruments-store-defi-${PROJECT_ID}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging"
 TARBALL_NAME="instruments_backfill_codebase.tar.gz"
@@ -125,8 +126,10 @@ echo "  Venues:   ${VENUES}"
 echo "  Range:    ${START_DATE} → ${END_DATE}"
 
 STARTUP_FILE=$(mktemp)
+LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
 cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export WORK_DIR=/tmp/instruments_backfill
 export HOME=/root

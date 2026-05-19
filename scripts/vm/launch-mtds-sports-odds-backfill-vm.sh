@@ -62,6 +62,7 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 # Helper `vm_mtds_backfill.sh` was at `../common/` relative to the source
 # location (e2e-testing/scripts/sports/). After Tab 11 migration the
 # helper sits alongside this launcher in deployment-service/scripts/vm/
@@ -162,8 +163,10 @@ if $FORCE; then
 fi
 
 STARTUP_FILE=$(mktemp)
+LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
 cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export WORK_DIR=/tmp/mtds_backfill
 export HOME=/root

@@ -154,3 +154,72 @@ lc_code_bucket() {
 lc_run_ts() {
     date +%Y%m%d-%H%M%S
 }
+
+# ---------------------------------------------------------------------------
+# lc_log_upload_trap_block <vm_name> <project_id>
+# ---------------------------------------------------------------------------
+# Emit a bash snippet to inject AT THE TOP of an inline VM startup-script
+# heredoc body. The snippet:
+#
+#   1. Tees stdout+stderr to /var/log/run.log (so every echo is captured).
+#   2. Installs an EXIT trap that ALWAYS uploads the log to the canonical
+#      GCS path  gs://deployment-scripts-<project>/vm-logs/<vm-name>/run.log
+#      regardless of exit status — success, error, signal, or
+#      `set -e` propagation.
+#   3. Records the exit code, prints a final marker, then schedules
+#      `shutdown -h +1` to give the upload time to flush before the VM
+#      goes away.
+#
+# Why this exists: inline startup scripts that put `gsutil cp` at the END
+# of the script body lose ALL logs if anything fails before that line —
+# observed 2026-05-19 on mtds-solana-drift-backfill which TERMINATED after
+# 7min with no run.log uploaded. The canonical pattern is to use
+# `vm-exec-with-gcs-tee.sh` via `setup-data-pipeline-vm.sh`; this helper
+# is the lightweight fallback for launchers that inline their own script.
+#
+# CALLER MUST emit this snippet inside the heredoc BEFORE any `set -e`
+# or workload commands. Inside the heredoc body the snippet's bash $-vars
+# are pre-escaped with \$ — caller does NOT need to double-escape.
+#
+# Usage (inside a launcher):
+#     STARTUP_FILE=$(mktemp)
+#     LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
+#     cat > "$STARTUP_FILE" <<STARTUP_EOF
+#     #!/bin/bash
+#     ${LOG_TRAP}
+#     set -euo pipefail
+#     # ... rest of script ...
+#     STARTUP_EOF
+lc_log_upload_trap_block() {
+    local vm_name="${1:?lc_log_upload_trap_block: vm_name required}"
+    local project_id="${2:?lc_log_upload_trap_block: project_id required}"
+    local code_bucket="deployment-scripts-${project_id}"
+    cat <<TRAPSNIPPET
+# --- lc_log_upload_trap_block (deployment-service/scripts/vm/lib/launcher_common.sh) ---
+# Canonical run.log path: gs://${code_bucket}/vm-logs/${vm_name}/run.log
+# EXIT trap fires on success, error, signal -- guaranteed final upload.
+LOG_LOCAL="/var/log/run.log"
+GCS_LOG_URI="gs://${code_bucket}/vm-logs/${vm_name}/run.log"
+mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
+exec > >(tee -a "\$LOG_LOCAL") 2>&1
+_lc_final_upload() {
+    local rc=\$?
+    echo ""
+    echo "=== VM EXIT rc=\$rc \$(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
+    for _i in 1 2 3; do
+        if gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null; then
+            echo "log uploaded to \$GCS_LOG_URI (attempt \$_i)"
+            break
+        fi
+        echo "log upload attempt \$_i failed, retrying in 5s..."
+        sleep 5
+    done
+    sleep 2
+    gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null || true
+    shutdown -h +1 2>/dev/null || true
+    return \$rc
+}
+trap _lc_final_upload EXIT
+# --- end lc_log_upload_trap_block ---
+TRAPSNIPPET
+}

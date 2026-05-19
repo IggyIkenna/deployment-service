@@ -41,6 +41,7 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 COMMON_DIR="$(cd "${SCRIPT_DIR}/../common" && pwd)"
 WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
@@ -133,8 +134,10 @@ launch_vm() {
   fi
 
   STARTUP_FILE=$(mktemp)
+  LOG_TRAP="$(lc_log_upload_trap_block "$vm_name" "$PROJECT_ID")"
   cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export WORK_DIR=/tmp/instruments
 export HOME=/root

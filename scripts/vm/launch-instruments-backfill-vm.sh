@@ -55,6 +55,9 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
+SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR_LIB}/lib/launcher_common.sh"
+
 # Manifest-driven skip is the default. --force ⇒ bypass manifest, refetch all day-shards.
 if $FORCE; then
   FORCE_FLAG_INNER="--force"
@@ -156,8 +159,10 @@ for VM_DEF in "${VMS[@]}"; do
 
   # Write startup script to a temp file (avoids quoting issues)
   STARTUP_FILE=$(mktemp)
+  LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
   cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export WORK_DIR=/tmp/instruments_backfill
 export HOME=/root

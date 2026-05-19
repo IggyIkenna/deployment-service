@@ -23,6 +23,9 @@
 #   bash launch_solana_drift_vm.sh --env staging            # Staging env tier
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
@@ -125,8 +128,10 @@ echo "  Range:  ${START_DATE} → ${END_DATE}"
 echo "  Market: ${DRIFT_MARKET}"
 
 STARTUP_FILE=$(mktemp)
+LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
 cat > "$STARTUP_FILE" << STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
 export WORK_DIR=/tmp/solana_drift
 export HOME=/root
