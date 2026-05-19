@@ -40,6 +40,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Map DEPLOYMENT_ENV to 3-char short form matching ${DEPLOYMENT_ENV_SHORT} in
+# cloud-providers.yaml templates (per bucket_name_ssot_canonicalisation_2026_05_10 Q5/A5).
+# The resolver resolve_bucket_name() uses the short form; provisioned bucket names MUST match.
+case "${DEPLOYMENT_ENV}" in
+    dev|development)     ENV_SHORT="dev" ;;
+    staging|stg)         ENV_SHORT="stg" ;;
+    prod|production|prd) ENV_SHORT="prd" ;;
+    test)                ENV_SHORT="test" ;;
+    ci)                  ENV_SHORT="ci" ;;
+    *) echo "Unknown DEPLOYMENT_ENV=${DEPLOYMENT_ENV}. Valid: dev/staging/prod/test/ci" >&2; exit 1 ;;
+esac
+
 if [[ -z "${AWS_ACCOUNT_ID:-}" ]]; then
     AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
 fi
@@ -51,24 +63,26 @@ fi
 
 echo "AWS account:   $AWS_ACCOUNT_ID"
 echo "Region:        $REGION"
-echo "Deployment:    $DEPLOYMENT_ENV"
+echo "Deployment:    $DEPLOYMENT_ENV (short: $ENV_SHORT)"
 echo "Mode:          $([[ "$APPLY" == "true" ]] && echo APPLY || echo DRY-RUN)"
 echo
 
 # 10 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan Phase 2.
-# Names mirror cloud-providers.yaml aws.storage entries; if those entries change, this
-# list must be regenerated from yq.
+# Names mirror cloud-providers.yaml aws.storage entries exactly (using ENV_SHORT not DEPLOYMENT_ENV).
+# GAP-2.4.A fix 2026-05-19 (slot 3): aligned to yaml templates —
+#   (a) use ENV_SHORT (3-char: prd/stg/dev) not DEPLOYMENT_ENV (full: prod/staging/dev)
+#   (b) pnl/positions/risk drop the unified-trading- prefix (matches yaml + GCP naming)
 BUCKETS=(
-    "unified-trading-dex-pools-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-dex-swaps-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-evm-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-eigenlayer-rewards-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-solana-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-pnl-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-positions-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-risk-store-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-events-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    "unified-trading-config-store-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    "unified-trading-dex-pools-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-dex-swaps-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-evm-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-eigenlayer-rewards-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-solana-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "pnl-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "positions-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "risk-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-events-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-config-store-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
 )
 
 CREATED=0
