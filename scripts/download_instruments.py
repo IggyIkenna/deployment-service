@@ -55,7 +55,6 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import polars as pl
 from unified_trading_library import StorageClient, get_storage_client
@@ -356,7 +355,7 @@ class InstrumentAggregator:
             return []
         return list(group_path.rglob("*.parquet"))
 
-    def aggregate_for_asset_group(self, asset_group: str) -> Optional["pl.DataFrame"]:
+    def aggregate_for_asset_group(self, asset_group: str) -> "pl.DataFrame | None":
         """Aggregate all parquet files for a single asset group."""
         parquet_files = self.find_parquet_files(asset_group)
         if not parquet_files:
