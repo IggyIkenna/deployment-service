@@ -850,6 +850,28 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
+  # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness baseline run.
+  # Reads Telegram bot-token + chat-id from SM secrets named in metadata, exports
+  # them as env vars so AlertingSystemConfig (Pydantic/UnifiedCloudConfig) picks
+  # them up. PAGERDUTY_DISABLED + QUIETNESS_BASELINE_MODE suppress PD delivery.
+  _CHAT_ID_SECRET=$(_meta TELEGRAM_CHAT_ID_SECRET alerting-telegram-chat-id)
+  _BOT_TOKEN_SECRET=$(_meta TELEGRAM_BOT_TOKEN_SECRET alerting-telegram-bot-token)
+  _DURATION=$(_meta VM_DURATION_HOURS 48)
+  log "Fetching Telegram credentials from SM (chat-id-secret=$_CHAT_ID_SECRET, bot-token-secret=$_BOT_TOKEN_SECRET)"
+  export TELEGRAM_CHAT_ID
+  TELEGRAM_CHAT_ID=$(gcloud secrets versions access latest --secret="$_CHAT_ID_SECRET" --project="$GCP_PROJECT_ID" 2>/dev/null || echo "")
+  export TELEGRAM_BOT_TOKEN
+  TELEGRAM_BOT_TOKEN=$(gcloud secrets versions access latest --secret="$_BOT_TOKEN_SECRET" --project="$GCP_PROJECT_ID" 2>/dev/null || echo "")
+  export QUIETNESS_BASELINE_MODE=true
+  export PAGERDUTY_DISABLED=true
+  export RUN_DURATION_HOURS="$_DURATION"
+  if [[ -z "$TELEGRAM_CHAT_ID" || -z "$TELEGRAM_BOT_TOKEN" ]]; then
+    log "ERROR: Could not fetch Telegram credentials from SM — aborting quietness baseline"
+    exit 1
+  fi
+  log "Telegram credentials loaded; chat_id=${TELEGRAM_CHAT_ID:0:8}... duration=${_DURATION}h PD=disabled"
+  _launch_with_tee "$VENV/bin/python -m alerting_service --operation alerts --mode live" "$LOGS/alerting-quietness-baseline.log"
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
   # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of

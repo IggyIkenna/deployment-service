@@ -154,17 +154,12 @@ gcloud compute instances create "$VM_NAME" \
   --scopes=cloud-platform \
   --metadata="\
 SERVICE_REPO=alerting-service,\
-SERVICE_MODULE=alerting_service,\
+VM_TASK=alerting-quietness-baseline,\
 VM_NAME=${VM_NAME},\
 VM_DURATION_HOURS=${DURATION_HOURS},\
 VM_SHUTDOWN_ON_COMPLETION=true,\
-RUN_OPERATION=run,\
-RUN_MODE=live,\
-QUIETNESS_BASELINE=true,\
-PAGERDUTY_DISABLED=true,\
-TELEGRAM_CHANNEL_OVERRIDE=uts-staging-noise,\
 TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
-TELEGRAM_CHAT_ID_SECRET=alerting-telegram-chat-id,\
+TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
 DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
 CODE_BUCKET=${CODE_BUCKET},\
 PROJECT_ID=${PROJECT}" \
