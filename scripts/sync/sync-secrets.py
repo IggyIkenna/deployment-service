@@ -98,7 +98,7 @@ def _aws_secret_path(env: str, name: str) -> str:
 
 def _make_aws_client(env: str, region: str) -> object:
     from unified_trading_library import (
-        AWSSecretClient,  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+        AWSSecretClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     )
 
     return AWSSecretClient(region=region)
@@ -106,7 +106,7 @@ def _make_aws_client(env: str, region: str) -> object:
 
 def _make_gcp_client(project_id: str) -> object:
     from unified_trading_library import (
-        GCPSecretClient,  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+        GCPSecretClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     )
 
     return GCPSecretClient(project_id=project_id)
@@ -116,7 +116,7 @@ def _list_aws_secrets(aws_client: object, env: str) -> dict[str, str]:
     """Return canonical_name -> full_path mapping for all secrets under unified-trading/{env}/"""
     prefix = f"unified-trading/{env}/"
     # list_secrets returns full names (paths)
-    full_names: list[str] = aws_client.list_secrets(prefix=prefix)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+    full_names: list[str] = aws_client.list_secrets(prefix=prefix)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     # strip the prefix to get canonical name
     result: dict[str, str] = {}
     for full in full_names:
@@ -133,7 +133,7 @@ def _list_gcp_secrets(gcp_client: object, env: str) -> dict[str, str]:
     by deployment-service terraform: just the canonical name (no env prefix for static secrets,
     or "{name}-{env}" for env-scoped). We list ALL and filter by known naming patterns.
     """
-    all_names: list[str] = gcp_client.list_secrets()  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+    all_names: list[str] = gcp_client.list_secrets()  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     result: dict[str, str] = {}
     for name in all_names:
         result[name] = name
@@ -165,9 +165,9 @@ def diff_secrets(
             gcp_val: str | None = None
 
             if aws_path:
-                aws_val = aws_client.get_secret(aws_path)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                aws_val = aws_client.get_secret(aws_path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
             if gcp_id:
-                gcp_val = gcp_client.get_secret(gcp_id)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                gcp_val = gcp_client.get_secret(gcp_id)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
 
             if aws_val is not None and gcp_val is not None:
                 status: SyncStatus = "match" if aws_val == gcp_val else "value_mismatch"
@@ -220,12 +220,12 @@ def sync_secrets(
             if dest == "aws":
                 aws_path = _aws_secret_path(env, diff.name)
                 # Try update first, then create
-                if not aws_client.update_secret(aws_path, value):  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
-                    aws_client.create_secret(aws_path, value)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                if not aws_client.update_secret(aws_path, value):  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                    aws_client.create_secret(aws_path, value)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 print(f"  [aws] {aws_path}")
             else:  # dest == "gcp"
-                if not gcp_client.update_secret(diff.name, value):  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
-                    gcp_client.create_secret(diff.name, value)  # type: ignore[attr-defined]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                if not gcp_client.update_secret(diff.name, value):  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                    gcp_client.create_secret(diff.name, value)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 print(f"   {diff.name}")
             written += 1
         except (OSError, ValueError, RuntimeError) as e:
