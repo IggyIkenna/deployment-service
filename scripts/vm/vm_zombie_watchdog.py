@@ -692,6 +692,32 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     # ------------------------------------------------------------------
+    # GCS migration bundle Phase 3 VMs — launch-gcs-migration-bundle-vm.sh
+    # naming: gcs-migration-bundle-{ag}-{year}-{ts}
+    # Runs gcs_migration_bundle_2026_05_08.py --apply for one year-slice
+    # per VM. Writes per-VM manifest shards under each ag's tick bucket.
+    # MANIFEST_PER_VM_SHARDS=true + unique VM_NAME ensure no collisions.
+    # Registered 2026-05-19 (slot 1 Phase 3 fleet launch).
+    # ------------------------------------------------------------------
+    "gcs-migration-bundle-cefi-": VmPrefixSpec(
+        bucket=f"market-data-tick-cefi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "gcs-migration-bundle-defi-": VmPrefixSpec(
+        bucket=f"market-data-tick-defi-{PROJECT_ID}", lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "gcs-migration-bundle-tradfi-": VmPrefixSpec(
+        bucket=f"market-data-tick-tradfi-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "gcs-migration-bundle-sports-": VmPrefixSpec(
+        bucket=f"market-data-tick-sports-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "gcs-migration-bundle-prediction-": VmPrefixSpec(
+        bucket=f"market-data-tick-prediction-{PROJECT_ID}",
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
     # MDPS sports bucket-pass VMs — launch-mdps-sports-bucket-vm.sh
     # naming: mdps-sports-bucket-{ts}
     # writes per-(league_id, horizon) bucketed parquets to the same sports
