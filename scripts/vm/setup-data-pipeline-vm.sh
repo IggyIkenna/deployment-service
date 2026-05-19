@@ -876,7 +876,7 @@ elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
     exit 1
   fi
   log "Telegram credentials loaded; chat_id=${TELEGRAM_CHAT_ID:0:8}... duration=${_DURATION}h PD=disabled"
-  _launch_with_tee "$VENV/bin/python -m alerting_service --operation alerts --mode live" "$LOGS/alerting-quietness-baseline.log"
+  _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness-baseline.log"
 elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
   # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of
