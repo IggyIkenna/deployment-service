@@ -34,12 +34,14 @@ PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
+FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
+    --force) FORCE=true; shift ;;
     --project) PROJECT_ID="$2"; shift 2 ;;
     --zone) ZONE="$2"; shift 2 ;;
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
@@ -52,6 +54,15 @@ case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+
+# Manifest-driven skip is the default. --force ⇒ bypass manifest, refetch all day-shards.
+if $FORCE; then
+  FORCE_FLAG_INNER="--force"
+  echo "MODE: --force ON — manifest-driven skip BYPASSED. Every day-shard will be re-fetched."
+else
+  FORCE_FLAG_INNER=""
+  echo "MODE: --force OFF (default) — manifest-driven skip ACTIVE. Already-captured + empty_confirmed shards will be skipped."
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GCS_BUCKET="gs://instruments-store-defi-${PROJECT_ID}"
@@ -189,13 +200,16 @@ tar xzf \${WORK_DIR}/codebase.tar.gz -C \${WORK_DIR}
 rm \${WORK_DIR}/codebase.tar.gz
 ls -d \${WORK_DIR}/*/
 
-# Run backfill
+# Run backfill — honest_coverage SSOT: without --force, manifest-driven skip
+# applies (capture_status in {captured,empty_confirmed} → skipped;
+# attempted_failed + expected_unattempted → retried). Outer launcher's
+# --force flag propagates here as $FORCE_FLAG_INNER, default empty.
 echo "Starting backfill..."
 bash \${WORK_DIR}/vm_instruments_backfill.sh \\
   --asset-group ${ASSET_GROUP} \\
   --start ${START_DATE} \\
   --end ${END_DATE} \\
-  --force \\
+  ${FORCE_FLAG_INNER} \\
   --work-dir \${WORK_DIR}
 
 # Upload log to GCS
