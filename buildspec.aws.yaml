@@ -55,7 +55,7 @@ phases:
         if [ -n "$GH_PAT" ]; then
           IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME:$VERSION"
           curl -sS -X POST -H "Authorization: token $GH_PAT" -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/IggyIkenna/deployment-service/dispatches \
+            https://api.github.com/repos/IggyIkenna/$REPO_NAME/dispatches \
             -d "{\"event_type\":\"service-deployed\",\"client_payload\":{\"service_name\":\"$REPO_NAME\",\"version\":\"$VERSION\",\"image\":\"$IMAGE\"}}" || true  # || true: cleanup step, failure is intentional (optional GitHub dispatch notification)
         fi
       - uv pip install build twine
