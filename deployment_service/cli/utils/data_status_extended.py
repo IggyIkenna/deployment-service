@@ -13,7 +13,6 @@ from typing import cast
 
 import click
 import yaml
-from typing import cast
 from unified_trading_library import (
     PATH_REGISTRY,
     UnifiedCloudConfig,
@@ -118,7 +117,7 @@ def run_t1_check(
                 status = "ERROR"
                 details = str(result["error"])
             else:
-                completion = float(result.get("overall_completion", 0))  # type: ignore[arg-type]  # Optional[str] passed where str expected; None excluded by caller guard
+                completion = float(cast(float | int, result.get("overall_completion", 0)))
                 if completion == 100:
                     status = "OK"
                 elif completion == 0:
