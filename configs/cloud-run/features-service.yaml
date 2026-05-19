@@ -1,0 +1,154 @@
+# Cloud Run service spec for features-service — live continuous mode.
+#
+# This file is the declarative reference for the features-service Cloud Run
+# service.  It documents resource + env shape; actual deployment is performed
+# by scripts/cloud-run/deploy_features_service_cloud_run.sh (operator-side).
+#
+# Architecture notes
+# ------------------
+# features-service runs TWO processes within the same container image:
+#
+#   1. Health-API (uvicorn, port 8080) — always-on.  Exposes /health, /readiness,
+#      /liveness per UTL make_health_router (STEP 5.62).  Cloud Run sends all
+#      HTTP traffic here; liveness + readiness probes target /liveness + /readiness.
+#
+#   2. Streaming processor (python -m features_service --feature-family <X> ...)
+#      This is the batch=live compute path; it is NOT a Cloud Run revision.
+#      On Cloud Run the container CMD runs the Health-API only; the streaming
+#      processor is spawned as a background thread inside the FastAPI lifespan
+#      hook (Phase E.2 follow-up: add lifespan to api/main.py that launches the
+#      per-family live runners per active --asset-group env-var).
+#
+# Single-container deployment (one CR service, one revision per deploy)
+# ----------------------------------------------------------------------
+# features-service handles ALL 8 families (calendar / commodity / cross_instrument /
+# delta_one / multi_timeframe / onchain / sports / volatility) and ALL asset_groups
+# (cefi / defi / tradfi / sports / prediction) in one image.  Per-asset-group
+# instances are controlled by env-var FEATURES_ASSET_GROUPS (comma-separated) so
+# the operator can pin individual CR revisions to specific asset-groups if needed.
+# Default: all asset-groups active.
+#
+# Bucket-name SSOT
+# ----------------
+# All bucket lookups in features-service MUST go through:
+#   unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name(...)
+# Never inline gs:// URIs.  Source of truth: deployment-service/configs/cloud-providers.yaml.
+#
+# Region: asia-northeast1
+# -----------------------
+# features-service must run in asia-northeast1 — all GCS data is there.
+# Cross-region read egress from cloud run to GCS would add cost + latency and is
+# caught at T+10 min post-launch audit (SSOT: codex/05-infrastructure/vm-tarball-deployment.md).
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: features-service
+  annotations:
+    run.googleapis.com/launch-stage: GA
+    run.googleapis.com/description: >
+      features-service — consolidated 8-family features pipeline (calendar /
+      commodity / cross_instrument / delta_one / multi_timeframe / onchain /
+      sports / volatility).  Health-API on port 8080; streaming processor runs
+      as a background thread inside the FastAPI lifespan.
+spec:
+  template:
+    metadata:
+      annotations:
+        # Always-on: keep 1 instance warm to avoid cold-start latency on /health
+        # checks and to sustain the streaming processor.
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "3"
+        # Cloud Run VPC connector is not required for Phase E — GCS + PubSub are
+        # reached via public endpoints with service-account credentials.
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      # Service account: features-prod has objectAdmin on features bucket +
+      # objectViewer on market-data bucket + pubsub publisher/subscriber.
+      # SSOT: deployment-service/configs/gcp_service_accounts.yaml#features-prod
+      serviceAccountName: features-prod@central-element-323112.iam.gserviceaccount.com
+      # Cloud Run defaults to 60s; features families can have slow startup
+      # (numba JIT on first import).  120s covers cold-start.
+      timeoutSeconds: 120
+      containerConcurrency: 80
+      containers:
+        - image: asia-northeast1-docker.pkg.dev/${PROJECT_ID}/features-service/features-service:latest
+          # Health-API entry: uvicorn on port 8080.
+          # CMD (below) overrides the Dockerfile CMD ["--help"] for Cloud Run.
+          command:
+            - "uvicorn"
+            - "features_service.api.main:app"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "--workers"
+            - "1"
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              # 2 vCPU to sustain concurrent streaming + Health-API.  Increase to
+              # 4 if per-family live runners are all active simultaneously.
+              cpu: "2"
+              # 4 Gi covers numba JIT + pandas DataFrames for all 8 families.
+              memory: 4Gi
+          env:
+            # --- Runtime environment ---
+            - name: DEPLOYMENT_ENV
+              value: "prod"
+            # Asset-groups this instance should process (comma-separated).
+            # Override per-revision to isolate asset_groups to dedicated instances.
+            - name: FEATURES_ASSET_GROUPS
+              value: "cefi,defi,tradfi,sports,prediction"
+            # Cloud provider config (non-local = prod GCS)
+            - name: CLOUD_PROVIDER
+              value: "gcp"
+            - name: GCP_PROJECT_ID
+              value: "central-element-323112"
+            - name: GCS_REGION
+              value: "asia-northeast1"
+            - name: GCS_LOCATION
+              value: "asia-northeast1"
+            # Disable gcsfuse check (Cloud Run uses GCS client library, not gcsfuse)
+            - name: UCS_SKIP_GCSFUSE_CHECK
+              value: "1"
+            # PubSub emulator NOT set — live prod uses real PubSub endpoint
+            # Redis Stream (MDPS output) connection string.
+            # Populated from Secret Manager in the deploy script via --update-secrets.
+            - name: MDPS_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mdps-redis-url-prod
+                  key: latest
+          # Liveness probe: Cloud Run sends a GET every 30s; 3 failures → restart.
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 10
+          # Readiness probe: Cloud Run holds traffic until probe succeeds.
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          # Startup probe: generous window for numba JIT + SA auth on cold start.
+          startupProbe:
+            httpGet:
+              path: /liveness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+            timeoutSeconds: 10
+  traffic:
+    - latestRevision: true
+      percent: 100
