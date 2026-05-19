@@ -196,12 +196,15 @@ declare -A SERVICE_TARBALLS=(
   ["market_data_processing_service"]="market-data-processing-service-code"
   ["features_delta_one_service"]="features-delta-one-service-code"
   ["strategy_service"]="strategy-service-code"
+  # pnl_attribution_service, risk_and_exposure_service, position_balance_monitor_service are
+  # sub-packages of strategy_service post-consolidation (strategy_repo_consolidation_2026_05_19.md).
+  # Map them to strategy-service-code so VM_SERVICE=pnl_attribution_service still resolves.
+  ["pnl_attribution_service"]="strategy-service-code"
+  ["risk_and_exposure_service"]="strategy-service-code"
+  ["position_balance_monitor_service"]="strategy-service-code"
   ["execution_service"]="execution-service-code"
-  ["pnl_attribution_service"]="pnl-attribution-service-code"
-  ["risk_and_exposure_service"]="risk-and-exposure-service-code"
   ["ml_training_service"]="ml-training-service-code"
   ["ml_inference_service"]="ml-inference-service-code"
-  ["position_balance_monitor_service"]="position-balance-monitor-service-code"
   ["features_volatility_service"]="features-volatility-service-code"
   ["features_cross_instrument_service"]="features-cross-instrument-service-code"
   ["features_calendar_service"]="features-calendar-service-code"
@@ -226,11 +229,12 @@ declare -A TARBALL_DIRS=(
   ["features-delta-one-service-code"]="fd1"
   ["strategy-service-code"]="strategy"
   ["execution-service-code"]="execution"
-  ["pnl-attribution-service-code"]="pnl"
-  ["risk-and-exposure-service-code"]="risk"
+  # pnl-attribution-service-code, risk-and-exposure-service-code,
+  # position-balance-monitor-service-code tarballs no longer exist post-consolidation
+  # (strategy_repo_consolidation_2026_05_19.md). strategy-service-code contains all 3
+  # sub-packages (strategy_service.pnl / .risk / .position).
   ["ml-training-service-code"]="ml-train"
   ["ml-inference-service-code"]="ml-infer"
-  ["position-balance-monitor-service-code"]="pbm"
   ["features-volatility-service-code"]="fvol"
   ["features-cross-instrument-service-code"]="fci"
   ["features-calendar-service-code"]="fcal"
@@ -268,17 +272,16 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
   # run-paper.sh / run-live.sh. colocated_engine.py imports:
   #   strategy_service, execution_service (core logic)
-  #   position_balance_monitor_service (treasury state, line 195)
-  #   pnl_attribution_service (P&L breakdown, line 558)
-  #   risk_and_exposure_service (risk metrics, line 635)
+  #   strategy_service.position (treasury state — was position_balance_monitor_service)
+  #   strategy_service.pnl (P&L breakdown — was pnl_attribution_service)
+  #   strategy_service.risk (risk metrics — was risk_and_exposure_service)
+  # Post-consolidation (strategy_repo_consolidation_2026_05_19.md): all 3 sub-packages
+  # are included in strategy-service-code; no separate tarballs needed.
   # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
-  log "VM_TASK=${VM_TASK} — installing strategy/execution/pbm/pnl/risk + e2e-testing"
+  log "VM_TASK=${VM_TASK} — installing strategy/execution + e2e-testing (pnl/risk/position bundled in strategy-service-code)"
   NEEDED_TARBALLS+=(
     "strategy-service-code"
     "execution-service-code"
-    "position-balance-monitor-service-code"
-    "pnl-attribution-service-code"
-    "risk-and-exposure-service-code"
     "e2e-testing-code"
   )
 elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
@@ -422,7 +425,9 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk e2e-testing)
+# pbm/pnl/risk sub-packages are now part of strategy-service (strategy_repo_consolidation_2026_05_19.md);
+# the "strategy" entry covers all 3. Removed pbm/pnl/risk from nodeps list accordingly.
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution e2e-testing)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   # e2e-testing is scripts-only (run-paper.sh/run-live.sh/colocated_engine.py) — NOT
@@ -472,10 +477,10 @@ uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | ta
 # the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
-# position_balance_monitor_service.storage.database eagerly imports sqlalchemy
-# at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
-# version-pinning conflicts; sqlalchemy itself has no such conflict so install
-# it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+# strategy_service.position.storage.database (was position_balance_monitor_service) eagerly
+# imports sqlalchemy at module load time. strategy-service is installed --no-deps on
+# strategy-paper/live VMs to skip UAC version-pinning conflicts; sqlalchemy itself has no
+# such conflict so install it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
   uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3

@@ -55,7 +55,6 @@ CEFI_REPOS=(
     features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
 TRADFI_REPOS=(
     "${CEFI_REPOS[@]}"
@@ -64,7 +63,6 @@ DEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     e2e-testing
 )
 SPORTS_REPOS=(
@@ -72,13 +70,11 @@ SPORTS_REPOS=(
     features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service
 )
 PREDICTION_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service
 )
 # ML training — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
 # Tier 1 MVP (stitched continuous ES series trained locally / on a training VM).
@@ -96,7 +92,6 @@ ALL_SERVICE_REPOS=(
     features-service
     ml-training-service ml-inference-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     batch-live-reconciliation-service
 )
 

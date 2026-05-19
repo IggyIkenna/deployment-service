@@ -4,9 +4,13 @@
 #
 # Repos not yet linked to connection "iggyikenna-github" (asia-northeast1) must be linked
 # in GCP Console (Cloud Build → Repositories → Link repository) before triggers can be created:
-#   alerting-service, client-reporting-api, execution-results-api, market-data-api,
-#   pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service,
+#   alerting-service, client-reporting-api, execution-results-api, market-data-api
 # Then re-run: terraform apply -var="project_id={project_id}" -auto-approve
+#
+# NOTE: pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service
+# Cloud Build triggers REMOVED — these repos are archived post-consolidation into strategy-service
+# (strategy_repo_consolidation_2026_05_19.md). Their Cloud Run services must be destroyed via
+# terraform/services/{service}/gcp/terraform destroy after operator confirms gh repo archive.
 
 terraform {
   required_version = ">= 1.0.0"
@@ -88,18 +92,9 @@ locals {
       artifact_registry_repo = "execution-service"
     }
     # Layer 6 · Risk · PnL · Ops
-    "pnl-attribution-service" = {
-      github_repo            = "pnl-attribution-service"
-      artifact_registry_repo = "pnl-attribution-service"
-    }
-    "position-balance-monitor-service" = {
-      github_repo            = "position-balance-monitor-service"
-      artifact_registry_repo = "position-balance-monitor-service"
-    }
-    "risk-and-exposure-service" = {
-      github_repo            = "risk-and-exposure-service"
-      artifact_registry_repo = "risk-and-exposure-service"
-    }
+    # pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service
+    # REMOVED — archived repos consolidated into strategy-service.
+    # (strategy_repo_consolidation_2026_05_19.md)
     "alerting-service" = {
       github_repo            = "alerting-service"
       artifact_registry_repo = "alerting-service"

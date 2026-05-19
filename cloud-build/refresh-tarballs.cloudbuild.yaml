@@ -117,9 +117,6 @@ steps:
           ml-inference-service
           strategy-service
           execution-service
-          pnl-attribution-service
-          risk-and-exposure-service
-          position-balance-monitor-service
         )
         for repo in "$${REPOS[@]}"; do
           if [[ ! -d "$$repo/.git" ]]; then

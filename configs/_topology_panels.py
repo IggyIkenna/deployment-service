@@ -154,7 +154,7 @@ def _add_reference_panels(g: graphviz.Digraph) -> None:
             "  batch=scale-to-zero | live=always-on\\l"
             "Cloud Run Job (scale-to-zero):\\l"
             "  instruments | features-calendar | features-onchain\\l"
-            "  pnl-attribution | strategy-validation\\l"
+            "  strategy-svc (position-recon | risk-monitor | pnl-attribution) | strategy-validation\\l"
             "Cloud Run Svc (auto-scale, OAuth):\\l"
             "  deployment-api :8001 | client-reporting-api :8005\\l"
             "Cloud Run Svc (auto-scale) - UIs:\\l"
