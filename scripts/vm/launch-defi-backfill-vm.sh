@@ -17,8 +17,17 @@
 #   UNISWAPV3-ETHEREUM, UNISWAPV3-POLYGON, RAYDIUM-SOLANA, UNISWAPV4-ETHEREUM
 #
 # Usage:
-#   bash launch_defi_backfill_vm.sh               # Launch VM
-#   bash launch_defi_backfill_vm.sh --dry-run      # Print plan only
+#   bash launch_defi_backfill_vm.sh                                # Launch VM (defaults: 2020-01-01..2026-04-04)
+#   bash launch_defi_backfill_vm.sh --dry-run                      # Print plan only
+#   bash launch_defi_backfill_vm.sh --start 2026-04-01 --end 2026-05-16  # Override date window
+#
+# CLI date-window override added 2026-05-20 per ikenna directive (Option A) to
+# unblock the 46-day DeFi upstream backfill (window 2026-04-01..2026-05-16).
+# Backwards-compat preserved: existing callers without --start/--end continue
+# to use the previous hardcoded defaults (2020-01-01..2026-04-04).
+# When --start/--end is overridden, the VM name is suffixed with the end-date
+# (e.g. instr-backfill-defi-targeted-20260516) to avoid name-collision with the
+# default singleton VM.
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -27,6 +36,8 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+START_OVERRIDE=""
+END_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +46,8 @@ while [[ $# -gt 0 ]]; do
     --zone) ZONE="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
+    --start) START_OVERRIDE="$2"; shift 2 ;;
+    --end) END_OVERRIDE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -54,6 +67,16 @@ VENUES="CURVE-AVALANCHE CURVE-OPTIMISM BALANCER-ETHEREUM UNISWAPV3-ETHEREUM UNIS
 VM_NAME="instr-backfill-defi-targeted"
 START_DATE="2020-01-01"
 END_DATE="2026-04-04"
+
+# Apply CLI overrides (2026-05-20 Option A). Suffix VM name with end-date when
+# overridden so concurrent backfill operations don't collide on the default
+# singleton VM name.
+if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+  [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
+  [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
+  VM_NAME="instr-backfill-defi-targeted-$(echo "${END_DATE}" | tr -d '-')"
+  echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
+fi
 
 # ---------- Step 1: Package codebase ----------
 echo "=== Step 1: Packaging codebase ==="

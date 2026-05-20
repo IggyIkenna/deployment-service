@@ -16,15 +16,28 @@
 # Plan: launcher_scripts_consolidation_into_deployment_service_2026_05_07.plan.md.
 #
 # Usage:
-#   bash launch-instruments-backfill-vm.sh               # Launch all 5 VMs
-#   bash launch-instruments-backfill-vm.sh --dry-run      # Print plan without executing
+#   bash launch-instruments-backfill-vm.sh                                          # Launch all 6 VMs (default ranges)
+#   bash launch-instruments-backfill-vm.sh --dry-run                                # Print plan without executing
+#   bash launch-instruments-backfill-vm.sh --asset-group DEFI                       # Only launch DeFi VM
+#   bash launch-instruments-backfill-vm.sh --asset-group DEFI \
+#       --start 2026-04-01 --end 2026-05-16                                          # Override window (asset-group filter required)
 #
-# VM allocation (5 VMs):
+# VM allocation (6 VMs):
 #   VM1: CeFi  2020-01-01 → 2022-06-30
 #   VM2: CeFi  2022-07-01 → 2024-12-31
 #   VM3: CeFi  2025-01-01 → 2026-02-28
 #   VM4: DeFi  2020-01-01 → 2026-02-28  (fetches universe once, date-filters)
 #   VM5: TradFi 2020-01-01 → 2026-02-28
+#   VM6: Sports 2020-06-01 → 2026-03-28
+#
+# CLI extensions added 2026-05-20 per ikenna directive (Option A) to unblock the
+# 46-day DeFi upstream backfill (window 2026-04-01..2026-05-16). Backwards-compat
+# preserved: existing callers without --asset-group/--start/--end continue to
+# launch all 6 VMs with the previous hardcoded ranges. When --start/--end is
+# overridden the launcher REQUIRES --asset-group to avoid silently rewriting
+# date ranges across mixed-purpose VMs. VM name is suffixed with the end-date
+# when overridden so a relaunch doesn't collide with the default singleton VM.
+#
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
@@ -37,6 +50,9 @@ DRY_RUN=false
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+ASSET_GROUP_FILTER=""
+START_OVERRIDE=""
+END_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,9 +62,21 @@ while [[ $# -gt 0 ]]; do
     --zone) ZONE="$2"; shift 2 ;;
     --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --asset-group) ASSET_GROUP_FILTER="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
+    --start) START_OVERRIDE="$2"; shift 2 ;;
+    --end) END_OVERRIDE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+# Date-window override safety: requires --asset-group filter (don't silently
+# rewrite ranges across the 6 mixed-purpose VMs).
+if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+  if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
+    echo "ERROR: --start/--end requires --asset-group <CEFI|DEFI|TRADFI|SPORTS> to scope the override." >&2
+    exit 1
+  fi
+fi
 
 case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
@@ -156,6 +184,21 @@ declare -a VMS=(
 
 for VM_DEF in "${VMS[@]}"; do
   IFS='|' read -r VM_NAME ASSET_GROUP START_DATE END_DATE <<< "$VM_DEF"
+
+  # Asset-group filter: skip VMs that don't match the filter (2026-05-20).
+  if [[ -n "${ASSET_GROUP_FILTER}" && "${ASSET_GROUP}" != "${ASSET_GROUP_FILTER}" ]]; then
+    echo "  Skipping ${VM_NAME} (asset_group=${ASSET_GROUP} != filter=${ASSET_GROUP_FILTER})"
+    continue
+  fi
+
+  # Date-window override (only applied when --asset-group filter selected this VM).
+  if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+    [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
+    [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
+    # Suffix VM name with end-date so override doesn't collide with default singleton.
+    VM_NAME="${VM_NAME}-$(echo "${END_DATE}" | tr -d '-')"
+    echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
+  fi
 
   # Write startup script to a temp file (avoids quoting issues)
   STARTUP_FILE=$(mktemp)
