@@ -122,6 +122,10 @@ VM_FORCE=$(_meta VM_FORCE)
 # picks it up via os.environ.get.
 TARDIS_STREAMING_FINALIZE=$(_meta TARDIS_STREAMING_FINALIZE)
 [[ -n "$TARDIS_STREAMING_FINALIZE" ]] && export TARDIS_STREAMING_FINALIZE
+# Tarball SHA gate — when set, VM boot asserts that every installed tarball's
+# manifest.json commit_sha matches this value. Set by launchers that pin a
+# specific deployment commit. Raises ManifestShaDriftError on mismatch + exits 1.
+TARBALL_EXPECTED_SHA=$(_meta TARBALL_EXPECTED_SHA)
 # Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
 # tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
 # running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
@@ -196,15 +200,12 @@ declare -A SERVICE_TARBALLS=(
   ["market_data_processing_service"]="market-data-processing-service-code"
   ["features_delta_one_service"]="features-delta-one-service-code"
   ["strategy_service"]="strategy-service-code"
-  # pnl_attribution_service, risk_and_exposure_service, position_balance_monitor_service are
-  # sub-packages of strategy_service post-consolidation (strategy_repo_consolidation_2026_05_19.md).
-  # Map them to strategy-service-code so VM_SERVICE=pnl_attribution_service still resolves.
-  ["pnl_attribution_service"]="strategy-service-code"
-  ["risk_and_exposure_service"]="strategy-service-code"
-  ["position_balance_monitor_service"]="strategy-service-code"
   ["execution_service"]="execution-service-code"
+  ["pnl_attribution_service"]="pnl-attribution-service-code"
+  ["risk_and_exposure_service"]="risk-and-exposure-service-code"
   ["ml_training_service"]="ml-training-service-code"
   ["ml_inference_service"]="ml-inference-service-code"
+  ["position_balance_monitor_service"]="position-balance-monitor-service-code"
   ["features_volatility_service"]="features-volatility-service-code"
   ["features_cross_instrument_service"]="features-cross-instrument-service-code"
   ["features_calendar_service"]="features-calendar-service-code"
@@ -212,7 +213,6 @@ declare -A SERVICE_TARBALLS=(
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
   ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
-  ["alerting_service"]="alerting-service-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -229,12 +229,11 @@ declare -A TARBALL_DIRS=(
   ["features-delta-one-service-code"]="fd1"
   ["strategy-service-code"]="strategy"
   ["execution-service-code"]="execution"
-  # pnl-attribution-service-code, risk-and-exposure-service-code,
-  # position-balance-monitor-service-code tarballs no longer exist post-consolidation
-  # (strategy_repo_consolidation_2026_05_19.md). strategy-service-code contains all 3
-  # sub-packages (strategy_service.pnl / .risk / .position).
+  ["pnl-attribution-service-code"]="pnl"
+  ["risk-and-exposure-service-code"]="risk"
   ["ml-training-service-code"]="ml-train"
   ["ml-inference-service-code"]="ml-infer"
+  ["position-balance-monitor-service-code"]="pbm"
   ["features-volatility-service-code"]="fvol"
   ["features-cross-instrument-service-code"]="fci"
   ["features-calendar-service-code"]="fcal"
@@ -242,7 +241,6 @@ declare -A TARBALL_DIRS=(
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
   ["batch-live-reconciliation-service-code"]="blr"
-  ["alerting-service-code"]="alerting"
   # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
   # strategy paper/live VMs. No editable install (no pyproject.toml Python package
   # to install from e2e-testing root — strategy-service + execution-service packages
@@ -265,23 +263,21 @@ NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "de
 # before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
 # triggers the multi-service install path here instead of the single-service
 # default.
-if [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
-  log "VM_TASK=alerting-quietness-baseline — installing alerting-service-code"
-  NEEDED_TARBALLS+=("alerting-service-code")
-elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
   # run-paper.sh / run-live.sh. colocated_engine.py imports:
   #   strategy_service, execution_service (core logic)
-  #   strategy_service.position (treasury state — was position_balance_monitor_service)
-  #   strategy_service.pnl (P&L breakdown — was pnl_attribution_service)
-  #   strategy_service.risk (risk metrics — was risk_and_exposure_service)
-  # Post-consolidation (strategy_repo_consolidation_2026_05_19.md): all 3 sub-packages
-  # are included in strategy-service-code; no separate tarballs needed.
+  #   position_balance_monitor_service (treasury state, line 195)
+  #   pnl_attribution_service (P&L breakdown, line 558)
+  #   risk_and_exposure_service (risk metrics, line 635)
   # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
-  log "VM_TASK=${VM_TASK} — installing strategy/execution + e2e-testing (pnl/risk/position bundled in strategy-service-code)"
+  log "VM_TASK=${VM_TASK} — installing strategy/execution/pbm/pnl/risk + e2e-testing"
   NEEDED_TARBALLS+=(
     "strategy-service-code"
     "execution-service-code"
+    "position-balance-monitor-service-code"
+    "pnl-attribution-service-code"
+    "risk-and-exposure-service-code"
     "e2e-testing-code"
   )
 elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
@@ -346,29 +342,19 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
       log "Deployed $tarball_name → $WORKSPACE/$dir"
 
-      # ── Phase 3: manifest SHA validation ─────────────────────────────────
-      # Download the latest SHA-pinned manifest for this tarball (newest by sort).
-      # Validates commit_sha against VM_EXPECTED_SHA_<TARBALL_NAME> if set.
-      manifest_path="/tmp/${tarball_name}.manifest.json"
-      latest_manifest=$(gsutil ls "gs://${CODE_BUCKET}/code/${tarball_name}@*.manifest.json" 2>/dev/null \
-          | sort -r | head -1 || true)
-      if [[ -n "$latest_manifest" ]]; then
-          if gsutil -q cp "$latest_manifest" "$manifest_path" 2>/dev/null; then
-              deployed_sha=$(python3 -c \
-                  "import json,sys; d=json.load(open('$manifest_path')); print(d.get('commit_sha','unknown'))" \
-                  2>/dev/null || echo "unknown")
-              log "  SHA pin: $tarball_name@$deployed_sha (manifest: $latest_manifest)"
-              # Validate against expected SHA if VM metadata declares one.
-              # Variable name: VM_EXPECTED_SHA_<TARBALL_NAME_UPPER_SNAKE>
-              expected_sha_var="VM_EXPECTED_SHA_$(echo "$tarball_name" | tr '[:lower:]-' '[:upper:]_')"
-              expected_sha="${!expected_sha_var:-}"
-              if [[ -n "$expected_sha" && "$deployed_sha" != "$expected_sha" ]]; then
-                  log "ERROR: ManifestShaDriftError — $tarball_name: expected sha=$expected_sha got sha=$deployed_sha"
-                  log "  This means the GCS tarball was not built from the expected commit."
-                  log "  Re-run create-code-tarballs.sh at the expected commit and retry."
-                  exit 1
-              fi
-          fi
+      # Validate tarball manifest.json if present (Phase 3 SHA discipline)
+      _tarball_manifest_path="/tmp/${tarball_name}.manifest.json"
+      if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json" "$_tarball_manifest_path" 2>/dev/null; then
+        _tarball_actual_sha=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('commit_sha','unknown'))" 2>/dev/null || echo "unknown")
+        _tarball_pyproject_version=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('pyproject_version','unknown'))" 2>/dev/null || echo "unknown")
+        log "  manifest: sha=${_tarball_actual_sha:0:12} version=$_tarball_pyproject_version"
+
+        # Assert against launcher-supplied expected SHA (activated when TARBALL_EXPECTED_SHA metadata is set)
+        if [[ -n "${TARBALL_EXPECTED_SHA:-}" && "$_tarball_actual_sha" != "$TARBALL_EXPECTED_SHA" ]]; then
+          log "ERROR: Tarball SHA drift — $tarball_name expected=${TARBALL_EXPECTED_SHA:0:12} actual=${_tarball_actual_sha:0:12}"
+          log "ERROR: Deploy the correct tarball (run create-code-tarballs.sh from the expected commit) and retry."
+          exit 1
+        fi
       fi
     else
       log "WARNING: tarball $tarball_name not found in GCS — skipping"
@@ -425,20 +411,9 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-# pbm/pnl/risk sub-packages are now part of strategy-service (strategy_repo_consolidation_2026_05_19.md);
-# the "strategy" entry covers all 3. Removed pbm/pnl/risk from nodeps list accordingly.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution e2e-testing)
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
-  # e2e-testing is scripts-only (run-paper.sh/run-live.sh/colocated_engine.py) — NOT
-  # a Python package to be installed. Its pyproject.toml has no [build-system] so
-  # any editable install attempt (even --no-deps) fails with setuptools discovery error.
-  # colocated_engine.py imports from strategy_service/execution_service etc. which are
-  # already installed as siblings — e2e-testing itself needs no pip install.
-  if [[ "$_base" == "e2e-testing" ]]; then
-    log "  Skipping editable install of e2e-testing (scripts-only, no build-system)"
-    continue
-  fi
   _route_to_nodeps=false
   for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
     if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
@@ -477,43 +452,13 @@ uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | ta
 # the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
-# strategy_service.position.storage.database (was position_balance_monitor_service) eagerly
-# imports sqlalchemy at module load time. strategy-service is installed --no-deps on
-# strategy-paper/live VMs to skip UAC version-pinning conflicts; sqlalchemy itself has no
-# such conflict so install it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+# position_balance_monitor_service.storage.database eagerly imports sqlalchemy
+# at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
+# version-pinning conflicts; sqlalchemy itself has no such conflict so install
+# it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
   uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3
-  # execution_service/__init__.py eagerly imports algorithms.py which imports
-  # adaptive_twap which needs nautilus_trader. execution-service is installed
-  # --no-deps (to skip betfairlightweight/requests conflict), so nautilus_trader
-  # must be installed explicitly. Declared dep: nautilus-trader>=1.221.0,<2.0.0.
-  log "  uv pip install nautilus-trader  (execution_service adaptive_twap eager import)"
-  uv pip install --find-links "$WHEEL_CACHE" "nautilus-trader>=1.221.0,<2.0.0" 2>&1 | tail -5
-  # execution_service/defi_execution/protocols/solana_base.py eagerly imports
-  # solana.rpc.async_api at module load. execution-service is --no-deps so
-  # solana must be installed explicitly. Declared dep: solana>=0.36.0,<1.0.0.
-  log "  uv pip install solana  (execution_service defi_execution solana_base eager import)"
-  uv pip install --find-links "$WHEEL_CACHE" "solana>=0.36.0,<1.0.0" 2>&1 | tail -5
-  # solders (Solana serialization) imported at module level in solana_base, kamino,
-  # marinade, raydium, orca, jupiter. Declared dep: solders>=0.27.0,<1.0.0.
-  log "  uv pip install solders  (execution_service defi_execution Solana serialization)"
-  uv pip install --find-links "$WHEEL_CACHE" "solders>=0.27.0,<1.0.0" 2>&1 | tail -5
-  # execution_service/adapters/__init__.py eagerly imports SportsAdapter →
-  # sports_execution.adapters → sports_execution.adapters.exchanges.betfair →
-  # `import betfairlightweight`. Declared dep: betfairlightweight>=2.20,<3.0.
-  log "  uv pip install betfairlightweight  (execution_service sports_execution betfair eager import)"
-  uv pip install --find-links "$WHEEL_CACHE" "betfairlightweight>=2.20,<3.0" 2>&1 | tail -5
-  # sports_execution.adapters.__init__.py eagerly imports 14 scraper adapters
-  # (DEFERRED-INDEFINITELY 2026-05-12 per operator but still on the load path).
-  # Each scraper module-level imports `from playwright.async_api import async_playwright`.
-  # Declared dep: playwright>=1.40,<2.0.
-  log "  uv pip install playwright  (execution_service sports_execution scrapers eager import)"
-  uv pip install --find-links "$WHEEL_CACHE" "playwright>=1.40,<2.0" 2>&1 | tail -5
-  # Same scraper chain eagerly imports bs4 for HTML odds extraction.
-  # Declared dep: beautifulsoup4>=4.12,<5.0.
-  log "  uv pip install beautifulsoup4  (execution_service sports_execution scrapers HTML extraction)"
-  uv pip install --find-links "$WHEEL_CACHE" "beautifulsoup4>=4.12,<5.0" 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
@@ -860,29 +805,7 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
-elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
-  # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness baseline run.
-  # Reads Telegram bot-token + chat-id from SM secrets named in metadata, exports
-  # them as env vars so AlertingSystemConfig (Pydantic/UnifiedCloudConfig) picks
-  # them up. PAGERDUTY_DISABLED + QUIETNESS_BASELINE_MODE suppress PD delivery.
-  _CHAT_ID_SECRET=$(_meta TELEGRAM_CHAT_ID_SECRET alerting-telegram-chat-id)
-  _BOT_TOKEN_SECRET=$(_meta TELEGRAM_BOT_TOKEN_SECRET alerting-telegram-bot-token)
-  _DURATION=$(_meta VM_DURATION_HOURS 48)
-  log "Fetching Telegram credentials from SM (chat-id-secret=$_CHAT_ID_SECRET, bot-token-secret=$_BOT_TOKEN_SECRET)"
-  export TELEGRAM_CHAT_ID
-  TELEGRAM_CHAT_ID=$(gcloud secrets versions access latest --secret="$_CHAT_ID_SECRET" --project="$GCP_PROJECT_ID" 2>/dev/null || echo "")
-  export TELEGRAM_BOT_TOKEN
-  TELEGRAM_BOT_TOKEN=$(gcloud secrets versions access latest --secret="$_BOT_TOKEN_SECRET" --project="$GCP_PROJECT_ID" 2>/dev/null || echo "")
-  export QUIETNESS_BASELINE_MODE=true
-  export PAGERDUTY_DISABLED=true
-  export RUN_DURATION_HOURS="$_DURATION"
-  if [[ -z "$TELEGRAM_CHAT_ID" || -z "$TELEGRAM_BOT_TOKEN" ]]; then
-    log "ERROR: Could not fetch Telegram credentials from SM — aborting quietness baseline"
-    exit 1
-  fi
-  log "Telegram credentials loaded; chat_id=${TELEGRAM_CHAT_ID:0:8}... duration=${_DURATION}h PD=disabled"
-  _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness-baseline.log"
-elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" || "$VM_TASK" == "scenario-matrix" ]]; then
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
   # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of
   # manifest_schema_final_gate_2026_05_09, fix shipped 2026-05-11 after

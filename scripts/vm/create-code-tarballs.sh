@@ -9,6 +9,7 @@
 #   bash scripts/vm/create-code-tarballs.sh                    # default (core only)
 #   bash scripts/vm/create-code-tarballs.sh --bucket my-bucket # custom bucket
 #   bash scripts/vm/create-code-tarballs.sh --dry-run          # show what would be created
+#   bash scripts/vm/create-code-tarballs.sh --allow-dirty-tarball  # override dirty-tree block (audit logged)
 #   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI    # core + CEFI services
 #   bash scripts/vm/create-code-tarballs.sh --asset-group DEFI    # core + DEFI services
 #   bash scripts/vm/create-code-tarballs.sh --all              # core + ALL service repos
@@ -23,6 +24,9 @@
 #
 # GCS layout:
 #   gs://{bucket}/code/unified-api-contracts-code.tar.gz
+#   gs://{bucket}/code/unified-api-contracts-code.manifest.json  (sibling SHA manifest)
+#   gs://{bucket}/code/unified-api-contracts-code@{sha}.tar.gz  (SHA-pinned copy)
+#   gs://{bucket}/code/unified-api-contracts-code@{sha}.manifest.json
 #   gs://{bucket}/code/unified-trading-library-code.tar.gz
 #   gs://{bucket}/code/mtds-code.tar.gz
 #   gs://{bucket}/code/{service}-code.tar.gz   (per category/--include/--all)
@@ -39,42 +43,45 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 DEFAULT_BUCKET="deployment-scripts-central-element-323112"
 BUCKET="$DEFAULT_BUCKET"
 DRY_RUN=false
+ALLOW_DIRTY_TARBALL=false
 EXTRA_REPOS=()
 ASSET_GROUP=""
 ALL_REPOS=false
 ML_TRAINING=false
-ALLOW_DIRTY_TARBALL=false
-TRIGGER_IMAGE_BUILDS=false
-GCP_PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
-GCP_REGION="${GCP_REGION:-asia-northeast1}"
 
 # ── Category → service repo mappings ──
 # Each category includes the full pipeline from instruments through risk.
 CEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-service
+    features-delta-one-service features-cross-instrument-service
+    features-multi-timeframe-service features-calendar-service
     ml-training-service ml-inference-service
     strategy-service execution-service
+    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
 TRADFI_REPOS=(
     "${CEFI_REPOS[@]}"
+    features-volatility-service
 )
 DEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-service
+    features-onchain-service features-delta-one-service
     strategy-service execution-service
+    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     e2e-testing
 )
 SPORTS_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-service
+    features-sports-service
     ml-training-service ml-inference-service
     strategy-service execution-service
+    pnl-attribution-service risk-and-exposure-service
 )
 PREDICTION_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-service
+    features-cross-instrument-service
     strategy-service execution-service
+    pnl-attribution-service risk-and-exposure-service
 )
 # ML training — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
 # Tier 1 MVP (stitched continuous ES series trained locally / on a training VM).
@@ -83,15 +90,20 @@ PREDICTION_REPOS=(
 # the model artefact is registered.
 ML_TRAINING_REPOS=(
     instruments-service market-tick-data-service
-    features-service
+    features-multi-timeframe-service features-calendar-service
+    features-volatility-service features-cross-instrument-service
     ml-training-service
 )
 # All known service repos (union of all categories)
 ALL_SERVICE_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-service
+    features-delta-one-service features-cross-instrument-service
+    features-multi-timeframe-service features-calendar-service
+    features-volatility-service features-onchain-service features-sports-service
+    features-commodity-service
     ml-training-service ml-inference-service
     strategy-service execution-service
+    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     batch-live-reconciliation-service
 )
 
@@ -107,9 +119,7 @@ usage() {
     echo "                        (CORE + ml-training-service + features-*)"
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
-    echo "  --allow-dirty-tarball Build even if repo has uncommitted changes (audit log written)"
-    echo "  --trigger-image-builds After upload, fire async gcloud builds submit for repos with"
-    echo "                        cloudbuild.yaml (so staging image exists at promote time)"
+    echo "  --allow-dirty-tarball Override dirty-tree block (audit logged; emergency hotfixes only)"
     exit 1
 }
 
@@ -118,12 +128,11 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --bucket) BUCKET="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
+        --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
         --asset-group) ASSET_GROUP="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;  # uppercase (bash3-safe)
         --all) ALL_REPOS=true; shift ;;
         --ml-training) ML_TRAINING=true; shift ;;
-        --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
-        --trigger-image-builds) TRIGGER_IMAGE_BUILDS=true; shift ;;
         --help|-h) usage ;;
         *) echo "Unknown arg: $1"; usage ;;
     esac
@@ -165,10 +174,6 @@ done
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
-
-# Populated by create_tarball() for use in the async image-build trigger phase.
-# Each entry: "repo_dir:tarball_name:sha"
-IMAGE_BUILD_QUEUE=()
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
 
@@ -226,61 +231,59 @@ create_tarball() {
         return 0
     fi
 
-    # ── Phase 3: commit-SHA + dirty-state probe ──────────────────────────────
-    local sha="unknown"
-    local git_status_clean="true"
-    if git -C "$repo_path" rev-parse HEAD &>/dev/null 2>&1; then
-        sha=$(git -C "$repo_path" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        local dirty_count
-        dirty_count=$(git -C "$repo_path" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-        if [[ "$dirty_count" -gt 0 ]]; then
-            git_status_clean="false"
-            if ! $ALLOW_DIRTY_TARBALL; then
-                log "ERROR: $repo_dir has $dirty_count uncommitted change(s). Refusing to package dirty repo."
-                log "  Use --allow-dirty-tarball to override (audit entry written to manifest)."
-                exit 1
-            fi
-            log "  WARN: $repo_dir is dirty ($dirty_count change(s)) — packaging anyway (--allow-dirty-tarball)"
+    # Compute git metadata (always — even in dry-run)
+    local commit_sha git_status_clean
+    commit_sha=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null || echo "unknown")
+    if git -C "$repo_path" diff-index --quiet HEAD -- 2>/dev/null; then
+        git_status_clean="true"
+    else
+        git_status_clean="false"
+    fi
+
+    # Dirty-tree check: abort unless --allow-dirty-tarball override
+    if [[ "$git_status_clean" == "false" ]]; then
+        if $ALLOW_DIRTY_TARBALL; then
+            log "  WARNING: $repo_dir has uncommitted changes — --allow-dirty-tarball override active"
+            log "  AUDIT: allow-dirty-tarball by $(whoami 2>/dev/null || echo unknown) at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for $repo_dir@${commit_sha:0:12}"
+        else
+            log "ERROR: $repo_dir has uncommitted changes. Commit or stash first, or use --allow-dirty-tarball."
+            return 1
         fi
     fi
 
-    # ── pyproject version probe ───────────────────────────────────────────────
-    local pyproject_version="unknown"
-    if [[ -f "$repo_path/pyproject.toml" ]]; then
-        pyproject_version=$(grep -E '^version = ' "$repo_path/pyproject.toml" 2>/dev/null \
-            | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "unknown")
-    fi
+    # Extract version from pyproject.toml
+    local pyproject_version
+    pyproject_version=$(grep '^version' "$repo_path/pyproject.toml" 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/\1/' | tr -d ' ')
+    [[ -z "$pyproject_version" ]] && pyproject_version="unknown"
 
-    local tarball="$TMP_DIR/${tarball_name}.tar.gz"
-    log "Creating $tarball_name.tar.gz from $repo_dir (sha=$sha)..."
+    # Write manifest.json sibling (always — even in dry-run for display)
+    local manifest="$TMP_DIR/${tarball_name}.manifest.json"
+    local created_at
+    created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    printf '{\n  "repo": "%s",\n  "tarball_name": "%s",\n  "commit_sha": "%s",\n  "pyproject_version": "%s",\n  "git_status_clean": %s,\n  "created_at": "%s",\n  "created_by": "create-code-tarballs.sh"\n}\n' \
+        "$repo_dir" "$tarball_name" "$commit_sha" "$pyproject_version" "$git_status_clean" "$created_at" \
+        > "$manifest"
+
+    log "Creating $tarball_name.tar.gz from $repo_dir (sha=${commit_sha:0:12} clean=$git_status_clean)..."
 
     if $DRY_RUN; then
         local size
         size=$(du -sh "$repo_path" 2>/dev/null | cut -f1)
-        log "  [DRY RUN] Would create tarball from $repo_dir ($size, sha=$sha, clean=$git_status_clean)"
+        log "  [DRY RUN] Would create: $tarball_name.tar.gz ($size)"
+        log "  [DRY RUN] Would write:  $tarball_name.manifest.json + $tarball_name@${commit_sha:0:12}.[tar.gz|manifest.json]"
         return 0
     fi
 
+    local tarball="$TMP_DIR/${tarball_name}.tar.gz"
     tar czf "$tarball" -C "$repo_path" "${EXCLUDES[@]}" .
     local size
     size=$(ls -lh "$tarball" | awk '{print $5}')
-    log "  Created: $tarball_name.tar.gz ($size, sha=$sha)"
+    log "  Created: $tarball_name.tar.gz ($size)"
 
-    # ── Write sibling manifest.json (Phase 3 SHA pinning) ────────────────────
-    # Named ${tarball_name}@${sha}.manifest.json so GCS listings are human-readable
-    # and the SHA is self-evident without opening the file.
-    local manifest="$TMP_DIR/${tarball_name}@${sha}.manifest.json"
-    local created_at
-    created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    printf '{\n  "repo": "%s",\n  "tarball_name": "%s",\n  "commit_sha": "%s",\n  "pyproject_version": "%s",\n  "git_status_clean": %s,\n  "created_at": "%s",\n  "created_by": "%s"\n}\n' \
-        "$repo_dir" "$tarball_name" "$sha" "$pyproject_version" \
-        "$git_status_clean" "$created_at" "${USER:-unknown}" > "$manifest"
-    log "  Manifest: ${tarball_name}@${sha}.manifest.json"
-
-    # Queue for async image-build trigger (Phase 3.3)
-    if $TRIGGER_IMAGE_BUILDS && [[ -f "$repo_path/cloudbuild.yaml" ]]; then
-        IMAGE_BUILD_QUEUE+=("${repo_dir}:${tarball_name}:${sha}")
-    fi
+    # SHA-named copies for immutable GCS references
+    cp "$tarball" "$TMP_DIR/${tarball_name}@${commit_sha}.tar.gz"
+    cp "$manifest" "$TMP_DIR/${tarball_name}@${commit_sha}.manifest.json"
+    log "  SHA-pinned copy: $tarball_name@${commit_sha:0:12}.tar.gz"
 }
 
 # Create tarballs
@@ -317,38 +320,54 @@ done
 # checked separately).
 if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     log ""
-    log "Pre-flight: workspace-wide pyproject pin-drift audit..."
-    # Delegate to canonical workspace-wide audit (unified-trading-pm@3eb05d9b).
-    # It scans ALL peer repos dynamically (vs the prior hardcoded UAC/UTL-only
-    # check) and exits non-zero on drift. We surface output but do NOT block —
-    # VM_TASK-specific NODEPS routing in setup-data-pipeline-vm.sh covers most
-    # real cases; operator can act on the warning before re-launch.
-    _PINDRIFT_SCRIPT="$WORKSPACE_ROOT/unified-trading-pm/scripts/quality_gates/check_workspace_pyproject_pin_drift.py"
-    if [[ -f "$_PINDRIFT_SCRIPT" ]]; then
-        python3 "$_PINDRIFT_SCRIPT" 2>&1 | sed 's/^/  /' || true
+    log "Pre-flight: scanning per-repo pyproject pins for mis-floored peer-repo deps..."
+    _PEER_VERSIONS=""
+    for _peer in unified-api-contracts unified-trading-library; do
+        _peer_path="$WORKSPACE_ROOT/$_peer/pyproject.toml"
+        if [[ -f "$_peer_path" ]]; then
+            _ver=$(grep -m1 '^version' "$_peer_path" | sed -E 's/^version[^"]*"([^"]+)".*/\1/')
+            _PEER_VERSIONS="${_PEER_VERSIONS}${_peer}=${_ver} "
+        fi
+    done
+    log "  Workspace peers: ${_PEER_VERSIONS}"
+    _CONFLICTS=0
+    for entry in "${CORE_REPOS[@]}" "${MERGED_EXTRA_REPOS[@]}"; do
+        # CORE_REPOS use "dir:tarball" syntax; MERGED_EXTRA is bare dir.
+        _dir="${entry%%:*}"
+        _pyproject="$WORKSPACE_ROOT/$_dir/pyproject.toml"
+        [[ -f "$_pyproject" ]] || continue
+        # Scan for too-high UAC/UTL floors (>0.1.x for UAC, >0.3.x for UTL given
+        # current workspace state). Catches the mis-floor class of bugs that
+        # killed VMs 2-5 of the B-015 chain.
+        if grep -qE 'unified-api-contracts>=0\.[2-9][0-9]?\.|unified-api-contracts>=[1-9]' "$_pyproject" 2>/dev/null; then
+            log "  WARN: $_dir pyproject pins unified-api-contracts above 0.1.x — verify against workspace peer"
+            _CONFLICTS=$((_CONFLICTS + 1))
+        fi
+        if grep -qE 'unified-trading-library>=0\.[4-9][0-9]?\.|unified-trading-library>=[1-9]' "$_pyproject" 2>/dev/null; then
+            log "  WARN: $_dir pyproject pins unified-trading-library above 0.3.x — verify against workspace peer"
+            _CONFLICTS=$((_CONFLICTS + 1))
+        fi
+    done
+    if [[ "$_CONFLICTS" -gt 0 ]]; then
+        log "  Pre-flight found $_CONFLICTS mis-floored peer-repo pin(s) — VM may hit unsatisfiable resolution."
+        log "  Fix by relaxing the offending pyproject.toml pin(s) OR set SKIP_PREFLIGHT=true to bypass."
     else
-        log "  WARN: pin-drift script missing at $_PINDRIFT_SCRIPT — skipping pre-flight"
+        log "  Pre-flight OK: no mis-floored peer-repo pins detected."
     fi
 fi
 
 if $DRY_RUN; then
     log ""
-    log "[DRY RUN] Would upload *.tar.gz + *.manifest.json to gs://$BUCKET/code/"
+    log "[DRY RUN] Would upload to gs://$BUCKET/code/"
     log "[DRY RUN] Would upload setup script to gs://$BUCKET/vm/"
-    $TRIGGER_IMAGE_BUILDS && log "[DRY RUN] Would trigger async image builds for repos with cloudbuild.yaml"
     exit 0
 fi
 
-# Upload to GCS
+# Upload to GCS — tarballs + manifests + SHA-named copies
 log ""
 log "Uploading to gs://$BUCKET/code/..."
 gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
-
-# Upload SHA-pinned manifests (Phase 3 tarball SHA pinning)
-if ls "$TMP_DIR/"*.manifest.json &>/dev/null 2>&1; then
-    log "Uploading SHA manifests to gs://$BUCKET/code/..."
-    gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
-fi
+gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
 
 # Also upload the setup + execution wrapper scripts. Without the wrapper
 # upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,
@@ -371,27 +390,3 @@ log ""
 log "=== Done. VMs can now use: ==="
 log "  startup-script-url=gs://$BUCKET/vm/setup-data-pipeline-vm.sh"
 log "  Or SSH: gsutil cp gs://$BUCKET/vm/setup-data-pipeline-vm.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm.sh"
-
-# ── Phase 3.3: Async image-build trigger ───────────────────────────────────
-# Fires gcloud builds submit --async for repos with cloudbuild.yaml so Docker
-# images are pre-built at the commit SHA before dev→staging promotion.
-# Enabled with --trigger-image-builds; default off to avoid unintended builds.
-if $TRIGGER_IMAGE_BUILDS && [[ ${#IMAGE_BUILD_QUEUE[@]} -gt 0 ]]; then
-    log ""
-    log "Triggering async image builds (${#IMAGE_BUILD_QUEUE[@]} repos)..."
-    for entry in "${IMAGE_BUILD_QUEUE[@]}"; do
-        IFS=':' read -r repo_dir tarball_name sha <<< "$entry"
-        repo_path="$WORKSPACE_ROOT/$repo_dir"
-        tarball_gcs="gs://$BUCKET/code/${tarball_name}.tar.gz"
-        log "  Triggering image build: $repo_dir@$sha (source: $tarball_gcs)"
-        gcloud builds submit "$tarball_gcs" \
-            --config="$repo_path/cloudbuild.yaml" \
-            --substitutions="COMMIT_SHA=$sha,_TARBALL_NAME=$tarball_name" \
-            --region="$GCP_REGION" \
-            --project="$GCP_PROJECT_ID" \
-            --async \
-            2>&1 | sed 's/^/    /' \
-        || log "  WARN: cloud-build trigger failed for $repo_dir — skipping (non-fatal)"
-    done
-    log "Image builds queued asynchronously — monitor via: gcloud builds list --region=$GCP_REGION --project=$GCP_PROJECT_ID"
-fi
