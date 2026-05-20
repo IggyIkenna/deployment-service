@@ -392,16 +392,17 @@ for line in "${PAIRS[@]}"; do
 done
 
 # ── Manifest re-sync (so the target-env availability manifest matches the truncated window) ──
+# Consolidator runtime as of 2026-05-20: Cloud Run Jobs (terraform/gcp/manifest_consolidator_scheduler.tf),
+# 10 jobs (5 instruments + 5 market-data) fired every minute via Cloud Scheduler `*/1 * * * *`.
+# Legacy GCE VM launcher (`launch-manifest-consolidator-vm.sh`) was deleted 2026-05-20 per operator
+# directive — Cloud Run is the canonical consolidator path. SSOT: codex/05-infrastructure/manifest-consolidator-ssot.md.
 if [[ ${NO_MANIFEST_RESYNC} -eq 0 && ${DRY_RUN} -eq 0 && ${SYNCED} -gt 0 ]]; then
   echo
-  echo "── Re-running the manifest consolidator scoped to env=${RESOLVER_TARGET_ENV} ..."
-  CONSOLIDATOR="${DEPLOYMENT_SERVICE_DIR}/scripts/vm/launch-manifest-consolidator-vm.sh"
-  if [[ -x "${CONSOLIDATOR}" ]]; then
-    echo "   (operator: run ${CONSOLIDATOR} --env ${RESOLVER_TARGET_ENV}  — or its in-region equivalent — to rebuild the staging/dev _index/availability_index.parquet)"
-    echo "   NOTE: not auto-launched here (VM launch ≠ fire-and-forget — pair it with event-stream verification per CLAUDE.md)."
-  else
-    echo "   (manifest-consolidator launcher not found at ${CONSOLIDATOR} — re-run the consolidator manually scoped to env=${RESOLVER_TARGET_ENV})"
-  fi
+  echo "── Manifest re-sync after bucket sync (env=${RESOLVER_TARGET_ENV}) ──"
+  echo "   Consolidator is Cloud Run + Cloud Scheduler (every minute). To force a re-run scoped to a single bucket:"
+  echo "     gcloud run jobs execute uts-${RESOLVER_TARGET_ENV}-manifest-consolidator-<bucket-key> --region asia-northeast1 --wait"
+  echo "   Where <bucket-key> ∈ {instruments-cefi|instruments-defi|instruments-tradfi|instruments-sports|instruments-prediction|market-data-cefi|market-data-defi|market-data-tradfi|market-data-sports|market-data-prediction}."
+  echo "   The scheduler will also pick up the next minute-aligned tick automatically."
 fi
 
 # ── Verification report ─────────────────────────────────────────────────────

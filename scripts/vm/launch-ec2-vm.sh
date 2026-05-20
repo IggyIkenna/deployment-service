@@ -186,7 +186,12 @@ _register "ml-training"                    "ml-service"                 "ml-trai
 _register "synthetic-benchmark"            "ml-service"                 "synth-bench-"             "uts-deployment-service-${DEPLOYMENT_ENV}"
 
 # Infrastructure / ops
-_register "manifest-consolidator"          "instruments-service"        "manifest-cons-"           "uts-instruments-service-${DEPLOYMENT_ENV}"
+# NOTE 2026-05-20: manifest-consolidator on AWS EC2 is DEPRECATED. Cloud Run + Cloud Scheduler is
+# the canonical path (GCP). AWS-side consolidation, if needed, must be rebuilt as Lambda+EventBridge
+# (separate plan; not currently in scope). SSOT: codex/05-infrastructure/manifest-consolidator-ssot.md.
+# Keeping the _register entry stubbed for now so existing automation doesn't break on lookup;
+# launching it WILL be a no-op once the AMI is rebuilt without the manifest-consolidator entrypoint.
+_register "manifest-consolidator"          "instruments-service"        "manifest-cons-"           "uts-instruments-service-${DEPLOYMENT_ENV}"  # DEPRECATED — use Cloud Run on GCP
 _register "manifest-recon-all"             "instruments-service"        "manifest-recon-"          "uts-instruments-service-${DEPLOYMENT_ENV}"
 _register "manifest-recon-apply"           "instruments-service"        "manifest-apply-"          "uts-instruments-service-${DEPLOYMENT_ENV}"
 _register "governance-backfill"            "deployment-service"         "gov-backfill-"            "uts-deployment-service-${DEPLOYMENT_ENV}"
