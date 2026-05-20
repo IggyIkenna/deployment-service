@@ -297,7 +297,7 @@ STARTUP_EOF
       --metadata="${METADATA}" \
       --boot-disk-size=50GB \
       --boot-disk-type=pd-ssd \
-      --labels=purpose=instruments-backfill,asset-group="${ASSET_GROUP,,}",env="${DEPLOYMENT_ENV}"
+      --labels=purpose=instruments-backfill,asset-group="$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]')",env="${DEPLOYMENT_ENV}"
     echo "  VM ${VM_NAME} created."
     rm "$STARTUP_FILE"
   fi
