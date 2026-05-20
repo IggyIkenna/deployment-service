@@ -176,7 +176,7 @@ roles:
       - "aster-trade-*"
       - "copper-*"
       - "ceffu-*"
-      - "csb-*-wrapped"  # CloudKMS envelope-encrypted wallet PKs
+      - "csb-*-wrapped" # CloudKMS envelope-encrypted wallet PKs
       - "apd-*-wrapped"
       - "gas-reserve-*-wrapped"
     sns_publish: [fills-events]
@@ -280,13 +280,13 @@ roles:
     s3_access:
       admin:
         - unified-trading-deployment-prod
-      provision_other: true  # provisions other services' buckets
+      provision_other: true # provisions other services' buckets
     secrets_read_prefix_patterns:
-      - "*"  # admin scope — provisions secrets for other services
+      - "*" # admin scope — provisions secrets for other services
     sns_publish: []
     sqs_consume: []
     kms_decrypt: []
-    ec2_launch: true   # manages VM launchers (uts-* prefix)
+    ec2_launch: true # manages VM launchers (uts-* prefix)
     ecs_run_task: true # manages ECS task runs (uts-* cluster)
 
   client-reporting-prod:
@@ -382,7 +382,7 @@ roles:
     secrets_read_prefix_patterns: []
     sns_publish:
       - dr-drill-events
-      - kill-switch-events  # test scope only — requires dual auth
+      - kill-switch-events # test scope only — requires dual auth
     sqs_consume: []
     kms_decrypt: []
     ec2_launch: false
@@ -462,4 +462,4 @@ execution:
       --query 'Roles[?starts_with(RoleName, `uts-`)].RoleName' \
       --output table
     # Expected: 57 entries (19 services × 3 envs: prod / staging / dev)
-  last_executed: NEVER  # pending aws CLI + aws sso login + setup-iam-roles.sh --apply
+  last_executed: NEVER # pending aws CLI + aws sso login + setup-iam-roles.sh --apply
