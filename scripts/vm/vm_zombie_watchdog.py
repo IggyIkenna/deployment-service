@@ -150,57 +150,26 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     # CeFi market-data backfill / forward-poll (per-vm shard writers)
     # ------------------------------------------------------------------
-    "cefi-mr-": VmPrefixSpec(
+    "cefi-mr-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-fwd-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-binance-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bybit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-coinbase-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-okx-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-upbit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-hyperliquid-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bitfinex-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bitget-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-kraken-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-aster-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-cme-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-extended-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-ext-bfill-": VmPrefixSpec(
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-fwd-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-binance-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-bybit-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-deribit-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-coinbase-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-okx-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-upbit-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-hyperliquid-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-bitfinex-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-bitget-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-kraken-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-aster-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-cme-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-extended-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-lighter-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "cefi-pacifica-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    ),  # launch-mtds-extended-ohlcv-backfill.sh — EXTENDED-STARKNET 2024-07-26..2025-07-31
+    "cefi-lighter-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-pacifica-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "aster-fwd-": VmPrefixSpec(
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-aster-forward-poll.sh
@@ -253,9 +222,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # 2026-05-08 (Tab 11) from
     # `features-sports-service/scripts/launch_parallel_backfill.sh`.
     # ------------------------------------------------------------------
-    "fss-backfill-vm-": VmPrefixSpec(
-        bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "fss-backfill-vm-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # Sports instruments-reference v3 backfill (launch-sports-instruments-
     # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
@@ -306,16 +273,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     # MDPS sharded backfill (per asset_group)
     # ------------------------------------------------------------------
-    "mdps-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mdps-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
-    "mdps-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mdps-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-prediction-": VmPrefixSpec(
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -328,16 +291,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # watchdog never inspected it, (b) the launcher omitted
     # VM_SHUTDOWN_ON_COMPLETION=true.
     # ------------------------------------------------------------------
-    "mdps-backfill-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mdps-backfill-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-backfill-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
-    "mdps-backfill-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mdps-backfill-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-backfill-prediction-": VmPrefixSpec(
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -353,59 +312,39 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
-    "mtds-perp-funding-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-gas-fees-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-lst-rates-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-vault-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-lending-indices-": VmPrefixSpec(
-        bucket=_LENDING_INDICES, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mtds-perp-funding-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-gas-fees-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-lst-rates-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-vault-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-lending-indices-": VmPrefixSpec(bucket=_LENDING_INDICES, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Pyth Hermes archive backfill (Solana SOL/USD pre-2023-10 gap window).
     # Hermes archive starts ~2023-10-01 per UAC ORACLE_COVERAGE_START SSOT
     # (UAC@3adee82 2026-05-08). Pre-2023-10 SOL/USD oracle valuation needed
     # for carry_staked_basis Solana-leg backtest. Sources cascade: Pythnet
     # historical RPC (free, slow) → CoinGecko historical daily (free, daily
     # granularity). Operator-decision pending on Birdeye paid-tier add.
-    "mtds-pyth-archive-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mtds-pyth-archive-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Governance proposals backfill (launch-governance-backfill-vm.sh).
     # Writes governance_proposals data_type to market-data-tick-defi-* for
     # Aave V3 / Compound V3 / Spark / Lido (Phase 4A defi_simulation_realism).
     # Registered 2026-05-17 (slot-7 Phase 4D).
-    "governance-backfill-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "governance-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Pyth Hermes LST oracle_prices backfill (2023-10-01 → today).
     # Covers JitoSOL/USD, mSOL/USD, bSOL/USD, INF/USD feeds for
     # carry_staked_basis Solana leg. Singleton-locked per launcher.
     # Launcher: launch-mtds-pyth-lst-backfill-vm.sh (MTDS@0636dd4 2026-05-14).
     # Awaiting operator [ack] in pings/slot_2.md before launch.
-    "pyth-lst-backfill-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "pyth-lst-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # JITO-SOLANA lst_rates historical backfill (2022-08-01 → today).
     # jitoSOL staking APY for carry_staked_basis Solana leg.
     # Launcher: launch-jito-solana-backfill-vm.sh (deployment-service 2026-05-18).
     # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
-    "jito-solana-backfill-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "jito-solana-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # MARINADE-SOLANA lst_rates historical backfill (2021-02-01 → today).
     # mSOL staking APY for carry_staked_basis Solana leg.
     # Launcher: launch-marinade-solana-backfill-vm.sh (deployment-service 2026-05-18).
     # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
-    "marinade-backfill-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "marinade-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
     # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
@@ -514,15 +453,9 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
-    "mtds-dex-pools-backfill": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "mtds-solana-drift-backfill": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mtds-dex-pools-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
     # but doesn't write per-VM manifest shards. Migrated 2026-05-08
@@ -535,16 +468,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Migrated 2026-05-08 (Tab 11) from
     # `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh`.
     # ------------------------------------------------------------------
-    "mtds-backfill-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mtds-backfill-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-backfill-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
-    "mtds-backfill-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "mtds-backfill-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-backfill-prediction-": VmPrefixSpec(
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -621,9 +550,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
-    "opt-deribit-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "opt-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "opt-cboe-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -725,16 +652,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # naming: canonical-migration-{cefi|tradfi|defi|prediction|sports}-{ts}
     # writes per-VM manifest shards under each asset_group's tick bucket.
     # ------------------------------------------------------------------
-    "canonical-migration-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "canonical-migration-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "canonical-migration-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
-    "canonical-migration-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "canonical-migration-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "canonical-migration-prediction-": VmPrefixSpec(
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -751,12 +674,8 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # MANIFEST_PER_VM_SHARDS=true + unique VM_NAME ensure no collisions.
     # Registered 2026-05-19 (slot 1 Phase 3 fleet launch).
     # ------------------------------------------------------------------
-    "gcs-migration-bundle-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
-    "gcs-migration-bundle-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "gcs-migration-bundle-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "gcs-migration-bundle-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "gcs-migration-bundle-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
@@ -797,12 +716,8 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # rule. Bucket names resolved via resolve_bucket_name() (yaml SSOT) at
     # process start — same env-tiered names as all other entries in this dict.
     # ------------------------------------------------------------------
-    "mtds-live-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
-    ),
-    "mtds-live-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
-    ),
+    "mtds-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mtds-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mtds-live-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
@@ -815,12 +730,8 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
     ),
-    "mdps-features-live-cefi-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
-    ),
-    "mdps-features-live-defi-": VmPrefixSpec(
-        bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE
-    ),
+    "mdps-features-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mdps-features-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mdps-features-live-tradfi-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
