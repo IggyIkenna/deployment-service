@@ -222,117 +222,118 @@ gcp:
 
 aws:
   storage:
-    # See the GCP § header comment for the shape conventions (Group A/B, env-tier-after-AG,
-    # prediction-dedicated-keys-vs-sports-asset_group-routing, option-(b) 2026-05-11). AWS
-    # mirrors GCP key-for-key (the resolver dispatches by cloud) — AWS prefix `unified-trading-`,
-    # GCP `market-data` carries a `tick-` infix AWS lacks. AWS `features-*` buckets need the
-    # same Phase-2.6 provision-+-migrate (probe via `aws s3 ls` — couldn't run from the slot machine).
+    # Phase 1 symmetry (2026-05-20, slot 2): AWS templates now mirror GCP templates 1:1
+    # (same prefix, same tick- infix on market-data, same -store suffixes).
+    # Only difference: ${AWS_ACCOUNT_ID} vs ${GCP_PROJECT_ID}.
+    # On-disk AWS buckets use OLD names until Phase 5 migration renames them.
+    # Migration: code_freeze_migrate_backfill_sequencing_2026_05_10.md Phase 5.
+    # Audit: plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20.csv
     # NOTE: features-delta-one env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-delta-one:
-      CEFI: "unified-trading-features-delta-one-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-delta-one-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-delta-one-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "unified-trading-features-delta-one-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-features-delta-one-sports-${AWS_ACCOUNT_ID}"
+      CEFI: "features-delta-one-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-delta-one-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-delta-one-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-delta-one-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-delta-one-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-volatility env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-volatility:
-      CEFI: "unified-trading-features-volatility-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-volatility-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-volatility-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "unified-trading-features-volatility-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-features-volatility-sports-${AWS_ACCOUNT_ID}"
+      CEFI: "features-volatility-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-volatility-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-volatility-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-volatility-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-volatility-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-onchain env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-onchain:
-      CEFI: "unified-trading-features-onchain-cefi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-onchain-defi-${AWS_ACCOUNT_ID}"
+      CEFI: "features-onchain-cefi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-onchain-defi-${AWS_ACCOUNT_ID}"
     # `features-xinstrument` / `features-mtf` — bucket-template aliases for the long
     # consumer kinds `features-cross-instrument` / `features-multi-timeframe` (see GCP § comment).
-    # AWS worst case `unified-trading-features-xinstrument-tradfi-stg-{12-digit}` = 60 chars (≤63).
+    # AWS worst case `features-xinstrument-tradfi-stg-{12-digit}` = 44 chars (≤63).
     # NOTE: features-xinstrument env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-xinstrument:
-      CEFI: "unified-trading-features-xinstrument-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-xinstrument-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-xinstrument-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "unified-trading-features-xinstrument-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-features-xinstrument-sports-${AWS_ACCOUNT_ID}"
+      CEFI: "features-xinstrument-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-xinstrument-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-xinstrument-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-xinstrument-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-xinstrument-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-mtf env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-mtf:
-      CEFI: "unified-trading-features-mtf-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-mtf-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-mtf-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "unified-trading-features-mtf-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-features-mtf-sports-${AWS_ACCOUNT_ID}"
-    ml-models-store: "unified-trading-ml-models-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    ml-predictions-store: "unified-trading-ml-predictions-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    ml-configs-store: "unified-trading-ml-configs-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      CEFI: "features-mtf-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-mtf-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-mtf-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-mtf-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-mtf-sports-${AWS_ACCOUNT_ID}"
+    ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # NOTE: ml-training-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
-    ml-training-artifacts: "unified-trading-ml-training-artifacts-${AWS_ACCOUNT_ID}"
+    ml-training-artifacts: "ml-training-artifacts-${AWS_ACCOUNT_ID}"
     # NOTE: ml-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
-    ml-artifacts: "unified-trading-ml-artifacts-${AWS_ACCOUNT_ID}"
+    ml-artifacts: "ml-artifacts-${AWS_ACCOUNT_ID}"
     # NOTE: strategy-store env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     strategy-store:
-      CEFI: "unified-trading-strategy-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-strategy-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-strategy-defi-${AWS_ACCOUNT_ID}"
+      CEFI: "strategy-store-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "strategy-store-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "strategy-store-defi-${AWS_ACCOUNT_ID}"
     # NOTE: execution-store env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     execution-store:
-      CEFI: "unified-trading-execution-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-execution-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-execution-defi-${AWS_ACCOUNT_ID}"
+      CEFI: "execution-store-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "execution-store-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "execution-store-defi-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
-    features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Commodity features bucket — non-env-split (flat); mirrors GCP naming convention.
-    features-commodity: "unified-trading-commodity-signals-batch-${AWS_ACCOUNT_ID}"
+    features-commodity: "commodity-signals-batch-${AWS_ACCOUNT_ID}"
     # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
-    # The flat `unified-trading-market-data-cefi-{account}` buckets on disk migrate to the
-    # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19).
+    # AWS now includes the `tick-` infix (Phase 1 symmetry 2026-05-20) — mirrors GCP shape.
+    # On-disk `market-data-{ag}-{account}` (no tick-) buckets migrate in Phase 5.
     market-data:
-      CEFI: "unified-trading-market-data-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-market-data-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-market-data-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-market-data-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      CEFI: "market-data-tick-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      DEFI: "market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      TRADFI: "market-data-tick-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      SPORTS: "market-data-tick-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     instruments-store:
-      CEFI: "unified-trading-instruments-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-instruments-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-instruments-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      SPORTS: "unified-trading-instruments-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      CEFI: "instruments-store-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      DEFI: "instruments-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      TRADFI: "instruments-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      SPORTS: "instruments-store-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Cross-cutting features-calendar (no asset_group; env-tiered per (b+) Phase 0e).
-    features-calendar: "unified-trading-features-calendar-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    features-calendar: "features-calendar-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Prediction pipeline buckets (Polymarket, Kalshi) — env-tiered per (b+) Phase 0e.
-    instruments-store-prediction: "unified-trading-instruments-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    market-data-tick-prediction: "unified-trading-market-data-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    features-prediction: "unified-trading-features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    strategy-store-prediction: "unified-trading-strategy-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    execution-store-prediction: "unified-trading-execution-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # DeFi raw on-chain pools / swaps / events (Phase 2 AWS migration parity, 2026-05-07).
-    # Mirrors GCP keys 1:1 so UCI bucket-resolver dispatches by CLOUD_PROVIDER env without
-    # any per-key special-casing. Names follow `unified-trading-{kind}-{env}-{account}`
-    # convention used by existing AWS templates.
-    dex-pools: "unified-trading-dex-pools-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    dex-swaps: "unified-trading-dex-swaps-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    evm-defi: "unified-trading-evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    eigenlayer-rewards: "unified-trading-eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    solana-defi: "unified-trading-solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Per-asset-group DeFi pnl/positions/risk stores. Drop "unified-trading-" prefix per Q7(b)
-    # operator decision 2026-05-13 (symmetric with GCP shape; on-disk migration → Phase 2.6).
+    instruments-store-prediction: "instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    market-data-tick-prediction: "market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    features-prediction: "features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    strategy-store-prediction: "strategy-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # DeFi raw on-chain pools / swaps / events. Mirrors GCP keys 1:1.
+    dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-asset-group DeFi pnl/positions/risk stores — already symmetric (Q7(b) 2026-05-13).
     pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Cross-cutting service buckets (events stream + config snapshots).
-    events: "unified-trading-events-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    config-store: "unified-trading-config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Cross-cutting service buckets. `events` env-less (mirrors GCP ${GCP_PROJECT_ID}-events
+    # project-first env-less shape; AWS uses account-suffix env-less shape — intentional
+    # cloud-specific prefix, not a naming error).
+    events: "unified-trading-events-${AWS_ACCOUNT_ID}"
+    config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Per-archetype daily Tenderly bundle-sim budget state (mirrors GCP). Single env-tiered
     # bucket; asset_group axis ignored (flat-string kind). See GCP § for full reference.
-    archetype-state: "unified-trading-archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Per-client reports (mirrors GCP). Cross-cutting; no asset_group axis.
-    client-reports: "unified-trading-client-reports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Per-client fee recognition + HWM ledger + daily statements (mirrors GCP).
-    client-statements: "unified-trading-client-statements-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-client reports — env-less mirrors GCP ${GCP_PROJECT_ID}-client-reports env-less shape.
+    client-reports: "unified-trading-client-reports-${AWS_ACCOUNT_ID}"
+    # Per-client fee recognition + HWM ledger + daily statements — env-less mirrors GCP.
+    client-statements: "unified-trading-client-statements-${AWS_ACCOUNT_ID}"
     # DART manual-action audit log (mirrors GCP). ≥7 years retention per compliance.
-    manual-audit: "unified-trading-manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    manual-audit: "manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Immutable execution audit log — S3 Object Lock COMPLIANCE mode ≥7 years.
     # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
-    audit-records: "unified-trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # DeFi execution validation results — env-less mirrors GCP ${GCP_PROJECT_ID}-defi-validation.
+    defi-validation: "unified-trading-defi-validation-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
