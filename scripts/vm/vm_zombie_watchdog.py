@@ -821,6 +821,25 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
     # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
     "honest-coverage-": None,
+    # ------------------------------------------------------------------
+    # Forward-poll daily cron hosts — SCHEDULED_RECURRING long-lived VMs that
+    # install a crontab firing the matching `launch-{tradfi,cefi}-forward-poll.sh`
+    # launcher once a day. Replaces the previously-broken Cloud Scheduler →
+    # Cloud Run trigger pattern (HTTP 403 + zero executions for 4+ months on
+    # `trigger-market-tick-cefi-job`; absent entirely on TradFi). Operator
+    # authorised 2026-05-20 (Option B in tradfi_forward_poll_cron_missing_2026_05_17.md).
+    # Heartbeat-only (None) — the cron host itself writes no manifest shards;
+    # the worker VMs it spawns (`tradfi-fwd-*` / `cefi-fwd-*`) carry the data
+    # output and have their own VmPrefixSpec entries above.
+    # Launchers:
+    #   launch-tradfi-fwd-daily-cron-vm.sh (fires 06:00 UTC)
+    #   launch-cefi-fwd-daily-cron-vm.sh   (fires 09:00 UTC)
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch
+    # the watchdog VM. Registered 2026-05-20 per CLAUDE.md "VM Naming
+    # Convention" HARD RULE + Phase A.2 lifecycle_class requirement.
+    # ------------------------------------------------------------------
+    "tradfi-fwd-daily-cron-": None,
+    "cefi-fwd-daily-cron-": None,
     # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
     # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.
