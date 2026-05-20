@@ -25,7 +25,7 @@ ENVS=(prd stg dev)
 # helpers
 # --------------------------------------------------------------------------
 gcp_bucket() { echo "manual-audit-${1}-${GCP_PROJECT_ID}"; }
-aws_bucket() { echo "unified-trading-manual-audit-${1}-${AWS_ACCOUNT_ID}"; }
+aws_bucket() { echo "manual-audit-${1}-${AWS_ACCOUNT_ID}"; }  # mirrors cloud-providers.yaml aws.storage.manual-audit
 
 coldline_lifecycle_json() {
   cat <<'JSON'

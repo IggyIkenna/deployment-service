@@ -28,7 +28,7 @@ GCP_PROJECT_ID="${GCP_PROJECT_ID:?GCP_PROJECT_ID must be set}"
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID must be set}"
 
 GCP_BUCKET="trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-AWS_BUCKET="unified-trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+AWS_BUCKET="trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"  # mirrors cloud-providers.yaml aws.storage.audit-records
 
 echo "=== PB-2: Provisioning audit-records retention lock ==="
 echo "  GCP bucket: gs://${GCP_BUCKET}"
