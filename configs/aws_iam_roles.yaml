@@ -1,0 +1,465 @@
+# AWS IAM roles SSOT for the unified-trading system.
+# AWS equivalent of gcp_service_accounts.yaml (GCP-specific).
+#
+# Plan: api_keys_wallets_accounts_readiness_2026_05_10.md Phase 1.B.
+# Codex: codex/05-infrastructure/aws-iam-matrix.md (shape + policy table).
+# Mirror: configs/gcp_service_accounts.yaml (GCP-side per-service SA matrix).
+#
+# Role naming: uts-{service-short-name}-{env}  (e.g. uts-execution-prod)
+# Account:     427895769566 (admin_od; ap-northeast-1 / Tokyo)
+#
+# Status: SHAPE-ONLY SSOT — IAM roles NOT yet provisioned.
+#   Acceptance gate per Plan Phase 1.B:
+#     aws iam list-roles --query 'Roles[?starts_with(RoleName, `uts-`)].RoleName'
+#   Expected: 57 entries (19 services × 3 envs).
+#
+# Apply: bash scripts/aws/setup-iam-roles.sh --apply
+#
+# Staging + dev environments mirror prod shape with -staging / -dev suffixes.
+# Inline policy tiering:
+#   prod    — S3 rw on unified-trading-*-prod buckets; SM read on prod secrets.
+#   staging — S3 rw on unified-trading-*-staging buckets; no prod write.
+#   dev     — S3 rw on unified-trading-*-dev buckets; no prod/staging write.
+#
+# Trust principals for ALL roles (matches setup-iam-roles.sh):
+#   ecs-tasks.amazonaws.com   (ECS Fargate service deployments)
+#   ec2.amazonaws.com         (VM / EC2 batch/live launchers)
+
+version: "1"
+created: 2026-05-20
+owner: slot7-hk
+account_id: "427895769566"
+region: "ap-northeast-1"
+plan_ref: plans/active/api_keys_wallets_accounts_readiness_2026_05_10.md
+
+# Service short-name closed set — mirrors gcp_service_accounts.yaml + aws-iam-matrix.md § 1
+service_short_names:
+  - instruments
+  - mtds
+  - mdps
+  - features
+  - strategy
+  - execution
+  - pbms
+  - risk
+  - alerting
+  - signal-broadcast
+  - deployment
+  - client-reporting
+  - trade-event
+  - unified-trading-system-ui
+  - batch-live-recon
+  - disaster-recovery
+  - oracle-aggregation
+  - feature-onchain
+  - feature-sports
+
+# Prod-tier roles (explicit). Staging + dev follow same shape — see tail note.
+roles:
+  instruments-prod:
+    role_name: uts-instruments-prod
+    arn: "arn:aws:iam::427895769566:role/uts-instruments-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-instruments-prod
+        - unified-trading-instrument-manifests-prod
+    secrets_read_prefix_patterns:
+      - api-football-key
+      - footystats-key
+      - soccer-football-info-key
+    sns_publish: [instruments-events]
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  mtds-prod:
+    role_name: uts-mtds-prod
+    arn: "arn:aws:iam::427895769566:role/uts-mtds-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-market-data-prod
+        - unified-trading-instrument-manifests-prod
+    secrets_read_prefix_patterns:
+      - "bybit-read-*"
+      - "binance-read-*"
+      - "okx-read-*"
+      - "deribit-read-*"
+      - "hyperliquid-read-*"
+      - "aster-read-*"
+      - helius-key
+      - coingecko-key
+    sns_publish: [market-tick-events]
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  mdps-prod:
+    role_name: uts-mdps-prod
+    arn: "arn:aws:iam::427895769566:role/uts-mdps-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-market-data-prod
+        - unified-trading-market-data-derived-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: [market-derived-events]
+    sqs_consume: [market-tick-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  features-prod:
+    role_name: uts-features-prod
+    arn: "arn:aws:iam::427895769566:role/uts-features-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-features-prod
+      read_only:
+        - unified-trading-market-data-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: [features-events]
+    sqs_consume: [market-derived-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  strategy-prod:
+    role_name: uts-strategy-prod
+    arn: "arn:aws:iam::427895769566:role/uts-strategy-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-strategies-prod
+      read_only:
+        - unified-trading-features-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: [signals-events]
+    sqs_consume: [features-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  # CRITICAL: execution-service is the only role with KMS Decrypt on trading CMKs.
+  # DO NOT grant kms:Decrypt to any other role — Cloud-KMS custody signing is gated here.
+  execution-prod:
+    role_name: uts-execution-prod
+    arn: "arn:aws:iam::427895769566:role/uts-execution-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-execution-prod
+      read_only:
+        - unified-trading-defi-config-prod
+    secrets_read_prefix_patterns:
+      - "bybit-trade-*"
+      - "binance-trade-*"
+      - "okx-trade-*"
+      - "deribit-trade-*"
+      - "hyperliquid-trade-*"
+      - "aster-trade-*"
+      - "copper-*"
+      - "ceffu-*"
+      - "csb-*-wrapped"  # CloudKMS envelope-encrypted wallet PKs
+      - "apd-*-wrapped"
+      - "gas-reserve-*-wrapped"
+    sns_publish: [fills-events]
+    sqs_consume: [signals-events]
+    # 5 CMKs (one per asset_group): defi / cefi / tradfi / sports / prediction
+    kms_decrypt:
+      - "arn:aws:kms:ap-northeast-1:427895769566:alias/trading-defi-master-v1"
+      - "arn:aws:kms:ap-northeast-1:427895769566:alias/trading-cefi-master-v1"
+      - "arn:aws:kms:ap-northeast-1:427895769566:alias/trading-tradfi-master-v1"
+      - "arn:aws:kms:ap-northeast-1:427895769566:alias/trading-sports-master-v1"
+      - "arn:aws:kms:ap-northeast-1:427895769566:alias/trading-prediction-master-v1"
+    ec2_launch: false
+    ecs_run_task: false
+
+  pbms-prod:
+    role_name: uts-pbms-prod
+    arn: "arn:aws:iam::427895769566:role/uts-pbms-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-positions-prod
+    secrets_read_prefix_patterns:
+      - "bybit-read-*"
+      - "binance-read-*"
+      - "okx-read-*"
+      - "deribit-read-*"
+      - "hyperliquid-read-*"
+    sns_publish: [position-balance-events]
+    sqs_consume: [fills-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  risk-prod:
+    role_name: uts-risk-prod
+    arn: "arn:aws:iam::427895769566:role/uts-risk-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-risk-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: [kill-switch-events]
+    sqs_consume: [position-balance-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  alerting-prod:
+    role_name: uts-alerting-prod
+    arn: "arn:aws:iam::427895769566:role/uts-alerting-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-alerting-prod
+    secrets_read_prefix_patterns:
+      - alerting-telegram-bot-token
+      - alerting-telegram-chat-id-prod
+    sns_publish: [alert-sent-events]
+    sqs_consume:
+      - instruments-events
+      - market-tick-events
+      - features-events
+      - signals-events
+      - fills-events
+      - position-balance-events
+      - kill-switch-events
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  signal-broadcast-prod:
+    role_name: uts-signal-broadcast-prod
+    arn: "arn:aws:iam::427895769566:role/uts-signal-broadcast-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-signals-broadcast-prod
+    secrets_read_prefix_patterns:
+      - "counterparty-*"
+    sns_publish: [signal-broadcast-events]
+    sqs_consume: [signals-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  # CRITICAL: deployment has broadest permissions — secret manager admin + EC2 launch.
+  deployment-prod:
+    role_name: uts-deployment-prod
+    arn: "arn:aws:iam::427895769566:role/uts-deployment-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      admin:
+        - unified-trading-deployment-prod
+      provision_other: true  # provisions other services' buckets
+    secrets_read_prefix_patterns:
+      - "*"  # admin scope — provisions secrets for other services
+    sns_publish: []
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: true   # manages VM launchers (uts-* prefix)
+    ecs_run_task: true # manages ECS task runs (uts-* cluster)
+
+  client-reporting-prod:
+    role_name: uts-client-reporting-prod
+    arn: "arn:aws:iam::427895769566:role/uts-client-reporting-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-client-reports-prod
+      read_only:
+        - unified-trading-features-prod
+        - unified-trading-risk-prod
+        - unified-trading-positions-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: []
+    sqs_consume:
+      - position-balance-events
+      - fills-events
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  trade-event-prod:
+    role_name: uts-trade-event-prod
+    arn: "arn:aws:iam::427895769566:role/uts-trade-event-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-trade-events-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: []
+    sqs_consume: [fills-events]
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  unified-trading-system-ui-prod:
+    role_name: uts-unified-trading-system-ui-prod
+    arn: "arn:aws:iam::427895769566:role/uts-unified-trading-system-ui-prod"
+    trust_principals: [ecs-tasks.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access: {}
+    secrets_read_prefix_patterns:
+      - firebase-sa-json
+    sns_publish: []
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  batch-live-recon-prod:
+    role_name: uts-batch-live-recon-prod
+    arn: "arn:aws:iam::427895769566:role/uts-batch-live-recon-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-recon-prod
+      read_only:
+        - unified-trading-market-data-prod
+        - unified-trading-features-prod
+        - unified-trading-strategies-prod
+        - unified-trading-execution-prod
+        - unified-trading-positions-prod
+    secrets_read_prefix_patterns: []
+    sns_publish: []
+    sqs_consume:
+      - instruments-events
+      - market-tick-events
+      - features-events
+      - signals-events
+      - fills-events
+      - position-balance-events
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  disaster-recovery-prod:
+    role_name: uts-disaster-recovery-prod
+    arn: "arn:aws:iam::427895769566:role/uts-disaster-recovery-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-dr-prod
+    secrets_read_prefix_patterns: []
+    sns_publish:
+      - dr-drill-events
+      - kill-switch-events  # test scope only — requires dual auth
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  oracle-aggregation-prod:
+    role_name: uts-oracle-aggregation-prod
+    arn: "arn:aws:iam::427895769566:role/uts-oracle-aggregation-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-oracle-prod
+    secrets_read_prefix_patterns:
+      - chainlink-rpc-key
+      # Pyth Hermes: public HTTPS endpoint — no SM entry
+    sns_publish: [oracle-events]
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  feature-onchain-prod:
+    role_name: uts-feature-onchain-prod
+    arn: "arn:aws:iam::427895769566:role/uts-feature-onchain-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-features-onchain-prod
+    secrets_read_prefix_patterns:
+      - alchemy-key
+      - helius-key
+    sns_publish: [onchain-features-events]
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+  feature-sports-prod:
+    role_name: uts-feature-sports-prod
+    arn: "arn:aws:iam::427895769566:role/uts-feature-sports-prod"
+    trust_principals: [ecs-tasks.amazonaws.com, ec2.amazonaws.com]
+    managed_policies:
+      - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+    s3_access:
+      read_write:
+        - unified-trading-features-sports-prod
+    secrets_read_prefix_patterns:
+      - api-football-key
+      - footystats-key
+      - soccer-football-info-key
+    sns_publish: [sports-features-events]
+    sqs_consume: []
+    kms_decrypt: []
+    ec2_launch: false
+    ecs_run_task: false
+
+# Staging + dev environments mirror prod shape with -staging / -dev suffixes.
+# Key differences per tier:
+#   staging — bucket names: unified-trading-*-staging; secret names: *-staging variants
+#   dev     — bucket names: unified-trading-*-dev; secret names: *-dev variants
+# Deny policies: staging/dev roles CANNOT write to prod-tier buckets (enforced via
+# s3:PutObject deny on *-prod/ prefix in each staging/dev role's inline policy).
+#
+# Apply via: bash scripts/aws/setup-iam-roles.sh --apply --tier staging
+#            bash scripts/aws/setup-iam-roles.sh --apply --tier dev
+
+# Verification runbook
+execution:
+  owner: deployment-service maintainer + operator (hk)
+  cadence: per-deploy + monthly drift audit
+  verifier: |
+    aws iam list-roles \
+      --query 'Roles[?starts_with(RoleName, `uts-`)].RoleName' \
+      --output table
+    # Expected: 57 entries (19 services × 3 envs: prod / staging / dev)
+  last_executed: NEVER  # pending aws CLI + aws sso login + setup-iam-roles.sh --apply
