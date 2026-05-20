@@ -131,6 +131,9 @@ gcp:
       DEFI: "execution-store-defi-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Commodity features bucket — non-env-split (flat); preserves existing on-disk name.
+    # Env-tiering deferred to bucket_env_split_rollout_2026_06.md Phase 1.
+    features-commodity: "commodity-signals-batch-${GCP_PROJECT_ID}"
     # Per-asset-group market-data + instruments. Env-tiered AFTER asset_group per (b+)
     # (operator direction 2026-05-11 — env tier extends to ALL bucket kinds incl. Group-A
     # raw-tick / instruments-store). bucket_name_ssot Phase 0e. The flat
@@ -278,6 +281,8 @@ aws:
       DEFI: "unified-trading-execution-defi-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Commodity features bucket — non-env-split (flat); mirrors GCP naming convention.
+    features-commodity: "unified-trading-commodity-signals-batch-${AWS_ACCOUNT_ID}"
     # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
     # The flat `unified-trading-market-data-cefi-{account}` buckets on disk migrate to the
     # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19).
