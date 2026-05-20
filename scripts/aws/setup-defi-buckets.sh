@@ -69,20 +69,22 @@ echo
 
 # 10 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan Phase 2.
 # Names mirror cloud-providers.yaml aws.storage entries exactly (using ENV_SHORT not DEPLOYMENT_ENV).
-# GAP-2.4.A fix 2026-05-19 (slot 3): aligned to yaml templates —
-#   (a) use ENV_SHORT (3-char: prd/stg/dev) not DEPLOYMENT_ENV (full: prod/staging/dev)
-#   (b) pnl/positions/risk drop the unified-trading- prefix (matches yaml + GCP naming)
+# Phase 1 symmetry fix 2026-05-20 (slot 2): aligned to Phase 1 YAML templates —
+#   (a) drop unified-trading- prefix (dex-pools, dex-swaps, evm-defi, eigenlayer-rewards, solana-defi, config-store)
+#   (b) events is env-LESS (no ENV_SHORT) — matches cloud-providers.yaml aws.storage.events template
+#   (c) pnl/positions/risk already correct (no prefix change needed)
+# On-disk old buckets (with unified-trading- prefix) remain until Phase 5 migration renames them.
 BUCKETS=(
-    "unified-trading-dex-pools-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-dex-swaps-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-evm-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-eigenlayer-rewards-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-solana-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "dex-pools-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "dex-swaps-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "evm-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "eigenlayer-rewards-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "solana-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
     "pnl-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
     "positions-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
     "risk-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-events-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "unified-trading-config-store-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    "unified-trading-events-${AWS_ACCOUNT_ID}"
+    "config-store-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
 )
 
 CREATED=0
