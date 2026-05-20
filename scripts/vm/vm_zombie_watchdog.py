@@ -363,11 +363,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # no per-VM manifest shards. EPHEMERAL_BATCH lifecycle.
     # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
     "strategy-test-": None,  # launch-strategy-test-vm.sh — CI strategy validation
-    # ML training VMs (launch-ml-training-vm.sh). Heartbeat-only — writes
-    # model artefacts to model_registry bucket, no per-VM manifest shards.
+    # ML VMs (launch-ml-vm.sh). Heartbeat-only — writes model artefacts to
+    # model_registry bucket, no per-VM manifest shards. Covers training,
+    # inference, and evaluation operations on the consolidated ml-service.
     # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
-    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
-    "ml-train-": None,  # launch-ml-training-vm.sh — ml-training-service model training
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit); prefix updated
+    # 2026-05-20 (ml_repo_consolidation: ml-training-service + ml-inference-service → ml-service).
+    "ml-": None,  # launch-ml-vm.sh — ml-service training + inference
     # Execution-alpha parallel measurement VMs (launch-execution-alpha-vm.sh; plan:
     # compute_optimization_mock_data_2026_05_13.md Phase 3). VM name pattern:
     # `exec-alpha-{ts}`. Heartbeat-only — the VM writes per-chunk JSON results to

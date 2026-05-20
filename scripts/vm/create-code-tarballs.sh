@@ -13,9 +13,8 @@
 #   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI    # core + CEFI services
 #   bash scripts/vm/create-code-tarballs.sh --asset-group DEFI    # core + DEFI services
 #   bash scripts/vm/create-code-tarballs.sh --all              # core + ALL service repos
-#   bash scripts/vm/create-code-tarballs.sh --ml-training      # core + ml-training
-#                                                                pipeline (CORE +
-#                                                                ml-training-service +
+#   bash scripts/vm/create-code-tarballs.sh --ml-training      # core + ml pipeline
+#                                                                (CORE + ml-service +
 #                                                                features-* consumers)
 #
 # Also supports additional repos for services beyond the category set:
@@ -55,7 +54,7 @@ CEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-delta-one-service features-cross-instrument-service
     features-multi-timeframe-service features-calendar-service
-    ml-training-service ml-inference-service
+    ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
@@ -73,7 +72,7 @@ DEFI_REPOS=(
 SPORTS_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-sports-service
-    ml-training-service ml-inference-service
+    ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
@@ -83,7 +82,7 @@ PREDICTION_REPOS=(
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
-# ML training — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
+# ML pipeline — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
 # Tier 1 MVP (stitched continuous ES series trained locally / on a training VM).
 # Does NOT include strategy-service / execution-service — those live on a
 # separate backtest VM fleet launched via launch-tradfi-backfill-vm.sh once
@@ -92,7 +91,7 @@ ML_TRAINING_REPOS=(
     instruments-service market-tick-data-service
     features-multi-timeframe-service features-calendar-service
     features-volatility-service features-cross-instrument-service
-    ml-training-service
+    ml-service
 )
 # All known service repos (union of all categories)
 ALL_SERVICE_REPOS=(
@@ -101,7 +100,7 @@ ALL_SERVICE_REPOS=(
     features-multi-timeframe-service features-calendar-service
     features-volatility-service features-onchain-service features-sports-service
     features-commodity-service
-    ml-training-service ml-inference-service
+    ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     batch-live-reconciliation-service
@@ -115,8 +114,8 @@ usage() {
     echo "  --asset-group <CAT>      Include category-specific repos:"
     echo "                        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
     echo "  --all                 Include ALL service repos"
-    echo "  --ml-training         Include the ML training pipeline fleet"
-    echo "                        (CORE + ml-training-service + features-*)"
+    echo "  --ml-training         Include the ML pipeline fleet"
+    echo "                        (CORE + ml-service + features-*)"
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
     echo "  --allow-dirty-tarball Override dirty-tree block (audit logged; emergency hotfixes only)"
