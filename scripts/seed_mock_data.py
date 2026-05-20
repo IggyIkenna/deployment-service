@@ -33,8 +33,7 @@ SERVICES = [
     "features-delta-one-service",
     "execution-service",
     "strategy-service",
-    "ml-training-service",
-    "ml-inference-service",
+    "ml-service",
     "alerting-service",
 ]
 

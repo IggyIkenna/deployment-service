@@ -68,7 +68,7 @@ def _invoke(args: list[str], ctx_obj: dict[str, object] | None = None) -> click.
 @pytest.mark.unit
 def test_dynamic_dimension_services_contains_expected() -> None:
     assert "execution-service" in DYNAMIC_DIMENSION_SERVICES
-    assert "ml-training-service" in DYNAMIC_DIMENSION_SERVICES
+    assert "ml-service" in DYNAMIC_DIMENSION_SERVICES
     assert "strategy-service" in DYNAMIC_DIMENSION_SERVICES
 
 

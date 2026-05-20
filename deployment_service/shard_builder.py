@@ -25,8 +25,7 @@ _SERVICE_STORAGE_DOMAINS: dict[str, list[str]] = {
     "features-delta-one-service": ["features-delta-one"],
     "features-volatility-service": ["features-volatility"],
     "features-onchain-service": ["features-onchain"],
-    "ml-training-service": ["ml-models-store", "ml-configs-store"],
-    "ml-inference-service": ["ml-predictions-store", "ml-models-store"],
+    "ml-service": ["ml-models-store", "ml-configs-store", "ml-predictions-store"],
     "strategy-service": ["strategy-store"],
     "execution-services": ["execution-store"],
 }

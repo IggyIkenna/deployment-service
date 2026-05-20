@@ -357,12 +357,12 @@ class TestGetBackendForService:
             MockVM.return_value = MagicMock()
 
             get_backend_for_service(
-                service_name="ml-training-service",
+                service_name="ml-service",
                 project_id=PROJECT,
                 region=REGION,
             )
 
-        mock_topo.assert_called_once_with("ml-training-service")
+        mock_topo.assert_called_once_with("ml-service")
         MockVM.assert_called_once()
 
 

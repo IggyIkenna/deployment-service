@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Services with dynamic GCS configs (completion % is not applicable)
 DYNAMIC_DIMENSION_SERVICES = {
     "execution-service",
-    "ml-training-service",
+    "ml-service",
     "strategy-service",
 }
 
@@ -49,7 +49,6 @@ FIXED_DIMENSION_SERVICES = {
     "features-multi-timeframe-service",
     "features-commodity-service",
     "features-calendar-service",
-    "ml-inference-service",
 }
 
 
@@ -185,7 +184,7 @@ def data_status(
     Shows hierarchical breakdown of data completion by dimensions (asset group, venue, etc.)
     with percentages and optionally file timestamps.
 
-    For dynamic-dimension services (execution-service, ml-training-service, strategy-service),
+    For dynamic-dimension services (execution-service, ml-service, strategy-service),
     only timestamp information is shown since completion % is not applicable.
 
     Examples:

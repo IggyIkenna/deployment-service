@@ -54,8 +54,8 @@ _BUCKET_TEMPLATES: dict[str, str] = {
     # `cloud-providers.yaml` kind="ml-models-store"/"ml-predictions-store". This
     # dict is consumed only by deployment-service CLI tooling for ad-hoc manifest
     # reads and consolidates via `resolve_bucket_name()` in a follow-up sweep.
-    "ml-training-service": "ml-models-store-{project_id}",
-    "ml-inference-service": "ml-predictions-store-{project_id}",
+    # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
+    "ml-service": "ml-models-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
     "execution-service": "execution-store-{domain}-{project_id}",
     "risk-and-exposure-service": "risk-and-exposure-{project_id}",
@@ -67,8 +67,7 @@ _BUCKET_TEMPLATES: dict[str, str] = {
 _SHARED_BUCKET_SERVICES = {
     "features-onchain-service",
     "features-calendar-service",
-    "ml-training-service",
-    "ml-inference-service",
+    "ml-service",
     "strategy-service",
     "risk-and-exposure-service",
     "pnl-attribution-service",
@@ -117,8 +116,7 @@ _SUB_DIMENSION_KEY: dict[str, str] = {
     "features-commodity-service": "feature_group",
     "execution-service": "domain",
     "strategy-service": "strategy_id",
-    "ml-training-service": "model_id",
-    "ml-inference-service": "mode",
+    "ml-service": "model_id",
     "risk-and-exposure-service": "client_id",
     "pnl-attribution-service": "strategy_id",
     "alerting-service": "alert_type",

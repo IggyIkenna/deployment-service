@@ -323,8 +323,7 @@ def all_service_configs():
         "features-volatility-service",
         "features-onchain-service",
         "features-calendar-service",
-        "ml-training-service",
-        "ml-inference-service",
+        "ml-service",
         "strategy-service",
         "execution-service",
     ]

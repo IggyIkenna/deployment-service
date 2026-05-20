@@ -532,7 +532,7 @@ class DependencyGraph:
                 "features-volatility-service",
                 "features-onchain-service",
             ],
-            "ML": ["ml-training-service", "ml-inference-service"],
+            "ML": ["ml-service"],
             "Backtesting": ["strategy-service", "execution-service"],
         }
 

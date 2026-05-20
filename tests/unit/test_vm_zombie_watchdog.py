@@ -590,9 +590,9 @@ class TestNewPrefixRegistration:
         """Strategy CI validation VMs (launch-strategy-test-vm.sh) must be watched."""
         assert "strategy-test-" in _VM_PREFIX_TO_BUCKET
 
-    def test_ml_train_registered(self) -> None:
-        """ML training VMs must be watched after B-011 blindspot audit."""
-        assert "ml-train-" in _VM_PREFIX_TO_BUCKET
+    def test_ml_registered(self) -> None:
+        """ML VMs must be watched (consolidated from ml-train- prefix, 2026-05-20)."""
+        assert "ml-" in _VM_PREFIX_TO_BUCKET
 
     def test_new_prefixes_have_heartbeat_only_signal(self) -> None:
         """None or VmPrefixSpec(bucket=None) is correct for non-manifest-shard VMs."""

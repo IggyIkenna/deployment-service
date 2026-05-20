@@ -699,13 +699,13 @@ class TestDeploymentMonitorGenerateStatusReport:
             monitor = DeploymentMonitor(project_id="test-project")
 
         r = ServiceHealthReport(
-            service="ml-training",
+            service="ml",
             date="2024-01-01",
             asset_group="CEFI",
             dependencies_met=False,
             missing_dependencies=["features-delta-one-service"],
         )
-        report = monitor.generate_status_report({"ml-training": r})
+        report = monitor.generate_status_report({"ml": r})
         assert "BLOCKED" in report
         assert "features-delta-one-service" in report
 

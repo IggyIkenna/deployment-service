@@ -70,30 +70,17 @@ def _add_l5_nodes(g: graphviz.Digraph) -> None:
             bgcolor="#fffbeb",
         )
         s.node(
-            "MLTR",
+            "ML",
             **svc(
                 "l5",
-                "ml-training-service  [VM standalone]\\n~quarterly batch (Cloud Scheduler or manual)\\nB: model x inst x tf x target x cfg (batch only)\\nSinks: GCS only (model_artifacts_registry)",
+                "ml-service  [VM standalone]\\ntrain: ~quarterly batch | infer: event-driven (on feature events)\\nB: model x inst x tf x target x cfg | L: model x venue x inst\\nSinks: GCS (model_artifacts_registry + predictions) + PubSub",
                 tooltip=(
-                    "Batch only -- no live mode\\n"
-                    "Batch dims: model x instrument x timeframe x target_type x config\\n"
+                    "Consolidated from ml-training-service + ml-inference-service (2026-05-20)\\n"
+                    "Train dims: model x instrument x timeframe x target_type x config\\n"
+                    "Infer dims: model x venue x instrument x date\\n"
                     "Deploy: standalone VM (~2hr training runs; Cloud Run max timeout insufficient)\\n"
-                    "Recovery: re-run batch job from checkpoint"
-                ),
-            ),
-        )
-        s.node(
-            "MLIN",
-            **svc(
-                "l5",
-                "ml-inference-service  [CR Svc]\\nevent-driven (on feature events)\\nB: model x venue x inst x date | L: model x venue x inst\\nSinks: GCS + PubSub (predictions-{model}-{venue}-{inst})",
-                tooltip=(
                     "PubSub topic: predictions-{model}-{venue}-{instrument}\\n"
-                    "Batch dims: model x venue x instrument x date\\n"
-                    "Live trigger: feature events from FDS/FVS/FCIS via PubSub\\n"
-                    "Models: loaded from GCS (infrequent reload ~quarterly)\\n"
-                    "GAP: currently reads features from BigQuery (target: PubSub subscription)\\n"
-                    "Recovery: reload model from GCS, subscribe live PubSub features"
+                    "Recovery: re-run batch job from checkpoint; reload model from GCS"
                 ),
             ),
         )
