@@ -97,8 +97,7 @@ EXCLUSION_GREP="${EXCLUSION_GREP:1}"  # strip leading |
 echo "Listing GCP Secret Manager secrets in project $GCP_PROJECT..."
 GCP_SECRETS=$(gcloud secrets list \
     --project="$GCP_PROJECT" \
-    --format="value(name)" \
-    --filter="state=ENABLED" 2>/dev/null | \
+    --format="value(name)" 2>/dev/null | \
     grep -Ev "$EXCLUSION_GREP" | \
     { [[ -n "$FILTER" ]] && grep "$FILTER" || cat; } | \
     sort)
