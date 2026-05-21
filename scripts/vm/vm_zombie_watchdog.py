@@ -876,6 +876,27 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_SCENARIO_REPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # ------------------------------------------------------------------
+    # Agent-orchestrator VMs — planning VM + per-epic VMs.
+    # All LONG_LIVED_LIVE (run until operator tears them down).
+    # bucket=None: orchestrator VMs write to the orchestrator GCS state
+    # bucket, not to per-VM manifest shards. Heartbeat-only.
+    # Launchers:
+    #   launch-planning-vm.sh  → agent-orch-planning-vm-{YYYYMMDD}
+    #   launch-epic-vm.sh      → agent-orch-{vm-id}-{YYYYMMDD}
+    # Registered 2026-05-21 (orchestrator Phase 7/11 fleet launch).
+    # ------------------------------------------------------------------
+    "agent-orch-planning-vm-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-ml-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-trading-core-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-operator-ops-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cross-cutting-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-orchestrator-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
 }
 
 
