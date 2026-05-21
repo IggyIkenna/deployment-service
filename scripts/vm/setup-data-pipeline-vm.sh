@@ -829,6 +829,93 @@ elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
+  # Chunked MTDS backfill — Tardis API requires ≤7-day download windows per request
+  # (per-IP rate limits; wider windows return 429). VM_CHUNK_DAYS default 7.
+  # Writes a self-contained chunk-loop script at boot so _launch_with_tee wraps
+  # the full loop (streaming GCS log + heartbeat + self-delete on completion).
+  VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 7)
+  VM_TIER=$(_meta VM_TIER "")
+
+  BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  [[ -n "$VM_TIER" ]] && BASE_CLI="$BASE_CLI --tier $VM_TIER"
+  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+
+  CHUNK_SCRIPT="$WORKSPACE/mtds_chunk_loop.sh"
+  cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+CHUNKS=\$("$VENV/bin/python" -c "
+from datetime import datetime, timedelta
+start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
+end   = datetime.strptime('$VM_END_DATE',   '%Y-%m-%d')
+chunk_days = int($VM_CHUNK_DAYS)
+cur = start
+while cur <= end:
+    cend = min(cur + timedelta(days=chunk_days - 1), end)
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    cur = cend + timedelta(days=1)
+")
+TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
+CHUNK_NUM=0
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+  CHUNK_NUM=\$((CHUNK_NUM + 1))
+  echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+    "$VENV/bin/python" -m market_tick_data_service \\
+      $BASE_CLI \\
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+  echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
+echo "mtds-backfill loop complete: \$(date -u)"
+MTDS_CHUNK_LOOP_EOF
+  chmod +x "$CHUNK_SCRIPT"
+  _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/mtds-backfill.log"
+elif [[ "$VM_TASK" == "instruments-backfill" ]]; then
+  # Chunked instruments-service backfill. VM_CHUNK_DAYS default 30 (no strict
+  # Tardis rate limit, but wide windows can exhaust per-API-key quotas for
+  # football/odds providers). All optional flags follow generic handler convention.
+  VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 30)
+
+  BASE_CLI="--operation instruments --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  [[ -n "$VM_SPORTS_PROVIDER" ]] && BASE_CLI="$BASE_CLI --sports-provider $VM_SPORTS_PROVIDER"
+  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+
+  CHUNK_SCRIPT="$WORKSPACE/instruments_chunk_loop.sh"
+  cat >"$CHUNK_SCRIPT" <<INSTR_CHUNK_LOOP_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+CHUNKS=\$("$VENV/bin/python" -c "
+from datetime import datetime, timedelta
+start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
+end   = datetime.strptime('$VM_END_DATE',   '%Y-%m-%d')
+chunk_days = int($VM_CHUNK_DAYS)
+cur = start
+while cur <= end:
+    cend = min(cur + timedelta(days=chunk_days - 1), end)
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    cur = cend + timedelta(days=1)
+")
+TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
+CHUNK_NUM=0
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+  CHUNK_NUM=\$((CHUNK_NUM + 1))
+  echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+    "$VENV/bin/python" -m instruments_service \\
+      $BASE_CLI \\
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+  echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
+echo "instruments-backfill loop complete: \$(date -u)"
+INSTR_CHUNK_LOOP_EOF
+  chmod +x "$CHUNK_SCRIPT"
+  _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/instruments-backfill.log"
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
