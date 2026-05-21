@@ -284,7 +284,11 @@ def copy_bucket(src_uri: str, dest_uri: str) -> dict[str, object]:
     if not bucket_exists(dest_uri):
         return {"src": src_uri, "dest": dest_uri, "skipped": True, "reason": "dest_missing", "count": 0}
 
-    blobs = list(client.list_blobs(src_bucket))
+    # CRITICAL: never overwrite prd _index/ (v8 manifests) or _catalogue/ with
+    # legacy flat-bucket content. Also skip CI and audit artifacts.
+    _EXCLUDE = ("_index/", "_catalogue/", "_audits/", "_smoke_test/")
+    blobs = [b for b in client.list_blobs(src_bucket)
+             if not any(b.name.startswith(p) for p in _EXCLUDE)]
     total = len(blobs)
     if total == 0:
         return {"src": src_uri, "dest": dest_uri, "skipped": False, "count": 0, "bytes": 0}
@@ -376,15 +380,22 @@ do_aws_migration() {
 
     if [[ "$dry_run" -eq 1 ]]; then
       local obj_count
-      obj_count=$(aws s3 ls "s3://${src}" --recursive --region "$region" 2>/dev/null | wc -l | tr -d ' ')
+      obj_count=$(aws s3 ls "s3://${src}" --recursive --region "$region" 2>/dev/null \
+                  | grep -v '/_index/' | grep -v '/_catalogue/' | grep -v '/_audits/' | grep -v '/_smoke_test/' \
+                  | wc -l | tr -d ' ')
       log "  DRY-RUN  s3://${src} → s3://${dest}  objects~${obj_count}"
     else
       log "  SYNC  s3://${src} → s3://${dest}"
+      # CRITICAL: exclude _index/ (v8 manifests) and _catalogue/ — never overwrite prd canonical metadata
       aws s3 sync "s3://${src}/" "s3://${dest}/" \
         --region "$region" \
         --no-progress \
         --sse aws:kms \
         --exact-timestamps \
+        --exclude "_index/*" \
+        --exclude "_catalogue/*" \
+        --exclude "_audits/*" \
+        --exclude "_smoke_test/*" \
         2>&1 | tail -5
       log "  DONE  s3://${src} → s3://${dest}"
     fi
