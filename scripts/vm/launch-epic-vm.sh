@@ -202,7 +202,7 @@ for p in plans:
 #!/bin/bash
 set -euo pipefail
 export HOME=/home/${OPERATOR}
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/${OPERATOR}/.local/bin"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/home/${OPERATOR}/.local/bin"
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export VM_NAME="${VM_NAME}"

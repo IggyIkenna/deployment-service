@@ -111,7 +111,7 @@ STARTUP_SCRIPT=$(cat <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
 export HOME=/home/${OPERATOR}
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/${OPERATOR}/.local/bin"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/home/${OPERATOR}/.local/bin"
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export CLOUD_PROVIDER=gcp
@@ -124,7 +124,7 @@ date
 
 # ── 1. Base packages ──
 apt-get update -qq
-apt-get install -yqq git tmux curl python3 python3-pip nodejs npm
+apt-get install -yqq git tmux curl python3 python3-pip
 
 # ── 2. Fetch GH_PAT from Secret Manager ──
 GH_PAT="\$(gcloud secrets versions access latest --secret=GH_PAT --project=${PROJECT_ID})"
