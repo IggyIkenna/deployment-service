@@ -58,8 +58,8 @@ _BUCKET_TEMPLATES: dict[str, str] = {
     "ml-service": "ml-models-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
     "execution-service": "execution-store-{domain}-{project_id}",
-    "risk-and-exposure-service": "risk-and-exposure-{project_id}",
-    "pnl-attribution-service": "pnl-attribution-{project_id}",
+    # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21:
+    # consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
     "alerting-service": "alerting-service-{project_id}",
 }
 
@@ -69,8 +69,7 @@ _SHARED_BUCKET_SERVICES = {
     "features-calendar-service",
     "ml-service",
     "strategy-service",
-    "risk-and-exposure-service",
-    "pnl-attribution-service",
+    # risk-and-exposure-service + pnl-attribution-service removed (consolidated into strategy-service)
     "alerting-service",
 }
 

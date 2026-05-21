@@ -147,7 +147,7 @@ class TestBuildCluterPlanIntegration:
     just assert the orchestrator wires subscription → plan correctly.
     """
 
-    def test_premium_subscription_produces_isolated_exec_strategy_pbm_risk(self, tmp_path: Path) -> None:
+    def test_premium_subscription_produces_isolated_exec_strategy(self, tmp_path: Path) -> None:
         sub = ClientSubscription(
             client_id="client_alpha",
             sla_tier=SLATier.PREMIUM,
@@ -162,9 +162,6 @@ class TestBuildCluterPlanIntegration:
                 "instruments-service",
                 "execution-service",
                 "strategy-service",
-                "position-balance-monitor-service",
-                "risk-and-exposure-service",
-                "pnl-attribution-service",
             ],
             loaded,
         )
@@ -172,8 +169,6 @@ class TestBuildCluterPlanIntegration:
         for svc in [
             "execution-service",
             "strategy-service",
-            "position-balance-monitor-service",
-            "risk-and-exposure-service",
         ]:
             assert svc in plan.isolated_services
 
@@ -183,7 +178,7 @@ class TestBuildCluterPlanIntegration:
             sla_tier=SLATier.STANDARD,
             service_overrides=[
                 ClientServiceOverride(
-                    service_name="risk-and-exposure-service",
+                    service_name="alerting-service",
                     isolation=IsolationPolicy.ISOLATED,
                 ),
             ],
@@ -194,9 +189,9 @@ class TestBuildCluterPlanIntegration:
         loaded = orch._load_subscription("client_beta")
         plan = build_cluster_plan(
             "full",
-            ["execution-service", "risk-and-exposure-service", "pnl-attribution-service"],
+            ["execution-service", "alerting-service", "instruments-service"],
             loaded,
         )
         assert "execution-service" in plan.isolated_services  # standard mandates
-        assert "risk-and-exposure-service" in plan.isolated_services  # override
-        assert "pnl-attribution-service" in plan.shared_services  # no override
+        assert "alerting-service" in plan.isolated_services  # override
+        assert "instruments-service" in plan.shared_services  # no override

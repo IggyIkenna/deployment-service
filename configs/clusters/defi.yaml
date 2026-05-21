@@ -10,9 +10,8 @@ services:
   - strategy-service
   - execution-service # LIVE operational mode (automated strategies)
   - execution-service:manual # MANUAL operational mode (operator booking + backup)
-  - position-balance-monitor-service
-  - pnl-attribution-service
-  - risk-and-exposure-service
+  # position-balance-monitor-service, pnl-attribution-service, risk-and-exposure-service
+  # removed 2026-05-21: consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
   - alerting-service
   - batch-live-reconciliation-service
 

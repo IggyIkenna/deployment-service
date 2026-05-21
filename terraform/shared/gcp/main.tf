@@ -45,9 +45,8 @@ module "shared_infrastructure" {
     "ml-inference-service",
     "strategy-service",
     "execution-service",
-    "pnl-attribution-service",
-    "position-balance-monitor-service",
-    "risk-and-exposure-service",
+    # pnl-attribution-service, position-balance-monitor-service, risk-and-exposure-service
+    # removed 2026-05-21: consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
     "alerting-service",
     "execution-results-api",
     "market-data-api",

@@ -543,11 +543,11 @@ class TestRealDependencies:
         # instruments-service should be first (no deps)
         assert order[0] == "instruments-service"
 
-        # batch-live-reconciliation-service comes after risk (it reads risk outputs),
-        # and risk-and-exposure-service depends on position/execution chain.
-        # Assert their relative ordering rather than a fixed tail element.
-        assert order.index("risk-and-exposure-service") < order.index("batch-live-reconciliation-service")
-        assert order.index("position-balance-monitor-service") < order.index("risk-and-exposure-service")
+        # execution-service follows strategy-service; batch-live-reconciliation-service is last.
+        # position-balance-monitor-service, pnl-attribution-service, risk-and-exposure-service
+        # removed 2026-05-21: consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
+        assert order.index("strategy-service") < order.index("execution-service")
+        assert order.index("execution-service") < order.index("batch-live-reconciliation-service")
 
     def test_real_upstream_deps(self, real_config_dir, mock_env_vars):
         """Test real upstream dependencies."""

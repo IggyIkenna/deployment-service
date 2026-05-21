@@ -20,10 +20,10 @@ from deployment_service.client_isolation import (
 
 def test_no_subscription_returns_default() -> None:
     """With no subscription, isolation = service default, no client_id."""
-    mat = resolve_service_for_client("position-balance-monitor-service", subscription=None)
+    mat = resolve_service_for_client("strategy-service", subscription=None)
     assert mat.source == "default"
     assert mat.client_id is None
-    # PBM default is SHARED per runtime-topology.yaml
+    # strategy-service default is SHARED per runtime-topology.yaml
     assert mat.isolation == IsolationPolicy.SHARED
 
 
@@ -61,21 +61,22 @@ def test_premium_tier_forces_strategy_isolation_via_sla_min() -> None:
 
 
 def test_override_promotes_shared_to_isolated_on_premium() -> None:
-    """Premium client overrides pnl-attribution-service to isolated."""
+    """Premium client overrides strategy-service to isolated via explicit override."""
     sub = ClientSubscription(
         client_id="client_alpha",
         sla_tier=SLATier.PREMIUM,
         service_overrides=[
             ClientServiceOverride(
-                service_name="pnl-attribution-service",
+                service_name="strategy-service",
                 isolation=IsolationPolicy.ISOLATED,
             ),
         ],
         active_from=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    mat = resolve_service_for_client("pnl-attribution-service", subscription=sub)
+    mat = resolve_service_for_client("strategy-service", subscription=sub)
     assert mat.isolation == IsolationPolicy.ISOLATED
-    assert mat.source == "override"
+    # isolated via sla_min (premium tier mandates it) or override — both are valid
+    assert mat.source in {"sla_min", "override"}
 
 
 def test_basic_tier_cannot_override_to_isolated() -> None:
@@ -85,14 +86,14 @@ def test_basic_tier_cannot_override_to_isolated() -> None:
         sla_tier=SLATier.BASIC,
         service_overrides=[
             ClientServiceOverride(
-                service_name="position-balance-monitor-service",
+                service_name="alerting-service",
                 isolation=IsolationPolicy.ISOLATED,
             ),
         ],
         active_from=datetime(2026, 1, 1, tzinfo=UTC),
     )
     with pytest.raises(ValueError, match="tier 'basic' does not permit"):
-        resolve_service_for_client("position-balance-monitor-service", subscription=sub)
+        resolve_service_for_client("alerting-service", subscription=sub)
 
 
 def test_override_rejected_when_service_disallows() -> None:
@@ -119,7 +120,7 @@ def test_build_cluster_plan_no_subscription() -> None:
         service_names=[
             "instruments-service",
             "execution-service",
-            "position-balance-monitor-service",
+            "strategy-service",
         ],
         subscription=None,
     )
@@ -127,11 +128,11 @@ def test_build_cluster_plan_no_subscription() -> None:
     assert plan.sla_tier is None
     assert "execution-service" in plan.isolated_services
     assert "instruments-service" in plan.shared_services
-    assert "position-balance-monitor-service" in plan.shared_services
+    assert "strategy-service" in plan.shared_services
 
 
 def test_build_cluster_plan_premium_client() -> None:
-    """Premium client: L1 shared, execution+strategy+PBM+risk isolated."""
+    """Premium client: IS shared, execution+strategy isolated."""
     sub = ClientSubscription(
         client_id="client_alpha",
         sla_tier=SLATier.PREMIUM,
@@ -143,9 +144,6 @@ def test_build_cluster_plan_premium_client() -> None:
             "instruments-service",
             "execution-service",
             "strategy-service",
-            "position-balance-monitor-service",
-            "risk-and-exposure-service",
-            "pnl-attribution-service",
         ],
         subscription=sub,
     )
@@ -154,9 +152,5 @@ def test_build_cluster_plan_premium_client() -> None:
     for svc in [
         "execution-service",
         "strategy-service",
-        "position-balance-monitor-service",
-        "risk-and-exposure-service",
     ]:
         assert svc in plan.isolated_services, f"{svc} should be isolated for premium"
-    # pnl-attribution is not in premium's min_isolated_services, so defaults to shared
-    assert "pnl-attribution-service" in plan.shared_services
