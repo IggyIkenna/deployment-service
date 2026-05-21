@@ -1,36 +1,38 @@
 #!/usr/bin/env bash
-# Full API Football sweep — covers ALL dates 2019-01-01 → today
+# Full API Football sweep — covers ALL entities for ALL dates 2019-01-01 → today
 #
-# Strategy:
-#   1. Package codebase and upload to GCS exactly ONCE
-#   2. Launch 8 year-chunk VMs in parallel (one per calendar year)
-#   3. Each VM uses entity-level manifest checking → skips already-done API calls
-#   4. No --force: existing manifest entries are preserved
+# Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
+# Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
+# Pre-condition: run `bash create-code-tarballs.sh` first.
 #
-# This covers ALL API_FOOTBALL entities:
-#   fixtures, leagues, teams, standings, injuries,
-#   fixture_stats, fixture_events, fixture_lineups, player_stats
+# 8 year-chunk VMs in parallel (one per calendar year).
+# Each VM: entity-level manifest checking → skips already-done API calls.
+# Covers ALL API_FOOTBALL entities: fixtures, leagues, teams, standings,
+# injuries, fixture_stats, fixture_events, fixture_lineups, player_stats.
 #
 # Usage:
-#   bash full_api_football_sweep.sh
-#   bash full_api_football_sweep.sh --dry-run
-# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
-# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
-# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#   bash launch-sports-full-sweep-vm.sh                # Launch all 8 VMs
+#   bash launch-sports-full-sweep-vm.sh --dry-run      # Print plan only
+#   bash launch-sports-full-sweep-vm.sh --env staging  # Staging env tier
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+CHUNK_DAYS="${CHUNK_DAYS:-30}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run) DRY_RUN=true; shift ;;
-    --project) PROJECT_ID="$2"; shift 2 ;;
-    --zone) ZONE="$2"; shift 2 ;;
-    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --dry-run)    DRY_RUN=true; shift ;;
+    --project)    PROJECT_ID="$2"; shift 2 ;;
+    --zone)       ZONE="$2"; shift 2 ;;
+    --env)        DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -40,20 +42,9 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/lib/launcher_common.sh"
-COMMON_DIR="$(cd "${SCRIPT_DIR}/../common" && pwd)"
-WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 
-GCS_BUCKET="gs://instruments-store-sports-${PROJECT_ID}"
-GCS_STAGING="${GCS_BUCKET}/_vm_staging/instruments_reference"
-TARBALL_NAME="instruments_reference_codebase.tar.gz"
-TARBALL_PATH="/tmp/${TARBALL_NAME}"
-GCS_TARBALL="${GCS_STAGING}/${TARBALL_NAME}"
-GCS_SCRIPT="${GCS_STAGING}/vm_instruments_reference.sh"
-
-# Year-chunked ranges for complete coverage
-# Format: "vm-name|start|end"
+# Year-chunked ranges (one VM per year)
 RANGES=(
   "sports-full-sweep-2019|2019-01-01|2019-12-31"
   "sports-full-sweep-2020|2020-01-01|2020-12-31"
@@ -66,142 +57,45 @@ RANGES=(
 )
 
 echo "============================================================"
-echo "API Football Full Sweep"
+echo "Sports Full Sweep VM Fleet (Pattern A)"
 echo "  Project:  ${PROJECT_ID}"
 echo "  Zone:     ${ZONE}"
 echo "  Machine:  ${MACHINE_TYPE}"
 echo "  VMs:      ${#RANGES[@]} (one per year, parallel)"
+echo "  Chunk:    ${CHUNK_DAYS} days"
 echo "  DryRun:   ${DRY_RUN}"
+echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-service-code.tar.gz"
 echo "============================================================"
-echo ""
-
-# ---- Step 1: Package codebase ONCE ----
-echo "=== Step 1: Packaging codebase (once for all VMs) ==="
-REPOS=("unified-api-contracts" "unified-trading-library" "instruments-service")
-if ! $DRY_RUN; then
-  STAGING_DIR=$(mktemp -d)
-  for repo in "${REPOS[@]}"; do
-    echo "  Syncing ${repo}..."
-    mkdir -p "${STAGING_DIR}/${repo}"
-    rsync -a \
-      --exclude='.git' \
-      --exclude='.venv*' \
-      --exclude='__pycache__' \
-      --exclude='*.egg-info' \
-      --exclude='node_modules' \
-      --exclude='.mypy_cache' \
-      --exclude='.pytest_cache' \
-      --exclude='tests' \
-      --exclude='htmlcov' \
-      --exclude='.coverage*' \
-      "${WORKSPACE_ROOT}/${repo}/" "${STAGING_DIR}/${repo}/"
-  done
-  echo "  Compressing..."
-  (cd "${STAGING_DIR}" && tar czf "${TARBALL_PATH}" -- *)
-  TARBALL_SIZE=$(du -h "${TARBALL_PATH}" | cut -f1)
-  echo "  Tarball: ${TARBALL_PATH} (${TARBALL_SIZE})"
-  rm -rf "${STAGING_DIR}"
-else
-  echo "  [DRY RUN] Would package tarball"
-fi
-
-# ---- Step 2: Upload to GCS ONCE ----
-echo ""
-echo "=== Step 2: Uploading to GCS (once for all VMs) ==="
-if ! $DRY_RUN; then
-  echo "  Uploading tarball..."
-  gsutil -q cp "${TARBALL_PATH}" "${GCS_TARBALL}"
-  echo "  Uploading vm script..."
-  gsutil -q cp "${COMMON_DIR}/vm_instruments_reference.sh" "${GCS_SCRIPT}"
-  rm "${TARBALL_PATH}"
-  echo "  Done → ${GCS_STAGING}/"
-else
-  echo "  [DRY RUN] Would upload to ${GCS_STAGING}/"
-fi
-
-# ---- Step 3: Launch all VMs in parallel ----
-echo ""
-echo "=== Step 3: Launching ${#RANGES[@]} VMs in parallel ==="
 
 launch_vm() {
-  local vm_name="$1"
-  local start_date="$2"
-  local end_date="$3"
+  local VM_NAME="$1"
+  local START_DATE="$2"
+  local END_DATE="$3"
 
   if $DRY_RUN; then
-    echo "  [DRY RUN] Would create VM: ${vm_name} (${start_date} → ${end_date})"
+    echo "  [DRY RUN] Would create VM: ${VM_NAME} (${START_DATE} → ${END_DATE})"
     return 0
   fi
 
-  STARTUP_FILE=$(mktemp)
-  LOG_TRAP="$(lc_log_upload_trap_block "$vm_name" "$PROJECT_ID")"
-  cat > "$STARTUP_FILE" << STARTUP_EOF
-#!/bin/bash
-${LOG_TRAP}
-set -euo pipefail
-export WORK_DIR=/tmp/instruments
-export HOME=/root
-export PATH="/root/.local/bin:\$PATH"
+  # Delete existing VM (idempotent fleet pattern)
+  gcloud compute instances delete "${VM_NAME}" \
+    --project="${PROJECT_ID}" --zone="${ZONE}" --quiet 2>/dev/null || true
 
-exec > >(tee /var/log/instruments-reference.log) 2>&1
-
-# Production service flags — explicit to prevent any env pollution on the VM
-export GCP_PROJECT_ID="${PROJECT_ID}"
-export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
-export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
-export CLOUD_PROVIDER=gcp
-export CLOUD_MOCK_MODE=false
-export DATA_MODE=real
-export IS_TEST_RUN=false
-
-echo "=== VM Startup: ${vm_name} ==="
-echo "  Range: ${start_date} → ${end_date}"
-date
-
-apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
-echo "  Python: \$(python3.13 --version)"
-
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:\$PATH"
-
-mkdir -p \${WORK_DIR}
-echo "Downloading codebase from GCS..."
-gsutil -q cp ${GCS_TARBALL} \${WORK_DIR}/codebase.tar.gz
-gsutil -q cp ${GCS_SCRIPT} \${WORK_DIR}/vm_instruments_reference.sh
-chmod +x \${WORK_DIR}/vm_instruments_reference.sh
-tar xzf \${WORK_DIR}/codebase.tar.gz -C \${WORK_DIR}
-rm \${WORK_DIR}/codebase.tar.gz
-
-bash \${WORK_DIR}/vm_instruments_reference.sh \\
-  --start ${start_date} \\
-  --end ${end_date} \\
-  --work-dir \${WORK_DIR}
-
-gsutil -q cp /var/log/instruments-reference.log \\
-  ${GCS_STAGING}/logs/${vm_name}.log
-
-echo "Backfill complete. Shutting down..."
-date
-shutdown -h now
-STARTUP_EOF
-
-  # Delete any existing VM with same name
-  gcloud compute instances delete "${vm_name}" \
-    --project="${PROJECT_ID}" \
-    --zone="${ZONE}" \
-    --quiet 2>/dev/null || true
-
-  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
-  # concurrency safety + canonical VM lifecycle metadata. Note: `vm_name` is
-  # the local variable in this launcher (lowercase per existing convention).
-  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-  METADATA="${METADATA},VM_NAME=${vm_name}"
+  local METADATA
+  METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+  METADATA="${METADATA},VM_TASK=instruments-backfill"
+  METADATA="${METADATA},VM_SERVICE=instruments_service"
+  METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
+  METADATA="${METADATA},VM_VENUE=API_FOOTBALL"
   METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 
-  gcloud compute instances create "${vm_name}" \
+  gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
@@ -210,23 +104,19 @@ STARTUP_EOF
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=30GB \
-    --metadata="${METADATA}" \
-    --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --labels=purpose=sports-full-sweep,env="${DEPLOYMENT_ENV}"
-
-  rm "$STARTUP_FILE"
-  echo "  Created: ${vm_name} (${start_date} → ${end_date})"
+    --labels="purpose=sports-full-sweep,env=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}"
+  echo "  Created: ${VM_NAME} (${START_DATE} → ${END_DATE})"
+  echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
 }
 
-# Launch all in parallel
 PIDS=()
 for entry in "${RANGES[@]}"; do
-  IFS='|' read -r vm_name start_date end_date <<< "${entry}"
-  launch_vm "${vm_name}" "${start_date}" "${end_date}" &
+  IFS='|' read -r VM_NAME START_DATE END_DATE <<< "${entry}"
+  launch_vm "${VM_NAME}" "${START_DATE}" "${END_DATE}" &
   PIDS+=($!)
 done
 
-# Wait for all VM creation jobs to complete
 FAILED=0
 for pid in "${PIDS[@]}"; do
   if ! wait "${pid}"; then
@@ -239,15 +129,8 @@ echo "============================================================"
 if [[ ${FAILED} -gt 0 ]]; then
   echo "WARNING: ${FAILED} VM creation(s) failed"
 else
-  echo "All ${#RANGES[@]} VMs launched successfully"
+  echo "All ${#RANGES[@]} VMs launched."
 fi
+echo "  Monitor: gcloud compute instances list --filter='name~sports-full-sweep' --project=${PROJECT_ID}"
+echo "  Logs:    gsutil ls gs://${CODE_BUCKET}/vm-logs/ | grep sports-full-sweep"
 echo "============================================================"
-echo ""
-echo "Monitor logs (once VMs complete):"
-for entry in "${RANGES[@]}"; do
-  IFS='|' read -r vm_name _ _ <<< "${entry}"
-  echo "  gsutil cat ${GCS_STAGING}/logs/${vm_name}.log"
-done
-echo ""
-echo "Check VM status:"
-echo "  gcloud compute instances list --filter=\"name~'sports-full-sweep-'\" --zones=${ZONE}"

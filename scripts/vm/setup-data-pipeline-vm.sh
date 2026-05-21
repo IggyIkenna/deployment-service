@@ -883,6 +883,7 @@ elif [[ "$VM_TASK" == "instruments-backfill" ]]; then
   BASE_CLI="--operation instruments --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && BASE_CLI="$BASE_CLI --sports-provider $VM_SPORTS_PROVIDER"
+  [[ -n "$VM_SPORTS_ENTITY" ]] && BASE_CLI="$BASE_CLI --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
 
