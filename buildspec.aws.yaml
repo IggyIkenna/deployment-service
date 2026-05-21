@@ -8,6 +8,7 @@ version: 0.2
 env:
   variables:
     AWS_DEFAULT_REGION: "ap-northeast-1"
+    GCP_PROJECT_ID: "central-element-323112"
   exported-variables:
     - IMAGE_TAG
 
@@ -26,6 +27,8 @@ phases:
       - REPO_NAME=$(basename $(pwd))
       - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
       - aws ecr describe-repositories --repository-names $REPO_NAME || aws ecr create-repository --repository-name $REPO_NAME
+      - GCP_SA_KEY=$(aws secretsmanager get-secret-value --secret-id unified-trading/github-actions-sa-key --query SecretString --output text)
+      - echo "$GCP_SA_KEY" | docker login -u _json_key --password-stdin https://asia-northeast1-docker.pkg.dev
       - |
         GH_PAT_VAL=$(aws secretsmanager get-secret-value --secret-id github-pat --query SecretString --output text 2>/dev/null || echo "")
         if [ -n "$GH_PAT_VAL" ] && [ ! -d "unified-trading-pm" ]; then
@@ -38,7 +41,7 @@ phases:
       - VERSION=$(cat VERSION)
       - REPO_NAME=$(basename $(pwd))
       - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
-      - docker build -f Dockerfile -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
+      - docker build -f Dockerfile --build-arg PROJECT_ID=$GCP_PROJECT_ID -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
       - docker run --rm --entrypoint "" -v $(pwd)/unified-trading-pm:/workspace/unified-trading-pm -e CLOUD_BUILD=true -e CLOUD_MOCK_MODE=true -e CLOUD_PROVIDER=aws -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION -e WORKSPACE_ROOT=/workspace -e REPO_ROOT=/workspace $ECR_REPO:$VERSION /bin/bash -c "scripts/quality-gates.sh --no-fix --quick"
       - docker push $ECR_REPO --all-tags
 
