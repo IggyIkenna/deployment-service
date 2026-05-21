@@ -37,7 +37,7 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
-SERVICE_ACCOUNT="t1_batch_sa@central-element-323112.iam.gserviceaccount.com"
+SERVICE_ACCOUNT="t1-batch-sa@central-element-323112.iam.gserviceaccount.com"
 OPERATOR="${OPERATOR:-ubuntu}"
 VM_ID=""
 FORCE=false
