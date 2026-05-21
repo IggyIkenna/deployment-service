@@ -34,6 +34,9 @@ import pandas as pd
 import yaml
 from unified_trading_library import get_bucket_name, get_storage_client
 
+from .backends.base import JobStatus
+from .backends.cloud_run import CloudRunBackend
+from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
 from .sports_trigger_periodic import PeriodicTierDispatcher
 from .sports_trigger_state import PeriodicTierState, resolve_state_bucket
@@ -516,17 +519,13 @@ class SportsTriggerScheduler:
                 ):
                     dispatched += 1
             elif self._backend == "cloud":
-                logger.warning(
-                    "Cloud dispatch not yet implemented — skipping %s for trigger %s:%s",
-                    service,
-                    trigger_name,
-                    dispatch_id,
-                )
-                # TODO: integrate with CloudRunBackend.deploy_shard() for
-                # GCP Cloud Run dispatch. Requires building shard_id,
-                # docker_image, and compute_config from service metadata.
-                # NOTE: Tier-1/2 periodic tiers share this stub path so a
-                # single Cloud Run wiring change lights up every tier.
+                if self._dispatch_cloud(
+                    cmd=cmd,
+                    service=service,
+                    trigger_name=trigger_name,
+                    dispatch_id=dispatch_id,
+                ):
+                    dispatched += 1
             else:
                 logger.warning(
                     "Unknown backend %s — skipping %s for trigger %s:%s",
@@ -640,6 +639,93 @@ class SportsTriggerScheduler:
                 service,
                 trigger_name,
                 fixture_id,
+                exc,
+            )
+            return False
+
+    def _dispatch_cloud(
+        self,
+        cmd: str,
+        service: str,
+        trigger_name: str,
+        dispatch_id: str,
+    ) -> bool:
+        """Dispatch a CLI invocation as a Cloud Run Job execution.
+
+        Strips the ``python -m <module>`` prefix from ``cmd`` — the Cloud Run
+        Job container entrypoint handles that. Resolves the Cloud Run Job name
+        from the service sharding config (``cloud_run_job_name`` field),
+        falling back to the service name itself.
+
+        Returns True on successful launch (RUNNING or PENDING), False on error.
+        Never raises — shard-level failure isolation.
+        """
+        try:
+            loader = ConfigLoader(config_dir=str(Path(__file__).parent.parent / "configs"))
+            svc_config = loader.load_service_config(service)
+            job_name = str(svc_config.get("cloud_run_job_name") or service)
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            logger.warning(
+                "Could not read cloud_run_job_name for %s (%s) — using service name as job name",
+                service,
+                exc,
+            )
+            job_name = service
+
+        # Strip "python -m <module>" prefix — Cloud Run entrypoint handles it.
+        all_tokens = shlex.split(cmd)
+        # _build_cli_cmd always starts with ["python", "-m", "<module>", ...]
+        cli_args = all_tokens[3:] if len(all_tokens) > 3 else all_tokens
+
+        shard_id = f"sports-{service}-{trigger_name}-{dispatch_id}"
+
+        config = DeploymentConfig()
+        backend = CloudRunBackend(
+            project_id=config.project_id,
+            region=config.gcs_region,
+            service_account_email=config.service_account_email,
+            job_name=job_name,
+        )
+
+        logger.info(
+            "Cloud Run dispatch: job=%s shard_id=%s args=%s",
+            job_name,
+            shard_id,
+            cli_args,
+        )
+
+        try:
+            job_info = backend.deploy_shard(
+                shard_id=shard_id,
+                docker_image="",
+                args=cli_args,
+                environment_variables={},
+                compute_config={},
+                labels={"trigger": trigger_name},
+            )
+            if job_info.status in (JobStatus.RUNNING, JobStatus.PENDING):
+                logger.info(
+                    "Cloud Run dispatch succeeded: %s job_id=%s (trigger=%s dispatch=%s)",
+                    service,
+                    job_info.job_id,
+                    trigger_name,
+                    dispatch_id,
+                )
+                return True
+            logger.warning(
+                "Cloud Run dispatch failed for %s (trigger=%s dispatch=%s): %s",
+                service,
+                trigger_name,
+                dispatch_id,
+                job_info.error_message,
+            )
+            return False
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning(
+                "Cloud Run dispatch exception for %s (trigger=%s dispatch=%s): %s",
+                service,
+                trigger_name,
+                dispatch_id,
                 exc,
             )
             return False

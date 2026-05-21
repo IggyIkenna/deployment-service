@@ -456,15 +456,21 @@ def test_check_reference_season_boundary_no_trigger_when_far_from_boundary() -> 
 # ---------------------------------------------------------------------------
 
 
-def test_cloud_backend_stub_shared_between_per_fixture_and_periodic(
+def test_cloud_backend_routes_periodic_dispatch_via_dispatch_cloud(
     scheduler: SportsTriggerScheduler,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Switching to cloud backend routes periodic dispatch through same stub."""
+    """Switching to cloud backend routes periodic dispatch through _dispatch_cloud."""
     scheduler._backend = "cloud"
 
-    caplog.set_level("WARNING")
-    scheduler._check_discovery()
+    calls: list[dict[str, object]] = []
 
-    warns = [r.message for r in caplog.records if "Cloud dispatch not yet implemented" in r.message]
-    assert warns, "periodic dispatch must hit the same cloud-dispatch stub"
+    def fake_dispatch_cloud(cmd: str, service: str, trigger_name: str, dispatch_id: str) -> bool:
+        calls.append({"cmd": cmd, "service": service, "trigger_name": trigger_name})
+        return True
+
+    with patch.object(scheduler, "_dispatch_cloud", side_effect=fake_dispatch_cloud):
+        fired = scheduler._check_discovery()
+
+    assert fired > 0, "cloud backend must dispatch periodic tiers"
+    assert calls, "_dispatch_cloud must be called for each service"
+    assert all(c["service"] == "instruments-service" for c in calls)
