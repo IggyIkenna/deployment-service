@@ -206,12 +206,12 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Risk Pre-Trade Check Latency P95 (risk-and-exposure-service)",
+      "title": "Risk Monitor Latency P95 (strategy-service --operation risk-monitor)",
       "gridPos": { "x": 12, "y": 28, "w": 12, "h": 6 },
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "histogram_quantile(0.95, rate(risk_and_exposure_service_processing_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(strategy_service_processing_latency_seconds_bucket{sub_package=\"risk\"}[5m]))",
           "legendFormat": "P95 latency"
         }
       ],

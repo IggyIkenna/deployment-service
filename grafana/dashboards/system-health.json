@@ -104,7 +104,7 @@
       "id": 5,
       "type": "timeseries",
       "title": "Records Processed Rate by Service",
-      "description": "Covers execution-service, strategy-service, risk-and-exposure-service, ml-inference-service, market-data-processing-service, alerting-service",
+      "description": "Covers execution-service, strategy-service, ml-inference-service, market-data-processing-service, alerting-service",
       "gridPos": { "x": 0, "y": 20, "w": 24, "h": 6 },
       "targets": [
         {
@@ -119,7 +119,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Processing Latency P95 by Service",
-      "description": "Covers execution-service, strategy-service, risk-and-exposure-service, ml-inference-service, market-data-processing-service",
+      "description": "Covers execution-service, strategy-service, ml-inference-service, market-data-processing-service",
       "gridPos": { "x": 0, "y": 26, "w": 24, "h": 6 },
       "targets": [
         {
