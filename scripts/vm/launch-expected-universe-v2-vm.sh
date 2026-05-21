@@ -9,7 +9,7 @@
 # alive on that date. This enables honest per-instrument drilldown denominators
 # in the data-status UI.
 #
-# Gate G3 of manifest_evolution_master_2026_05_08. Plan Phase 2.A.
+# Gate G3 of manifest_evolution_SUPERSEDED_2026_05_21. Plan Phase 2.A.
 #
 # Usage:
 #   bash launch-expected-universe-v2-vm.sh <asset_group>

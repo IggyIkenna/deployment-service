@@ -5,7 +5,7 @@
 # session/phase columns, and re-writes it with classify_session(venue, ts)
 # stamps. Idempotent: parquets that already have both columns are skipped.
 #
-# Plan: tradfi_master_2026_05_07.md § "Databento session-type awareness" +
+# Plan: tradfi_master.md § "Databento session-type awareness" +
 #       work_split_2026_05_15_ikenna.md slot 5 item 2.
 # Script: market-tick-data-service/scripts/migrate_tradfi_ohlcv_session_stamps.py
 # VM prefix: canonical-migration-tradfi-session-stamps-* (matches existing

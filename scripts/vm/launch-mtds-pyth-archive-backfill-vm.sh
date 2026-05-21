@@ -20,7 +20,7 @@
 # Birdeye paid-tier ($50/mo enterprise) is the alternative-fast path but
 # requires operator API-key provisioning + Secret Manager wiring. Not
 # auto-launched until operator approves -- see
-# unified-trading-pm/plans/active/defi_master_2026_05_07.md
+# unified-trading-pm/plans/active/defi_master.md
 # (Pyth Hermes coverage SSOT todo + operator decision pending).
 #
 # Writes to: gs://market-data-tick-defi-${PID}/raw_tick_data/

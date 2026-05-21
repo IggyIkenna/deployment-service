@@ -5,7 +5,7 @@
 # to a symmetric name (only ${GCP_PROJECT_ID} vs ${AWS_ACCOUNT_ID} differs).
 # Also checks DEPLOYMENT_ENV_SHORT consistency + 63-char cap.
 #
-# Plan: data_pipeline_master_coordination_2026_05_20.md § Phase 1 item 4
+# Plan: mtds_mdps_master.md § Phase 1 item 4
 # SSOT: plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20.csv
 #
 # Exit 0 — all symmetric and within cap.
