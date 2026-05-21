@@ -55,6 +55,8 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$REPO_ROOT/.." && pwd)}"
 
 # Defaults
 ARCHETYPE=""
+SHARD_ID=0
+CLIENTS_YAML_PATH=""
 TICK_INTERVAL=3600
 CONTINUOUS=false
 ZONE="${ZONE:-asia-northeast1-c}"
@@ -76,6 +78,8 @@ Required:
   --archetype <name>      carry_staked_basis | ARBITRAGE_PRICE_DISPERSION
 
 Optional:
+  --shard <n>             Shard index (default: ${SHARD_ID}). Singleton lock key is (archetype, shard).
+  --clients-yaml-path <p> Path to clients.yaml for this shard. Passed as VM_CLIENTS_YAML_PATH metadata.
   --tick-interval <s>     Seconds between ticks (default: ${TICK_INTERVAL})
   --continuous            Run continuously (infinite loop)
   --zone <zone>           GCE zone (default: ${ZONE})
@@ -92,19 +96,21 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --archetype)     ARCHETYPE="$2"; shift 2 ;;
-        --tick-interval) TICK_INTERVAL="$2"; shift 2 ;;
-        --continuous)    CONTINUOUS=true; shift ;;
-        --zone)          ZONE="$2"; shift 2 ;;
-        --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
-        --disk-size)     DISK_SIZE="$2"; shift 2 ;;
-        --project)       PROJECT_ID="$2"; CODE_BUCKET="deployment-scripts-${PROJECT_ID}"; shift 2 ;;
-        --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
-        --vm-name)       VM_NAME="$2"; shift 2 ;;
-        --force)         FORCE=true; shift ;;
-        --dry-run)       DRY_RUN=true; shift ;;
-        --waive-*)       PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} $1"; shift ;;
-        --skip-preflight) PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} --skip-preflight"; shift ;;
+        --archetype)          ARCHETYPE="$2"; shift 2 ;;
+        --shard)              SHARD_ID="$2"; shift 2 ;;
+        --clients-yaml-path)  CLIENTS_YAML_PATH="$2"; shift 2 ;;
+        --tick-interval)      TICK_INTERVAL="$2"; shift 2 ;;
+        --continuous)         CONTINUOUS=true; shift ;;
+        --zone)               ZONE="$2"; shift 2 ;;
+        --machine-type)       MACHINE_TYPE="$2"; shift 2 ;;
+        --disk-size)          DISK_SIZE="$2"; shift 2 ;;
+        --project)            PROJECT_ID="$2"; CODE_BUCKET="deployment-scripts-${PROJECT_ID}"; shift 2 ;;
+        --env)                DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --vm-name)            VM_NAME="$2"; shift 2 ;;
+        --force)              FORCE=true; shift ;;
+        --dry-run)            DRY_RUN=true; shift ;;
+        --waive-*)            PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} $1"; shift ;;
+        --skip-preflight)     PREFLIGHT_WAIVE_FLAGS="${PREFLIGHT_WAIVE_FLAGS} --skip-preflight"; shift ;;
         --help|-h)       usage ;;
         *)               echo "Unknown option: $1"; usage ;;
     esac
@@ -130,12 +136,13 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 if [[ -z "$VM_NAME" ]]; then
     # GCE name limit = 63 chars. Layout:
     #   "strategy-paper-" = 15 chars
-    #   slug ≤30          = 30 chars max
+    #   slug ≤21          = 21 chars max (reduced to fit shard suffix)
+    #   "-shardN"         = 7 chars max (shard + 1-digit id)
     #   "-YYYYMMDD-HHMMSS" = 16 chars
-    #   total              = 61 chars max
-    SLUG_TRUNC="${ARCHETYPE_SLUG:0:30}"
+    #   total              = 59 chars max
+    SLUG_TRUNC="${ARCHETYPE_SLUG:0:21}"
     SLUG_TRUNC="${SLUG_TRUNC%-}"
-    VM_NAME="strategy-paper-${SLUG_TRUNC}-${RUN_TS}"
+    VM_NAME="strategy-paper-${SLUG_TRUNC}-shard${SHARD_ID}-${RUN_TS}"
 fi
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
@@ -144,6 +151,7 @@ log "=========================================="
 log "Strategy Paper VM Launcher"
 log "=========================================="
 log "Archetype:    ${ARCHETYPE}"
+log "Shard:        ${SHARD_ID}"
 log "Continuous:   ${CONTINUOUS}"
 log "Tick interval: ${TICK_INTERVAL}s"
 log "VM name:      ${VM_NAME}"
@@ -154,20 +162,20 @@ log "Project:      ${PROJECT_ID}"
 log "Env:          ${DEPLOYMENT_ENV}"
 log "=========================================="
 
-# ── Singleton lock per archetype ──
+# ── Singleton lock per (archetype, shard) triplet ──
 if ! $DRY_RUN; then
     EXISTING=$(gcloud compute instances list \
         --project="${PROJECT_ID}" \
-        --filter="name~^strategy-paper-${ARCHETYPE_SLUG} AND zone:(${ZONE}) AND status=RUNNING" \
+        --filter="name~^strategy-paper-${ARCHETYPE_SLUG}-shard${SHARD_ID} AND zone:(${ZONE}) AND status=RUNNING" \
         --format="value(name)" 2>/dev/null || echo "")
     if [[ -n "$EXISTING" && "$FORCE" == "false" ]]; then
-        log "ERROR: same-archetype paper VM already RUNNING:"
+        log "ERROR: same-archetype+shard paper VM already RUNNING:"
         log "  ${EXISTING}"
         log "Pass --force to bypass the singleton lock."
         exit 3
     fi
     if [[ -n "$EXISTING" && "$FORCE" == "true" ]]; then
-        log "WARNING: --force given; same-archetype paper VM is RUNNING but launching anyway:"
+        log "WARNING: --force given; same-archetype+shard paper VM is RUNNING but launching anyway:"
         log "  ${EXISTING}"
     fi
 fi
@@ -203,6 +211,7 @@ METADATA_ITEMS=(
     "VM_PIPELINE_MODE=live"
     "VM_ASSET_GROUP=DEFI"
     "VM_ARCHETYPE=${ARCHETYPE}"
+    "VM_SHARD_ID=${SHARD_ID}"
     "VM_TICK_INTERVAL=${TICK_INTERVAL}"
     "VM_SHUTDOWN_ON_COMPLETION=true"
     "VM_BACKFILL_CMD=${RUNNER_CMD}"
@@ -211,6 +220,9 @@ METADATA_ITEMS=(
     "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 )
+if [[ -n "$CLIENTS_YAML_PATH" ]]; then
+    METADATA_ITEMS+=("VM_CLIENTS_YAML_PATH=${CLIENTS_YAML_PATH}")
+fi
 
 METADATA_STR=$(IFS=','; echo "${METADATA_ITEMS[*]}")
 

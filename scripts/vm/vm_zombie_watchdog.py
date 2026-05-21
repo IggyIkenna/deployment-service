@@ -377,8 +377,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "exec-alpha-": None,
     # Strategy paper-trade VMs (launch-strategy-paper-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
-    # `strategy-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
-    # to event-archive only (no per-VM manifest shards).
+    # `strategy-paper-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
+    # pre-Phase-8 pattern was `strategy-paper-{archetype-slug}-{ts}`). Prefix
+    # match covers both patterns. Heartbeat-only — paper VMs write to event-archive
+    # only (no per-VM manifest shards).
     "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
     # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
@@ -403,8 +405,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "defi-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
-    # `strategy-live-{archetype-slug}-{ts}`. Heartbeat-only — live VMs write
-    # to event-archive only (no per-VM manifest shards).
+    # `strategy-live-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
+    # pre-Phase-8 pattern was `strategy-live-{archetype-slug}-{ts}`). Prefix
+    # match covers both patterns. Heartbeat-only — live VMs write to event-archive
+    # only (no per-VM manifest shards).
     "strategy-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # DeFi recursive-borrow live-trading VMs (launch-defi-recursive-borrow-vm.sh;
     # plan: defi_recursive_borrow_archetypes_2026_05_10.md Phase 13). VM name

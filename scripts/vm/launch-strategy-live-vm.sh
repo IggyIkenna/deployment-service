@@ -59,6 +59,8 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$REPO_ROOT/.." && pwd)}"
 
 # Defaults
 ARCHETYPE=""
+SHARD_ID=0
+CLIENTS_YAML_PATH=""
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-4}"
 DISK_SIZE="${DISK_SIZE:-50GB}"
@@ -80,13 +82,15 @@ Required:
   --dry-run-live-cutover-passed   Required: confirms Phase 8 dry-run completed.
 
 Optional:
+  --shard <n>             Shard index (default: ${SHARD_ID}). Singleton lock key is (archetype, shard).
+  --clients-yaml-path <p> Path to clients.yaml for this shard. Passed as VM_CLIENTS_YAML_PATH metadata.
   --zone <zone>           GCE zone (default: ${ZONE})
   --machine-type <t>      GCE machine type (default: ${MACHINE_TYPE})
   --disk-size <s>         Boot disk size (default: ${DISK_SIZE})
   --project <pid>         GCP project (default: ${PROJECT_ID})
   --env <env>             Deployment env tier (prod|staging|dev; default: ${DEPLOYMENT_ENV})
   --vm-name <name>        Override generated VM name.
-  --force                 Bypass singleton lock (allow same-archetype VM RUNNING).
+  --force                 Bypass singleton lock (allow same-archetype+shard VM RUNNING).
   --force-live            Bypass the --dry-run-live-cutover-passed gate.
                           USE WITH EXTREME CAUTION — real capital at risk.
   --dry-run               Print plan, do not call gcloud.
@@ -97,6 +101,8 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --archetype)                    ARCHETYPE="$2"; shift 2 ;;
+        --shard)                        SHARD_ID="$2"; shift 2 ;;
+        --clients-yaml-path)            CLIENTS_YAML_PATH="$2"; shift 2 ;;
         --dry-run-live-cutover-passed)  DRY_RUN_CUTOVER_PASSED=true; shift ;;
         --zone)                         ZONE="$2"; shift 2 ;;
         --machine-type)                 MACHINE_TYPE="$2"; shift 2 ;;
@@ -155,12 +161,13 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 if [[ -z "$VM_NAME" ]]; then
     # GCE name limit = 63 chars. Layout:
     #   "strategy-live-"  = 14 chars
-    #   slug ≤31          = 31 chars max
+    #   slug ≤22          = 22 chars max (reduced to fit shard suffix)
+    #   "-shardN"         = 7 chars max
     #   "-YYYYMMDD-HHMMSS" = 16 chars
-    #   total              = 61 chars max
-    SLUG_TRUNC="${ARCHETYPE_SLUG:0:31}"
+    #   total              = 59 chars max
+    SLUG_TRUNC="${ARCHETYPE_SLUG:0:22}"
     SLUG_TRUNC="${SLUG_TRUNC%-}"
-    VM_NAME="strategy-live-${SLUG_TRUNC}-${RUN_TS}"
+    VM_NAME="strategy-live-${SLUG_TRUNC}-shard${SHARD_ID}-${RUN_TS}"
 fi
 
 log() { echo "$(date '+%H:%M:%S') $*"; }
@@ -169,6 +176,7 @@ log "=========================================="
 log "Strategy Live VM Launcher — REAL CAPITAL"
 log "=========================================="
 log "Archetype:    ${ARCHETYPE}"
+log "Shard:        ${SHARD_ID}"
 log "VM name:      ${VM_NAME}"
 log "Zone:         ${ZONE}"
 log "Machine:      ${MACHINE_TYPE}"
@@ -178,20 +186,20 @@ log "Env:          ${DEPLOYMENT_ENV}"
 log "Cutover gate: PASSED (--dry-run-live-cutover-passed=${DRY_RUN_CUTOVER_PASSED})"
 log "=========================================="
 
-# ── Singleton lock per archetype ──
+# ── Singleton lock per (archetype, shard) triplet ──
 if ! $DRY_RUN; then
     EXISTING=$(gcloud compute instances list \
         --project="${PROJECT_ID}" \
-        --filter="name~^strategy-live-${ARCHETYPE_SLUG} AND zone:(${ZONE}) AND status=RUNNING" \
+        --filter="name~^strategy-live-${ARCHETYPE_SLUG}-shard${SHARD_ID} AND zone:(${ZONE}) AND status=RUNNING" \
         --format="value(name)" 2>/dev/null || echo "")
     if [[ -n "$EXISTING" && "$FORCE" == "false" ]]; then
-        log "ERROR: same-archetype live VM already RUNNING:"
+        log "ERROR: same-archetype+shard live VM already RUNNING:"
         log "  ${EXISTING}"
         log "Pass --force to bypass the singleton lock."
         exit 3
     fi
     if [[ -n "$EXISTING" && "$FORCE" == "true" ]]; then
-        log "WARNING: --force given; same-archetype live VM is RUNNING but launching anyway:"
+        log "WARNING: --force given; same-archetype+shard live VM is RUNNING but launching anyway:"
         log "  ${EXISTING}"
     fi
 fi
@@ -217,6 +225,7 @@ METADATA_ITEMS=(
     "VM_PIPELINE_MODE=live"
     "VM_ASSET_GROUP=DEFI"
     "VM_ARCHETYPE=${ARCHETYPE}"
+    "VM_SHARD_ID=${SHARD_ID}"
     "VM_SHUTDOWN_ON_COMPLETION=true"
     "VM_BACKFILL_CMD=${RUNNER_CMD}"
     "MANIFEST_PER_VM_SHARDS=true"
@@ -224,6 +233,9 @@ METADATA_ITEMS=(
     "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 )
+if [[ -n "$CLIENTS_YAML_PATH" ]]; then
+    METADATA_ITEMS+=("VM_CLIENTS_YAML_PATH=${CLIENTS_YAML_PATH}")
+fi
 
 METADATA_STR=$(IFS=','; echo "${METADATA_ITEMS[*]}")
 
