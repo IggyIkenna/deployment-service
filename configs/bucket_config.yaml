@@ -163,11 +163,11 @@ infrastructure_buckets:
       category: ALL
     # ML configs — shared across categories
     - name_template: "ml-configs-store-{project_id}"
-      service: ml-training-service
+      service: ml-service
       type: config
       category: ALL
     - name_template: "ml-configs-store-test-{project_id}"
-      service: ml-training-service
+      service: ml-service
       type: config_test
       category: ALL
     # Deployment state — per-env

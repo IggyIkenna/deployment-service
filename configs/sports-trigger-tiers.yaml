@@ -147,7 +147,7 @@ pre_match:
       tolerance_minutes: 10
       depends_on: features_pre_match
       services:
-        - service: ml-inference-service
+        - service: ml-service
           operation: infer
           category: SPORTS
           description: Run ML inference for pre-match predictions

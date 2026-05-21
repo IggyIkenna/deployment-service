@@ -73,14 +73,10 @@ locals {
       github_repo            = "features-multi-timeframe-service"
       artifact_registry_repo = "features-multi-timeframe-service"
     }
-    # ML services
-    "ml-training-service" = {
-      github_repo            = "ml-training-service"
-      artifact_registry_repo = "ml-training-service"
-    }
-    "ml-inference-service" = {
-      github_repo            = "ml-inference-service"
-      artifact_registry_repo = "ml-inference-service"
+    # ML service (consolidated from ml-training-service + ml-inference-service, 2026-05-21, ml_repo_consolidation_2026_05_19.md)
+    "ml-service" = {
+      github_repo            = "ml-service"
+      artifact_registry_repo = "ml-service"
     }
     # Strategy and execution
     "strategy-service" = {

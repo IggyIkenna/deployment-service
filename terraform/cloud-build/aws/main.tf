@@ -83,15 +83,10 @@ locals {
       ecr_repo         = "features-onchain-service"
       build_timeout    = 30
     }
-    # ML services
-    "ml-training-service" = {
-      github_repo      = "ml-training-service"
-      ecr_repo         = "ml-training-service"
-      build_timeout    = 45
-    }
-    "ml-inference-service" = {
-      github_repo      = "ml-inference-service"
-      ecr_repo         = "ml-inference-service"
+    # ML service (consolidated from ml-training-service + ml-inference-service, 2026-05-21, ml_repo_consolidation_2026_05_19.md)
+    "ml-service" = {
+      github_repo      = "ml-service"
+      ecr_repo         = "ml-service"
       build_timeout    = 45
     }
     # Strategy and execution

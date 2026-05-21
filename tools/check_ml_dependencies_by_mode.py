@@ -2,7 +2,7 @@
 """
 ML Training Dependency Checker (operation + mode)
 
-Pre-flight validation tool for ml-training-service 3-stage pipeline.
+Pre-flight validation tool for ml-service training pipeline (consolidated from ml-training-service, 2026-05-21).
 Checks if required data/artifacts exist before launching training jobs.
 Uses --operation train_phase1|2|3 and --mode batch (per codex cli-standards).
 

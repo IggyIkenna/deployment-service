@@ -113,8 +113,7 @@ steps:
           features-onchain-service
           features-sports-service
           features-commodity-service
-          ml-training-service
-          ml-inference-service
+          ml-service
           strategy-service
           execution-service
         )

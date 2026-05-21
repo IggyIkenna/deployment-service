@@ -200,7 +200,7 @@ resource "google_storage_bucket" "ml_models_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-training-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels
@@ -235,7 +235,7 @@ resource "google_storage_bucket" "ml_predictions_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-inference-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels
@@ -260,7 +260,7 @@ resource "google_storage_bucket" "ml_configs_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-training-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels
@@ -285,7 +285,7 @@ resource "google_storage_bucket" "ml_training_artifacts" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-training-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels

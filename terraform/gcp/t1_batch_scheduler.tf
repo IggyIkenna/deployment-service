@@ -32,7 +32,7 @@
 #   02:00 — features-calendar, features-delta-one (TradFi), features-volatility
 #   02:30 — features-onchain, features-sports, features-cross-instrument,
 #            features-multi-timeframe, features-commodity
-#   03:00 — ml-inference-service
+#   03:00 — ml-service
 #   04:00 — strategy-service
 #
 # SLOW phase (CeFi — Tardis delayed):
@@ -153,10 +153,10 @@ locals {
       job_name    = "${local.env_prefix}-features-commodity-service-t1-recon"
       description = "features-commodity-service T+1 recon batch — writes to t1-recon/features/commodity/"
     }
-    "ml-inference" = {
+    "ml" = {
       schedule    = "0 3 * * *"
-      job_name    = "${local.env_prefix}-ml-inference-service-t1-recon"
-      description = "ml-inference-service T+1 recon batch — reads t1-recon/features/, writes to t1-recon/ml/"
+      job_name    = "${local.env_prefix}-ml-service-t1-recon"
+      description = "ml-service T+1 recon batch — reads t1-recon/features/, writes to t1-recon/ml/"
     }
     "strategy" = {
       schedule    = "0 4 * * *"
