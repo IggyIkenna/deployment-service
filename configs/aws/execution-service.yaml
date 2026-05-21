@@ -1,0 +1,64 @@
+# AWS deployment manifest — execution-service
+# Runtime: AWS Fargate (stateful, persistent connections to CeFi/DeFi venues)
+# Region: ap-northeast-1
+# ECR: 427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/execution-service:latest
+# IAM role: uts-execution-prod (Phase 1.B)
+# Deploy: aws ecs register-task-definition --cli-input-yaml file://configs/aws/execution-service.yaml
+
+runtime: fargate
+cluster: uts-defi-prod
+service_name: uts-execution-prod
+region: ap-northeast-1
+
+image:
+  uri: "427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/execution-service:latest"
+  port: 8080
+
+compute:
+  cpu: "2048" # 2 vCPU
+  memory: "4096" # 4 GB
+
+scaling:
+  desired_count: 1
+  min_count: 1
+  max_count: 2
+
+iam:
+  task_role_arn: "arn:aws:iam::427895769566:role/uts-execution-prod"
+  execution_role_arn: "arn:aws:iam::427895769566:role/uts-execution-prod"
+
+network:
+  subnets: [] # operator fills from VPC config
+  security_groups: [] # operator fills; must allow outbound 443 to venue APIs + KMS
+  assign_public_ip: true
+
+health_check:
+  path: /health
+  interval: 30
+  timeout: 10
+  healthy_threshold: 2
+  unhealthy_threshold: 3
+
+env:
+  DEPLOYMENT_ENV: prod
+  CLOUD_PROVIDER: aws
+  AWS_REGION: ap-northeast-1
+  AWS_ACCOUNT_ID: "427895769566"
+  # Per-client isolation: one subprocess per client (StrategySupervisor)
+  CLIENT_ISOLATION_MODE: subprocess
+
+secrets:
+  # CeFi perp-venue API keys (DeFi-first scope — Group A)
+  - name: EXEC_ODUM_BINANCE_CEFI
+    sm_path: unified-trading/exec-odum-binance-cefi
+  - name: EXEC_ODUM_DERIBIT_CEFI
+    sm_path: unified-trading/exec-odum-deribit-cefi
+  - name: EXEC_ODUM_OKX_CEFI
+    sm_path: unified-trading/exec-odum-okx-cefi
+  - name: EXEC_ODUM_BYBIT_CEFI
+    sm_path: unified-trading/exec-odum-bybit-cefi
+  - name: EXEC_ODUM_HYPERLIQUID_DEFI
+    sm_path: unified-trading/exec-odum-hyperliquid-defi
+  # Wallet custody (CLOUD_KMS_ENCRYPTED per May-23 scope; Copper/CEFFU June-1)
+  - name: KMS_KEY_ARN
+    sm_path: unified-trading/defi-kms-key-arn

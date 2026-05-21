@@ -1,0 +1,55 @@
+# AWS deployment manifest — features-service (onchain family, DeFi-first scope)
+# Runtime: AWS Fargate (stateful, continuous streaming processor + Health-API)
+# Region: ap-northeast-1
+# ECR: 427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/features-service:latest
+# IAM role: uts-features-prod (Phase 1.B)
+# Deploy: aws ecs register-task-definition --cli-input-yaml file://configs/aws/features-service.yaml
+
+runtime: fargate
+cluster: uts-defi-prod
+service_name: uts-features-prod
+region: ap-northeast-1
+
+image:
+  uri: "427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/features-service:latest"
+  port: 8080
+
+compute:
+  cpu: "2048" # 2 vCPU — streaming processor + Health-API concurrent
+  memory: "4096" # 4 GB — numba JIT + pandas DataFrames for onchain family
+
+scaling:
+  desired_count: 1
+  min_count: 1
+  max_count: 3
+
+iam:
+  task_role_arn: "arn:aws:iam::427895769566:role/uts-features-prod"
+  execution_role_arn: "arn:aws:iam::427895769566:role/uts-features-prod"
+
+network:
+  subnets: []
+  security_groups: []
+  assign_public_ip: true
+
+health_check:
+  path: /health
+  interval: 30
+  timeout: 10
+  healthy_threshold: 2
+  unhealthy_threshold: 3
+
+env:
+  DEPLOYMENT_ENV: prod
+  CLOUD_PROVIDER: aws
+  AWS_REGION: ap-northeast-1
+  AWS_ACCOUNT_ID: "427895769566"
+  # DeFi-first scope: onchain family only on AWS
+  FEATURES_ASSET_GROUPS: defi
+  FEATURES_FAMILIES: onchain
+
+secrets:
+  - name: ALCHEMY_API_KEY
+    sm_path: unified-trading/alchemy-api-key
+  - name: THEGRAPH_API_KEY
+    sm_path: unified-trading/thegraph-api-key

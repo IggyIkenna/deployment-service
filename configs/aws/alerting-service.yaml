@@ -1,0 +1,49 @@
+# AWS deployment manifest — alerting-service
+# Runtime: AWS App Runner (stateless HTTP, no persistent disk)
+# Region: ap-northeast-1
+# ECR: 427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/alerting-service:latest
+# IAM role: uts-alerting-prod (Phase 1.B)
+# Deploy: aws apprunner create-service --cli-input-yaml file://configs/aws/alerting-service.yaml
+
+runtime: app_runner
+service_name: uts-alerting-prod
+region: ap-northeast-1
+
+image:
+  uri: "427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/alerting-service:latest"
+  port: 8080
+
+compute:
+  cpu: "1 vCPU"
+  memory: "2 GB"
+
+scaling:
+  min_size: 1
+  max_size: 2
+  max_concurrency: 80
+
+iam:
+  instance_role_arn: "arn:aws:iam::427895769566:role/uts-alerting-prod"
+  access_role_arn: "arn:aws:iam::427895769566:role/uts-alerting-prod"
+
+health_check:
+  path: /health
+  interval: 10
+  timeout: 5
+  healthy_threshold: 1
+  unhealthy_threshold: 3
+
+env:
+  DEPLOYMENT_ENV: prod
+  CLOUD_PROVIDER: aws
+  AWS_REGION: ap-northeast-1
+  AWS_ACCOUNT_ID: "427895769566"
+
+secrets:
+  # From AWS Secrets Manager (unified-trading/ prefix)
+  - name: TELEGRAM_BOT_TOKEN
+    sm_path: unified-trading/telegram-bot-token
+  - name: TELEGRAM_CHAT_ID
+    sm_path: unified-trading/telegram-chat-id
+  - name: PAGERDUTY_API_KEY
+    sm_path: unified-trading/pagerduty-api-key
