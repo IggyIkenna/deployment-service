@@ -119,11 +119,10 @@ gcp:
     # `ml-artifacts-${GCP_PROJECT_ID}` — added here 2026-05-12 per ml_artefact_path_resolver
     # issue. Migrates with the rest of the env-less GCP buckets in code_freeze Phase 2.6.
     ml-artifacts: "ml-artifacts-${GCP_PROJECT_ID}"
-    # NOTE: strategy-store env-split ROLLED BACK — non-env-split shape until provisioning lands.
-    strategy-store:
-      CEFI: "strategy-store-cefi-${GCP_PROJECT_ID}"
-      TRADFI: "strategy-store-tradfi-${GCP_PROJECT_ID}"
-      DEFI: "strategy-store-defi-${GCP_PROJECT_ID}"
+    # Unified flat bucket — cross-asset strategies share one bucket (D6 Phase 4, operator decision 2026-05-20).
+    # Per-AG per-env split deferred; migration from old per-AG buckets sequenced under mtds_mdps_master Phase 1.
+    strategy-store: "strategy-store-${GCP_PROJECT_ID}"
+    strategy-store-test: "strategy-store-test-${GCP_PROJECT_ID}"
     # NOTE: execution-store env-split ROLLED BACK — non-env-split shape until provisioning lands.
     execution-store:
       CEFI: "execution-store-cefi-${GCP_PROJECT_ID}"
@@ -270,11 +269,9 @@ aws:
     ml-training-artifacts: "ml-training-artifacts-${AWS_ACCOUNT_ID}"
     # NOTE: ml-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     ml-artifacts: "ml-artifacts-${AWS_ACCOUNT_ID}"
-    # NOTE: strategy-store env-split ROLLED BACK — mirrors GCP rollback (Phase D).
-    strategy-store:
-      CEFI: "strategy-store-cefi-${AWS_ACCOUNT_ID}"
-      TRADFI: "strategy-store-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "strategy-store-defi-${AWS_ACCOUNT_ID}"
+    # Unified flat bucket — mirrors GCP strategy-store consolidation (D6 Phase 4, operator decision 2026-05-20).
+    strategy-store: "strategy-store-${AWS_ACCOUNT_ID}"
+    strategy-store-test: "strategy-store-test-${AWS_ACCOUNT_ID}"
     # NOTE: execution-store env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     execution-store:
       CEFI: "execution-store-cefi-${AWS_ACCOUNT_ID}"
