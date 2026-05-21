@@ -26,16 +26,11 @@ phases:
       - REPO_NAME=$(basename $(pwd))
       - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
       - aws ecr describe-repositories --repository-names $REPO_NAME || aws ecr create-repository --repository-name $REPO_NAME
-      # Clone PM scripts for quality-gates base
       - |
-        if [ -n "$GH_PAT" ]; then
-          GH_PAT_VAL=$(aws secretsmanager get-secret-value --secret-id github-pat --query SecretString --output text 2>/dev/null || echo "")
-          if [ -n "$GH_PAT_VAL" ] && [ ! -d "unified-trading-pm" ]; then
-            git clone --depth=1 --branch live-defi-rollout \
-              "https://$GH_PAT_VAL@github.com/IggyIkenna/unified-trading-pm.git" \
-              unified-trading-pm
-            echo "Cloned unified-trading-pm"
-          fi
+        GH_PAT_VAL=$(aws secretsmanager get-secret-value --secret-id github-pat --query SecretString --output text 2>/dev/null || echo "")
+        if [ -n "$GH_PAT_VAL" ] && [ ! -d "unified-trading-pm" ]; then
+          git clone --depth=1 --branch live-defi-rollout "https://$GH_PAT_VAL@github.com/IggyIkenna/unified-trading-pm.git" unified-trading-pm
+          echo "Cloned unified-trading-pm"
         fi
 
   build:
@@ -54,16 +49,14 @@ phases:
       - |
         if [ -n "$GH_PAT" ]; then
           IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME:$VERSION"
-          curl -sS -X POST -H "Authorization: token $GH_PAT" -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/IggyIkenna/$REPO_NAME/dispatches \
-            -d "{\"event_type\":\"service-deployed\",\"client_payload\":{\"service_name\":\"$REPO_NAME\",\"version\":\"$VERSION\",\"image\":\"$IMAGE\"}}" || true  # || true: cleanup step, failure is intentional (optional GitHub dispatch notification)
+          curl -sS -X POST -H "Authorization: token $GH_PAT" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/IggyIkenna/$REPO_NAME/dispatches" -d "{\"event_type\":\"service-deployed\",\"client_payload\":{\"service_name\":\"$REPO_NAME\",\"version\":\"$VERSION\",\"image\":\"$IMAGE\"}}" || true
         fi
       - uv pip install build twine
       - python -m build --wheel --outdir dist/
       - |
         if [ -n "$CODEARTIFACT_DOMAIN" ]; then
-          aws codeartifact login --tool twine --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --repository unified-libraries || true  # || true: cleanup step, failure is intentional (optional publish)
-          python -m twine upload --repository codeartifact dist/*.whl || true  # || true: cleanup step, failure is intentional (optional publish)
+          aws codeartifact login --tool twine --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --repository unified-libraries || true
+          python -m twine upload --repository codeartifact dist/*.whl || true
         fi
 
 artifacts:
