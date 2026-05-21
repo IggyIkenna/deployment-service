@@ -225,12 +225,16 @@ if [[ -z "\${GH_PAT}" ]]; then
   exit 1
 fi
 
-# ── Clone agent-orchestrator ──
-ORCH_DIR="/home/${OPERATOR}/agent-orchestrator"
+# ── Clone agent-orchestrator into workspace (service expects unified-trading-system-repos/agent-orchestrator) ──
+WORKSPACE_ROOT="/home/${OPERATOR}/unified-trading-system-repos"
+mkdir -p "\${WORKSPACE_ROOT}"
+chown ${OPERATOR}:${OPERATOR} "\${WORKSPACE_ROOT}"
+ORCH_DIR="\${WORKSPACE_ROOT}/agent-orchestrator"
 if [[ ! -d "\${ORCH_DIR}/.git" ]]; then
   git clone --branch live-defi-rollout "https://x-access-token:\${GH_PAT}@github.com/IggyIkenna/agent-orchestrator.git" "\${ORCH_DIR}"
   chown -R ${OPERATOR}:${OPERATOR} "\${ORCH_DIR}"
 else
+  git config --global --add safe.directory "\${ORCH_DIR}" 2>/dev/null || true
   git -C "\${ORCH_DIR}" pull --ff-only
 fi
 
