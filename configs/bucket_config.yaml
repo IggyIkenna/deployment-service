@@ -181,43 +181,43 @@ infrastructure_buckets:
       category: ALL
     # Legacy risk-store naming (category-prefix instead of suffix)
     - name_template: "risk-store-cefi-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: cefi
     - name_template: "risk-store-cefi-test-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: cefi
     - name_template: "risk-store-defi-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: defi
     - name_template: "risk-store-defi-test-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: defi
     - name_template: "risk-store-tradfi-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: tradfi
     - name_template: "risk-store-tradfi-test-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: tradfi
     - name_template: "risk-store-prediction-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: prediction
     - name_template: "risk-store-prediction-test-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: prediction
     - name_template: "risk-store-sports-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: sports
     - name_template: "risk-store-sports-test-{project_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: sports
     # Volatility defi (was missing from restricted_categories)
@@ -332,35 +332,35 @@ infrastructure_buckets:
       type: reference_data_test
       category: tradfi
     - name_template: "risk-store-cefi-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: cefi
     - name_template: "risk-store-cefi-test-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: cefi
     - name_template: "risk-store-tradfi-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: tradfi
     - name_template: "risk-store-tradfi-test-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: tradfi
     - name_template: "risk-store-prediction-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: prediction
     - name_template: "risk-store-prediction-test-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: prediction
     - name_template: "risk-store-sports-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: output
       category: sports
     - name_template: "risk-store-sports-test-{account_id}"
-      service: risk-and-exposure-service
+      service: strategy-service
       type: test
       category: sports
 

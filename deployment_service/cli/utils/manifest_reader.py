@@ -116,8 +116,7 @@ _SUB_DIMENSION_KEY: dict[str, str] = {
     "execution-service": "domain",
     "strategy-service": "strategy_id",
     "ml-service": "model_id",
-    "risk-and-exposure-service": "client_id",
-    "pnl-attribution-service": "strategy_id",
+    # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21 (consolidated into strategy-service)
     "alerting-service": "alert_type",
 }
 
