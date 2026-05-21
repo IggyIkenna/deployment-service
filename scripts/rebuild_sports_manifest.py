@@ -1,7 +1,7 @@
 """Rebuild sports manifest entries with league_id from league-partitioned GCS data.
 
 Scans league-partitioned parquets in GCS and builds manifest entries with
-league_id populated and schema_version=3.  Replaces old entries for the
+league_id populated and schema_version=8 (via ManifestWriter).  Replaces old entries for the
 same (date, venue) combinations.
 
 Actual GCS layout (after migration):
