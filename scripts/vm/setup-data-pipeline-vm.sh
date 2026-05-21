@@ -916,6 +916,20 @@ echo "instruments-backfill loop complete: \$(date -u)"
 INSTR_CHUNK_LOOP_EOF
   chmod +x "$CHUNK_SCRIPT"
   _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/instruments-backfill.log"
+elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
+  VM_DRIFT_MARKET=$(_meta VM_DRIFT_MARKET "SOL-PERP")
+  CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  CLI_ARGS="$CLI_ARGS --solana-protocols drift --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
+elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
+  export GAS_FEE_SOLANA=true
+  CLI_ARGS="--operation collect-gas-fees --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  CLI_ARGS="$CLI_ARGS --gas-fee-chains 99999"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-gas-backfill.log"
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
@@ -940,6 +954,8 @@ elif [ -n "$VM_TASK" ]; then
   # //,/ fallback keeps older launchers working.
   [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types ${VM_DATA_TYPES//[,;]/ }"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ -n "$VM_GAS_FEE_CHAINS" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-chains $VM_GAS_FEE_CHAINS"
+  [[ -n "$VM_GAS_FEE_SAMPLE_INTERVAL" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-sample-interval $VM_GAS_FEE_SAMPLE_INTERVAL"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/backfill.log"
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"
