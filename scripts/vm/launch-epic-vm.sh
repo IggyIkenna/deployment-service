@@ -228,7 +228,7 @@ fi
 # ── Clone agent-orchestrator ──
 ORCH_DIR="/home/${OPERATOR}/agent-orchestrator"
 if [[ ! -d "\${ORCH_DIR}/.git" ]]; then
-  git clone "https://x-access-token:\${GH_PAT}@github.com/IggyIkenna/agent-orchestrator.git" "\${ORCH_DIR}"
+  git clone --branch live-defi-rollout "https://x-access-token:\${GH_PAT}@github.com/IggyIkenna/agent-orchestrator.git" "\${ORCH_DIR}"
   chown -R ${OPERATOR}:${OPERATOR} "\${ORCH_DIR}"
 else
   git -C "\${ORCH_DIR}" pull --ff-only
