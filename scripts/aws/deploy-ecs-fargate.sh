@@ -75,11 +75,21 @@ register_fargate_task() {
   local image_tag="$6"
   local env_json="$7"
   local secrets_json="$8"
+  # Optional: JSON array of CLI args passed as container command override.
+  # Overrides the Dockerfile CMD (all 3 stateful services use CMD ["--help"]
+  # which exits immediately without an explicit command override).
+  local command_json="${9:-}"
 
   local role_arn
   role_arn=$(_role_arn "$role_name")
   local image="${ECR_BASE}/${service}:${image_tag}"
   local log_group="/ecs/${family}"
+
+  # Build optional command field
+  local command_field=""
+  if [[ -n "$command_json" ]]; then
+    command_field=",\"command\":${command_json}"
+  fi
 
   log "Registering task definition: $family (image: $image)"
   run aws logs create-log-group --log-group-name "$log_group" --region "$AWS_DEFAULT_REGION" 2>/dev/null || true
@@ -97,7 +107,7 @@ register_fargate_task() {
       \"image\":\"$image\",
       \"portMappings\":[{\"containerPort\":8080,\"protocol\":\"tcp\"}],
       \"environment\":$env_json,
-      \"secrets\":$secrets_json,
+      \"secrets\":$secrets_json${command_field},
       \"logConfiguration\":{
         \"logDriver\":\"awslogs\",
         \"options\":{
@@ -265,8 +275,10 @@ deploy_features_service() {
   secrets_json=$(_secrets_json \
     "ALCHEMY_API_KEY=unified-trading/alchemy-api-key" \
     "THEGRAPH_API_KEY=unified-trading/thegraph-api-key")
+  # CLI requires --feature-family; Dockerfile CMD ["--help"] exits immediately without this override.
+  local command_json='["--feature-family","onchain","--operation","compute","--mode","live","--asset-group","defi","--feature-group","ALL"]'
   register_fargate_task "features-service" "uts-features-service-prod" \
-    "uts-features-service-prod" "2048" "4096" "latest" "$env_json" "$secrets_json"
+    "uts-features-service-prod" "2048" "4096" "latest" "$env_json" "$secrets_json" "$command_json"
   create_or_update_ecs_service "features-service" "uts-features-service-prod"
 }
 
@@ -276,8 +288,10 @@ deploy_strategy_service() {
   [[ -n "$TARGET_SERVICE" && "$TARGET_SERVICE" != "strategy-service" ]] && return 0
   local env_json
   env_json=$(_ecs_base_env ",{\"name\":\"ACTIVE_ARCHETYPES\",\"value\":\"carry_staked_basis,arbitrage_price_dispersion\"}")
+  # CLI requires --operation; Dockerfile CMD ["--help"] exits immediately without this override.
+  local command_json='["--operation","trade","--mode","live","--asset-group","defi"]'
   register_fargate_task "strategy-service" "uts-strategy-service-prod" \
-    "uts-strategy-service-prod" "2048" "4096" "latest" "$env_json" "[]"
+    "uts-strategy-service-prod" "2048" "4096" "latest" "$env_json" "[]" "$command_json"
   create_or_update_ecs_service "strategy-service" "uts-strategy-service-prod"
 }
 
