@@ -70,3 +70,17 @@ jobs:
     # are derived inside the reusable workflow from github.repository (caller's repo name)
     # and the conventional `<repo>_<underscored>` source-dir layout per workspace SSOT.
     # See `.github/workflows/python-quality-gates.yml` in unified-trading-pm.
+
+  iam-drift-check:
+    name: IAM Drift Check (orchestrator epic fleet)
+    runs-on: ubuntu-latest
+    # Only runs on pushes that touch AWS scripts — avoids burning minutes on unrelated pushes.
+    # AWS_ACCOUNT_ID hardcoded so --dry-run skips the aws sts call entirely; no credentials needed.
+    env:
+      AWS_ACCOUNT_ID: "427895769566"
+      AWS_DEFAULT_REGION: ap-northeast-1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify setup-orchestrator-iam.sh --dry-run
+        run: bash scripts/aws/setup-orchestrator-iam.sh --dry-run
+        working-directory: deployment-service
