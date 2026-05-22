@@ -105,6 +105,7 @@ _INSTR_CEFI: str = _b("instruments-store", "cefi")
 _INSTR_DEFI: str = _b("instruments-store", "defi")
 _INSTR_TRADFI: str = _b("instruments-store", "tradfi")
 _INSTR_SPORTS: str = _b("instruments-store", "sports")
+_INSTR_PRED: str = _b("instruments-store", "pred")
 _FEAT_SPORTS: str = _b("features-sports")
 # lending-indices and scenario-reports are NOT in cloud-providers.yaml SSOT yet;
 # kept as hardcoded strings until they are added.
@@ -213,6 +214,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     ),
     "instr-backfill-sports": VmPrefixSpec(
         bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-pred": VmPrefixSpec(
+        bucket=_INSTR_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     # ------------------------------------------------------------------

@@ -149,6 +149,7 @@ declare -a VMS=(
   "instr-backfill-defi|DEFI|2020-01-01|2026-02-28"
   "instr-backfill-tradfi|TRADFI|2020-01-01|2026-02-28"
   "instr-backfill-sports|SPORTS|2020-06-01|2026-03-28"
+  "instr-backfill-pred|PREDICTION|2020-01-01|2026-02-28"
 )
 
 for VM_DEF in "${VMS[@]}"; do
