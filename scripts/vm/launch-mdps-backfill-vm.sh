@@ -38,12 +38,14 @@
 set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+SOURCE_BUCKET_OVERRIDE=""
 
-# Pre-parse --env <val> before positional args.
+# Pre-parse --env <val> and --source-bucket <val> before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --source-bucket) SOURCE_BUCKET_OVERRIDE="$2"; shift 2 ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -86,7 +88,11 @@ _category_upper_for() {
 _launch() {
     local cat="$1"
     local cat_upper; cat_upper="$(_category_upper_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
-    local vm_name="mdps-backfill-${cat}-${RUN_TS}"
+    local bucket_suffix=""
+    if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
+        bucket_suffix="-$(echo "$SOURCE_BUCKET_OVERRIDE" | sed 's/-central-element-323112//' | sed "s/^market-data-tick-${cat}/main/" | sed 's/-central-element-323112//' | cut -c1-16 | tr '_' '-')"
+    fi
+    local vm_name="mdps-backfill-${cat}${bucket_suffix}-${RUN_TS}"
 
     # MDPS CLI quirk: service uses ServiceBootstrap at the top level (which
     # requires --operation and --mode) BUT has add_asset_group_arg=False, so
@@ -100,7 +106,7 @@ _launch() {
     # Source-bucket env var is read by MDPS config.py (line 75-80) to locate the
     # raw tick bucket. Without it, every shard fails with "No source bucket
     # configured for category=…" before any candle is produced.
-    local source_bucket="market-data-tick-${cat}-${PROJECT}"
+    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${PROJECT}}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
     # Sports MDPS catch-up: pre-2026 dates often lack upstream raw because
