@@ -47,6 +47,16 @@ resource "google_secret_manager_secret_iam_member" "t1_batch_gh_pat_accessor" {
   member    = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
+# Bind AGENT_ORCHESTRATOR_SLACK_WEBHOOK secret-accessor to the t1_batch SA
+# so the orphan-ping audit job can post real-time Slack alerts to
+# #agent-orchestrator-alerts when orphans are detected.
+resource "google_secret_manager_secret_iam_member" "t1_batch_slack_webhook_accessor" {
+  secret_id = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
+  project   = var.project_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 # -------------------------------------------------------
 # Cloud Run Job — orphan-ping audit
 # -------------------------------------------------------
@@ -117,6 +127,15 @@ resource "google_cloud_run_v2_job" "orphan_ping_audit" {
             }
           }
         }
+        env {
+          name = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
+          value_source {
+            secret_key_ref {
+              secret  = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
+              version = "latest"
+            }
+          }
+        }
       }
     }
   }
@@ -130,6 +149,7 @@ resource "google_cloud_run_v2_job" "orphan_ping_audit" {
 
   depends_on = [
     google_secret_manager_secret_iam_member.t1_batch_gh_pat_accessor,
+    google_secret_manager_secret_iam_member.t1_batch_slack_webhook_accessor,
   ]
 }
 
