@@ -154,6 +154,7 @@ gcloud compute instances create "$VM_NAME" \
   --scopes=cloud-platform \
   --metadata="\
 SERVICE_REPO=alerting-service,\
+VM_SERVICE=alerting_service,\
 VM_TASK=alerting-quietness-baseline,\
 VM_NAME=${VM_NAME},\
 VM_DURATION_HOURS=${DURATION_HOURS},\

@@ -135,6 +135,9 @@ TARDIS_STREAM_BLOCK_SIZE_MB=$(_meta TARDIS_STREAM_BLOCK_SIZE_MB)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# VM_DURATION_HOURS: optional run-time cap for services that accept --duration-hours.
+# Used by alerting-quietness-baseline (48h quietness run per Phase 7 of alerting plan).
+VM_DURATION_HOURS=$(_meta VM_DURATION_HOURS)
 # Recovery-mode fixture-id allowlist (instruments-service --recovery-fixture-ids).
 # Path to a parquet on GCS or local disk that scopes per-fixture entity fetches
 # to a specific af_fixture_id allowlist. Used for targeted recovery work — see
@@ -218,6 +221,7 @@ declare -A SERVICE_TARBALLS=(
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
   ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
+  ["alerting_service"]="alerting-service-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -246,6 +250,7 @@ declare -A TARBALL_DIRS=(
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
   ["batch-live-reconciliation-service-code"]="blr"
+  ["alerting-service-code"]="alerting"
   # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
   # strategy paper/live VMs. No editable install (no pyproject.toml Python package
   # to install from e2e-testing root — strategy-service + execution-service packages
@@ -936,6 +941,28 @@ elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
   CLI_ARGS="$CLI_ARGS --gas-fee-chains 99999"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-gas-backfill.log"
+elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
+  # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness run.
+  # PagerDuty disabled; all alerts route to Telegram staging-noise channel only.
+  # VM_SERVICE must be alerting_service for tarball install to work.
+  VM_SERVICE="alerting_service"
+  _DURATION="${VM_DURATION_HOURS:-48}"
+  # alerting_service uses Pydantic settings — quietness flags are env vars, not CLI args.
+  # Fetch Telegram credentials from Secret Manager metadata keys.
+  _TG_TOKEN_SECRET=$(_meta TELEGRAM_BOT_TOKEN_SECRET)
+  _TG_CHAT_SECRET=$(_meta TELEGRAM_CHAT_ID_SECRET)
+  if [[ -n "$_TG_TOKEN_SECRET" ]]; then
+    export TELEGRAM_BOT_TOKEN
+    TELEGRAM_BOT_TOKEN=$(gcloud secrets versions access latest --secret="$_TG_TOKEN_SECRET" --project="$(_meta PROJECT_ID central-element-323112)" 2>/dev/null || echo "")
+  fi
+  if [[ -n "$_TG_CHAT_SECRET" ]]; then
+    export TELEGRAM_CHAT_ID
+    TELEGRAM_CHAT_ID=$(gcloud secrets versions access latest --secret="$_TG_CHAT_SECRET" --project="$(_meta PROJECT_ID central-element-323112)" 2>/dev/null || echo "")
+  fi
+  export QUIETNESS_BASELINE_MODE=true
+  export PAGERDUTY_DISABLED=true
+  export RUN_DURATION_HOURS="$_DURATION"
+  _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness.log"
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
