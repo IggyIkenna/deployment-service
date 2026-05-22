@@ -38,7 +38,7 @@ module "mtds_fast_t1_recon_job" {
   service_account_email = google_service_account.unified_trading.email
   image                 = local.mtds_image
   cpu                   = "2"
-  memory                = "4Gi"
+  memory                = "8Gi"  # 4Gi OOM-killed on 2026-05-22; 8Gi verified SUCCEEDED
   timeout_seconds       = 3600
   max_retries           = 1
   parallelism           = 1
