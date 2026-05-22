@@ -151,6 +151,11 @@ VM_RECOVERY_FIXTURE_IDS=$(_meta VM_RECOVERY_FIXTURE_IDS)
 # Semicolons are converted to spaces when appended to CLI_ARGS because argparse
 # nargs='+' takes space-separated values.
 VM_INSTRUMENT_IDS=$(_meta VM_INSTRUMENT_IDS)
+# VM_GAS_FEE_CHAINS / VM_GAS_FEE_SAMPLE_INTERVAL: optional gas-fee CLI args used
+# in the generic task handler (lines below). Must be pre-initialised here so
+# set -u does not fire when the metadata key is absent on non-gas-fee VMs.
+VM_GAS_FEE_CHAINS=$(_meta VM_GAS_FEE_CHAINS)
+VM_GAS_FEE_SAMPLE_INTERVAL=$(_meta VM_GAS_FEE_SAMPLE_INTERVAL)
 # IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
 # Read from metadata and EXPORT so Python inherits it.
 # CRITICAL: only export if non-empty — Pydantic Settings treats an empty-string
