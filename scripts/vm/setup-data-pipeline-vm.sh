@@ -963,6 +963,19 @@ elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
   export PAGERDUTY_DISABLED=true
   export RUN_DURATION_HOURS="$_DURATION"
   _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness.log"
+elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
+  # B-018 Phase 4.A: daily QG snapshot → GCS parquet.
+  # Runs snapshot.sh piped into snapshot_to_parquet.py then self-deletes.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
+    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: qg-snapshot VM self-delete failed'"
+    _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/qg-snapshot.log"
+  else
+    log "ERROR: qg-snapshot task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then

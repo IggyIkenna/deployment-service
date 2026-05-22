@@ -50,19 +50,21 @@ BOOT_DISK_GB="30"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 DRY_RUN=false
+DRY_RUN_SCHEDULER_BODY=false
 
 VM_PREFIX="qg-snapshot-"
 
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
-        --force)     FORCE=true; shift ;;
-        --dry-run)   DRY_RUN=true; shift ;;
+        --force)                    FORCE=true; shift ;;
+        --dry-run)                  DRY_RUN=true; shift ;;
+        --dry-run-scheduler-body)   DRY_RUN_SCHEDULER_BODY=true; shift ;;
         --env)       DEPLOYMENT_ENV="$2"; shift 2 ;;
         --project)   PROJECT="$2"; shift 2 ;;
         --zone)      ZONE="$2"; shift 2 ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--force] [--dry-run] [--env prod|staging|dev] [--project PID]" >&2
+            echo "Usage: $0 [--force] [--dry-run] [--dry-run-scheduler-body] [--env prod|staging|dev] [--project PID]" >&2
             exit 1
             ;;
     esac
@@ -70,10 +72,6 @@ done
 
 CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
 lc_validate_env "$DEPLOYMENT_ENV"
-lc_singleton_check "$VM_PREFIX" "$ZONE" "$PROJECT" "$FORCE"
-
-RUN_TS="$(lc_run_ts)"
-VM_NAME="${VM_PREFIX}${RUN_TS}"
 
 # Startup command passed to the VM via metadata
 SNAPSHOT_CMD="bash /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot.sh"
@@ -81,18 +79,54 @@ PARQUET_CMD="python3 /home/unified/workspace/unified-trading-pm/scripts/quality_
 # Full pipeline: snapshot → parquet upload → auto-shutdown
 BACKFILL_CMD="${SNAPSHOT_CMD} | ${PARQUET_CMD}"
 
-METADATA="VM_TASK=qg-snapshot"
-METADATA="${METADATA},VM_SERVICE=qg_snapshot"
-METADATA="${METADATA},VM_OPERATION=qg-snapshot"
-METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},GCP_PROJECT_ID=${PROJECT}"
-METADATA="${METADATA},WORKSPACE_ROOT=/home/unified/workspace"
-
-FULL_METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
-LABELS="purpose=qg-snapshot,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
+if $DRY_RUN_SCHEDULER_BODY; then
+    # Output the Compute Engine instances.insert REST body for Cloud Scheduler HTTP target.
+    # Usage:
+    #   gcloud scheduler jobs create http qg-snapshot-daily \
+    #     --schedule="0 6 * * *" \
+    #     --uri="https://compute.googleapis.com/compute/v1/projects/${PROJECT}/zones/${ZONE}/instances" \
+    #     --message-body="$(bash $(dirname $0)/launch-qg-snapshot-vm.sh --dry-run-scheduler-body)" \
+    #     --oauth-service-account-email="uts-prod-batch-sa@${PROJECT}.iam.gserviceaccount.com" \
+    #     --location=asia-northeast1
+    STARTUP_URL="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+    python3 - <<PYEOF
+import json
+body = {
+    "name": "${VM_PREFIX}daily",
+    "zone": "projects/${PROJECT}/zones/${ZONE}",
+    "machineType": "zones/${ZONE}/machineTypes/${MACHINE_TYPE}",
+    "disks": [{
+        "boot": True,
+        "initializeParams": {
+            "sourceImage": "projects/debian-cloud/global/images/family/debian-12",
+            "diskSizeGb": "${BOOT_DISK_GB}"
+        },
+        "autoDelete": True
+    }],
+    "networkInterfaces": [{"accessConfigs": [{"type": "ONE_TO_ONE_NAT"}]}],
+    "serviceAccounts": [{
+        "email": "uts-prod-batch-sa@${PROJECT}.iam.gserviceaccount.com",
+        "scopes": ["https://www.googleapis.com/auth/cloud-platform"]
+    }],
+    "metadata": {
+        "items": [
+            {"key": "startup-script-url", "value": "${STARTUP_URL}"},
+            {"key": "VM_TASK", "value": "qg-snapshot"},
+            {"key": "VM_SERVICE", "value": "qg_snapshot"},
+            {"key": "VM_OPERATION", "value": "qg-snapshot"},
+            {"key": "VM_BACKFILL_CMD", "value": "${BACKFILL_CMD}"},
+            {"key": "DEPLOYMENT_ENV", "value": "${DEPLOYMENT_ENV}"},
+            {"key": "VM_SHUTDOWN_ON_COMPLETION", "value": "true"},
+            {"key": "GCP_PROJECT_ID", "value": "${PROJECT}"},
+            {"key": "WORKSPACE_ROOT", "value": "/home/unified/workspace"}
+        ]
+    },
+    "labels": {"purpose": "qg-snapshot", "env": "${DEPLOYMENT_ENV}"}
+}
+print(json.dumps(body))
+PYEOF
+    exit 0
+fi
 
 echo "Launching $VM_NAME: QG snapshot → GCS (env=${DEPLOYMENT_ENV})"
 
