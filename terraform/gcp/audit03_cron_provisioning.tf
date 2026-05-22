@@ -82,7 +82,8 @@ module "mtds_cefi_t1_recon_job" {
   task_count            = 1
 
   # CeFi T+1: Tardis historical tick data (available ~6h after midnight UTC)
-  args = ["--operation", "download", "--mode", "batch", "--asset-group", "cefi"]
+  # UTL STANDARD_CATEGORIES expects uppercase; canonical lowercase tracked in TODO below.
+  args = ["--operation", "download", "--mode", "batch", "--asset-group", "CEFI"]
 
   environment_variables = {
     GCP_PROJECT_ID         = var.project_id
