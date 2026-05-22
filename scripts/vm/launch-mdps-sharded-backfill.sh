@@ -205,7 +205,11 @@ launch_year_shard() {
     local source_bucket="market-data-tick-${cat}-${PROJECT}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
-    if [[ "$cat" == "sports" ]]; then
+    if [[ "$cat" == "sports" || "$cat" == "prediction" ]]; then
+        # Sports: IS instrument_availability by day not populated — bypass IS dep check.
+        # Prediction: IS instrument_availability uses canonical_question_group partition
+        # (instrument_availability/by_date/canonical_question_group=X/day=Y/venue=Z/) rather than
+        # flat day= prefix that MDPS dep_checker expects. Bypass IS dep check; raw tick data is present.
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
     fi
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
