@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -192,6 +191,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mdps-backfill-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mdps-sports-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "aws-zombie-watchdog-": None,  # the watchdog itself — daemon opt-out via purpose tag
+    # Orchestrator epic VM fleet (LONG_LIVED_LIVE — permanent worker nodes)
+    "agent-orch-vm-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-ml-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-trading-core-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-operator-ops-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cross-cutting-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-orchestrator-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
 }
 
 # Daemon-opt-out purposes (never reaped by catch-all sweep)
@@ -215,7 +225,7 @@ def _get_tag(tags: list[dict[str, str]], key: str) -> str | None:
     return None
 
 
-def _list_running_instances(ec2: "boto3.client") -> list[Ec2Instance]:
+def _list_running_instances(ec2: boto3.client) -> list[Ec2Instance]:
     """List all running/pending EC2 instances tagged purpose=uts-backfill."""
     paginator = ec2.get_paginator("describe_instances")
     instances: list[Ec2Instance] = []
@@ -243,7 +253,7 @@ def _list_running_instances(ec2: "boto3.client") -> list[Ec2Instance]:
     return instances
 
 
-def _heartbeat_stale(s3: "boto3.client", vm_name: str, stale_minutes: int) -> bool:
+def _heartbeat_stale(s3: boto3.client, vm_name: str, stale_minutes: int) -> bool:
     """Return True if the heartbeat blob is missing or older than stale_minutes."""
     key = f"vm-heartbeat/{vm_name}.txt"
     try:
@@ -257,7 +267,7 @@ def _heartbeat_stale(s3: "boto3.client", vm_name: str, stale_minutes: int) -> bo
         raise
 
 
-def _shard_stale(s3: "boto3.client", bucket: str, vm_name: str, stale_minutes: int) -> bool:
+def _shard_stale(s3: boto3.client, bucket: str, vm_name: str, stale_minutes: int) -> bool:
     """Return True if the per-VM manifest shard is missing or older than stale_minutes."""
     key = f"_index/per_vm/{vm_name}.parquet"
     try:
@@ -283,8 +293,8 @@ def _prefix_spec(name: str) -> VmPrefixSpec | None | bool:
 
 
 def _is_zombie(
-    ec2: "boto3.client",
-    s3: "boto3.client",
+    ec2: boto3.client,
+    s3: boto3.client,
     inst: Ec2Instance,
     min_age: int,
     heartbeat_stale: int,
@@ -326,8 +336,8 @@ def _is_zombie(
 
 
 def _check_and_reap(
-    ec2: "boto3.client",
-    s3: "boto3.client",
+    ec2: boto3.client,
+    s3: boto3.client,
     inst: Ec2Instance,
     dry_run: bool,
     min_age: int,
@@ -369,9 +379,7 @@ def run_sweep(
     reaped = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(
-                _check_and_reap, ec2, s3, inst, dry_run, min_age, heartbeat_stale, shard_stale
-            ): inst
+            pool.submit(_check_and_reap, ec2, s3, inst, dry_run, min_age, heartbeat_stale, shard_stale): inst
             for inst in instances
         }
         for fut in as_completed(futures):
