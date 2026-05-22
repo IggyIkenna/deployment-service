@@ -54,9 +54,7 @@ if $FORCE; then
 fi
 
 VENUES_FLAG=""
-if [[ -n "$VENUES" ]]; then
-  VENUES_FLAG="--venues ${VENUES}"
-fi
+# instruments-service CLI does not accept --venues; flag is intentionally suppressed.
 
 echo "============================================================"
 echo "Instruments Backfill — VM Setup"
