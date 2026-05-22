@@ -293,7 +293,11 @@ for vm in vms:
     if vm['role'] != 'planning':
         print(json.dumps(vm))
 " | while IFS= read -r vm_json; do
-    _launch_one "${vm_json}"
+    # Subshell: singleton-check exit 1 for already-running VMs doesn't abort the fleet loop
+    ( _launch_one "${vm_json}" ) || {
+      _skip_id="$(echo "${vm_json}" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('id','unknown'))" 2>/dev/null || echo 'unknown')"
+      echo "WARN: ${_skip_id} already running or launch failed — skipping (use --vm-id ${_skip_id} --force to re-launch)"
+    }
   done
 
   echo ""
