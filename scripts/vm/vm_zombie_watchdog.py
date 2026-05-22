@@ -105,7 +105,7 @@ _INSTR_CEFI: str = _b("instruments-store", "cefi")
 _INSTR_DEFI: str = _b("instruments-store", "defi")
 _INSTR_TRADFI: str = _b("instruments-store", "tradfi")
 _INSTR_SPORTS: str = _b("instruments-store", "sports")
-_INSTR_PRED: str = _b("instruments-store", "pred")
+_INSTR_PRED: str = _b("instruments-store", "prediction")
 _FEAT_SPORTS: str = _b("features-sports")
 # lending-indices and scenario-reports are NOT in cloud-providers.yaml SSOT yet;
 # kept as hardcoded strings until they are added.

@@ -115,6 +115,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "instr-backfill-defi-": VmPrefixSpec(bucket=_INSTR_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "instr-backfill-tradfi-": VmPrefixSpec(bucket=_INSTR_TRADFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "instr-backfill-sports-": VmPrefixSpec(bucket=_INSTR_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "instr-backfill-pred-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "instr-smoke-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "eu-enum-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "eu-v2-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
@@ -125,8 +126,16 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "defi-phantom-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "sports-mfst-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # CeFi/TradFi sharded backfill (launch-cefi-sharded-backfill-aws.sh)
+    # VM names: cefi-sharded-{venue}-{year}-{group}-{YYYYMMDD}
+    #           tradfi-sharded-{instrument}-{year}-{group}-{YYYYMMDD}
+    # ------------------------------------------------------------------
+    "cefi-sharded-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "tradfi-sharded-": VmPrefixSpec(bucket=_TICK_TRADFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # Features service
     # ------------------------------------------------------------------
+    "features-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "feats-backfill-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "feats-onchain-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "feats-sports-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
