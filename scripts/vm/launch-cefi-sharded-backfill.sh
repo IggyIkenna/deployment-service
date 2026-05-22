@@ -232,13 +232,18 @@ launch_cefi_shard() {
   # 2026-05-06: bumped heavy default from e2-standard-2 (8 GB) to
   # e2-highmem-2 (16 GB) post-streaming-finalize ship (MTDS f07f3f9 default-on).
   # AVAX-USD smoke peaked at 1.04 GB; BTC-USD heavy days scale ~10-20×.
-  # 8 GB had no headroom; 16 GB / $0.10/hr is the right floor — cheaper than
-  # e2-highmem-4 (32 GB / $0.20/hr), and still cheap relative to fleet cost
-  # of an OOM relaunch wave. Override per-launch via MACHINE_TYPE_HEAVY.
+  # 2026-05-22: bumped heavy from e2-highmem-2 (16 GB) to e2-highmem-4 (32 GB)
+  # after systematic OOM failures across BINANCE-FUTURES/SPOT/BYBIT 2021+;
+  # 2021 bull-market days scale ~20-30× from AVAX baseline → 20-30 GB peaks.
+  # Light bumped from e2-standard-2 (8 GB) to e2-highmem-2 (16 GB) after
+  # BYBIT-2021-light OOM on 8 GB. DERIBIT light (options_chain) uses e2-highmem-4
+  # (32 GB) — options_chain 2026 data is multi-GB per day. Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
   if [[ "$group" == "heavy" ]]; then
-    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-2}"
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-4}"
+  elif [[ "$venue" == "DERIBIT" ]]; then
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-4}"
   else
-    machine="${MACHINE_TYPE_LIGHT:-e2-standard-2}"
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-2}"
   fi
 
   # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
