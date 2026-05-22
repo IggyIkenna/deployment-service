@@ -152,17 +152,20 @@ lc_aws_ec2_run() {
     local name_tag
     name_tag='[{"Key":"Name","Value":"'"$vm_name"'"}]'
 
-    # Merge name tag with extra tags
-    local all_tags
+    # Merge name tag with extra tags; build full JSON tag-spec (shorthand form breaks on quotes)
+    local all_tags tag_spec
     all_tags="$(python3 -c "
 import json, sys
 name = json.loads('$name_tag')
-extra = json.loads('${extra_tags_json/\'/\\\'}')
+extra = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []
 merged = name + extra
 print(json.dumps(merged))
-" 2>/dev/null || echo "$name_tag")"
-
-    local tag_spec="ResourceType=instance,Tags=${all_tags}"
+" "${extra_tags_json}" 2>/dev/null || echo "$name_tag")"
+    tag_spec="$(python3 -c "
+import json, sys
+tags = json.loads(sys.argv[1])
+print(json.dumps([{'ResourceType':'instance','Tags':tags}]))
+" "${all_tags}" 2>/dev/null || echo "[{\"ResourceType\":\"instance\",\"Tags\":${all_tags}}]")"
 
     local profile_args=()
     if [[ -n "$instance_profile" ]]; then
