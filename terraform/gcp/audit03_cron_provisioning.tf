@@ -74,8 +74,8 @@ module "mtds_cefi_t1_recon_job" {
   region                = var.region
   service_account_email = google_service_account.unified_trading.email
   image                 = local.mtds_image
-  cpu                   = "2"
-  memory                = "4Gi"
+  cpu                   = "4"
+  memory                = "8Gi"
   timeout_seconds       = 7200  # 2h — Tardis data can be large for daily CeFi ticks
   max_retries           = 1
   parallelism           = 1
