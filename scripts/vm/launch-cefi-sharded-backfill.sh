@@ -211,7 +211,7 @@ launch_cefi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
-    end_date="2026-04-17"
+    end_date="2026-05-22"
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
@@ -311,7 +311,7 @@ launch_tradfi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
-    end_date="2026-04-17"
+    end_date="2026-05-22"
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
