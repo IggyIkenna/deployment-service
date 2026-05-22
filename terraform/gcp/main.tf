@@ -43,6 +43,14 @@ locals {
   # Safe lower-kebab name fragment shared by all resources in this workspace
   env_prefix = lower(replace("${var.bucket_prefix}-${var.environment}", "_", "-"))
 
+  # 3-char short form matching cloud-providers.yaml DEPLOYMENT_ENV_SHORT convention.
+  # Canonical bucket names use this infix (e.g. market-data-tick-cefi-prd-<pid>).
+  deployment_env_short = {
+    "dev"     = "dev"
+    "staging" = "stg"
+    "prod"    = "prd"
+  }[var.environment]
+
   # Common labels applied to every resource
   common_labels = {
     "environment" = var.environment

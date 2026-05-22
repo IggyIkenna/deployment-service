@@ -47,16 +47,16 @@ locals {
   # declarations — every bucket where ManifestWriter writes manifest
   # shards needs a consolidator schedule.
   manifest_consolidator_buckets = {
-    "instruments-cefi"       = "instruments-store-cefi-${var.environment}-${var.project_id}"
-    "instruments-tradfi"     = "instruments-store-tradfi-${var.environment}-${var.project_id}"
-    "instruments-defi"       = "instruments-store-defi-${var.environment}-${var.project_id}"
-    "instruments-sports"     = "instruments-store-sports-${var.environment}-${var.project_id}"
-    "instruments-prediction" = "instruments-store-pred-${var.environment}-${var.project_id}"
-    "market-data-cefi"       = "market-data-tick-cefi-${var.environment}-${var.project_id}"
-    "market-data-tradfi"     = "market-data-tick-tradfi-${var.environment}-${var.project_id}"
-    "market-data-defi"       = "market-data-tick-defi-${var.environment}-${var.project_id}"
-    "market-data-sports"     = "market-data-tick-sports-${var.environment}-${var.project_id}"
-    "market-data-prediction" = "market-data-tick-pred-${var.environment}-${var.project_id}"
+    "instruments-cefi"       = "instruments-store-cefi-${local.deployment_env_short}-${var.project_id}"
+    "instruments-tradfi"     = "instruments-store-tradfi-${local.deployment_env_short}-${var.project_id}"
+    "instruments-defi"       = "instruments-store-defi-${local.deployment_env_short}-${var.project_id}"
+    "instruments-sports"     = "instruments-store-sports-${local.deployment_env_short}-${var.project_id}"
+    "instruments-prediction" = "instruments-store-pred-${local.deployment_env_short}-${var.project_id}"
+    "market-data-cefi"       = "market-data-tick-cefi-${local.deployment_env_short}-${var.project_id}"
+    "market-data-tradfi"     = "market-data-tick-tradfi-${local.deployment_env_short}-${var.project_id}"
+    "market-data-defi"       = "market-data-tick-defi-${local.deployment_env_short}-${var.project_id}"
+    "market-data-sports"     = "market-data-tick-sports-${local.deployment_env_short}-${var.project_id}"
+    "market-data-prediction" = "market-data-tick-pred-${local.deployment_env_short}-${var.project_id}"
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
