@@ -1614,3 +1614,37 @@ resource "google_storage_bucket_iam_member" "cicd_events_writer" {
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.unified_trading.email}"
 }
+
+# ---------------------------------------------------------------------------
+# Immutable execution audit trail — trading-audit-records
+# F-05: Provisioned in terraform with Object Versioning + 7-year Retention Lock.
+# Bucket name mirrors cloud-providers.yaml gcp.storage.audit-records pattern.
+# Retention policy is locked (irreversible) — complies with ≥7-year regulatory
+# requirement. strategy-service writes to this bucket via resolve_bucket_name(kind="audit-records").
+# 7 years = 220752000 seconds (7 × 365.25 × 24 × 3600)
+# ---------------------------------------------------------------------------
+resource "google_storage_bucket" "audit_records" {
+  name     = "trading-audit-records-${local.deployment_env_short}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+
+  retention_policy {
+    retention_period = 220752000
+    is_locked        = true
+  }
+
+  labels = merge(local.common_labels, {
+    "purpose" = "audit-records",
+    "tier"    = "compliance"
+  })
+}
+
+resource "google_storage_bucket_iam_member" "audit_records_writer" {
+  bucket = google_storage_bucket.audit_records.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.unified_trading.email}"
+}
