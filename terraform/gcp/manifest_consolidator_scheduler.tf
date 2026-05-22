@@ -27,9 +27,9 @@
 #   missed cron cycle = readers transparently fall back, no UI breakage.
 #
 # Schedule
-#   `*/1 * * * *` per category bucket — 10 buckets total (5 instruments,
-#   5 market-data-tick) = 10 cron triggers, all firing the same Cloud
-#   Run Job with the bucket name as a CLI arg.
+#   `*/1 * * * *` per category bucket — 10 buckets total (5 instruments-store,
+#   5 market-data-tick), all prd-tiered (`{name}-${var.environment}-${var.project_id}`).
+#   Prediction uses `pred` shortform per cloud-providers.yaml SSOT.
 #
 # Image
 #   Reuses `market-tick-data-service:latest` (which has UTL installed
@@ -47,16 +47,16 @@ locals {
   # declarations — every bucket where ManifestWriter writes manifest
   # shards needs a consolidator schedule.
   manifest_consolidator_buckets = {
-    "instruments-cefi"       = "instruments-store-cefi-${var.project_id}"
-    "instruments-tradfi"     = "instruments-store-tradfi-${var.project_id}"
-    "instruments-defi"       = "instruments-store-defi-${var.project_id}"
-    "instruments-sports"     = "instruments-store-sports-${var.project_id}"
-    "instruments-prediction" = "instruments-store-prediction-${var.project_id}"
-    "market-data-cefi"       = "market-data-tick-cefi-${var.project_id}"
-    "market-data-tradfi"     = "market-data-tick-tradfi-${var.project_id}"
-    "market-data-defi"       = "market-data-tick-defi-${var.project_id}"
-    "market-data-sports"     = "market-data-tick-sports-${var.project_id}"
-    "market-data-prediction" = "market-data-tick-prediction-${var.project_id}"
+    "instruments-cefi"       = "instruments-store-cefi-${var.environment}-${var.project_id}"
+    "instruments-tradfi"     = "instruments-store-tradfi-${var.environment}-${var.project_id}"
+    "instruments-defi"       = "instruments-store-defi-${var.environment}-${var.project_id}"
+    "instruments-sports"     = "instruments-store-sports-${var.environment}-${var.project_id}"
+    "instruments-prediction" = "instruments-store-pred-${var.environment}-${var.project_id}"
+    "market-data-cefi"       = "market-data-tick-cefi-${var.environment}-${var.project_id}"
+    "market-data-tradfi"     = "market-data-tick-tradfi-${var.environment}-${var.project_id}"
+    "market-data-defi"       = "market-data-tick-defi-${var.environment}-${var.project_id}"
+    "market-data-sports"     = "market-data-tick-sports-${var.environment}-${var.project_id}"
+    "market-data-prediction" = "market-data-tick-pred-${var.environment}-${var.project_id}"
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
