@@ -44,10 +44,11 @@ module "mtds_fast_t1_recon_job" {
   parallelism           = 1
   task_count            = 1
 
-  # FAST T+1 phase: Sports odds, Prediction, TradFi (DeFi on-chain is handled by
-  # the 11 per-operation jobs in defi_collection_scheduler.tf; MTDS orchestrator
-  # explicitly skips DeFi for --operation run; CeFi delayed → mtds_cefi_t1_recon_job)
-  args = ["--operation", "run", "--mode", "batch"]
+  # FAST T+1 phase: Sports odds, Prediction, TradFi (DeFi on-chain handled by
+  # 11 per-operation jobs in defi_collection_scheduler.tf; CeFi delayed → cefi job)
+  # Note: --operation download runs TickDataHandler (the correct T+1 batch handler).
+  # --operation run was a planned meta-operation that was never implemented.
+  args = ["--operation", "download", "--mode", "batch"]
 
   environment_variables = {
     GCP_PROJECT_ID         = var.project_id
@@ -81,7 +82,7 @@ module "mtds_cefi_t1_recon_job" {
   task_count            = 1
 
   # CeFi T+1: Tardis historical tick data (available ~6h after midnight UTC)
-  args = ["--operation", "run", "--mode", "batch", "--asset-group", "cefi"]
+  args = ["--operation", "download", "--mode", "batch", "--asset-group", "cefi"]
 
   environment_variables = {
     GCP_PROJECT_ID         = var.project_id
