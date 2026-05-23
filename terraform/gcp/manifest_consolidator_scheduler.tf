@@ -57,6 +57,17 @@ locals {
     "market-data-defi"       = "market-data-tick-defi-${local.deployment_env_short}-${var.project_id}"
     "market-data-sports"     = "market-data-tick-sports-${local.deployment_env_short}-${var.project_id}"
     "market-data-prediction" = "market-data-tick-pred-${local.deployment_env_short}-${var.project_id}"
+    # Legacy buckets (no env-suffix) — MDPS launch scripts hardcode these names instead of
+    # going through resolve_bucket_name. Added 2026-05-23 after ManifestReader reported
+    # 101554s staleness on tradfi. Root cause: launch-mdps-sharded-backfill.sh line 205
+    # `source_bucket="market-data-tick-${cat}-${PROJECT}"` — no DEPLOYMENT_ENV_SHORT.
+    # QG STEP 5.69 violation: fix tracked in bucket_name_ssot_canonicalisation_2026_05_10.md
+    # Phase 0f. Remove these entries once Phase 0f migrates MDPS to env-tiered buckets.
+    "market-data-cefi-legacy"       = "market-data-tick-cefi-${var.project_id}"
+    "market-data-tradfi-legacy"     = "market-data-tick-tradfi-${var.project_id}"
+    "market-data-defi-legacy"       = "market-data-tick-defi-${var.project_id}"
+    "market-data-sports-legacy"     = "market-data-tick-sports-${var.project_id}"
+    "market-data-prediction-legacy" = "market-data-tick-prediction-${var.project_id}"
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
@@ -69,9 +80,13 @@ locals {
   # on signal 9' mid-merge. Second bump: sports → 900s, plus cefi-market-data
   # added at 600s prophylactically since its shard count is 33x sports'.
   manifest_consolidator_timeouts = {
-    "instruments-sports" = 900
-    "market-data-sports" = 900
-    "market-data-cefi"   = 600
+    "instruments-sports"        = 900
+    "market-data-sports"        = 900
+    "market-data-cefi"          = 600
+    # Legacy bucket overrides — tradfi 1607-shard merge took 79s locally;
+    # cefi has comparable shard density to the env-tiered cefi bucket.
+    "market-data-tradfi-legacy" = 600
+    "market-data-cefi-legacy"   = 600
   }
 }
 
