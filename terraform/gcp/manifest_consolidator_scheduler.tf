@@ -68,6 +68,16 @@ locals {
     "market-data-defi-legacy"       = "market-data-tick-defi-${var.project_id}"
     "market-data-sports-legacy"     = "market-data-tick-sports-${var.project_id}"
     "market-data-prediction-legacy" = "market-data-tick-prediction-${var.project_id}"
+    # Legacy instruments-store buckets — launch-expected-universe-v2-vm.sh and other IS
+    # scripts use `instruments-store-{category}-${PROJECT}` (no env suffix). Added 2026-05-23
+    # after per-VM shard audit found cefi/tradfi/defi legacy shards with no consolidator_run_at
+    # metadata. setup-data-pipeline-vm.sh covers these while running; crons provide persistence.
+    # Remove once Phase 0f migrates IS scripts to env-tiered bucket names.
+    "instruments-cefi-legacy"       = "instruments-store-cefi-${var.project_id}"
+    "instruments-tradfi-legacy"     = "instruments-store-tradfi-${var.project_id}"
+    "instruments-defi-legacy"       = "instruments-store-defi-${var.project_id}"
+    "instruments-sports-legacy"     = "instruments-store-sports-${var.project_id}"
+    "instruments-prediction-legacy" = "instruments-store-prediction-${var.project_id}"
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
@@ -83,10 +93,15 @@ locals {
     "instruments-sports"        = 900
     "market-data-sports"        = 900
     "market-data-cefi"          = 600
-    # Legacy bucket overrides — tradfi 1607-shard merge took 79s locally;
+    # Legacy market-data overrides — tradfi 1607-shard merge took 79s locally;
     # cefi has comparable shard density to the env-tiered cefi bucket.
     "market-data-tradfi-legacy" = 600
     "market-data-cefi-legacy"   = 600
+    # Legacy instruments-store overrides — sports env-tiered is 900s for 2.09M rows;
+    # sports-legacy has 88 shards (vs 80 env-tiered), same headroom needed.
+    # cefi-legacy has 529 shards (vs 518 env-tiered); prophylactic 600s.
+    "instruments-sports-legacy" = 900
+    "instruments-cefi-legacy"   = 600
   }
 }
 

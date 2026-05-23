@@ -177,6 +177,12 @@ fi
 # fires (bucket-resolution, manifest writes, GCS-tee, heartbeat).
 DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
 export DEPLOYMENT_ENV
+case "$DEPLOYMENT_ENV" in
+  prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+  staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+  *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
+esac
+export DEPLOYMENT_ENV_SHORT
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
@@ -729,20 +735,23 @@ elif [[ "$VM_TASK" == "manifest-consolidator-poll" ]]; then
     # Default = every bucket family that uses ManifestWriter v5: reference
     # data (instruments-store-*), market tick (market-data-tick-*), derived
     # features (features-sports-*), strategy outputs (strategy-store-*).
-    BUCKETS_RAW="instruments-store-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-defi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-tradfi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-prediction-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-defi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-tradfi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-prediction-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:features-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-defi-${PROJECT_ID}"
+    # Uses env-tiered names (Phase 0f canonical form). Cloud Run crons in
+    # manifest_consolidator_scheduler.tf handle the legacy (no-env-suffix)
+    # counterparts written by MDPS scripts not yet migrated.
+    BUCKETS_RAW="instruments-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   fi
   BUCKETS_SPACE="${BUCKETS_RAW//:/ }"
   log "manifest-consolidator-poll: interval=${POLL_INTERVAL}s buckets=[$BUCKETS_SPACE]"

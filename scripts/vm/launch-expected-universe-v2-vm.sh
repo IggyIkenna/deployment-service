@@ -112,6 +112,16 @@ case "$DEPLOYMENT_ENV" in
     prod|staging|dev) ;;
     *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+case "$DEPLOYMENT_ENV" in
+    prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+    staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+    dev)     DEPLOYMENT_ENV_SHORT="dev" ;;
+esac
+# instruments-store uses "pred" shortform for prediction asset group.
+case "$ASSET_GROUP" in
+    prediction) CATALOG_AG_SHORT="pred" ;;
+    *)          CATALOG_AG_SHORT="$ASSET_GROUP" ;;
+esac
 if [[ -n "$MAX_WRITES" ]]; then
     if ! [[ "$MAX_WRITES" =~ ^[0-9]+$ ]]; then
         echo "ERROR: max_writes must be a positive integer (got: $MAX_WRITES)" >&2; exit 2
@@ -160,7 +170,7 @@ elif [[ -n "${CATALOG_PATH:-}" ]]; then
     CATALOG_PATH="${CATALOG_PATH}"
 else
     # Canonical default: instruments-service catalog GCS path per env tier.
-    CATALOG_BUCKET="instruments-store-${ASSET_GROUP}-${PROJECT}"
+    CATALOG_BUCKET="instruments-store-${CATALOG_AG_SHORT}-${DEPLOYMENT_ENV_SHORT}-${PROJECT}"
     CATALOG_PATH="gs://${CATALOG_BUCKET}/${DEPLOYMENT_ENV}/catalog.parquet"
 fi
 
