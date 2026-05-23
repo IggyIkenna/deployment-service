@@ -212,11 +212,12 @@ launch_year_shard() {
         # flat day= prefix that MDPS dep_checker expects. Bypass IS dep check; raw tick data is present.
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
     fi
+    # MAX_WORKERS is read from env by MDPS config.py — not a CLI flag.
+    if [[ -n "$resolved_max_workers" ]]; then
+        cmd="MAX_WORKERS=$resolved_max_workers $cmd"
+    fi
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $start_date --end-date $end_date"
-    if [[ -n "$resolved_max_workers" ]]; then
-        cmd="$cmd --max-workers $resolved_max_workers"
-    fi
     if $DRY; then
         cmd="$cmd --dry-run"
     fi
