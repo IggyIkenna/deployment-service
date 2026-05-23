@@ -7,7 +7,7 @@
 #
 # Backfills 7 venues with full historical data:
 #   CURVE-AVALANCHE, CURVE-OPTIMISM, BALANCER-ETHEREUM,
-#   UNISWAPV3-ETHEREUM, UNISWAPV3-POLYGON, RAYDIUM-SOLANA, UNISWAPV4-ETHEREUM
+#   UNISWAP_V3-ETHEREUM, UNISWAP_V3-POLYGON, RAYDIUM-SOLANA, UNISWAP_V4-ETHEREUM
 #
 # VM_NAME: instr-backfill-defi-targeted (or with END_DATE suffix on override)
 # VM_TASK: instruments-backfill, VM_ASSET_GROUP: DEFI

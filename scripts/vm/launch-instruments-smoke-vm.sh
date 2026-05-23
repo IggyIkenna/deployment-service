@@ -16,7 +16,7 @@
 # Usage:
 #   bash launch-instruments-smoke-vm.sh cefi 2026-04-19           # CeFi BINANCE-FUTURES
 #   bash launch-instruments-smoke-vm.sh tradfi 2026-04-19         # TradFi CME
-#   bash launch-instruments-smoke-vm.sh defi 2026-04-19           # DeFi AAVEV3-ETHEREUM
+#   bash launch-instruments-smoke-vm.sh defi 2026-04-19           # DeFi AAVE_V3-ETHEREUM
 #   bash launch-instruments-smoke-vm.sh all 2026-04-19            # all three sequentially
 #
 # Inspect after run:
@@ -79,11 +79,11 @@ launch_vm() {
 case "$ASSET_GROUP" in
     cefi)   launch_vm cefi BINANCE-FUTURES ;;
     tradfi) launch_vm tradfi CME ;;
-    defi)   launch_vm defi AAVEV3-ETHEREUM ;;
+    defi)   launch_vm defi AAVE_V3-ETHEREUM ;;
     all)
         launch_vm cefi BINANCE-FUTURES
         launch_vm tradfi CME
-        launch_vm defi AAVEV3-ETHEREUM
+        launch_vm defi AAVE_V3-ETHEREUM
         ;;
     *) echo "Unknown category: $ASSET_GROUP (expected cefi|tradfi|defi|all)"; exit 2 ;;
 esac

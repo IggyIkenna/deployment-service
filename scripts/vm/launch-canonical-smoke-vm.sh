@@ -12,7 +12,7 @@
 #   - Partition path: day/category/venue/instrument_type/data_type/{file}.parquet
 #     (+ chain for DeFi)
 #   - `instrument_id` column (non-null, canonical VENUE:INSTRUMENT_TYPE:SYMBOL)
-#   - venue column protocol-only for DeFi (no composite AAVEV3-ETHEREUM)
+#   - venue column protocol-only for DeFi (no composite AAVE_V3-ETHEREUM)
 #
 # Usage:
 #   bash launch-canonical-smoke-vm.sh cefi 2024-06-15             # CeFi Binance-Futures, 1 day
@@ -79,11 +79,11 @@ launch_vm() {
 case "$ASSET_GROUP" in
     cefi)   launch_vm cefi BINANCE-FUTURES "" download ;;
     tradfi) launch_vm tradfi CME "" download ;;
-    defi)   launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices ;;
+    defi)   launch_vm defi AAVE_V3-ETHEREUM lending_indices collect-lending-indices ;;
     all)
         launch_vm cefi BINANCE-FUTURES "" download
         launch_vm tradfi CME "" download
-        launch_vm defi AAVEV3-ETHEREUM lending_indices collect-lending-indices
+        launch_vm defi AAVE_V3-ETHEREUM lending_indices collect-lending-indices
         ;;
     *) echo "Unknown category: $ASSET_GROUP"; exit 2 ;;
 esac

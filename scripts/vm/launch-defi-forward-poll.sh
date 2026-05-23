@@ -30,7 +30,7 @@
 # indices, perp funding, oracle prices, gas fees, LST rates, plus the
 # Phase-1-expansion event types (liquidation_events, flash_loan_events,
 # staking_yields, etc.) across the protocol-chain composite venues
-# (UNISWAPV2/3/4, CURVE, BALANCER, AAVEV3, COMPOUNDV3, MORPHO, FLUID, LIDO,
+# (UNISWAP_V2/3/4, CURVE, BALANCER, AAVE_V3, COMPOUND_V3, MORPHO, FLUID, LIDO,
 # ETHERFI, ETHENA, JITO).
 #
 # Same code path as launch-canonical-migration-vm.sh DEFI path / the existing
