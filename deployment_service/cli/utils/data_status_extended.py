@@ -80,8 +80,8 @@ def run_t1_check(
         raise SystemExit(1)
 
     with open(cluster_path) as fh:
-        loaded_config: object = yaml.safe_load(fh)
-        cluster_cfg: dict[str, object] = loaded_config if isinstance(loaded_config, dict) else {}
+        loaded_config = cast(dict[str, object], yaml.safe_load(fh))
+        cluster_cfg: dict[str, object] = loaded_config
 
     services: list[str] = []
     raw_services = cast("list[str]", cluster_cfg.get("services") or [])

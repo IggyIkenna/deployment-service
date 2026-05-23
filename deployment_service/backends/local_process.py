@@ -13,7 +13,9 @@ import logging
 import signal
 import subprocess
 from datetime import UTC, datetime
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import cast
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -473,7 +475,14 @@ class LocalProcessBackend(ComputeBackend):
 
         try:
             with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as response:  # nosec B310 — localhost health check, not user-controlled URL
-                status: int = getattr(response, "status", getattr(response, "getcode", lambda: 0)())
+                response_typed = cast(HTTPResponse, response)
+                # urlopen returns HTTPResponse with status/getcode methods
+                if hasattr(response_typed, "status"):
+                    status = response_typed.status
+                elif hasattr(response_typed, "getcode"):
+                    status = response_typed.getcode()
+                else:
+                    status = 0
                 if status == 200:
                     return JobStatus.RUNNING
                 tracked.error_message = f"Health check returned {status}"

@@ -130,13 +130,9 @@ class ClusterOrchestrator:
             raise FileNotFoundError(msg)
 
         with open(cluster_path) as f:
-            raw = yaml.safe_load(f)
+            raw = cast(dict[str, object], yaml.safe_load(f))
 
-        if not isinstance(raw, dict):
-            msg = f"Invalid cluster config format in {cluster_path}: expected mapping"
-            raise ValueError(msg)
-
-        raw_data = cast(dict[str, object], raw)
+        raw_data = raw
         services_raw = raw_data.get("services")
         if not isinstance(services_raw, list):
             msg = f"Cluster {name} has no 'services' list"

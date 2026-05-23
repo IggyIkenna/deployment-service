@@ -22,7 +22,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Protocol, cast
 
 from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
@@ -89,8 +89,8 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
 
     @classmethod
     def from_json(cls, payload: str) -> DeploymentRegistryEntry:
-        data = json.loads(payload)
-        extras_raw = data.get("extras", {})
+        data = cast(dict[str, object], json.loads(payload))
+        extras_raw = cast(dict[str, object], data.get("extras", {}))
         extras = {str(k): str(v) for k, v in extras_raw.items()} if isinstance(extras_raw, dict) else {}
         return cls(
             deployment_id=str(data["deployment_id"]),

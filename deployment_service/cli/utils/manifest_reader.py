@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+from typing import cast
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -306,7 +307,7 @@ class ManifestReader:
             venue_weighted_found = 0
             if sub_dim_key and "venue" in filtered.columns:
                 for venue_val_raw in sorted(filtered["venue"].unique()):
-                    venue_val: object = venue_val_raw
+                    venue_val: object = cast(object, venue_val_raw)
                     venue_str: str = str(venue_val)
                     v_mask = filtered["venue"] == venue_str
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
@@ -532,7 +533,7 @@ class ManifestReader:
                     v_mask = index["venue"] == venue
                     v_dates = index.loc[v_mask, "date"]
                     if not v_dates.empty:
-                        target_date = str(v_dates.max())
+                        target_date = str(cast(object, v_dates.max()))
                     else:
                         return {"error": f"No data for venue {venue}", "venue": venue}
                 else:
@@ -640,11 +641,11 @@ class ManifestReader:
                 index["venue"] = index["venue"].replace(_VENUE_ALIASES)
 
             total_shards = len(index)
-            total_rows = int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
+            total_rows = int(cast(float, index["instrument_count"].sum())) if "instrument_count" in index.columns else 0
             unique_dates = int(index["date"].nunique())
             unique_venues = int(index["venue"].nunique()) if "venue" in index.columns else 0
-            date_min = str(index["date"].min())
-            date_max = str(index["date"].max())
+            date_min = str(cast(object, index["date"].min()))
+            date_max = str(cast(object, index["date"].max()))
 
             # Latest-day instrument type breakdown from actual parquets
             latest_day_counts: dict[str, int] = {}
@@ -652,7 +653,8 @@ class ManifestReader:
             latest_date = date_max
             if "venue" in index.columns:
                 latest_venues = sorted(index.loc[index["date"] == latest_date, "venue"].unique().tolist())
-                for venue_name in latest_venues:
+                for venue_name_raw in latest_venues:
+                    venue_name = str(cast(object, venue_name_raw))
                     detail = self.get_venue_detail(
                         service=service,
                         asset_group=cat,
@@ -713,7 +715,7 @@ class ManifestReader:
         """
         leagues_in_data: set[str] = set()
         if "league_id" in venue_df.columns:
-            leagues_in_data = {lid for lid in venue_df["league_id"].unique() if lid}
+            leagues_in_data = {str(lid) for lid in venue_df["league_id"].unique() if lid}
 
         # All prediction leagues — ensures newly-added leagues show 0%
         all_league_ids = set(get_all_prediction_league_ids())
