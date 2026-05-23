@@ -18,6 +18,16 @@
 #   - All functions are prefixed lc_ (launcher_common) to avoid namespace collisions.
 #   - Functions print errors to >&2 and return/exit non-zero on failure.
 #   - No global state is mutated (functions are pure or emit to stdout).
+#
+# Compatibility: this file supports bash 3.2+ (macOS default) and bash 4+/5
+# (Linux / homebrew). The lc_log_upload_trap_block helper emits shell snippets
+# that run on Ubuntu VMs (bash 5) — runtime targets are bash 5, but the launcher
+# itself runs on the operator's local machine, which on macOS is bash 3.2.
+# When adding new logic, validate with:
+#   /bin/bash -n scripts/vm/lib/launcher_common.sh
+#   /bin/bash -c 'source scripts/vm/lib/launcher_common.sh && <function-call>'
+# before committing. Avoid bash-4+ idioms (${var,,}, ${var^^}, declare -A,
+# mapfile/readarray) — use tr-based / while-read alternatives instead.
 
 set -euo pipefail
 
@@ -48,7 +58,10 @@ lc_singleton_check() {
     local project="${3:?lc_singleton_check: project required}"
     local force="${4:-false}"
 
-    if [[ "${force,,}" == "true" ]]; then
+    # bash-3.2 safe lowercase (macOS default bash lacks ${var,,})
+    local force_lc
+    force_lc="$(printf '%s' "$force" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$force_lc" == "true" ]]; then
         return 0
     fi
 

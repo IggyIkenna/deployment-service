@@ -170,16 +170,24 @@ elif [[ -n "$ASSET_GROUP" ]]; then
 fi
 
 # Deduplicate: merge ASSET_GROUP_REPOS + EXTRA_REPOS
-declare -A _seen_repos
+# bash-3.2 safe — no `declare -A` (macOS default bash lacks associative arrays).
+# Use a space-delimited sentinel string + substring match for the seen-set.
+# Also note: bash 3.2 + `set -u` trips on empty-array expansion `"${arr[@]}"`,
+# so we expand with the `${arr[@]+"${arr[@]}"}` guard pattern that's safe on
+# both bash 3.2 and bash 4+.
+_seen_repos_list=" "
 MERGED_EXTRA_REPOS=()
-for repo in "${ASSET_GROUP_REPOS[@]}" "${EXTRA_REPOS[@]}"; do
-    if [[ -z "${_seen_repos[$repo]:-}" ]]; then
-        _seen_repos[$repo]=1
-        # Don't add repos already in CORE_REPOS (MTDS is handled there)
-        if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" ]]; then
-            MERGED_EXTRA_REPOS+=("$repo")
-        fi
-    fi
+for repo in ${ASSET_GROUP_REPOS[@]+"${ASSET_GROUP_REPOS[@]}"} ${EXTRA_REPOS[@]+"${EXTRA_REPOS[@]}"}; do
+    case "$_seen_repos_list" in
+        *" $repo "*) ;;  # already seen, skip
+        *)
+            _seen_repos_list="${_seen_repos_list}${repo} "
+            # Don't add repos already in CORE_REPOS (MTDS is handled there)
+            if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" ]]; then
+                MERGED_EXTRA_REPOS+=("$repo")
+            fi
+            ;;
+    esac
 done
 
 TMP_DIR=$(mktemp -d)
@@ -417,6 +425,31 @@ else
     gsutil cp "$SCRIPT_DIR/setup-data-pipeline-vm.sh" "gs://$BUCKET/vm/"
     gsutil cp "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh" "gs://$BUCKET/vm/"
     gsutil cp "$SCRIPT_DIR/heartbeat_daemon.py" "gs://$BUCKET/vm/" 2>/dev/null || true
+
+    # Bare-launcher publish — cron-VM hosts (launch-*-fwd-daily-cron-vm.sh) fetch
+    # individual launch-*-forward-poll.sh scripts from a stable GCS path each cron
+    # tick (so updates to a launcher take effect within the cron interval, without
+    # rebuilding the tarball). The cron-VM crontabs reference exactly this path:
+    #   gs://${CODE_BUCKET}/code/deployment-service/scripts/vm/launch-<name>.sh
+    # See launch-cefi-fwd-daily-cron-vm.sh:90 + launch-tradfi-fwd-daily-cron-vm.sh:92.
+    # Without this loop, the cron-VM agent had to do manual uploads (incident
+    # 2026-05-20). The tarball remains the canonical bundle for one-shot VMs —
+    # this just ALSO publishes bare launchers for the cron-VM consumers.
+    log "Publishing bare launcher scripts to gs://$BUCKET/code/deployment-service/scripts/vm/..."
+    _launcher_count=0
+    for _launcher in "$SCRIPT_DIR"/launch-*.sh; do
+        [[ -f "$_launcher" ]] || continue
+        _launcher_name=$(basename "$_launcher")
+        gsutil -q cp "$_launcher" "gs://$BUCKET/code/deployment-service/scripts/vm/$_launcher_name"
+        _launcher_count=$((_launcher_count + 1))
+    done
+    # Also publish the lib/ directory contents — launchers source from it.
+    for _libfile in "$SCRIPT_DIR"/lib/*.sh; do
+        [[ -f "$_libfile" ]] || continue
+        _libfile_name=$(basename "$_libfile")
+        gsutil -q cp "$_libfile" "gs://$BUCKET/code/deployment-service/scripts/vm/lib/$_libfile_name"
+    done
+    log "  Published $_launcher_count bare launchers + lib/ helpers"
 
     # Verify
     log ""
