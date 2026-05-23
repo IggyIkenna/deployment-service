@@ -99,6 +99,7 @@ contract MockUniswapRouter {
 
 contract MockWETH9 {
     mapping(address => uint256) public balanceOf;
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
     function deposit() external payable { balanceOf[msg.sender] += msg.value; }
     function withdraw(uint256 amount) external {
         require(balanceOf[msg.sender] >= amount, "insufficient");
@@ -201,22 +202,55 @@ contract RecursiveLeverageReceiverTest is Test {
     }
 
     // -------------------------------------------------------------------
-    // Test 3: Action — approve ERC20 (allowed selector, allowed target: pool)
+    // Test 3: Cross-asset wstETH/WETH — approve WETH9 for router, swap WETH9→wstETH in callback
+    //
+    // Flash loan asset is WETH9 (an allowed target). Two actions:
+    //   1. weth9.approve(router, flashAmount) — allowed target + approve selector
+    //   2. router.exactInputSingle(weth9→wsteth) — allowed target + exactInputSingle selector
+    // MockWETH9.transferFrom skips allowance check (mock simplification), so the swap succeeds.
+    // Receiver is pre-seeded with repayment WETH9 (flashAmount+premium) since the swap consumes
+    // the flash-loaned WETH9, and Aave repayment comes from the pre-seeded balance.
     // -------------------------------------------------------------------
-    function test_Action_Approve_AllowedTarget() public {
+    function test_CrossAsset_WstETH_WETH() public {
         uint256 flashAmount = 1 ether;
         uint256 premium = (flashAmount * 5) / 10000;
-        weth.mint(address(receiver), flashAmount + premium);
 
-        Action[] memory actions = new Action[](1);
-        actions[0] = _approveAction(address(weth), address(pool), 999);
+        // Seed pool with WETH9 for flash loan
+        weth9.mint(address(pool), flashAmount + premium);
+        // Seed router with wstETH for 1:1 mock swap
+        wsteth.mint(address(router), flashAmount);
+        // Pre-seed receiver with repayment WETH9 (swap consumes flashAmount; pool reclaims flashAmount+premium)
+        weth9.mint(address(receiver), flashAmount + premium);
+
+        // Action 0: approve WETH9 for router (allowed target=weth9, selector=approve)
+        Action[] memory actions = new Action[](2);
+        actions[0] = Action({
+            target: address(weth9),
+            data: abi.encodeWithSelector(IERC20.approve.selector, address(router), flashAmount),
+            value: 0
+        });
+
+        // Action 1: swap WETH9 → wstETH via Uniswap router (allowed target=router)
+        ISwapRouter.ExactInputSingleParams memory swapParams = ISwapRouter.ExactInputSingleParams({
+            tokenIn: address(weth9),
+            tokenOut: address(wsteth),
+            fee: 500,
+            recipient: address(receiver),
+            amountIn: flashAmount,
+            amountOutMinimum: 0,
+            sqrtPriceLimitX96: 0
+        });
+        actions[1] = Action({
+            target: address(router),
+            data: abi.encodeWithSelector(ISwapRouter.exactInputSingle.selector, swapParams),
+            value: 0
+        });
 
         bytes memory params = abi.encode(actions, CORRELATION_ID);
-        pool.flashLoanSimple(address(receiver), address(weth), flashAmount, params, 0);
-        // approve on weth with target=weth — weth is NOT in allowed targets; test target=pool via approve
-        // (approve selector allowed on any allowed target — pool doesn't implement approve but the
-        //  whitelist check is selector-level; call will fail at EVM level, not whitelist)
-        // Note: for a real supply action we'd encode IAavePool.supply; here we just verify whitelist passes.
+        pool.flashLoanSimple(address(receiver), address(weth9), flashAmount, params, 0);
+
+        // wstETH arrived at receiver from the swap
+        assertEq(wsteth.balanceOf(address(receiver)), flashAmount);
     }
 
     // -------------------------------------------------------------------
@@ -224,12 +258,14 @@ contract RecursiveLeverageReceiverTest is Test {
     // -------------------------------------------------------------------
     function test_FailedFlashRepayment_Reverts() public {
         uint256 flashAmount = 1 ether;
-        // Do NOT mint repayment funds → InsufficientRepaymentBalance revert
+        uint256 premium = (flashAmount * 5) / 10000;
+        // Do NOT mint extra repayment funds. Pool sends flashAmount to receiver before callback,
+        // so receiver holds flashAmount but owes flashAmount+premium → InsufficientRepaymentBalance.
         bytes memory params = _noopParams();
         vm.expectRevert(abi.encodeWithSelector(
             RecursiveLeverageReceiver.InsufficientRepaymentBalance.selector,
-            flashAmount + (flashAmount * 5) / 10000,
-            0
+            flashAmount + premium,
+            flashAmount
         ));
         pool.flashLoanSimple(address(receiver), address(weth), flashAmount, params, 0);
     }
@@ -380,5 +416,24 @@ contract RecursiveLeverageReceiverTest is Test {
             bytes4(abi.encodeWithSignature("setReceiver(address)"))
         ));
         pool.flashLoanSimple(address(receiver), address(weth), flashAmount, params, 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Test 12: Persistent driver — lock resets; receiver reusable across calls
+    // -------------------------------------------------------------------
+    function test_PersistentDriver_MultiCall() public {
+        // Simulates a persistent (non-flash) recursive open: the same receiver
+        // is reused across multiple sequential flash loan iterations.
+        // Verifies _lock resets to 1 after each executeOperation so subsequent
+        // calls succeed (no spurious ReentrancyDetected from stale lock).
+        uint256 flashAmount = 1 ether;
+        uint256 premium = (flashAmount * 5) / 10000;
+
+        for (uint256 i = 0; i < 3; i++) {
+            weth.mint(address(receiver), flashAmount + premium);
+            bytes memory params = _noopParams();
+            pool.flashLoanSimple(address(receiver), address(weth), flashAmount, params, 0);
+        }
+        // All 3 iterations complete without ReentrancyDetected — lock resets correctly each time.
     }
 }
