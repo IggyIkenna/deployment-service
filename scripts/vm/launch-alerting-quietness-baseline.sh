@@ -53,8 +53,11 @@ set -euo pipefail
 FORCE=false
 DURATION_HOURS=48
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --force)
       FORCE=true
       shift
@@ -143,29 +146,34 @@ echo "  events:    gs://${PROJECT}-events/events/alerting-service/$(date -u +%Y-
 
 # Launch via the standard data-pipeline-vm bootstrap; service-specific args
 # pass through the metadata channel that setup-data-pipeline-vm.sh consumes.
-gcloud compute instances create "$VM_NAME" \
-  --zone="$ZONE" \
-  --project="$PROJECT" \
-  --machine-type=e2-standard-2 \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
-  --boot-disk-size=20GB \
-  --service-account="${SERVICE_ACCOUNT}" \
-  --scopes=cloud-platform \
-  --metadata="\
-SERVICE_REPO=alerting-service,\
-VM_SERVICE=alerting_service,\
-VM_TASK=alerting-quietness-baseline,\
-VM_NAME=${VM_NAME},\
-VM_DURATION_HOURS=${DURATION_HOURS},\
-VM_SHUTDOWN_ON_COMPLETION=true,\
-TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
-TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
-DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
-CODE_BUCKET=${CODE_BUCKET},\
-PROJECT_ID=${PROJECT}" \
-  --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
-  --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --zone="$ZONE" \
+    --project="$PROJECT" \
+    --machine-type=e2-standard-2 \
+    --image-family=debian-12 \
+    --image-project=debian-cloud \
+    --boot-disk-size=20GB \
+    --service-account="${SERVICE_ACCOUNT}" \
+    --scopes=cloud-platform \
+    --metadata="\
+  SERVICE_REPO=alerting-service,\
+  VM_SERVICE=alerting_service,\
+  VM_TASK=alerting-quietness-baseline,\
+  VM_NAME=${VM_NAME},\
+  VM_DURATION_HOURS=${DURATION_HOURS},\
+  VM_SHUTDOWN_ON_COMPLETION=true,\
+  TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
+  TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
+  DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
+  CODE_BUCKET=${CODE_BUCKET},\
+  PROJECT_ID=${PROJECT}" \
+    --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+    --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
+fi
 
 echo ""
 echo "VM launched. Verify event stream within 90s:"

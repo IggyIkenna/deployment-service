@@ -44,8 +44,11 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Parse --env flag (anywhere in args) while preserving positional MODE+dates.
 _positional=()
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) _positional+=("$1"); shift ;;
     esac
@@ -193,6 +196,12 @@ _launch_one() {
     local zone_count=${#ZONES[@]}
     local attempt=0
     local zone_offset=$(( (shard_idx - 1) % zone_count ))
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        echo "[DRY-RUN] Would create VM: $vm_name (window=${start_date}..${end_date}, shard=${shard_idx})"
+        echo "[DRY-RUN]   meta=${meta}"
+        echo "ok" > "$RESULTS_DIR/$vm_name"
+        return 0
+    fi
     while (( attempt < RETRY_MAX * zone_count )); do
         local zone="${ZONES[$(( (zone_offset + attempt) % zone_count ))]}"
         if gcloud compute instances create "$vm_name" \

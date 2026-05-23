@@ -45,8 +45,11 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Strip --force / --env <val> from anywhere in args without disturbing positional shape.
 NEW_ARGS=()
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) NEW_ARGS+=("$1"); shift ;;
@@ -109,16 +112,21 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=SOCCER_FOOTBALL_INFO"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-2 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=sfi-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-2 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=sfi-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

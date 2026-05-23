@@ -48,6 +48,20 @@
 
 set -euo pipefail
 
+# Pre-parse --dry-run anywhere in the arg list so it doesn't pollute the
+# positional date args. Codified 2026-05-20 per
+# plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md.
+DRY_RUN=false
+_pos=()
+for _arg in "$@"; do
+    if [[ "$_arg" == "--dry-run" ]]; then
+        DRY_RUN=true
+    else
+        _pos+=("$_arg")
+    fi
+done
+set -- "${_pos[@]:+${_pos[@]}}"
+
 START_DATE="${1:-}"
 END_DATE="${2:-}"
 MODE="${3:-dry}"  # dry | full
@@ -100,6 +114,16 @@ cat >&2 <<EOM
     See plans/active/features_repo_consolidation_2026_05_08.md § Phase 8A.
 
 EOM
+
+if $DRY_RUN; then
+    echo "[DRY-RUN] Would delegate to: $CONSOLIDATED"
+    echo "[DRY-RUN]   args: --feature-family onchain --asset-group DEFI"
+    echo "[DRY-RUN]         --start-date $START_DATE --end-date $END_DATE"
+    echo "[DRY-RUN]         --mode batch --launch-mode $MODE"
+    echo "[DRY-RUN]   env:  FEATURE_GROUP=${FEATURE_GROUP:-ALL} SKIP_DEPENDENCY_CHECK=${SKIP_DEPENDENCY_CHECK:-} FORCE=${FORCE:-}"
+    echo "[DRY-RUN] No VM created."
+    exit 0
+fi
 
 # Forward env overrides explicitly so the consolidated launcher's positional
 # args + env reads pick them up.

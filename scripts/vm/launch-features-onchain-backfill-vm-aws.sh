@@ -18,6 +18,19 @@
 #   FORCE=1                   rewrite parquets even if manifest shows captured
 set -euo pipefail
 
+# Pre-parse --dry-run anywhere in the arg list. Codified 2026-05-20 per
+# plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md.
+DRY_RUN=false
+_pos=()
+for _arg in "$@"; do
+    if [[ "$_arg" == "--dry-run" ]]; then
+        DRY_RUN=true
+    else
+        _pos+=("$_arg")
+    fi
+done
+set -- "${_pos[@]:+${_pos[@]}}"
+
 START_DATE="${1:-}"
 END_DATE="${2:-}"
 MODE="${3:-dry}"
@@ -46,6 +59,14 @@ CONSOLIDATED="${SCRIPT_DIR}/launch-features-backfill-vm-aws.sh"
 if [[ ! -x "$CONSOLIDATED" ]]; then
   echo "ERROR: consolidated AWS launcher not found / not executable: $CONSOLIDATED" >&2
   exit 1
+fi
+
+if $DRY_RUN; then
+  echo "[DRY-RUN] Would delegate to: $CONSOLIDATED"
+  echo "[DRY-RUN]   args: onchain DEFI $START_DATE $END_DATE $MODE"
+  echo "[DRY-RUN]   env:  FEATURE_GROUP=${FEATURE_GROUP:-ALL} SKIP_DEPENDENCY_CHECK=${SKIP_DEPENDENCY_CHECK:-} FORCE=${FORCE:-}"
+  echo "[DRY-RUN] No EC2 instance created."
+  exit 0
 fi
 
 exec env \

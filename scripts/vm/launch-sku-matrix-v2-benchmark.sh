@@ -25,6 +25,19 @@
 # vm_zombie_watchdog.py:VM_PREFIX_TO_BUCKET (add it if absent and relaunch watchdog).
 set -euo pipefail
 
+# Pre-parse --dry-run from any position. Codified 2026-05-20 per
+# plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md.
+DRY_RUN=false
+_pos=()
+for _arg in "$@"; do
+    if [[ "$_arg" == "--dry-run" ]]; then
+        DRY_RUN=true
+    else
+        _pos+=("$_arg")
+    fi
+done
+set -- "${_pos[@]:+${_pos[@]}}"
+
 SCRIPT_DIR="$(dirname "$0")"
 DATE_START="${DATE_START:-2024-01-01}"
 DATE_END="${DATE_END:-2024-01-07}"
@@ -45,9 +58,15 @@ echo "Window:    ${DATE_START} → ${DATE_END}"
 echo "Mode:      $MODE"
 echo ""
 
+DRY_RUN_ARG=()
+if $DRY_RUN; then
+  DRY_RUN_ARG=("--dry-run")
+  echo "[DRY-RUN] Propagating --dry-run to per-archetype launch-synthetic-benchmark-vm.sh invocations."
+fi
 for ARCHETYPE in $ARCHETYPES; do
   echo "--- Launching $ARCHETYPE ---"
   bash "${SCRIPT_DIR}/launch-synthetic-benchmark-vm.sh" \
+    "${DRY_RUN_ARG[@]:+${DRY_RUN_ARG[@]}}" \
     --archetype "$ARCHETYPE" \
     --shapes "$V2_SHAPES" \
     --date-start "$DATE_START" \

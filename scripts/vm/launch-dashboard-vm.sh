@@ -16,12 +16,14 @@ VM_NAME="deployment-dashboard-vm"
 WORKERS="8"
 MACHINE_TYPE="n2-standard-8"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
 
 for arg in "$@"; do
   case $arg in
     --machine-type=*) MACHINE_TYPE="${arg#*=}" ;;
     --workers=*)      WORKERS="${arg#*=}" ;;
     --env=*)          DEPLOYMENT_ENV="${arg#*=}" ;;
+    --dry-run)        DRY_RUN=true ;;
     --machine-type)   shift; MACHINE_TYPE="$1" ;;
     --workers)        shift; WORKERS="$1" ;;
     --env)            shift; DEPLOYMENT_ENV="$1" ;;
@@ -43,6 +45,17 @@ echo "Project:       $PROJECT_ID" "Zone: $ZONE" "VM: $VM_NAME" "Machine: $MACHIN
 echo ""
 
 gcloud auth print-access-token &>/dev/null || { echo "Not authenticated. Run: gcloud auth login"; exit 1; }
+
+if $DRY_RUN; then
+  echo "[DRY-RUN] Would: gcloud config set project $PROJECT_ID"
+  echo "[DRY-RUN] Would: docker build + push $IMAGE_URI"
+  echo "[DRY-RUN] Would: add IAM binding, create firewall rule, delete + recreate VM $VM_NAME"
+  echo "[DRY-RUN] Would: gcloud compute instances create-with-container $VM_NAME"
+  echo "[DRY-RUN]   machine=$MACHINE_TYPE workers=$WORKERS env=$DEPLOYMENT_ENV image=$IMAGE_URI"
+  echo "[DRY-RUN] No VM, image, or firewall rule created."
+  exit 0
+fi
+
 gcloud config set project "$PROJECT_ID"
 
 echo "Building Docker image..."

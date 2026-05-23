@@ -48,8 +48,11 @@ set -euo pipefail
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 _positional=()
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) _positional+=("$1"); shift ;;
     esac
@@ -96,9 +99,14 @@ DAY_COUNT="$(echo "$DAY_LIST" | wc -l | tr -d ' ')"
 echo "Launching $DAY_COUNT parallel day-VMs (one per day):"
 
 LAUNCH_T0="$(date +%s)"
+DRY_RUN_ARG=()
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    DRY_RUN_ARG=("--dry-run")
+    echo "[DRY-RUN] Propagating --dry-run to per-day launch-cefi-forward-poll.sh invocations."
+fi
 for d in $DAY_LIST; do
-    echo "  → cefi-fwd $d $d --force"
-    bash "$SCRIPT_DIR/launch-cefi-forward-poll.sh" --force --env "$DEPLOYMENT_ENV" "$d" "$d" \
+    echo "  → cefi-fwd $d $d --force ${DRY_RUN_ARG[*]:-}"
+    bash "$SCRIPT_DIR/launch-cefi-forward-poll.sh" "${DRY_RUN_ARG[@]:+${DRY_RUN_ARG[@]}}" --force --env "$DEPLOYMENT_ENV" "$d" "$d" \
         > "/tmp/cefi-week-test-${RUN_TS}-${d}.log" 2>&1 &
     # Stagger 2s between launches: VM names use RUN_TS=YYYYMMDD-HHMMSS so
     # same-second launches collide on gcloud create. 2s gap > 1s timestamp

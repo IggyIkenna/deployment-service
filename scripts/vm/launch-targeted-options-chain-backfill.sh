@@ -42,8 +42,11 @@ SELECTED_VENUE=""
 SELECTED_YEAR=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --dry)    DRY=1; shift ;;
         --commit) DRY=0; shift ;;
         --venue)  SELECTED_VENUE="$2"; shift 2 ;;
@@ -104,12 +107,17 @@ _launch_shard() {
         echo "      data_types=options_chain symbols=${symbols}"
     else
         echo "Launching ${vm_name}"
-        gcloud compute instances create "${vm_name}" \
-            --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
-            --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-            --scopes=cloud-platform --metadata="${meta}" \
-            --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
-            --project="${PROJECT}" --async 2>&1 | tail -1
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+          echo "[DRY-RUN] Would create VM: "${vm_name}""
+          echo "[DRY-RUN] (gcloud compute instances create skipped)"
+        else
+          gcloud compute instances create "${vm_name}" \
+              --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
+              --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+              --scopes=cloud-platform --metadata="${meta}" \
+              --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
+              --project="${PROJECT}" --async 2>&1 | tail -1
+        fi
         sleep 2
     fi
 }

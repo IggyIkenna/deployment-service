@@ -53,8 +53,11 @@ set -euo pipefail
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --force) FORCE=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
@@ -137,16 +140,21 @@ METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
-gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=mtds-pyth-archive-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+      --project="$PROJECT" \
+      --zone="$ZONE" \
+      --machine-type="$MACHINE_TYPE" \
+      --image-family=ubuntu-2404-lts-amd64 \
+      --image-project=ubuntu-os-cloud \
+      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      --scopes=cloud-platform \
+      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      --labels=purpose=mtds-pyth-archive-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -32,11 +32,12 @@ source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
-# Pre-parse --env <val> in any position before positional args.
+# Pre-parse --env <val> + --dry-run in any position before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --dry-run) export LC_DRY_RUN=true; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done

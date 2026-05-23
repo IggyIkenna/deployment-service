@@ -110,6 +110,22 @@ lc_gcloud_create() {
     local metadata_str="${6:?lc_gcloud_create: metadata_str required}"
     local labels_str="${7:?lc_gcloud_create: labels_str required}"
 
+    # Centralised dry-run safety net (codified 2026-05-20 after the
+    # launch-tradfi-forward-poll.sh incident — see
+    # plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md).
+    # Any caller (launcher or wrapper) that exports LC_DRY_RUN=true short-circuits
+    # the real `gcloud compute instances create` call. Per-launcher --dry-run
+    # parsing should set + export LC_DRY_RUN=true before invoking this helper.
+    local lc_dry_run_lc
+    lc_dry_run_lc="$(printf '%s' "${LC_DRY_RUN:-false}" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$lc_dry_run_lc" == "true" ]]; then
+        echo "[DRY-RUN] Would create VM: ${vm_name}"
+        echo "[DRY-RUN]   project=${project} zone=${zone} machine=${machine_type} disk=${disk_gb}GB"
+        echo "[DRY-RUN]   metadata=${metadata_str}"
+        echo "[DRY-RUN]   labels=${labels_str}"
+        return 0
+    fi
+
     gcloud compute instances create "$vm_name" \
         --project="$project" \
         --zone="$zone" \

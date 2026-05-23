@@ -68,8 +68,11 @@ ROW_COUNT_SCALE="1.0"
 # `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
 
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --archetype) ARCHETYPE="$2"; shift 2 ;;
     --shapes) SHAPES="$2"; shift 2 ;;
     --date-start) DATE_START="$2"; shift 2 ;;
@@ -115,35 +118,40 @@ for SHAPE in $SHAPES; do
   echo "  report:     ${VM_REPORT_URI}/${ARCHETYPE}/${VM_NAME}/stage_profile.parquet"
   echo "  events:     gs://${PROJECT}-events/events/unified-trading-library/$(date -u +%Y-%m-%d)/${VM_NAME}/"
   echo "  cmd:        ${VM_BACKFILL_CMD}"
-  gcloud compute instances create "$VM_NAME" \
-    --zone="$ZONE" \
-    --project="$PROJECT" \
-    --machine-type="$SHAPE" \
-    --image-family=debian-12 \
-    --image-project=debian-cloud \
-    --boot-disk-size=50GB \
-    --service-account="${SERVICE_ACCOUNT}" \
-    --scopes=cloud-platform \
-    --metadata="\
-SERVICE_REPO=unified-trading-library,\
-SERVICE_MODULE=unified_trading_library.synthetic,\
-VM_NAME=${VM_NAME},\
-VM_SHUTDOWN_ON_COMPLETION=true,\
-VM_TASK=synthetic-benchmark,\
-VM_BACKFILL_CMD=${VM_BACKFILL_CMD},\
-SYNTHETIC_ARCHETYPE=${ARCHETYPE},\
-SYNTHETIC_MODE=${MODE},\
-SYNTHETIC_DATE_START=${DATE_START},\
-SYNTHETIC_DATE_END=${DATE_END},\
-SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE},\
-SYNTHETIC_INPUT_URI=${VM_INPUT_URI},\
-SYNTHETIC_REPORT_URI=${VM_REPORT_URI},\
-BENCHMARK_VM_SHAPE=${SHAPE},\
-DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
-CODE_BUCKET=${CODE_BUCKET},\
-PROJECT_ID=${PROJECT}" \
-    --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
-    --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    echo "[DRY-RUN] Would create VM: "$VM_NAME""
+    echo "[DRY-RUN] (gcloud compute instances create skipped)"
+  else
+    gcloud compute instances create "$VM_NAME" \
+      --zone="$ZONE" \
+      --project="$PROJECT" \
+      --machine-type="$SHAPE" \
+      --image-family=debian-12 \
+      --image-project=debian-cloud \
+      --boot-disk-size=50GB \
+      --service-account="${SERVICE_ACCOUNT}" \
+      --scopes=cloud-platform \
+      --metadata="\
+  SERVICE_REPO=unified-trading-library,\
+  SERVICE_MODULE=unified_trading_library.synthetic,\
+  VM_NAME=${VM_NAME},\
+  VM_SHUTDOWN_ON_COMPLETION=true,\
+  VM_TASK=synthetic-benchmark,\
+  VM_BACKFILL_CMD=${VM_BACKFILL_CMD},\
+  SYNTHETIC_ARCHETYPE=${ARCHETYPE},\
+  SYNTHETIC_MODE=${MODE},\
+  SYNTHETIC_DATE_START=${DATE_START},\
+  SYNTHETIC_DATE_END=${DATE_END},\
+  SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE},\
+  SYNTHETIC_INPUT_URI=${VM_INPUT_URI},\
+  SYNTHETIC_REPORT_URI=${VM_REPORT_URI},\
+  BENCHMARK_VM_SHAPE=${SHAPE},\
+  DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
+  CODE_BUCKET=${CODE_BUCKET},\
+  PROJECT_ID=${PROJECT}" \
+      --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+      --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
+  fi
 done
 
 echo ""
