@@ -1,6 +1,11 @@
 # --- Keep these (do not ignore): uv.lock, package.json, .env.example, tsconfig.json ---
 # --- Repo-specific exceptions (add below; sync preserves this section) ---
 .readiness
+# Foundry/Forge build artifacts
+contracts/cache/
+contracts/lib/
+contracts/out/
+contracts/.gas-snapshot
 
 # =============================================================================
 # Central .gitignore — workspace SSOT (Python + React/TS + security)
