@@ -135,6 +135,47 @@ module "batch_live_recon_job" {
 }
 
 # -------------------------------------------------------
+# Phase 1 (F-41 follow-up, P1): strategy-service-t1-recon Cloud Run Job
+#
+# The uts-prod-strategy-t1-schedule scheduler (t1_batch_scheduler.tf) targets
+# uts-prod-strategy-service-t1-recon but that CRJ was never provisioned.
+# Discovered at slot-6 2026-05-23 during Phase 4 verification (scheduler fires
+# HTTP 404). Provisioned here per defi_collection_scheduler.tf pattern.
+# -------------------------------------------------------
+
+module "strategy_t1_recon_job" {
+  source = "../modules/container-job/gcp"
+
+  # Name MUST match t1_batch_services["strategy"].job_name
+  name                  = "${local.env_prefix}-strategy-service-t1-recon"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+  image                 = local.strategy_image
+  cpu                   = "4"
+  memory                = "8Gi"
+  timeout_seconds       = 7200  # 2h — reads T+1 ML output, writes strategy signals
+  max_retries           = 1
+  parallelism           = 1
+  task_count            = 1
+
+  args = ["--operation", "backtest", "--mode", "batch"]
+
+  environment_variables = {
+    GCP_PROJECT_ID = var.project_id
+    DEPLOYMENT_ENV = var.environment
+    CLOUD_PROVIDER = "gcp"
+  }
+
+  service_name = "strategy-service"
+  environment  = var.environment
+  labels = {
+    "purpose" = "t1-batch-strategy"
+    "finding" = "f-41-followup"
+  }
+}
+
+# -------------------------------------------------------
 # Phase 2 (F-39): mtds-paper-smoke — backtest-fidelity gate
 #
 # Runs a one-day backtest smoke against yesterday's MTDS data via the
