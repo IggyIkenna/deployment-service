@@ -62,6 +62,8 @@ def _scan_fixture_prefix(
     Populates league_counts with the number of fixture files per league.
     Fixture files are at: {prefix}league={league_id}/fixtures.parquet
     """
+    if cloud_client.client is None:
+        return
     bucket = cloud_client.client.bucket(bucket_name)
     blobs = list(bucket.list_blobs(prefix=prefix, max_results=5000))
 
@@ -258,6 +260,8 @@ def _check_league_status(
 
         # Check if fixture data exists in GCS for this league on this date
         new_prefix = f"sports_reference/by_date/day={date_str}/entity=fixtures/league={league_id}/"
+        if cloud_client.client is None:
+            continue
         bucket = cloud_client.client.bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=new_prefix, max_results=1))
         has_data = any(b.name.endswith(".parquet") for b in blobs)

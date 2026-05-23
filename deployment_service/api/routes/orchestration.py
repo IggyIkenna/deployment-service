@@ -40,7 +40,8 @@ def _load_cluster_config(cluster_name: str) -> dict[str, object]:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Cluster '{cluster_name}' not found")
     with open(path) as f:
-        data: dict[str, object] = yaml.safe_load(f)
+        loaded_data: object = yaml.safe_load(f)
+        data: dict[str, object] = loaded_data if isinstance(loaded_data, dict) else {}
     return data
 
 

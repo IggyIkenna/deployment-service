@@ -472,10 +472,11 @@ class LocalProcessBackend(ComputeBackend):
             return JobStatus.RUNNING
 
         try:
-            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as resp:  # nosec B310 — localhost health check, not user-controlled URL
-                if resp.status == 200:
+            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as response:  # nosec B310 — localhost health check, not user-controlled URL
+                status: int = getattr(response, "status", getattr(response, "getcode", lambda: 0)())
+                if status == 200:
                     return JobStatus.RUNNING
-                tracked.error_message = f"Health check returned {resp.status}"
+                tracked.error_message = f"Health check returned {status}"
                 return JobStatus.FAILED
         except (URLError, OSError):
             # Service may still be starting up

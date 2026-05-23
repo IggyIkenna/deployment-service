@@ -291,7 +291,7 @@ class ClusterOrchestrator:
         ordered_services.reverse()
 
         for service_name in ordered_services:
-            self._stop_service(service_name)
+            self.stop_service(service_name)
 
         log_event(
             "cluster.teardown.completed",
@@ -632,7 +632,7 @@ class ClusterOrchestrator:
 
         return svc_status
 
-    def _stop_service(self, service_name: str) -> None:
+    def stop_service(self, service_name: str) -> None:
         """Stop a running service.
 
         Args:

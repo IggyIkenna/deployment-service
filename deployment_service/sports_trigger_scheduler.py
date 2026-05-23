@@ -648,6 +648,7 @@ class SportsTriggerScheduler:
             cwd or "<inherited>",
         )
 
+        process: subprocess.Popen[bytes] | None = None
         try:
             process = subprocess.Popen(
                 cmd_tokens,
@@ -656,7 +657,7 @@ class SportsTriggerScheduler:
                 stderr=subprocess.PIPE,
             )
 
-            stdout_bytes, stderr_bytes = process.communicate(timeout=3600)
+            _, stderr_bytes = process.communicate(timeout=3600)
 
             if process.returncode != 0:
                 stderr_text = stderr_bytes.decode("utf-8", errors="replace")[:500]
@@ -686,25 +687,17 @@ class SportsTriggerScheduler:
                 trigger_name,
                 fixture_id,
             )
-            process.kill()
-            process.wait(timeout=10)
+            if process is not None:
+                process.kill()
+                process.wait(timeout=10)
             return False
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError, OSError):
             logger.warning(
                 "Executable not found for %s (trigger=%s fixture=%s) — cmd=%s",
                 service,
                 trigger_name,
                 fixture_id,
                 " ".join(cmd_tokens),
-            )
-            return False
-        except OSError as exc:
-            logger.warning(
-                "OS error dispatching %s (trigger=%s fixture=%s): %s",
-                service,
-                trigger_name,
-                fixture_id,
-                exc,
             )
             return False
 

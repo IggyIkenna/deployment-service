@@ -630,7 +630,7 @@ class T1Orchestrator:
             )
 
             for job_id, job_data in cast(dict[str, dict[str, object]], data.get("jobs") or {}).items():
-                _jd = cast(dict[str, object], job_data)
+                _jd = job_data
                 _job_axis = str(_jd.get("asset_group") or _jd.get("category", ""))
                 job = OrchestratedJob(
                     service=str(_jd["service"]),

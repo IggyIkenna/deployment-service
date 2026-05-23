@@ -37,7 +37,7 @@ _PIPELINE_START_DATE = "2019-01-01"
 # ── Bucket resolution: uses same templates as catalog.py SERVICE_GCS_CONFIGS ──
 # Maps service → bucket template. Templates use {asset_group_lower} and {project_id}.
 # Services without {asset_group_lower} use a shared bucket (no per-category split).
-_BUCKET_TEMPLATES: dict[str, str] = {
+BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-{asset_group_lower}-{project_id}",
     "corporate-actions": "instruments-store-{asset_group_lower}-{project_id}",
     "market-tick-data-service": "market-data-tick-{asset_group_lower}-{project_id}",
@@ -305,8 +305,10 @@ class ManifestReader:
             venue_weighted_expected = 0
             venue_weighted_found = 0
             if sub_dim_key and "venue" in filtered.columns:
-                for venue_val in sorted(filtered["venue"].unique()):
-                    v_mask = filtered["venue"] == venue_val
+                for venue_val_raw in sorted(filtered["venue"].unique()):
+                    venue_val: object = venue_val_raw
+                    venue_str: str = str(venue_val)
+                    v_mask = filtered["venue"] == venue_str
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
 
                     # Resolve venue-specific expected days using launch date.
@@ -315,7 +317,8 @@ class ManifestReader:
                     # ``get_instrument_discovery_start`` so HYPERLIQUID-style
                     # discovery-API gaps clip the denominator (matches the
                     # orchestrator's ``is_venue_available`` gate).
-                    base_venue = venue_val.split(":")[0] if ":" in venue_val else venue_val
+                    split_result = venue_str.split(":")[0] if ":" in venue_str else venue_str
+                    base_venue: str = str(split_result)
                     venue_start = self._venue_mapping.get_instrument_discovery_start(base_venue)
                     effective_start = max(clamped_start, venue_start) if venue_start else clamped_start
                     v_expected = max(
@@ -759,7 +762,7 @@ class ManifestReader:
 
     def _resolve_bucket(self, service: str, asset_group: str) -> str:
         """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
-        template = _BUCKET_TEMPLATES.get(service)
+        template = BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
             ag_slug = asset_group.lower().replace("_", "-") if asset_group else "default"

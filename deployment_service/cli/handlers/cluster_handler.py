@@ -239,7 +239,7 @@ class ClusterHandler:
         """
         try:
             click.echo(f"Stopping live service '{service_name}'...")
-            self._orchestrator._stop_service(service_name)
+            self._orchestrator.stop_service(service_name)
             click.echo(f"Service '{service_name}' stopped.")
 
         except (OSError, RuntimeError) as e:
