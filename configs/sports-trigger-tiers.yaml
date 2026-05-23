@@ -10,6 +10,16 @@
 # the scheduler for per-fixture triggers.
 #
 # SSOT: unified-trading-pm/codex/02-data/sports-scheduling-and-sharding.md
+#
+# Cloud Run dispatch
+# ------------------
+# Each service entry carries an optional ``cloud_run_job_name`` field naming
+# the GCP Cloud Run Job to trigger when the scheduler runs with
+# ``--backend cloud``.  Jobs must be pre-provisioned in the same region as
+# the GCS buckets (asia-northeast1).  If the field is absent or empty the
+# scheduler logs a warning and skips the cloud dispatch for that service.
+# ``cloud_run_config`` must be supplied to ``SportsTriggerScheduler`` with
+# ``project_id``, ``region``, and ``service_account_email``.
 
 # Tier 1: Discovery — periodic, not fixture-proximate.
 # Refreshes the fixture calendar and slow-changing reference data on a
@@ -31,12 +41,14 @@ discovery:
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: FIXTURES
       description: Refresh fixture calendar (rolling today-1..today+7)
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: STANDINGS
       description: Refresh league standings
@@ -51,6 +63,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: INJURIES
       description: Refresh injury/suspension data for all leagues
@@ -58,6 +71,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: TRANSFERS
       description: Refresh transfer data (only during transfer windows)
@@ -66,6 +80,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: LEAGUES
       description: Refresh leagues roster (season-boundary only — promotion/relegation)
@@ -74,6 +89,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
+      cloud_run_job_name: "sports-trigger-instruments"
       args:
         --sports-entity: TEAMS
       description: Refresh per-league team roster (season-boundary only)
@@ -92,10 +108,12 @@ pre_match:
         - service: market-tick-data-service
           operation: download
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-mtds"
           description: Odds snapshot at T-24h
         - service: instruments-service
           operation: instruments
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-instruments"
           args:
             --sports-entity: PREDICTIONS
           description: Pre-match predictions
@@ -107,6 +125,7 @@ pre_match:
         - service: market-tick-data-service
           operation: download
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-mtds"
           description: Odds snapshot at T-6h
 
     - name: odds_t1h
@@ -116,16 +135,19 @@ pre_match:
         - service: market-tick-data-service
           operation: download
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-mtds"
           description: Closing odds snapshot at T-1h
         - service: instruments-service
           operation: instruments
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-instruments"
           args:
             --sports-entity: LINEUPS
           description: Confirmed lineups (when available)
         - service: instruments-service
           operation: instruments
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-instruments"
           args:
             --sports-entity: WEATHER
           description: Match-day weather nowcast
@@ -138,6 +160,7 @@ pre_match:
         - service: features-sports-service
           operation: compute
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-features-sports"
           args:
             --tables: fixture_features
           description: Compute pre-match features from all collected data
@@ -150,6 +173,7 @@ pre_match:
         - service: ml-service
           operation: infer
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-ml"
           description: Run ML inference for pre-match predictions
 
 # Tier 4: Post-match — after fixture completion
@@ -163,6 +187,7 @@ post_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-instruments"
           args:
             --sports-entity: FIXTURE_STATS
           description: Final match stats (goals, shots, cards, etc.)
@@ -173,6 +198,7 @@ post_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
+          cloud_run_job_name: "sports-trigger-instruments"
           args:
             --sports-entity: XG
           description: Delayed advanced stats (xG from Understat/FootyStats)

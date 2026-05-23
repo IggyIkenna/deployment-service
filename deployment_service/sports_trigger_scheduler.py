@@ -28,7 +28,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from .backends.cloud_run import CloudRunBackend
 
 import pandas as pd
 import yaml
@@ -106,6 +109,7 @@ class SportsTriggerScheduler:
         workspace_root: str = "",
         periodic_state: PeriodicTierState | None = None,
         state_bucket: str | None = None,
+        cloud_run_config: dict[str, str] | None = None,
     ) -> None:
         self._config_path = config_path
         self._poll_interval = poll_interval_seconds
@@ -118,6 +122,8 @@ class SportsTriggerScheduler:
         self._periodic_state = (
             periodic_state if periodic_state is not None else self._build_periodic_state(state_bucket)
         )
+        self._cloud_run_config: dict[str, str] = cloud_run_config or {}
+        self._cloud_run_backends: dict[str, CloudRunBackend] = {}
 
     def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
         """Construct the GCS-backed periodic state. Returns None on failure.
@@ -516,17 +522,43 @@ class SportsTriggerScheduler:
                 ):
                     dispatched += 1
             elif self._backend == "cloud":
-                logger.warning(
-                    "Cloud dispatch not yet implemented — skipping %s for trigger %s:%s",
-                    service,
-                    trigger_name,
-                    dispatch_id,
-                )
-                # TODO: integrate with CloudRunBackend.deploy_shard() for
-                # GCP Cloud Run dispatch. Requires building shard_id,
-                # docker_image, and compute_config from service metadata.
-                # NOTE: Tier-1/2 periodic tiers share this stub path so a
-                # single Cloud Run wiring change lights up every tier.
+                cloud_run_job_name = str(svc_config.get("cloud_run_job_name", ""))
+                if not cloud_run_job_name:
+                    logger.warning(
+                        "No cloud_run_job_name for %s (trigger %s:%s) — skipping cloud dispatch",
+                        service,
+                        trigger_name,
+                        dispatch_id,
+                    )
+                elif not self._cloud_run_config:
+                    logger.warning(
+                        "cloud_run_config not set — cannot dispatch %s cloud (trigger %s:%s)",
+                        service,
+                        trigger_name,
+                        dispatch_id,
+                    )
+                else:
+                    cr_backend = self._get_cloud_run_backend(cloud_run_job_name)
+                    if cr_backend is not None and not self._dry_run:
+                        try:
+                            shard_id = f"{service}-{trigger_name}-{dispatch_id}"
+                            cr_backend.deploy_shard(
+                                shard_id=shard_id,
+                                docker_image="",
+                                args=shlex.split(cmd),
+                                environment_variables={},
+                                compute_config={},
+                                labels={"trigger": trigger_name, "dispatch_id": dispatch_id},
+                            )
+                            dispatched += 1
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "Cloud Run dispatch failed for %s (trigger %s:%s): %s",
+                                service,
+                                trigger_name,
+                                dispatch_id,
+                                exc,
+                            )
             else:
                 logger.warning(
                     "Unknown backend %s — skipping %s for trigger %s:%s",
@@ -536,6 +568,38 @@ class SportsTriggerScheduler:
                     dispatch_id,
                 )
         return dispatched
+
+    def _get_cloud_run_backend(self, job_name: str) -> CloudRunBackend | None:
+        """Return a cached CloudRunBackend for the given Cloud Run job name.
+
+        Returns None and logs a warning if cloud_run_config is missing required keys.
+        Backends are cached per job_name so repeated calls share one client instance.
+        """
+        if job_name in self._cloud_run_backends:
+            return self._cloud_run_backends[job_name]
+        required = ("project_id", "region", "service_account_email")
+        missing = [k for k in required if not self._cloud_run_config.get(k)]
+        if missing:
+            logger.warning(
+                "cloud_run_config missing keys %s — cannot create backend for job %s",
+                missing,
+                job_name,
+            )
+            return None
+        try:
+            from .backends.cloud_run import CloudRunBackend as _CloudRunBackend
+
+            backend = _CloudRunBackend(
+                project_id=self._cloud_run_config["project_id"],
+                region=self._cloud_run_config["region"],
+                service_account_email=self._cloud_run_config["service_account_email"],
+                job_name=job_name,
+            )
+            self._cloud_run_backends[job_name] = backend
+            return backend
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to create CloudRunBackend for job %s: %s", job_name, exc)
+            return None
 
     def _dispatch_local(
         self,
