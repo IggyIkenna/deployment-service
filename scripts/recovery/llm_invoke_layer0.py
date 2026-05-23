@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         return 4  # distinct exit code for "rejected by Layer-1.5 wrapper"
 
     try:
-        entry = RecoveryScriptRegistry.lookup(action_type)
+        RecoveryScriptRegistry.lookup(action_type)
     except UnknownActionTypeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 4
