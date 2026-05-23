@@ -150,12 +150,15 @@ CMD_PID=$!
 echo "$CMD_PID" > "$PID_FILE"
 
 # Log-activity watchdog: if LOCAL_LOG hasn't grown in STALL_TIMEOUT_SEC
-# (default 10 min), SIGKILL the command process group (including any GCS
+# (default 30 min), SIGKILL the command process group (including any GCS
 # worker threads that are wedged on pool exhaustion) and write a stall
 # breadcrumb so the daemon's shutdown path can emit DEPLOYMENT_FAILED
 # with a structured reason. Six prior TradFi VMs silently wedged for 5-6h
-# in 2026-04 because no watchdog existed.
-STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-3600}"
+# in 2026-04 because no watchdog existed. 2026-05-23: reduced from 3600s
+# to 1800s — on e2-highmem-8 (64 GB) even the heaviest CeFi shard
+# (DERIBIT BTC-PERPETUAL book_snapshot_5) completes in <15 min; 30 min
+# gives 2× headroom without letting memory-stalled 32 GB VMs idle for 1h.
+STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-1800}"
 STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
