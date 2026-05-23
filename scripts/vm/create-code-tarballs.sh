@@ -318,11 +318,13 @@ for entry in "${CORE_REPOS[@]}"; do
     create_tarball "$repo_dir" "$tarball_name"
 done
 
-for repo in "${MERGED_EXTRA_REPOS[@]}"; do
+if [[ ${#MERGED_EXTRA_REPOS[@]} -gt 0 ]]; then
+  for repo in "${MERGED_EXTRA_REPOS[@]}"; do
     # Derive tarball name from repo name (e.g. instruments-service → instruments-service-code)
     tarball_name="${repo}-code"
     create_tarball "$repo" "$tarball_name"
-done
+  done
+fi
 
 # ── Pre-flight: dep-pin conflict check ─────────────────────────────────────
 # Per plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md
@@ -349,7 +351,8 @@ if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     done
     log "  Workspace peers: ${_PEER_VERSIONS}"
     _CONFLICTS=0
-    for entry in "${CORE_REPOS[@]}" "${MERGED_EXTRA_REPOS[@]}"; do
+    _ALL_REPOS=("${CORE_REPOS[@]}" ${MERGED_EXTRA_REPOS[@]+"${MERGED_EXTRA_REPOS[@]}"})
+    for entry in "${_ALL_REPOS[@]}"; do
         # CORE_REPOS use "dir:tarball" syntax; MERGED_EXTRA is bare dir.
         _dir="${entry%%:*}"
         _pyproject="$WORKSPACE_ROOT/$_dir/pyproject.toml"
