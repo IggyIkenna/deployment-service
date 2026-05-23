@@ -237,9 +237,18 @@ launch_cefi_shard() {
   # 2021 bull-market days scale ~20-30× from AVAX baseline → 20-30 GB peaks.
   # Light bumped from e2-standard-2 (8 GB) to e2-highmem-2 (16 GB) after
   # BYBIT-2021-light OOM on 8 GB. DERIBIT light (options_chain) uses e2-highmem-4
-  # (32 GB) — options_chain 2026 data is multi-GB per day. Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
+  # (32 GB) — options_chain 2026 data is multi-GB per day.
+  # 2026-05-23: bumped heavy default from e2-highmem-4 (32 GB) to e2-highmem-8
+  # (64 GB). shard_memory_profile.py recommends e2-highmem-8 for any DERIBIT /
+  # BINANCE-FUTURES / BYBIT / OKX-SWAP heavy book_snapshot_5 shards (38 GB peak
+  # observed on DERIBIT BTC-PERPETUAL + BTC-options_chain expiry days). 2024
+  # bull-market BINANCE-SPOT data is also 5-10× larger than the 2022-calibrated
+  # 18 MB profile, causing constant 30s memory-pressure pauses on 32 GB that
+  # double backfill runtime. e2-highmem-8 ($0.54/hr) at 64 GB eliminates pauses;
+  # the 2× cost is dominated by VM count × runtime reduction.
+  # Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
   if [[ "$group" == "heavy" ]]; then
-    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-4}"
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-8}"
   elif [[ "$venue" == "DERIBIT" ]]; then
     machine="${MACHINE_TYPE_LIGHT:-e2-highmem-4}"
   else
@@ -250,7 +259,7 @@ launch_cefi_shard() {
   # combos. Used by relaunch-OOM workflow to retry only the dead heavy VMs
   # at higher memory, e.g.:
   #   ONLY="BINANCE-SPOT:2026:heavy DERIBIT:2026:heavy" \
-  #     MACHINE_TYPE_HEAVY=e2-highmem-4 FORCE=1 \
+  #     MACHINE_TYPE_HEAVY=e2-highmem-8 FORCE=1 \
   #     bash launch-cefi-sharded-backfill.sh
   if [[ -n "${ONLY:-}" ]]; then
     local key="${venue}:${year}:${group}"
