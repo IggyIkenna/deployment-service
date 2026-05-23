@@ -387,6 +387,21 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # match covers both patterns. Heartbeat-only — paper VMs write to event-archive
     # only (no per-VM manifest shards).
     "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # Greeks-service compute VMs (greeks-service repo; plan:
+    # plans/active/pricing_ledger_carry_rates_mtds_2026_06_01.md Phase 3).
+    # Two prefixes for the two runtime modes:
+    #   greeks-compute-live-{ts}  → LONG_LIVED_LIVE streaming greeks-service
+    #     subscribed to MTDS mark_update; writes greek+carry columns back to
+    #     PricingLedger MARK_UPDATE rows.
+    #   greeks-compute-batch-{archetype-slug}-{ts} → EPHEMERAL_BATCH backfill
+    #     cron that recomputes greeks over PricingLedger history (per-row
+    #     option_delta/gamma/theta/vega/rho + funding_rate/lending_rate/
+    #     borrow_rate/staking_apy/dividend_yield/rebase_rate).
+    # Heartbeat-only — writes go through MTDS PricingLedger sink bucket via
+    # _resolve_policy_output_data_type, NOT per-VM manifest shards.
+    # Registered 2026-05-23 (operator-ACK'd Phase 5a of global_ledger discovery).
+    "greeks-compute-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "greeks-compute-batch-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
     # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
     # `gcs-migration-bundle-{asset_group}-{year}-{ts}`. Heartbeat-only — migration
