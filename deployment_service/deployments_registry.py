@@ -91,7 +91,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     def from_json(cls, payload: str) -> DeploymentRegistryEntry:
         data = cast(dict[str, object], json.loads(payload))
         extras_raw = cast(dict[str, object], data.get("extras", {}))
-        extras = {str(k): str(v) for k, v in extras_raw.items()} if isinstance(extras_raw, dict) else {}
+        extras = {str(k): str(v) for k, v in extras_raw.items()}
         return cls(
             deployment_id=str(data["deployment_id"]),
             vm_name=str(data["vm_name"]),
