@@ -181,7 +181,7 @@ def temp_config_dir(tmp_path):
             },
             "DEFI": {
                 "description": "Test DEFI",
-                "venues": ["UNISWAPV3-ETHEREUM", "AAVEV3-ETHEREUM"],
+                "venues": ["UNISWAP_V3-ETHEREUM", "AAVE_V3-ETHEREUM"],
                 "data_types": ["swaps", "oracle_prices"],
             },
         }
@@ -352,8 +352,8 @@ def expected_start_dates_config():
             "DEFI": {
                 "category_start": "2024-01-10",  # DEFI launches later
                 "venues": {
-                    "UNISWAPV3-ETHEREUM": "2024-01-10",
-                    "AAVEV3-ETHEREUM": "2024-01-15",  # Launches even later
+                    "UNISWAP_V3-ETHEREUM": "2024-01-10",
+                    "AAVE_V3-ETHEREUM": "2024-01-15",  # Launches even later
                 },
             },
         },
