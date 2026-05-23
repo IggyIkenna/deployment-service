@@ -37,6 +37,10 @@ _ENV_SHORT = "prd"
 
 # Cloud-neutral placeholder; after substitution, GCP/AWS names should match under this.
 _CLOUD_ID = "__CLOUD_ID__"
+
+# Kinds that are GCP-only by design (no AWS counterpart expected)
+_SKIP_GCP_ONLY_KINDS: set[str] = set()
+
 # Kinds with intentional cloud-specific structural divergence (documented in
 # plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20_summary.md § "Notes / Caveats").
 # These are excluded from the symmetric-name check but still checked for ≤63 chars.
@@ -96,9 +100,7 @@ def _check_pair(
 
     for label, name in [("GCP", gcp_name), ("AWS", aws_name)]:
         if len(name) > 63:
-            errors.append(
-                f"  {kind}{ag_label}: {label} name exceeds 63 chars ({len(name)}): {name}"
-            )
+            errors.append(f"  {kind}{ag_label}: {label} name exceeds 63 chars ({len(name)}): {name}")
 
     gcp_has_env = "${DEPLOYMENT_ENV_SHORT}" in gcp_tmpl
     aws_has_env = "${DEPLOYMENT_ENV_SHORT}" in aws_tmpl
@@ -139,14 +141,12 @@ def run(yaml_path: Path) -> int:
 
         if kind in _KNOWN_STRUCTURAL_DIVERGENCES:
             # Still check ≤63 chars even for divergent kinds.
-            reason = _KNOWN_STRUCTURAL_DIVERGENCES[kind]
+            # reason = _KNOWN_STRUCTURAL_DIVERGENCES[kind]  # Keep for documentation
             if isinstance(gcp_tmpl, str) and isinstance(aws_tmpl, str):
                 for label, tmpl, cloud in [("GCP", gcp_tmpl, "gcp"), ("AWS", aws_tmpl, "aws")]:
                     name = _substitute(tmpl, cloud=cloud)
                     if len(name) > 63:
-                        violations.append(
-                            f"  {kind}: {label} name exceeds 63 chars ({len(name)}): {name}"
-                        )
+                        violations.append(f"  {kind}: {label} name exceeds 63 chars ({len(name)}): {name}")
             checked += 1
             continue
 
@@ -168,19 +168,17 @@ def run(yaml_path: Path) -> int:
             if not ok:
                 violations.extend(errs)
         else:
-            violations.append(
-                f"  {kind}: type mismatch (GCP={type(gcp_tmpl).__name__}, AWS={type(aws_tmpl).__name__})"
-            )
+            violations.append(f"  {kind}: type mismatch (GCP={type(gcp_tmpl).__name__}, AWS={type(aws_tmpl).__name__})")
 
     print(f"=== Bucket symmetry check: {checked} kind×ag pairs checked ===")
 
     if gcp_only:
-        print(f"\nGCP-only kinds (no AWS counterpart — by design or missing):")
+        print("\nGCP-only kinds (no AWS counterpart — by design or missing):")
         for k in gcp_only:
             print(f"  {k}")
 
     if aws_only:
-        print(f"\nAWS-only kinds (no GCP counterpart):")
+        print("\nAWS-only kinds (no GCP counterpart):")
         for k in aws_only:
             print(f"  {k}")
 
