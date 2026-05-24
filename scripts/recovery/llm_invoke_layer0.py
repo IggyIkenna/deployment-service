@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 from unified_api_contracts.incident import ActionProvenance, ActionType
-from unified_trading_library.recovery import (
+from unified_trading_library import (
     RecoveryScriptRegistry,
     UnknownActionTypeError,
 )
@@ -94,8 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         valid = sorted(a.value for a in ActionType)
         print(
-            f"ERROR: action_type={args.action_type!r} is not a valid ActionType. "
-            f"Valid values: {valid}",
+            f"ERROR: action_type={args.action_type!r} is not a valid ActionType. Valid values: {valid}",
             file=sys.stderr,
         )
         return 4  # distinct exit code for "rejected by Layer-1.5 wrapper"

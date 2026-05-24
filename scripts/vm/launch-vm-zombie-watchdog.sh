@@ -170,6 +170,12 @@ python3 -m pip install \
     --quiet \
     google-cloud-compute google-cloud-storage 2>&1 || true
 
+# Install UAC (needed by watchdog for VmPrefixSpec + LifecycleClass imports).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
+if [[ -f /tmp/uac.tar.gz ]]; then
+    python3 -m pip install --break-system-packages --ignore-installed --quiet /tmp/uac.tar.gz 2>&1 || true
+fi
+
 ${LOOP_CMD}
 "
 

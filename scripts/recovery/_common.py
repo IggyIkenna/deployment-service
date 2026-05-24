@@ -32,7 +32,7 @@ from unified_api_contracts.incident import (
     ActionStatus,
     ActionType,
 )
-from unified_trading_library.recovery import (
+from unified_trading_library import (
     AgentActionEmitter,
     RecoveryScriptRegistry,
     RepeatedRepairLoopDetector,
@@ -119,13 +119,10 @@ class Layer0Script(ABC):
     def _build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             description=(
-                f"Layer-0 recovery action: {self.ACTION_TYPE.value}\n"
-                f"Runbook: {self.registry_entry.runbook_id}"
+                f"Layer-0 recovery action: {self.ACTION_TYPE.value}\nRunbook: {self.registry_entry.runbook_id}"
             )
         )
-        parser.add_argument(
-            "--reason", required=True, help="Free-text reason for the action."
-        )
+        parser.add_argument("--reason", required=True, help="Free-text reason for the action.")
         parser.add_argument(
             "--incident-key",
             required=False,
