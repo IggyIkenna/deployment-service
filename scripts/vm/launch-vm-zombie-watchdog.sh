@@ -171,6 +171,14 @@ if [[ -f /tmp/uac.tar.gz ]]; then
     /opt/watchdog-venv/bin/pip install --quiet /tmp/uac-src 2>&1 | tail -3 || true
 fi
 
+# Install UTL (needed for resolve_bucket_name import).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-trading-library-code.tar.gz" /tmp/utl.tar.gz 2>&1 || true
+if [[ -f /tmp/utl.tar.gz ]]; then
+    mkdir -p /tmp/utl-src
+    tar xf /tmp/utl.tar.gz -C /tmp/utl-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/utl-src 2>&1 | tail -3 || true
+fi
+
 ${LOOP_CMD}
 "
 
