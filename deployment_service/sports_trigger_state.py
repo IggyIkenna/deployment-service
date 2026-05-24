@@ -106,6 +106,7 @@ class PeriodicTierState:
         try:
             # Import cast locally to avoid top-level imports
             from typing import cast
+
             data: object = cast(object, json.loads(raw))
         except json.JSONDecodeError as exc:
             logger.warning(

@@ -5,6 +5,7 @@
 > the DART Safety Ops manual-override tab.
 
 Codex SSOT:
+
 - `codex/04-architecture/recovery-defence-in-depth-layers.md` § Layer 0
 - `codex/04-architecture/incident-gateway-state-machine.md`
 
@@ -12,18 +13,18 @@ Implementation plan: `plans/active/agent_recovery_controller_layer0_deterministi
 
 ## The 10 scripts
 
-| Script                          | Action                                                    | Runbook        | Idempotent |
-| ------------------------------- | --------------------------------------------------------- | -------------- | ---------- |
-| `restart_service.py`            | Cloud Run revision flip / GCE systemctl restart            | RB-INFRA-001   | yes        |
-| `restart_container.py`          | Cloud Run revision or Docker restart                       | RB-INFRA-001   | yes        |
-| `redeploy_known_good.py`        | Flip Cloud Run traffic to previous revision                | RB-DEPLOY-001  | yes        |
-| `resize_machine_after_oom.py`   | `gcloud compute instances set-machine-type`                | RB-INFRA-001   | yes        |
-| `failover_feed.py`              | MTDS handler primary → backup feed                          | RB-CONN-001   | yes        |
-| `pause_strategy.py`             | strategy-service pause endpoint                            | RB-RISK-004   | yes        |
-| `cancel_open_orders.py`         | execution-service cancel-all-orders                         | RB-RECON-002  | **no**     |
-| `disable_venue.py`              | circuit-breaker force-open                                  | RB-CONN-001   | yes        |
-| `enter_safe_mode.py`            | strategy-service safe-mode entry                            | RB-RISK-004   | yes        |
-| `enter_readonly_recon_mode.py`  | service reads but rejects writes                            | RB-CONN-004   | yes        |
+| Script                         | Action                                          | Runbook       | Idempotent |
+| ------------------------------ | ----------------------------------------------- | ------------- | ---------- |
+| `restart_service.py`           | Cloud Run revision flip / GCE systemctl restart | RB-INFRA-001  | yes        |
+| `restart_container.py`         | Cloud Run revision or Docker restart            | RB-INFRA-001  | yes        |
+| `redeploy_known_good.py`       | Flip Cloud Run traffic to previous revision     | RB-DEPLOY-001 | yes        |
+| `resize_machine_after_oom.py`  | `gcloud compute instances set-machine-type`     | RB-INFRA-001  | yes        |
+| `failover_feed.py`             | MTDS handler primary → backup feed              | RB-CONN-001   | yes        |
+| `pause_strategy.py`            | strategy-service pause endpoint                 | RB-RISK-004   | yes        |
+| `cancel_open_orders.py`        | execution-service cancel-all-orders             | RB-RECON-002  | **no**     |
+| `disable_venue.py`             | circuit-breaker force-open                      | RB-CONN-001   | yes        |
+| `enter_safe_mode.py`           | strategy-service safe-mode entry                | RB-RISK-004   | yes        |
+| `enter_readonly_recon_mode.py` | service reads but rejects writes                | RB-CONN-004   | yes        |
 
 ## Contract (every script)
 

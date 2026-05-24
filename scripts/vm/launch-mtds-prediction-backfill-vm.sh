@@ -48,6 +48,7 @@
 set -euo pipefail
 
 FORCE=false
+VM_FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
@@ -56,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true; shift ;;
         --force) FORCE=true; shift ;;
+        --vm-force) VM_FORCE=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
@@ -77,10 +79,11 @@ elif [[ ${#POSITIONAL[@]} -eq 0 ]]; then
     END_DATE="$START_DATE"
 else
     cat >&2 <<EOF
-Usage: $0 [--force] [--env prod|staging|dev] [START_DATE END_DATE]
+Usage: $0 [--force] [--vm-force] [--env prod|staging|dev] [START_DATE END_DATE]
 
 Defaults to yesterday (T-1). Pass two YYYY-MM-DD dates for an explicit window.
 Pass --force to bypass the singleton lock.
+Pass --vm-force to set VM_FORCE=true (adds --force to the MTDS CLI; bypasses pre-flight manifest check).
 Pass --env to override the env tier (default: \$DEPLOYMENT_ENV or 'prod').
 EOF
     exit 1
@@ -132,6 +135,7 @@ METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+[[ "$VM_FORCE" == "true" ]] && METADATA="${METADATA},VM_FORCE=true"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
