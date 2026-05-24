@@ -305,6 +305,7 @@ launch_cefi_shard() {
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+      --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
@@ -370,6 +371,7 @@ launch_tradfi_shard() {
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+      --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
