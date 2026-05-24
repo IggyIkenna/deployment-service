@@ -159,6 +159,40 @@ probe_aws_secret() {
     return 0
 }
 
+probe_per_client_okx() {
+    # cid: pattern:exec-<client>-okx-{api-key|api-secret|passphrase}
+    # okx is per-client (per-client isolation architecture) — each client has its own
+    # okx sub-account secret. Discover the per-client secrets in Secret Manager
+    # dynamically (no hardcoded client list) and probe each. PASS iff ≥1 exists and
+    # every discovered secret is present + non-placeholder.
+    local cid="$1"
+    local purpose="$2"
+    local suffix="${cid##*-okx-}" # api-key | api-secret | passphrase
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${YELLOW}DRY-RUN${NC} ${cid} (per-client okx, suffix=${suffix})"
+        return 0
+    fi
+
+    local project_id="${GOOGLE_CLOUD_PROJECT:-central-element-323112}"
+    local names
+    names=$(gcloud secrets list --project="${project_id}" --format="value(name)" 2>/dev/null \
+        | grep -E "^exec-[a-z0-9]+-okx-${suffix}$" || true)
+
+    if [[ -z "$names" ]]; then
+        echo -e "  ${RED}FAIL${NC} ${cid} — no per-client okx secrets (exec-*-okx-${suffix}) in Secret Manager"
+        FAILURES+=("${cid}: ${purpose} — no per-client okx secrets provisioned")
+        return 1
+    fi
+
+    local rc=0
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        probe_gcp_secret "$name" "${purpose} [per-client okx]" || rc=1
+    done <<< "$names"
+    return $rc
+}
+
 probe_cloud_kms_cmk() {
     local cmk_alias="$1"
     local purpose="$2"
@@ -244,7 +278,12 @@ echo "Required credentials for mode=${MODE}${ARCHETYPE:+ archetype=${ARCHETYPE}}
 echo ""
 
 while IFS=$'\t' read -r cid purpose; do
-    # Skip wildcard patterns (handled per-venue/per-wallet below)
+    # Per-client okx pattern — expand + probe each client (per-client isolation)
+    if [[ "$cid" == "pattern:exec-<client>-okx-"* ]]; then
+        probe_per_client_okx "$cid" "$purpose" && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
+        continue
+    fi
+    # Skip remaining wildcard patterns (handled per-venue/per-wallet below)
     if [[ "$cid" == pattern:* ]]; then
         echo -e "  ${YELLOW}SKIP-WILDCARD${NC} ${cid} (${purpose}) — expand per § probe logic"
         SKIP=$((SKIP + 1))
