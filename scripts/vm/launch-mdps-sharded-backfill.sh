@@ -60,6 +60,11 @@ MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
 # Optional CLI flag --max-workers N forwards to the in-VM MDPS CLI.
 CLI_MAX_WORKERS=""
 BOOT_DISK_GB="50"
+# Per-tarball SHA pins — prevents race condition where another slot rebuilds the
+# fixed-name tarball between tarball build and VM boot.
+# Reads from env or CLI --utl-sha / --mdps-sha flags.
+UTL_TARBALL_SHA_PIN="${UTL_TARBALL_SHA:-}"
+MDPS_TARBALL_SHA_PIN="${MDPS_TARBALL_SHA:-}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 
 # ─── Per-asset_group year ranges ─────────────────────────────────────────────
@@ -95,6 +100,10 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --utl-sha)
+            shift; UTL_TARBALL_SHA_PIN="${1:-}"; shift ;;
+        --mdps-sha)
+            shift; MDPS_TARBALL_SHA_PIN="${1:-}"; shift ;;
         cefi|tradfi|defi|sports|prediction)
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
@@ -240,6 +249,8 @@ launch_year_shard() {
     md="${md},VM_BACKFILL_MODE=$($DRY && echo dry || echo full)"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+    [[ -n "$UTL_TARBALL_SHA_PIN" ]] && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}"
+    [[ -n "$MDPS_TARBALL_SHA_PIN" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA_PIN}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

@@ -126,6 +126,16 @@ TARDIS_STREAMING_FINALIZE=$(_meta TARDIS_STREAMING_FINALIZE)
 # manifest.json commit_sha matches this value. Set by launchers that pin a
 # specific deployment commit. Raises ManifestShaDriftError on mismatch + exits 1.
 TARBALL_EXPECTED_SHA=$(_meta TARBALL_EXPECTED_SHA)
+# Per-tarball SHA pins — when set, VM downloads the SHA-pinned tarball from GCS
+# instead of the fixed-name one. Prevents race conditions where another agent
+# rebuilds the fixed-name tarball from a different commit between tarball build
+# and VM launch. Format: full 40-char commit SHA. Key per tarball:
+#   UTL_TARBALL_SHA  → unified-trading-library-code@{sha}.tar.gz
+#   UAC_TARBALL_SHA  → unified-api-contracts-code@{sha}.tar.gz
+#   MDPS_TARBALL_SHA → market-data-processing-service-code@{sha}.tar.gz
+UTL_TARBALL_SHA=$(_meta UTL_TARBALL_SHA)
+UAC_TARBALL_SHA=$(_meta UAC_TARBALL_SHA)
+MDPS_TARBALL_SHA=$(_meta MDPS_TARBALL_SHA)
 # Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
 # tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
 # running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
@@ -352,7 +362,20 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
   for tarball_name in "${NEEDED_TARBALLS[@]}"; do
     dir="${TARBALL_DIRS[$tarball_name]}"
     tarball_path="/tmp/${tarball_name}.tar.gz"
-    if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz" "$tarball_path" 2>/dev/null; then
+    # Resolve per-tarball SHA pin if set (prevents race with concurrent tarball rebuilds)
+    _tarball_pin_sha=""
+    case "$tarball_name" in
+      unified-trading-library-code)        _tarball_pin_sha="${UTL_TARBALL_SHA:-}" ;;
+      unified-api-contracts-code)          _tarball_pin_sha="${UAC_TARBALL_SHA:-}" ;;
+      market-data-processing-service-code) _tarball_pin_sha="${MDPS_TARBALL_SHA:-}" ;;
+    esac
+    if [[ -n "$_tarball_pin_sha" ]]; then
+      _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.tar.gz"
+      log "  Using SHA-pinned tarball: ${tarball_name}@${_tarball_pin_sha:0:12}"
+    else
+      _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz"
+    fi
+    if gsutil -q cp "$_tarball_gcs_src" "$tarball_path" 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
       tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
