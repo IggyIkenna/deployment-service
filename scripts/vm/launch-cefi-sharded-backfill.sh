@@ -246,13 +246,17 @@ launch_cefi_shard() {
   # 18 MB profile, causing constant 30s memory-pressure pauses on 32 GB that
   # double backfill runtime. e2-highmem-8 ($0.54/hr) at 64 GB eliminates pauses;
   # the 2× cost is dominated by VM count × runtime reduction.
+  # 2026-05-24: bumped light default from e2-highmem-2 (16 GB) to e2-highmem-4
+  # (32 GB) after OOM failures on BINANCE-FUTURES/OKX-SWAP light VMs. Root cause:
+  # CeFi consolidated manifest (36 MB compressed) expands to ~12-13 GB in pandas
+  # memory during read_availability_index at startup — 1682 per-VM shards causing
+  # large merged DataFrame. e2-highmem-2 (16 GB) runs out of RAM during manifest
+  # load; e2-highmem-4 (32 GB) gives 2x headroom. DERIBIT already on e2-highmem-4.
   # Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
   if [[ "$group" == "heavy" ]]; then
     machine="${MACHINE_TYPE_HEAVY:-e2-highmem-8}"
-  elif [[ "$venue" == "DERIBIT" ]]; then
-    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-4}"
   else
-    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-2}"
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-4}"
   fi
 
   # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
