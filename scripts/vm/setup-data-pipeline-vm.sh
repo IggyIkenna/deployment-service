@@ -200,6 +200,14 @@ export DEPLOYMENT_ENV_SHORT
 # raise the threshold for asset_groups where empty-date gaps are expected.
 STALL_TIMEOUT_SEC=$(_meta STALL_TIMEOUT_SEC)
 [[ -n "$STALL_TIMEOUT_SEC" ]] && export STALL_TIMEOUT_SEC
+# Manifest consolidated staleness threshold override. CeFi MTDS bucket has
+# 34M+ rows (mostly Deribit options) and 1700+ per-VM shards — loading all
+# shards at startup OOM-kills the VM on any machine size. Setting this to
+# 86400s (24h) makes the ManifestReader use the consolidated availability_index
+# even when it is hours old, instead of falling back to per-VM shard merge.
+# Launchers pass MANIFEST_CONSOLIDATED_STALENESS_SEC=86400 for large buckets.
+MANIFEST_CONSOLIDATED_STALENESS_SEC=$(_meta MANIFEST_CONSOLIDATED_STALENESS_SEC)
+[[ -n "$MANIFEST_CONSOLIDATED_STALENESS_SEC" ]] && export MANIFEST_CONSOLIDATED_STALENESS_SEC
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 

@@ -301,6 +301,13 @@ launch_cefi_shard() {
   # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
   # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+  # CeFi bucket has 34M+ rows (mostly Deribit options) + 1700+ per-VM shards.
+  # Without this override ManifestReader falls back to loading all shards when
+  # the consolidated availability_index.parquet is >120s old (the default),
+  # causing the Python process to OOM-kill at startup (rc=137) on every machine
+  # size tested (up to e2-highmem-8 / 64 GB). 86400s (24h) forces the reader to
+  # always use the consolidated index instead of the per-VM shard fallback.
+  meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
