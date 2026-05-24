@@ -193,6 +193,42 @@ probe_per_client_okx() {
     return $rc
 }
 
+probe_wrapped_wallet() {
+    # cid: <wallet_id>-wrapped (e.g. csb-eth-hot-lido-v1-wrapped) — a KMS-wrapped
+    # wallet private key (CLOUD_KMS_ENCRYPTED), stored as a Secret Manager secret.
+    # Two provisioning regimes (per the two wallet configs in UAC config/):
+    #   - PRE-CUTOVER (paper/batch/dev): all wallets smoke-test against the operator's
+    #     shared wrapped test PK (test_wallet_provisioning_pre_cutover.json →
+    #     defi-wallet-private-key-wrapped). That secret exists → real PASS.
+    #   - LIVE: each wallet needs its OWN provisioned per-wallet wrapped PK
+    #     (cutover_wallet_provisioning_mainnet_template.json private_key_secret_ref ==
+    #     <wallet_id>-wrapped). Generating + wrapping + storing wallet private keys is a
+    #     HUMAN-ONLY custody operation (CLAUDE.md hard-stop) — the probe verifies presence
+    #     and FAILs with explicit attribution if not yet provisioned (never fakes PASS).
+    local cid="$1"
+    local purpose="$2"
+    local wallet_id="${cid%-wrapped}"
+    local project_id="${GOOGLE_CLOUD_PROJECT:-central-element-323112}"
+
+    if [[ "$MODE" == "live" ]]; then
+        local secret="${cid}" # mainnet template private_key_secret_ref == <wallet_id>-wrapped
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}DRY-RUN${NC} ${secret} (live per-wallet PK)"
+            return 0
+        fi
+        if gcloud secrets versions access latest --secret="${secret}" --project="${project_id}" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}PASS${NC} ${secret} (${purpose})"
+            return 0
+        fi
+        echo -e "  ${RED}FAIL${NC} ${secret} — WALLET-PK-UNPROVISIONED (HUMAN-ONLY custody task: wrap + store ${wallet_id} PK)"
+        FAILURES+=("${secret}: WALLET-PK-UNPROVISIONED — human-only custody provisioning required")
+        return 1
+    fi
+
+    # Pre-cutover (paper/batch/dev): resolve to the shared wrapped test PK.
+    probe_gcp_secret "defi-wallet-private-key-wrapped" "${purpose} [pre-cutover shared test wallet for ${wallet_id}]"
+}
+
 probe_cloud_kms_cmk() {
     local cmk_alias="$1"
     local purpose="$2"
@@ -320,6 +356,12 @@ while IFS=$'\t' read -r cid purpose; do
             FAILURES+=("${cid}: ${purpose}")
             FAIL=$((FAIL + 1))
         fi
+        continue
+    fi
+
+    # Wrapped wallet PK (KMS-encrypted private key) — mode-aware resolution
+    if [[ "$cid" == *-wrapped ]]; then
+        probe_wrapped_wallet "$cid" "$purpose" && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
         continue
     fi
 
