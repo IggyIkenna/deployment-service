@@ -3,7 +3,7 @@
 #
 # Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
 # Writes to market-data-tick-defi-{project_id} (canonical DEFI tick bucket) using
-# resolve_bucket_name(cloud="gcp", kind="tick-data", asset_group="defi").
+# resolve_bucket_name(cloud="gcp", kind="market-data", asset_group="defi").
 #
 # Usage:
 #   bash launch-mtds-dex-swaps-backfill-vm.sh
@@ -20,16 +20,20 @@ START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-}"
+UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run)  DRY_RUN=true; shift ;;
-    --project)  PROJECT_ID="$2"; shift 2 ;;
-    --zone)     ZONE="$2"; shift 2 ;;
-    --start)    START_DATE="$2"; shift 2 ;;
-    --end)      END_DATE="$2"; shift 2 ;;
-    --force)    FORCE=true; shift ;;
-    --env)      DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --dry-run)        DRY_RUN=true; shift ;;
+    --project)        PROJECT_ID="$2"; shift 2 ;;
+    --zone)           ZONE="$2"; shift 2 ;;
+    --start)          START_DATE="$2"; shift 2 ;;
+    --end)            END_DATE="$2"; shift 2 ;;
+    --force)          FORCE=true; shift ;;
+    --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --mtds-sha)       MTDS_TARBALL_SHA="$2"; shift 2 ;;
+    --utl-sha)        UTL_TARBALL_SHA="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -88,6 +92,12 @@ METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+if [[ -n "${MTDS_TARBALL_SHA}" ]]; then
+  METADATA="${METADATA},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+fi
+if [[ -n "${UTL_TARBALL_SHA}" ]]; then
+  METADATA="${METADATA},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+fi
 
 echo "Creating VM ${VM_NAME}..."
 gcloud compute instances create "${VM_NAME}" \
