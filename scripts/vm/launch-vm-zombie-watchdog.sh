@@ -131,7 +131,7 @@ LOOP_CMD="
 cd /tmp
 gsutil cp gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py /tmp/watchdog.py
 while true; do
-    python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
+    /opt/watchdog-venv/bin/python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
     sleep ${INTERVAL}
 done
 "
@@ -150,34 +150,25 @@ for i in \$(seq 1 60); do
     sleep 1
 done
 
-# Bootstrap pip via get-pip.py — does NOT depend on apt mirrors. The
-# previous design used 'apt-get update + apt-get install python3-pip'
-# but the mirror hangs 7+ min on slow asia-northeast1 days, AND skipping
-# apt-get update leaves the cached lists missing python3-pip entirely
-# (observed 2026-05-05: 'Package python3-pip has no installation
-# candidate'). Python3 is pre-installed on Ubuntu 24.04 GCE; pip is not.
-if ! python3 -m pip --version >/dev/null 2>&1; then
-    curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-    python3 /tmp/get-pip.py --break-system-packages 2>&1 || true
-fi
+# UAC requires Python >=3.13,<3.14; Ubuntu 24.04 ships Python 3.12.
+# Install Python 3.13 via deadsnakes PPA, then create a dedicated venv.
+apt-get install -y software-properties-common 2>&1 | tail -2 || true
+add-apt-repository ppa:deadsnakes/ppa -y 2>&1 | tail -2 || true
+apt-get update -y 2>&1 | tail -2 || true
+apt-get install -y python3.13 python3.13-venv 2>&1 | tail -2 || true
 
-# Watchdog only imports google.cloud.{compute_v1, storage} — no pandas,
-# no pyarrow. --ignore-installed avoids the typing_extensions trap
-# (apt-managed package without a pip RECORD file).
-python3 -m pip install \
-    --break-system-packages \
-    --ignore-installed \
-    --quiet \
-    google-cloud-compute google-cloud-storage 2>&1 || true
+python3.13 -m venv /opt/watchdog-venv
 
-# Install UAC (needed by watchdog for VmPrefixSpec + LifecycleClass imports).
-# Use system tar to extract (not pip's internal tarfile) to avoid the Python 3.12+
-# security filter that rejects symlinks escaping the destination directory.
+# Install google-cloud packages + UAC into the Python 3.13 venv.
+/opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
+
+# Install UAC (needed for VmPrefixSpec + LifecycleClass imports).
+# Use system tar to extract (avoids Python 3.12+ tarfile security filter on symlinks).
 gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
 if [[ -f /tmp/uac.tar.gz ]]; then
     mkdir -p /tmp/uac-src
     tar xf /tmp/uac.tar.gz -C /tmp/uac-src --strip-components=1 2>&1 | head -5 || true
-    python3 -m pip install --break-system-packages --ignore-installed --quiet /tmp/uac-src 2>&1 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/uac-src 2>&1 | tail -3 || true
 fi
 
 ${LOOP_CMD}
