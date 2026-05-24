@@ -171,9 +171,13 @@ python3 -m pip install \
     google-cloud-compute google-cloud-storage 2>&1 || true
 
 # Install UAC (needed by watchdog for VmPrefixSpec + LifecycleClass imports).
+# Use system tar to extract (not pip's internal tarfile) to avoid the Python 3.12+
+# security filter that rejects symlinks escaping the destination directory.
 gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
 if [[ -f /tmp/uac.tar.gz ]]; then
-    python3 -m pip install --break-system-packages --ignore-installed --quiet /tmp/uac.tar.gz 2>&1 || true
+    mkdir -p /tmp/uac-src
+    tar xf /tmp/uac.tar.gz -C /tmp/uac-src --strip-components=1 2>&1 | head -5 || true
+    python3 -m pip install --break-system-packages --ignore-installed --quiet /tmp/uac-src 2>&1 || true
 fi
 
 ${LOOP_CMD}
