@@ -474,8 +474,8 @@ class LocalProcessBackend(ComputeBackend):
             return JobStatus.RUNNING
 
         try:
-            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as response:  # nosec B310 — localhost health check, not user-controlled URL
-                response_typed = cast(HTTPResponse, response)
+            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as response:  # nosec B310 — localhost health check, not user-controlled URL  # pyright: ignore[reportAny]
+                response_typed: HTTPResponse = cast(HTTPResponse, response)
                 # urlopen returns HTTPResponse with status/getcode methods
                 if hasattr(response_typed, "status"):
                     status = response_typed.status

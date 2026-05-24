@@ -306,9 +306,9 @@ class ManifestReader:
             venue_weighted_expected = 0
             venue_weighted_found = 0
             if sub_dim_key and "venue" in filtered.columns:
-                for venue_val_raw in sorted(filtered["venue"].unique()):
-                    venue_val: object = cast(object, venue_val_raw)
-                    venue_str: str = str(venue_val)
+                for venue_val_raw in sorted(filtered["venue"].unique()):  # pyright: ignore[reportAny]
+                    venue_val_typed: object = cast(object, venue_val_raw)
+                    venue_str: str = str(venue_val_typed)
                     v_mask = filtered["venue"] == venue_str
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
 
@@ -383,7 +383,7 @@ class ManifestReader:
                             end_date,
                         )
 
-                    sub_dims[venue_val] = venue_entry
+                    sub_dims[venue_str] = venue_entry
 
             # Find missing dates — clamp to earliest venue launch so pre-protocol
             # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
@@ -653,8 +653,9 @@ class ManifestReader:
             latest_date = date_max
             if "venue" in index.columns:
                 latest_venues = sorted(index.loc[index["date"] == latest_date, "venue"].unique().tolist())
-                for venue_name_raw in latest_venues:
-                    venue_name = str(cast(object, venue_name_raw))
+                for venue_name_raw in latest_venues:  # pyright: ignore[reportAny]
+                    venue_name_typed: object = cast(object, venue_name_raw)
+                    venue_name = str(venue_name_typed)
                     detail = self.get_venue_detail(
                         service=service,
                         asset_group=cat,
@@ -715,7 +716,7 @@ class ManifestReader:
         """
         leagues_in_data: set[str] = set()
         if "league_id" in venue_df.columns:
-            leagues_in_data = {str(lid) for lid in venue_df["league_id"].unique() if lid}
+            leagues_in_data = {str(cast(object, lid)) for lid in venue_df["league_id"].unique() if lid}  # pyright: ignore[reportAny]
 
         # All prediction leagues — ensures newly-added leagues show 0%
         all_league_ids = set(get_all_prediction_league_ids())

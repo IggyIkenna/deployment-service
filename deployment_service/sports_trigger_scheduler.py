@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
 
 if TYPE_CHECKING:
     from .backends.cloud_run import CloudRunBackend
@@ -152,7 +152,8 @@ class SportsTriggerScheduler:
                 return {}
 
         with path.open() as f:
-            config: dict[str, object] = yaml.safe_load(f)
+            config_raw = yaml.safe_load(f)  # pyright: ignore[reportAny]
+            config: dict[str, object] = cast(dict[str, object], config_raw)
         logger.info("Loaded sports trigger config from %s", path)
         return config
 
@@ -209,7 +210,7 @@ class SportsTriggerScheduler:
                             df = pd.read_parquet(io.BytesIO(raw))
 
                             for _, row in df.iterrows():
-                                kickoff_str = str(row.get("kickoff_utc", ""))
+                                kickoff_str = str(row.get("kickoff_utc", ""))  # pyright: ignore[reportAny]
                                 if not kickoff_str:
                                     continue
 
@@ -223,11 +224,11 @@ class SportsTriggerScheduler:
                                 if -2 <= hours_until <= horizon_hours:
                                     fixtures.append(
                                         FixtureInfo(
-                                            fixture_id=str(row.get("fixture_id", "")),
-                                            league_id=str(row.get("league_id", "")),
+                                            fixture_id=str(cast(object, row.get("fixture_id", ""))),
+                                            league_id=str(cast(object, row.get("league_id", ""))),
                                             kickoff_utc=kickoff_str,
-                                            home_team=str(row.get("home_team", "")),
-                                            away_team=str(row.get("away_team", "")),
+                                            home_team=str(cast(object, row.get("home_team", ""))),
+                                            away_team=str(cast(object, row.get("away_team", ""))),
                                         )
                                     )
                         except Exception as exc:
