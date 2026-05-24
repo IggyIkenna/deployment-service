@@ -252,11 +252,16 @@ launch_cefi_shard() {
   # memory during read_availability_index at startup — 1682 per-VM shards causing
   # large merged DataFrame. e2-highmem-2 (16 GB) runs out of RAM during manifest
   # load; e2-highmem-4 (32 GB) gives 2x headroom. DERIBIT already on e2-highmem-4.
-  # Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
+  # 2026-05-24 (second bump): light bumped from e2-highmem-4 (32 GB) to
+  # e2-highmem-8 (64 GB). Root cause: day-boundary OOM. After completing day N
+  # (peak RSS 23.7 GB on 32 GB) Python's GC hasn't freed day-N data before
+  # day N+1 allocates its streaming buffer (confirmed: BINANCE-FUTURES 2024-01-01
+  # → 01-02 OOM kill, rc=137). 23.7 GB baseline + day-2 peak > 32 GB; 64 GB
+  # eliminates the constraint. Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
   if [[ "$group" == "heavy" ]]; then
     machine="${MACHINE_TYPE_HEAVY:-e2-highmem-8}"
   else
-    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-4}"
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
   fi
 
   # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
