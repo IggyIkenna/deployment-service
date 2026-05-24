@@ -193,6 +193,13 @@ case "$DEPLOYMENT_ENV" in
   *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
 esac
 export DEPLOYMENT_ENV_SHORT
+# Stall-watchdog timeout override. Sports MDPS processes long empty-date
+# stretches (no betting events → no log output) that would falsely trigger
+# the default 1800s threshold and SIGKILL the process before the manifest
+# shard is flushed to GCS. Launchers set STALL_TIMEOUT_SEC in metadata to
+# raise the threshold for asset_groups where empty-date gaps are expected.
+STALL_TIMEOUT_SEC=$(_meta STALL_TIMEOUT_SEC)
+[[ -n "$STALL_TIMEOUT_SEC" ]] && export STALL_TIMEOUT_SEC
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 

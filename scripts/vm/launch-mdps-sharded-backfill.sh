@@ -272,6 +272,11 @@ launch_year_shard() {
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "$UTL_TARBALL_SHA_PIN" ]] && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}"
     [[ -n "$MDPS_TARBALL_SHA_PIN" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA_PIN}"
+    # Sports MDPS processes long empty-date stretches (no betting events) that
+    # produce no log output, triggering the stall watchdog at the default 1800s.
+    # 7200s = 2h gives enough headroom for a full year's empty-season gap
+    # without letting a truly stalled VM idle indefinitely.
+    [[ "$cat" == "sports" ]] && md="${md},STALL_TIMEOUT_SEC=7200"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
