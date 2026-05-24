@@ -34,9 +34,11 @@
 #
 # Each VM auto-deletes via VM_SHUTDOWN_ON_COMPLETION=true.
 #
-# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
-# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
-# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# Bucket-naming SSOT: env-aware shape per `bucket_name_ssot_canonicalisation_2026_05_10.md`
+# Phase 0f. Source bucket resolves to market-data-tick-{ag}-{env_short}-{project}.
+# For prod: market-data-tick-{ag}-prd-central-element-323112.
+# Legacy 2024/2025 DeFi re-launches (dex_pool_swaps in flat bucket) must pass
+# --source-bucket-override market-data-tick-defi-central-element-323112.
 set -euo pipefail
 
 ZONE="asia-northeast1-c"
@@ -66,6 +68,11 @@ BOOT_DISK_GB="50"
 UTL_TARBALL_SHA_PIN="${UTL_TARBALL_SHA:-}"
 MDPS_TARBALL_SHA_PIN="${MDPS_TARBALL_SHA:-}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+# Override the computed env-tiered source bucket for all asset_groups.
+# Required for 2024/2025 DeFi re-launches where dex_pool_swaps data lives
+# in the legacy flat bucket (market-data-tick-defi-central-element-323112)
+# rather than the canonical env-tiered bucket.
+SOURCE_BUCKET_OVERRIDE=""
 
 # ─── Per-asset_group year ranges ─────────────────────────────────────────────
 CEFI_YEARS="2019 2020 2021 2022 2023 2024 2025 2026"
@@ -104,11 +111,13 @@ while [[ $# -gt 0 ]]; do
             shift; UTL_TARBALL_SHA_PIN="${1:-}"; shift ;;
         --mdps-sha)
             shift; MDPS_TARBALL_SHA_PIN="${1:-}"; shift ;;
+        --source-bucket-override)
+            shift; SOURCE_BUCKET_OVERRIDE="${1:-}"; shift ;;
         cefi|tradfi|defi|sports|prediction)
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev] [--source-bucket-override BUCKET]"; exit 2 ;;
     esac
 done
 
@@ -211,7 +220,19 @@ launch_year_shard() {
         resolved_max_workers="$(_max_workers_for "$cat")"
     fi
 
-    local source_bucket="market-data-tick-${cat}-${PROJECT}"
+    local env_short
+    case "$DEPLOYMENT_ENV" in
+        prod)    env_short="prd" ;;
+        staging) env_short="staging" ;;
+        dev)     env_short="dev" ;;
+        *)       env_short="$DEPLOYMENT_ENV" ;;
+    esac
+    local source_bucket
+    if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
+        source_bucket="$SOURCE_BUCKET_OVERRIDE"
+    else
+        source_bucket="market-data-tick-${cat}-${env_short}-${PROJECT}"
+    fi
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
     if [[ "$cat" == "sports" || "$cat" == "prediction" ]]; then
