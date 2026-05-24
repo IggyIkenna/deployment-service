@@ -250,13 +250,13 @@ while IFS=$'\t' read -r cid purpose; do
         SKIP=$((SKIP + 1))
         continue
     fi
-    # Skip post-cutover-only / pending-kyb credentials for May-23 cutover probe
-    if [[ "$MODE" == "live" ]] && [[ "$purpose" == *"[post_cutover_only]"* ]]; then
+    # Skip post-cutover-only / pending-kyb credentials regardless of mode
+    if [[ "$purpose" == *"[post_cutover_only]"* ]]; then
         echo -e "  ${YELLOW}SKIP-POST-CUTOVER${NC} ${cid} (${purpose})"
         SKIP=$((SKIP + 1))
         continue
     fi
-    if [[ "$MODE" == "live" ]] && [[ "$purpose" == *"[pending_kyb]"* ]]; then
+    if [[ "$purpose" == *"[pending_kyb]"* ]]; then
         echo -e "  ${YELLOW}SKIP-PENDING-KYB${NC} ${cid} (${purpose})"
         SKIP=$((SKIP + 1))
         continue
