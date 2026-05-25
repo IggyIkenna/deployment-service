@@ -258,8 +258,15 @@ launch_cefi_shard() {
   # day N+1 allocates its streaming buffer (confirmed: BINANCE-FUTURES 2024-01-01
   # → 01-02 OOM kill, rc=137). 23.7 GB baseline + day-2 peak > 32 GB; 64 GB
   # eliminates the constraint. Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
+  # 2026-05-25: bumped heavy default from e2-highmem-8 (64 GB) to e2-highmem-16
+  # (128 GB). Root cause: 2022-2023 bull-market Tardis streaming peaks exceed 64 GB
+  # (confirmed: BINANCE-FUTURES-2023 peak_rss=60.3 GB, DERIBIT-2022 peak_rss=65.7 GB
+  # both OOM'd rc=137 on e2-highmem-8). 9 concurrent book_snapshot_5 streams for
+  # high-volume years saturate 64 GB; e2-highmem-16 ($1.08/hr) at 128 GB provides
+  # 2× headroom. Lower-volume years (BYBIT-2021 peaked at 24 GB) benefit from
+  # the extra CPUs (16 vs 8) even if RAM is not needed.
   if [[ "$group" == "heavy" ]]; then
-    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-8}"
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-16}"
   else
     machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
   fi
