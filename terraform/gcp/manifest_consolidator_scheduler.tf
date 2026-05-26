@@ -112,6 +112,28 @@ locals {
     "instruments-tradfi-legacy"       = 1800
     "instruments-prediction-legacy"   = 1800
   }
+
+  # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
+  # cloud-providers.yaml comment "Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds".
+  # Exception: features-sports + features-calendar remain env-tiered per yaml SSOT.
+  # Re-enable env-split when bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates.)
+  manifest_consolidator_buckets_extended = {
+    "features-delta-one-cefi"   = "features-delta-one-cefi-${var.project_id}"
+    "features-delta-one-tradfi" = "features-delta-one-tradfi-${var.project_id}"
+    "features-delta-one-defi"   = "features-delta-one-defi-${var.project_id}"
+    "features-volatility-cefi"  = "features-volatility-cefi-${var.project_id}"
+    "features-volatility-tradfi" = "features-volatility-tradfi-${var.project_id}"
+    "features-onchain-cefi"     = "features-onchain-cefi-${var.project_id}"
+    "features-onchain-defi"     = "features-onchain-defi-${var.project_id}"
+    "features-sports"           = "features-sports-${local.deployment_env_short}-${var.project_id}"
+    "features-calendar"         = "features-calendar-${local.deployment_env_short}-${var.project_id}"
+    # strategy-store consolidated to a single flat bucket (D6 Phase 4, 2026-05-20)
+    "strategy"                  = "strategy-store-${var.project_id}"
+    "execution-cefi"            = "execution-store-cefi-${var.project_id}"
+    "execution-tradfi"          = "execution-store-tradfi-${var.project_id}"
+    "execution-defi"            = "execution-store-defi-${var.project_id}"
+    "ml-training-artifacts"     = "ml-training-artifacts-${var.project_id}"
+  }
 }
 
 # -------------------------------------------------------
@@ -223,5 +245,71 @@ output "manifest_consolidator_cron_names" {
   value = {
     for cat, _ in local.manifest_consolidator_buckets :
     cat => google_cloud_scheduler_job.manifest_consolidator_cron[cat].name
+  }
+}
+
+# -------------------------------------------------------
+# Phase D — derived-data buckets (Group B: features, strategy, execution, ml)
+# -------------------------------------------------------
+
+module "manifest_consolidator_job_extended" {
+  for_each = local.manifest_consolidator_buckets_extended
+  source   = "../modules/container-job/gcp"
+
+  name                  = "${local.env_prefix}-manifest-consolidator-${each.key}"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
+
+  cpu             = "4"
+  memory          = "16Gi"
+  timeout_seconds = 1800
+  max_retries     = 1
+  parallelism     = 1
+  task_count      = 1
+
+  command = ["python"]
+  args    = ["-m", "unified_trading_library.manifest_consolidator", "--bucket", each.value]
+
+  environment_variables = {
+    GCP_PROJECT_ID = var.project_id
+    DEPLOYMENT_ENV = var.environment
+    CLOUD_PROVIDER = "gcp"
+  }
+
+  service_name = "manifest-consolidator"
+  environment  = var.environment
+
+  labels = {
+    "purpose"  = "manifest-consolidator"
+    "category" = each.key
+  }
+}
+
+resource "google_cloud_scheduler_job" "manifest_consolidator_cron_extended" {
+  for_each = local.manifest_consolidator_buckets_extended
+
+  name        = "${local.env_prefix}-manifest-consolidator-${each.key}-cron"
+  description = "Consolidate per-VM manifest shards in ${each.value} into the canonical _index/availability_index.parquet."
+  schedule    = "*/1 * * * *"
+  time_zone   = "UTC"
+  region      = var.region
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${module.manifest_consolidator_job_extended[each.key].name}:run"
+
+    oauth_token {
+      service_account_email = local.t1_service_account_email
+    }
+  }
+
+  retry_config {
+    retry_count          = 0
+    min_backoff_duration = "5s"
+    max_backoff_duration = "60s"
+    max_doublings        = 1
   }
 }
