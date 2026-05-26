@@ -90,18 +90,27 @@ locals {
   # on signal 9' mid-merge. Second bump: sports → 900s, plus cefi-market-data
   # added at 600s prophylactically since its shard count is 33x sports'.
   manifest_consolidator_timeouts = {
-    "instruments-sports"        = 900
-    "market-data-sports"        = 900
-    "market-data-cefi"          = 600
-    # Legacy market-data overrides — tradfi 1607-shard merge took 79s locally;
-    # cefi has comparable shard density to the env-tiered cefi bucket.
-    "market-data-tradfi-legacy" = 600
-    "market-data-cefi-legacy"   = 600
-    # Legacy instruments-store overrides — sports env-tiered is 900s for 2.09M rows;
-    # sports-legacy has 88 shards (vs 80 env-tiered), same headroom needed.
-    # cefi-legacy has 529 shards (vs 518 env-tiered); prophylactic 600s.
-    "instruments-sports-legacy" = 900
-    "instruments-cefi-legacy"   = 600
+    "instruments-sports"        = 1800
+    "market-data-sports"        = 1800
+    "market-data-cefi"          = 1800
+    "instruments-cefi"          = 1800
+    "instruments-defi"          = 1800
+    "market-data-defi"          = 1800
+    "instruments-tradfi"        = 1800
+    "market-data-tradfi"        = 1800
+    "instruments-prediction"    = 1800
+    "market-data-prediction"    = 1800
+    # Legacy variants — same headroom as env-tiered equivalents.
+    "market-data-tradfi-legacy"       = 1800
+    "market-data-cefi-legacy"         = 1800
+    "market-data-defi-legacy"         = 1800
+    "market-data-prediction-legacy"   = 1800
+    "market-data-sports-legacy"       = 1800
+    "instruments-sports-legacy"       = 1800
+    "instruments-cefi-legacy"         = 1800
+    "instruments-defi-legacy"         = 1800
+    "instruments-tradfi-legacy"       = 1800
+    "instruments-prediction-legacy"   = 1800
   }
 }
 
