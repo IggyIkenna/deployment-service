@@ -22,26 +22,27 @@ locals {
     "market-data-prediction" = "unified-trading-market-data-prediction-${var.aws_account_id}"
   }
 
-  # Phase D — derived-data buckets (Group B naming: env-scoped)
-  # Uncomment and apply after Phase C is green.
-  # manifest_consolidator_buckets_aws_extended = {
-  #   "features-delta-one-cefi"      = "unified-trading-features-delta-one-cefi-${var.environment}-${var.aws_account_id}"
-  #   "features-delta-one-tradfi"    = "unified-trading-features-delta-one-tradfi-${var.environment}-${var.aws_account_id}"
-  #   "features-delta-one-defi"      = "unified-trading-features-delta-one-defi-${var.environment}-${var.aws_account_id}"
-  #   "features-volatility-cefi"     = "unified-trading-features-volatility-cefi-${var.environment}-${var.aws_account_id}"
-  #   "features-volatility-tradfi"   = "unified-trading-features-volatility-tradfi-${var.environment}-${var.aws_account_id}"
-  #   "features-onchain-defi"        = "unified-trading-features-onchain-defi-${var.environment}-${var.aws_account_id}"
-  #   "features-onchain-cefi"        = "unified-trading-features-onchain-cefi-${var.environment}-${var.aws_account_id}"
-  #   "features-sports"              = "unified-trading-features-sports-${var.environment}-${var.aws_account_id}"
-  #   "features-calendar"            = "unified-trading-features-calendar-${var.aws_account_id}"
-  #   "strategy-cefi"                = "unified-trading-strategy-cefi-${var.environment}-${var.aws_account_id}"
-  #   "strategy-tradfi"              = "unified-trading-strategy-tradfi-${var.environment}-${var.aws_account_id}"
-  #   "strategy-defi"                = "unified-trading-strategy-defi-${var.environment}-${var.aws_account_id}"
-  #   "execution-cefi"               = "unified-trading-execution-cefi-${var.environment}-${var.aws_account_id}"
-  #   "execution-tradfi"             = "unified-trading-execution-tradfi-${var.environment}-${var.aws_account_id}"
-  #   "execution-defi"               = "unified-trading-execution-defi-${var.environment}-${var.aws_account_id}"
-  #   "ml-models"                    = "unified-trading-ml-models-${var.environment}-${var.aws_account_id}"
-  # }
+  # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per cloud-providers.yaml
+  # comment "Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds". Re-enable when
+  # bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates data.)
+  manifest_consolidator_buckets_aws_extended = {
+    "features-delta-one-cefi"      = "unified-trading-features-delta-one-cefi-${var.aws_account_id}"
+    "features-delta-one-tradfi"    = "unified-trading-features-delta-one-tradfi-${var.aws_account_id}"
+    "features-delta-one-defi"      = "unified-trading-features-delta-one-defi-${var.aws_account_id}"
+    "features-volatility-cefi"     = "unified-trading-features-volatility-cefi-${var.aws_account_id}"
+    "features-volatility-tradfi"   = "unified-trading-features-volatility-tradfi-${var.aws_account_id}"
+    "features-onchain-defi"        = "unified-trading-features-onchain-defi-${var.aws_account_id}"
+    "features-onchain-cefi"        = "unified-trading-features-onchain-cefi-${var.aws_account_id}"
+    "features-sports"              = "unified-trading-features-sports-${var.aws_account_id}"
+    "features-calendar"            = "unified-trading-features-calendar-${var.aws_account_id}"
+    "strategy-cefi"                = "unified-trading-strategy-cefi-${var.aws_account_id}"
+    "strategy-tradfi"              = "unified-trading-strategy-tradfi-${var.aws_account_id}"
+    "strategy-defi"                = "unified-trading-strategy-defi-${var.aws_account_id}"
+    "execution-cefi"               = "unified-trading-execution-cefi-${var.aws_account_id}"
+    "execution-tradfi"             = "unified-trading-execution-tradfi-${var.aws_account_id}"
+    "execution-defi"               = "unified-trading-execution-defi-${var.aws_account_id}"
+    "ml-training-artifacts"        = "unified-trading-ml-training-artifacts-${var.aws_account_id}"
+  }
 
   mtds_ecr_image = "${var.aws_account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/market-tick-data-service:latest"
 }
@@ -182,6 +183,8 @@ data "aws_iam_policy_document" "manifest_consolidator" {
     resources = concat(
       [for b in local.manifest_consolidator_buckets_aws : "arn:aws:s3:::${b}"],
       [for b in local.manifest_consolidator_buckets_aws : "arn:aws:s3:::${b}/*"],
+      [for b in local.manifest_consolidator_buckets_aws_extended : "arn:aws:s3:::${b}"],
+      [for b in local.manifest_consolidator_buckets_aws_extended : "arn:aws:s3:::${b}/*"],
     )
   }
 }
@@ -215,7 +218,7 @@ module "manifest_consolidator_job" {
   image           = local.mtds_ecr_image
   vcpus           = "0.25"
   memory_mb       = "512"
-  timeout_seconds = 60
+  timeout_seconds = 1800
   max_retries     = 2
 
   execution_role_arn = aws_iam_role.unified_trading.arn
@@ -257,6 +260,69 @@ module "manifest_consolidator_schedule" {
 
   target_job_name    = "uts-prod-manifest-consolidator-${each.key}"
   job_definition_arn = module.manifest_consolidator_job[each.key].arn
+  job_queue_name     = aws_batch_job_queue.manifest_consolidator.name
+  scheduler_role_arn = aws_iam_role.manifest_consolidator_scheduler.arn
+
+  retry_count = 3
+
+  create_scheduler_role = false
+  create_schedule_group = false
+}
+
+# ---------------------------------------------------------------------------
+# Phase D — Per-bucket job + schedule for Group B derived-data buckets
+# ---------------------------------------------------------------------------
+
+module "manifest_consolidator_job_extended" {
+  for_each = local.manifest_consolidator_buckets_aws_extended
+  source   = "../modules/container-job/aws"
+
+  name            = "uts-prod-manifest-consolidator-${each.key}"
+  image           = local.mtds_ecr_image
+  vcpus           = "0.25"
+  memory_mb       = "512"
+  timeout_seconds = 1800
+  max_retries     = 2
+
+  execution_role_arn = aws_iam_role.unified_trading.arn
+  job_role_arn       = aws_iam_role.unified_trading.arn
+
+  environment_variables = {
+    CLOUD_PROVIDER     = "aws"
+    MANIFEST_BUCKET    = each.value
+    AWS_DEFAULT_REGION = var.aws_region
+  }
+
+  command = ["python", "-m", "unified_trading_library.manifest_consolidator", "--bucket", each.value, "--once"]
+
+  assign_public_ip = true
+  subnet_ids       = data.aws_subnets.consolidator.ids
+
+  create_compute_environment = false
+  compute_environment_arn    = aws_batch_compute_environment.manifest_consolidator.arn
+  create_job_queue           = false
+  job_queue_arn              = aws_batch_job_queue.manifest_consolidator.arn
+
+  service_name = "manifest-consolidator"
+  environment  = var.environment
+
+  tags = {
+    bucket = each.value
+  }
+}
+
+module "manifest_consolidator_schedule_extended" {
+  for_each = local.manifest_consolidator_buckets_aws_extended
+  source   = "../modules/scheduler/aws"
+
+  name        = "uts-prod-consolidator-${each.key}"
+  description = "Manifest consolidator — ${each.value}"
+  schedule    = "rate(1 minute)"
+  region      = var.aws_region
+  enabled     = true
+
+  target_job_name    = "uts-prod-manifest-consolidator-${each.key}"
+  job_definition_arn = module.manifest_consolidator_job_extended[each.key].arn
   job_queue_name     = aws_batch_job_queue.manifest_consolidator.name
   scheduler_role_arn = aws_iam_role.manifest_consolidator_scheduler.arn
 
