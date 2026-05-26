@@ -132,15 +132,7 @@ resource "aws_batch_job_queue" "manifest_consolidator" {
 }
 
 # ---------------------------------------------------------------------------
-# EventBridge schedule group
-# ---------------------------------------------------------------------------
-
-resource "aws_scheduler_schedule_group" "manifest_consolidator" {
-  name = "uts-prod-consolidator"
-}
-
-# ---------------------------------------------------------------------------
-# EventBridge scheduler IAM role
+# EventBridge IAM role (events.amazonaws.com — for CloudWatch Event Rules)
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "manifest_consolidator_scheduler" {
@@ -151,7 +143,7 @@ resource "aws_iam_role" "manifest_consolidator_scheduler" {
     Statement = [{
       Action    = "sts:AssumeRole"
       Effect    = "Allow"
-      Principal = { Service = "scheduler.amazonaws.com" }
+      Principal = { Service = "events.amazonaws.com" }
     }]
   })
 }
@@ -204,6 +196,13 @@ resource "aws_iam_role_policy_attachment" "manifest_consolidator_unified_trading
   policy_arn = aws_iam_policy.manifest_consolidator.arn
 }
 
+# ECR pull permissions — Fargate execution role needs ecr:GetAuthorizationToken
+# to pull the market-tick-data-service image from ECR.
+resource "aws_iam_role_policy_attachment" "manifest_consolidator_ecr" {
+  role       = aws_iam_role.unified_trading.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
 # ---------------------------------------------------------------------------
 # Per-bucket: Batch job definition + EventBridge schedule
 # ---------------------------------------------------------------------------
@@ -250,17 +249,18 @@ module "manifest_consolidator_schedule" {
   for_each = local.manifest_consolidator_buckets_aws
   source   = "../modules/scheduler/aws"
 
-  name                = "uts-prod-consolidator-${each.key}"
-  description         = "Manifest consolidator — ${each.value}"
-  schedule            = "*/1 * * * *"
-  region              = var.aws_region
-  schedule_group_name = aws_scheduler_schedule_group.manifest_consolidator.name
-  enabled             = true
+  name        = "uts-prod-consolidator-${each.key}"
+  description = "Manifest consolidator — ${each.value}"
+  schedule    = "rate(1 minute)"
+  region      = var.aws_region
+  enabled     = true
 
   target_job_name    = "uts-prod-manifest-consolidator-${each.key}"
   job_definition_arn = module.manifest_consolidator_job[each.key].arn
   job_queue_name     = aws_batch_job_queue.manifest_consolidator.name
   scheduler_role_arn = aws_iam_role.manifest_consolidator_scheduler.arn
+
+  retry_count = 3
 
   create_scheduler_role = false
   create_schedule_group = false

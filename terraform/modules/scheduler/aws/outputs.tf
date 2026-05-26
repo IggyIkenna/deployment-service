@@ -1,18 +1,18 @@
-# Outputs for AWS EventBridge Scheduler Module
+# Outputs for AWS EventBridge Rule + Batch Target Module
 
 output "id" {
-  description = "The ID of the EventBridge Schedule"
-  value       = aws_scheduler_schedule.schedule.id
+  description = "The ID of the EventBridge Rule"
+  value       = aws_cloudwatch_event_rule.schedule.id
 }
 
 output "name" {
-  description = "The name of the EventBridge Schedule"
-  value       = aws_scheduler_schedule.schedule.name
+  description = "The name of the EventBridge Rule"
+  value       = aws_cloudwatch_event_rule.schedule.name
 }
 
 output "arn" {
-  description = "The ARN of the EventBridge Schedule"
-  value       = aws_scheduler_schedule.schedule.arn
+  description = "The ARN of the EventBridge Rule"
+  value       = aws_cloudwatch_event_rule.schedule.arn
 }
 
 output "schedule" {
@@ -21,8 +21,8 @@ output "schedule" {
 }
 
 output "state" {
-  description = "The state of the scheduler (ENABLED or DISABLED)"
-  value       = aws_scheduler_schedule.schedule.state
+  description = "The state of the rule (ENABLED or DISABLED)"
+  value       = var.enabled ? "ENABLED" : "DISABLED"
 }
 
 output "scheduler_role_arn" {
@@ -31,6 +31,6 @@ output "scheduler_role_arn" {
 }
 
 output "schedule_group_name" {
-  description = "The schedule group name"
-  value       = aws_scheduler_schedule.schedule.group_name
+  description = "Not applicable for EventBridge Rules (compatibility shim)"
+  value       = null
 }
