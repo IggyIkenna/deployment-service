@@ -25,6 +25,7 @@ from .orchestrator import T1Orchestrator
 from .shard_calculator import Shard, ShardCalculator, ShardLimitExceeded
 
 __all__ = [
+    "VM_EVENT_TYPES",
     "CloudClient",
     "ConfigLoader",
     "DataCatalog",
@@ -35,9 +36,8 @@ __all__ = [
     "LiveDeploymentResult",
     "Shard",
     "ShardCalculator",
-    "ShardLimitExceeded",
     "ShardEvent",
+    "ShardLimitExceeded",
     "T1Orchestrator",
-    "VM_EVENT_TYPES",
     "VMEventType",
 ]

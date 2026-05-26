@@ -44,12 +44,12 @@ class PauseStrategy(Layer0Script):
     ) -> tuple[ActionStatus, dict[str, str | bool | int | float | None]]:
         url = f"{args.strategy_service_url}/admin/strategy/{args.strategy}/pause"
         body = json.dumps({"reason": "Layer-0 pause_strategy.py"}).encode("utf-8")
-        req = urllib.request.Request(  # noqa: S310
+        req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return ActionStatus.SUCCEEDED, {
                     "http_status": resp.status,
                     "response_tail": resp.read().decode("utf-8")[-300:],

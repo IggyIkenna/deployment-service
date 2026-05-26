@@ -170,7 +170,7 @@ def calculate(
             filters["instrument"] = list(instrument)
 
         # Calculate shards
-        dim_filters: dict[str, object] = {k: v for k, v in filters.items()}
+        dim_filters: dict[str, object] = dict(filters.items())
         shards = calculator.calculate_shards(
             service=service,
             start_date=start_date.date() if start_date else None,

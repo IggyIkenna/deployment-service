@@ -113,7 +113,7 @@ _LENDING_INDICES: str = f"lending-indices-{PROJECT_ID}"
 _SCENARIO_REPORTS: str = f"scenario-reports-{PROJECT_ID}"
 
 # urllib3 pool size for the AuthorizedSession on each Google client. The
-# default of 10 overflows under our 16-thread × 50-prefix workload —
+# default of 10 overflows under our 16-thread x 50-prefix workload —
 # 'Connection pool is full, discarding connection' warnings AND silent
 # op.result() polling failures (observed 2026-05-05). 64 matches the
 # phantom-audit 2*workers convention with headroom.
@@ -1036,7 +1036,7 @@ def _send_zombie_notification(webhook_url: str, zombies: list[WatchdogVerdict]) 
             method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10) as resp:
             logger.info("zombie notification sent to webhook: status=%d", resp.status)
     except Exception as exc:
         logger.warning("zombie notification failed (best-effort, continuing): %s", exc)
@@ -1168,7 +1168,7 @@ def _evaluate_vm(
     # Verdict logic:
     #   Heartbeat is the primary signal — if missing or stale → zombie.
     #   If heartbeat is unimplemented (None for both heartbeat AND shard older
-    #   than 2× shard_stale, fall back to shard-only).
+    #   than 2x shard_stale, fall back to shard-only).
     if hb_age is None and shard_age is None and age > 30:
         return WatchdogVerdict(vm_name, zone, age, None, None, "zombie_no_heartbeat")
     if hb_age is not None and hb_age > heartbeat_stale:

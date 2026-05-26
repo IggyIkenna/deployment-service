@@ -349,10 +349,10 @@ class ManifestReader:
 
                     # Truncation + tail for long lists (same pattern as
                     # category-level date lists)
-                    _MAX_LIST = 50
-                    _TAIL = 5
-                    v_found_truncated = len(v_found_list) > _MAX_LIST
-                    v_missing_truncated = len(v_missing) > _MAX_LIST
+                    max_list = 50
+                    tail = 5
+                    v_found_truncated = len(v_found_list) > max_list
+                    v_missing_truncated = len(v_missing) > max_list
 
                     venue_entry: dict[str, object] = {
                         "dates_found": v_dates,
@@ -362,16 +362,16 @@ class ManifestReader:
                         "venue_start_date": venue_start,
                         # Available dates (green dropdown)
                         "dates_found_count": len(v_found_list),
-                        "dates_found_list": v_found_list[:_MAX_LIST],
+                        "dates_found_list": v_found_list[:max_list],
                         "dates_found_truncated": v_found_truncated,
-                        "dates_found_list_tail": v_found_list[-_TAIL:] if v_found_truncated else None,
+                        "dates_found_list_tail": v_found_list[-tail:] if v_found_truncated else None,
                         # Missing dates (red dropdown)
                         "dates_missing": max(0, v_expected - v_dates),
                         "dates_missing_count": len(v_missing),
-                        "dates_missing_list": v_missing[:_MAX_LIST],
+                        "dates_missing_list": v_missing[:max_list],
                         "dates_missing_truncated": v_missing_truncated,
-                        "dates_missing_list_tail": v_missing[-_TAIL:] if v_missing_truncated else None,
-                        "missing_dates": v_missing[:_MAX_LIST],
+                        "dates_missing_list_tail": v_missing[-tail:] if v_missing_truncated else None,
+                        "missing_dates": v_missing[:max_list],
                     }
 
                     # League sub-breakdown: when league_id column has non-empty
@@ -448,7 +448,7 @@ class ManifestReader:
             }
             if sub_dims:
                 # Use the appropriate key name for the sub-dimension
-                _SUB_DIM_RESPONSE_KEY: dict[str, str] = {
+                sub_dim_response_key: dict[str, str] = {
                     "venue": "venues",
                     "data_type": "data_types",
                     "feature_group": "feature_groups",
@@ -460,17 +460,17 @@ class ManifestReader:
                     "client_id": "clients",
                     "alert_type": "alert_types",
                 }
-                response_key = _SUB_DIM_RESPONSE_KEY.get(sub_dim_key or "", "venues")
+                response_key = sub_dim_response_key.get(sub_dim_key or "", "venues")
                 cat_result[response_key] = sub_dims
 
                 # Override display label for categories where the manifest
                 # "venue" column doesn't represent trading venues.
-                _CATEGORY_SUB_DIM_LABEL: dict[str, str] = {
+                category_sub_dim_label: dict[str, str] = {
                     "SPORTS": "Data Sources",
                     "PREDICTIONS": "Market Category Shards",
                 }
-                if service == "instruments-service" and cat_label in _CATEGORY_SUB_DIM_LABEL:
-                    cat_result["sub_dimension_label"] = _CATEGORY_SUB_DIM_LABEL[cat_label]
+                if service == "instruments-service" and cat_label in category_sub_dim_label:
+                    cat_result["sub_dimension_label"] = category_sub_dim_label[cat_label]
 
             result_categories[cat_label] = cat_result
             total_found += cat_found
@@ -737,24 +737,24 @@ class ManifestReader:
                 found_set = set()
                 missing = sorted(expected_dates) if expected_dates else []
 
-            _MAX_LIST = 50
-            _TAIL = 5
+            max_list = 50
+            tail = 5
             found_list = sorted(found_set)
-            found_truncated = len(found_list) > _MAX_LIST
-            missing_truncated = len(missing) > _MAX_LIST
+            found_truncated = len(found_list) > max_list
+            missing_truncated = len(missing) > max_list
 
             result[lid] = {
                 "dates_found": found_count,
                 "dates_expected": expected_count,
                 "completion_pct": round(found_count / expected_count * 100, 2),
-                "dates_found_list": found_list[:_MAX_LIST],
+                "dates_found_list": found_list[:max_list],
                 "dates_found_truncated": found_truncated,
-                "dates_found_list_tail": found_list[-_TAIL:] if found_truncated else None,
+                "dates_found_list_tail": found_list[-tail:] if found_truncated else None,
                 "dates_missing": max(0, expected_count - found_count),
                 "dates_missing_count": len(missing),
-                "dates_missing_list": missing[:_MAX_LIST],
+                "dates_missing_list": missing[:max_list],
                 "dates_missing_truncated": missing_truncated,
-                "dates_missing_list_tail": missing[-_TAIL:] if missing_truncated else None,
+                "dates_missing_list_tail": missing[-tail:] if missing_truncated else None,
             }
 
         return result

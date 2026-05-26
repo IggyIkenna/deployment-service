@@ -393,7 +393,7 @@ def run_sweep(
         }
         for fut in as_completed(futures):
             result = fut.result()
-            if "[REAPED]" in result or "[DRY-RUN] " in result and "zombie" in result.lower():
+            if "[REAPED]" in result or ("[DRY-RUN] " in result and "zombie" in result.lower()):
                 reaped += 1
             logger.info(result)
 

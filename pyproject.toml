@@ -83,9 +83,12 @@ max-complexity = 55
 "deployment_service/backends/aws_ec2.py" = ["C901"]
 "deployment_service/calculators/shard_dimensions.py" = ["C901"]
 "deployment_service/calculators/shard_distribution.py" = ["C901"]
+"deployment_service/calculators/base_calculator.py" = ["N818"]
+"deployment_service/api/gunicorn.conf.py" = ["N999"]
+"scripts/setup-buckets.py" = ["N999"]
 "scripts/**/*.py" = ["C901"]
-"tests/**/*.py" = ["C901", "B007", "SIM102"]
-"tests/*.py" = ["C901", "B007", "SIM102"]
+"tests/**/*.py" = ["C901", "B007", "SIM102", "SIM117", "N806", "N802", "RUF059", "RUF005", "RUF001", "RUF002", "RUF003", "RUF012", "RUF015", "RUF100", "C416"]
+"tests/*.py" = ["C901", "B007", "SIM102", "SIM117", "N806", "N802", "RUF059", "RUF005", "RUF001", "RUF002", "RUF003", "RUF012", "RUF015", "RUF100", "C416"]
 
 
 
@@ -102,10 +105,6 @@ include = ["deployment_service"]
 exclude = ["tests", "**/__pycache__", ".venv*", ".venv-workspace", "build", "dist", "node_modules"]
 reportAny = "error"
 reportMissingTypeStubs = false
-reportUnknownMemberType = "none"
-reportUnknownVariableType = "none"
-reportUnknownArgumentType = "none"
-reportUnknownParameterType = "none"
 reportMissingParameterType = "none"
 reportUntypedFunctionDecorator = "none"
 reportUntypedBaseClass = "none"
@@ -116,7 +115,6 @@ reportOperatorIssue = "none"
 reportIndexIssue = "none"
 reportGeneralTypeIssues = "none"
 reportTypedDictNotRequiredAccess = "none"
-reportUnknownLambdaType = "none"
 reportImplicitRelativeImport = "none"
 reportMissingImports = "none"
 

@@ -206,13 +206,13 @@ class _LeagueStatus:
     """Status tracking for a single league across a date range."""
 
     __slots__ = (
-        "league_id",
-        "expected_fixture_dates",
         "actual_fixture_dates",
+        "expected_fixture_dates",
+        "league_id",
         "missing_fixture_dates",
         "no_fixture_dates",
-        "total_expected",
         "total_actual",
+        "total_expected",
     )
 
     def __init__(self, league_id: str) -> None:

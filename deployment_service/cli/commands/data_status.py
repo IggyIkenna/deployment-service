@@ -344,16 +344,16 @@ def data_status(
 
         elif sports_league_breakdown:
             # Sports-specific: fixture-based denominator per league
-            _SPORTS_SERVICES = {
+            sports_services = {
                 "instruments-service",
                 "market-tick-data-service",
                 "features-sports-service",
             }
-            if service not in _SPORTS_SERVICES:
+            if service not in sports_services:
                 click.echo(
                     click.style(
                         "--sports-league-breakdown is only supported for sports services:"
-                        f" {', '.join(sorted(_SPORTS_SERVICES))}",
+                        f" {', '.join(sorted(sports_services))}",
                         fg="red",
                     ),
                     err=True,

@@ -2,7 +2,7 @@
 Config Loader - Load sharding configurations from YAML files
 
 Handles loading:
-- venues.yaml: Canonical venue–asset-group mappings
+- venues.yaml: Canonical venue-asset-group mappings
 - sharding.SERVICE.yaml: Per-service sharding configurations
 - cloud-providers.yaml: Cloud provider configurations (GCP/AWS)
 """
@@ -37,7 +37,7 @@ class ConfigLoader(BaseConfigLoader):
     Loads sharding configuration files.
 
     Configuration files are expected to be in YAML format:
-    - configs/venues.yaml: Venue–asset-group mappings
+    - configs/venues.yaml: Venue-asset-group mappings
     - configs/sharding.{service}.yaml: Service-specific sharding configs
     - configs/cloud-providers.yaml: Cloud provider configurations
     """

@@ -552,7 +552,7 @@ class SportsTriggerScheduler:
                                 labels={"trigger": trigger_name, "dispatch_id": dispatch_id},
                             )
                             dispatched += 1
-                        except Exception as exc:  # noqa: BLE001
+                        except Exception as exc:
                             logger.warning(
                                 "Cloud Run dispatch failed for %s (trigger %s:%s): %s",
                                 service,
@@ -598,7 +598,7 @@ class SportsTriggerScheduler:
             )
             self._cloud_run_backends[job_name] = backend
             return backend
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Failed to create CloudRunBackend for job %s: %s", job_name, exc)
             return None
 

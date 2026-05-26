@@ -51,7 +51,7 @@ class LiveDeploymentRequest:
             cfg = UnifiedCloudConfig()
             self.region = str(cfg.gcs_region) if hasattr(cfg, "gcs_region") else "us-central1"
         if not (0 <= self.traffic_split_pct <= 100):
-            raise ValueError(f"traffic_split_pct must be 0–100, got {self.traffic_split_pct}")
+            raise ValueError(f"traffic_split_pct must be 0-100, got {self.traffic_split_pct}")
 
 
 @dataclass

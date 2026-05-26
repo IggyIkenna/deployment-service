@@ -38,15 +38,15 @@ class _TrackedProcess:
     """Internal bookkeeping for a launched subprocess."""
 
     __slots__ = (
-        "shard_id",
-        "process",
-        "start_time",
         "end_time",
+        "error_message",
+        "health_url",
+        "is_live",
         "log_path",
         "pid_path",
-        "is_live",
-        "health_url",
-        "error_message",
+        "process",
+        "shard_id",
+        "start_time",
     )
 
     def __init__(

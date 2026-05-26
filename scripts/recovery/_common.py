@@ -240,7 +240,7 @@ class Layer0Script(ABC):
         try:
             status, post_action_state = self.execute_action(args)
             failure_reason = None
-        except Exception as exc:  # noqa: BLE001 — capture & emit FAILED
+        except Exception as exc:  # capture & emit FAILED
             status = ActionStatus.FAILED
             post_action_state = {}
             failure_reason = repr(exc)

@@ -275,7 +275,7 @@ def run_ml_experiments_check(output: str) -> None:
         meta_status = click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
         if has_meta:
             meta_ok += 1
-        click.echo(f"{str(r['model_id']):<30} {str(r['training_period']):<25} {meta_status}")
+        click.echo(f"{r['model_id']!s:<30} {r['training_period']!s:<25} {meta_status}")
 
     click.echo("-" * 80)
     total = len(results)
@@ -421,8 +421,7 @@ def run_live_freshness_check(
             status = click.style("FRESH", fg="green")
 
         click.echo(
-            f"{str(r['asset_group']):<15} {str(r['blob_count']):<8} "
-            f"{last_write_str:<22} {staleness_display:<12} {status}"
+            f"{r['asset_group']!s:<15} {r['blob_count']!s:<8} {last_write_str:<22} {staleness_display:<12} {status}"
         )
 
     click.echo("-" * 80)

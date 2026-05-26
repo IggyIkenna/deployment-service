@@ -7,7 +7,7 @@ Tracks:
 - Data completeness per service/date
 
 # SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (DeploymentStatus,
-# ServiceHealthReport) model deployment-service–specific health aggregation.
+# ServiceHealthReport) model deployment-service-specific health aggregation.
 # Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 

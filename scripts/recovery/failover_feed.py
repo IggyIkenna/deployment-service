@@ -50,12 +50,12 @@ class FailoverFeed(Layer0Script):
             "backup": args.backup,
             "reason": "Layer-0 failover_feed.py",
         }).encode("utf-8")
-        req = urllib.request.Request(  # noqa: S310 — internal control plane
+        req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 payload = resp.read().decode("utf-8")
                 return ActionStatus.SUCCEEDED, {
                     "http_status": resp.status,

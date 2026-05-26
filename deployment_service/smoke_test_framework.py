@@ -153,7 +153,7 @@ class ShardCombinatoricsGenerator:
         service: str,
     ) -> list[dict[str, str]]:
         """
-        Get all valid asset-group–venue combinations for a service.
+        Get all valid asset-group-venue combinations for a service.
 
         Useful for understanding the test matrix without date expansion.
 

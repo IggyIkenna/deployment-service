@@ -57,12 +57,12 @@ class CancelOpenOrders(Layer0Script):
             "symbol": args.symbol,
             "reason": "Layer-0 cancel_open_orders.py",
         }).encode("utf-8")
-        req = urllib.request.Request(  # noqa: S310
+        req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 payload = resp.read().decode("utf-8")
                 return ActionStatus.SUCCEEDED, {
                     "http_status": resp.status,

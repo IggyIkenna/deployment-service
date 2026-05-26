@@ -52,12 +52,12 @@ class DisableVenue(Layer0Script):
             "strategy": args.strategy,
             "reason": "Layer-0 disable_venue.py",
         }).encode("utf-8")
-        req = urllib.request.Request(  # noqa: S310
+        req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return ActionStatus.SUCCEEDED, {
                     "http_status": resp.status,
                     "response_tail": resp.read().decode("utf-8")[-300:],

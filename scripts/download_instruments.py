@@ -113,7 +113,7 @@ def get_last_aggregated_date(asset_groups: list[str] | None = None) -> date | No
     """
     Detect the most recent aggregated instrument file date from GCS.
 
-    Scans the aggregated/ prefix in each per–asset-group bucket for files matching:
+    Scans the aggregated/ prefix in each per-asset-group bucket for files matching:
     aggregated_instruments_YYYY-MM-DD.parquet
 
     Returns the most recent date found across all selected groups, or None if no files exist.

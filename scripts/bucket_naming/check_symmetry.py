@@ -170,7 +170,7 @@ def run(yaml_path: Path) -> int:
         else:
             violations.append(f"  {kind}: type mismatch (GCP={type(gcp_tmpl).__name__}, AWS={type(aws_tmpl).__name__})")
 
-    print(f"=== Bucket symmetry check: {checked} kind×ag pairs checked ===")
+    print(f"=== Bucket symmetry check: {checked} kind x ag pairs checked ===")
 
     if gcp_only:
         print("\nGCP-only kinds (no AWS counterpart — by design or missing):")

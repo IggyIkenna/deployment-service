@@ -11,7 +11,7 @@ Usage:
 Output:
     - ✅ prefix → bucket: exists
     - ❌ prefix → bucket: MISSING (orphan)
-    - ℹ️  prefix → None: heartbeat-only (skip)
+    - (i) prefix → None: heartbeat-only (skip)
 
 Exit code:
     0 = all non-None buckets exist
@@ -28,7 +28,7 @@ from pathlib import Path
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
-from vm_zombie_watchdog import PROJECT_ID, VM_PREFIX_TO_BUCKET  # noqa: E402
+from vm_zombie_watchdog import PROJECT_ID, VM_PREFIX_TO_BUCKET
 
 
 def _bucket_exists(project_id: str, bucket_name: str) -> bool:
@@ -96,7 +96,7 @@ def main() -> int:
         print(f"  ✅  {prefix!r:45s} → {bucket}")
 
     for prefix in sorted(heartbeat_only):
-        print(f"  ℹ️   {prefix!r:45s} → None (heartbeat-only, skip)")
+        print(f"  (i)  {prefix!r:45s} -> None (heartbeat-only, skip)")
 
     for prefix, bucket in sorted(orphans):
         print(f"  ❌  {prefix!r:45s} → {bucket}  MISSING IN GCS")

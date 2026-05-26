@@ -36,13 +36,13 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "google_exceptions",
+    "compute_v1",
     "google_auth_default",
     "google_auth_requests",
-    "compute_v1",
-    "run_v2",
+    "google_exceptions",
     "images_transports",
     "instances_transports",
+    "run_v2",
 ]
 
 # Maps exported name → (module_to_import, attribute_name_or_None)
