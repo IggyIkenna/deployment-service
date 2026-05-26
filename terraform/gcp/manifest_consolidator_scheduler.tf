@@ -113,6 +113,36 @@ locals {
     "instruments-prediction-legacy"   = 1800
   }
 
+  # Per-category memory/cpu override. Default 4 vCPU / 16Gi covers buckets whose
+  # per-VM shard set merges within 16Gi working set (~1600 shards). Heavy buckets
+  # exceed that and SIGKILL (signal 9 / OOM) mid-merge — per-VM shards are never
+  # pruned after consolidation, so the working set grows unboundedly with every
+  # backfill VM. Cloud Run gen2 ceilings: 4 vCPU → 16Gi; 8 vCPU → 32Gi.
+  #
+  # 2026-05-26 OOM incident: market-data-tick-cefi (flat legacy) accumulated 2099
+  # per-VM shards from active CeFi backfill VMs → consolidator OOM-killed every
+  # cycle at 16Gi → canonical availability_index.parquet stuck 36h stale despite
+  # scheduler firing every minute. market-data-tick-tradfi (1621 shards) was next
+  # in line. Bumped both to 8 vCPU / 32Gi. Default stays 4/16 for the rest.
+  manifest_consolidator_cpu = {
+    "market-data-cefi-legacy"   = "8"
+    "market-data-tradfi-legacy" = "8"
+  }
+  manifest_consolidator_memory = {
+    "market-data-cefi-legacy"   = "32Gi"
+    "market-data-tradfi-legacy" = "32Gi"
+  }
+  # DuckDB's own memory_limit (CONSOLIDATOR_DUCKDB_MEMORY_LIMIT) is deliberately
+  # set BELOW the container memory (code default 8GB for the 16Gi tier). Bumping
+  # ONLY the container does nothing — DuckDB still caps at 8GB and spills merge
+  # state to tmpfs, which itself consumes container RAM. For the 32Gi tier we
+  # raise DuckDB to 24GB (leaving ~8GB for Python/IO/tmpfs) so the heavy
+  # catch-up merge runs in-memory and completes inside the 90s soft-lock TTL.
+  manifest_consolidator_duckdb_memory = {
+    "market-data-cefi-legacy"   = "24GB"
+    "market-data-tradfi-legacy" = "24GB"
+  }
+
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
   # cloud-providers.yaml comment "Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds".
   # Exception: features-sports + features-calendar remain env-tiered per yaml SSOT.
@@ -168,8 +198,8 @@ module "manifest_consolidator_job" {
   # 8 vCPU → max 32Gi. We pick 4 vCPU to unlock the 16Gi ceiling AND get
   # ~4× pandas-concat parallelism (multi-threaded BLAS / pyarrow). See
   # `feedback_manifest_consolidator_oom.md` (2026-05-06) for diagnosis.
-  cpu             = "4"
-  memory          = "16Gi"
+  cpu             = lookup(local.manifest_consolidator_cpu, each.key, "4")     # 8 vCPU for heavy buckets (>1600 shards) to unlock 32Gi ceiling
+  memory          = lookup(local.manifest_consolidator_memory, each.key, "16Gi") # 32Gi for heavy buckets; default 16Gi handles ~1600 shards
   timeout_seconds = lookup(local.manifest_consolidator_timeouts, each.key, 300) # consolidation is a single read-list-merge-write cycle, ~5-30s typical; sports overridden to 600s for 2M+ row merges
   max_retries     = 1
   parallelism     = 1
@@ -179,11 +209,18 @@ module "manifest_consolidator_job" {
   command = ["python"]
   args    = ["-m", "unified_trading_library.manifest_consolidator", "--bucket", each.value]
 
-  environment_variables = {
-    GCP_PROJECT_ID = var.project_id
-    DEPLOYMENT_ENV = var.environment
-    CLOUD_PROVIDER = "gcp"
-  }
+  # Heavy buckets get a raised DuckDB memory_limit (see local map); default
+  # buckets fall back to the code default (8GB) by omitting the env var.
+  environment_variables = merge(
+    {
+      GCP_PROJECT_ID = var.project_id
+      DEPLOYMENT_ENV = var.environment
+      CLOUD_PROVIDER = "gcp"
+    },
+    contains(keys(local.manifest_consolidator_duckdb_memory), each.key) ? {
+      CONSOLIDATOR_DUCKDB_MEMORY_LIMIT = local.manifest_consolidator_duckdb_memory[each.key]
+    } : {},
+  )
 
   service_name = "manifest-consolidator"
   environment  = var.environment
