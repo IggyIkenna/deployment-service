@@ -282,10 +282,21 @@ if [[ "$SHUTDOWN_ON_COMPLETION" == "true" ]]; then
     if [[ -n "$VM_NAME_SELF" && -n "$VM_ZONE_SELF" ]]; then
         echo "[vm-exec] VM_SHUTDOWN_ON_COMPLETION=true — scheduling self-delete of $VM_NAME_SELF in $VM_ZONE_SELF" >> "$LOCAL_LOG"
         gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
+        # Pre-kill hook (2026-05-27): backup logs before self-delete
+        # Best-effort — don't block delete if backup fails
         # setsid + nohup + disown detach from this script so SIGHUP on VM
         # teardown doesn't kill the delete mid-flight.
-        nohup setsid bash -c "sleep 10 && gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all" \
-            </dev/null >/dev/null 2>&1 &
+        nohup setsid bash -c "
+            sleep 10
+            # Try to backup logs (best-effort, continues on failure)
+            if command -v backup-vm-logs.sh >/dev/null 2>&1; then
+                backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
+            elif [[ -f /opt/scripts/backup-vm-logs.sh ]]; then
+                bash /opt/scripts/backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
+            fi
+            # Delete the VM
+            gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all
+        " </dev/null >/dev/null 2>&1 &
         disown || true
     else
         echo "[vm-exec] WARN: could not read VM name/zone from metadata — skipping self-delete" >> "$LOCAL_LOG"
