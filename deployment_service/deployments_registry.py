@@ -47,6 +47,54 @@ def _resolve_default_bucket() -> str:
     return f"deployment-scripts-{proj}" if proj else ""
 
 
+def vm_log_stream_uri(vm_name: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's live log stream.
+
+    Live logs are streamed to this path every 30s by heartbeat_daemon.py.
+    This prefix has a 14-day delete lifecycle.
+
+    Returns: gs://deployment-scripts-{project}/vm-logs/{vm}/run.log
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/vm-logs/{vm_name}/run.log"
+
+
+def vm_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived logs.
+
+    Archived logs persist indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/snapshot_{timestamp}/{vm_name}/"
+
+
+def vm_serial_console_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived serial console output.
+
+    Serial console is captured via GCP API and persists indefinitely.
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/serial-console.txt
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}serial-console.txt"
+
+
+def vm_run_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived run.log.
+
+    Archived run.log persists indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/run.log
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}run.log"
+
+
 # Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
 # Empty string at import time = no GCP_PROJECT_ID set (e.g. unit tests); callers
 # must pass ``bucket=`` explicitly in that case.
@@ -421,4 +469,8 @@ __all__ = [
     "DeploymentRegistryEntry",
     "DeploymentsRegistry",
     "InMemoryStorageClient",
+    "vm_log_archive_uri",
+    "vm_log_stream_uri",
+    "vm_run_log_archive_uri",
+    "vm_serial_console_archive_uri",
 ]
