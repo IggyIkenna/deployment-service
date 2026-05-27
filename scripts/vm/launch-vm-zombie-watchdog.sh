@@ -159,6 +159,15 @@ apt-get install -y python3.13 python3.13-venv 2>&1 | tail -2 || true
 
 python3.13 -m venv /opt/watchdog-venv
 
+# Upgrade pip FIRST. The stock pip in a fresh python3.13 venv is too old to
+# recognise the prebuilt cp313 manylinux wheels for UTL's transitive C
+# extensions (ckzg, lru-dict, via web3) — it falls back to a source build that
+# fails (no compiler in this minimal venv), aborting the whole UTL install and
+# leaving the watchdog crash-looping on ``ModuleNotFoundError:
+# unified_trading_library`` (observed 2026-05-24→27: 562 crashes, 0 scans).
+# An upgraded pip pulls the wheels directly — no compiler needed.
+/opt/watchdog-venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -1 || true
+
 # Install google-cloud packages + UAC into the Python 3.13 venv.
 /opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
 

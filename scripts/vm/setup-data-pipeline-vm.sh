@@ -437,7 +437,11 @@ mkdir -p "$WHEEL_CACHE"
 # Try to download cached wheels
 if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   log "Downloading cached wheels from GCS..."
-  gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
+  # timeout-guard: a deadlocked `gsutil -m` (parallel-mode hang, observed
+  # 2026-05-25 bricking bybit/hyperliquid/kraken at boot) never returns to hit
+  # `|| true`, blocking the whole startup script forever. Bound it so boot
+  # proceeds (falls back to building wheels from source if the cache is missing).
+  timeout 180 gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
   WHEEL_COUNT=$(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l)
   log "Downloaded $WHEEL_COUNT cached wheels"
 fi
@@ -524,7 +528,10 @@ if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
   log "Caching compiled wheels to GCS..."
   # Build wheels for all installed packages (captures compiled C extensions)
   uv pip wheel --wheel-dir "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" -q 2>/dev/null || true
-  gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
+  # timeout-guard the upload too — this is the exact step that deadlocked and
+  # left 3 CeFi VMs hung at boot (gsutil -m parallel-upload hang). Bounded so
+  # the workload still launches even if the cache refresh wedges.
+  timeout 180 gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
   touch "$WHEEL_CACHE/.uploaded"
   log "Wheels cached to $WHEEL_GCS"
 fi
