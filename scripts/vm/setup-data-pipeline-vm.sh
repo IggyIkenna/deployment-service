@@ -369,6 +369,14 @@ for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
   fi
 done
 
+# Sports scheduler needs instruments-service for subprocess dispatches
+if [[ "$VM_TASK" == "sports-scheduler-poll" ]]; then
+  case " ${NEEDED_TARBALLS[*]} " in
+    *" instruments-service-code "*) ;;
+    *) NEEDED_TARBALLS+=("instruments-service-code"); log "  (added instruments-service-code — sports scheduler dispatches instruments commands)" ;;
+  esac
+fi
+
 log "Tarballs to install: ${NEEDED_TARBALLS[*]}"
 
 INSTALLED_DIRS=()
