@@ -205,6 +205,18 @@ if [[ -f /tmp/dep.tar.gz ]]; then
 fi
 export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
 
+# cloud-providers.yaml bucket-name templates reference \${GCP_PROJECT_ID} +
+# \${DEPLOYMENT_ENV_SHORT} (e.g. market-data-tick-cefi-\${DEPLOYMENT_ENV_SHORT}-\${GCP_PROJECT_ID}).
+# UTL _substitute_env_vars raises BucketNamingError on any unset var, so both
+# must be exported before the watchdog imports — 2026-05-28 incident.
+export GCP_PROJECT_ID=${PROJECT}
+export PROJECT_ID=${PROJECT}
+case "${DEPLOYMENT_ENV}" in
+    prod)    export DEPLOYMENT_ENV_SHORT=prd ;;
+    staging) export DEPLOYMENT_ENV_SHORT=stg ;;
+    dev)     export DEPLOYMENT_ENV_SHORT=dev ;;
+esac
+
 ${LOOP_CMD}
 "
 
