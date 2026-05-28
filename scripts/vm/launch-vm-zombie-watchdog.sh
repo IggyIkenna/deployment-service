@@ -131,7 +131,7 @@ LOOP_CMD="
 cd /tmp
 gsutil cp gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py /tmp/watchdog.py
 while true; do
-    python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
+    /opt/watchdog-venv/bin/python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
     sleep ${INTERVAL}
 done
 "
@@ -150,25 +150,75 @@ for i in \$(seq 1 60); do
     sleep 1
 done
 
-# Bootstrap pip via get-pip.py — does NOT depend on apt mirrors. The
-# previous design used 'apt-get update + apt-get install python3-pip'
-# but the mirror hangs 7+ min on slow asia-northeast1 days, AND skipping
-# apt-get update leaves the cached lists missing python3-pip entirely
-# (observed 2026-05-05: 'Package python3-pip has no installation
-# candidate'). Python3 is pre-installed on Ubuntu 24.04 GCE; pip is not.
-if ! python3 -m pip --version >/dev/null 2>&1; then
-    curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-    python3 /tmp/get-pip.py --break-system-packages 2>&1 || true
+# UAC requires Python >=3.13,<3.14; Ubuntu 24.04 ships Python 3.12.
+# Install Python 3.13 via deadsnakes PPA, then create a dedicated venv.
+apt-get install -y software-properties-common 2>&1 | tail -2 || true
+add-apt-repository ppa:deadsnakes/ppa -y 2>&1 | tail -2 || true
+apt-get update -y 2>&1 | tail -2 || true
+apt-get install -y python3.13 python3.13-venv python3.13-dev 2>&1 | tail -2 || true
+
+# Install C toolchain + dev headers for source-builds of UTL's transitive C
+# extensions (ckzg, lru-dict, via web3). The 2026-05-24→27 incident assumed an
+# upgraded pip alone would pull cp313 manylinux wheels — in practice these
+# packages still source-build on python3.13 (no manylinux_2_28 cp313 wheel),
+# so gcc + Python.h + libssl + libffi must be present or the watchdog
+# re-enters the same ModuleNotFoundError crash-loop. Observed 2026-05-28 on
+# vm-zombie-watchdog-20260528-112656: same crash despite the pip-upgrade fix.
+apt-get install -y build-essential libssl-dev libffi-dev pkg-config 2>&1 | tail -2 || true
+
+python3.13 -m venv /opt/watchdog-venv
+
+# Upgrade pip FIRST. Pulls prebuilt wheels when available; falls back to
+# source builds (now possible thanks to the build-essential install above).
+/opt/watchdog-venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -1 || true
+
+# Install google-cloud packages + UAC into the Python 3.13 venv.
+/opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
+
+# Install UAC (needed for VmPrefixSpec + LifecycleClass imports).
+# Use system tar to extract (avoids Python 3.12+ tarfile security filter on symlinks).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
+if [[ -f /tmp/uac.tar.gz ]]; then
+    mkdir -p /tmp/uac-src
+    tar xf /tmp/uac.tar.gz -C /tmp/uac-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/uac-src 2>&1 | tail -3 || true
 fi
 
-# Watchdog only imports google.cloud.{compute_v1, storage} — no pandas,
-# no pyarrow. --ignore-installed avoids the typing_extensions trap
-# (apt-managed package without a pip RECORD file).
-python3 -m pip install \
-    --break-system-packages \
-    --ignore-installed \
-    --quiet \
-    google-cloud-compute google-cloud-storage 2>&1 || true
+# Install UTL (needed for resolve_bucket_name import).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-trading-library-code.tar.gz" /tmp/utl.tar.gz 2>&1 || true
+if [[ -f /tmp/utl.tar.gz ]]; then
+    mkdir -p /tmp/utl-src
+    tar xf /tmp/utl.tar.gz -C /tmp/utl-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/utl-src 2>&1 | tail -3 || true
+fi
+
+# Stage cloud-providers.yaml SSOT (needed by UTL resolve_bucket_name at
+# watchdog module-load; watchdog computes _TICK_CEFI = _b('market-data','cefi')
+# at import time, which calls _load_cloud_providers_yaml). Extract from the
+# deployment-service tarball + export the env override so probing succeeds
+# regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
+# and no zombies get reaped — observed 2026-05-28.
+gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
+if [[ -f /tmp/dep.tar.gz ]]; then
+    mkdir -p /tmp/dep-src
+    tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
+    # Install the package so watchdog's _backup_vm_logs_before_kill can
+    # import deployment_service.deployments_registry at kill time (2026-05-28).
+    /opt/watchdog-venv/bin/pip install --quiet --no-deps /tmp/dep-src 2>&1 | tail -3 || true
+fi
+export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
+
+# cloud-providers.yaml bucket-name templates reference \${GCP_PROJECT_ID} +
+# \${DEPLOYMENT_ENV_SHORT} (e.g. market-data-tick-cefi-\${DEPLOYMENT_ENV_SHORT}-\${GCP_PROJECT_ID}).
+# UTL _substitute_env_vars raises BucketNamingError on any unset var, so both
+# must be exported before the watchdog imports — 2026-05-28 incident.
+export GCP_PROJECT_ID=${PROJECT}
+export PROJECT_ID=${PROJECT}
+case "${DEPLOYMENT_ENV}" in
+    prod)    export DEPLOYMENT_ENV_SHORT=prd ;;
+    staging) export DEPLOYMENT_ENV_SHORT=stg ;;
+    dev)     export DEPLOYMENT_ENV_SHORT=dev ;;
+esac
 
 ${LOOP_CMD}
 "

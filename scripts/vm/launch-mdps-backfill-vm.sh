@@ -38,12 +38,14 @@
 set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+SOURCE_BUCKET_OVERRIDE=""
 
-# Pre-parse --env <val> before positional args.
+# Pre-parse --env <val> and --source-bucket <val> before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --source-bucket) SOURCE_BUCKET_OVERRIDE="$2"; shift 2 ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -57,8 +59,24 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-8"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="50"
+
+# Filter pass-through (added 2026-05-28 for filter-pushdown canary verification —
+# see unified-trading-pm/plans/active/mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md
+# Phase 3). Unset by default → no behavior change for existing callers; when
+# set, exported on the VM so cli/main.py::_build_legacy_argv translates them
+# into --data-types / --venues / --instrument-ids.
+MDPS_DATA_TYPES_OVERRIDE="${MDPS_DATA_TYPES:-}"
+MDPS_VENUES_OVERRIDE="${MDPS_VENUES:-}"
+MDPS_INSTRUMENT_IDS_OVERRIDE="${MDPS_INSTRUMENT_IDS:-}"
+MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
+# Test-isolation write target (config.py:497 — MDPS_OUTPUT_BUCKET_{CAT})
+MDPS_OUTPUT_BUCKET_CEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_CEFI:-}"
+MDPS_OUTPUT_BUCKET_DEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_DEFI:-}"
+MDPS_OUTPUT_BUCKET_TRADFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_TRADFI:-}"
+MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
+MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
@@ -86,7 +104,11 @@ _category_upper_for() {
 _launch() {
     local cat="$1"
     local cat_upper; cat_upper="$(_category_upper_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
-    local vm_name="mdps-backfill-${cat}-${RUN_TS}"
+    local bucket_suffix=""
+    if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
+        bucket_suffix="-$(echo "$SOURCE_BUCKET_OVERRIDE" | sed 's/-central-element-323112//' | sed "s/^market-data-tick-${cat}/main/" | sed 's/-central-element-323112//' | cut -c1-16 | tr '_' '-')"
+    fi
+    local vm_name="mdps-backfill-${cat}${bucket_suffix}-${RUN_TS}"
 
     # MDPS CLI quirk: service uses ServiceBootstrap at the top level (which
     # requires --operation and --mode) BUT has add_asset_group_arg=False, so
@@ -100,7 +122,7 @@ _launch() {
     # Source-bucket env var is read by MDPS config.py (line 75-80) to locate the
     # raw tick bucket. Without it, every shard fails with "No source bucket
     # configured for category=…" before any candle is produced.
-    local source_bucket="market-data-tick-${cat}-${PROJECT}"
+    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${PROJECT}}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
     # Sports MDPS catch-up: pre-2026 dates often lack upstream raw because
@@ -113,6 +135,15 @@ _launch() {
     if [[ "$cat" == "sports" ]]; then
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
     fi
+    # Filter overrides (canary / narrow-scope reruns) — env-var pass-through.
+    [[ -n "$MDPS_DATA_TYPES_OVERRIDE" ]]    && cmd="$cmd MDPS_DATA_TYPES='$MDPS_DATA_TYPES_OVERRIDE'"
+    [[ -n "$MDPS_VENUES_OVERRIDE" ]]        && cmd="$cmd MDPS_VENUES='$MDPS_VENUES_OVERRIDE'"
+    [[ -n "$MDPS_INSTRUMENT_IDS_OVERRIDE" ]] && cmd="$cmd MDPS_INSTRUMENT_IDS='$MDPS_INSTRUMENT_IDS_OVERRIDE'"
+    [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]   && cmd="MAX_WORKERS=$MDPS_MAX_WORKERS_OVERRIDE $cmd"
+    # MDPS_OUTPUT_BUCKET_{CAT} — per-asset-group output bucket override (test-isolation).
+    local _out_var="MDPS_OUTPUT_BUCKET_${cat_upper}_OVERRIDE"
+    local _out_val="${!_out_var:-}"
+    [[ -n "$_out_val" ]] && cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=$_out_val"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
@@ -133,6 +164,8 @@ _launch() {
     md="${md},VM_BACKFILL_MODE=${MODE}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+    [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+    [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

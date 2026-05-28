@@ -578,11 +578,11 @@ def launch_shards_rolling(
             ]
             # Temporarily mark non-wave pending shards as QUEUED to hide from parallel launcher
             # We use FAILED as a safe sentinel (will be restored immediately after)
-            _HIDDEN_STATUS = ShardStatus.FAILED
+            hidden_status = ShardStatus.FAILED
             original_statuses: dict[str, ShardStatus] = {}
             for shard in non_wave_pending:
                 original_statuses[shard.shard_id] = shard.status
-                shard.status = _HIDDEN_STATUS
+                shard.status = hidden_status
 
             launch_shards_parallel(
                 state=state,
@@ -602,7 +602,7 @@ def launch_shards_rolling(
 
             # Restore non-wave pending shards to PENDING (only those still in FAILED sentinel state)
             for shard in non_wave_pending:
-                if shard.shard_id in original_statuses and shard.status == _HIDDEN_STATUS:
+                if shard.shard_id in original_statuses and shard.status == hidden_status:
                     shard.status = original_statuses[shard.shard_id]
 
             if no_wait and wave_number == 1:

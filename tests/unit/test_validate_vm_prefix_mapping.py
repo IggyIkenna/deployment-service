@@ -46,7 +46,7 @@ def test_all_heartbeat_only_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_mod = _make_fake_watchdog(fake_map)
     monkeypatch.setitem(sys.modules, "vm_zombie_watchdog", fake_mod)
 
-    import validate_vm_prefix_mapping as vmp  # noqa: PLC0415
+    import validate_vm_prefix_mapping as vmp
 
     monkeypatch.delitem(sys.modules, "validate_vm_prefix_mapping", raising=False)
 
@@ -68,7 +68,7 @@ def test_all_heartbeat_only_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_existing_bucket_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-None bucket that exists in GCS → exit 0."""
-    import validate_vm_prefix_mapping as vmp  # noqa: PLC0415
+    import validate_vm_prefix_mapping as vmp
 
     fake_map: dict = {"myvm-": _FakeSpec("my-real-bucket")}
     vmp.VM_PREFIX_TO_BUCKET = fake_map  # type: ignore[attr-defined]
@@ -84,7 +84,7 @@ def test_existing_bucket_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_missing_bucket_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-None bucket missing in GCS → exit 1 (orphan)."""
-    import validate_vm_prefix_mapping as vmp  # noqa: PLC0415
+    import validate_vm_prefix_mapping as vmp
 
     fake_map: dict = {"ghost-prefix-": _FakeSpec("bucket-that-does-not-exist")}
     vmp.VM_PREFIX_TO_BUCKET = fake_map  # type: ignore[attr-defined]
@@ -100,7 +100,7 @@ def test_missing_bucket_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_dry_run_no_gcs_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     """--dry-run: prints prefixes, makes zero GCS calls, exits 0."""
-    import validate_vm_prefix_mapping as vmp  # noqa: PLC0415
+    import validate_vm_prefix_mapping as vmp
 
     fake_map: dict = {"myvm-": _FakeSpec("some-bucket"), "hb-": None}
     vmp.VM_PREFIX_TO_BUCKET = fake_map  # type: ignore[attr-defined]
@@ -117,7 +117,7 @@ def test_dry_run_no_gcs_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_mixed_ok_and_orphan(monkeypatch: pytest.MonkeyPatch) -> None:
     """One existing + one missing bucket: exit 1, orphan reported."""
-    import validate_vm_prefix_mapping as vmp  # noqa: PLC0415
+    import validate_vm_prefix_mapping as vmp
 
     fake_map: dict = {
         "good-prefix-": _FakeSpec("good-bucket"),

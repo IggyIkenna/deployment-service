@@ -36,6 +36,8 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
 
+from unified_trading_library.cloud_interface import gcs_delete_object  # noqa: qg-deep-import
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -99,12 +101,13 @@ def _delete_object(gcs_path: str, dry_run: bool) -> bool:
     if dry_run:
         logger.info("[DRY-RUN] would delete %s", gcs_path)
         return True
-    result = subprocess.run(["gsutil", "rm", gcs_path], capture_output=True, text=True, check=False)
-    if result.returncode == 0:
+    try:
+        gcs_delete_object(gcs_path)
         logger.info("deleted %s", gcs_path)
         return True
-    logger.warning("failed to delete %s: %s", gcs_path, result.stderr.strip())
-    return False
+    except Exception as exc:
+        logger.warning("failed to delete %s: %s", gcs_path, exc)
+        return False
 
 
 def cleanup_name_versioned(bucket: str, keep: int, dry_run: bool) -> dict[str, int]:

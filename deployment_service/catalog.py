@@ -7,7 +7,7 @@ This module provides functionality to:
 3. Aggregate catalogs across services
 
 # SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (CatalogEntry, ServiceCatalog,
-# ExecutionConfigStatus) model deployment-service–specific GCS file count tracking.
+# ExecutionConfigStatus) model deployment-service-specific GCS file count tracking.
 # Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 

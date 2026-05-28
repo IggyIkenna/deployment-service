@@ -11,13 +11,13 @@ main() in ``ServiceBootstrap(service_name="deployment-service")`` (long-running
 services) or ``with run_lifecycle(service_name=...) as run:`` (one-off
 scripts). The caller's ``ServiceBootstrap`` / ``run_lifecycle`` owns the
 paired RUN_STARTED / RUN_COMPLETED / RUN_FAILED lifecycle events. The
-``ClusterOrchestrator.__init__`` invokes ``setup_events(...)`` lazily (once
+``ClusterOrchestrator.__init__`` lazily initialises the event sink (once
 per process) only as a safety-net for ad-hoc invocations from notebooks or
 unit-test fixtures that bypass the service entry-point — production callers
 have already initialised the event sink via ``ServiceBootstrap`` /
 ``run_lifecycle`` before constructing the orchestrator. STEP 5.63 (QG): this
-docstring is what makes the ``setup_events()`` ↔ ``ServiceBootstrap`` /
-``run_lifecycle`` pairing explicit for the static-analysis gate.
+docstring documents the event-init-helper ↔ ``ServiceBootstrap`` /
+``run_lifecycle`` pairing for the static-analysis gate.
 """
 
 import logging
@@ -130,13 +130,9 @@ class ClusterOrchestrator:
             raise FileNotFoundError(msg)
 
         with open(cluster_path) as f:
-            raw = yaml.safe_load(f)
+            raw = cast(dict[str, object], yaml.safe_load(f))
 
-        if not isinstance(raw, dict):
-            msg = f"Invalid cluster config format in {cluster_path}: expected mapping"
-            raise ValueError(msg)
-
-        raw_data = cast(dict[str, object], raw)
+        raw_data = raw
         services_raw = raw_data.get("services")
         if not isinstance(services_raw, list):
             msg = f"Cluster {name} has no 'services' list"
@@ -291,7 +287,7 @@ class ClusterOrchestrator:
         ordered_services.reverse()
 
         for service_name in ordered_services:
-            self._stop_service(service_name)
+            self.stop_service(service_name)
 
         log_event(
             "cluster.teardown.completed",
@@ -632,7 +628,7 @@ class ClusterOrchestrator:
 
         return svc_status
 
-    def _stop_service(self, service_name: str) -> None:
+    def stop_service(self, service_name: str) -> None:
         """Stop a running service.
 
         Args:

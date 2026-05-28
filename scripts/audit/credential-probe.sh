@@ -159,6 +159,76 @@ probe_aws_secret() {
     return 0
 }
 
+probe_per_client_okx() {
+    # cid: pattern:exec-<client>-okx-{api-key|api-secret|passphrase}
+    # okx is per-client (per-client isolation architecture) — each client has its own
+    # okx sub-account secret. Discover the per-client secrets in Secret Manager
+    # dynamically (no hardcoded client list) and probe each. PASS iff ≥1 exists and
+    # every discovered secret is present + non-placeholder.
+    local cid="$1"
+    local purpose="$2"
+    local suffix="${cid##*-okx-}" # api-key | api-secret | passphrase
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo -e "  ${YELLOW}DRY-RUN${NC} ${cid} (per-client okx, suffix=${suffix})"
+        return 0
+    fi
+
+    local project_id="${GOOGLE_CLOUD_PROJECT:-central-element-323112}"
+    local names
+    names=$(gcloud secrets list --project="${project_id}" --format="value(name)" 2>/dev/null \
+        | grep -E "^exec-[a-z0-9]+-okx-${suffix}$" || true)
+
+    if [[ -z "$names" ]]; then
+        echo -e "  ${RED}FAIL${NC} ${cid} — no per-client okx secrets (exec-*-okx-${suffix}) in Secret Manager"
+        FAILURES+=("${cid}: ${purpose} — no per-client okx secrets provisioned")
+        return 1
+    fi
+
+    local rc=0
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        probe_gcp_secret "$name" "${purpose} [per-client okx]" || rc=1
+    done <<< "$names"
+    return $rc
+}
+
+probe_wrapped_wallet() {
+    # cid: <wallet_id>-wrapped (e.g. csb-eth-hot-lido-v1-wrapped) — a KMS-wrapped
+    # wallet private key (CLOUD_KMS_ENCRYPTED), stored as a Secret Manager secret.
+    # Two provisioning regimes (per the two wallet configs in UAC config/):
+    #   - PRE-CUTOVER (paper/batch/dev): all wallets smoke-test against the operator's
+    #     shared wrapped test PK (test_wallet_provisioning_pre_cutover.json →
+    #     defi-wallet-private-key-wrapped). That secret exists → real PASS.
+    #   - LIVE: each wallet needs its OWN provisioned per-wallet wrapped PK
+    #     (cutover_wallet_provisioning_mainnet_template.json private_key_secret_ref ==
+    #     <wallet_id>-wrapped). Generating + wrapping + storing wallet private keys is a
+    #     HUMAN-ONLY custody operation (CLAUDE.md hard-stop) — the probe verifies presence
+    #     and FAILs with explicit attribution if not yet provisioned (never fakes PASS).
+    local cid="$1"
+    local purpose="$2"
+    local wallet_id="${cid%-wrapped}"
+    local project_id="${GOOGLE_CLOUD_PROJECT:-central-element-323112}"
+
+    if [[ "$MODE" == "live" ]]; then
+        local secret="${cid}" # mainnet template private_key_secret_ref == <wallet_id>-wrapped
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}DRY-RUN${NC} ${secret} (live per-wallet PK)"
+            return 0
+        fi
+        if gcloud secrets versions access latest --secret="${secret}" --project="${project_id}" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}PASS${NC} ${secret} (${purpose})"
+            return 0
+        fi
+        echo -e "  ${RED}FAIL${NC} ${secret} — WALLET-PK-UNPROVISIONED (HUMAN-ONLY custody task: wrap + store ${wallet_id} PK)"
+        FAILURES+=("${secret}: WALLET-PK-UNPROVISIONED — human-only custody provisioning required")
+        return 1
+    fi
+
+    # Pre-cutover (paper/batch/dev): resolve to the shared wrapped test PK.
+    probe_gcp_secret "defi-wallet-private-key-wrapped" "${purpose} [pre-cutover shared test wallet for ${wallet_id}]"
+}
+
 probe_cloud_kms_cmk() {
     local cmk_alias="$1"
     local purpose="$2"
@@ -244,19 +314,24 @@ echo "Required credentials for mode=${MODE}${ARCHETYPE:+ archetype=${ARCHETYPE}}
 echo ""
 
 while IFS=$'\t' read -r cid purpose; do
-    # Skip wildcard patterns (handled per-venue/per-wallet below)
+    # Per-client okx pattern — expand + probe each client (per-client isolation)
+    if [[ "$cid" == "pattern:exec-<client>-okx-"* ]]; then
+        probe_per_client_okx "$cid" "$purpose" && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
+        continue
+    fi
+    # Skip remaining wildcard patterns (handled per-venue/per-wallet below)
     if [[ "$cid" == pattern:* ]]; then
         echo -e "  ${YELLOW}SKIP-WILDCARD${NC} ${cid} (${purpose}) — expand per § probe logic"
         SKIP=$((SKIP + 1))
         continue
     fi
-    # Skip post-cutover-only / pending-kyb credentials for May-23 cutover probe
-    if [[ "$MODE" == "live" ]] && [[ "$purpose" == *"[post_cutover_only]"* ]]; then
+    # Skip post-cutover-only / pending-kyb credentials regardless of mode
+    if [[ "$purpose" == *"[post_cutover_only]"* ]]; then
         echo -e "  ${YELLOW}SKIP-POST-CUTOVER${NC} ${cid} (${purpose})"
         SKIP=$((SKIP + 1))
         continue
     fi
-    if [[ "$MODE" == "live" ]] && [[ "$purpose" == *"[pending_kyb]"* ]]; then
+    if [[ "$purpose" == *"[pending_kyb]"* ]]; then
         echo -e "  ${YELLOW}SKIP-PENDING-KYB${NC} ${cid} (${purpose})"
         SKIP=$((SKIP + 1))
         continue
@@ -281,6 +356,12 @@ while IFS=$'\t' read -r cid purpose; do
             FAILURES+=("${cid}: ${purpose}")
             FAIL=$((FAIL + 1))
         fi
+        continue
+    fi
+
+    # Wrapped wallet PK (KMS-encrypted private key) — mode-aware resolution
+    if [[ "$cid" == *-wrapped ]]; then
+        probe_wrapped_wallet "$cid" "$purpose" && PASS=$((PASS + 1)) || FAIL=$((FAIL + 1))
         continue
     fi
 

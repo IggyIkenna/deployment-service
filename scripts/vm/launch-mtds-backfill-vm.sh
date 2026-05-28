@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
 # Launch GCE VM for MTDS category-specific backfill (CeFi, DeFi, TradFi, etc.)
 #
-# Generalised from launch_mtds_backfill_vm.sh (sports-specific).
-# Stages codebase tarball to the category-specific GCS bucket, launches VM.
-#
-# Migrated 2026-05-08 (Tab 11) from
-# `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh` per the
-# "VM launcher script SSOT" rule (CLAUDE.md). Canonical home: this file.
-# Also fills the `_SERVICE_LAUNCHER_SCRIPTS["market-tick-data-service"]` entry
-# in `deployment-api/deployment_api/services/deploy_missing.py` (was missing
-# on disk; Deploy-Missing UI button silently broke for MTDS).
-# Plan: launcher_scripts_consolidation_into_deployment_service_2026_05_07.plan.md.
+# Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
+# Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
+# Pre-condition: run `bash create-code-tarballs.sh` first (CORE tarballs include MTDS).
 #
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
@@ -21,6 +14,9 @@
 #   bash launch-mtds-backfill-vm.sh --asset-group DEFI --start 2024-04-05 --end 2026-04-05 --env staging
 #   bash launch-mtds-backfill-vm.sh --asset-group TRADFI --start 2026-03-29 --end 2026-04-05
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --dry-run
+#
+# Pre-launch prerequisite:
+#   bash deployment-service/scripts/vm/create-code-tarballs.sh   # CORE includes MTDS
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -33,7 +29,6 @@ END_DATE=""
 TIER=""
 FORCE=false
 CHUNK_SIZE="${CHUNK_SIZE:-7}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
@@ -41,21 +36,20 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run) DRY_RUN=true; shift ;;
-    --project) PROJECT_ID="$2"; shift 2 ;;
-    --zone) ZONE="$2"; shift 2 ;;
-    --asset-group) ASSET_GROUP="$2"; shift 2 ;;
-    --start) START_DATE="$2"; shift 2 ;;
-    --end) END_DATE="$2"; shift 2 ;;
-    --tier) TIER="$2"; shift 2 ;;
-    --force) FORCE=true; shift ;;
-    --chunk-size) CHUNK_SIZE="$2"; shift 2 ;;
-    --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
-    --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
-    --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
-    --venues) VENUES="$2"; shift 2 ;;
-    --data-types) DATA_TYPES="$2"; shift 2 ;;
-    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --dry-run)       DRY_RUN=true; shift ;;
+    --project)       PROJECT_ID="$2"; shift 2 ;;
+    --zone)          ZONE="$2"; shift 2 ;;
+    --asset-group)   ASSET_GROUP="$2"; shift 2 ;;
+    --start)         START_DATE="$2"; shift 2 ;;
+    --end)           END_DATE="$2"; shift 2 ;;
+    --tier)          TIER="$2"; shift 2 ;;
+    --force)         FORCE=true; shift ;;
+    --chunk-size)    CHUNK_SIZE="$2"; shift 2 ;;
+    --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
+    --vm-name)       VM_NAME_OVERRIDE="$2"; shift 2 ;;
+    --venues)        VENUES="$2"; shift 2 ;;
+    --data-types)    DATA_TYPES="$2"; shift 2 ;;
+    --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -71,236 +65,87 @@ if [[ -z "$ASSET_GROUP" ]]; then
 fi
 
 CATEGORY_LOWER=$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')
-
-# Resolve GCS bucket for the category
-GCS_BUCKET="gs://market-data-tick-${CATEGORY_LOWER}-${PROJECT_ID}"
-GCS_STAGING="${GCS_BUCKET}/_vm_staging/mtds_backfill"
-TARBALL_NAME="mtds_backfill_codebase_${CATEGORY_LOWER}.tar.gz"
+CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 VM_NAME="${VM_NAME_OVERRIDE:-mtds-backfill-${CATEGORY_LOWER}-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 echo "============================================================"
-echo "MTDS Category Backfill VM Launcher"
+echo "MTDS Category Backfill VM Launcher (Pattern A)"
 echo "  Category:  ${ASSET_GROUP}"
 echo "  Project:   ${PROJECT_ID}"
 echo "  Zone:      ${ZONE}"
 echo "  Machine:   ${MACHINE_TYPE}"
-echo "  Range:     ${START_DATE} → ${END_DATE}"
+echo "  Range:     ${START_DATE:-<not set>} → ${END_DATE:-<not set>}"
 echo "  Tier:      ${TIER:-N/A}"
 echo "  Chunk:     ${CHUNK_SIZE} days per batch"
 echo "  Force:     ${FORCE}"
 echo "  Venues:    ${VENUES:-all}"
 echo "  DataTypes: ${DATA_TYPES:-all}"
-echo "  Bucket:    ${GCS_BUCKET}"
 echo "  VM:        ${VM_NAME}"
-echo "  Workspace: ${WORKSPACE_ROOT}"
+echo "  Env:       ${DEPLOYMENT_ENV}"
+echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "============================================================"
 
-# ---------- Step 1: Package codebase ----------
-echo ""
-echo "=== Step 1: Packaging codebase ==="
-
-REPOS=(
-  "unified-api-contracts"
-  "unified-trading-library"
-  "unified-cloud-interface"
-  "unified-config-interface"
-  "unified-trading-library"
-  "unified-features-interface"
-  "unified-reference-data-interface"
-  "market-tick-data-service"
-)
-
-TARBALL_PATH="/tmp/${TARBALL_NAME}"
-
-if ! $DRY_RUN; then
-  echo "  Creating tarball from workspace: ${WORKSPACE_ROOT}"
-  STAGING_DIR=$(mktemp -d)
-  for repo in "${REPOS[@]}"; do
-    REPO_PATH="${WORKSPACE_ROOT}/${repo}"
-    if [[ ! -d "$REPO_PATH" ]]; then
-      echo "  WARNING: ${repo} not found at ${REPO_PATH}, skipping"
-      continue
-    fi
-    echo "  Syncing ${repo}..."
-    mkdir -p "${STAGING_DIR}/${repo}"
-    rsync -a \
-      --include='unified_api_contracts/registry/data/' \
-      --include='unified_api_contracts/registry/data/**' \
-      --include='unified_api_contracts/canonical/domain/sports/data/' \
-      --include='unified_api_contracts/canonical/domain/sports/data/**' \
-      --filter=':- .gitignore' \
-      --exclude='.git' \
-      --exclude='.venv*' \
-      --exclude='__pycache__' \
-      --exclude='*.egg-info' \
-      --exclude='node_modules' \
-      --exclude='.mypy_cache' \
-      --exclude='.pytest_cache' \
-      "${REPO_PATH}/" "${STAGING_DIR}/${repo}/"
-  done
-
-  echo "  Compressing..."
-  (cd "${STAGING_DIR}" && tar czf "${TARBALL_PATH}" -- *)
-  TARBALL_SIZE=$(du -h "${TARBALL_PATH}" | cut -f1)
-  echo "  Tarball: ${TARBALL_PATH} (${TARBALL_SIZE})"
-  rm -rf "${STAGING_DIR}"
+# ── Singleton lock ──
+# Refuses launch if any mtds-backfill-{category}-* VM is RUNNING in the zone.
+# Prevents Tardis per-IP thundering-herd (concurrent VMs share egress NAT).
+VM_PREFIX="mtds-backfill-${CATEGORY_LOWER}-"
+if ! $FORCE; then
+  EXISTING="$(gcloud compute instances list \
+    --filter="name~\"^${VM_PREFIX}\" AND status=RUNNING" \
+    --zones="${ZONE}" \
+    --project="${PROJECT_ID}" \
+    --format='value(name)' 2>/dev/null | head -1 || true)"
+  if [[ -n "$EXISTING" ]]; then
+    echo "WARN: MTDS backfill VM already running for ${ASSET_GROUP}: ${EXISTING}" >&2
+    echo "      Use --force to bypass. Aborting." >&2
+    exit 1
+  fi
 fi
-
-# ---------- Step 2: Upload to GCS ----------
-echo ""
-echo "=== Step 2: Uploading to GCS ==="
-GCS_TARBALL="${GCS_STAGING}/${TARBALL_NAME}"
-GCS_SCRIPT="${GCS_STAGING}/vm_mtds_backfill.sh"
-
-if ! $DRY_RUN; then
-  echo "  Uploading tarball..."
-  gsutil -q cp "${TARBALL_PATH}" "${GCS_TARBALL}"
-  echo "  Uploading backfill script..."
-  gsutil -q cp "${SCRIPT_DIR}/vm_mtds_backfill.sh" "${GCS_SCRIPT}"
-  echo "  Done."
-  rm -f "${TARBALL_PATH}"
-else
-  echo "  [DRY RUN] Would upload tarball + script to ${GCS_STAGING}/"
-fi
-
-# ---------- Step 3: Launch VM ----------
-echo ""
-echo "=== Step 3: Launching VM ==="
-
-FORCE_FLAG=""
-if $FORCE; then
-  FORCE_FLAG="--force"
-fi
-
-TIER_VM_FLAG=""
-if [[ -n "$TIER" ]]; then
-  TIER_VM_FLAG="--tier ${TIER}"
-fi
-
-VENUES_VM_FLAG=""
-if [[ -n "$VENUES" ]]; then
-  VENUES_VM_FLAG="--venues \"${VENUES}\""
-fi
-
-DATA_TYPES_VM_FLAG=""
-if [[ -n "$DATA_TYPES" ]]; then
-  DATA_TYPES_VM_FLAG="--data-types \"${DATA_TYPES}\""
-fi
-
-STARTUP_FILE=$(mktemp)
-cat > "$STARTUP_FILE" << STARTUP_EOF
-#!/bin/bash
-set -euo pipefail
-export WORK_DIR=/tmp/mtds_backfill
-export HOME=/root
-export PATH="/root/.local/bin:\$PATH"
-
-exec > >(tee /var/log/mtds-backfill.log) 2>&1
-
-export GCP_PROJECT_ID="${PROJECT_ID}"
-export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
-export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
-
-# --- Streaming log upload (every 60s) ---
-LOG_GCS_PATH="${GCS_STAGING}/logs/${VM_NAME}.log"
-(
-  while true; do
-    sleep 60
-    gsutil -q cp /var/log/mtds-backfill.log "\${LOG_GCS_PATH}" 2>/dev/null || true
-  done
-) &
-LOG_STREAMER_PID=\$!
-trap "kill \${LOG_STREAMER_PID} 2>/dev/null; gsutil -q cp /var/log/mtds-backfill.log \${LOG_GCS_PATH}" EXIT
-
-echo "=== VM Startup: ${VM_NAME} ==="
-echo "  Category: ${ASSET_GROUP}"
-echo "  Range:    ${START_DATE} → ${END_DATE}"
-echo "  Tier:     ${TIER:-N/A}"
-date
-
-# Install Python 3.13
-apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
-echo "  Python: \$(python3.13 --version)"
-
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:\$PATH"
-
-# Download codebase + script from GCS
-mkdir -p \${WORK_DIR}
-echo "Downloading codebase tarball..."
-gsutil -q cp ${GCS_TARBALL} \${WORK_DIR}/codebase.tar.gz
-gsutil -q cp ${GCS_SCRIPT} \${WORK_DIR}/vm_mtds_backfill.sh
-chmod +x \${WORK_DIR}/vm_mtds_backfill.sh
-
-# Unpack tarball
-echo "Unpacking codebase..."
-tar xzf \${WORK_DIR}/codebase.tar.gz -C \${WORK_DIR}
-rm \${WORK_DIR}/codebase.tar.gz
-ls -d \${WORK_DIR}/*/
-
-# Run backfill
-bash \${WORK_DIR}/vm_mtds_backfill.sh \\
-  --asset-group ${ASSET_GROUP} \\
-  ${TIER_VM_FLAG} \\
-  --start ${START_DATE} \\
-  --end ${END_DATE} \\
-  --chunk-size ${CHUNK_SIZE} \\
-  ${FORCE_FLAG} \\
-  ${VENUES_VM_FLAG} \\
-  ${DATA_TYPES_VM_FLAG} \\
-  --work-dir \${WORK_DIR}
-
-echo "Backfill complete. Shutting down..."
-date
-shutdown -h now
-STARTUP_EOF
-
-echo "--- ${VM_NAME}: ${ASSET_GROUP} ${START_DATE} → ${END_DATE} ---"
 
 if $DRY_RUN; then
-  echo "  [DRY RUN] Would create VM: ${VM_NAME}"
-  echo "  Machine: ${MACHINE_TYPE}, Zone: ${ZONE}"
-  rm "$STARTUP_FILE"
-else
-  echo "  Creating VM..."
-  # Delete existing VM if present (from previous run)
-  gcloud compute instances delete "${VM_NAME}" \
-    --project="${PROJECT_ID}" \
-    --zone="${ZONE}" \
-    --quiet 2>/dev/null || true
-
-  # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
-  # concurrency safety + canonical VM lifecycle metadata.
-  METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-  METADATA="${METADATA},VM_NAME=${VM_NAME}"
-  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-
-  gcloud compute instances create "${VM_NAME}" \
-    --project="${PROJECT_ID}" \
-    --zone="${ZONE}" \
-    --machine-type="${MACHINE_TYPE}" \
-    --scopes=cloud-platform \
-    --no-restart-on-failure \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size=50GB \
-    --metadata="${METADATA}" \
-    --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --labels=purpose=mtds-backfill,asset-group="${CATEGORY_LOWER}",env="${DEPLOYMENT_ENV}"
-
-  rm "$STARTUP_FILE"
-  echo "  VM created: ${VM_NAME}"
-  echo ""
-  echo "  Monitor: gcloud compute ssh ${VM_NAME} --zone=${ZONE} --project=${PROJECT_ID} -- tail -f /var/log/mtds-backfill.log"
-  echo "  Logs:    gsutil cat ${GCS_STAGING}/logs/${VM_NAME}.log"
+  echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
+  echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+  echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
+  exit 0
 fi
 
+# ── Build metadata ──
+METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+METADATA="${METADATA},VM_TASK=mtds-backfill"
+METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
+METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
+METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA},VM_NAME=${VM_NAME}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
+[[ -n "$START_DATE" ]] && METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+[[ -n "$END_DATE" ]]   && METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+[[ -n "$TIER" ]]       && METADATA="${METADATA},VM_TIER=${TIER}"
+[[ -n "$VENUES" ]]     && METADATA="${METADATA},VM_VENUE=${VENUES}"
+[[ -n "$DATA_TYPES" ]] && METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
+$FORCE && METADATA="${METADATA},VM_FORCE=true"
+
+echo "Creating VM ${VM_NAME}..."
+gcloud compute instances create "${VM_NAME}" \
+  --project="${PROJECT_ID}" \
+  --zone="${ZONE}" \
+  --machine-type="${MACHINE_TYPE}" \
+  --scopes=cloud-platform \
+  --no-restart-on-failure \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=50GB \
+  --labels="purpose=mtds-backfill,asset-group=${CATEGORY_LOWER},env=${DEPLOYMENT_ENV}" \
+  --metadata="${METADATA}"
+
+echo ""
+echo "  VM created: ${VM_NAME}"
+echo "  T+10 check: gcloud compute instances describe ${VM_NAME} --zone=${ZONE} --format='value(status)'"
+echo "  Logs:       gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
 echo ""
 echo "============================================================"
 echo "Done."

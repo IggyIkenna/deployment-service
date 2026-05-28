@@ -22,7 +22,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Protocol, cast
 
 from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
 
@@ -45,6 +45,62 @@ def _resolve_default_bucket() -> str:
         return ""
     proj = getattr(cfg, "gcp_project_id", "") or ""
     return f"deployment-scripts-{proj}" if proj else ""
+
+
+def vm_log_stream_uri(vm_name: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's live log stream.
+
+    Live logs are streamed to this path every 30s by heartbeat_daemon.py.
+    This prefix has a 14-day delete lifecycle.
+
+    Returns: gs://deployment-scripts-{project}/vm-logs/{vm}/run.log
+
+    This function IS the SSOT for the VM live-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/vm-logs/{vm_name}/run.log"  # noqa: gs-uri  — canonical VM live-log path SSOT
+
+
+def vm_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived logs.
+
+    Archived logs persist indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/
+
+    This function IS the SSOT for the VM archive-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/snapshot_{timestamp}/{vm_name}/"  # noqa: gs-uri  — canonical VM archive-log path SSOT
+
+
+def vm_serial_console_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived serial console output.
+
+    Serial console is captured via GCP API and persists indefinitely.
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/serial-console.txt
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}serial-console.txt"
+
+
+def vm_run_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived run.log.
+
+    Archived run.log persists indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/run.log
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}run.log"
 
 
 # Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
@@ -89,9 +145,9 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
 
     @classmethod
     def from_json(cls, payload: str) -> DeploymentRegistryEntry:
-        data = json.loads(payload)
-        extras_raw = data.get("extras", {})
-        extras = {str(k): str(v) for k, v in extras_raw.items()} if isinstance(extras_raw, dict) else {}
+        data = cast(dict[str, object], json.loads(payload))
+        extras_raw = cast(dict[str, object], data.get("extras", {}))
+        extras = {str(k): str(v) for k, v in extras_raw.items()}
         return cls(
             deployment_id=str(data["deployment_id"]),
             vm_name=str(data["vm_name"]),
@@ -421,4 +477,8 @@ __all__ = [
     "DeploymentRegistryEntry",
     "DeploymentsRegistry",
     "InMemoryStorageClient",
+    "vm_log_archive_uri",
+    "vm_log_stream_uri",
+    "vm_run_log_archive_uri",
+    "vm_serial_console_archive_uri",
 ]

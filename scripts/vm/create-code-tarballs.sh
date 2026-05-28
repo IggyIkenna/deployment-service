@@ -40,7 +40,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
 DEFAULT_BUCKET="deployment-scripts-central-element-323112"
+AWS_DEFAULT_BUCKET="uts-prod-deployment-state"
 BUCKET="$DEFAULT_BUCKET"
+CLOUD="gcp"
 DRY_RUN=false
 ALLOW_DIRTY_TARBALL=false
 EXTRA_REPOS=()
@@ -110,7 +112,8 @@ usage() {
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
-    echo "  --bucket <name>       GCS bucket (default: $DEFAULT_BUCKET)"
+    echo "  --bucket <name>       GCS/S3 bucket (GCP default: $DEFAULT_BUCKET, AWS default: $AWS_DEFAULT_BUCKET)"
+    echo "  --cloud gcp|aws       Target cloud (default: gcp)"
     echo "  --asset-group <CAT>      Include category-specific repos:"
     echo "                        CEFI, TRADFI, DEFI, SPORTS, PREDICTION"
     echo "  --all                 Include ALL service repos"
@@ -126,6 +129,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bucket) BUCKET="$2"; shift 2 ;;
+        --cloud) CLOUD="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
@@ -136,6 +140,13 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1"; usage ;;
     esac
 done
+
+# Validate --cloud and resolve default bucket if not overridden
+case "$CLOUD" in
+    gcp) ;;
+    aws) [[ "$BUCKET" == "$DEFAULT_BUCKET" ]] && BUCKET="$AWS_DEFAULT_BUCKET" ;;
+    *) echo "ERROR: --cloud must be gcp or aws (got: $CLOUD)"; usage ;;
+esac
 
 # Resolve category repos
 ASSET_GROUP_REPOS=()
@@ -159,16 +170,24 @@ elif [[ -n "$ASSET_GROUP" ]]; then
 fi
 
 # Deduplicate: merge ASSET_GROUP_REPOS + EXTRA_REPOS
-declare -A _seen_repos
+# bash-3.2 safe — no `declare -A` (macOS default bash lacks associative arrays).
+# Use a space-delimited sentinel string + substring match for the seen-set.
+# Also note: bash 3.2 + `set -u` trips on empty-array expansion `"${arr[@]}"`,
+# so we expand with the `${arr[@]+"${arr[@]}"}` guard pattern that's safe on
+# both bash 3.2 and bash 4+.
+_seen_repos_list=" "
 MERGED_EXTRA_REPOS=()
-for repo in "${ASSET_GROUP_REPOS[@]}" "${EXTRA_REPOS[@]}"; do
-    if [[ -z "${_seen_repos[$repo]:-}" ]]; then
-        _seen_repos[$repo]=1
-        # Don't add repos already in CORE_REPOS (MTDS is handled there)
-        if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" ]]; then
-            MERGED_EXTRA_REPOS+=("$repo")
-        fi
-    fi
+for repo in ${ASSET_GROUP_REPOS[@]+"${ASSET_GROUP_REPOS[@]}"} ${EXTRA_REPOS[@]+"${EXTRA_REPOS[@]}"}; do
+    case "$_seen_repos_list" in
+        *" $repo "*) ;;  # already seen, skip
+        *)
+            _seen_repos_list="${_seen_repos_list}${repo} "
+            # Don't add repos already in CORE_REPOS (MTDS is handled there)
+            if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" ]]; then
+                MERGED_EXTRA_REPOS+=("$repo")
+            fi
+            ;;
+    esac
 done
 
 TMP_DIR=$(mktemp -d)
@@ -299,11 +318,13 @@ for entry in "${CORE_REPOS[@]}"; do
     create_tarball "$repo_dir" "$tarball_name"
 done
 
-for repo in "${MERGED_EXTRA_REPOS[@]}"; do
+if [[ ${#MERGED_EXTRA_REPOS[@]} -gt 0 ]]; then
+  for repo in "${MERGED_EXTRA_REPOS[@]}"; do
     # Derive tarball name from repo name (e.g. instruments-service → instruments-service-code)
     tarball_name="${repo}-code"
     create_tarball "$repo" "$tarball_name"
-done
+  done
+fi
 
 # ── Pre-flight: dep-pin conflict check ─────────────────────────────────────
 # Per plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md
@@ -330,7 +351,8 @@ if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     done
     log "  Workspace peers: ${_PEER_VERSIONS}"
     _CONFLICTS=0
-    for entry in "${CORE_REPOS[@]}" "${MERGED_EXTRA_REPOS[@]}"; do
+    _ALL_REPOS=("${CORE_REPOS[@]}" ${MERGED_EXTRA_REPOS[@]+"${MERGED_EXTRA_REPOS[@]}"})
+    for entry in "${_ALL_REPOS[@]}"; do
         # CORE_REPOS use "dir:tarball" syntax; MERGED_EXTRA is bare dir.
         _dir="${entry%%:*}"
         _pyproject="$WORKSPACE_ROOT/$_dir/pyproject.toml"
@@ -357,35 +379,89 @@ fi
 
 if $DRY_RUN; then
     log ""
-    log "[DRY RUN] Would upload to gs://$BUCKET/code/"
-    log "[DRY RUN] Would upload setup script to gs://$BUCKET/vm/"
+    if [[ "$CLOUD" == "aws" ]]; then
+        log "[DRY RUN] Would upload to s3://$BUCKET/code/"
+        log "[DRY RUN] Would upload setup script to s3://$BUCKET/vm/"
+    else
+        log "[DRY RUN] Would upload to gs://$BUCKET/code/"
+        log "[DRY RUN] Would upload setup script to gs://$BUCKET/vm/"
+    fi
     exit 0
 fi
 
-# Upload to GCS — tarballs + manifests + SHA-named copies
-log ""
-log "Uploading to gs://$BUCKET/code/..."
-gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
-gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
+if [[ "$CLOUD" == "aws" ]]; then
+    # Upload to S3 — tarballs + manifests + SHA-named copies
+    log ""
+    log "Uploading to s3://$BUCKET/code/..."
+    for f in "$TMP_DIR"/*.tar.gz "$TMP_DIR"/*.manifest.json; do
+        [[ -f "$f" ]] && aws s3 cp "$f" "s3://$BUCKET/code/$(basename "$f")" --quiet
+    done
 
-# Also upload the setup + execution wrapper scripts. Without the wrapper
-# upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,
-# stall timeout bumps) silently never reach VMs because setup-data-pipeline-vm.sh
-# downloads the wrapper as a standalone object from gs://.../vm/, not from
-# the deployment-service tarball. The wrapper sat at 2026-04-28 mtime for a
-# week despite multiple tarball refreshes (incident 2026-05-05).
-log "Uploading setup + wrapper scripts to gs://$BUCKET/vm/..."
-gsutil cp "$SCRIPT_DIR/setup-data-pipeline-vm.sh" "gs://$BUCKET/vm/"
-gsutil cp "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh" "gs://$BUCKET/vm/"
-gsutil cp "$SCRIPT_DIR/heartbeat_daemon.py" "gs://$BUCKET/vm/" 2>/dev/null || true
+    # Upload AWS setup script + wrapper
+    log "Uploading setup + wrapper scripts to s3://$BUCKET/vm/..."
+    aws s3 cp "$SCRIPT_DIR/setup-data-pipeline-vm-aws.sh" "s3://$BUCKET/vm/" --quiet
+    aws s3 cp "$SCRIPT_DIR/heartbeat_daemon.py" "s3://$BUCKET/vm/" --quiet 2>/dev/null || true
 
-# Verify
-log ""
-log "Uploaded files:"
-gsutil ls -lh "gs://$BUCKET/code/" 2>/dev/null
-gsutil ls -lh "gs://$BUCKET/vm/" 2>/dev/null
+    # Verify
+    log ""
+    log "Uploaded files:"
+    aws s3 ls "s3://$BUCKET/code/" 2>/dev/null | tail -20
+    aws s3 ls "s3://$BUCKET/vm/" 2>/dev/null
 
-log ""
-log "=== Done. VMs can now use: ==="
-log "  startup-script-url=gs://$BUCKET/vm/setup-data-pipeline-vm.sh"
-log "  Or SSH: gsutil cp gs://$BUCKET/vm/setup-data-pipeline-vm.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm.sh"
+    log ""
+    log "=== Done. EC2 VMs can now use: ==="
+    log "  aws s3 cp s3://$BUCKET/vm/setup-data-pipeline-vm-aws.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm-aws.sh"
+else
+    # Upload to GCS — tarballs + manifests + SHA-named copies
+    log ""
+    log "Uploading to gs://$BUCKET/code/..."
+    gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
+    gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
+
+    # Also upload the setup + execution wrapper scripts. Without the wrapper
+    # upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,
+    # stall timeout bumps) silently never reach VMs because setup-data-pipeline-vm.sh
+    # downloads the wrapper as a standalone object from gs://.../vm/, not from
+    # the deployment-service tarball. The wrapper sat at 2026-04-28 mtime for a
+    # week despite multiple tarball refreshes (incident 2026-05-05).
+    log "Uploading setup + wrapper scripts to gs://$BUCKET/vm/..."
+    gsutil cp "$SCRIPT_DIR/setup-data-pipeline-vm.sh" "gs://$BUCKET/vm/"
+    gsutil cp "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh" "gs://$BUCKET/vm/"
+    gsutil cp "$SCRIPT_DIR/heartbeat_daemon.py" "gs://$BUCKET/vm/" 2>/dev/null || true
+
+    # Bare-launcher publish — cron-VM hosts (launch-*-fwd-daily-cron-vm.sh) fetch
+    # individual launch-*-forward-poll.sh scripts from a stable GCS path each cron
+    # tick (so updates to a launcher take effect within the cron interval, without
+    # rebuilding the tarball). The cron-VM crontabs reference exactly this path:
+    #   gs://${CODE_BUCKET}/code/deployment-service/scripts/vm/launch-<name>.sh
+    # See launch-cefi-fwd-daily-cron-vm.sh:90 + launch-tradfi-fwd-daily-cron-vm.sh:92.
+    # Without this loop, the cron-VM agent had to do manual uploads (incident
+    # 2026-05-20). The tarball remains the canonical bundle for one-shot VMs —
+    # this just ALSO publishes bare launchers for the cron-VM consumers.
+    log "Publishing bare launcher scripts to gs://$BUCKET/code/deployment-service/scripts/vm/..."
+    _launcher_count=0
+    for _launcher in "$SCRIPT_DIR"/launch-*.sh; do
+        [[ -f "$_launcher" ]] || continue
+        _launcher_name=$(basename "$_launcher")
+        gsutil -q cp "$_launcher" "gs://$BUCKET/code/deployment-service/scripts/vm/$_launcher_name"
+        _launcher_count=$((_launcher_count + 1))
+    done
+    # Also publish the lib/ directory contents — launchers source from it.
+    for _libfile in "$SCRIPT_DIR"/lib/*.sh; do
+        [[ -f "$_libfile" ]] || continue
+        _libfile_name=$(basename "$_libfile")
+        gsutil -q cp "$_libfile" "gs://$BUCKET/code/deployment-service/scripts/vm/lib/$_libfile_name"
+    done
+    log "  Published $_launcher_count bare launchers + lib/ helpers"
+
+    # Verify
+    log ""
+    log "Uploaded files:"
+    gsutil ls -lh "gs://$BUCKET/code/" 2>/dev/null
+    gsutil ls -lh "gs://$BUCKET/vm/" 2>/dev/null
+
+    log ""
+    log "=== Done. VMs can now use: ==="
+    log "  startup-script-url=gs://$BUCKET/vm/setup-data-pipeline-vm.sh"
+    log "  Or SSH: gsutil cp gs://$BUCKET/vm/setup-data-pipeline-vm.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm.sh"
+fi

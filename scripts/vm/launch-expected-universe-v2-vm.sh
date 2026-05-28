@@ -58,12 +58,14 @@
 set -euo pipefail
 
 FORCE=false
+DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Pre-parse named flags before positional args.
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --force) FORCE=true; shift ;;
+        --dry-run) DRY_RUN=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) break ;;
     esac
@@ -109,6 +111,16 @@ esac
 case "$DEPLOYMENT_ENV" in
     prod|staging|dev) ;;
     *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+case "$DEPLOYMENT_ENV" in
+    prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+    staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+    dev)     DEPLOYMENT_ENV_SHORT="dev" ;;
+esac
+# instruments-store uses "pred" shortform for prediction asset group.
+case "$ASSET_GROUP" in
+    prediction) CATALOG_AG_SHORT="pred" ;;
+    *)          CATALOG_AG_SHORT="$ASSET_GROUP" ;;
 esac
 if [[ -n "$MAX_WRITES" ]]; then
     if ! [[ "$MAX_WRITES" =~ ^[0-9]+$ ]]; then
@@ -158,7 +170,7 @@ elif [[ -n "${CATALOG_PATH:-}" ]]; then
     CATALOG_PATH="${CATALOG_PATH}"
 else
     # Canonical default: instruments-service catalog GCS path per env tier.
-    CATALOG_BUCKET="instruments-store-${ASSET_GROUP}-${PROJECT}"
+    CATALOG_BUCKET="instruments-store-${CATALOG_AG_SHORT}-${DEPLOYMENT_ENV_SHORT}-${PROJECT}"
     CATALOG_PATH="gs://${CATALOG_BUCKET}/${DEPLOYMENT_ENV}/catalog.parquet"
 fi
 
@@ -195,16 +207,21 @@ METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 
-gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=expected-universe-v2,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+      --project="$PROJECT" \
+      --zone="$ZONE" \
+      --machine-type="$MACHINE_TYPE" \
+      --image-family=ubuntu-2404-lts-amd64 \
+      --image-project=ubuntu-os-cloud \
+      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      --scopes=cloud-platform \
+      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      --labels=purpose=expected-universe-v2,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -34,9 +34,11 @@
 #
 # Each VM auto-deletes via VM_SHUTDOWN_ON_COMPLETION=true.
 #
-# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
-# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
-# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# Bucket-naming SSOT: env-aware shape per `bucket_name_ssot_canonicalisation_2026_05_10.md`
+# Phase 0f. Source bucket resolves to market-data-tick-{ag}-{env_short}-{project}.
+# For prod: market-data-tick-{ag}-prd-central-element-323112.
+# Legacy 2024/2025 DeFi re-launches (dex_pool_swaps in flat bucket) must pass
+# --source-bucket-override market-data-tick-defi-central-element-323112.
 set -euo pipefail
 
 ZONE="asia-northeast1-c"
@@ -60,7 +62,17 @@ MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
 # Optional CLI flag --max-workers N forwards to the in-VM MDPS CLI.
 CLI_MAX_WORKERS=""
 BOOT_DISK_GB="50"
+# Per-tarball SHA pins — prevents race condition where another slot rebuilds the
+# fixed-name tarball between tarball build and VM boot.
+# Reads from env or CLI --utl-sha / --mdps-sha flags.
+UTL_TARBALL_SHA_PIN="${UTL_TARBALL_SHA:-}"
+MDPS_TARBALL_SHA_PIN="${MDPS_TARBALL_SHA:-}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+# Override the computed env-tiered source bucket for all asset_groups.
+# Required for 2024/2025 DeFi re-launches where dex_pool_swaps data lives
+# in the legacy flat bucket (market-data-tick-defi-central-element-323112)
+# rather than the canonical env-tiered bucket.
+SOURCE_BUCKET_OVERRIDE=""
 
 # ─── Per-asset_group year ranges ─────────────────────────────────────────────
 CEFI_YEARS="2019 2020 2021 2022 2023 2024 2025 2026"
@@ -95,11 +107,17 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --utl-sha)
+            shift; UTL_TARBALL_SHA_PIN="${1:-}"; shift ;;
+        --mdps-sha)
+            shift; MDPS_TARBALL_SHA_PIN="${1:-}"; shift ;;
+        --source-bucket-override)
+            shift; SOURCE_BUCKET_OVERRIDE="${1:-}"; shift ;;
         cefi|tradfi|defi|sports|prediction)
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev] [--source-bucket-override BUCKET]"; exit 2 ;;
     esac
 done
 
@@ -202,17 +220,34 @@ launch_year_shard() {
         resolved_max_workers="$(_max_workers_for "$cat")"
     fi
 
-    local source_bucket="market-data-tick-${cat}-${PROJECT}"
+    local env_short
+    case "$DEPLOYMENT_ENV" in
+        prod)    env_short="prd" ;;
+        staging) env_short="staging" ;;
+        dev)     env_short="dev" ;;
+        *)       env_short="$DEPLOYMENT_ENV" ;;
+    esac
+    local source_bucket
+    if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
+        source_bucket="$SOURCE_BUCKET_OVERRIDE"
+    else
+        source_bucket="market-data-tick-${cat}-${env_short}-${PROJECT}"
+    fi
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
-    if [[ "$cat" == "sports" ]]; then
+    if [[ "$cat" == "sports" || "$cat" == "prediction" ]]; then
+        # Sports: IS instrument_availability by day not populated — bypass IS dep check.
+        # Prediction: IS instrument_availability uses canonical_question_group partition
+        # (instrument_availability/by_date/canonical_question_group=X/day=Y/venue=Z/) rather than
+        # flat day= prefix that MDPS dep_checker expects. Bypass IS dep check; raw tick data is present.
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
+    fi
+    # MAX_WORKERS is read from env by MDPS config.py — not a CLI flag.
+    if [[ -n "$resolved_max_workers" ]]; then
+        cmd="MAX_WORKERS=$resolved_max_workers $cmd"
     fi
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $start_date --end-date $end_date"
-    if [[ -n "$resolved_max_workers" ]]; then
-        cmd="$cmd --max-workers $resolved_max_workers"
-    fi
     if $DRY; then
         cmd="$cmd --dry-run"
     fi
@@ -235,6 +270,13 @@ launch_year_shard() {
     md="${md},VM_BACKFILL_MODE=$($DRY && echo dry || echo full)"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+    [[ -n "$UTL_TARBALL_SHA_PIN" ]] && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}"
+    [[ -n "$MDPS_TARBALL_SHA_PIN" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA_PIN}"
+    # Sports MDPS processes long empty-date stretches (no betting events) that
+    # produce no log output, triggering the stall watchdog at the default 1800s.
+    # 7200s = 2h gives enough headroom for a full year's empty-season gap
+    # without letting a truly stalled VM idle indefinitely.
+    [[ "$cat" == "sports" ]] && md="${md},STALL_TIMEOUT_SEC=7200"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

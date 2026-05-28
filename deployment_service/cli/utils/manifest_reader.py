@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+from typing import cast
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -37,7 +38,7 @@ _PIPELINE_START_DATE = "2019-01-01"
 # ── Bucket resolution: uses same templates as catalog.py SERVICE_GCS_CONFIGS ──
 # Maps service → bucket template. Templates use {asset_group_lower} and {project_id}.
 # Services without {asset_group_lower} use a shared bucket (no per-category split).
-_BUCKET_TEMPLATES: dict[str, str] = {
+BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-{asset_group_lower}-{project_id}",
     "corporate-actions": "instruments-store-{asset_group_lower}-{project_id}",
     "market-tick-data-service": "market-data-tick-{asset_group_lower}-{project_id}",
@@ -305,8 +306,10 @@ class ManifestReader:
             venue_weighted_expected = 0
             venue_weighted_found = 0
             if sub_dim_key and "venue" in filtered.columns:
-                for venue_val in sorted(filtered["venue"].unique()):
-                    v_mask = filtered["venue"] == venue_val
+                for venue_val_raw in sorted(filtered["venue"].unique()):  # pyright: ignore[reportAny]
+                    venue_val_typed: object = cast(object, venue_val_raw)
+                    venue_str: str = str(venue_val_typed)
+                    v_mask = filtered["venue"] == venue_str
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
 
                     # Resolve venue-specific expected days using launch date.
@@ -315,7 +318,8 @@ class ManifestReader:
                     # ``get_instrument_discovery_start`` so HYPERLIQUID-style
                     # discovery-API gaps clip the denominator (matches the
                     # orchestrator's ``is_venue_available`` gate).
-                    base_venue = venue_val.split(":")[0] if ":" in venue_val else venue_val
+                    split_result = venue_str.split(":")[0] if ":" in venue_str else venue_str
+                    base_venue: str = str(split_result)
                     venue_start = self._venue_mapping.get_instrument_discovery_start(base_venue)
                     effective_start = max(clamped_start, venue_start) if venue_start else clamped_start
                     v_expected = max(
@@ -345,10 +349,10 @@ class ManifestReader:
 
                     # Truncation + tail for long lists (same pattern as
                     # category-level date lists)
-                    _MAX_LIST = 50
-                    _TAIL = 5
-                    v_found_truncated = len(v_found_list) > _MAX_LIST
-                    v_missing_truncated = len(v_missing) > _MAX_LIST
+                    max_list = 50
+                    tail = 5
+                    v_found_truncated = len(v_found_list) > max_list
+                    v_missing_truncated = len(v_missing) > max_list
 
                     venue_entry: dict[str, object] = {
                         "dates_found": v_dates,
@@ -358,16 +362,16 @@ class ManifestReader:
                         "venue_start_date": venue_start,
                         # Available dates (green dropdown)
                         "dates_found_count": len(v_found_list),
-                        "dates_found_list": v_found_list[:_MAX_LIST],
+                        "dates_found_list": v_found_list[:max_list],
                         "dates_found_truncated": v_found_truncated,
-                        "dates_found_list_tail": v_found_list[-_TAIL:] if v_found_truncated else None,
+                        "dates_found_list_tail": v_found_list[-tail:] if v_found_truncated else None,
                         # Missing dates (red dropdown)
                         "dates_missing": max(0, v_expected - v_dates),
                         "dates_missing_count": len(v_missing),
-                        "dates_missing_list": v_missing[:_MAX_LIST],
+                        "dates_missing_list": v_missing[:max_list],
                         "dates_missing_truncated": v_missing_truncated,
-                        "dates_missing_list_tail": v_missing[-_TAIL:] if v_missing_truncated else None,
-                        "missing_dates": v_missing[:_MAX_LIST],
+                        "dates_missing_list_tail": v_missing[-tail:] if v_missing_truncated else None,
+                        "missing_dates": v_missing[:max_list],
                     }
 
                     # League sub-breakdown: when league_id column has non-empty
@@ -379,7 +383,7 @@ class ManifestReader:
                             end_date,
                         )
 
-                    sub_dims[venue_val] = venue_entry
+                    sub_dims[venue_str] = venue_entry
 
             # Find missing dates — clamp to earliest venue launch so pre-protocol
             # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
@@ -444,7 +448,7 @@ class ManifestReader:
             }
             if sub_dims:
                 # Use the appropriate key name for the sub-dimension
-                _SUB_DIM_RESPONSE_KEY: dict[str, str] = {
+                sub_dim_response_key: dict[str, str] = {
                     "venue": "venues",
                     "data_type": "data_types",
                     "feature_group": "feature_groups",
@@ -456,17 +460,17 @@ class ManifestReader:
                     "client_id": "clients",
                     "alert_type": "alert_types",
                 }
-                response_key = _SUB_DIM_RESPONSE_KEY.get(sub_dim_key or "", "venues")
+                response_key = sub_dim_response_key.get(sub_dim_key or "", "venues")
                 cat_result[response_key] = sub_dims
 
                 # Override display label for categories where the manifest
                 # "venue" column doesn't represent trading venues.
-                _CATEGORY_SUB_DIM_LABEL: dict[str, str] = {
+                category_sub_dim_label: dict[str, str] = {
                     "SPORTS": "Data Sources",
                     "PREDICTIONS": "Market Category Shards",
                 }
-                if service == "instruments-service" and cat_label in _CATEGORY_SUB_DIM_LABEL:
-                    cat_result["sub_dimension_label"] = _CATEGORY_SUB_DIM_LABEL[cat_label]
+                if service == "instruments-service" and cat_label in category_sub_dim_label:
+                    cat_result["sub_dimension_label"] = category_sub_dim_label[cat_label]
 
             result_categories[cat_label] = cat_result
             total_found += cat_found
@@ -529,7 +533,7 @@ class ManifestReader:
                     v_mask = index["venue"] == venue
                     v_dates = index.loc[v_mask, "date"]
                     if not v_dates.empty:
-                        target_date = str(v_dates.max())
+                        target_date = str(cast(object, v_dates.max()))
                     else:
                         return {"error": f"No data for venue {venue}", "venue": venue}
                 else:
@@ -637,11 +641,11 @@ class ManifestReader:
                 index["venue"] = index["venue"].replace(_VENUE_ALIASES)
 
             total_shards = len(index)
-            total_rows = int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
+            total_rows = int(cast(float, index["instrument_count"].sum())) if "instrument_count" in index.columns else 0
             unique_dates = int(index["date"].nunique())
             unique_venues = int(index["venue"].nunique()) if "venue" in index.columns else 0
-            date_min = str(index["date"].min())
-            date_max = str(index["date"].max())
+            date_min = str(cast(object, index["date"].min()))
+            date_max = str(cast(object, index["date"].max()))
 
             # Latest-day instrument type breakdown from actual parquets
             latest_day_counts: dict[str, int] = {}
@@ -649,7 +653,9 @@ class ManifestReader:
             latest_date = date_max
             if "venue" in index.columns:
                 latest_venues = sorted(index.loc[index["date"] == latest_date, "venue"].unique().tolist())
-                for venue_name in latest_venues:
+                for venue_name_raw in latest_venues:  # pyright: ignore[reportAny]
+                    venue_name_typed: object = cast(object, venue_name_raw)
+                    venue_name = str(venue_name_typed)
                     detail = self.get_venue_detail(
                         service=service,
                         asset_group=cat,
@@ -710,7 +716,7 @@ class ManifestReader:
         """
         leagues_in_data: set[str] = set()
         if "league_id" in venue_df.columns:
-            leagues_in_data = {lid for lid in venue_df["league_id"].unique() if lid}
+            leagues_in_data = {str(cast(object, lid)) for lid in venue_df["league_id"].unique() if lid}  # pyright: ignore[reportAny]
 
         # All prediction leagues — ensures newly-added leagues show 0%
         all_league_ids = set(get_all_prediction_league_ids())
@@ -731,24 +737,24 @@ class ManifestReader:
                 found_set = set()
                 missing = sorted(expected_dates) if expected_dates else []
 
-            _MAX_LIST = 50
-            _TAIL = 5
+            max_list = 50
+            tail = 5
             found_list = sorted(found_set)
-            found_truncated = len(found_list) > _MAX_LIST
-            missing_truncated = len(missing) > _MAX_LIST
+            found_truncated = len(found_list) > max_list
+            missing_truncated = len(missing) > max_list
 
             result[lid] = {
                 "dates_found": found_count,
                 "dates_expected": expected_count,
                 "completion_pct": round(found_count / expected_count * 100, 2),
-                "dates_found_list": found_list[:_MAX_LIST],
+                "dates_found_list": found_list[:max_list],
                 "dates_found_truncated": found_truncated,
-                "dates_found_list_tail": found_list[-_TAIL:] if found_truncated else None,
+                "dates_found_list_tail": found_list[-tail:] if found_truncated else None,
                 "dates_missing": max(0, expected_count - found_count),
                 "dates_missing_count": len(missing),
-                "dates_missing_list": missing[:_MAX_LIST],
+                "dates_missing_list": missing[:max_list],
                 "dates_missing_truncated": missing_truncated,
-                "dates_missing_list_tail": missing[-_TAIL:] if missing_truncated else None,
+                "dates_missing_list_tail": missing[-tail:] if missing_truncated else None,
             }
 
         return result
@@ -759,7 +765,7 @@ class ManifestReader:
 
     def _resolve_bucket(self, service: str, asset_group: str) -> str:
         """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
-        template = _BUCKET_TEMPLATES.get(service)
+        template = BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
             ag_slug = asset_group.lower().replace("_", "-") if asset_group else "default"

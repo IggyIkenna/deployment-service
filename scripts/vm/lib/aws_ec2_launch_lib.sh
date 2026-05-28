@@ -146,23 +146,37 @@ lc_aws_ec2_run() {
         exit 1
     fi
 
+    # AMI resolution: Phase 9 prebaked AMI override > SSM Ubuntu fallback.
+    # Callers can set AMI_ID in env to force a specific image — typically the
+    # output of `packer build` from deployment-service/packer/agent-orchestrator/.
+    # When unset, fall back to the latest Canonical Ubuntu 24.04 via SSM (slow
+    # cold-boot path; bootstrap_vm.sh installs everything from scratch).
     local ami_id
-    ami_id="$(lc_aws_resolve_ami "$region")"
+    if [[ -n "${AMI_ID:-}" ]]; then
+        ami_id="${AMI_ID}"
+        echo "[lc_aws_ec2_run] Using operator-supplied AMI: ${ami_id}" >&2
+    else
+        ami_id="$(lc_aws_resolve_ami "$region")"
+        echo "[lc_aws_ec2_run] Using Ubuntu 24.04 latest from SSM: ${ami_id}" >&2
+    fi
 
     local name_tag
     name_tag='[{"Key":"Name","Value":"'"$vm_name"'"}]'
 
-    # Merge name tag with extra tags
-    local all_tags
+    # Merge name tag with extra tags; build full JSON tag-spec (shorthand form breaks on quotes)
+    local all_tags tag_spec
     all_tags="$(python3 -c "
 import json, sys
 name = json.loads('$name_tag')
-extra = json.loads('${extra_tags_json/\'/\\\'}')
+extra = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []
 merged = name + extra
 print(json.dumps(merged))
-" 2>/dev/null || echo "$name_tag")"
-
-    local tag_spec="ResourceType=instance,Tags=${all_tags}"
+" "${extra_tags_json}" 2>/dev/null || echo "$name_tag")"
+    tag_spec="$(python3 -c "
+import json, sys
+tags = json.loads(sys.argv[1])
+print(json.dumps([{'ResourceType':'instance','Tags':tags}]))
+" "${all_tags}" 2>/dev/null || echo "[{\"ResourceType\":\"instance\",\"Tags\":${all_tags}}]")"
 
     local profile_args=()
     if [[ -n "$instance_profile" ]]; then

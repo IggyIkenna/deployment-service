@@ -458,19 +458,20 @@ def test_check_reference_season_boundary_no_trigger_when_far_from_boundary() -> 
 
 def test_cloud_backend_routes_periodic_dispatch_via_dispatch_cloud(
     scheduler: SportsTriggerScheduler,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Switching to cloud backend routes periodic dispatch through _dispatch_cloud."""
+    """Switching to cloud backend routes periodic dispatch through the cloud path.
+
+    When no cloud_run_job_name is configured, the dispatcher warns and skips
+    rather than silently falling back to local.  This verifies the cloud code
+    path is reached for periodic tiers, not the local subprocess branch.
+    """
     scheduler._backend = "cloud"
 
-    calls: list[dict[str, object]] = []
+    import logging
 
-    def fake_dispatch_cloud(cmd: str, service: str, trigger_name: str, dispatch_id: str) -> bool:
-        calls.append({"cmd": cmd, "service": service, "trigger_name": trigger_name})
-        return True
+    with caplog.at_level(logging.WARNING):
+        scheduler._check_discovery()
 
-    with patch.object(scheduler, "_dispatch_cloud", side_effect=fake_dispatch_cloud):
-        fired = scheduler._check_discovery()
-
-    assert fired > 0, "cloud backend must dispatch periodic tiers"
-    assert calls, "_dispatch_cloud must be called for each service"
-    assert all(c["service"] == "instruments-service" for c in calls)
+    warns = [r.message for r in caplog.records if "cloud_run_job_name" in r.message or "cloud_run_config" in r.message]
+    assert warns, "periodic dispatch must reach the cloud dispatch branch"

@@ -51,8 +51,11 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 
 _positional=()
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --force) FORCE=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) _positional+=("$1"); shift ;;
@@ -143,16 +146,21 @@ echo "  Script 2: reconcile_expected_absence_reasons.py  --apply-flips"
 echo "  Script 3: EXCLUDED (classifier fixture_manifest kwarg issue — see issue P1)"
 echo "  Log dest: ${RECON_LOGS}/${VM_NAME}.log"
 
-gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=manifest-recon-apply,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+      --project="$PROJECT" \
+      --zone="$ZONE" \
+      --machine-type="$MACHINE_TYPE" \
+      --image-family=ubuntu-2404-lts-amd64 \
+      --image-project=ubuntu-os-cloud \
+      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      --scopes=cloud-platform \
+      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      --labels=purpose=manifest-recon-apply,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

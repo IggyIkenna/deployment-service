@@ -36,12 +36,21 @@ GCP_PROJECT="central-element-323112"
 AWS_REGION="${AWS_DEFAULT_REGION:-ap-northeast-1}"
 AWS_PREFIX="unified-trading"
 
-# Secrets excluded from replication (GCP-only secrets)
+# Secrets excluded from replication.
+# - GCP-only credentials (SA keys, WORKLOAD_IDENTITY, firebase)
+# - Wallet private keys: MUST be rotated fresh on AWS KMS, never copied (security policy HARD RULE)
+#   See: CLAUDE.md § "DeFi Execution Architecture — Custody" + aws_migration_defi_first Phase 4 [HUMAN]
 EXCLUSION_PATTERNS=(
     "firebase-sa-json"
     "gcp-sa-key"
     "github-pat"
     "WORKLOAD_IDENTITY"
+    "defi-wallet-"
+    "solana-paper-keypair-private-key"
+    "extended-starknet-stark-private-key"
+    "polymarket-private-key"
+    "hyperliquid-trade-key"
+    "hyperliquid-testnet-trade-key"
 )
 
 while [[ $# -gt 0 ]]; do

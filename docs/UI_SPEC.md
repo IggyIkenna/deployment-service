@@ -290,7 +290,7 @@ All dropdowns are validated against config files to prevent invalid selections.
    - Venues are filtered based on selected category
    - CEFI venues: BINANCE-SPOT, BINANCE-FUTURES, DERIBIT, BYBIT, OKX, UPBIT, COINBASE, HYPERLIQUID, ASTER
    - TRADFI venues: CME, CBOE, NASDAQ, NYSE, ICE
-   - DEFI venues: LIDO, ETHERFI, ETHENA, MORPHO-ETHEREUM, AAVEV3-ETHEREUM, etc.
+   - DEFI venues: LIDO, ETHERFI, ETHENA, MORPHO-ETHEREUM, AAVE_V3-ETHEREUM, etc.
 4. **The dropdown IS the building block for the CLI command** - selections build the command automatically
 
 ### Pre-Deploy Checklist Validation

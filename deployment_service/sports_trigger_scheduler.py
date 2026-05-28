@@ -28,7 +28,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict, cast
+
+if TYPE_CHECKING:
+    from .backends.cloud_run import CloudRunBackend
 
 import pandas as pd
 import yaml
@@ -109,6 +112,7 @@ class SportsTriggerScheduler:
         workspace_root: str = "",
         periodic_state: PeriodicTierState | None = None,
         state_bucket: str | None = None,
+        cloud_run_config: dict[str, str] | None = None,
     ) -> None:
         self._config_path = config_path
         self._poll_interval = poll_interval_seconds
@@ -121,6 +125,8 @@ class SportsTriggerScheduler:
         self._periodic_state = (
             periodic_state if periodic_state is not None else self._build_periodic_state(state_bucket)
         )
+        self._cloud_run_config: dict[str, str] = cloud_run_config or {}
+        self._cloud_run_backends: dict[str, CloudRunBackend] = {}
 
     def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
         """Construct the GCS-backed periodic state. Returns None on failure.
@@ -149,7 +155,8 @@ class SportsTriggerScheduler:
                 return {}
 
         with path.open() as f:
-            config: dict[str, object] = yaml.safe_load(f)
+            config_raw = yaml.safe_load(f)  # pyright: ignore[reportAny]
+            config: dict[str, object] = cast(dict[str, object], config_raw)
         logger.info("Loaded sports trigger config from %s", path)
         return config
 
@@ -206,7 +213,7 @@ class SportsTriggerScheduler:
                             df = pd.read_parquet(io.BytesIO(raw))
 
                             for _, row in df.iterrows():
-                                kickoff_str = str(row.get("kickoff_utc", ""))
+                                kickoff_str = str(row.get("kickoff_utc", ""))  # pyright: ignore[reportAny]
                                 if not kickoff_str:
                                     continue
 
@@ -220,11 +227,11 @@ class SportsTriggerScheduler:
                                 if -2 <= hours_until <= horizon_hours:
                                     fixtures.append(
                                         FixtureInfo(
-                                            fixture_id=str(row.get("fixture_id", "")),
-                                            league_id=str(row.get("league_id", "")),
+                                            fixture_id=str(cast(object, row.get("fixture_id", ""))),
+                                            league_id=str(cast(object, row.get("league_id", ""))),
                                             kickoff_utc=kickoff_str,
-                                            home_team=str(row.get("home_team", "")),
-                                            away_team=str(row.get("away_team", "")),
+                                            home_team=str(cast(object, row.get("home_team", ""))),
+                                            away_team=str(cast(object, row.get("away_team", ""))),
                                         )
                                     )
                         except Exception as exc:
@@ -519,13 +526,43 @@ class SportsTriggerScheduler:
                 ):
                     dispatched += 1
             elif self._backend == "cloud":
-                if self._dispatch_cloud(
-                    cmd=cmd,
-                    service=service,
-                    trigger_name=trigger_name,
-                    dispatch_id=dispatch_id,
-                ):
-                    dispatched += 1
+                cloud_run_job_name = str(svc_config.get("cloud_run_job_name", ""))
+                if not cloud_run_job_name:
+                    logger.warning(
+                        "No cloud_run_job_name for %s (trigger %s:%s) — skipping cloud dispatch",
+                        service,
+                        trigger_name,
+                        dispatch_id,
+                    )
+                elif not self._cloud_run_config:
+                    logger.warning(
+                        "cloud_run_config not set — cannot dispatch %s cloud (trigger %s:%s)",
+                        service,
+                        trigger_name,
+                        dispatch_id,
+                    )
+                else:
+                    cr_backend = self._get_cloud_run_backend(cloud_run_job_name)
+                    if cr_backend is not None and not self._dry_run:
+                        try:
+                            shard_id = f"{service}-{trigger_name}-{dispatch_id}"
+                            cr_backend.deploy_shard(
+                                shard_id=shard_id,
+                                docker_image="",
+                                args=shlex.split(cmd),
+                                environment_variables={},
+                                compute_config={},
+                                labels={"trigger": trigger_name, "dispatch_id": dispatch_id},
+                            )
+                            dispatched += 1
+                        except Exception as exc:
+                            logger.warning(
+                                "Cloud Run dispatch failed for %s (trigger %s:%s): %s",
+                                service,
+                                trigger_name,
+                                dispatch_id,
+                                exc,
+                            )
             else:
                 logger.warning(
                     "Unknown backend %s — skipping %s for trigger %s:%s",
@@ -535,6 +572,38 @@ class SportsTriggerScheduler:
                     dispatch_id,
                 )
         return dispatched
+
+    def _get_cloud_run_backend(self, job_name: str) -> CloudRunBackend | None:
+        """Return a cached CloudRunBackend for the given Cloud Run job name.
+
+        Returns None and logs a warning if cloud_run_config is missing required keys.
+        Backends are cached per job_name so repeated calls share one client instance.
+        """
+        if job_name in self._cloud_run_backends:
+            return self._cloud_run_backends[job_name]
+        required = ("project_id", "region", "service_account_email")
+        missing = [k for k in required if not self._cloud_run_config.get(k)]
+        if missing:
+            logger.warning(
+                "cloud_run_config missing keys %s — cannot create backend for job %s",
+                missing,
+                job_name,
+            )
+            return None
+        try:
+            from .backends.cloud_run import CloudRunBackend as _CloudRunBackend
+
+            backend = _CloudRunBackend(
+                project_id=self._cloud_run_config["project_id"],
+                region=self._cloud_run_config["region"],
+                service_account_email=self._cloud_run_config["service_account_email"],
+                job_name=job_name,
+            )
+            self._cloud_run_backends[job_name] = backend
+            return backend
+        except Exception as exc:
+            logger.warning("Failed to create CloudRunBackend for job %s: %s", job_name, exc)
+            return None
 
     def _dispatch_local(
         self,
@@ -583,6 +652,7 @@ class SportsTriggerScheduler:
             cwd or "<inherited>",
         )
 
+        process: subprocess.Popen[bytes] | None = None
         try:
             process = subprocess.Popen(
                 cmd_tokens,
@@ -591,7 +661,7 @@ class SportsTriggerScheduler:
                 stderr=subprocess.PIPE,
             )
 
-            stdout_bytes, stderr_bytes = process.communicate(timeout=3600)
+            _, stderr_bytes = process.communicate(timeout=3600)
 
             if process.returncode != 0:
                 stderr_text = stderr_bytes.decode("utf-8", errors="replace")[:500]
@@ -621,25 +691,17 @@ class SportsTriggerScheduler:
                 trigger_name,
                 fixture_id,
             )
-            process.kill()
-            process.wait(timeout=10)
+            if process is not None:
+                process.kill()
+                process.wait(timeout=10)
             return False
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError, OSError):
             logger.warning(
                 "Executable not found for %s (trigger=%s fixture=%s) — cmd=%s",
                 service,
                 trigger_name,
                 fixture_id,
                 " ".join(cmd_tokens),
-            )
-            return False
-        except OSError as exc:
-            logger.warning(
-                "OS error dispatching %s (trigger=%s fixture=%s): %s",
-                service,
-                trigger_name,
-                fixture_id,
-                exc,
             )
             return False
 

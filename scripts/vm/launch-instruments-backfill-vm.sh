@@ -1,47 +1,29 @@
 #!/usr/bin/env bash
-# Launch GCE VMs for parallel instruments backfill
+# Launch GCE VMs for parallel instruments-service backfill (all asset groups).
 #
-# 1. Packages the local codebase (respecting .gitignore) as a tarball
-# 2. Uploads tarball + backfill script to GCS
-# 3. Provisions VMs that download, unpack, install, and run
-# VMs auto-shutdown after completion.
+# Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
+# Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
+# Pre-condition: run `bash create-code-tarballs.sh` first.
 #
-# Migrated 2026-05-08 (Tab 11) from
-# `e2e-testing/scripts/common/launch_instruments_backfill_vms.sh` per the
-# "VM launcher script SSOT" rule (CLAUDE.md). Canonical home: this file.
-# Also fills the `_SERVICE_LAUNCHER_SCRIPTS["instruments-service"]` entry
-# in `deployment-api/deployment_api/services/deploy_missing.py` (was
-# missing on disk; Deploy-Missing UI button silently broke for
-# instruments-service).
-# Plan: launcher_scripts_consolidation_into_deployment_service_2026_05_07.plan.md.
+# VM allocation (6 VMs, default ranges):
+#   instr-backfill-cefi-1:  CeFi   2020-01-01 → 2022-06-30
+#   instr-backfill-cefi-2:  CeFi   2022-07-01 → 2024-12-31
+#   instr-backfill-cefi-3:  CeFi   2025-01-01 → 2026-02-28
+#   instr-backfill-defi:    DeFi   2020-01-01 → 2026-02-28
+#   instr-backfill-tradfi:  TradFi 2020-01-01 → 2026-02-28
+#   instr-backfill-sports:  Sports 2020-06-01 → 2026-03-28
 #
 # Usage:
-#   bash launch-instruments-backfill-vm.sh                                          # Launch all 6 VMs (default ranges)
-#   bash launch-instruments-backfill-vm.sh --dry-run                                # Print plan without executing
-#   bash launch-instruments-backfill-vm.sh --asset-group DEFI                       # Only launch DeFi VM
-#   bash launch-instruments-backfill-vm.sh --asset-group DEFI \
-#       --start 2026-04-01 --end 2026-05-16                                          # Override window (asset-group filter required)
-#
-# VM allocation (6 VMs):
-#   VM1: CeFi  2020-01-01 → 2022-06-30
-#   VM2: CeFi  2022-07-01 → 2024-12-31
-#   VM3: CeFi  2025-01-01 → 2026-02-28
-#   VM4: DeFi  2020-01-01 → 2026-02-28  (fetches universe once, date-filters)
-#   VM5: TradFi 2020-01-01 → 2026-02-28
-#   VM6: Sports 2020-06-01 → 2026-03-28
-#
-# CLI extensions added 2026-05-20 per ikenna directive (Option A) to unblock the
-# 46-day DeFi upstream backfill (window 2026-04-01..2026-05-16). Backwards-compat
-# preserved: existing callers without --asset-group/--start/--end continue to
-# launch all 6 VMs with the previous hardcoded ranges. When --start/--end is
-# overridden the launcher REQUIRES --asset-group to avoid silently rewriting
-# date ranges across mixed-purpose VMs. VM name is suffixed with the end-date
-# when overridden so a relaunch doesn't collide with the default singleton VM.
-#
-# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
-# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
-# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#   bash launch-instruments-backfill-vm.sh                                     # All 6 VMs
+#   bash launch-instruments-backfill-vm.sh --dry-run                           # Print plan
+#   bash launch-instruments-backfill-vm.sh --asset-group DEFI                  # Only DeFi VM
+#   bash launch-instruments-backfill-vm.sh --asset-group CEFI \
+#       --start 2026-01-01 --end 2026-03-31                                    # Override window
+#   bash launch-instruments-backfill-vm.sh --force                             # Bypass manifest skip
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
@@ -49,31 +31,29 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 ASSET_GROUP_FILTER=""
 START_OVERRIDE=""
 END_OVERRIDE=""
+CHUNK_DAYS="${CHUNK_DAYS:-30}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run) DRY_RUN=true; shift ;;
-    --force) FORCE=true; shift ;;
-    --project) PROJECT_ID="$2"; shift 2 ;;
-    --zone) ZONE="$2"; shift 2 ;;
-    --workspace) WORKSPACE_ROOT="$2"; shift 2 ;;
-    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --dry-run)     DRY_RUN=true; shift ;;
+    --force)       FORCE=true; shift ;;
+    --project)     PROJECT_ID="$2"; shift 2 ;;
+    --zone)        ZONE="$2"; shift 2 ;;
+    --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
     --asset-group) ASSET_GROUP_FILTER="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
-    --start) START_OVERRIDE="$2"; shift 2 ;;
-    --end) END_OVERRIDE="$2"; shift 2 ;;
+    --start)       START_OVERRIDE="$2"; shift 2 ;;
+    --end)         END_OVERRIDE="$2"; shift 2 ;;
+    --chunk-days)  CHUNK_DAYS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
-# Date-window override safety: requires --asset-group filter (don't silently
-# rewrite ranges across the 6 mixed-purpose VMs).
 if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
   if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
-    echo "ERROR: --start/--end requires --asset-group <CEFI|DEFI|TRADFI|SPORTS> to scope the override." >&2
+    echo "ERROR: --start/--end requires --asset-group to scope the override." >&2
     exit 1
   fi
 fi
@@ -83,96 +63,85 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
-SCRIPT_DIR_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR_LIB}/lib/launcher_common.sh"
+CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 
-# Manifest-driven skip is the default. --force ⇒ bypass manifest, refetch all day-shards.
 if $FORCE; then
-  FORCE_FLAG_INNER="--force"
-  echo "MODE: --force ON — manifest-driven skip BYPASSED. Every day-shard will be re-fetched."
+  echo "MODE: --force ON — manifest skip BYPASSED. Every day-shard will be re-fetched."
 else
-  FORCE_FLAG_INNER=""
-  echo "MODE: --force OFF (default) — manifest-driven skip ACTIVE. Already-captured + empty_confirmed shards will be skipped."
+  echo "MODE: --force OFF (default) — manifest skip ACTIVE."
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GCS_BUCKET="gs://instruments-store-defi-${PROJECT_ID}"
-GCS_STAGING="${GCS_BUCKET}/_vm_staging"
-TARBALL_NAME="instruments_backfill_codebase.tar.gz"
+echo "============================================================"
+echo "Instruments Backfill VM Fleet Launcher (Pattern A)"
+echo "  Project:  ${PROJECT_ID}"
+echo "  Zone:     ${ZONE}"
+echo "  Machine:  ${MACHINE_TYPE}"
+echo "  Filter:   ${ASSET_GROUP_FILTER:-all}"
+echo "  Force:    ${FORCE}"
+echo "  Chunk:    ${CHUNK_DAYS} days"
+echo "  Env:      ${DEPLOYMENT_ENV}"
+echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-code.tar.gz"
+echo "============================================================"
 
-# ---------- Step 1: Package codebase ----------
-echo "=== Step 1: Packaging codebase ==="
+launch_vm() {
+  local VM_NAME="$1"
+  local ASSET_GROUP="$2"
+  local START_DATE="$3"
+  local END_DATE="$4"
 
-# Repos needed for instruments-service to run.
-# Only repos present in the workspace are archived. The install script
-# dynamically skips repos not in the tarball — their deps resolve from PyPI.
-REPOS=(
-  "unified-api-contracts"
-  "unified-trading-library"
-  "instruments-service"
-)
+  if [[ -n "${ASSET_GROUP_FILTER}" && "${ASSET_GROUP}" != "${ASSET_GROUP_FILTER}" ]]; then
+    echo "  Skipping ${VM_NAME} (${ASSET_GROUP} != ${ASSET_GROUP_FILTER})"
+    return 0
+  fi
 
-TARBALL_PATH="/tmp/${TARBALL_NAME}"
+  if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+    [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
+    [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
+    # Suffix avoids singleton collision on override.
+    VM_NAME="${VM_NAME}-$(echo "${END_DATE}" | tr -d '-')"
+    echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
+  fi
 
-if ! $DRY_RUN; then
-  echo "  Creating tarball from workspace: ${WORKSPACE_ROOT}"
-  # rsync copies working tree (including uncommitted changes) while
-  # respecting .gitignore via --filter=':- .gitignore'.  This is
-  # preferred over git-archive which only exports committed files.
-  STAGING_DIR=$(mktemp -d)
-  for repo in "${REPOS[@]}"; do
-    REPO_PATH="${WORKSPACE_ROOT}/${repo}"
-    if [[ ! -d "$REPO_PATH" ]]; then
-      echo "  WARNING: ${repo} not found at ${REPO_PATH}, skipping"
-      continue
-    fi
-    echo "  Syncing ${repo}..."
-    mkdir -p "${STAGING_DIR}/${repo}"
-    rsync -a \
-      --include='unified_api_contracts/registry/data/' \
-      --include='unified_api_contracts/registry/data/**' \
-      --include='unified_api_contracts/canonical/domain/sports/data/' \
-      --include='unified_api_contracts/canonical/domain/sports/data/**' \
-      --filter=':- .gitignore' \
-      --exclude='.git' \
-      --exclude='.venv*' \
-      --exclude='__pycache__' \
-      --exclude='*.egg-info' \
-      --exclude='node_modules' \
-      --exclude='.mypy_cache' \
-      --exclude='.pytest_cache' \
-      "${REPO_PATH}/" "${STAGING_DIR}/${repo}/"
-  done
+  echo ""
+  echo "--- ${VM_NAME}: ${ASSET_GROUP} ${START_DATE} → ${END_DATE} ---"
 
-  echo "  Compressing..."
-  (cd "${STAGING_DIR}" && tar czf "${TARBALL_PATH}" -- *)
-  TARBALL_SIZE=$(du -h "${TARBALL_PATH}" | cut -f1)
-  echo "  Tarball: ${TARBALL_PATH} (${TARBALL_SIZE})"
-  rm -rf "${STAGING_DIR}"
-fi
+  if $DRY_RUN; then
+    echo "  [DRY RUN] Would create VM: ${VM_NAME}"
+    echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
+    return 0
+  fi
 
-# ---------- Step 2: Upload to GCS ----------
-echo ""
-echo "=== Step 2: Uploading to GCS ==="
-GCS_TARBALL="${GCS_STAGING}/${TARBALL_NAME}"
-GCS_SCRIPT="${GCS_STAGING}/vm_instruments_backfill.sh"
+  local METADATA
+  METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+  METADATA="${METADATA},VM_TASK=instruments-backfill"
+  METADATA="${METADATA},VM_SERVICE=instruments_service"
+  METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+  $FORCE && METADATA="${METADATA},VM_FORCE=true"
 
-if ! $DRY_RUN; then
-  echo "  Uploading tarball..."
-  gsutil -q cp "${TARBALL_PATH}" "${GCS_TARBALL}"
-  echo "  Uploading backfill script..."
-  gsutil -q cp "${SCRIPT_DIR}/vm_instruments_backfill.sh" "${GCS_SCRIPT}"
-  echo "  Done."
-  rm "${TARBALL_PATH}"
-else
-  echo "  [DRY RUN] Would upload tarball + script to ${GCS_STAGING}/"
-fi
+  echo "  Creating VM ${VM_NAME}..."
+  gcloud compute instances create "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --machine-type="${MACHINE_TYPE}" \
+    --scopes=cloud-platform \
+    --no-restart-on-failure \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --labels="purpose=instruments-backfill,asset-group=$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}"
+  echo "  VM ${VM_NAME} created."
+  echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+}
 
-# ---------- Step 3: Launch VMs ----------
-echo ""
-echo "=== Step 3: Launching VMs ==="
-
-# VM definitions: name|category|start|end
+# VM definitions: name|asset_group|start|end
 declare -a VMS=(
   "instr-backfill-cefi-1|CEFI|2020-01-01|2022-06-30"
   "instr-backfill-cefi-2|CEFI|2022-07-01|2024-12-31"
@@ -180,142 +149,17 @@ declare -a VMS=(
   "instr-backfill-defi|DEFI|2020-01-01|2026-02-28"
   "instr-backfill-tradfi|TRADFI|2020-01-01|2026-02-28"
   "instr-backfill-sports|SPORTS|2020-06-01|2026-03-28"
+  "instr-backfill-pred|PREDICTION|2020-01-01|2026-02-28"
 )
 
 for VM_DEF in "${VMS[@]}"; do
   IFS='|' read -r VM_NAME ASSET_GROUP START_DATE END_DATE <<< "$VM_DEF"
-
-  # Asset-group filter: skip VMs that don't match the filter (2026-05-20).
-  if [[ -n "${ASSET_GROUP_FILTER}" && "${ASSET_GROUP}" != "${ASSET_GROUP_FILTER}" ]]; then
-    echo "  Skipping ${VM_NAME} (asset_group=${ASSET_GROUP} != filter=${ASSET_GROUP_FILTER})"
-    continue
-  fi
-
-  # Date-window override (only applied when --asset-group filter selected this VM).
-  if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
-    [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
-    [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
-    # Suffix VM name with end-date so override doesn't collide with default singleton.
-    VM_NAME="${VM_NAME}-$(echo "${END_DATE}" | tr -d '-')"
-    echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
-  fi
-
-  # Write startup script to a temp file (avoids quoting issues)
-  STARTUP_FILE=$(mktemp)
-  LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT_ID")"
-  cat > "$STARTUP_FILE" << STARTUP_EOF
-#!/bin/bash
-${LOG_TRAP}
-set -euo pipefail
-export WORK_DIR=/tmp/instruments_backfill
-export HOME=/root
-export PATH="/root/.local/bin:\$PATH"
-
-exec > >(tee /var/log/instruments-backfill.log) 2>&1
-
-# Set GCP project for ServiceRuntime
-export GCP_PROJECT_ID="${PROJECT_ID}"
-export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
-# Env tier for bucket-resolution (Phase 0f, 2026-05-11). resolve_bucket_name(env=...)
-# reads DEPLOYMENT_ENV; this VM operates entirely against \${DEPLOYMENT_ENV}-tier buckets.
-export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
-
-echo "=== VM Startup: ${VM_NAME} ==="
-echo "  Category: ${ASSET_GROUP}"
-echo "  Range: ${START_DATE} → ${END_DATE}"
-date
-
-# Install Python 3.13 from deadsnakes PPA (uses system OpenSSL + cert store)
-apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
-echo "  Python: \$(python3.13 --version)"
-
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export PATH="/root/.local/bin:\$PATH"
-
-# Download codebase + script from GCS
-mkdir -p \${WORK_DIR}
-echo "Downloading codebase tarball..."
-gsutil -q cp ${GCS_TARBALL} \${WORK_DIR}/codebase.tar.gz
-gsutil -q cp ${GCS_SCRIPT} \${WORK_DIR}/vm_instruments_backfill.sh
-chmod +x \${WORK_DIR}/vm_instruments_backfill.sh
-
-# Unpack codebase
-echo "Unpacking codebase..."
-tar xzf \${WORK_DIR}/codebase.tar.gz -C \${WORK_DIR}
-rm \${WORK_DIR}/codebase.tar.gz
-ls -d \${WORK_DIR}/*/
-
-# Run backfill — honest_coverage SSOT: without --force, manifest-driven skip
-# applies (capture_status in {captured,empty_confirmed} → skipped;
-# attempted_failed + expected_unattempted → retried). Outer launcher's
-# --force flag propagates here as $FORCE_FLAG_INNER, default empty.
-echo "Starting backfill..."
-bash \${WORK_DIR}/vm_instruments_backfill.sh \\
-  --asset-group ${ASSET_GROUP} \\
-  --start ${START_DATE} \\
-  --end ${END_DATE} \\
-  ${FORCE_FLAG_INNER} \\
-  --work-dir \${WORK_DIR}
-
-# Upload log to GCS
-gsutil -q cp /var/log/instruments-backfill.log \\
-  ${GCS_STAGING}/logs/${VM_NAME}.log
-
-echo "Backfill complete. Shutting down..."
-date
-shutdown -h now
-STARTUP_EOF
-
-  echo ""
-  echo "--- ${VM_NAME}: ${ASSET_GROUP} ${START_DATE} → ${END_DATE} ---"
-
-  if $DRY_RUN; then
-    echo "  [DRY RUN] Would create VM: ${VM_NAME}"
-    echo "  Machine: ${MACHINE_TYPE}, Zone: ${ZONE}"
-    rm "$STARTUP_FILE"
-  else
-    echo "  Creating VM..."
-    # O-1 β remediation 2026-05-12: observability invariants for ManifestWriter
-    # concurrency safety + canonical VM lifecycle metadata.
-    METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-    METADATA="${METADATA},VM_NAME=${VM_NAME}"
-    METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-    METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-
-    gcloud compute instances create "${VM_NAME}" \
-      --project="${PROJECT_ID}" \
-      --zone="${ZONE}" \
-      --machine-type="${MACHINE_TYPE}" \
-      --scopes=cloud-platform \
-      --no-restart-on-failure \
-      --image-family=ubuntu-2404-lts-amd64 \
-      --image-project=ubuntu-os-cloud \
-      --metadata-from-file=startup-script="${STARTUP_FILE}" \
-      --metadata="${METADATA}" \
-      --boot-disk-size=50GB \
-      --boot-disk-type=pd-ssd \
-      --labels=purpose=instruments-backfill,asset-group="$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]')",env="${DEPLOYMENT_ENV}"
-    echo "  VM ${VM_NAME} created."
-    rm "$STARTUP_FILE"
-  fi
+  launch_vm "$VM_NAME" "$ASSET_GROUP" "$START_DATE" "$END_DATE"
 done
 
 echo ""
 echo "============================================================"
 echo "All VMs launched."
-echo ""
-echo "Monitor:"
-echo "  gcloud compute instances list --filter='name~instr-backfill' --project=${PROJECT_ID}"
-echo ""
-echo "SSH + tail log:"
-echo "  gcloud compute ssh instr-backfill-cefi-1 --zone=${ZONE} --project=${PROJECT_ID} -- tail -f /var/log/instruments-backfill.log"
-echo ""
-echo "Check GCS results:"
-echo "  gsutil ls ${GCS_STAGING}/logs/"
-echo "  gsutil ls gs://instruments-store-cefi-${PROJECT_ID}/instrument_availability/by_date/ | wc -l"
-echo "  gsutil ls gs://instruments-store-defi-${PROJECT_ID}/instrument_availability/by_date/ | wc -l"
-echo "  gsutil ls gs://instruments-store-tradfi-${PROJECT_ID}/instrument_availability/by_date/ | wc -l"
+echo "  Monitor: gcloud compute instances list --filter='name~instr-backfill' --project=${PROJECT_ID}"
+echo "  Logs:    gsutil ls gs://${CODE_BUCKET}/vm-logs/ | grep instr-backfill"
 echo "============================================================"

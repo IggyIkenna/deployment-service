@@ -211,7 +211,7 @@ launch_cefi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
-    end_date="2026-04-17"
+    end_date="2026-05-22"
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
@@ -232,20 +232,50 @@ launch_cefi_shard() {
   # 2026-05-06: bumped heavy default from e2-standard-2 (8 GB) to
   # e2-highmem-2 (16 GB) post-streaming-finalize ship (MTDS f07f3f9 default-on).
   # AVAX-USD smoke peaked at 1.04 GB; BTC-USD heavy days scale ~10-20×.
-  # 8 GB had no headroom; 16 GB / $0.10/hr is the right floor — cheaper than
-  # e2-highmem-4 (32 GB / $0.20/hr), and still cheap relative to fleet cost
-  # of an OOM relaunch wave. Override per-launch via MACHINE_TYPE_HEAVY.
+  # 2026-05-22: bumped heavy from e2-highmem-2 (16 GB) to e2-highmem-4 (32 GB)
+  # after systematic OOM failures across BINANCE-FUTURES/SPOT/BYBIT 2021+;
+  # 2021 bull-market days scale ~20-30× from AVAX baseline → 20-30 GB peaks.
+  # Light bumped from e2-standard-2 (8 GB) to e2-highmem-2 (16 GB) after
+  # BYBIT-2021-light OOM on 8 GB. DERIBIT light (options_chain) uses e2-highmem-4
+  # (32 GB) — options_chain 2026 data is multi-GB per day.
+  # 2026-05-23: bumped heavy default from e2-highmem-4 (32 GB) to e2-highmem-8
+  # (64 GB). shard_memory_profile.py recommends e2-highmem-8 for any DERIBIT /
+  # BINANCE-FUTURES / BYBIT / OKX-SWAP heavy book_snapshot_5 shards (38 GB peak
+  # observed on DERIBIT BTC-PERPETUAL + BTC-options_chain expiry days). 2024
+  # bull-market BINANCE-SPOT data is also 5-10× larger than the 2022-calibrated
+  # 18 MB profile, causing constant 30s memory-pressure pauses on 32 GB that
+  # double backfill runtime. e2-highmem-8 ($0.54/hr) at 64 GB eliminates pauses;
+  # the 2× cost is dominated by VM count × runtime reduction.
+  # 2026-05-24: bumped light default from e2-highmem-2 (16 GB) to e2-highmem-4
+  # (32 GB) after OOM failures on BINANCE-FUTURES/OKX-SWAP light VMs. Root cause:
+  # CeFi consolidated manifest (36 MB compressed) expands to ~12-13 GB in pandas
+  # memory during read_availability_index at startup — 1682 per-VM shards causing
+  # large merged DataFrame. e2-highmem-2 (16 GB) runs out of RAM during manifest
+  # load; e2-highmem-4 (32 GB) gives 2x headroom. DERIBIT already on e2-highmem-4.
+  # 2026-05-24 (second bump): light bumped from e2-highmem-4 (32 GB) to
+  # e2-highmem-8 (64 GB). Root cause: day-boundary OOM. After completing day N
+  # (peak RSS 23.7 GB on 32 GB) Python's GC hasn't freed day-N data before
+  # day N+1 allocates its streaming buffer (confirmed: BINANCE-FUTURES 2024-01-01
+  # → 01-02 OOM kill, rc=137). 23.7 GB baseline + day-2 peak > 32 GB; 64 GB
+  # eliminates the constraint. Override: MACHINE_TYPE_HEAVY / MACHINE_TYPE_LIGHT.
+  # 2026-05-25: bumped heavy default from e2-highmem-8 (64 GB) to e2-highmem-16
+  # (128 GB). Root cause: 2022-2023 bull-market Tardis streaming peaks exceed 64 GB
+  # (confirmed: BINANCE-FUTURES-2023 peak_rss=60.3 GB, DERIBIT-2022 peak_rss=65.7 GB
+  # both OOM'd rc=137 on e2-highmem-8). 9 concurrent book_snapshot_5 streams for
+  # high-volume years saturate 64 GB; e2-highmem-16 ($1.08/hr) at 128 GB provides
+  # 2× headroom. Lower-volume years (BYBIT-2021 peaked at 24 GB) benefit from
+  # the extra CPUs (16 vs 8) even if RAM is not needed.
   if [[ "$group" == "heavy" ]]; then
-    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-2}"
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-16}"
   else
-    machine="${MACHINE_TYPE_LIGHT:-e2-standard-2}"
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
   fi
 
   # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
   # combos. Used by relaunch-OOM workflow to retry only the dead heavy VMs
   # at higher memory, e.g.:
   #   ONLY="BINANCE-SPOT:2026:heavy DERIBIT:2026:heavy" \
-  #     MACHINE_TYPE_HEAVY=e2-highmem-4 FORCE=1 \
+  #     MACHINE_TYPE_HEAVY=e2-highmem-8 FORCE=1 \
   #     bash launch-cefi-sharded-backfill.sh
   if [[ -n "${ONLY:-}" ]]; then
     local key="${venue}:${year}:${group}"
@@ -278,6 +308,13 @@ launch_cefi_shard() {
   # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
   # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+  # CeFi bucket has 34M+ rows (mostly Deribit options) + 1700+ per-VM shards.
+  # Without this override ManifestReader falls back to loading all shards when
+  # the consolidated availability_index.parquet is >120s old (the default),
+  # causing the Python process to OOM-kill at startup (rc=137) on every machine
+  # size tested (up to e2-highmem-8 / 64 GB). 86400s (24h) forces the reader to
+  # always use the consolidated index instead of the per-VM shard fallback.
+  meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
@@ -291,6 +328,7 @@ launch_cefi_shard() {
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+      --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
@@ -311,7 +349,7 @@ launch_tradfi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
-    end_date="2026-04-17"
+    end_date="2026-05-22"
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
@@ -356,6 +394,7 @@ launch_tradfi_shard() {
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+      --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &

@@ -1,0 +1,349 @@
+# Dependency Health Policies — per-dependency timing + fallback registry
+#
+# Schema: unified_api_contracts.canonical.crosscutting.dependency.DependencyHealthPolicy
+# Loader:  deployment-service/scripts/load_dependency_policies.py
+# Plan:    plans/active/connectivity_dependency_buffer_policy_2026_05_23.md
+#
+# All timing values are marked # TUNE — operator must calibrate to real SLA data.
+# Escalation ladder (outage_seconds evaluated greatest-first):
+#   outage > hard_escalation_seconds OR fallback_available=False → SEV0
+#   outage > expected + warning + human_investigation (default 900s) → SEV1
+#   outage > expected + warning → WARN
+#   outage <= expected → None (no alert)
+
+dependencies:
+  # ── EXECUTION_CRITICAL_EXTERNAL — CeFi execution venues ──────────────────
+
+  - dependency_id: binance_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE: 5min typical WS reconnect / maintenance
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE: 1hr sustained → SEV0
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: bybit_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: okx_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: deribit_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: hyperliquid_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: aster_rest
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: true
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-001.md
+    test_method: synthetic_probe
+
+  # ── EXECUTION_CRITICAL_EXTERNAL — DeFi protocols ─────────────────────────
+
+  - dependency_id: uniswap_v3_ethereum
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 180 # TUNE: 3min for RPC reconnect
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE: 30min
+    fallback_available: true
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: curve_ethereum
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 180 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE
+    fallback_available: true
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: aave_v3_ethereum
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 180 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE
+    fallback_available: false # No automatic fallback for lending
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: lido_ethereum
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 300 # TUNE: protocol governance can take longer
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE
+    fallback_available: false
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: helius_solana_rpc
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 120 # TUNE: 2min typical RPC failover
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE: 15min hard SEV0 for Solana primary RPC
+    fallback_available: true
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: solana_rpc_primary
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE
+    fallback_available: true # Helius as backup
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  - dependency_id: ethereum_rpc_primary
+    dependency_class: EXECUTION_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE
+    fallback_available: true # Secondary RPC provider
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-002.md
+    test_method: synthetic_probe
+
+  # ── MARKET_DATA_CRITICAL_EXTERNAL — oracle / price feeds ─────────────────
+
+  - dependency_id: pyth_solana
+    dependency_class: MARKET_DATA_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 120 # TUNE: 2min for oracle heartbeat gap
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE: 15min stale oracle → DEFI_ORACLE_STALE_PAUSE
+    fallback_available: true # Chainlink as backup for cross-chain prices
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-003.md
+    test_method: synthetic_probe
+
+  - dependency_id: chainlink_ethereum
+    dependency_class: MARKET_DATA_CRITICAL_EXTERNAL
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE
+    fallback_available: true # Pyth on Solana; TWAP fallback on EVM
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-CONN-003.md
+    test_method: synthetic_probe
+
+  # ── INTERNAL_CONTROL_PLANE — GCP + AWS cloud infra ───────────────────────
+
+  - dependency_id: gcp_cloud_run
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 120 # TUNE: 2min for instance restart
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE
+    fallback_available: true # Multi-region Cloud Run available
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: healthcheck_endpoint
+
+  - dependency_id: aws_ecs
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 900 # TUNE
+    fallback_available: true
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: healthcheck_endpoint
+
+  - dependency_id: gcp_pubsub
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 60 # TUNE: 1min typical PubSub latency spike
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 600 # TUNE: 10min sustained → SEV0 (event bus is critical)
+    fallback_available: false # Primary event bus; no hot standby yet
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: probe_publish_subscribe
+
+  - dependency_id: gcp_cloud_storage
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE: batch writes tolerate longer outage
+    fallback_available: false
+    protected_mode_available: true # Read-only cached mode possible
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: probe_read_write
+
+  - dependency_id: gcp_secret_manager
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 60 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 600 # TUNE: API keys uncacheable → fast escalation
+    fallback_available: false
+    protected_mode_available: true # Cached secrets valid for short periods
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: gcp_artifact_registry
+    dependency_class: INTERNAL_CONTROL_PLANE
+    expected_recovery_time_seconds: 300 # TUNE: 5min (only needed at deploy time)
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 3600 # TUNE: doesn't block live trading, only deploys
+    fallback_available: false
+    protected_mode_available: true # Running containers unaffected
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-001.md
+    test_method: synthetic_probe
+
+  # ── INTERNAL_DATA_PLANE — databases + caches ─────────────────────────────
+
+  - dependency_id: gcp_bigquery
+    dependency_class: INTERNAL_DATA_PLANE
+    expected_recovery_time_seconds: 120 # TUNE: 2min for query retry
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE: batch analytics tolerate 30min
+    fallback_available: false
+    protected_mode_available: true # Read-only parquet fallback for strategy
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-002.md
+    test_method: probe_query
+
+  - dependency_id: redis_primary
+    dependency_class: INTERNAL_DATA_PLANE
+    expected_recovery_time_seconds: 60 # TUNE: 1min typical Redis failover
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 300 # TUNE: 5min sustained Redis loss → SEV0 (real-time state)
+    fallback_available: false
+    protected_mode_available: false # No warm cache fallback yet
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-002.md
+    test_method: probe_ping
+
+  - dependency_id: gcp_cloud_sql
+    dependency_class: INTERNAL_DATA_PLANE
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 1800 # TUNE
+    fallback_available: false
+    protected_mode_available: true
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-INFRA-002.md
+    test_method: probe_query
+
+  # ── ALERTING_AND_OBSERVABILITY — paging + notification infra ─────────────
+
+  - dependency_id: pagerduty
+    dependency_class: ALERTING_AND_OBSERVABILITY
+    expected_recovery_time_seconds: 120 # TUNE: 2min typical PD API latency
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 600 # TUNE: 10min PD down → escalate to Twilio voice
+    fallback_available: true # Twilio voice/SMS is Layer-3 fallback
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-ALERT-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: telegram_bot
+    dependency_class: ALERTING_AND_OBSERVABILITY
+    expected_recovery_time_seconds: 120 # TUNE
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 600 # TUNE
+    fallback_available: true # Twilio SMS fallback
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-ALERT-001.md
+    test_method: synthetic_probe
+
+  - dependency_id: twilio_voice_sms
+    dependency_class: ALERTING_AND_OBSERVABILITY
+    expected_recovery_time_seconds: 60 # TUNE: 1min
+    warning_buffer_seconds: 60
+    human_investigation_buffer_seconds: 900
+    hard_escalation_seconds: 300 # TUNE: 5min Twilio down → physical pager (Layer-4)
+    fallback_available: false # Physical pager is Layer-4, not modeled here
+    protected_mode_available: false
+    owner: ikenna@odum-research.com
+    runbook_doc: codex/15-runbooks/incidents/RB-ALERT-001.md
+    test_method: synthetic_probe

@@ -47,11 +47,13 @@ set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
+DRY_RUN=false
 
 _positional=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) _positional+=("$1"); shift ;;
   esac
@@ -110,6 +112,15 @@ METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
+if $DRY_RUN; then
+  echo "[DRY-RUN] Would create VM: $VM_NAME"
+  echo "[DRY-RUN]   project=$PROJECT zone=$ZONE machine=e2-standard-4 disk=50GB"
+  echo "[DRY-RUN]   metadata=startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
+  echo "[DRY-RUN]   labels=purpose=tradfi-forward-poll,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
+  echo "[DRY-RUN] No VM created."
+  exit 0
+fi
 
 gcloud compute instances create "$VM_NAME" \
   --project="$PROJECT" \

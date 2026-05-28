@@ -13,7 +13,9 @@ import logging
 import signal
 import subprocess
 from datetime import UTC, datetime
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import cast
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -36,15 +38,15 @@ class _TrackedProcess:
     """Internal bookkeeping for a launched subprocess."""
 
     __slots__ = (
-        "shard_id",
-        "process",
-        "start_time",
         "end_time",
+        "error_message",
+        "health_url",
+        "is_live",
         "log_path",
         "pid_path",
-        "is_live",
-        "health_url",
-        "error_message",
+        "process",
+        "shard_id",
+        "start_time",
     )
 
     def __init__(
@@ -472,10 +474,18 @@ class LocalProcessBackend(ComputeBackend):
             return JobStatus.RUNNING
 
         try:
-            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as resp:  # nosec B310 — localhost health check, not user-controlled URL
-                if resp.status == 200:
+            with urlopen(tracked.health_url, timeout=_HEALTH_CHECK_TIMEOUT) as response:  # nosec B310 — localhost health check, not user-controlled URL  # pyright: ignore[reportAny]
+                response_typed: HTTPResponse = cast(HTTPResponse, response)
+                # urlopen returns HTTPResponse with status/getcode methods
+                if hasattr(response_typed, "status"):
+                    status = response_typed.status
+                elif hasattr(response_typed, "getcode"):
+                    status = response_typed.getcode()
+                else:
+                    status = 0
+                if status == 200:
                     return JobStatus.RUNNING
-                tracked.error_message = f"Health check returned {resp.status}"
+                tracked.error_message = f"Health check returned {status}"
                 return JobStatus.FAILED
         except (URLError, OSError):
             # Service may still be starting up

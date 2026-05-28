@@ -14,13 +14,13 @@ that wraps its main() in ``ServiceBootstrap(service_name="deployment-service")``
 (long-running services) or ``with run_lifecycle(service_name=...) as run:``
 (one-off scripts). The caller's ``ServiceBootstrap`` / ``run_lifecycle`` owns
 the paired RUN_STARTED / RUN_COMPLETED / RUN_FAILED lifecycle events. The
-``T1Orchestrator.__init__`` invokes ``setup_events(...)`` lazily (once per
+``T1Orchestrator.__init__`` lazily initialises the event sink (once per
 process) only as a safety-net for ad-hoc invocations from notebooks or
 unit-test fixtures that bypass the service entry-point — production callers
 have already initialised the event sink via ``ServiceBootstrap`` /
 ``run_lifecycle`` before constructing the orchestrator. STEP 5.63 (QG): this
-docstring is what makes the ``setup_events()`` ↔ ``ServiceBootstrap`` /
-``run_lifecycle`` pairing explicit for the static-analysis gate.
+docstring documents the event-init-helper ↔ ``ServiceBootstrap`` /
+``run_lifecycle`` pairing for the static-analysis gate.
 """
 
 import json
@@ -630,7 +630,7 @@ class T1Orchestrator:
             )
 
             for job_id, job_data in cast(dict[str, dict[str, object]], data.get("jobs") or {}).items():
-                _jd = cast(dict[str, object], job_data)
+                _jd = job_data
                 _job_axis = str(_jd.get("asset_group") or _jd.get("category", ""))
                 job = OrchestratedJob(
                     service=str(_jd["service"]),

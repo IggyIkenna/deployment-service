@@ -192,7 +192,7 @@ for SERVICE in "${SERVICES[@]}"; do
         if aws iam create-role \
             --role-name "$ROLE_NAME" \
             --assume-role-policy-document "$TRUST_POLICY" \
-            --description "UTS ${SERVICE} ${TIER} service role (DeFi cutover — mirrors GCP SA uts-${SERVICE}-${TIER}@central-element-323112.iam.gserviceaccount.com)" \
+            --description "UTS ${SERVICE} ${TIER} service role (DeFi cutover -- mirrors GCP SA uts-${SERVICE}-${TIER}@central-element-323112.iam.gserviceaccount.com)" \
             --tags "Key=ManagedBy,Value=uts-iam-setup" "Key=Service,Value=${SERVICE}" "Key=Tier,Value=${TIER}" \
             --output text --query 'Role.RoleName' 2>/dev/null; then
             echo " ✅ role created"

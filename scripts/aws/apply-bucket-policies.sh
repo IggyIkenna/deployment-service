@@ -55,24 +55,26 @@ echo "Bucket filter:${BUCKET_FILTER:- all}"
 echo "Mode:         $([[ "$APPLY" == "true" ]] && echo APPLY || echo DRY-RUN)"
 echo ""
 
-# DeFi prod buckets from iam-bucket-policies.aws.yaml defi_prod_buckets list.
+# DeFi prod buckets — canonical names per cloud-providers.yaml SSOT (2026-05-20 rename to
+# {kind}-{env_short}-{account} format; env_short=prd for production).
+# See deployment-service@de78a42 Phase 5 bucket-rename migration.
 ALL_DEFI_PROD_BUCKETS=(
-    "unified-trading-evm-defi-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-dex-pools-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-dex-swaps-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-solana-defi-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-eigenlayer-rewards-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-pnl-store-defi-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-positions-store-defi-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-risk-store-defi-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-config-store-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-events-prod-${AWS_ACCOUNT_ID}"
-    "unified-trading-instruments-defi-${AWS_ACCOUNT_ID}"
-    "unified-trading-market-data-defi-${AWS_ACCOUNT_ID}"
+    "evm-defi-prd-${AWS_ACCOUNT_ID}"
+    "dex-pools-prd-${AWS_ACCOUNT_ID}"
+    "dex-swaps-prd-${AWS_ACCOUNT_ID}"
+    "solana-defi-prd-${AWS_ACCOUNT_ID}"
+    "eigenlayer-rewards-prd-${AWS_ACCOUNT_ID}"
+    "pnl-store-defi-prd-${AWS_ACCOUNT_ID}"
+    "positions-store-defi-prd-${AWS_ACCOUNT_ID}"
+    "risk-store-defi-prd-${AWS_ACCOUNT_ID}"
+    "config-store-prd-${AWS_ACCOUNT_ID}"
+    "events-prd-${AWS_ACCOUNT_ID}"
+    "instruments-store-defi-prd-${AWS_ACCOUNT_ID}"
+    "market-data-tick-defi-prd-${AWS_ACCOUNT_ID}"
 )
 
 # Events bucket — receives the athena_results_write policy in addition to prod_write_protection.
-EVENTS_BUCKET="unified-trading-events-prod-${AWS_ACCOUNT_ID}"
+EVENTS_BUCKET="events-prd-${AWS_ACCOUNT_ID}"
 
 # Build the prod_write_protection policy JSON for a given bucket.
 # Mirrors GCP iam-bucket-policies.yaml prod_write_protection: denies writes from dev/staging roles;
@@ -86,12 +88,7 @@ build_prod_write_protection_policy() {
     {
       "Sid": "DenyWritesFromDevStagingRoles",
       "Effect": "Deny",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-dev",
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-staging"
-        ]
-      },
+      "Principal": "*",
       "Action": [
         "s3:PutObject",
         "s3:DeleteObject",
@@ -100,7 +97,15 @@ build_prod_write_protection_policy() {
       "Resource": [
         "arn:aws:s3:::${bucket}",
         "arn:aws:s3:::${bucket}/*"
-      ]
+      ],
+      "Condition": {
+        "ArnLike": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-dev",
+            "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-staging"
+          ]
+        }
+      }
     },
     {
       "Sid": "AllowProdServiceRolesFullAccess",
@@ -139,12 +144,7 @@ build_events_bucket_policy() {
     {
       "Sid": "DenyWritesFromDevStagingRoles",
       "Effect": "Deny",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-dev",
-          "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-staging"
-        ]
-      },
+      "Principal": "*",
       "Action": [
         "s3:PutObject",
         "s3:DeleteObject",
@@ -155,8 +155,11 @@ build_events_bucket_policy() {
         "arn:aws:s3:::${bucket}/*"
       ],
       "Condition": {
-        "StringNotLike": {
-          "s3:prefix": "_athena-results/*"
+        "ArnLike": {
+          "aws:PrincipalArn": [
+            "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-dev",
+            "arn:aws:iam::${AWS_ACCOUNT_ID}:role/uts-*-staging"
+          ]
         }
       }
     },

@@ -53,8 +53,13 @@ case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+case "$DEPLOYMENT_ENV" in
+  prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+  staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+  dev)     DEPLOYMENT_ENV_SHORT="dev" ;;
+esac
 
-GCS_BUCKET="gs://market-data-tick-prediction-${PROJECT_ID}"
+GCS_BUCKET="gs://market-data-tick-prediction-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging/prediction_pipeline"
 TARBALL_NAME="prediction_pipeline_codebase.tar.gz"
 VM_NAME="${VM_NAME_OVERRIDE:-prediction-pipeline-1}"
@@ -241,7 +246,7 @@ while current <= end:
 ")
 TOTAL_DATES=\$(echo "\$DATES" | wc -l | tr -d ' ')
 
-TICK_BUCKET="market-data-tick-prediction-${PROJECT_ID}"
+TICK_BUCKET="market-data-tick-prediction-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}"
 
 # ===================================================================
 # STAGE 1: MDPS — tick data → OHLCV candles

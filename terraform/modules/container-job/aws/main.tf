@@ -14,6 +14,10 @@ terraform {
   }
 }
 
+locals {
+  resolved_log_group_name = var.log_group_name != null ? var.log_group_name : "/aws/batch/${var.name}"
+}
+
 # Batch Job Definition
 resource "aws_batch_job_definition" "job" {
   name = var.name
@@ -65,7 +69,7 @@ resource "aws_batch_job_definition" "job" {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        "awslogs-group"         = var.log_group_name
+        "awslogs-group"         = local.resolved_log_group_name
         "awslogs-region"        = var.region
         "awslogs-stream-prefix" = var.name
       }
@@ -94,7 +98,7 @@ resource "aws_batch_job_definition" "job" {
 resource "aws_cloudwatch_log_group" "job_logs" {
   count = var.create_log_group ? 1 : 0
 
-  name              = var.log_group_name != null ? var.log_group_name : "/aws/batch/${var.name}"
+  name              = local.resolved_log_group_name
   retention_in_days = var.log_retention_days
 
   tags = merge(
@@ -117,8 +121,8 @@ resource "aws_batch_compute_environment" "fargate" {
     type      = "FARGATE"
     max_vcpus = var.max_vcpus
 
-    subnets         = var.subnet_ids
-    security_groups = var.security_group_ids
+    subnets            = var.subnet_ids
+    security_group_ids = var.security_group_ids
   }
 
   service_role = var.batch_service_role_arn

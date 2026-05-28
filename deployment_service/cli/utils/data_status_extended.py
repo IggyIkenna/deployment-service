@@ -20,7 +20,7 @@ from unified_trading_library import (
     get_storage_client,
 )
 
-from .manifest_reader import _BUCKET_TEMPLATES, ManifestReader
+from .manifest_reader import BUCKET_TEMPLATES, ManifestReader
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,8 @@ def run_t1_check(
         raise SystemExit(1)
 
     with open(cluster_path) as fh:
-        cluster_cfg: dict[str, object] = yaml.safe_load(fh)
+        loaded_config = cast(dict[str, object], yaml.safe_load(fh))
+        cluster_cfg: dict[str, object] = loaded_config
 
     services: list[str] = []
     raw_services = cast("list[str]", cluster_cfg.get("services") or [])
@@ -274,7 +275,7 @@ def run_ml_experiments_check(output: str) -> None:
         meta_status = click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
         if has_meta:
             meta_ok += 1
-        click.echo(f"{str(r['model_id']):<30} {str(r['training_period']):<25} {meta_status}")
+        click.echo(f"{r['model_id']!s:<30} {r['training_period']!s:<25} {meta_status}")
 
     click.echo("-" * 80)
     total = len(results)
@@ -317,7 +318,7 @@ def run_live_freshness_check(
     project_id = config.gcp_project_id
     storage_client = get_storage_client()
 
-    bucket_template = _BUCKET_TEMPLATES.get(service)
+    bucket_template = BUCKET_TEMPLATES.get(service)
     if not bucket_template:
         click.echo(
             click.style(f"No bucket template for service: {service}", fg="red"),
@@ -420,8 +421,7 @@ def run_live_freshness_check(
             status = click.style("FRESH", fg="green")
 
         click.echo(
-            f"{str(r['asset_group']):<15} {str(r['blob_count']):<8} "
-            f"{last_write_str:<22} {staleness_display:<12} {status}"
+            f"{r['asset_group']!s:<15} {r['blob_count']!s:<8} {last_write_str:<22} {staleness_display:<12} {status}"
         )
 
     click.echo("-" * 80)

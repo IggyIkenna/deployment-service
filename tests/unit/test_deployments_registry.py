@@ -43,6 +43,10 @@ DEFAULT_BUCKET = _registry_module.DEFAULT_BUCKET
 DeploymentRegistryEntry = _registry_module.DeploymentRegistryEntry
 DeploymentsRegistry = _registry_module.DeploymentsRegistry
 InMemoryStorageClient = _registry_module.InMemoryStorageClient
+vm_log_stream_uri = _registry_module.vm_log_stream_uri
+vm_log_archive_uri = _registry_module.vm_log_archive_uri
+vm_serial_console_archive_uri = _registry_module.vm_serial_console_archive_uri
+vm_run_log_archive_uri = _registry_module.vm_run_log_archive_uri
 
 
 @pytest.fixture
@@ -404,3 +408,57 @@ def test_reap_stale_skips_unparseable_heartbeat(registry: DeploymentsRegistry, s
     assert reaped == []
     # Active entry must be untouched.
     assert storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX) == [f"{ACTIVE_PREFIX}bad-hb.json"]
+
+
+def test_vm_log_stream_uri_canonical_shape() -> None:
+    """Pin the canonical live stream path format: vm-logs/{vm}/run.log."""
+    assert (
+        vm_log_stream_uri("my-vm", "central-element-323112")
+        == "gs://deployment-scripts-central-element-323112/vm-logs/my-vm/run.log"
+    )
+    assert vm_log_stream_uri("other-vm", "prod-123") == "gs://deployment-scripts-prod-123/vm-logs/other-vm/run.log"
+    # When project_id not provided, falls back to DEFAULT_BUCKET (whose value
+    # depends on the active UnifiedCloudConfig — empty in fully sterile envs,
+    # populated when GCP_PROJECT_ID is set via ADC / env).
+    assert vm_log_stream_uri("test-vm") == f"gs://{DEFAULT_BUCKET}/vm-logs/test-vm/run.log"
+
+
+def test_vm_log_archive_uri_canonical_shape() -> None:
+    """Pin the canonical archive path format: log-archive/snapshot_{ts}/{vm}/."""
+    assert (
+        vm_log_archive_uri("my-vm", "20260527_0830", "central-element-323112")
+        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/"
+    )
+    assert (
+        vm_log_archive_uri("other-vm", "20260101_1200", "prod-456")
+        == "gs://deployment-scripts-prod-456/log-archive/snapshot_20260101_1200/other-vm/"
+    )
+    # When project_id not provided, falls back to DEFAULT_BUCKET (env-dependent).
+    assert (
+        vm_log_archive_uri("test-vm", "20260527_1000")
+        == f"gs://{DEFAULT_BUCKET}/log-archive/snapshot_20260527_1000/test-vm/"
+    )
+
+
+def test_vm_serial_console_archive_uri_canonical_shape() -> None:
+    """Pin the canonical serial console archive path: .../{vm}/serial-console.txt."""
+    assert (
+        vm_serial_console_archive_uri("my-vm", "20260527_0830", "central-element-323112")
+        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/serial-console.txt"
+    )
+    assert (
+        vm_serial_console_archive_uri("other-vm", "20260101_1200", "prod-456")
+        == "gs://deployment-scripts-prod-456/log-archive/snapshot_20260101_1200/other-vm/serial-console.txt"
+    )
+
+
+def test_vm_run_log_archive_uri_canonical_shape() -> None:
+    """Pin the canonical run.log archive path: .../{vm}/run.log."""
+    assert (
+        vm_run_log_archive_uri("my-vm", "20260527_0830", "central-element-323112")
+        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/run.log"
+    )
+    assert (
+        vm_run_log_archive_uri("other-vm", "20260101_1200", "prod-456")
+        == "gs://deployment-scripts-prod-456/log-archive/snapshot_20260101_1200/other-vm/run.log"
+    )

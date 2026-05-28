@@ -17,6 +17,7 @@ fully-qualified instance resources) because that is the form
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from google.cloud import compute_v1
 
@@ -39,9 +40,10 @@ def list_running_vm_names(project_id: str) -> set[str]:
             instances = getattr(scoped_list, "instances", None)
             if not instances:
                 continue
-            for inst in instances:
-                status = str(getattr(inst, "status", ""))
-                name = str(getattr(inst, "name", ""))
+            for inst in instances:  # pyright: ignore[reportAny]
+                inst_typed = cast(object, inst)
+                status = str(getattr(inst_typed, "status", ""))
+                name = str(getattr(inst_typed, "name", ""))
                 if status == "RUNNING" and name:
                     running.add(name)
         logger.info("list_running_vm_names(%s): %d RUNNING VMs", project_id, len(running))

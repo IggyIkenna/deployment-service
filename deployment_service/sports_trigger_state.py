@@ -104,7 +104,10 @@ class PeriodicTierState:
             self._last_run = {}
             return
         try:
-            data: object = json.loads(raw)
+            # Import cast locally to avoid top-level imports
+            from typing import cast
+
+            data: object = cast(object, json.loads(raw))
         except json.JSONDecodeError as exc:
             logger.warning(
                 "Malformed scheduler state at gs://%s/%s: %s — starting fresh",

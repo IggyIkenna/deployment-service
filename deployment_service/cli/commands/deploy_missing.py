@@ -213,7 +213,7 @@ def deploy_missing(
             if venue:
                 filters["venue"] = list(venue)
 
-            dim_filters: dict[str, object] = {k: v for k, v in filters.items()}
+            dim_filters: dict[str, object] = dict(filters.items())
 
             try:
                 calculator = ShardCalculator(config_dir)

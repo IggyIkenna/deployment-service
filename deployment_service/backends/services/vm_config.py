@@ -8,6 +8,7 @@ and zone management for GCE VM backends.
 import logging
 import re
 import uuid
+from typing import ClassVar
 
 from jinja2 import Template
 from requests.adapters import HTTPAdapter
@@ -282,7 +283,7 @@ write_files:
         mount_point="/mnt/gcs/$bucket"
         mkdir -p "$mount_point"
         if ! mountpoint -q "$mount_point"; then
-          # Limit caches to prevent OOM on heavy workloads (6 mounts × unbounded cache = memory spike)
+          # Limit caches to prevent OOM on heavy workloads (6 mounts x unbounded cache = memory spike)
           gcsfuse --implicit-dirs --foreground=false --stat-cache-max-size-mb 16 --type-cache-max-size-mb 2 --metadata-cache-ttl-secs 30 "$bucket" "$mount_point" &
           sleep 5
         fi
@@ -407,10 +408,10 @@ class VMConfigManager:
     """Manages VM configuration, templates, and metadata."""
 
     # Zone suffixes per region (asia-northeast1 has a, b, c)
-    REGION_ZONE_SUFFIXES = {
+    REGION_ZONE_SUFFIXES: ClassVar[dict[str, list[str]]] = {
         "asia-northeast1": ["b", "c", "a"],
     }
-    DEFAULT_ZONE_SUFFIXES = ["b", "c", "a"]  # Fallback for unknown regions
+    DEFAULT_ZONE_SUFFIXES: ClassVar[list[str]] = ["b", "c", "a"]  # Fallback for unknown regions
 
     def __init__(self, project_id: str, region: str):
         """

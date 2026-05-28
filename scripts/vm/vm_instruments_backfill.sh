@@ -54,9 +54,7 @@ if $FORCE; then
 fi
 
 VENUES_FLAG=""
-if [[ -n "$VENUES" ]]; then
-  VENUES_FLAG="--venues ${VENUES}"
-fi
+# instruments-service CLI does not accept --venues; flag is intentionally suppressed.
 
 echo "============================================================"
 echo "Instruments Backfill — VM Setup"
@@ -113,7 +111,7 @@ WHEEL_GCS="gs://${CODE_BUCKET}/wheels/py313-linux-x86_64"
 mkdir -p "$WHEEL_CACHE"
 if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   echo "  Downloading cached wheels from GCS..."
-  gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
+  timeout 180 gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
   echo "  Downloaded $(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l) cached wheels"
 fi
 
@@ -143,7 +141,7 @@ uv pip install --find-links "$WHEEL_CACHE" pandas pyarrow google-cloud-secret-ma
 if [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
   echo "  Caching compiled wheels to GCS..."
   uv pip wheel --wheel-dir "$WHEEL_CACHE" ${INSTALL_ARGS} -q 2>/dev/null || true
-  gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
+  timeout 180 gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
   touch "$WHEEL_CACHE/.uploaded"
 fi
 

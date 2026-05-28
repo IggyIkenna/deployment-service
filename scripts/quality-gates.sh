@@ -36,6 +36,9 @@ GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_
 # 8 pre-existing codex violations in service source (os.getenv, direct cloud SDK imports,
 # pip-audit findings, bandit issues). New code must not introduce additional violations.
 CODEX_MAX_VIOLATIONS=8
+# 2026-05-26 baseline: 1297 errors with pre-rollout basedpyright strictness (reportUnknown* partially enabled).
+# Ratchet this down as type errors are fixed. Enforced by base-service.sh BASEDPYRIGHT_MAX_ERRORS ratchet.
+BASEDPYRIGHT_MAX_ERRORS=1297
 WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 source "${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
 

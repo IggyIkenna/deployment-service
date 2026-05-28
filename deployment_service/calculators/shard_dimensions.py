@@ -91,9 +91,7 @@ class DimensionProcessor:
             Tuple of (dimension_values, dimension_counts, hierarchical_dims)
         """
         effective_skip = _map_legacy_skip_dimensions(service_config, list(skip_dimensions))
-        filter_dict: dict[str, object] = _coalesce_trading_axis_filters(
-            service_config, cast(dict[str, object], dict(filters))
-        )
+        filter_dict: dict[str, object] = _coalesce_trading_axis_filters(service_config, dict(filters))
 
         dimension_values: dict[str, list[object]] = {}
         dimension_counts: dict[str, int] = {}

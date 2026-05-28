@@ -18,6 +18,16 @@
 #   - All functions are prefixed lc_ (launcher_common) to avoid namespace collisions.
 #   - Functions print errors to >&2 and return/exit non-zero on failure.
 #   - No global state is mutated (functions are pure or emit to stdout).
+#
+# Compatibility: this file supports bash 3.2+ (macOS default) and bash 4+/5
+# (Linux / homebrew). The lc_log_upload_trap_block helper emits shell snippets
+# that run on Ubuntu VMs (bash 5) — runtime targets are bash 5, but the launcher
+# itself runs on the operator's local machine, which on macOS is bash 3.2.
+# When adding new logic, validate with:
+#   /bin/bash -n scripts/vm/lib/launcher_common.sh
+#   /bin/bash -c 'source scripts/vm/lib/launcher_common.sh && <function-call>'
+# before committing. Avoid bash-4+ idioms (${var,,}, ${var^^}, declare -A,
+# mapfile/readarray) — use tr-based / while-read alternatives instead.
 
 set -euo pipefail
 
@@ -48,7 +58,10 @@ lc_singleton_check() {
     local project="${3:?lc_singleton_check: project required}"
     local force="${4:-false}"
 
-    if [[ "${force,,}" == "true" ]]; then
+    # bash-3.2 safe lowercase (macOS default bash lacks ${var,,})
+    local force_lc
+    force_lc="$(printf '%s' "$force" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$force_lc" == "true" ]]; then
         return 0
     fi
 
@@ -96,6 +109,22 @@ lc_gcloud_create() {
     local disk_gb="${5:?lc_gcloud_create: disk_gb required}"
     local metadata_str="${6:?lc_gcloud_create: metadata_str required}"
     local labels_str="${7:?lc_gcloud_create: labels_str required}"
+
+    # Centralised dry-run safety net (codified 2026-05-20 after the
+    # launch-tradfi-forward-poll.sh incident — see
+    # plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md).
+    # Any caller (launcher or wrapper) that exports LC_DRY_RUN=true short-circuits
+    # the real `gcloud compute instances create` call. Per-launcher --dry-run
+    # parsing should set + export LC_DRY_RUN=true before invoking this helper.
+    local lc_dry_run_lc
+    lc_dry_run_lc="$(printf '%s' "${LC_DRY_RUN:-false}" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$lc_dry_run_lc" == "true" ]]; then
+        echo "[DRY-RUN] Would create VM: ${vm_name}"
+        echo "[DRY-RUN]   project=${project} zone=${zone} machine=${machine_type} disk=${disk_gb}GB"
+        echo "[DRY-RUN]   metadata=${metadata_str}"
+        echo "[DRY-RUN]   labels=${labels_str}"
+        return 0
+    fi
 
     gcloud compute instances create "$vm_name" \
         --project="$project" \

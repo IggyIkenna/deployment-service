@@ -1,0 +1,75 @@
+"""Layer-0 ``failover_feed`` — MTDS handler primary → backup feed flip.
+
+Runbook: RB-CONN-001.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import urllib.request
+from typing import ClassVar
+
+from unified_api_contracts.incident import ActionStatus, ActionType
+
+from ._common import Layer0Script
+
+
+class FailoverFeed(Layer0Script):
+    ACTION_TYPE: ClassVar[ActionType] = ActionType.FAILOVER_FEED
+
+    def add_action_args(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--venue", required=True, help="Venue with degraded primary feed.")
+        parser.add_argument("--primary", required=True, help="Primary feed identifier.")
+        parser.add_argument("--backup", required=True, help="Backup feed identifier.")
+        parser.add_argument(
+            "--mtds-url",
+            default=os.environ.get("MTDS_URL", "http://mtds.internal:8080"),
+        )
+
+    def compute_scope_key(self, args: argparse.Namespace) -> str:
+        return f"feed:{args.venue}:{args.primary}"
+
+    def dry_run_plan(self, args: argparse.Namespace) -> dict[str, str]:
+        return {
+            "action": "mtds_failover_feed",
+            "venue": args.venue,
+            "primary": args.primary,
+            "backup": args.backup,
+            "effect": "MTDS handler swaps subscription primary→backup; existing positions unaffected",
+        }
+
+    def execute_action(
+        self, args: argparse.Namespace
+    ) -> tuple[ActionStatus, dict[str, str | bool | int | float | None]]:
+        url = f"{args.mtds_url}/admin/feed/failover"
+        body = json.dumps({
+            "venue": args.venue,
+            "primary": args.primary,
+            "backup": args.backup,
+            "reason": "Layer-0 failover_feed.py",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                payload = resp.read().decode("utf-8")
+                return ActionStatus.SUCCEEDED, {
+                    "http_status": resp.status,
+                    "response_tail": payload[-300:],
+                }
+        except urllib.error.HTTPError as e:
+            return ActionStatus.FAILED, {
+                "http_status": e.code,
+                "stderr": e.read().decode("utf-8", errors="replace")[:500],
+            }
+        except (urllib.error.URLError, TimeoutError) as e:
+            return ActionStatus.FAILED, {"error": repr(e)[:300]}
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(FailoverFeed().run())

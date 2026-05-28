@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -137,7 +138,8 @@ async def get_experiment(experiment_id: str) -> ExperimentDetail:
     try:
         storage_client = get_storage_client(project_id=_config.gcp_project_id)
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
-        metrics: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
+        metrics_data = cast(dict[str, object], json.loads(raw_bytes.decode("utf-8")))
+        metrics: dict[str, object] = metrics_data
         return ExperimentDetail(experiment_id=experiment_id, metrics=metrics)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"Experiment '{experiment_id}' not found") from e
@@ -161,7 +163,8 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
         # Try reading the manifest first (faster than scanning)
         try:
             manifest_bytes = storage_client.download_bytes(bucket=bucket, blob_path="model_registry/manifest.json")
-            manifest: dict[str, object] = json.loads(manifest_bytes.decode("utf-8"))
+            manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))
+            manifest: dict[str, object] = manifest_data
             models_dict = manifest.get("models", {})
             if isinstance(models_dict, dict):
                 results: list[ModelSummary] = []
@@ -225,7 +228,8 @@ async def get_model_metadata(model_id: str, training_period: str | None = None) 
 
         gcs_path = f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
-        metadata: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
+        metadata_data = cast(dict[str, object], json.loads(raw_bytes.decode("utf-8")))
+        metadata: dict[str, object] = metadata_data
         return ModelMetadataResponse(model_id=model_id, metadata=metadata)
     except FileNotFoundError as e:
         raise HTTPException(
@@ -248,7 +252,8 @@ def _resolve_latest_period(
         manifest_bytes = storage_client.download_bytes(  # pyright: ignore[reportUnknownMemberType]
             bucket=bucket, blob_path="model_registry/manifest.json"
         )
-        manifest: dict[str, object] = json.loads(manifest_bytes.decode("utf-8"))  # pyright: ignore[reportUnknownMemberType]
+        manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))  # pyright: ignore[reportUnknownMemberType]
+        manifest: dict[str, object] = manifest_data
         models_dict = manifest.get("models", {})
         if isinstance(models_dict, dict) and model_id in models_dict:
             model_info = models_dict[model_id]

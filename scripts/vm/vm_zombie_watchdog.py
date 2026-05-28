@@ -105,6 +105,7 @@ _INSTR_CEFI: str = _b("instruments-store", "cefi")
 _INSTR_DEFI: str = _b("instruments-store", "defi")
 _INSTR_TRADFI: str = _b("instruments-store", "tradfi")
 _INSTR_SPORTS: str = _b("instruments-store", "sports")
+_INSTR_PRED: str = _b("instruments-store-prediction")
 _FEAT_SPORTS: str = _b("features-sports")
 # lending-indices and scenario-reports are NOT in cloud-providers.yaml SSOT yet;
 # kept as hardcoded strings until they are added.
@@ -112,7 +113,7 @@ _LENDING_INDICES: str = f"lending-indices-{PROJECT_ID}"
 _SCENARIO_REPORTS: str = f"scenario-reports-{PROJECT_ID}"
 
 # urllib3 pool size for the AuthorizedSession on each Google client. The
-# default of 10 overflows under our 16-thread × 50-prefix workload —
+# default of 10 overflows under our 16-thread x 50-prefix workload —
 # 'Connection pool is full, discarding connection' warnings AND silent
 # op.result() polling failures (observed 2026-05-05). 64 matches the
 # phantom-audit 2*workers convention with headroom.
@@ -213,6 +214,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     ),
     "instr-backfill-sports": VmPrefixSpec(
         bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-pred": VmPrefixSpec(
+        bucket=_INSTR_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     # ------------------------------------------------------------------
@@ -382,6 +387,21 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # match covers both patterns. Heartbeat-only — paper VMs write to event-archive
     # only (no per-VM manifest shards).
     "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # Greeks-service compute VMs (greeks-service repo; plan:
+    # plans/active/pricing_ledger_carry_rates_mtds_2026_06_01.md Phase 3).
+    # Two prefixes for the two runtime modes:
+    #   greeks-compute-live-{ts}  → LONG_LIVED_LIVE streaming greeks-service
+    #     subscribed to MTDS mark_update; writes greek+carry columns back to
+    #     PricingLedger MARK_UPDATE rows.
+    #   greeks-compute-batch-{archetype-slug}-{ts} → EPHEMERAL_BATCH backfill
+    #     cron that recomputes greeks over PricingLedger history (per-row
+    #     option_delta/gamma/theta/vega/rho + funding_rate/lending_rate/
+    #     borrow_rate/staking_apy/dividend_yield/rebase_rate).
+    # Heartbeat-only — writes go through MTDS PricingLedger sink bucket via
+    # _resolve_policy_output_data_type, NOT per-VM manifest shards.
+    # Registered 2026-05-23 (operator-ACK'd Phase 5a of global_ledger discovery).
+    "greeks-compute-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "greeks-compute-batch-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
     # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
     # `gcs-migration-bundle-{asset_group}-{year}-{ts}`. Heartbeat-only — migration
@@ -460,8 +480,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # from e2e-testing/scripts/defi/. Each launcher emits a single VM
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
     "mtds-dex-pools-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-dex-swaps-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
+    # raydium, phoenix, jito, kamino_lending). Drift + marinade have their
+    # own dedicated launchers.
+    "mtds-solana-defi-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
     # but doesn't write per-VM manifest shards. Migrated 2026-05-08
@@ -876,6 +901,27 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_SCENARIO_REPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # ------------------------------------------------------------------
+    # Agent-orchestrator VMs — planning VM + per-epic VMs.
+    # All LONG_LIVED_LIVE (run until operator tears them down).
+    # bucket=None: orchestrator VMs write to the orchestrator GCS state
+    # bucket, not to per-VM manifest shards. Heartbeat-only.
+    # Launchers:
+    #   launch-planning-vm.sh  → agent-orch-planning-vm-{YYYYMMDD}
+    #   launch-epic-vm.sh      → agent-orch-{vm-id}-{YYYYMMDD}
+    # Registered 2026-05-21 (orchestrator Phase 7/11 fleet launch).
+    # ------------------------------------------------------------------
+    "agent-orch-planning-vm-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-ml-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-trading-core-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-operator-ops-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cross-cutting-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-orchestrator-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
 }
 
 
@@ -994,7 +1040,7 @@ def _send_zombie_notification(webhook_url: str, zombies: list[WatchdogVerdict]) 
             method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=10) as resp:
             logger.info("zombie notification sent to webhook: status=%d", resp.status)
     except Exception as exc:
         logger.warning("zombie notification failed (best-effort, continuing): %s", exc)
@@ -1126,7 +1172,7 @@ def _evaluate_vm(
     # Verdict logic:
     #   Heartbeat is the primary signal — if missing or stale → zombie.
     #   If heartbeat is unimplemented (None for both heartbeat AND shard older
-    #   than 2× shard_stale, fall back to shard-only).
+    #   than 2x shard_stale, fall back to shard-only).
     if hb_age is None and shard_age is None and age > 30:
         return WatchdogVerdict(vm_name, zone, age, None, None, "zombie_no_heartbeat")
     if hb_age is not None and hb_age > heartbeat_stale:
@@ -1134,6 +1180,64 @@ def _evaluate_vm(
     if hb_age is None and shard_age is not None and shard_age > shard_stale:
         return WatchdogVerdict(vm_name, zone, age, None, shard_age, "zombie_stale_shard")
     return WatchdogVerdict(vm_name, zone, age, hb_age, shard_age, "alive")
+
+
+def _backup_vm_logs_before_kill(vm_name: str, zone: str) -> None:
+    """Backup VM logs (run.log + serial console) before deletion.
+    
+    Archives to gs://deployment-scripts-{project}/log-archive/snapshot_{ts}/
+    for forensics. Best-effort — raises on failure but caller should proceed
+    with delete anyway (logs are nice-to-have, not a kill blocker).
+    
+    Uses the canonical helper paths from deployment_service/deployments_registry.py.
+    """
+    from datetime import datetime
+    from deployment_service.deployments_registry import (
+        vm_log_stream_uri,
+        vm_run_log_archive_uri,
+        vm_serial_console_archive_uri,
+    )
+    
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M")
+    storage_client = storage.Client(project=PROJECT_ID)
+    
+    # 1. Archive run.log (if it exists) via server-side copy
+    src_uri = vm_log_stream_uri(vm_name, PROJECT_ID)
+    dst_uri = vm_run_log_archive_uri(vm_name, timestamp, PROJECT_ID)
+    
+    # Strip gs:// prefix for storage client operations
+    src_bucket = src_uri.split("/")[2]
+    src_path = "/".join(src_uri.split("/")[3:])
+    dst_bucket = dst_uri.split("/")[2]
+    dst_path = "/".join(dst_uri.split("/")[3:])
+    
+    try:
+        src_blob = storage_client.bucket(src_bucket).blob(src_path)
+        if src_blob.exists():
+            dst_blob = storage_client.bucket(dst_bucket).blob(dst_path)
+            dst_blob.rewrite(src_blob)
+            logger.info("Archived run.log for %s to %s", vm_name, dst_uri)
+    except Exception as exc:
+        logger.debug("Failed to archive run.log for %s: %s", vm_name, exc)
+    
+    # 2. Capture serial console via compute API
+    try:
+        compute_client = compute_v1.InstancesClient()
+        serial_output = compute_client.get_serial_port_output(
+            project=PROJECT_ID,
+            zone=zone,
+            instance=vm_name
+        )
+        if serial_output.contents:
+            serial_uri = vm_serial_console_archive_uri(vm_name, timestamp, PROJECT_ID)
+            serial_bucket = serial_uri.split("/")[2]
+            serial_path = "/".join(serial_uri.split("/")[3:])
+            
+            serial_blob = storage_client.bucket(serial_bucket).blob(serial_path)
+            serial_blob.upload_from_string(serial_output.contents)
+            logger.info("Archived serial console for %s to %s", vm_name, serial_uri)
+    except Exception as exc:
+        logger.debug("Failed to capture serial console for %s: %s", vm_name, exc)
 
 
 def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str) -> bool:
@@ -1146,7 +1250,16 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     delete is still in-flight, so the kill counts. Previously we returned
     False on poll-raise, which under-counted real kills (observed
     2026-05-05: watchdog reported `killed 0/4` while all 4 VMs deleted).
+    
+    Pre-kill hook (2026-05-27): backup VM logs before deletion to preserve
+    forensics. Captures run.log + serial console to durable archive.
     """
+    # Pre-kill hook: backup logs before deletion (best-effort — don't block kill on backup failure)
+    try:
+        _backup_vm_logs_before_kill(vm_name, zone)
+    except Exception as exc:
+        logger.warning("Pre-kill log backup failed for %s (proceeding with delete): %s", vm_name, exc)
+    
     try:
         op = compute_client.delete(project=PROJECT_ID, zone=zone, instance=vm_name)
     except Exception as exc:
