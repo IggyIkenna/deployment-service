@@ -59,8 +59,18 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-8"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="50"
+
+# Filter pass-through (added 2026-05-28 for filter-pushdown canary verification —
+# see unified-trading-pm/plans/active/mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md
+# Phase 3). Unset by default → no behavior change for existing callers; when
+# set, exported on the VM so cli/main.py::_build_legacy_argv translates them
+# into --data-types / --venues / --instrument-ids.
+MDPS_DATA_TYPES_OVERRIDE="${MDPS_DATA_TYPES:-}"
+MDPS_VENUES_OVERRIDE="${MDPS_VENUES:-}"
+MDPS_INSTRUMENT_IDS_OVERRIDE="${MDPS_INSTRUMENT_IDS:-}"
+MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
@@ -119,6 +129,11 @@ _launch() {
     if [[ "$cat" == "sports" ]]; then
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
     fi
+    # Filter overrides (canary / narrow-scope reruns) — env-var pass-through.
+    [[ -n "$MDPS_DATA_TYPES_OVERRIDE" ]]    && cmd="$cmd MDPS_DATA_TYPES='$MDPS_DATA_TYPES_OVERRIDE'"
+    [[ -n "$MDPS_VENUES_OVERRIDE" ]]        && cmd="$cmd MDPS_VENUES='$MDPS_VENUES_OVERRIDE'"
+    [[ -n "$MDPS_INSTRUMENT_IDS_OVERRIDE" ]] && cmd="$cmd MDPS_INSTRUMENT_IDS='$MDPS_INSTRUMENT_IDS_OVERRIDE'"
+    [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]   && cmd="MAX_WORKERS=$MDPS_MAX_WORKERS_OVERRIDE $cmd"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
