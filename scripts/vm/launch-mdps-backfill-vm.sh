@@ -71,6 +71,12 @@ MDPS_DATA_TYPES_OVERRIDE="${MDPS_DATA_TYPES:-}"
 MDPS_VENUES_OVERRIDE="${MDPS_VENUES:-}"
 MDPS_INSTRUMENT_IDS_OVERRIDE="${MDPS_INSTRUMENT_IDS:-}"
 MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
+# Test-isolation write target (config.py:497 — MDPS_OUTPUT_BUCKET_{CAT})
+MDPS_OUTPUT_BUCKET_CEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_CEFI:-}"
+MDPS_OUTPUT_BUCKET_DEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_DEFI:-}"
+MDPS_OUTPUT_BUCKET_TRADFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_TRADFI:-}"
+MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
+MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
@@ -134,6 +140,10 @@ _launch() {
     [[ -n "$MDPS_VENUES_OVERRIDE" ]]        && cmd="$cmd MDPS_VENUES='$MDPS_VENUES_OVERRIDE'"
     [[ -n "$MDPS_INSTRUMENT_IDS_OVERRIDE" ]] && cmd="$cmd MDPS_INSTRUMENT_IDS='$MDPS_INSTRUMENT_IDS_OVERRIDE'"
     [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]   && cmd="MAX_WORKERS=$MDPS_MAX_WORKERS_OVERRIDE $cmd"
+    # MDPS_OUTPUT_BUCKET_{CAT} — per-asset-group output bucket override (test-isolation).
+    local _out_var="MDPS_OUTPUT_BUCKET_${cat_upper}_OVERRIDE"
+    local _out_val="${!_out_var:-}"
+    [[ -n "$_out_val" ]] && cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=$_out_val"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
