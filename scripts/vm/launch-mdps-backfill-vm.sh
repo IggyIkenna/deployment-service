@@ -31,6 +31,22 @@
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
 #
+# Narrow-scope filters (all optional; omit for full-category sweep):
+#   --data-types trades                                # space-separated; MDPS_DATA_TYPES
+#   --venues "BINANCE-FUTURES BYBIT"                   # space-separated; MDPS_VENUES
+#   --instrument-ids "BINANCE-FUTURES:PERPETUAL:BTCUSDT BINANCE-FUTURES:PERPETUAL:ETHUSDT"
+#                                                      # canonical form VENUE:ITYPE:SYMBOL
+#   --output-bucket market-data-tick-cefi-test-central-element-323112
+#                                                      # MDPS_OUTPUT_BUCKET_{CAT}; writes go here
+#
+# Example — 3.X-3 16-day narrow-scope canary (plan mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md):
+#   bash launch-mdps-backfill-vm.sh \
+#     --data-types trades \
+#     --venues "BINANCE-FUTURES BYBIT" \
+#     --instrument-ids "BINANCE-FUTURES:PERPETUAL:BTCUSDT BINANCE-FUTURES:PERPETUAL:ETHUSDT BYBIT:PERPETUAL:BTCUSDT BYBIT:PERPETUAL:ETHUSDT" \
+#     --output-bucket market-data-tick-cefi-test-central-element-323112 \
+#     cefi 2026-04-15 2026-04-30 full
+#
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
@@ -39,13 +55,21 @@ set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 SOURCE_BUCKET_OVERRIDE=""
+FILTER_DATA_TYPES=""
+FILTER_VENUES=""
+FILTER_INSTRUMENT_IDS=""
+OUTPUT_BUCKET_OVERRIDE=""
 
-# Pre-parse --env <val> and --source-bucket <val> before positional args.
+# Pre-parse --env, --source-bucket, and narrow-scope filter flags before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --source-bucket) SOURCE_BUCKET_OVERRIDE="$2"; shift 2 ;;
+        --data-types) FILTER_DATA_TYPES="$2"; shift 2 ;;
+        --venues) FILTER_VENUES="$2"; shift 2 ;;
+        --instrument-ids) FILTER_INSTRUMENT_IDS="$2"; shift 2 ;;
+        --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -79,7 +103,7 @@ MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
 MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -125,6 +149,22 @@ _launch() {
     local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${PROJECT}}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
+    # Narrow-scope filter env vars — only set when flags are passed.
+    # Values with spaces are single-quoted so bash -c "$cmd" parses them
+    # correctly on the VM. Canonical instrument IDs: VENUE:ITYPE:SYMBOL
+    # (supported since market-data-processing-service@9ea08c8).
+    if [[ -n "$FILTER_DATA_TYPES" ]]; then
+        cmd="$cmd MDPS_DATA_TYPES='${FILTER_DATA_TYPES}'"
+    fi
+    if [[ -n "$FILTER_VENUES" ]]; then
+        cmd="$cmd MDPS_VENUES='${FILTER_VENUES}'"
+    fi
+    if [[ -n "$FILTER_INSTRUMENT_IDS" ]]; then
+        cmd="$cmd MDPS_INSTRUMENT_IDS='${FILTER_INSTRUMENT_IDS}'"
+    fi
+    if [[ -n "$OUTPUT_BUCKET_OVERRIDE" ]]; then
+        cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=${OUTPUT_BUCKET_OVERRIDE}"
+    fi
     # Sports MDPS catch-up: pre-2026 dates often lack upstream raw because
     # sports forward-poll has only been running recently. The dependency
     # check would otherwise abort the run on the first empty date. Bridge
@@ -166,6 +206,10 @@ _launch() {
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
+    [[ -n "$FILTER_DATA_TYPES" ]] && md="${md},VM_DATA_TYPES=${FILTER_DATA_TYPES// /;}"
+    [[ -n "$FILTER_VENUES" ]] && md="${md},VM_VENUES=${FILTER_VENUES// /;}"
+    [[ -n "$FILTER_INSTRUMENT_IDS" ]] && md="${md},VM_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS// /;}"
+    [[ -n "$OUTPUT_BUCKET_OVERRIDE" ]] && md="${md},VM_OUTPUT_BUCKET=${OUTPUT_BUCKET_OVERRIDE}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
