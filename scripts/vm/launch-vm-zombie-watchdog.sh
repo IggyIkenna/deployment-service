@@ -202,6 +202,9 @@ gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.
 if [[ -f /tmp/dep.tar.gz ]]; then
     mkdir -p /tmp/dep-src
     tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
+    # Install the package so watchdog's _backup_vm_logs_before_kill can
+    # `from deployment_service.deployments_registry import ...` (2026-05-28).
+    /opt/watchdog-venv/bin/pip install --quiet --no-deps /tmp/dep-src 2>&1 | tail -3 || true
 fi
 export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
 
