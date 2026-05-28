@@ -192,6 +192,19 @@ if [[ -f /tmp/utl.tar.gz ]]; then
     /opt/watchdog-venv/bin/pip install --quiet /tmp/utl-src 2>&1 | tail -3 || true
 fi
 
+# Stage cloud-providers.yaml SSOT (needed by UTL resolve_bucket_name at
+# watchdog module-load; watchdog computes _TICK_CEFI = _b('market-data','cefi')
+# at import time, which calls _load_cloud_providers_yaml). Extract from the
+# deployment-service tarball + export the env override so probing succeeds
+# regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
+# and no zombies get reaped — observed 2026-05-28.
+gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
+if [[ -f /tmp/dep.tar.gz ]]; then
+    mkdir -p /tmp/dep-src
+    tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
+fi
+export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
+
 ${LOOP_CMD}
 "
 
