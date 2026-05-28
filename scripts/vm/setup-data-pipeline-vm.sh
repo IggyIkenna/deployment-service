@@ -45,6 +45,41 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-central-element-323112}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 
+# ── EXIT trap: self-delete on early-bootstrap failure ──
+# 2026-05-28 follow-up to the cefi-heavy zombie incident: this script uses
+# `set -euo pipefail` so any apt/tarball/pip failure exits non-zero before
+# _launch_with_tee fires. Without this trap the VM_SHUTDOWN_ON_COMPLETION
+# wiring in vm-exec-with-gcs-tee.sh never runs (the wrapper is never launched),
+# so the VM sits RUNNING until the zombie-watchdog reaps it. When the watchdog
+# is also broken (2026-05-24 → 28 window), VMs accumulate as zombies.
+# Defense in depth: detect non-zero exit here, upload the setup log to
+# vm-logs/<vm>/vm-setup.log for forensics, then self-delete (gated on
+# VM_SHUTDOWN_ON_COMPLETION=true). Runs detached so SIGHUP/SIGTERM on VM
+# teardown can't interrupt the gcloud delete.
+_self_delete_on_setup_failure() {
+    local rc=$?
+    [[ $rc -eq 0 ]] && return 0
+    local shutdown
+    shutdown=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
+        2>/dev/null || echo '')
+    [[ "$shutdown" == "true" ]] || return 0
+    local vm_name vm_zone
+    vm_name=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+    vm_zone=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')
+    [[ -n "$vm_name" && -n "$vm_zone" ]] || return 0
+    log "SETUP FAILED rc=$rc — uploading log + scheduling self-delete (VM_SHUTDOWN_ON_COMPLETION=true)" || true
+    gsutil -q cp "$LOG" "gs://${CODE_BUCKET}/vm-logs/${vm_name}/vm-setup.log" 2>/dev/null || true
+    echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" 2>/dev/null || true
+    nohup setsid bash -c "
+        sleep 10
+        gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all
+    " </dev/null >/dev/null 2>&1 &
+}
+trap _self_delete_on_setup_failure EXIT
+
 # ── 0. File descriptor limit (Gate G8.1) ──
 # MTDS backfill opens one StreamingParquetWriter per shard (per instrument, per
 # data_type). Busy venues can exceed the default Linux soft limit of 1024 FDs in
@@ -635,6 +670,11 @@ _launch_with_tee() {
     nohup bash -c "$cmd" > "$fallback_log" 2>&1 &
   fi
   log "Task launched PID: $!"
+  # Disarm the early-bootstrap EXIT trap — from this point on, the wrapped
+  # vm-exec-with-gcs-tee.sh owns lifecycle (it has its own VM_SHUTDOWN_ON_COMPLETION
+  # handling at exit). A non-zero exit of this setup script AFTER successful
+  # launch must NOT delete the VM, or we'd wipe the running pipeline.
+  trap - EXIT
 }
 
 if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
