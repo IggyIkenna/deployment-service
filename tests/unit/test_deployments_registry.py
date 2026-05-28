@@ -417,8 +417,10 @@ def test_vm_log_stream_uri_canonical_shape() -> None:
         == "gs://deployment-scripts-central-element-323112/vm-logs/my-vm/run.log"
     )
     assert vm_log_stream_uri("other-vm", "prod-123") == "gs://deployment-scripts-prod-123/vm-logs/other-vm/run.log"
-    # When project_id not provided, uses DEFAULT_BUCKET (empty in tests)
-    assert vm_log_stream_uri("test-vm") == "gs:///vm-logs/test-vm/run.log"
+    # When project_id not provided, falls back to DEFAULT_BUCKET (whose value
+    # depends on the active UnifiedCloudConfig — empty in fully sterile envs,
+    # populated when GCP_PROJECT_ID is set via ADC / env).
+    assert vm_log_stream_uri("test-vm") == f"gs://{DEFAULT_BUCKET}/vm-logs/test-vm/run.log"
 
 
 def test_vm_log_archive_uri_canonical_shape() -> None:
@@ -431,8 +433,11 @@ def test_vm_log_archive_uri_canonical_shape() -> None:
         vm_log_archive_uri("other-vm", "20260101_1200", "prod-456")
         == "gs://deployment-scripts-prod-456/log-archive/snapshot_20260101_1200/other-vm/"
     )
-    # When project_id not provided, uses DEFAULT_BUCKET (empty in tests)
-    assert vm_log_archive_uri("test-vm", "20260527_1000") == "gs:///log-archive/snapshot_20260527_1000/test-vm/"
+    # When project_id not provided, falls back to DEFAULT_BUCKET (env-dependent).
+    assert (
+        vm_log_archive_uri("test-vm", "20260527_1000")
+        == f"gs://{DEFAULT_BUCKET}/log-archive/snapshot_20260527_1000/test-vm/"
+    )
 
 
 def test_vm_serial_console_archive_uri_canonical_shape() -> None:

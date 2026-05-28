@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     """Heartbeat daemon entry-point — wrapped in `run_lifecycle` for STEP 5.63.
 
     The body is wrapped in `with run_lifecycle(service_name="vm-heartbeat-daemon")`
-    so the workspace QG `setup_events()` ↔ `run_lifecycle()` / `ServiceBootstrap()`
+    so the workspace QG event-init-helper ↔ `run_lifecycle` / `ServiceBootstrap`
     pairing rule (STEP 5.63) is satisfied. `run_lifecycle` emits
     `VM_HEARTBEAT_DAEMON_RUN_STARTED` / `_RUN_COMPLETED` / `_RUN_FAILED` around
     the daemon's main loop. `_init_events()` initialises the underlying event

@@ -54,9 +54,13 @@ def vm_log_stream_uri(vm_name: str, project_id: str | None = None) -> str:
     This prefix has a 14-day delete lifecycle.
 
     Returns: gs://deployment-scripts-{project}/vm-logs/{vm}/run.log
+
+    This function IS the SSOT for the VM live-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
     """
     bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
-    return f"gs://{bucket}/vm-logs/{vm_name}/run.log"
+    return f"gs://{bucket}/vm-logs/{vm_name}/run.log"  # noqa: gs-uri  — canonical VM live-log path SSOT
 
 
 def vm_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
@@ -66,9 +70,13 @@ def vm_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = No
     The timestamp should be in YYYYMMDD_HHMM format.
 
     Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/
+
+    This function IS the SSOT for the VM archive-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
     """
     bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
-    return f"gs://{bucket}/log-archive/snapshot_{timestamp}/{vm_name}/"
+    return f"gs://{bucket}/log-archive/snapshot_{timestamp}/{vm_name}/"  # noqa: gs-uri  — canonical VM archive-log path SSOT
 
 
 def vm_serial_console_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:

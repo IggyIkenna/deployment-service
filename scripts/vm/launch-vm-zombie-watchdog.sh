@@ -155,17 +155,21 @@ done
 apt-get install -y software-properties-common 2>&1 | tail -2 || true
 add-apt-repository ppa:deadsnakes/ppa -y 2>&1 | tail -2 || true
 apt-get update -y 2>&1 | tail -2 || true
-apt-get install -y python3.13 python3.13-venv 2>&1 | tail -2 || true
+apt-get install -y python3.13 python3.13-venv python3.13-dev 2>&1 | tail -2 || true
+
+# Install C toolchain + dev headers for source-builds of UTL's transitive C
+# extensions (ckzg, lru-dict, via web3). The 2026-05-24→27 incident assumed an
+# upgraded pip alone would pull cp313 manylinux wheels — in practice these
+# packages still source-build on python3.13 (no manylinux_2_28 cp313 wheel),
+# so gcc + Python.h + libssl + libffi must be present or the watchdog
+# re-enters the same ModuleNotFoundError crash-loop. Observed 2026-05-28 on
+# vm-zombie-watchdog-20260528-112656: same crash despite the pip-upgrade fix.
+apt-get install -y build-essential libssl-dev libffi-dev pkg-config 2>&1 | tail -2 || true
 
 python3.13 -m venv /opt/watchdog-venv
 
-# Upgrade pip FIRST. The stock pip in a fresh python3.13 venv is too old to
-# recognise the prebuilt cp313 manylinux wheels for UTL's transitive C
-# extensions (ckzg, lru-dict, via web3) — it falls back to a source build that
-# fails (no compiler in this minimal venv), aborting the whole UTL install and
-# leaving the watchdog crash-looping on ``ModuleNotFoundError:
-# unified_trading_library`` (observed 2026-05-24→27: 562 crashes, 0 scans).
-# An upgraded pip pulls the wheels directly — no compiler needed.
+# Upgrade pip FIRST. Pulls prebuilt wheels when available; falls back to
+# source builds (now possible thanks to the build-essential install above).
 /opt/watchdog-venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -1 || true
 
 # Install google-cloud packages + UAC into the Python 3.13 venv.
