@@ -996,6 +996,23 @@ elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
   CLI_ARGS="$CLI_ARGS --solana-protocols drift --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
+elif [[ "$VM_TASK" == "solana-defi-backfill" ]]; then
+  # Multi-protocol Solana DeFi backfill (collect-solana-defi op).
+  # Distinct from solana-drift-backfill (Drift S3 historical only).
+  # VM_SOLANA_PROTOCOLS uses ';' as separator (gcloud metadata uses ',' for
+  # key separator).  Empty = handler default (all 10 protocols).
+  CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  VM_SOLANA_PROTOCOLS=$(_meta VM_SOLANA_PROTOCOLS)
+  if [[ -n "$VM_SOLANA_PROTOCOLS" ]]; then
+    CLI_ARGS="$CLI_ARGS --solana-protocols ${VM_SOLANA_PROTOCOLS//[,;]/ }"
+  fi
+  # --solana-lending-backfill enables historical-aware DeFiLlama paths for
+  # marginfi (api.llama.fi/protocol/marginfi) + solend (yields.llama.fi/chart/{pool_id}).
+  # Required for any historical date.
+  CLI_ARGS="$CLI_ARGS --solana-lending-backfill"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-defi-backfill.log"
 elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
   export GAS_FEE_SOLANA=true
   CLI_ARGS="--operation collect-gas-fees --mode batch --asset-group $VM_ASSET_GROUP"

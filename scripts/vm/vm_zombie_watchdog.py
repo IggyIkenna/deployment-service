@@ -483,6 +483,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-dex-swaps-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
+    # raydium, phoenix, jito, kamino_lending). Drift + marinade have their
+    # own dedicated launchers.
+    "mtds-solana-defi-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
     # but doesn't write per-VM manifest shards. Migrated 2026-05-08
