@@ -677,6 +677,47 @@ _launch_with_tee() {
   trap - EXIT
 }
 
+# ── 5b. OOM preflight: availability_index.parquet mtime check ──
+# 2026-05-28 defense-in-depth: when manifest-consolidator is degraded, the
+# consolidated availability_index.parquet goes stale. UTL's read_availability_index
+# falls back to merging all per-VM shards (1700+ on cefi) → ~12GB+ Python heap
+# → OOM-kill at startup before vm-exec-with-gcs-tee.sh's wrapped lifecycle
+# triggers. Catch this before Python runs: if the index is staler than the
+# launcher-supplied MANIFEST_CONSOLIDATED_STALENESS_SEC budget (default 86400s),
+# exit 78 (EX_CONFIG). The EXIT trap above catches and self-deletes the VM
+# (forensics: vm-logs/<vm>/vm-setup.log + SETUP_EXIT_STATUS).
+#
+# Composes with todo (b) in vm_zombie_watchdog_diagnosis_2026_05_28.md:
+# this is the "option (b) shell preflight" variant; option (a) (in-Python
+# fail-fast at UTL ManifestReader) remains a future hardening.
+if [[ "${VM_SERVICE:-}" == "market_tick_data_service" && "${VM_OPERATION:-}" == "download" ]]; then
+    _AG_LOWER=$(echo "${VM_ASSET_GROUP:-}" | tr '[:upper:]' '[:lower:]')
+    # cloud-providers.yaml uses 'pred' (not 'prediction') in the bucket short name.
+    [[ "$_AG_LOWER" == "prediction" ]] && _AG_LOWER="pred"
+    case "$_AG_LOWER" in
+        cefi|defi|tradfi|sports|pred)
+            _BUDGET_SEC="${MANIFEST_CONSOLIDATED_STALENESS_SEC:-86400}"
+            _BUCKET="market-data-tick-${_AG_LOWER}-${DEPLOYMENT_ENV_SHORT:-prd}-${GCP_PROJECT_ID:-central-element-323112}"
+            _INDEX_URI="gs://${_BUCKET}/_index/availability_index.parquet"
+            log "OOM preflight: checking ${_INDEX_URI} mtime against budget ${_BUDGET_SEC}s"
+            _INDEX_UPDATED=$(gsutil ls -L "${_INDEX_URI}" 2>/dev/null | awk -F': +' '/Update time/{print $2; exit}')
+            if [[ -z "${_INDEX_UPDATED}" ]]; then
+                log "OOM preflight WARNING: ${_INDEX_URI} not found — consolidator hasn't materialised the index yet (proceeding; reader will use per-VM fallback)"
+            else
+                _INDEX_EPOCH=$(date -d "${_INDEX_UPDATED}" +%s 2>/dev/null || echo 0)
+                _NOW_EPOCH=$(date +%s)
+                _AGE_SEC=$(( _NOW_EPOCH - _INDEX_EPOCH ))
+                if (( _AGE_SEC > _BUDGET_SEC )); then
+                    log "OOM preflight FAIL: ${_INDEX_URI} is ${_AGE_SEC}s stale (budget ${_BUDGET_SEC}s) — exiting 78 to skip Python startup; EXIT trap will self-delete VM."
+                    log "  Diagnosis: manifest-consolidator for asset_group=${_AG_LOWER} is degraded. Reader would fall back to merging per-VM shards → OOM at startup. Fix consolidator + relaunch."
+                    exit 78
+                fi
+                log "OOM preflight OK: index is ${_AGE_SEC}s fresh (budget ${_BUDGET_SEC}s)"
+            fi
+            ;;
+    esac
+fi
+
 if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
   # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
   # deployment-service (uploaded alongside this script).
