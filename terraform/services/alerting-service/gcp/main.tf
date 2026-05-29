@@ -119,6 +119,13 @@ module "alerting_job" {
       secret_name = "slack-webhook-url"
       version     = "latest"
     }
+    # UTS Live Alerts → #uts-live-alerts Slack mirror (same agent-orchestrator-alerts app).
+    # Read by alerting_service/config.py (uts_live_alerts_slack_webhook); the SM key
+    # alerting-uts-live-alerts-slack-webhook is the hot-reloaded primary in-process.
+    UTS_LIVE_ALERTS_SLACK_WEBHOOK = {
+      secret_name = "alerting-uts-live-alerts-slack-webhook"
+      version     = "latest"
+    }
   }
 
   service_name = "alerting-service"

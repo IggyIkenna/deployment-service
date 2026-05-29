@@ -88,8 +88,9 @@ module "alerting_job" {
   }
 
   secret_environment_variables = {
-    PAGERDUTY_ROUTING_KEY = var.pagerduty_routing_key_secret_arn
-    SLACK_WEBHOOK_URL     = var.slack_webhook_url_secret_arn
+    PAGERDUTY_ROUTING_KEY         = var.pagerduty_routing_key_secret_arn
+    SLACK_WEBHOOK_URL             = var.slack_webhook_url_secret_arn
+    UTS_LIVE_ALERTS_SLACK_WEBHOOK = var.uts_live_alerts_slack_webhook_secret_arn
   }
 
   subnet_ids         = var.subnet_ids
