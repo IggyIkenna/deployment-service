@@ -1099,7 +1099,13 @@ elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
   CLI_ARGS="--operation collect-gas-fees --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
-  CLI_ARGS="$CLI_ARGS --gas-fee-chains 99999"
+  # Bug-G fix 2026-05-29: Solana doesn't have an EVM numeric chain_id. The
+  # gas_fees handler accepts the sentinel string "solana" via --gas-fee-chains
+  # and routes the entry through its _collect_solana_historical branch
+  # (SolanaGasFeeClient → getBlock historical sampling). Previously this
+  # passed 99999 → handler logged "Unknown chain_id 99999, skipping" for every
+  # date, producing 0 rows.
+  CLI_ARGS="$CLI_ARGS --gas-fee-chains solana"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-gas-backfill.log"
 elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
   # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness run.
