@@ -315,6 +315,13 @@ launch_cefi_shard() {
   # size tested (up to e2-highmem-8 / 64 GB). 86400s (24h) forces the reader to
   # always use the consolidated index instead of the per-VM shard fallback.
   meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+  # Opt-in fail-fast (2026-05-28): when the staleness budget above IS exceeded,
+  # UTL read_availability_index raises ManifestConsolidatorStaleError instead of
+  # OOM-killing at the per-VM shard merge. Pairs with the shell preflight in
+  # setup-data-pipeline-vm.sh (deployment-service@7add531) — preflight catches
+  # before Python starts; this catches anything that slips through (e.g. the
+  # consolidator goes stale mid-run, not at bootstrap).
+  meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
