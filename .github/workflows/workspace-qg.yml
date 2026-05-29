@@ -44,7 +44,7 @@ name: workspace-qg
 
 on:
   push:
-    branches: [main, staging, live-defi-rollout]
+    branches: [main, staging]
   pull_request:
     branches: [main, staging]
   workflow_dispatch:
