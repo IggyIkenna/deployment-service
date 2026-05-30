@@ -35,7 +35,15 @@
 #   --data-types trades                                # space-separated; MDPS_DATA_TYPES
 #   --venues "BINANCE-FUTURES BYBIT"                   # space-separated; MDPS_VENUES
 #   --instrument-ids "BINANCE-FUTURES:PERPETUAL:BTCUSDT BINANCE-FUTURES:PERPETUAL:ETHUSDT"
-#                                                      # canonical form VENUE:ITYPE:SYMBOL
+#                                                      # RECOMMENDED: canonical VENUE:INSTRUMENT_TYPE:SYMBOL
+#                                                      # Each segment matched independently against hive path:
+#                                                      #   venue=BINANCE-FUTURES/instrument_type=perpetual/BTCUSDT.parquet
+#                                                      # LEGACY (deprecated): bare symbol e.g. "BTCUSDT"
+#                                                      #   Triggers substring match + deprecation log; will be
+#                                                      #   removed in a future release. Use canonical form.
+#                                                      # Codex SSOT: codex/06-coding-standards/cli-convention.md
+#                                                      #   § "Instrument Identity and CLI Granularity"
+#                                                      # UAC parser: from unified_api_contracts.canonical import parse_instrument_key
 #   --output-bucket market-data-tick-cefi-test-central-element-323112
 #                                                      # MDPS_OUTPUT_BUCKET_{CAT}; writes go here
 #
