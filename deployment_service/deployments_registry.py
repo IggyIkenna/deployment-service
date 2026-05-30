@@ -119,6 +119,21 @@ def vm_serial_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None 
     return f"gs://{bucket}/log-archive/serial-rolling/{date_stamp}/{vm_name}/serial-console.txt"  # noqa: gs-uri  — canonical rolling serial path SSOT
 
 
+def vm_run_log_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's daily-rolled run.log.
+
+    The daily archival cron (vm_log_archival_cron.py) copies vm-logs/{vm}/run.log →
+    log-archive/rolling/{date}/{vm}/run.log on a daily schedule, escaping the 14-day
+    TTL on the vm-logs/ prefix.
+
+    date_stamp should be YYYYMMDD format (daily granularity).
+
+    Returns: gs://deployment-scripts-{project}/log-archive/rolling/{date}/{vm}/run.log
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/rolling/{date_stamp}/{vm_name}/run.log"  # noqa: gs-uri  — canonical rolling run.log path SSOT
+
+
 # Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
 # Empty string at import time = no GCP_PROJECT_ID set (e.g. unit tests); callers
 # must pass ``bucket=`` explicitly in that case.
@@ -496,6 +511,7 @@ __all__ = [
     "vm_log_archive_uri",
     "vm_log_stream_uri",
     "vm_run_log_archive_uri",
+    "vm_run_log_rolling_uri",
     "vm_serial_console_archive_uri",
     "vm_serial_rolling_uri",
 ]
