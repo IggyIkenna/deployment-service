@@ -70,6 +70,15 @@ FORCE="${FORCE:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# TARDIS_KEY_CHECK: set to 0 to skip the key-validity probe (e.g. if Secret Manager
+# is inaccessible). Default 1 — always probe so an expired key aborts early.
+TARDIS_KEY_CHECK="${TARDIS_KEY_CHECK:-1}"
+# FREE_ONLY: set to 1 to launch VMs that only download Tardis free-tier dates
+# (1st of every month + last 7 days rolling window). Useful when the paid key
+# is expired — VMs skip paid dates via TARDIS_FREE_ONLY=1 metadata rather than
+# spinning at 100% CPU on 401 responses. Requires an active (even free-tier) key
+# in Secret Manager so the VM can authenticate at all.
+FREE_ONLY="${FREE_ONLY:-0}"
 
 # Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT). The legacy
 # behavior (no CLI args, env-var overrides only) is preserved — only --env is
@@ -86,6 +95,48 @@ case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+
+# ─── Tardis key validity check ────────────────────────────────────────────────
+# Probe api-key-info before launching any VMs so an expired key aborts early
+# instead of spawning dozens of VMs that spin at 100% CPU on HTTP 401 responses.
+# Pattern from relaunch_staged_2026_05_29.sh §A1.
+#
+# FREE_ONLY=1 overrides the abort: VMs are launched with TARDIS_FREE_ONLY=1 in
+# metadata so TickDataHandler skips paid-tier dates. Only free-tier dates
+# (1st-of-month + last 7 days rolling) are downloaded — safe even with an expired
+# key as long as the key itself is not absent (Tardis still needs a Bearer token).
+#
+# Bypass: TARDIS_KEY_CHECK=0 bash launch-cefi-sharded-backfill.sh
+if [[ "$TARDIS_KEY_CHECK" == "1" && "$DRY_RUN" != "1" ]]; then
+  _TARDIS_KEY=$(gcloud secrets versions access latest \
+    --secret=tardis-api-key --project="$PROJECT" 2>/dev/null || true)
+  if [[ -n "$_TARDIS_KEY" ]]; then
+    _TARDIS_INFO=$(curl -sS --max-time 10 https://api.tardis.dev/v1/api-key-info \
+      -H "Authorization: Bearer $_TARDIS_KEY" 2>/dev/null || true)
+  fi
+  _KEY_ACTIVE=0
+  if [[ -n "${_TARDIS_KEY:-}" && "${_TARDIS_INFO:-}" != "[]" && -n "${_TARDIS_INFO:-}" ]]; then
+    _KEY_ACTIVE=1
+  fi
+  if [[ "$_KEY_ACTIVE" == "0" ]]; then
+    if [[ "$FREE_ONLY" != "1" ]]; then
+      cat >&2 <<EOF
+ERROR: Tardis API key expired or absent (api-key-info: ${_TARDIS_INFO:-<empty>}).
+Paid historical dates will return HTTP 401 — launching VMs would waste CPU + cost.
+
+Options:
+  Renew key:    gcloud secrets versions add tardis-api-key --data-file=<keyfile> --project=$PROJECT
+  Free-only:    FREE_ONLY=1 bash $0 [--env $DEPLOYMENT_ENV]
+                (VMs download only 1st-of-month + last-7-days dates; skip paid dates)
+  Bypass check: TARDIS_KEY_CHECK=0 bash $0 [--env $DEPLOYMENT_ENV]
+EOF
+      exit 1
+    fi
+    echo "WARNING: Tardis key expired/absent — FREE_ONLY=1, VMs will only download free-tier dates." >&2
+  else
+    echo "Tardis key active (entitlements confirmed)." >&2
+  fi
+fi
 
 # ─── Singleton lock: shared Tardis account + project egress NAT ──────────────
 # This launcher fans out across CeFi venues (Tardis) AND TradFi (Tardis-carried
@@ -322,6 +373,8 @@ launch_cefi_shard() {
   # before Python starts; this catches anything that slips through (e.g. the
   # consolidator goes stale mid-run, not at bootstrap).
   meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
+  # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
+  [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
@@ -390,6 +443,8 @@ launch_tradfi_shard() {
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253).
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+  # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
+  [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"

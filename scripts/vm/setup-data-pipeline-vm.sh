@@ -248,6 +248,12 @@ MANIFEST_CONSOLIDATED_STALENESS_SEC=$(_meta MANIFEST_CONSOLIDATED_STALENESS_SEC)
 # instead of OOM-killing at the per-VM shard merge (2026-05-28).
 MANIFEST_FAIL_ON_STALE_FALLBACK=$(_meta MANIFEST_FAIL_ON_STALE_FALLBACK)
 [[ -n "$MANIFEST_FAIL_ON_STALE_FALLBACK" ]] && export MANIFEST_FAIL_ON_STALE_FALLBACK
+# TARDIS_FREE_ONLY: when 1, TickDataHandler skips paid-tier dates (non-1st-of-month
+# outside the rolling 7-day window) for CEFI/TRADFI asset groups — avoids 100%
+# CPU spin on 401 responses when the Tardis key is expired.
+# Set by launch-cefi-sharded-backfill.sh when FREE_ONLY=1 + key expired.
+TARDIS_FREE_ONLY=$(_meta TARDIS_FREE_ONLY)
+[[ -n "$TARDIS_FREE_ONLY" ]] && export TARDIS_FREE_ONLY
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
