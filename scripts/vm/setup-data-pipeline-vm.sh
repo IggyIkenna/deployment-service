@@ -1080,11 +1080,10 @@ INSTR_CHUNK_LOOP_EOF
   chmod +x "$CHUNK_SCRIPT"
   _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/instruments-backfill.log"
 elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
-  VM_DRIFT_MARKET=$(_meta VM_DRIFT_MARKET "SOL-PERP")
-  CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
+  CLI_ARGS="--operation collect-perp-funding --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
-  CLI_ARGS="$CLI_ARGS --solana-protocols drift --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
+  CLI_ARGS="$CLI_ARGS --perp-protocols drift"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
 elif [[ "$VM_TASK" == "solana-defi-backfill" ]]; then
   # Multi-protocol Solana DeFi backfill (collect-solana-defi op).
