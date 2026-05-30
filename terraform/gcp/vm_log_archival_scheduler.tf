@@ -30,7 +30,7 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
 
     template {
       timeout         = "1800s"  # 30 minutes
-      service_account = google_service_account.unified_trading_sa.email
+      service_account = google_service_account.unified_trading.email
 
       containers {
         image = "asia-northeast1-docker.pkg.dev/${var.project_id}/unified-trading-library/deployment-service:latest"
@@ -84,7 +84,7 @@ resource "google_cloud_scheduler_job" "vm_log_archival" {
     http_method = "POST"
 
     oauth_token {
-      service_account_email = google_service_account.t1_batch_sa.email
+      service_account_email = google_service_account.t1_batch.email
     }
   }
 
