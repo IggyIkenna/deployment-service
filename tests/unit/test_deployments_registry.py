@@ -47,6 +47,7 @@ vm_log_stream_uri = _registry_module.vm_log_stream_uri
 vm_log_archive_uri = _registry_module.vm_log_archive_uri
 vm_serial_console_archive_uri = _registry_module.vm_serial_console_archive_uri
 vm_run_log_archive_uri = _registry_module.vm_run_log_archive_uri
+vm_serial_rolling_uri = _registry_module.vm_serial_rolling_uri
 
 
 @pytest.fixture
@@ -462,3 +463,18 @@ def test_vm_run_log_archive_uri_canonical_shape() -> None:
         vm_run_log_archive_uri("other-vm", "20260101_1200", "prod-456")
         == "gs://deployment-scripts-prod-456/log-archive/snapshot_20260101_1200/other-vm/run.log"
     )
+
+
+def test_vm_serial_rolling_uri_canonical_shape() -> None:
+    """Pin the serial-rolling path: log-archive/serial-rolling/{date}/{vm}/serial-console.txt."""
+    assert (
+        vm_serial_rolling_uri("strategy-live-20260530", "20260530", "central-element-323112")
+        == "gs://deployment-scripts-central-element-323112/log-archive/serial-rolling/20260530/strategy-live-20260530/serial-console.txt"
+    )
+    assert (
+        vm_serial_rolling_uri("mtds-live-defi-abc", "20260101", "prod-456")
+        == "gs://deployment-scripts-prod-456/log-archive/serial-rolling/20260101/mtds-live-defi-abc/serial-console.txt"
+    )
+    # Distinct from the one-shot snapshot path (different prefix: serial-rolling vs snapshot_{ts}).
+    assert "serial-rolling" in vm_serial_rolling_uri("vm", "20260530", "pid")
+    assert "snapshot_" not in vm_serial_rolling_uri("vm", "20260530", "pid")

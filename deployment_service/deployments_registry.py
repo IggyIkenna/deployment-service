@@ -107,10 +107,11 @@ def vm_serial_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None 
     """Return the canonical GCS URI for a long-lived VM's rolling serial capture.
 
     Distinct from the snapshot-style serial path (vm_serial_console_archive_uri):
-    rolling captures run on a daily schedule for LONG_LIVED_LIVE / SCHEDULED_RECURRING VMs
+    rolling captures run on a schedule for LONG_LIVED_LIVE / SCHEDULED_RECURRING VMs
     to preserve serial output before the ring buffer wraps.
 
-    date_stamp should be YYYYMMDD format (daily granularity).
+    date_stamp should be YYYYMMDD format (one bucket per calendar day;
+    captures within the same day are idempotent — existing objects are skipped).
 
     Returns: gs://deployment-scripts-{project}/log-archive/serial-rolling/{date}/{vm}/serial-console.txt
     """
