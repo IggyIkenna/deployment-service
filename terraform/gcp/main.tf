@@ -1463,6 +1463,23 @@ resource "google_project_iam_member" "unified_trading_pubsub_editor" {
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
 
+# Granted ad-hoc 2026-05-29 to unblock mtds-solana-defi-backfill VM dispatch from vm-ml.
+# compute.instanceAdmin.v1 allows the SA to create/delete/start/stop Compute Engine VMs
+# (required for backfill VM launchers that run under this SA's identity).
+# iam.serviceAccountUser allows the SA to impersonate itself when launching VMs with
+# --service-account=unified-trading-sa@... (self-impersonation path used by backfill launchers).
+resource "google_project_iam_member" "unified_trading_compute_instance_admin" {
+  project = var.project_id
+  role    = "roles/compute.instanceAdmin.v1"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_service_account_user" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Memorystore (Redis) — optional; guarded by var.enable_memorystore
 #
