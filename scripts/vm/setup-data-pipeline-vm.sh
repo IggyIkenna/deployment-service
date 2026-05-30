@@ -546,8 +546,12 @@ for dir in "${INSTALLED_DIRS[@]}"; do
 done
 log "  uv pip install ${INSTALL_ARGS_STD[*]}"
 uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
-log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
-uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+if [[ "${#INSTALL_ARGS_NODEPS[@]}" -gt 2 ]]; then
+  log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
+  uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+else
+  log "  (skipping --no-deps install — no packages routed to NODEPS for VM_TASK=${VM_TASK})"
+fi
 
 # deployment_service/__init__.py eagerly imports the whole package
 # (monitor/orchestrator/backends), which transitively needs jinja2 +
