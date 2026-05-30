@@ -204,12 +204,12 @@ class SportsTriggerScheduler:
                         continue
 
                     for blob in blobs:
-                        if not str(blob).endswith(".parquet"):
+                        if not blob.name.endswith(".parquet"):
                             continue
 
                         # Read parquet to get fixture details
                         try:
-                            raw = storage.download_bytes(bucket=bucket_name, blob_path=str(blob))
+                            raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
                             df = pd.read_parquet(io.BytesIO(raw))
 
                             for _, row in df.iterrows():
@@ -235,7 +235,7 @@ class SportsTriggerScheduler:
                                         )
                                     )
                         except Exception as exc:
-                            logger.warning("Failed to read fixture parquet %s: %s", blob, exc)
+                            logger.warning("Failed to read fixture parquet %s: %s", blob.name, exc)
 
             # end of path_pattern loop for this scan_date
 
