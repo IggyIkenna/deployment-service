@@ -294,8 +294,10 @@ if [[ "$SHUTDOWN_ON_COMPLETION" == "true" ]]; then
             elif [[ -f /opt/scripts/backup-vm-logs.sh ]]; then
                 timeout 90 bash /opt/scripts/backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
             fi
-            # Delete the VM
-            gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all
+            # Delete the VM; fall back to OS halt if gcloud fails so the VM is
+            # at minimum TERMINATED (stops billing, zombie-watchdog can clean up).
+            gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all \
+                || sudo shutdown -h now
         " </dev/null >/dev/null 2>&1 &
         disown || true
     else

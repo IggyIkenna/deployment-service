@@ -75,7 +75,8 @@ _self_delete_on_setup_failure() {
     echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" 2>/dev/null || true
     nohup setsid bash -c "
         sleep 10
-        gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all
+        gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all \
+            || sudo shutdown -h now
     " </dev/null >/dev/null 2>&1 &
 }
 trap _self_delete_on_setup_failure EXIT
@@ -683,14 +684,37 @@ _launch_with_tee() {
     log "  VM_NAME=$VM_NAME VM_ASSET_GROUP=$VM_ASSET_GROUP VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
     nohup bash "$TEE_WRAPPER" "$GCS_LOG_URI" bash -c "$cmd" > "$fallback_log" 2>&1 &
   else
-    log "Launching plain: $cmd"
-    nohup bash -c "$cmd" > "$fallback_log" 2>&1 &
+    # No TEE_WRAPPER (download failed) — add inline VM_SHUTDOWN_ON_COMPLETION
+    # handling so the VM self-deletes even without the tee wrapper.
+    # Uses setsid + trap '' HUP TERM to survive systemd cgroup teardown
+    # (mirrors the same strategy in vm-exec-with-gcs-tee.sh lines 59-63).
+    log "Launching plain (no TEE_WRAPPER): $cmd"
+    nohup setsid bash -c "
+      trap '' HUP TERM
+      $cmd
+      _PLAIN_RC=\$?
+      _SD=\$(curl -sf -H 'Metadata-Flavor: Google' \
+          'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
+          2>/dev/null || echo '')
+      if [[ \"\$_SD\" == 'true' ]]; then
+        _NM=\$(curl -sf -H 'Metadata-Flavor: Google' \
+            'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+        _ZN=\$(curl -sf -H 'Metadata-Flavor: Google' \
+            'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print \$NF}')
+        if [[ -n \"\$_NM\" && -n \"\$_ZN\" ]]; then
+          sleep 10
+          gcloud compute instances delete \"\$_NM\" --zone=\"\$_ZN\" --quiet --delete-disks=all \
+            || sudo shutdown -h now
+        fi
+      fi
+      exit \$_PLAIN_RC
+    " > "$fallback_log" 2>&1 &
   fi
   log "Task launched PID: $!"
   # Disarm the early-bootstrap EXIT trap — from this point on, the wrapped
-  # vm-exec-with-gcs-tee.sh owns lifecycle (it has its own VM_SHUTDOWN_ON_COMPLETION
-  # handling at exit). A non-zero exit of this setup script AFTER successful
-  # launch must NOT delete the VM, or we'd wipe the running pipeline.
+  # vm-exec-with-gcs-tee.sh (or the plain setsid wrapper above) owns lifecycle.
+  # A non-zero exit of this setup script AFTER successful launch must NOT delete
+  # the VM, or we'd wipe the running pipeline.
   trap - EXIT
 }
 
