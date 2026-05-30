@@ -288,11 +288,11 @@ if [[ "$SHUTDOWN_ON_COMPLETION" == "true" ]]; then
         # teardown doesn't kill the delete mid-flight.
         nohup setsid bash -c "
             sleep 10
-            # Try to backup logs (best-effort, continues on failure)
+            # Try to backup logs (best-effort, timeout-guarded — must not block delete)
             if command -v backup-vm-logs.sh >/dev/null 2>&1; then
-                backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
+                timeout 90 backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
             elif [[ -f /opt/scripts/backup-vm-logs.sh ]]; then
-                bash /opt/scripts/backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
+                timeout 90 bash /opt/scripts/backup-vm-logs.sh --vm '$VM_NAME_SELF' --zone '$VM_ZONE_SELF' 2>/dev/null || true
             fi
             # Delete the VM
             gcloud compute instances delete '$VM_NAME_SELF' --zone='$VM_ZONE_SELF' --quiet --delete-disks=all
