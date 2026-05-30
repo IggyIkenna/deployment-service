@@ -176,6 +176,7 @@ class SportsTriggerScheduler:
 
             now = datetime.now(UTC)
             fixtures: list[FixtureInfo] = []
+            total_parquets_scanned = 0
 
             # Scan today and next 3 days for fixtures.
             # Try multiple GCS path patterns — the fixture calendar may be at
@@ -206,6 +207,8 @@ class SportsTriggerScheduler:
                     for blob in blobs:
                         if not blob.name.endswith(".parquet"):
                             continue
+
+                        total_parquets_scanned += 1
 
                         # Read parquet to get fixture details
                         try:
@@ -239,11 +242,23 @@ class SportsTriggerScheduler:
 
             # end of path_pattern loop for this scan_date
 
-            logger.info(
-                "Found %d upcoming fixtures within %dh horizon",
-                len(fixtures),
-                horizon_hours,
-            )
+            if total_parquets_scanned == 0:
+                # No fixture parquets found at all — instruments-service has not yet written
+                # fixture data to GCS. Tier-3/4 triggers will remain silent until
+                # instruments-service runs successfully. Check that the sports-scheduler
+                # venv includes instruments_service and that IS has been dispatched.
+                logger.warning(
+                    "Fixture calendar is empty — 0 parquets found across all scanned paths "
+                    "(instruments-service may not have written fixture data yet). "
+                    "Tier-3/4 pre/post-match triggers will not fire until fixture data is present."
+                )
+            else:
+                logger.info(
+                    "Found %d upcoming fixtures within %dh horizon (scanned %d parquets)",
+                    len(fixtures),
+                    horizon_hours,
+                    total_parquets_scanned,
+                )
             return fixtures
 
         except Exception as exc:
