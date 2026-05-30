@@ -491,5 +491,138 @@ class TestSecurityAndBestPractices:
         assert "EXIT" in lib_content, "Should cleanup on EXIT"
 
 
+class TestQgSnapshotLauncher:
+    """Tests for launch-qg-snapshot-vm.sh — cefi-015 regression.
+
+    Root cause: (1) startup-script-url pointed to a GCS file that hadn't been
+    uploaded yet → GCE silently skipped the startup script (no serial output,
+    no run.log ever); (2) direct-launch path used undefined VM_NAME/METADATA/
+    LABELS; (3) VM_BACKFILL_CMD used /home/unified/workspace but setup script
+    hardcodes /home/ikennaigboaka/workspace.
+    """
+
+    LAUNCHER_PATH = "scripts/vm/launch-qg-snapshot-vm.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER_PATH
+
+    def test_syntax_valid(self, launcher_path: Path) -> None:
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+    def test_scheduler_body_has_startup_script_url(self, launcher_path: Path) -> None:
+        """--dry-run-scheduler-body JSON must contain startup-script-url pointing to the right bucket."""
+        import json
+
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run-scheduler-body"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SKIP_GCS_PREFLIGHT": "true"},
+            cwd=launcher_path.parent.parent.parent,
+        )
+        assert result.returncode == 0, f"--dry-run-scheduler-body failed: {result.stderr}"
+        body = json.loads(result.stdout.strip())
+        items = {i["key"]: i["value"] for i in body["metadata"]["items"]}
+        assert "startup-script-url" in items, "startup-script-url missing from Cloud Scheduler body"
+        assert "deployment-scripts-" in items["startup-script-url"], (
+            f"startup-script-url should reference the canonical code bucket; got: {items['startup-script-url']}"
+        )
+        assert items["startup-script-url"].endswith("/vm/setup-data-pipeline-vm.sh"), (
+            f"startup-script-url should point to setup-data-pipeline-vm.sh; got: {items['startup-script-url']}"
+        )
+
+    def test_scheduler_body_required_metadata_keys(self, launcher_path: Path) -> None:
+        """Cloud Scheduler body must include all VM metadata keys the setup script reads."""
+        import json
+
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run-scheduler-body"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SKIP_GCS_PREFLIGHT": "true"},
+            cwd=launcher_path.parent.parent.parent,
+        )
+        assert result.returncode == 0, f"--dry-run-scheduler-body failed: {result.stderr}"
+        body = json.loads(result.stdout.strip())
+        items = {i["key"]: i["value"] for i in body["metadata"]["items"]}
+        for required in ("VM_TASK", "VM_SERVICE", "VM_BACKFILL_CMD", "VM_SHUTDOWN_ON_COMPLETION"):
+            assert required in items, f"Required metadata key {required!r} missing from scheduler body"
+        assert items["VM_TASK"] == "qg-snapshot"
+        assert items["VM_SHUTDOWN_ON_COMPLETION"] == "true"
+
+    def test_vm_backfill_cmd_uses_correct_workspace(self, launcher_path: Path) -> None:
+        """VM_BACKFILL_CMD must NOT reference /home/unified/workspace — that path never exists on the VM."""
+        import json
+
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run-scheduler-body"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SKIP_GCS_PREFLIGHT": "true"},
+            cwd=launcher_path.parent.parent.parent,
+        )
+        assert result.returncode == 0
+        body = json.loads(result.stdout.strip())
+        items = {i["key"]: i["value"] for i in body["metadata"]["items"]}
+        cmd = items.get("VM_BACKFILL_CMD", "")
+        assert "/home/unified/workspace" not in cmd, (
+            "VM_BACKFILL_CMD must not reference /home/unified/workspace — "
+            "setup-data-pipeline-vm.sh hardcodes WORKSPACE=/home/ikennaigboaka/workspace"
+        )
+        assert "/home/ikennaigboaka/workspace" in cmd, (
+            f"VM_BACKFILL_CMD should use /home/ikennaigboaka/workspace; got: {cmd}"
+        )
+
+    def test_preflight_check_exits_when_gsutil_fails(self, launcher_path: Path) -> None:
+        """Pre-flight check must fail fast with a clear error when startup-script-url is inaccessible."""
+        script = f"""#!/bin/bash
+gsutil() {{ return 1; }}
+export -f gsutil
+SKIP_GCS_PREFLIGHT=false bash "{launcher_path}" --dry-run-scheduler-body
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+            f.write(script)
+            f.flush()
+        try:
+            result = subprocess.run(["bash", f.name], capture_output=True, text=True)
+        finally:
+            os.unlink(f.name)
+        assert result.returncode != 0, "Should fail when gsutil stat returns non-zero"
+        assert "create-code-tarballs.sh" in result.stderr or "startup script not found" in result.stderr, (
+            f"Error message should mention create-code-tarballs.sh; got: {result.stderr!r}"
+        )
+
+    def test_direct_launch_dry_run_defines_all_vars(self, launcher_path: Path) -> None:
+        """Direct-launch --dry-run path must not exit with unbound-variable error."""
+        script = f"""#!/bin/bash
+# Mock gcloud: return empty for instances list (no existing VM → singleton passes)
+# return 0 for everything else.
+gcloud() {{
+    if [[ "$*" == *"instances list"* ]]; then
+        echo ""
+        return 0
+    fi
+    return 0
+}}
+gsutil() {{ return 0; }}
+export -f gcloud gsutil
+SKIP_GCS_PREFLIGHT=true bash "{launcher_path}" --dry-run
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+            f.write(script)
+            f.flush()
+        try:
+            result = subprocess.run(["bash", f.name], capture_output=True, text=True)
+        finally:
+            os.unlink(f.name)
+        assert result.returncode == 0, (
+            f"--dry-run must succeed (previously failed due to undefined VM_NAME/METADATA/LABELS); "
+            f"stderr: {result.stderr!r}"
+        )
+        assert "DRY-RUN" in result.stdout
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

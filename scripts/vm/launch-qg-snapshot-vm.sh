@@ -73,9 +73,30 @@ done
 CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
 lc_validate_env "$DEPLOYMENT_ENV"
 
-# Startup command passed to the VM via metadata
-SNAPSHOT_CMD="bash /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot.sh"
-PARQUET_CMD="python3 /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot_to_parquet.py --project-id ${PROJECT}"
+# Canonical startup-script-url used by both the Cloud Scheduler JSON body and
+# the direct-launch path.
+STARTUP_URL="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+
+# Pre-flight: verify the startup script exists in GCS before printing the
+# scheduler body or launching. When absent, GCE silently skips the startup
+# script entirely — the VM boots normally but the setup script never runs
+# (no serial output, no run.log ever written). Root cause of cefi-015: the
+# Cloud Scheduler job was created before create-code-tarballs.sh had uploaded
+# the script to GCS.
+# Bypass with SKIP_GCS_PREFLIGHT=true (CI / test environments).
+if [[ "${SKIP_GCS_PREFLIGHT:-false}" != "true" ]]; then
+    if ! gsutil -q stat "$STARTUP_URL" 2>/dev/null; then
+        echo "ERROR: startup script not found at $STARTUP_URL" >&2
+        echo "Run 'bash scripts/vm/create-code-tarballs.sh' first, then re-run." >&2
+        exit 1
+    fi
+fi
+
+# setup-data-pipeline-vm.sh hardcodes WORKSPACE="/home/ikennaigboaka/workspace".
+# VM_BACKFILL_CMD must use this path (not /home/unified/workspace).
+_VM_WORKSPACE="/home/ikennaigboaka/workspace"
+SNAPSHOT_CMD="bash ${_VM_WORKSPACE}/unified-trading-pm/scripts/quality_gates/snapshot.sh"
+PARQUET_CMD="python3 ${_VM_WORKSPACE}/unified-trading-pm/scripts/quality_gates/snapshot_to_parquet.py --project-id ${PROJECT}"
 # Full pipeline: snapshot → parquet upload → auto-shutdown
 BACKFILL_CMD="${SNAPSHOT_CMD} | ${PARQUET_CMD}"
 
@@ -105,7 +126,6 @@ if $DRY_RUN_SCHEDULER_BODY; then
     #     --message-body="$(bash $(dirname $0)/launch-qg-snapshot-vm.sh --dry-run-scheduler-body)" \
     #     --oauth-service-account-email="uts-prod-batch-sa@${PROJECT}.iam.gserviceaccount.com" \
     #     --location=asia-northeast1
-    STARTUP_URL="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
     python3 - <<PYEOF
 import json
 body = {
@@ -145,17 +165,36 @@ PYEOF
     exit 0
 fi
 
+# Direct-launch path: define VM_NAME, METADATA, LABELS for lc_gcloud_create.
+# Previously these three variables were undefined, causing an immediate exit
+# under set -euo pipefail (cefi-015 secondary root cause).
+RUN_TS="$(lc_run_ts)"
+VM_NAME="${VM_PREFIX}${RUN_TS}"
+
+lc_singleton_check "$VM_PREFIX" "$ZONE" "$PROJECT" "$FORCE"
+
+METADATA="startup-script-url=${STARTUP_URL}"
+METADATA="${METADATA},VM_TASK=qg-snapshot"
+METADATA="${METADATA},VM_SERVICE=qg_snapshot"
+METADATA="${METADATA},VM_OPERATION=qg-snapshot"
+METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},GCP_PROJECT_ID=${PROJECT}"
+
+LABELS="purpose=qg-snapshot,env=${DEPLOYMENT_ENV}"
+
 echo "Launching $VM_NAME: QG snapshot → GCS (env=${DEPLOYMENT_ENV})"
 
 if $DRY_RUN; then
     echo "[DRY-RUN] Would run: lc_gcloud_create $VM_NAME $PROJECT $ZONE $MACHINE_TYPE $BOOT_DISK_GB ..."
-    echo "  metadata: $FULL_METADATA"
+    echo "  metadata: $METADATA"
     echo "  labels:   $LABELS"
     exit 0
 fi
 
 lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "$MACHINE_TYPE" "$BOOT_DISK_GB" \
-    "$FULL_METADATA" "$LABELS"
+    "$METADATA" "$LABELS"
 
 echo ""
 echo "VM launched: $VM_NAME"
