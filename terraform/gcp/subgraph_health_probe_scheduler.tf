@@ -60,6 +60,20 @@ resource "google_pubsub_topic_iam_member" "t1_batch_defi_alerts_publisher" {
   member  = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
+# Allow t1_batch SA to read + write fingerprints on the lending-indices
+# bucket. The probe stores its per-cell fingerprints under
+# _index/subgraph_fingerprints/fingerprints.parquet on the same bucket the
+# rich-subgraph collector writes to (no new bucket kind required, per
+# `_resolve_bucket()` in scripts/subgraph_health_probe.py). Without this
+# binding the probe runs to completion but fails at `_write_fingerprints`
+# with a 403 — meaning every run re-alerts on first observation rather
+# than diffing against prior state.
+resource "google_storage_bucket_iam_member" "t1_batch_lending_indices_object_admin" {
+  bucket = "lending-indices-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 # -------------------------------------------------------
 # Cloud Run Job — subgraph health probe
 # -------------------------------------------------------
@@ -138,6 +152,7 @@ resource "google_cloud_run_v2_job" "subgraph_health_probe" {
   depends_on = [
     google_secret_manager_secret_iam_member.t1_batch_thegraph_api_key_accessor,
     google_pubsub_topic_iam_member.t1_batch_defi_alerts_publisher,
+    google_storage_bucket_iam_member.t1_batch_lending_indices_object_admin,
   ]
 }
 
