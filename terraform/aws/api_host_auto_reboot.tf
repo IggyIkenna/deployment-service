@@ -16,14 +16,9 @@
 # Plan: unified-trading-pm/plans/active/api_host_chronic_impairment_2026_05_29.md § Phase 4
 # Instance: i-0c9b283b31d6b5ca7 (central orchestrator API host, m8i.4xlarge)
 
-terraform {
-  required_providers {
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.4"
-    }
-  }
-}
+# NOTE: the `archive` provider requirement is declared centrally in main.tf's
+# single `terraform { required_providers { ... } }` block — Terraform permits
+# only one such block per module, so it must NOT be redeclared here.
 
 locals {
   api_host_instance_id   = "i-0c9b283b31d6b5ca7"
