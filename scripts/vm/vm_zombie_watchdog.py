@@ -71,6 +71,9 @@ from datetime import UTC, datetime
 
 from google.cloud import compute_v1, storage
 from requests.adapters import HTTPAdapter
+from unified_api_contracts import VmPrefixSpec
+from unified_api_contracts.canonical.crosscutting import LifecycleClass
+from unified_trading_library import resolve_bucket_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -78,8 +81,39 @@ logger = logging.getLogger(__name__)
 PROJECT_ID = "central-element-323112"
 HEARTBEAT_BUCKET = f"deployment-scripts-{PROJECT_ID}"
 
+
+def _b(kind: str, asset_group: str | None = None) -> str:
+    """Resolve a shard-check bucket name from the yaml SSOT at process start.
+
+    Reads DEPLOYMENT_ENV from env (defaults to "prod" if unset) and returns
+    the env-tiered bucket name matching the yaml canonical SSOT in
+    deployment-service/configs/cloud-providers.yaml.  Called once at module
+    load; all VmPrefixSpec.bucket values below use the result.
+    """
+    return resolve_bucket_name(cloud="gcp", kind=kind, asset_group=asset_group)
+
+
+# Pre-computed shard-bucket names (yaml SSOT via resolve_bucket_name at process start).
+# Replaces the former hardcoded _TICK_CEFI pattern.
+# Phase 0c-watchdog: bucket_name_ssot_canonicalisation_2026_05_10.md
+_TICK_CEFI: str = _b("market-data", "cefi")
+_TICK_DEFI: str = _b("market-data", "defi")
+_TICK_TRADFI: str = _b("market-data", "tradfi")
+_TICK_SPORTS: str = _b("market-data", "sports")
+_TICK_PRED: str = _b("market-data-tick-prediction")
+_INSTR_CEFI: str = _b("instruments-store", "cefi")
+_INSTR_DEFI: str = _b("instruments-store", "defi")
+_INSTR_TRADFI: str = _b("instruments-store", "tradfi")
+_INSTR_SPORTS: str = _b("instruments-store", "sports")
+_INSTR_PRED: str = _b("instruments-store-prediction")
+_FEAT_SPORTS: str = _b("features-sports")
+# lending-indices and scenario-reports are NOT in cloud-providers.yaml SSOT yet;
+# kept as hardcoded strings until they are added.
+_LENDING_INDICES: str = f"lending-indices-{PROJECT_ID}"
+_SCENARIO_REPORTS: str = f"scenario-reports-{PROJECT_ID}"
+
 # urllib3 pool size for the AuthorizedSession on each Google client. The
-# default of 10 overflows under our 16-thread × 50-prefix workload —
+# default of 10 overflows under our 16-thread x 50-prefix workload —
 # 'Connection pool is full, discarding connection' warnings AND silent
 # op.result() polling failures (observed 2026-05-05). 64 matches the
 # phantom-audit 2*workers convention with headroom.
@@ -99,7 +133,8 @@ def _bump_pool_size(session, size: int = POOL_SIZE) -> None:
     session.mount("http://", adapter)
 
 
-# VM prefix → manifest-shard bucket. None = no shard check (heartbeat-only).
+# VM prefix → VmPrefixSpec: manifest-shard bucket + lifecycle_class.
+# VmPrefixSpec(bucket=None) = no shard check (heartbeat-only).
 #
 # Grouped by asset_group / pipeline so it's obvious where a new launcher slots
 # in. To extend coverage, add a row in the matching block then relaunch the
@@ -108,41 +143,133 @@ def _bump_pool_size(session, size: int = POOL_SIZE) -> None:
 #
 # Bucket selection rule: set the asset_group's market-data bucket if the VM
 # uses ManifestWriter to write `_index/per_vm/{vm_name}.parquet`; otherwise
-# `None` so the watchdog falls back to the heartbeat sidecar (which the
+# bucket=None so the watchdog falls back to the heartbeat sidecar (which the
 # `setup-data-pipeline-vm.sh` bootstrap writes every 60s).
-VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
+# lifecycle_class field tags the LifecycleClass of VMs with this prefix (per
+# deployment-ui-architecture.md § VM Naming Convention).
+VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     # CeFi market-data backfill / forward-poll (per-vm shard writers)
     # ------------------------------------------------------------------
-    "cefi-mr-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-fwd-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-binance-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bybit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-coinbase-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-okx-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-upbit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-hyperliquid-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bitfinex-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-bitget-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-kraken-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-aster-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-cme-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-extended-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-lighter-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "cefi-pacifica-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "aster-fwd-": f"market-data-tick-cefi-{PROJECT_ID}",  # launch-aster-forward-poll.sh
+    "cefi-mr-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-fwd-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-binance-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bybit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-coinbase-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-okx-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-upbit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-hyperliquid-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bitfinex-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-bitget-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-kraken-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-aster-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-cme-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-extended-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-ext-bfill-": VmPrefixSpec(
+        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),  # launch-mtds-extended-ohlcv-backfill.sh — EXTENDED-STARKNET 2024-07-26..2025-07-31
+    "cefi-lighter-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-pacifica-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "aster-fwd-": VmPrefixSpec(
+        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),  # launch-aster-forward-poll.sh
+    # ------------------------------------------------------------------
+    # DeFi forward-poll (launch-defi-forward-poll.sh). Heartbeat-only —
+    # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS. Writes
+    # to market-data-tick-defi-* but does NOT write _index/per_vm/ shards.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "defi-fwd-": None,  # launch-defi-forward-poll.sh — DeFi on-chain forward poll
+    # ------------------------------------------------------------------
+    # Prediction forward-poll (launch-prediction-forward-poll.sh).
+    # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "prediction-fwd-": None,  # launch-prediction-forward-poll.sh — Polymarket/Kalshi forward poll
     # ------------------------------------------------------------------
     # CeFi instrument discovery + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
     "cefi-instr-": None,  # cefi-instr-{venue}-{ts} from instruments-service launchers
     "cefi-rogue-": None,  # cefi-rogue-rekey one-off cleanup
     # ------------------------------------------------------------------
+    # Instruments-service per-AG parallel backfill (launch-instruments-
+    # backfill-vm.sh emits 5 VMs: instr-backfill-cefi-{1,2,3} +
+    # instr-backfill-{defi,tradfi,sports}). Migrated 2026-05-08 (Tab 11)
+    # from `e2e-testing/scripts/common/launch_instruments_backfill_vms.sh`.
+    # Bucket = `instruments-store-{ag}-{pid}` (where the launcher writes
+    # _vm_staging + the per-AG instruments parquet).
+    # ------------------------------------------------------------------
+    "instr-backfill-cefi-": VmPrefixSpec(
+        bucket=_INSTR_CEFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-defi": VmPrefixSpec(
+        bucket=_INSTR_DEFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-tradfi": VmPrefixSpec(
+        bucket=_INSTR_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-sports": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "instr-backfill-pred": VmPrefixSpec(
+        bucket=_INSTR_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
+    # features-sports-service parallel backfill (launch-features-sports-
+    # parallel-backfill-vm.sh emits N VMs `fss-backfill-vm-{i}` for a
+    # date range chunk-split). Bucket = features-sports-{pid}. Migrated
+    # 2026-05-08 (Tab 11) from
+    # `features-sports-service/scripts/launch_parallel_backfill.sh`.
+    # ------------------------------------------------------------------
+    "fss-backfill-vm-": VmPrefixSpec(bucket=_FEAT_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # Sports instruments-reference v3 backfill (launch-sports-instruments-
+    # reference-vm.sh emits 3 VMs `sports-ref-v3-{1,2,3}` for chunked
+    # date-range coverage of api_football reference entities). Bucket =
+    # instruments-store-sports-{pid}. Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/sports/launch_instruments_reference_v3.sh`.
+    # ------------------------------------------------------------------
+    "sports-ref-v3-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
+    # Sports instruments forward-polls (heartbeat-only — no MANIFEST_PER_VM_SHARDS).
+    # Both write to instruments-store-sports-* but via non-shard paths.
+    # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "footystats-fwd-": None,  # launch-footystats-forward-poll.sh — FootyStats entity poll
+    "sfi-fwd-": None,  # launch-sfi-forward-poll.sh — SFI (SoccerFootballInfo) entity poll
+    # ------------------------------------------------------------------
+    # Sports manifest rescan VMs (launch-sports-manifest-rescan-vm.sh).
+    # Three launch shapes: singleton coordinator + N chunk VMs.
+    # VM_SHUTDOWN_ON_COMPLETION=true; writes _index/partial/<run-id>/ NOT
+    # _index/per_vm/ (non-standard shard path → heartbeat-only).
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # ------------------------------------------------------------------
+    "sports-manifest-rescan-": None,  # coordinator + chunk VMs (all shapes share prefix)
+    # ------------------------------------------------------------------
     # TradFi market-data backfill / forward-poll / incremental
     # ------------------------------------------------------------------
-    "tradfi-bf-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "tradfi-fwd-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "tradfi-recent-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "tradfi-bf-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-fwd-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-recent-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # TradFi instrument discovery + audits (heartbeat-only)
     # ------------------------------------------------------------------
@@ -151,10 +278,16 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     # MDPS sharded backfill (per asset_group)
     # ------------------------------------------------------------------
-    "mdps-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mdps-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mdps-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mdps-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
+    "mdps-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mdps-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mdps-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MDPS per-AG backfill (launch-mdps-backfill-vm.sh emits
     # mdps-backfill-{ag}-{ts}, distinct from the sharded prefix above).
@@ -163,20 +296,226 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # watchdog never inspected it, (b) the launcher omitted
     # VM_SHUTDOWN_ON_COMPLETION=true.
     # ------------------------------------------------------------------
-    "mdps-backfill-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "mdps-backfill-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "mdps-backfill-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mdps-backfill-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mdps-backfill-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mdps-backfill-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mdps-backfill-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-backfill-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mdps-backfill-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mdps-backfill-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MTDS asset-group-scoped backfills (DeFi onchain feeds + prediction)
     # ------------------------------------------------------------------
-    "mtds-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "mtds-perp-funding-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-gas-fees-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-lst-rates-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-vault-": f"market-data-tick-defi-{PROJECT_ID}",
-    "mtds-lending-indices-": f"lending-indices-{PROJECT_ID}",
+    "mtds-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-perp-funding-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-gas-fees-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-lst-rates-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-vault-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-lending-indices-": VmPrefixSpec(bucket=_LENDING_INDICES, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Pyth Hermes archive backfill (Solana SOL/USD pre-2023-10 gap window).
+    # Hermes archive starts ~2023-10-01 per UAC ORACLE_COVERAGE_START SSOT
+    # (UAC@3adee82 2026-05-08). Pre-2023-10 SOL/USD oracle valuation needed
+    # for carry_staked_basis Solana-leg backtest. Sources cascade: Pythnet
+    # historical RPC (free, slow) → CoinGecko historical daily (free, daily
+    # granularity). Operator-decision pending on Birdeye paid-tier add.
+    "mtds-pyth-archive-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Governance proposals backfill (launch-governance-backfill-vm.sh).
+    # Writes governance_proposals data_type to market-data-tick-defi-* for
+    # Aave V3 / Compound V3 / Spark / Lido (Phase 4A defi_simulation_realism).
+    # Registered 2026-05-17 (slot-7 Phase 4D).
+    "governance-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Pyth Hermes LST oracle_prices backfill (2023-10-01 → today).
+    # Covers JitoSOL/USD, mSOL/USD, bSOL/USD, INF/USD feeds for
+    # carry_staked_basis Solana leg. Singleton-locked per launcher.
+    # Launcher: launch-mtds-pyth-lst-backfill-vm.sh (MTDS@0636dd4 2026-05-14).
+    # Awaiting operator [ack] in pings/slot_2.md before launch.
+    "pyth-lst-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # JITO-SOLANA lst_rates historical backfill (2022-08-01 → today).
+    # jitoSOL staking APY for carry_staked_basis Solana leg.
+    # Launcher: launch-jito-solana-backfill-vm.sh (deployment-service 2026-05-18).
+    # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
+    "jito-solana-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # MARINADE-SOLANA lst_rates historical backfill (2021-02-01 → today).
+    # mSOL staking APY for carry_staked_basis Solana leg.
+    # Launcher: launch-marinade-solana-backfill-vm.sh (deployment-service 2026-05-18).
+    # Awaiting operator [ack] in harsh_orchestrator/pings/slot_2.md before launch.
+    "marinade-backfill-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # Strategy-service 2-yr config-grid backtest VMs (2026-05-10).
+    # VM name pattern: `strategy-backtest-grid-{archetype-slug}-{ts}`.
+    # Two archetypes lead the May-23 live-DeFi cutover:
+    #   - carry_staked_basis        → strategy-backtest-grid-carry-staked-basis-...
+    #   - ARBITRAGE_PRICE_DISPERSION → strategy-backtest-grid-arbitrage-price-...
+    # Heartbeat-only — strategy-service does NOT write per-VM manifest
+    # shards under _index/per_vm/. Output goes to
+    # gs://strategy-store-{pid}/backtests/config_grid_2yr/{archetype}/{run_id}/
+    # so watchdog falls back to the GCS heartbeat sidecar at
+    # gs://deployment-scripts-{pid}/vm-heartbeat/{vm-name}.txt.
+    # ------------------------------------------------------------------
+    "strategy-backtest-grid-": None,
+    # Strategy test VMs (launch-strategy-test-vm.sh). Heartbeat-only — runs
+    # backtests for CI/validation; writes to deployment-scripts bucket (logs),
+    # no per-VM manifest shards. EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    "strategy-test-": None,  # launch-strategy-test-vm.sh — CI strategy validation
+    # ML VMs (launch-ml-vm.sh). Heartbeat-only — writes model artefacts to
+    # model_registry bucket, no per-VM manifest shards. Covers training,
+    # inference, and evaluation operations on the consolidated ml-service.
+    # VM_SHUTDOWN_ON_COMPLETION=true; EPHEMERAL_BATCH lifecycle.
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit); prefix updated
+    # 2026-05-20 (ml_repo_consolidation: ml-training-service + ml-inference-service → ml-service).
+    "ml-": None,  # launch-ml-vm.sh — ml-service training + inference
+    # Execution-alpha parallel measurement VMs (launch-execution-alpha-vm.sh; plan:
+    # compute_optimization_mock_data_2026_05_13.md Phase 3). VM name pattern:
+    # `exec-alpha-{ts}`. Heartbeat-only — the VM writes per-chunk JSON results to
+    # gs://strategy-store-{pid}/backtests/execution_alpha/, not a per-VM manifest shard.
+    "exec-alpha-": None,
+    # Strategy paper-trade VMs (launch-strategy-paper-vm.sh; plan:
+    # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
+    # `strategy-paper-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
+    # pre-Phase-8 pattern was `strategy-paper-{archetype-slug}-{ts}`). Prefix
+    # match covers both patterns. Heartbeat-only — paper VMs write to event-archive
+    # only (no per-VM manifest shards).
+    "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # Greeks-service compute VMs (greeks-service repo; plan:
+    # plans/active/pricing_ledger_carry_rates_mtds_2026_06_01.md Phase 3).
+    # Two prefixes for the two runtime modes:
+    #   greeks-compute-live-{ts}  → LONG_LIVED_LIVE streaming greeks-service
+    #     subscribed to MTDS mark_update; writes greek+carry columns back to
+    #     PricingLedger MARK_UPDATE rows.
+    #   greeks-compute-batch-{archetype-slug}-{ts} → EPHEMERAL_BATCH backfill
+    #     cron that recomputes greeks over PricingLedger history (per-row
+    #     option_delta/gamma/theta/vega/rho + funding_rate/lending_rate/
+    #     borrow_rate/staking_apy/dividend_yield/rebase_rate).
+    # Heartbeat-only — writes go through MTDS PricingLedger sink bucket via
+    # _resolve_policy_output_data_type, NOT per-VM manifest shards.
+    # Registered 2026-05-23 (operator-ACK'd Phase 5a of global_ledger discovery).
+    "greeks-compute-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "greeks-compute-batch-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
+    # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
+    # `gcs-migration-bundle-{asset_group}-{year}-{ts}`. Heartbeat-only — migration
+    # VMs write to per-asset-group market-data-tick buckets but the mapping is
+    # dynamic (asset_group is a runtime arg), so watchdog falls back to heartbeat.
+    # Registered 2026-05-19 (slot-8 fix pre-existing blindspot in remote fast-forward).
+    "gcs-migration-bundle-": None,
+    # DeFi batch backtest VMs (launch-defi-backtest-vm.sh; plan:
+    # batch_live_symmetry_2026_05_10.md Tab 8). VM name pattern:
+    # `defi-backtest-{archetype-slug}-{ts}`. Heartbeat-only — writes backtest
+    # scores to gs://strategy-store-{pid}/backtests/defi/, no per-VM manifest shards.
+    # EPHEMERAL_BATCH lifecycle (completes and self-deletes).
+    # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
+    "defi-backtest-": None,
+    # DeFi paper-trading VMs (launch-defi-paper-trading-vm.sh; plan:
+    # batch_live_symmetry_2026_05_10.md Tab 8 Step 3). VM name pattern:
+    # `defi-paper-{archetype-slug}-{ts}`. Heartbeat-only — paper VMs write
+    # to event-archive only (no per-VM manifest shards). LONG_LIVED_LIVE
+    # lifecycle (runs 7+ days during paper-soak).
+    # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
+    "defi-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
+    # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
+    # `strategy-live-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
+    # pre-Phase-8 pattern was `strategy-live-{archetype-slug}-{ts}`). Prefix
+    # match covers both patterns. Heartbeat-only — live VMs write to event-archive
+    # only (no per-VM manifest shards).
+    "strategy-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # DeFi recursive-borrow live-trading VMs (launch-defi-recursive-borrow-vm.sh;
+    # plan: defi_recursive_borrow_archetypes_2026_05_10.md Phase 13). VM name
+    # pattern: `defi-recursive-{variant-slug}-{ts}`. Heartbeat-only — live VMs
+    # write to event-archive only (no per-VM manifest shards). Singleton-locked
+    # per variant (refuses launch if same-variant VM RUNNING). Registered
+    # 2026-05-17 (slot-5 Phase 13 launcher).
+    "defi-recursive-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # Deployment dashboard VM (single instance, hardcoded name "deployment-dashboard-vm")
+    # Migrated 2026-05-08 from intra-repo deployment-service/scripts/deploy-dashboard-gce-vm.sh
+    # to scripts/vm/launch-dashboard-vm.sh per CLAUDE.md "VM launcher script SSOT".
+    # Heartbeat-only (no shard bucket — UI service VM, not data-pipeline writer).
+    "deployment-dashboard-vm": None,
+    # alerting-service Phase 7 quietness baseline VM (2026-05-10) — runs the
+    # alerting-service in live mode against staging-noise Telegram channel for
+    # 48h continuous so the operator can measure per-AlertCode false-positive
+    # rate before tuning ALERT_THRESHOLDS pre-cutover. Heartbeat-only — the
+    # service emits to events stream + AlertStorageStore, not to a per-VM
+    # manifest shard. Launcher: launch-alerting-quietness-baseline.sh; plan:
+    # alerting_service_live_rules_2026_05_07.md Phase 7.
+    "alerting-quietness-": None,
+    # Synthetic-data pipeline benchmark VMs (launch-synthetic-benchmark-vm.sh; plan:
+    # mock_data_pipeline_benchmarking_2026_05_10.md Phase 5). One VM per (archetype, machine-type);
+    # name `synbench-{archetype-short}-{shape-short}-{ts}`. Heartbeat-only — the VM writes
+    # stage_profile.parquet + synthetic_run_manifest.json to the benchmark-reports prefix, not a
+    # per-vm manifest shard. Auto-shutdown via VM_SHUTDOWN_ON_COMPLETION at run completion.
+    "synbench-": None,
+    # Phase 2 lift-and-shift 2026-05-08 — launchers migrated from
+    # e2e-testing/scripts/defi/ + e2e-testing/scripts/prediction/ per
+    # vm_launcher_consolidation_audit_2026_05_08.md.
+    # mtds-liquidations-backfill: hardcoded VM name (singleton) — DEX/CEX
+    # liquidation events feed for risk + carry archetypes.
+    "mtds-liquidations-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # prediction-features-: feature-engineering VMs for prediction asset_group.
+    # VM_NAME pattern is `prediction-features-{N}` (numbered shards).
+    "prediction-features-": VmPrefixSpec(bucket=_TICK_PRED, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # mtds-gas-fees-solana: distinct from generic mtds-gas-fees- (EVM chains)
+    # — Solana-specific gas/priority-fee feed. Same target bucket as defi.
+    "mtds-gas-fees-solana": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Phase 3 orchestrator-emitted VM name patterns (2026-05-08).
+    # Each orchestrator launcher emits N child VMs with these prefixes.
+    # sports-full-sweep-{year}: full_api_football_sweep year-chunk fan-out (8 VMs).
+    "sports-full-sweep-": VmPrefixSpec(bucket=_TICK_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # sports-entity-{type}: full_sports_entity_sweep per-entity fan-out (17 VMs).
+    "sports-entity-": VmPrefixSpec(bucket=_TICK_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # prediction-pipeline-{N}: prediction multi-stage pipeline VMs (MDPS + features-cross-instrument + features-delta-one).
+    "prediction-pipeline-": VmPrefixSpec(bucket=_TICK_PRED, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Singleton DeFi backfills (no -{ts}) migrated 2026-05-08 (Tab 11)
+    # from e2e-testing/scripts/defi/. Each launcher emits a single VM
+    # with a fixed name; bucket = market-data-tick-defi-{pid}.
+    "mtds-dex-pools-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-dex-swaps-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # CeFi instrument_type partition migrations (one-off cleanup VMs).
+    # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
+    # but doesn't write per-VM manifest shards. Migrated 2026-05-08
+    # (Tab 11) from e2e-testing/scripts/common/launch_cefi_migration_vm.sh.
+    "mtds-migrate-": None,
+    # ------------------------------------------------------------------
+    # MTDS per-AG generic backfill (launch-mtds-backfill-vm.sh emits
+    # mtds-backfill-{ag}-{ts}, the canonical entry-point for the
+    # Deploy-Missing UI button on the market-tick-data-service service).
+    # Migrated 2026-05-08 (Tab 11) from
+    # `e2e-testing/scripts/common/launch_mtds_category_backfill_vm.sh`.
+    # ------------------------------------------------------------------
+    "mtds-backfill-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-backfill-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-backfill-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-backfill-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "mtds-backfill-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # mtds-backfill-odds-{N} from launch-mtds-sports-odds-backfill-vm.sh
+    # (sports-Odds-API specific). Migrated 2026-05-08 (Tab 11) from
+    # e2e-testing/scripts/sports/launch_mtds_backfill_vm.sh.
+    "mtds-backfill-odds-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Phantom-row reconciliation (read-only audit, 2026-05-07).
     # Read-only on the asset_group's manifest bucket — heartbeat-only
@@ -184,6 +523,35 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # watchdog still tracks STARTED/STOPPED + heartbeat staleness.
     # ------------------------------------------------------------------
     "defi-phantom-recon-": None,
+    # ------------------------------------------------------------------
+    # Combined manifest reconciliation audit (2026-05-13) — read-only
+    # all-3-reconciler dry-run per asset_group: phantom rows (--dry-run) +
+    # expected-absence null-reason scan + legacy-blank reclassification scan.
+    # Singleton-locked per asset_group. Launcher:
+    # launch-manifest-recon-all-vm.sh.
+    # ------------------------------------------------------------------
+    "manifest-recon-": None,
+    # ------------------------------------------------------------------
+    # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
+    # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
+    # pre-audit doc (drift-axis histogram + manifest shape + phantom
+    # baseline) for the gcs_migration_bundle_pipeline_mode_2026_05_08
+    # plan. Single VM iterates cefi/defi/tradfi/sports/prediction
+    # sequentially. Heartbeat-only — same as defi-phantom-recon-,
+    # script doesn't write per-VM shards. Launcher:
+    # launch-gcs-migration-phase0-calibration.sh.
+    # ------------------------------------------------------------------
+    "gcs-migration-phase0-": None,
+    # ------------------------------------------------------------------
+    # Batch-live reconciliation cron (GAP-18, topology_qgroup_gap_closure,
+    # 2026-05-15). Nightly T+1 run of batch-live-reconciliation-service.
+    # Reads from live/ + t1-recon/ GCS paths; outputs JSON report to
+    # gs://recon-store-{pid}/reports/{date}/. Heartbeat-only (None) since
+    # the script writes a single JSON report, not per-VM manifest shards.
+    # Singleton-locked to prevent concurrent nightly runs.
+    # Launcher: launch-batch-live-recon-cron-vm.sh.
+    # ------------------------------------------------------------------
+    "batch-live-recon-": None,
     # ------------------------------------------------------------------
     # Expected-universe enumerator (Phase 3.D.4 writegate, 2026-05-07).
     # In --apply-write mode it writes per-VM manifest shards under
@@ -194,6 +562,12 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     "expected-universe-enum-": None,
     # ------------------------------------------------------------------
+    # Per-instrument v2 expected-universe enumerator (Gate G3
+    # manifest_evolution_SUPERSEDED_2026_05_21 / Phase 2.B, 2026-05-13).
+    # Writes per-VM manifest shards only; no canonical data bucket to poll.
+    # Heartbeat-only (None) is correct — same rationale as v1 above.
+    "expected-universe-v2-": None,
+    # ------------------------------------------------------------------
     # Blank-reason reconciler (writegate Phase 3.D.5 Wave 2.M, 2026-05-07).
     # Walks an asset_group manifest, reclassifies blank-reason
     # empty_confirmed rows per the asset-group-specific legitimacy rule.
@@ -203,50 +577,99 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # ------------------------------------------------------------------
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
-    "opt-deribit-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "opt-cboe-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "opt-cme-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "opt-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "opt-cboe-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "opt-cme-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # CME event-contract backfill (TradFi)
     # ------------------------------------------------------------------
-    "cme-events-": f"market-data-tick-tradfi-{PROJECT_ID}",
+    "cme-events-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # Sports reference-data backfill (per-source launcher prefixes)
     # ------------------------------------------------------------------
-    "fs-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "af-backfill-": f"instruments-store-sports-{PROJECT_ID}",
+    "fs-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "af-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # api_football fixtures truth-set audit (launch-fixtures-truthset-audit-vm.sh,
-    # 2026-05-06 — Phase 1 of sports_fixtures_truthset_recovery_2026_05_06.plan.md).
+    # 2026-05-06 — Phase 1 of sports_fixtures_truthset_recovery_2026_05_06.md).
     # Writes to gs://instruments-store-sports-{pid}/_audits/, so the watchdog
     # checks the same shard bucket — its progress signal is the truth-set
     # parquet checkpoint mtime under _audits/.
-    "af-audit-": f"instruments-store-sports-{PROJECT_ID}",
+    "af-audit-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # Phase 2 fixtures recovery from the truth-set
     # (launch-fixtures-recovery-vm.sh). Writes per-league sub-partition
     # fixtures parquets + per-VM manifest shards.
-    "af-recover-": f"instruments-store-sports-{PROJECT_ID}",
-    "tm-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "sfi-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "us-backfill-": f"instruments-store-sports-{PROJECT_ID}",
-    "weather-backfill-": f"instruments-store-sports-{PROJECT_ID}",  # open_meteo (launcher emits weather-* not openmeteo-*)
+    "af-recover-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tm-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "sfi-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "us-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "weather-backfill-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),  # open_meteo (launcher emits weather-* not openmeteo-*)
     # Targeted (date, league_id) gap-fill — reads canonical manifest, fires
     # only at the missing-shard set. First use: PLAYER_STATS via
     # launch-fill-missing-player-stats-vm.sh (2026-05-06), replacing the
     # slow chronological af-backfill iteration.
-    "fill-missing-player-stats-": f"instruments-store-sports-{PROJECT_ID}",
+    "fill-missing-player-stats-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
-    # Features pipeline VMs (heartbeat-only — bucket varies by features-{group}-{asset_group}-).
-    # Group ∈ {calendar, commodity, cross-instrument, delta-one, multi-timeframe, onchain, volatility,
-    # sfi-progressive (sports halftime backfill, e2-standard-4)}.
+    # Features pipeline VMs (heartbeat-only — bucket varies by
+    # features-{family}-{asset_group}-).
+    # Family ∈ {calendar, commodity, cross-instrument, delta-one,
+    # multi-timeframe, onchain, sports, volatility} — 8 families served by
+    # the consolidated `launch-features-vm.sh --feature-family <name>` per
+    # Phase 8A of features_repo_consolidation_2026_05_08. Specialty
+    # halftime-backfill VMs (sfi-progressive-, e2-standard-4) also match
+    # the catch-all features-* prefix.
     # ------------------------------------------------------------------
-    "features-": None,  # features-{calendar,commodity,cross-instrument,delta-one,multi-timeframe,onchain,volatility}-{asset_group}-
+    "features-": None,  # features-{family-dashed}-{asset_group}-{ts} per launch-features-vm.sh
     # ------------------------------------------------------------------
     # Long-lived daemons + audits + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
     "manifest-consolidator-": None,  # long-lived consolidator daemon
     "data-status-rollup-": None,  # */5 min Cloud Run Job — offline rollup of /api/data-status/manifest
+    # Sports scheduler daemon (launch-sports-scheduler-vm.sh). Long-lived
+    # fixture-aware poll loop (300s cadence). No VM_SHUTDOWN_ON_COMPLETION.
+    # Has tier=scheduler label → _is_daemon() exempts from heartbeat-staleness
+    # alerts. Registered here for prefix recognition (not zombie alerts).
+    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    "sports-scheduler-": None,  # launch-sports-scheduler-vm.sh — fixture trigger daemon
     "tier3-audit-": None,
     "reconcile-phantom-": None,  # cefi/defi/sports phantom audits
+    "cross-asset-rescan-": None,  # manifest_cross_asset_rescan_design_2026_05_08 Phase 3.A; manifest_schema_final_gate_2026_05_09 Phase 3.A — class-A auto-flips + class-C triage routing across all 5 asset_groups; singleton-locked launcher.
+    "measure-honest-coverage-": None,  # cross_asset_group_catalogue_audit_2026_05_10 Phase 2B — daily cross-AG coverage % measurement; output → gs://{pid}-honest-coverage/{date}/coverage.json
     "tradfi-audit-aggregate-": None,  # tradfi phantom audit + ES_OPT legacy aggregation one-off
     "instr-": None,  # tier3-cefi instr-{venue}-{ts} + e2e-testing instr-backfill-defi-targeted
     "instruments-smoke-": None,
@@ -256,18 +679,245 @@ VM_PREFIX_TO_BUCKET: dict[str, str | None] = {
     # naming: canonical-migration-{cefi|tradfi|defi|prediction|sports}-{ts}
     # writes per-VM manifest shards under each asset_group's tick bucket.
     # ------------------------------------------------------------------
-    "canonical-migration-cefi-": f"market-data-tick-cefi-{PROJECT_ID}",
-    "canonical-migration-tradfi-": f"market-data-tick-tradfi-{PROJECT_ID}",
-    "canonical-migration-defi-": f"market-data-tick-defi-{PROJECT_ID}",
-    "canonical-migration-prediction-": f"market-data-tick-prediction-{PROJECT_ID}",
-    "canonical-migration-sports-": f"market-data-tick-sports-{PROJECT_ID}",
+    "canonical-migration-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "canonical-migration-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "canonical-migration-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
+    # GCS migration bundle Phase 3 VMs — launch-gcs-migration-bundle-vm.sh
+    # naming: gcs-migration-bundle-{ag}-{year}-{ts}
+    # Runs gcs_migration_bundle_2026_05_08.py --apply for one year-slice
+    # per VM. Writes per-VM manifest shards under each ag's tick bucket.
+    # MANIFEST_PER_VM_SHARDS=true + unique VM_NAME ensure no collisions.
+    # Registered 2026-05-19 (slot 1 Phase 3 fleet launch).
+    # ------------------------------------------------------------------
+    "gcs-migration-bundle-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "gcs-migration-bundle-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "gcs-migration-bundle-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "gcs-migration-bundle-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "gcs-migration-bundle-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MDPS sports bucket-pass VMs — launch-mdps-sports-bucket-vm.sh
     # naming: mdps-sports-bucket-{ts}
     # writes per-(league_id, horizon) bucketed parquets to the same sports
     # tick bucket that the canonical-migration step writes raw data to.
     # ------------------------------------------------------------------
-    "mdps-sports-bucket-": f"market-data-tick-sports-{PROJECT_ID}",
+    "mdps-sports-bucket-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
+    # Live-pipeline VMs (Phase 13 of live_pipeline_mtds_mdps_features_2026_05_08.md;
+    # shipped 2026-05-11 by Ikenna slot 4). Five VM types: per-asset_group MTDS-
+    # live producer + per-asset_group MDPS+features-live consumer + singleton
+    # features-cross-cutting + singleton replay-cascade. Alerting-service uses
+    # an existing launcher (no new prefix needed).
+    #
+    # VM names embed asset_group + RUN_TS (per CLAUDE.md "VM Naming Convention"):
+    #   mtds-live-{ag}-{ts}                 — one per asset_group
+    #   mdps-features-live-{ag}-{ts}        — one per asset_group
+    #   features-xc-{ts}                    — singleton
+    #   replay-{ag}-{ts}                    — singleton (one window at a time)
+    #
+    # All four write to per-VM manifest shards under
+    # `_index/per_vm/{vm_name}.parquet` per workspace per-VM-shard-isolation
+    # rule. Bucket names resolved via resolve_bucket_name() (yaml SSOT) at
+    # process start — same env-tiered names as all other entries in this dict.
+    # ------------------------------------------------------------------
+    "mtds-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mtds-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mtds-live-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mtds-live-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mtds-live-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mdps-features-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "mdps-features-live-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    "mdps-features-live-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+    ),
+    # Singletons — cross-cutting features bucket-resolves at runtime; replay
+    # writes to the same per-asset_group market-data buckets the live producer
+    # uses. Heartbeat-only (None) for replay since its actual writes are routed
+    # through whichever asset_group's bucket the --asset-group flag selects;
+    # watchdog can't statically know which.
+    "features-xc-": None,
+    "replay-": None,
+    # ------------------------------------------------------------------
+    # DR (disaster-recovery) drill VMs — disaster_recovery_circuit_breakers_2026_05_10.md
+    # Phase 6.A + 9.A.
+    #   disaster-drill-cron-{ts}: nightly chaos-drill cron VM (run_chaos_drill.py).
+    #   dr-drill-cutover-{ts}: per-archetype cutover evidence VM (run_dr_drill_cutover.py).
+    # Both write drill reports/evidence to the events bucket — heartbeat-only (None).
+    # ------------------------------------------------------------------
+    "disaster-drill-cron-": None,
+    "dr-drill-cutover-": None,
+    # ------------------------------------------------------------------
+    # Reserved live- prefixes (LONG_LIVED_LIVE, heartbeat-only allocation)
+    # ------------------------------------------------------------------
+    "live-strategy-": None,
+    "live-execution-": None,
+    "live-mtds-": None,
+    "live-pbm-": None,
+    "live-risk-": None,
+    "live-alerting-": None,
+    # ------------------------------------------------------------------
+    # Reserved exp- prefixes (EPHEMERAL_EXPERIMENT, heartbeat-only allocation)
+    # ------------------------------------------------------------------
+    "exp-ml-": None,
+    "exp-strategy-": None,
+    "exp-execution-": None,
+    # ------------------------------------------------------------------
+    # DeFi execution validation VMs (Phase 2 + Phase 3C, 2026-05-13).
+    # Heartbeat-only (None) — these VMs do NOT write per-VM manifest
+    # shards; output is results.json to the defi-validation bucket.
+    # Launchers: launch-aave-lending-rate-validation-vm.sh (singleton,
+    # Alchemy shared key) + launch-amm-golden-fixture-validation-vm.sh
+    # (per-shape singleton). After updating this dict, operator MUST
+    # relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "aave-lending-rate-val-": None,  # Phase 3C lending rate validation
+    "amm-golden-": None,  # Phase 2 AMM golden-swap validation (per-shape)
+    # ------------------------------------------------------------------
+    # Wallet/treasury cutover dry-run VM (Phase 9.A of
+    # wallet_treasury_client_flow_2026_05_10.md). One singleton VM named
+    # `wallet-treasury-cutover-{ts}` runs a 24h demo-client lifecycle:
+    # onboarding → treasury ping → allocation → paper-trade → settle →
+    # fee accrual + HWM-ledger → statement → withdrawal → crystallization.
+    # Heartbeat-only (None) — writes to event-archive + client-statements
+    # but NOT to a per-VM manifest shard. Singleton-locked.
+    # Launcher: deployment-service/scripts/vm/launch-wallet-treasury-cutover-vm.sh
+    # Registered 2026-05-13 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "wallet-treasury-cutover-": None,
+    # ------------------------------------------------------------------
+    # Client-reporting PnL attribution cutover VM (Phase 8.A of
+    # client_reporting_pnl_attribution_mvp_2026_05_10.md). One singleton VM named
+    # `client-reporting-cutover-{ts}` runs a 24h paper-trade attribution loop:
+    # carry_staked_basis + arbitrage_price_dispersion for demo_client_001.
+    # Emits per-archetype attribution parquets + hourly invariant checks.
+    # Heartbeat-only (None) — writes to event-archive + client-reports bucket,
+    # NOT to a per-VM manifest shard. Singleton-locked.
+    # Launcher: deployment-service/scripts/vm/launch-client-reporting-cutover-vm.sh
+    # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    # ------------------------------------------------------------------
+    "client-reporting-cutover-": None,
+    # QG snapshot cron VM (B-018 Phase 4.A). Heartbeat-only; no manifest shard writes.
+    # Launcher: deployment-service/scripts/vm/launch-qg-snapshot-vm.sh
+    # Registered 2026-05-14 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    # After updating this dict, relaunch the watchdog VM.
+    "qg-snapshot-": None,
+    # Honest-coverage cron VM (B-018 Phase 8.A). Heartbeat-only; output is project-level JSON,
+    # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
+    # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "honest-coverage-": None,
+    # ------------------------------------------------------------------
+    # Forward-poll daily cron hosts — SCHEDULED_RECURRING long-lived VMs that
+    # install a crontab firing the matching `launch-{tradfi,cefi}-forward-poll.sh`
+    # launcher once a day. Replaces the previously-broken Cloud Scheduler →
+    # Cloud Run trigger pattern (HTTP 403 + zero executions for 4+ months on
+    # `trigger-market-tick-cefi-job`; absent entirely on TradFi). Operator
+    # authorised 2026-05-20 (Option B in tradfi_forward_poll_cron_missing_2026_05_17.md).
+    # Heartbeat-only (None) — the cron host itself writes no manifest shards;
+    # the worker VMs it spawns (`tradfi-fwd-*` / `cefi-fwd-*`) carry the data
+    # output and have their own VmPrefixSpec entries above.
+    # Launchers:
+    #   launch-tradfi-fwd-daily-cron-vm.sh (fires 06:00 UTC)
+    #   launch-cefi-fwd-daily-cron-vm.sh   (fires 09:00 UTC)
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch
+    # the watchdog VM. Registered 2026-05-20 per CLAUDE.md "VM Naming
+    # Convention" HARD RULE + Phase A.2 lifecycle_class requirement.
+    # ------------------------------------------------------------------
+    "tradfi-fwd-daily-cron-": None,
+    "cefi-fwd-daily-cron-": None,
+    # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
+    # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
+    # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.
+    # Registered 2026-05-16 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "bucket-rsync-": None,
+    # Watchdog VM itself — registered for self-documentation per
+    # service_registry_drift_audit_2026_05_15.md P3 recommendation.
+    # The watchdog does NOT reap itself: see EXEMPT_LABELS at line ~861
+    # which checks `purpose=vm-zombie-watchdog` GCE label — that's the
+    # actual exemption mechanism, not this dict entry. This None entry
+    # exists so `VM_PREFIX_TO_BUCKET` is a complete + self-documenting
+    # registry of every prefix the watchdog knows about.
+    "vm-zombie-watchdog-": None,
+    # Deploy-missing auto-launch VMs (deploy_missing_auto_launch_2026_05_07.md Phase 2).
+    # VM naming: dm-{shard_key_hash16}-{YYYYMMDD-HHMMSS}. Launched by deployment-api
+    # POST /api/data-status/deploy-missing-launch for surgical per-shard backfill.
+    # bucket=None (heartbeat-only); each VM writes to its own service-specific data bucket.
+    # Registered 2026-05-17 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "dm-": None,
+    # ------------------------------------------------------------------
+    # Scenario regression matrix VMs (launch-scenario-runner-vm.sh).
+    # VM naming: scenario-matrix-{archetype}-{YYYYMMDD-HHMMSS}.
+    # Launched by deployment-service/scripts/vm/launch-scenario-runner-vm.sh;
+    # writes ScenarioReport parquets to scenario-reports-{pid}.
+    # Registered 2026-05-19 per simulation_scenarios_topology §Phase 9 prereq.
+    # ------------------------------------------------------------------
+    "scenario-matrix-": VmPrefixSpec(
+        bucket=_SCENARIO_REPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
+    # Agent-orchestrator VMs — planning VM + per-epic VMs.
+    # All LONG_LIVED_LIVE (run until operator tears them down).
+    # bucket=None: orchestrator VMs write to the orchestrator GCS state
+    # bucket, not to per-VM manifest shards. Heartbeat-only.
+    # Launchers:
+    #   launch-planning-vm.sh  → agent-orch-planning-vm-{YYYYMMDD}
+    #   launch-epic-vm.sh      → agent-orch-{vm-id}-{YYYYMMDD}
+    # Registered 2026-05-21 (orchestrator Phase 7/11 fleet launch).
+    # ------------------------------------------------------------------
+    "agent-orch-planning-vm-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-sports-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-ml-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-trading-core-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-operator-ops-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-cross-cutting-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "agent-orch-vm-orchestrator-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
 }
 
 
@@ -316,6 +966,80 @@ DAEMON_PURPOSE_OPT_OUT: frozenset[str] = frozenset(
         "vm-zombie-watchdog",  # watchdog itself — must not reap self
     }
 )
+
+# Per-prefix idle-time overrides: (heartbeat_stale_min, shard_stale_min).
+# Overrides the global --heartbeat-stale / --shard-stale CLI args for matching
+# VM name prefixes. Long-lived pipeline VMs need larger windows; fast backfills
+# can use tighter ones for quicker zombie detection.
+#
+# Lookup: sorted by prefix length descending so longer (more-specific) prefixes
+# win (e.g. "cefi-fwd-" beats "cefi-"). Uses same longest-match logic as
+# VM_PREFIX_TO_BUCKET.
+PREFIX_IDLE_THRESHOLDS: dict[str, tuple[float, float]] = {
+    # Live-pipeline VMs: long-lived continuous writers; allow wider idle window
+    "mtds-live-": (30.0, 240.0),
+    "mdps-features-live-": (30.0, 240.0),
+    "features-xc-": (30.0, 240.0),
+    "replay-": (30.0, 240.0),
+    # Forward-poll VMs: poll-loop cadence ~60s; 30min heartbeat window is safe
+    "cefi-fwd-": (30.0, 180.0),
+    "defi-fwd-": (30.0, 180.0),
+    "aster-fwd-": (30.0, 180.0),
+    "sfi-fwd-": (30.0, 180.0),
+    "footystats-fwd-": (30.0, 180.0),
+    # Fast API-football backfills: per-league row; tighter threshold
+    "af-backfill-": (10.0, 60.0),
+    "af-audit-": (10.0, 60.0),
+    "af-recover-": (10.0, 60.0),
+}
+
+
+def _resolve_idle_thresholds(vm_name: str, global_hb_stale: float, global_shard_stale: float) -> tuple[float, float]:
+    """Return (heartbeat_stale_min, shard_stale_min) for this VM name.
+
+    Uses longest-prefix match from PREFIX_IDLE_THRESHOLDS; falls back to the
+    global CLI-arg thresholds if no override is configured.
+    """
+    for prefix, (hb, shard) in sorted(PREFIX_IDLE_THRESHOLDS.items(), key=lambda x: -len(x[0])):
+        if vm_name.startswith(prefix):
+            return hb, shard
+    return global_hb_stale, global_shard_stale
+
+
+def _send_zombie_notification(webhook_url: str, zombies: list[WatchdogVerdict]) -> None:
+    """POST a JSON zombie-alert payload to ``webhook_url`` (e.g. Slack incoming webhook).
+
+    Silently suppresses network errors — notifications are best-effort; a failed
+    POST must never prevent the watchdog from killing zombies.
+    """
+    import json
+    import urllib.request
+
+    payload = {
+        "text": f":rotating_light: Zombie watchdog: {len(zombies)} zombie(s) detected",
+        "zombies": [
+            {
+                "vm": v.vm_name,
+                "zone": v.zone,
+                "age_min": round(v.age_minutes, 1),
+                "reason": v.verdict,
+                "heartbeat_age_min": round(v.heartbeat_age_min, 1) if v.heartbeat_age_min is not None else None,
+                "shard_age_min": round(v.shard_age_min, 1) if v.shard_age_min is not None else None,
+            }
+            for v in zombies
+        ],
+    }
+    try:
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload).encode(),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info("zombie notification sent to webhook: status=%d", resp.status)
+    except Exception as exc:
+        logger.warning("zombie notification failed (best-effort, continuing): %s", exc)
 
 
 def _is_daemon(labels: object) -> bool:
@@ -389,7 +1113,7 @@ def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:
         if blob.updated is None:
             return None
         return (datetime.now(UTC) - blob.updated).total_seconds() / 60.0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -413,6 +1137,8 @@ def _evaluate_vm(
     if age < min_age:
         return WatchdogVerdict(vm_name, zone, age, None, None, "too_young")
 
+    heartbeat_stale, shard_stale = _resolve_idle_thresholds(vm_name, heartbeat_stale, shard_stale)
+
     hb_bucket = storage_client.bucket(HEARTBEAT_BUCKET)
 
     # FIRST — check if the workload wrote an EXIT_STATUS file. If yes the
@@ -431,10 +1157,10 @@ def _evaluate_vm(
     hb_age = _blob_age_minutes(hb_bucket, f"vm-heartbeat/{vm_name}.txt")
 
     shard_age: float | None = None
-    for prefix, data_bucket in VM_PREFIX_TO_BUCKET.items():
-        if vm_name.startswith(prefix) and data_bucket:
+    for prefix, spec in VM_PREFIX_TO_BUCKET.items():
+        if vm_name.startswith(prefix) and spec and spec.bucket:
             shard_age = _blob_age_minutes(
-                storage_client.bucket(data_bucket),
+                storage_client.bucket(spec.bucket),
                 f"_index/per_vm/{vm_name}.parquet",
             )
             break
@@ -442,7 +1168,7 @@ def _evaluate_vm(
     # Verdict logic:
     #   Heartbeat is the primary signal — if missing or stale → zombie.
     #   If heartbeat is unimplemented (None for both heartbeat AND shard older
-    #   than 2× shard_stale, fall back to shard-only).
+    #   than 2x shard_stale, fall back to shard-only).
     if hb_age is None and shard_age is None and age > 30:
         return WatchdogVerdict(vm_name, zone, age, None, None, "zombie_no_heartbeat")
     if hb_age is not None and hb_age > heartbeat_stale:
@@ -465,13 +1191,13 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     """
     try:
         op = compute_client.delete(project=PROJECT_ID, zone=zone, instance=vm_name)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("kill API call failed for %s in %s: %s", vm_name, zone, exc)
         return False
 
     try:
         op.result(timeout=120)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "kill confirm-poll failed for %s in %s (delete in-flight, counting as kill): %s",
             vm_name,
@@ -484,15 +1210,9 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Report zombies but do not delete.")
-    parser.add_argument(
-        "--min-age", type=float, default=15.0, help="Minimum VM age (min) before considered."
-    )
-    parser.add_argument(
-        "--heartbeat-stale", type=float, default=15.0, help="Heartbeat staleness threshold (min)."
-    )
-    parser.add_argument(
-        "--shard-stale", type=float, default=120.0, help="Manifest shard staleness fallback (min)."
-    )
+    parser.add_argument("--min-age", type=float, default=15.0, help="Minimum VM age (min) before considered.")
+    parser.add_argument("--heartbeat-stale", type=float, default=15.0, help="Heartbeat staleness threshold (min).")
+    parser.add_argument("--shard-stale", type=float, default=120.0, help="Manifest shard staleness fallback (min).")
     parser.add_argument(
         "--finished-grace",
         type=float,
@@ -506,6 +1226,11 @@ def main(argv: list[str]) -> int:
         ),
     )
     parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument(
+        "--notify-url",
+        default="",
+        help="Webhook URL for zombie notifications (Slack-compatible). Empty = skip.",
+    )
     args = parser.parse_args(argv)
 
     compute_client = compute_v1.InstancesClient()
@@ -573,6 +1298,10 @@ def main(argv: list[str]) -> int:
             f"{v.shard_age_min:.0f}min" if v.shard_age_min is not None else "MISSING",
             v.verdict,
         )
+
+    notify_url: str = args.notify_url
+    if zombies and notify_url:
+        _send_zombie_notification(notify_url, zombies)
 
     if args.dry_run:
         logger.info("DRY RUN — no VMs killed")

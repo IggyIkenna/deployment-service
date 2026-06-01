@@ -460,11 +460,16 @@ def test_cloud_backend_stub_shared_between_per_fixture_and_periodic(
     scheduler: SportsTriggerScheduler,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Switching to cloud backend routes periodic dispatch through same stub."""
+    """Switching to cloud backend routes periodic dispatch through the cloud path.
+
+    When no cloud_run_job_name is configured, the dispatcher warns and skips
+    rather than silently falling back to local.  This verifies the cloud code
+    path is reached for periodic tiers, not the local subprocess branch.
+    """
     scheduler._backend = "cloud"
 
     caplog.set_level("WARNING")
     scheduler._check_discovery()
 
-    warns = [r.message for r in caplog.records if "Cloud dispatch not yet implemented" in r.message]
-    assert warns, "periodic dispatch must hit the same cloud-dispatch stub"
+    warns = [r.message for r in caplog.records if "cloud_run_job_name" in r.message or "cloud_run_config" in r.message]
+    assert warns, "periodic dispatch must reach the cloud dispatch branch"

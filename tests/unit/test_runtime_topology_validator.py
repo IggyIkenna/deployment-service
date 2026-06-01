@@ -290,15 +290,11 @@ def test_service_flow_unknown_transport(tmp_path):
         "deployment_profiles": {"p": {"allowed_transports": ["gcs"]}},
         "storage_systems": {},
         "services": {},
-        "service_flows": [
-            {"producer": "svc-a", "consumer": "svc-b", "modes": {"batch": {"transport": "kafka"}}}
-        ],
+        "service_flows": [{"producer": "svc-a", "consumer": "svc-b", "modes": {"batch": {"transport": "kafka"}}}],
         "api_interactions": [],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))
@@ -342,9 +338,7 @@ def test_api_interaction_callee_wrong_type(tmp_path):
         "api_interactions": [{"caller": "svc-a", "callee": "svc-b"}],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))
@@ -406,15 +400,11 @@ def test_service_flow_mode_not_mapping(tmp_path):
         "deployment_profiles": {"p": {"allowed_transports": ["gcs"]}},
         "storage_systems": {},
         "services": {},
-        "service_flows": [
-            {"producer": "svc-a", "consumer": "svc-b", "modes": {"batch": {"p": "not-a-dict"}}}
-        ],
+        "service_flows": [{"producer": "svc-a", "consumer": "svc-b", "modes": {"batch": {"p": "not-a-dict"}}}],
         "api_interactions": [],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))
@@ -588,9 +578,7 @@ def test_service_flow_mode_unknown_profile(tmp_path):
         "api_interactions": [],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))
@@ -618,9 +606,7 @@ def test_service_flow_profile_transport_not_allowed(tmp_path):
         "api_interactions": [],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))
@@ -664,15 +650,11 @@ def test_service_flow_mode_cfg_not_mapping(tmp_path):
         "deployment_profiles": {"p": {"allowed_transports": ["gcs"]}},
         "storage_systems": {},
         "services": {},
-        "service_flows": [
-            {"producer": "svc-a", "consumer": "svc-b", "modes": {"live": {"p": "not-a-dict"}}}
-        ],
+        "service_flows": [{"producer": "svc-a", "consumer": "svc-b", "modes": {"live": {"p": "not-a-dict"}}}],
         "api_interactions": [],
         "storage_flows": [],
     }
-    workspace_manifest = {
-        "repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}
-    }
+    workspace_manifest = {"repositories": {"svc-a": {"type": "service"}, "svc-b": {"type": "service"}}}
     runtime_path = tmp_path / "rt.yaml"
     manifest_path = tmp_path / "wm.json"
     runtime_path.write_text(yaml.safe_dump(runtime_topology))

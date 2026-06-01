@@ -284,14 +284,10 @@ class PeriodicTierDispatcher:
         """Scope to leagues whose transfer window is open today."""
         source_key = resolve_source_key(svc)
         leagues = get_expected_leagues_for_source(source_key)
-        open_leagues = [
-            lg.league_id for lg in leagues if is_transfer_window_open(lg.league_id, today)
-        ]
+        open_leagues = [lg.league_id for lg in leagues if is_transfer_window_open(lg.league_id, today)]
         if not open_leagues:
             return None, "no transfer windows open"
-        return [
-            _scope_to_leagues(svc, open_leagues)
-        ], f"transfer windows open for {len(open_leagues)} leagues"
+        return [_scope_to_leagues(svc, open_leagues)], f"transfer windows open for {len(open_leagues)} leagues"
 
     def _gate_by_season_boundary(
         self,
@@ -319,9 +315,7 @@ class PeriodicTierDispatcher:
                     break
         if not triggering:
             return None, "no season boundary within tolerance"
-        return [
-            _scope_to_leagues(svc, triggering)
-        ], f"season boundary near for {len(triggering)} leagues"
+        return [_scope_to_leagues(svc, triggering)], f"season boundary near for {len(triggering)} leagues"
 
 
 # ---------------------------------------------------------------------------

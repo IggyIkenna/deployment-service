@@ -274,9 +274,7 @@ class DeploymentOrchestrator:
 
             if no_wait:
                 # Fire and forget - return immediately after launching
-                logger.info(
-                    "Launched %s shards, returning without waiting", len(state.running_shards)
-                )
+                logger.info("Launched %s shards, returning without waiting", len(state.running_shards))
                 self.progress_display.display_progress(state)
                 return state
 
@@ -319,9 +317,7 @@ class DeploymentOrchestrator:
             shard.error_message = None
             shard.retries += 1
 
-        logger.info(
-            "Resuming deployment %s with %s shards", deployment_id, len(state.pending_shards)
-        )
+        logger.info("Resuming deployment %s with %s shards", deployment_id, len(state.pending_shards))
 
         # Get backend
         config = state.config
@@ -413,9 +409,7 @@ class DeploymentOrchestrator:
         # Also cancel pending shards that haven't started yet
         # Rate limit delete operations to avoid hitting GCP API quotas
         cancelled_count = 0
-        shards_to_cancel = [
-            s for s in state.shards if s.status in [ShardStatus.RUNNING, ShardStatus.PENDING]
-        ]
+        shards_to_cancel = [s for s in state.shards if s.status in [ShardStatus.RUNNING, ShardStatus.PENDING]]
 
         if shards_to_cancel:
             logger.info(

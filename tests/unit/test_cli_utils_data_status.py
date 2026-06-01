@@ -497,9 +497,7 @@ class TestProcessFastResults:
         mock_loader.get_venue_start_date.return_value = None
 
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         # Pass venue explicitly so cat_venues = ["BINANCE"] (avoids the operator-precedence
@@ -542,9 +540,7 @@ class TestProcessFastResults:
         mock_loader.get_venue_start_date.return_value = "2024-01-02"
 
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         complete, total, excluded = process_fast_results(
@@ -582,9 +578,7 @@ class TestProcessFastResults:
         mock_loader.get_venue_start_date.return_value = None
 
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         complete, total, excluded = process_fast_results(
@@ -613,9 +607,7 @@ class TestProcessFastResults:
 
         mock_loader = MagicMock()
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         complete, total, excluded = process_fast_results(
@@ -644,9 +636,7 @@ class TestProcessBatchResults:
         mock_index = MagicMock()
         mock_index.dates_found = {"2024-01-01", "2024-01-02"}
         mock_index.blobs = []
-        mock_index.get_stats.return_value = MagicMock(
-            oldest_update_time=None, newest_update_time=None
-        )
+        mock_index.get_stats.return_value = MagicMock(oldest_update_time=None, newest_update_time=None)
 
         # The path_template "by_date/day={date}/" → prefix = "by_date/day="
         # so bucket_to_category key = "gs://test-bucket/by_date/day="
@@ -656,9 +646,7 @@ class TestProcessBatchResults:
         mock_loader.get_venue_start_date.return_value = None
 
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         complete, total, excluded = process_batch_results(
@@ -697,9 +685,7 @@ class TestProcessBatchResults:
 
         mock_loader = MagicMock()
         hierarchy: dict[str, dict[str, dict[str, object]]] = defaultdict(
-            lambda: defaultdict(
-                lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0}
-            )
+            lambda: defaultdict(lambda: {"complete": 0, "total": 0, "oldest": None, "newest": None, "excluded": 0})
         )
 
         complete, total, excluded = process_batch_results(
@@ -1033,9 +1019,7 @@ class TestDisplayFixedServiceStatus:
             patch("deployment_service.cli.utils.data_status_display_fixed.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_display_fixed.CloudClient"),
             patch("deployment_service.cli.utils.data_status_display_fixed.SERVICE_GCS_CONFIGS", {}),
-            patch(
-                "deployment_service.cli.utils.data_status_display_fixed.DeploymentConfig"
-            ) as MockDC,
+            patch("deployment_service.cli.utils.data_status_display_fixed.DeploymentConfig") as MockDC,
         ):
             MockDC.return_value = MagicMock(gcp_project_id="test-project")
             mock_loader = MagicMock()
@@ -1077,15 +1061,9 @@ class TestDisplayFixedServiceStatus:
                     }
                 },
             ),
-            patch(
-                "deployment_service.cli.utils.data_status_display_fixed.DeploymentConfig"
-            ) as MockDC,
-            patch(
-                "deployment_service.cli.utils.data_status_display_fixed.scan_buckets_batch_mode"
-            ) as mock_scan,
-            patch(
-                "deployment_service.cli.utils.data_status_display_fixed.process_batch_results"
-            ) as mock_proc,
+            patch("deployment_service.cli.utils.data_status_display_fixed.DeploymentConfig") as MockDC,
+            patch("deployment_service.cli.utils.data_status_display_fixed.scan_buckets_batch_mode") as mock_scan,
+            patch("deployment_service.cli.utils.data_status_display_fixed.process_batch_results") as mock_proc,
         ):
             MockDC.return_value = MagicMock(gcp_project_id="test-project")
 
@@ -1133,13 +1111,9 @@ class TestDisplayDynamicServiceStatus:
     @pytest.mark.unit
     def test_no_gcs_dynamic_dim_returns_early(self, capsys):
         with (
-            patch(
-                "deployment_service.cli.utils.data_status_display_dynamic.ConfigLoader"
-            ) as MockCL,
+            patch("deployment_service.cli.utils.data_status_display_dynamic.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_display_dynamic.CloudClient"),
-            patch(
-                "deployment_service.cli.utils.data_status_display_dynamic.DeploymentConfig"
-            ) as MockDC,
+            patch("deployment_service.cli.utils.data_status_display_dynamic.DeploymentConfig") as MockDC,
         ):
             MockDC.return_value = MagicMock(gcp_project_id="test-project")
             mock_loader = MagicMock()
@@ -1167,13 +1141,9 @@ class TestDisplayDynamicServiceStatus:
     @pytest.mark.unit
     def test_execution_service_scans_results(self, capsys):
         with (
-            patch(
-                "deployment_service.cli.utils.data_status_display_dynamic.ConfigLoader"
-            ) as MockCL,
+            patch("deployment_service.cli.utils.data_status_display_dynamic.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_display_dynamic.CloudClient") as MockCC,
-            patch(
-                "deployment_service.cli.utils.data_status_display_dynamic.DeploymentConfig"
-            ) as MockDC,
+            patch("deployment_service.cli.utils.data_status_display_dynamic.DeploymentConfig") as MockDC,
         ):
             MockDC.return_value = MagicMock(gcp_project_id="test-project")
 
@@ -1240,9 +1210,7 @@ class TestCheckInstrumentsVenueCoverage:
         with (
             patch("deployment_service.cli.utils.data_status_venue_utils.ConfigLoader") as MockCL,
             patch("deployment_service.cli.utils.data_status_venue_utils.gcsfs.GCSFileSystem"),
-            patch(
-                "deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor"
-            ) as MockTPE,
+            patch("deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor") as MockTPE,
         ):
             mock_loader = MagicMock()
             mock_loader.load_expected_start_dates.return_value = {

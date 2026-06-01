@@ -27,8 +27,7 @@ def _ensure_boto3() -> "types.ModuleType":
     """Deferred boto3 import — deployment AWS control-plane boundary."""
     if importlib.util.find_spec("boto3") is None:
         raise ImportError(
-            "boto3 is required for AWS Batch functionality."
-            " Install with: uv pip install 'deployment-service[aws]'"
+            "boto3 is required for AWS Batch functionality. Install with: uv pip install 'deployment-service[aws]'"
         )
     import boto3  # Deferred — deployment AWS control-plane boundary
 
@@ -107,9 +106,7 @@ class AWSBatchBackend(ComputeBackend):
             # Build container overrides
             container_overrides = {
                 "command": args if args else [],
-                "environment": [
-                    {"name": k, "value": str(v)} for k, v in environment_variables.items()
-                ],
+                "environment": [{"name": k, "value": str(v)} for k, v in environment_variables.items()],
             }
 
             # Add resource requirements if specified
@@ -155,9 +152,7 @@ class AWSBatchBackend(ComputeBackend):
 
             # Add tags
             if labels:
-                submit_params["tags"] = cast(
-                    "str | dict[str, list[str] | list[dict[str, str]]]", labels
-                )
+                submit_params["tags"] = cast("str | dict[str, list[str] | list[dict[str, str]]]", labels)
 
             # Submit the job
             response = self._client.submit_job(**submit_params)
@@ -215,9 +210,7 @@ class AWSBatchBackend(ComputeBackend):
                         {"type": "VCPU", "value": str(vcpu)},
                         {"type": "MEMORY", "value": str(memory)},
                     ],
-                    "executionRoleArn": (
-                        f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role"
-                    ),
+                    "executionRoleArn": (f"arn:aws:iam::{self._account_id}:role/unified-trading-batch-execution-role"),
                     "networkConfiguration": {
                         "assignPublicIp": "ENABLED",
                     },

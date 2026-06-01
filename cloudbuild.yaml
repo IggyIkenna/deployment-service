@@ -56,6 +56,8 @@ steps:
     waitFor: ["pull-base-image"]
     args:
       - "build"
+      - "--cache-from"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
       - "--build-arg"
       - "PROJECT_ID=${PROJECT_ID}"
       - "--target"
@@ -72,6 +74,8 @@ steps:
     waitFor: ["build"]
     args:
       - "build"
+      - "--cache-from"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
       - "--build-arg"
       - "PROJECT_ID=${PROJECT_ID}"
       - "--target"
@@ -90,6 +94,8 @@ steps:
     waitFor: ["build"]
     args:
       - "build"
+      - "--cache-from"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest"
       - "--build-arg"
       - "PROJECT_ID=${PROJECT_ID}"
       - "--target"

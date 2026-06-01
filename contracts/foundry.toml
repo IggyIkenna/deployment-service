@@ -1,0 +1,22 @@
+[profile.default]
+src = "."
+out = "out"
+libs = ["lib"]
+test = "test"
+solc_version = "0.8.20"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+
+[profile.default.fuzz]
+runs = 256
+
+# Remappings for forge-std (install: forge install foundry-rs/forge-std --no-commit)
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+]
+
+# Gas snapshot committed as .gas-snapshot (Phase 4 gate)
+[profile.default.invariant]
+runs = 64
+depth = 15

@@ -210,9 +210,7 @@ class CloudClient:
         Returns:
             Dict mapping bucket_path -> BucketIndex
         """
-        return self._query_client.parallel_scan_buckets(
-            bucket_paths, max_workers, max_results_per_bucket
-        )
+        return self._query_client.parallel_scan_buckets(bucket_paths, max_workers, max_results_per_bucket)
 
     def check_dates_exist(
         self,
@@ -290,9 +288,7 @@ class CloudClient:
         Returns:
             Dict mapping date -> {"exists": bool, "file_count": int}
         """
-        return self._query_client.check_dates_exist_fast(
-            bucket_name, prefix_template, dates, file_pattern, max_workers
-        )
+        return self._query_client.check_dates_exist_fast(bucket_name, prefix_template, dates, file_pattern, max_workers)
 
     def check_venue_in_dates_fast(
         self,
@@ -318,9 +314,7 @@ class CloudClient:
         Returns:
             Dict mapping date -> {"exists": bool, "file_count": int}
         """
-        return self._query_client.check_venue_in_dates_fast(
-            bucket_name, prefix_template, venue, dates, max_workers
-        )
+        return self._query_client.check_venue_in_dates_fast(bucket_name, prefix_template, venue, dates, max_workers)
 
     def check_venue_data_types_detailed(
         self,
@@ -374,9 +368,7 @@ class CloudClient:
         Returns:
             Dict: {venue: {date: {"exists": bool, "file_count": int}}}
         """
-        return self._query_client.check_venue_dates_fast(
-            bucket_name, prefix_template, venues, dates, max_workers
-        )
+        return self._query_client.check_venue_dates_fast(bucket_name, prefix_template, venues, dates, max_workers)
 
     # Utility methods (exposed from storage client)
     def _parse_cloud_path(self, cloud_path: str) -> tuple[str, str, str]:

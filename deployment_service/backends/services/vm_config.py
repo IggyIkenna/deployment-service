@@ -8,6 +8,7 @@ and zone management for GCE VM backends.
 import logging
 import re
 import uuid
+from typing import ClassVar
 
 from jinja2 import Template
 from requests.adapters import HTTPAdapter
@@ -35,13 +36,9 @@ COMPUTE_POOL_MAXSIZE = _vm_config.compute_pool_maxsize
 _original_adapter_init = HTTPAdapter.__init__
 
 
-def _patched_adapter_init(
-    self, pool_connections=COMPUTE_POOL_SIZE, pool_maxsize=COMPUTE_POOL_SIZE, **kwargs
-):
+def _patched_adapter_init(self, pool_connections=COMPUTE_POOL_SIZE, pool_maxsize=COMPUTE_POOL_SIZE, **kwargs):
     """Patched HTTPAdapter init with larger default pool sizes."""
-    _original_adapter_init(
-        self, pool_connections=pool_connections, pool_maxsize=pool_maxsize, **kwargs
-    )
+    _original_adapter_init(self, pool_connections=pool_connections, pool_maxsize=pool_maxsize, **kwargs)
 
 
 HTTPAdapter.__init__ = _patched_adapter_init
@@ -57,9 +54,7 @@ def _get_authorized_session() -> google_auth_requests.AuthorizedSession:
     global _authorized_session
     if _authorized_session is None:
         # Get default credentials
-        credentials, _project = google_auth_default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        credentials, _project = google_auth_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
 
         # Create an AuthorizedSession
         _authorized_session = google_auth_requests.AuthorizedSession(credentials)
@@ -73,9 +68,7 @@ def _get_authorized_session() -> google_auth_requests.AuthorizedSession:
         _authorized_session.mount("https://", adapter)
         _authorized_session.mount("http://", adapter)
 
-        logger.info(
-            "[COMPUTE_CLIENT] Created AuthorizedSession with pool_size=%s", COMPUTE_POOL_SIZE
-        )
+        logger.info("[COMPUTE_CLIENT] Created AuthorizedSession with pool_size=%s", COMPUTE_POOL_SIZE)
     return _authorized_session
 
 
@@ -290,7 +283,7 @@ write_files:
         mount_point="/mnt/gcs/$bucket"
         mkdir -p "$mount_point"
         if ! mountpoint -q "$mount_point"; then
-          # Limit caches to prevent OOM on heavy workloads (6 mounts × unbounded cache = memory spike)
+          # Limit caches to prevent OOM on heavy workloads (6 mounts x unbounded cache = memory spike)
           gcsfuse --implicit-dirs --foreground=false --stat-cache-max-size-mb 16 --type-cache-max-size-mb 2 --metadata-cache-ttl-secs 30 "$bucket" "$mount_point" &
           sleep 5
         fi
@@ -415,10 +408,10 @@ class VMConfigManager:
     """Manages VM configuration, templates, and metadata."""
 
     # Zone suffixes per region (asia-northeast1 has a, b, c)
-    REGION_ZONE_SUFFIXES = {
+    REGION_ZONE_SUFFIXES: ClassVar[dict[str, list[str]]] = {
         "asia-northeast1": ["b", "c", "a"],
     }
-    DEFAULT_ZONE_SUFFIXES = ["b", "c", "a"]  # Fallback for unknown regions
+    DEFAULT_ZONE_SUFFIXES: ClassVar[list[str]] = ["b", "c", "a"]  # Fallback for unknown regions
 
     def __init__(self, project_id: str, region: str):
         """
@@ -475,9 +468,7 @@ class VMConfigManager:
         safe_shard = re.sub(r"[^a-z0-9-]", "-", shard_id.lower())[:20]
         return f"{service_name[:20]}-{safe_shard}-{suffix}"
 
-    def get_status_path(
-        self, status_bucket: str | None, status_prefix: str, deployment_id: str, shard_id: str
-    ) -> str:
+    def get_status_path(self, status_bucket: str | None, status_prefix: str, deployment_id: str, shard_id: str) -> str:
         """Generate GCS path for status file."""
         if not status_bucket:
             return ""

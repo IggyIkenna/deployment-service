@@ -76,10 +76,7 @@ class ClusterHandler:
         """
         try:
             client_suffix = f" client={client_id}" if client_id else ""
-            click.echo(
-                f"Bootstrapping cluster '{cluster_name}' "
-                f"(mode={mode}, cloud={cloud}){client_suffix}..."
-            )
+            click.echo(f"Bootstrapping cluster '{cluster_name}' (mode={mode}, cloud={cloud}){client_suffix}...")
 
             if cloud != self.cloud_provider:
                 self._orchestrator.cloud_provider = cloud
@@ -90,14 +87,8 @@ class ClusterHandler:
             if status.all_healthy:
                 click.echo(f"\nCluster '{cluster_name}' bootstrapped successfully.")
             else:
-                failed = [
-                    s.service_name
-                    for s in status.services
-                    if s.health != ServiceHealthStatus.HEALTHY
-                ]
-                click.echo(
-                    f"\nCluster '{cluster_name}' partially started. Failed: {', '.join(failed)}"
-                )
+                failed = [s.service_name for s in status.services if s.health != ServiceHealthStatus.HEALTHY]
+                click.echo(f"\nCluster '{cluster_name}' partially started. Failed: {', '.join(failed)}")
 
         except FileNotFoundError as e:
             raise click.ClickException(f"Cluster not found: {e}") from e
@@ -217,9 +208,7 @@ class ClusterHandler:
             if cluster_name:
                 cluster = self._orchestrator.load_cluster(cluster_name)
                 if service_name not in cluster.services:
-                    raise click.ClickException(
-                        f"Service '{service_name}' not in cluster '{cluster_name}'"
-                    )
+                    raise click.ClickException(f"Service '{service_name}' not in cluster '{cluster_name}'")
 
             click.echo(f"Starting live service '{service_name}'...")
 
@@ -250,7 +239,7 @@ class ClusterHandler:
         """
         try:
             click.echo(f"Stopping live service '{service_name}'...")
-            self._orchestrator._stop_service(service_name)
+            self._orchestrator.stop_service(service_name)
             click.echo(f"Service '{service_name}' stopped.")
 
         except (OSError, RuntimeError) as e:
@@ -321,10 +310,7 @@ class ClusterHandler:
 
             for schedule in schedules:
                 enabled_str = "yes" if schedule.enabled else "no"
-                click.echo(
-                    f"{schedule.cluster_name:<20} {schedule.cron:<20} "
-                    f"{enabled_str:<10} {schedule.timezone:<10}"
-                )
+                click.echo(f"{schedule.cluster_name:<20} {schedule.cron:<20} {enabled_str:<10} {schedule.timezone:<10}")
 
         except (OSError, RuntimeError) as e:
             logger.error("Schedule list failed: %s", e)
@@ -396,9 +382,7 @@ class ClusterHandler:
         for svc_result in result.service_results:
             result_str = "OK" if svc_result.success else "FAIL"
             duration_str = f"{svc_result.duration_seconds:.1f}s"
-            jobs_str = (
-                f"{svc_result.jobs_completed}/{svc_result.jobs_completed + svc_result.jobs_failed}"
-            )
+            jobs_str = f"{svc_result.jobs_completed}/{svc_result.jobs_completed + svc_result.jobs_failed}"
 
             service_display = svc_result.service_name
             if len(service_display) > 40:
@@ -432,6 +416,4 @@ class ClusterHandler:
             except (FileNotFoundError, ValueError):
                 continue
 
-        raise click.ClickException(
-            f"Service '{service_name}' not found in any cluster. Use --cluster to specify."
-        )
+        raise click.ClickException(f"Service '{service_name}' not found in any cluster. Use --cluster to specify.")

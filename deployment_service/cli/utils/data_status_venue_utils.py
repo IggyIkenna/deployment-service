@@ -57,9 +57,7 @@ def check_instruments_venue_coverage(
     asset_groups = list(asset_group) if asset_group else list(_DATA_MARKET_CATEGORIES)
 
     format_venue_coverage_header(start_date, end_date)
-    click.echo(
-        click.style("Scanning parquet files for venue coverage (venue column only)...", dim=True)
-    )
+    click.echo(click.style("Scanning parquet files for venue coverage (venue column only)...", dim=True))
 
     # Generate date list
     all_dates = []
@@ -88,7 +86,7 @@ def check_instruments_venue_coverage(
             entries = fs.ls(gcs_path, detail=False)
             found_venues: set[str] = set()
             for entry in entries:
-                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVEV3-ETHEREUM
+                # entry is like: bucket/instrument_availability/by_date/day=X/venue=AAVE_V3-ETHEREUM
                 basename = entry.rstrip("/").rsplit("/", 1)[-1]
                 if basename.startswith("venue="):
                     found_venues.add(basename[len("venue=") :])
@@ -207,12 +205,8 @@ def check_instruments_venue_coverage(
                 click.echo(f"  [{files_checked}/{total_files}] files checked...")
 
     scan_time = time.time() - scan_start
-    click.echo(
-        click.style(f"Scan complete in {scan_time:.1f}s ({files_checked} files)", fg="green")
-    )
+    click.echo(click.style(f"Scan complete in {scan_time:.1f}s ({files_checked} files)", fg="green"))
     click.echo()
 
     # Display results
-    format_venue_coverage_results(
-        _cast(dict[str, dict[str, object]], results), output, start_date, end_date
-    )
+    format_venue_coverage_results(_cast(dict[str, dict[str, object]], results), output, start_date, end_date)

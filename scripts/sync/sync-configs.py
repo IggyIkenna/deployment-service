@@ -109,13 +109,13 @@ class ConfigReport:
 
 
 def _md5(data: bytes) -> str:
-    return hashlib.md5(data).hexdigest()  # noqa: S324
+    return hashlib.md5(data).hexdigest()
 
 
 def _list_blobs(storage_client: object, bucket: str, prefix: str) -> set[str]:
     """Return set of blob paths under prefix."""
     try:
-        blobs: list[str] = storage_client.list_blobs(bucket, prefix=prefix)  # type: ignore[attr-defined]
+        blobs: list[str] = storage_client.list_blobs(bucket, prefix=prefix)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
         return set(blobs)
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("Failed to list %s/%s: %s", bucket, prefix, e)
@@ -147,12 +147,12 @@ def diff_configs(
 
             if not files or path in (files or []):
                 try:
-                    gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # type: ignore[attr-defined]
-                except (OSError, ValueError):  # noqa: BLE001
+                    gcs_data = gcs_client.download_bytes(gcs_bucket, path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                except (OSError, ValueError):
                     gcs_data = None
                 try:
-                    s3_data = s3_client.download_bytes(s3_bucket, path)  # type: ignore[attr-defined]
-                except (OSError, ValueError):  # noqa: BLE001
+                    s3_data = s3_client.download_bytes(s3_bucket, path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                except (OSError, ValueError):
                     s3_data = None
 
             if gcs_data is not None and s3_data is not None:
@@ -178,11 +178,7 @@ def diff_configs(
                     )
                 )
             elif s3_data is not None:
-                diffs.append(
-                    BlobDiff(
-                        path=path, status="s3_only", s3_md5=_md5(s3_data), size_bytes=len(s3_data)
-                    )
-                )
+                diffs.append(BlobDiff(path=path, status="s3_only", s3_md5=_md5(s3_data), size_bytes=len(s3_data)))
         except (OSError, ValueError, RuntimeError) as e:
             diffs.append(BlobDiff(path=path, status="error", error=str(e)))
 
@@ -213,17 +209,17 @@ def sync_configs(
 
         try:
             if source == "gcs":
-                data = gcs_client.download_bytes(gcs_bucket, diff.path)  # type: ignore[attr-defined]
+                data = gcs_client.download_bytes(gcs_bucket, diff.path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 dest_client = s3_client
                 dest_bucket = s3_bucket
                 dest_label = f"s3://{s3_bucket}/{diff.path}"
             else:
-                data = s3_client.download_bytes(s3_bucket, diff.path)  # type: ignore[attr-defined]
+                data = s3_client.download_bytes(s3_bucket, diff.path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 dest_client = gcs_client
                 dest_bucket = gcs_bucket
                 dest_label = f"gs://{gcs_bucket}/{diff.path}"
 
-            dest_client.upload_bytes(dest_bucket, diff.path, data)  # type: ignore[attr-defined]
+            dest_client.upload_bytes(dest_bucket, diff.path, data)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
             print(f"  → {dest_label} ({len(data)} bytes)")
             written += 1
         except (OSError, ValueError, RuntimeError) as e:
@@ -237,24 +233,16 @@ def main() -> int:
     parser.add_argument("--env", required=True, choices=["dev", "staging", "prod"])
     parser.add_argument("--gcs-bucket", required=True, help="GCS bucket name")
     parser.add_argument("--s3-bucket", required=True, help="S3 bucket name")
-    parser.add_argument(
-        "--prefix", default="configs/", help="Blob prefix/path to compare (default: configs/)"
-    )
-    parser.add_argument(
-        "--files", default="", help="Comma-separated specific file paths to compare"
-    )
-    parser.add_argument(
-        "--sync", action="store_true", help="Write source files to dest for any differences"
-    )
+    parser.add_argument("--prefix", default="configs/", help="Blob prefix/path to compare (default: configs/)")
+    parser.add_argument("--files", default="", help="Comma-separated specific file paths to compare")
+    parser.add_argument("--sync", action="store_true", help="Write source files to dest for any differences")
     parser.add_argument(
         "--source",
         choices=["gcs", "s3"],
         default="gcs",
         help="Source of truth for --sync (default: gcs)",
     )
-    parser.add_argument(
-        "--dest", choices=["gcs", "s3"], default="s3", help="Destination for --sync (default: s3)"
-    )
+    parser.add_argument("--dest", choices=["gcs", "s3"], default="s3", help="Destination for --sync (default: s3)")
     parser.add_argument(
         "--gcp-project",
         default=os.environ.get("GCP_PROJECT_ID", ""),
@@ -275,8 +263,8 @@ def main() -> int:
     print("Connecting to GCS and S3 storage clients...")
     try:
         from unified_trading_library import (
-            AWSStorageClient,  # type: ignore[attr-defined]
-            GCPStorageClient,  # type: ignore[attr-defined]
+            AWSStorageClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+            GCPStorageClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
         )
 
         gcs_client = GCPStorageClient(project_id=args.gcp_project or None)
@@ -287,9 +275,7 @@ def main() -> int:
 
     print(f"Diffing configs (prefix={args.prefix!r})...")
     diffs = diff_configs(gcs_client, s3_client, args.gcs_bucket, args.s3_bucket, args.prefix, files)
-    report = ConfigReport(
-        env=args.env, gcs_bucket=args.gcs_bucket, s3_bucket=args.s3_bucket, diffs=diffs
-    )
+    report = ConfigReport(env=args.env, gcs_bucket=args.gcs_bucket, s3_bucket=args.s3_bucket, diffs=diffs)
     report.print_report()
 
     if args.sync:

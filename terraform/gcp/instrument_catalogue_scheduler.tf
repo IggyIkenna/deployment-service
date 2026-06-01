@@ -18,7 +18,7 @@
 # regen reads the same manifest.
 #
 # References:
-#   plans/active/instrument_catalogue_availability_matrix_2026_04_29.plan.md
+#   plans/active/instrument_catalogue_availability_matrix_2026_04_29.md
 
 resource "google_service_account" "instrument_catalogue_regen" {
   project      = var.project_id

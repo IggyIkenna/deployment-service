@@ -1,0 +1,51 @@
+# AWS deployment manifest — strategy-service
+# Runtime: AWS Fargate (stateful, per-client subprocess isolation)
+# Region: ap-northeast-1
+# ECR: 427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/strategy-service:latest
+# IAM role: uts-strategy-prod (Phase 1.B)
+# Deploy: aws ecs register-task-definition --cli-input-yaml file://configs/aws/strategy-service.yaml
+
+runtime: fargate
+cluster: uts-defi-prod
+service_name: uts-strategy-prod
+region: ap-northeast-1
+
+image:
+  uri: "427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/strategy-service:latest"
+  port: 8080
+
+compute:
+  cpu: "2048" # 2 vCPU — StrategySupervisor + per-client workers + MarkPriceAggregator
+  memory: "4096" # 4 GB
+
+scaling:
+  desired_count: 1
+  min_count: 1
+  max_count: 2
+
+iam:
+  task_role_arn: "arn:aws:iam::427895769566:role/uts-strategy-prod"
+  execution_role_arn: "arn:aws:iam::427895769566:role/uts-strategy-prod"
+
+network:
+  subnets: []
+  security_groups: []
+  assign_public_ip: true
+
+health_check:
+  path: /health
+  interval: 30
+  timeout: 10
+  healthy_threshold: 2
+  unhealthy_threshold: 3
+
+env:
+  DEPLOYMENT_ENV: prod
+  CLOUD_PROVIDER: aws
+  AWS_REGION: ap-northeast-1
+  AWS_ACCOUNT_ID: "427895769566"
+  # DeFi-first archetypes active
+  ACTIVE_ARCHETYPES: carry_staked_basis,arbitrage_price_dispersion
+
+secrets: []
+# Strategy-service reads from S3 (feature parquets) via IAM role — no dedicated SM secrets at launch

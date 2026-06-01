@@ -62,6 +62,8 @@ def _scan_fixture_prefix(
     Populates league_counts with the number of fixture files per league.
     Fixture files are at: {prefix}league={league_id}/fixtures.parquet
     """
+    if cloud_client.client is None:
+        return
     bucket = cloud_client.client.bucket(bucket_name)
     blobs = list(bucket.list_blobs(prefix=prefix, max_results=5000))
 
@@ -92,8 +94,7 @@ def _load_fixture_calendar(
 
     with ThreadPoolExecutor(max_workers=min(max_workers, len(date_strings))) as executor:
         futures = {
-            executor.submit(_load_fixture_counts_for_date, cloud_client, bucket_name, d): d
-            for d in date_strings
+            executor.submit(_load_fixture_counts_for_date, cloud_client, bucket_name, d): d for d in date_strings
         }
         for future in as_completed(futures):
             date_str = futures[future]
@@ -136,8 +137,7 @@ def display_sports_league_breakdown(
     click.echo()
     click.echo(f"SPORTS LEAGUE BREAKDOWN: {click.style(service, fg='cyan', bold=True)}")
     click.echo(
-        f"Date Range: {start_date.strftime('%Y-%m-%d')} to"
-        f" {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
+        f"Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} ({len(all_dates)} days)"
     )
     click.echo("=" * 70)
     click.echo()
@@ -206,13 +206,13 @@ class _LeagueStatus:
     """Status tracking for a single league across a date range."""
 
     __slots__ = (
-        "league_id",
-        "expected_fixture_dates",
         "actual_fixture_dates",
+        "expected_fixture_dates",
+        "league_id",
         "missing_fixture_dates",
         "no_fixture_dates",
-        "total_expected",
         "total_actual",
+        "total_expected",
     )
 
     def __init__(self, league_id: str) -> None:
@@ -260,6 +260,8 @@ def _check_league_status(
 
         # Check if fixture data exists in GCS for this league on this date
         new_prefix = f"sports_reference/by_date/day={date_str}/entity=fixtures/league={league_id}/"
+        if cloud_client.client is None:
+            continue
         bucket = cloud_client.client.bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=new_prefix, max_results=1))
         has_data = any(b.name.endswith(".parquet") for b in blobs)
@@ -384,9 +386,7 @@ def _display_json(
         "start_date": start_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
         "denominator": "fixture_count",
-        "overall_completion": round(
-            (total_actual / total_expected * 100) if total_expected > 0 else 100.0, 1
-        ),
+        "overall_completion": round((total_actual / total_expected * 100) if total_expected > 0 else 100.0, 1),
         "overall_expected": total_expected,
         "overall_actual": total_actual,
         "leagues": leagues_json,

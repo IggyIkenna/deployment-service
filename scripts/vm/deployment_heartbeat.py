@@ -196,9 +196,7 @@ def cmd_complete(args: argparse.Namespace, registry: DeploymentsRegistry) -> int
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="VM deployment heartbeat helper")
-    p.add_argument(
-        "--bucket", default=DEFAULT_BUCKET, help="Registry bucket (default: %(default)s)"
-    )
+    p.add_argument("--bucket", default=DEFAULT_BUCKET, help="Registry bucket (default: %(default)s)")
     sub = p.add_subparsers(dest="operation", required=True)
 
     reg = sub.add_parser("register", help="Create a new ACTIVE registry entry + DEPLOYMENT_STARTED")
@@ -206,9 +204,7 @@ def _build_parser() -> argparse.ArgumentParser:
     reg.add_argument("--name", required=True)
     reg.add_argument("--asset-group", required=True)
     reg.add_argument("--task", required=True)
-    reg.add_argument(
-        "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]
-    )
+    reg.add_argument("--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"])
     reg.add_argument("--start-date", required=True)
     reg.add_argument("--end-date", required=True)
     reg.add_argument("--log-uri", required=True)

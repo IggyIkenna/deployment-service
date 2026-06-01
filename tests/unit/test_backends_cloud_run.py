@@ -547,9 +547,7 @@ class TestDeployShard:
         assert result.status == JobStatus.FAILED
         assert "internal server error" in (result.error_message or "")
 
-    def test_generic_error_with_quota_hint_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_generic_error_with_quota_hint_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """RuntimeError containing 'quota' triggers quota warning log."""
         import logging
 
@@ -620,9 +618,7 @@ class TestGetStatus:
         b = _make_backend()
         _, execs = _inject_clients(b)
         now = datetime.now(UTC)
-        execs.get_execution.return_value = self._make_execution(
-            completion_time=now, failed_count=0, succeeded_count=1
-        )
+        execs.get_execution.return_value = self._make_execution(completion_time=now, failed_count=0, succeeded_count=1)
 
         result = b.get_status(self._JOB_ID)
 
@@ -816,9 +812,7 @@ class TestGetStatusBatch:
         condition.type_ = "Failed"
         condition.message = "exit code 1"
         now = datetime.now(UTC)
-        exec1 = self._make_execution(
-            self._ID1, completion_time=now, failed_count=1, conditions=[condition]
-        )
+        exec1 = self._make_execution(self._ID1, completion_time=now, failed_count=1, conditions=[condition])
         execs.list_executions.return_value = iter([exec1])
 
         with patch("deployment_service.backends.cloud_run.run_v2") as mock_run_v2:

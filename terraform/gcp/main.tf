@@ -43,6 +43,14 @@ locals {
   # Safe lower-kebab name fragment shared by all resources in this workspace
   env_prefix = lower(replace("${var.bucket_prefix}-${var.environment}", "_", "-"))
 
+  # 3-char short form matching cloud-providers.yaml DEPLOYMENT_ENV_SHORT convention.
+  # Canonical bucket names use this infix (e.g. market-data-tick-cefi-prd-<pid>).
+  deployment_env_short = {
+    "dev"     = "dev"
+    "staging" = "stg"
+    "prod"    = "prd"
+  }[var.environment]
+
   # Common labels applied to every resource
   common_labels = {
     "environment" = var.environment
@@ -489,7 +497,7 @@ resource "google_storage_bucket" "market_data_prediction_test" {
 # market-data-tick-{category}-* in the `processed_candles/` subprefix, not to a
 # separate bucket. All 10 market-data-candles-* buckets (5 prod + 5 test) were
 # verified empty (0 objects / 0 bytes) before retirement. See
-# unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
+# unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan Phase 5a.
 # terraform will `destroy` the resources below on next apply; the `gcp/main.tf`
 # block that once defined them has been deleted intentionally (no recreation).
 
@@ -1603,6 +1611,40 @@ resource "google_storage_bucket_iam_member" "alerting_state_writer" {
 
 resource "google_storage_bucket_iam_member" "cicd_events_writer" {
   bucket = google_storage_bucket.cicd_events.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# ---------------------------------------------------------------------------
+# Immutable execution audit trail — trading-audit-records
+# F-05: Provisioned in terraform with Object Versioning + 7-year Retention Lock.
+# Bucket name mirrors cloud-providers.yaml gcp.storage.audit-records pattern.
+# Retention policy is locked (irreversible) — complies with ≥7-year regulatory
+# requirement. strategy-service writes to this bucket via resolve_bucket_name(kind="audit-records").
+# 7 years = 220752000 seconds (7 × 365.25 × 24 × 3600)
+# ---------------------------------------------------------------------------
+resource "google_storage_bucket" "audit_records" {
+  name     = "trading-audit-records-${local.deployment_env_short}-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+
+  retention_policy {
+    retention_period = 220752000
+    is_locked        = true
+  }
+
+  labels = merge(local.common_labels, {
+    "purpose" = "audit-records",
+    "tier"    = "compliance"
+  })
+}
+
+resource "google_storage_bucket_iam_member" "audit_records_writer" {
+  bucket = google_storage_bucket.audit_records.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.unified_trading.email}"
 }

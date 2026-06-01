@@ -1,0 +1,48 @@
+# AWS deployment manifest — risk-and-exposure-service
+# Runtime: AWS Fargate (stateful, continuous position + exposure monitoring)
+# Region: ap-northeast-1
+# ECR: 427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/risk-and-exposure-service:latest
+# IAM role: uts-risk-and-exposure-prod (Phase 1.B)
+# Deploy: aws ecs register-task-definition --cli-input-yaml file://configs/aws/risk-and-exposure-service.yaml
+
+runtime: fargate
+cluster: uts-defi-prod
+service_name: uts-risk-and-exposure-prod
+region: ap-northeast-1
+
+image:
+  uri: "427895769566.dkr.ecr.ap-northeast-1.amazonaws.com/risk-and-exposure-service:latest"
+  port: 8080
+
+compute:
+  cpu: "1024" # 1 vCPU
+  memory: "2048" # 2 GB
+
+scaling:
+  desired_count: 1
+  min_count: 1
+  max_count: 2
+
+iam:
+  task_role_arn: "arn:aws:iam::427895769566:role/uts-risk-and-exposure-prod"
+  execution_role_arn: "arn:aws:iam::427895769566:role/uts-risk-and-exposure-prod"
+
+network:
+  subnets: []
+  security_groups: []
+  assign_public_ip: true
+
+health_check:
+  path: /health
+  interval: 30
+  timeout: 10
+  healthy_threshold: 2
+  unhealthy_threshold: 3
+
+env:
+  DEPLOYMENT_ENV: prod
+  CLOUD_PROVIDER: aws
+  AWS_REGION: ap-northeast-1
+  AWS_ACCOUNT_ID: "427895769566"
+
+secrets: []

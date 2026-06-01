@@ -19,9 +19,7 @@ from deployment_service.shard_calculator import ShardCalculator
 class TestShardCalculatorHierarchicalDimensions:
     """Tests for hierarchical dimension handling."""
 
-    def test_hierarchical_venues_cefi(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_venues_cefi(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test hierarchical venues for CEFI category."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -44,9 +42,7 @@ class TestShardCalculatorHierarchicalDimensions:
         # Should NOT include TRADFI venues
         assert "CME" not in venues
 
-    def test_hierarchical_venues_tradfi(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_venues_tradfi(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test hierarchical venues for TRADFI category."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -68,9 +64,7 @@ class TestShardCalculatorHierarchicalDimensions:
         # Should NOT include CEFI venues
         assert "BINANCE-SPOT" not in venues
 
-    def test_hierarchical_with_venue_filter(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_hierarchical_with_venue_filter(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test filtering hierarchical dimension."""
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
             yaml.dump(hierarchical_service_config, f)
@@ -165,8 +159,7 @@ class TestExcludeDatesDeploymentFiltering:
 
         # Create test shards based on fixture data
         all_shards = [
-            MockShard(shard["category"], shard["date"])
-            for shard in sample_exclude_dates_data["input_shards"]
+            MockShard(shard["category"], shard["date"]) for shard in sample_exclude_dates_data["input_shards"]
         ]
 
         exclude_dates = sample_exclude_dates_data["exclude_dates"]
@@ -191,9 +184,7 @@ class TestExcludeDatesDeploymentFiltering:
         assert len(filtered_shards) == len(expected_remaining)
 
         # Verify correct shards remain
-        remaining = [
-            (s.dimensions["category"], s.dimensions["date"]["start"]) for s in filtered_shards
-        ]
+        remaining = [(s.dimensions["category"], s.dimensions["date"]["start"]) for s in filtered_shards]
         expected_tuples = [(exp["category"], exp["date"]) for exp in expected_remaining]
 
         for expected in expected_tuples:
@@ -290,13 +281,7 @@ class TestExcludeDatesDeploymentFiltering:
             date_val = shard.dimensions.get("date", {})
 
             # Handle different date formats
-            date_str = (
-                date_val.get("start", "")
-                if isinstance(date_val, dict)
-                else str(date_val)
-                if date_val
-                else ""
-            )
+            date_str = date_val.get("start", "") if isinstance(date_val, dict) else str(date_val) if date_val else ""
 
             if cat in exclude_sets and date_str in exclude_sets[cat]:
                 continue

@@ -2,7 +2,7 @@
 """
 ML Training Dependency Checker (operation + mode)
 
-Pre-flight validation tool for ml-training-service 3-stage pipeline.
+Pre-flight validation tool for ml-service training pipeline (consolidated from ml-training-service, 2026-05-21).
 Checks if required data/artifacts exist before launching training jobs.
 Uses --operation train_phase1|2|3 and --mode batch (per codex cli-standards).
 
@@ -32,13 +32,30 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-from unified_trading_library import StorageClient, UnifiedCloudConfig, get_storage_client
+from unified_trading_library import (
+    StorageClient,
+    UnifiedCloudConfig,
+    get_storage_client,
+    resolve_bucket_name,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _resolve_ml_training_artifacts_bucket(project_id: str) -> str:
+    """Resolve the ml-training-artifacts bucket name via the canonical SSOT.
+
+    ``project_id`` is preserved as a positional arg for callsite compat; the
+    resolver reads ``GCP_PROJECT_ID`` + ``DEPLOYMENT_ENV`` from the process env
+    via ``cloud-providers.yaml``. Bucket-name SSOT (b+) — never inline f-string.
+    """
+    del project_id  # resolver pulls from env; arg kept for back-compat
+    return resolve_bucket_name(cloud="gcp", kind="ml-training-artifacts")
+
 
 # Training periods are quarters, named by end month (e.g., 2021-03 = Q1 2021)
 QUARTERLY_PERIODS = {
@@ -177,7 +194,10 @@ def check_stage2_dependencies(
     Stage 2 requires:
     - Stage 1 selected_features.json
     """
-    bucket_name = f"ml-training-artifacts-{project_id}"
+    # Route through canonical SSOT (cloud-providers.yaml) per Bucket-name SSOT (b+).
+    # `project_id` arg is preserved for callsite back-compat but the resolver reads
+    # GCP_PROJECT_ID + DEPLOYMENT_ENV from the process env directly.
+    bucket_name = _resolve_ml_training_artifacts_bucket(project_id)
     stage1_path = f"stage1-preselection/model-{model_id}/training-period-{training_period}/selected_features.json"
 
     logger.info("Checking Stage 1 output: gs://%s/%s", bucket_name, stage1_path)
@@ -230,7 +250,7 @@ def check_stage3_dependencies(
     - Stage 2 best_hyperparams.json
     - Stage 1 selected_features.json
     """
-    bucket_name = f"ml-training-artifacts-{project_id}"
+    bucket_name = _resolve_ml_training_artifacts_bucket(project_id)
     stage2_path = f"stage2-hyperparams/model-{model_id}/training-period-{training_period}/best_hyperparams.json"
     stage1_path = f"stage1-preselection/model-{model_id}/training-period-{training_period}/selected_features.json"
 

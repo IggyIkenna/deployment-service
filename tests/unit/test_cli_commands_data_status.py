@@ -68,7 +68,7 @@ def _invoke(args: list[str], ctx_obj: dict[str, object] | None = None) -> click.
 @pytest.mark.unit
 def test_dynamic_dimension_services_contains_expected() -> None:
     assert "execution-service" in DYNAMIC_DIMENSION_SERVICES
-    assert "ml-training-service" in DYNAMIC_DIMENSION_SERVICES
+    assert "ml-service" in DYNAMIC_DIMENSION_SERVICES
     assert "strategy-service" in DYNAMIC_DIMENSION_SERVICES
 
 
@@ -134,9 +134,7 @@ def test_data_status_check_venues_wrong_service_exits_1() -> None:
 
 @pytest.mark.unit
 def test_data_status_check_venues_instruments_service_calls_helper() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.check_instruments_venue_coverage"
-    ) as mock_check:
+    with patch("deployment_service.cli.commands.data_status.check_instruments_venue_coverage") as mock_check:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -183,9 +181,7 @@ def test_data_status_check_data_types_wrong_service_exits_1() -> None:
 
 @pytest.mark.unit
 def test_data_status_check_data_types_correct_service_calls_helper() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.check_data_types_detailed"
-    ) as mock_check:
+    with patch("deployment_service.cli.commands.data_status.check_data_types_detailed") as mock_check:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -232,9 +228,7 @@ def test_data_status_check_feature_groups_wrong_service_exits_1() -> None:
 
 @pytest.mark.unit
 def test_data_status_check_feature_groups_correct_service_calls_helper() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.check_feature_groups_detailed"
-    ) as mock_check:
+    with patch("deployment_service.cli.commands.data_status.check_feature_groups_detailed") as mock_check:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -281,9 +275,7 @@ def test_data_status_check_timeframes_wrong_service_exits_1() -> None:
 
 @pytest.mark.unit
 def test_data_status_check_timeframes_correct_service_calls_helper() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.check_timeframes_detailed"
-    ) as mock_check:
+    with patch("deployment_service.cli.commands.data_status.check_timeframes_detailed") as mock_check:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -310,9 +302,7 @@ def test_data_status_check_timeframes_correct_service_calls_helper() -> None:
 
 @pytest.mark.unit
 def test_data_status_dynamic_service_calls_display_dynamic() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_dynamic_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_dynamic_service_status") as mock_display:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -333,9 +323,7 @@ def test_data_status_dynamic_service_calls_display_dynamic() -> None:
 
 @pytest.mark.unit
 def test_data_status_dynamic_service_mode_live() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_dynamic_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_dynamic_service_status") as mock_display:
         runner = CliRunner()
         runner.invoke(
             data_status,
@@ -364,9 +352,7 @@ def test_data_status_dynamic_service_mode_live() -> None:
 
 @pytest.mark.unit
 def test_data_status_fixed_service_calls_display_fixed() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -380,9 +366,7 @@ def test_data_status_fixed_service_calls_display_fixed() -> None:
 
 @pytest.mark.unit
 def test_data_status_fixed_service_show_timestamps() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         runner.invoke(
             data_status,
@@ -396,9 +380,7 @@ def test_data_status_fixed_service_show_timestamps() -> None:
 
 @pytest.mark.unit
 def test_data_status_fixed_service_show_missing() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         runner.invoke(
             data_status,
@@ -411,9 +393,7 @@ def test_data_status_fixed_service_show_missing() -> None:
 
 @pytest.mark.unit
 def test_data_status_fixed_service_fast_mode() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         runner.invoke(
             data_status,
@@ -426,9 +406,7 @@ def test_data_status_fixed_service_fast_mode() -> None:
 
 @pytest.mark.unit
 def test_data_status_output_json_format() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -520,9 +498,7 @@ def test_data_status_value_error_exits_1() -> None:
 
 @pytest.mark.unit
 def test_data_status_mode_batch_default() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         result = runner.invoke(
             data_status,
@@ -536,9 +512,7 @@ def test_data_status_mode_batch_default() -> None:
 
 @pytest.mark.unit
 def test_data_status_mode_live_fixed_service() -> None:
-    with patch(
-        "deployment_service.cli.commands.data_status.display_fixed_service_status"
-    ) as mock_display:
+    with patch("deployment_service.cli.commands.data_status.display_fixed_service_status") as mock_display:
         runner = CliRunner()
         result = runner.invoke(
             data_status,

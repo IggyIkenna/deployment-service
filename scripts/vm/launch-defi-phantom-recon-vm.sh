@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch a short-lived GCE VM that runs the multi-asset-group phantom audit
 # (`instruments-service/scripts/reconcile_phantom_manifest_rows_all.py`) for a
 # given asset_group, in same-region (asia-northeast1-c) so the GCS listing
@@ -40,11 +44,23 @@
 #   - Auto-shutdown when the script exits (VM_SHUTDOWN_ON_COMPLETION=true)
 set -euo pipefail
 
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-    FORCE=true
-    shift
-fi
+
+_positional=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --force) FORCE=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) _positional+=("$1"); shift ;;
+    esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ASSET_GROUP="${1:-defi}"
 APPLY_FLAG="${2:---dry-run}"
@@ -61,7 +77,7 @@ esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 
@@ -105,6 +121,7 @@ METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=phantom-recon"
 METADATA="${METADATA},VM_ASSET_GROUP=$(echo "$ASSET_GROUP" | tr '[:lower:]' '[:upper:]')"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -116,7 +133,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=defi-phantom-recon,asset-group="${ASSET_GROUP}",run-ts="${RUN_TS}"
+    --labels=purpose=defi-phantom-recon,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "VM launched: $VM_NAME"

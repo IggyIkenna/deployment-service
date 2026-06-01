@@ -63,9 +63,7 @@ def extract_documented_features(catalog_path: Path) -> dict[str, dict[str, int |
             "count": feature_count,
             "features": features,
         }
-        logger.info(
-            "%s: %d features found (documented: %d)", group_label, len(features), feature_count
-        )
+        logger.info("%s: %d features found (documented: %d)", group_label, len(features), feature_count)
 
     return documented_groups
 
@@ -199,15 +197,11 @@ def main() -> None:
     """Run the feature documentation audit."""
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(
-        description="Audit sports feature documentation vs implementation"
-    )
+    parser = argparse.ArgumentParser(description="Audit sports feature documentation vs implementation")
     parser.add_argument("--catalog-path", type=str, default="", help="Path to FEATURES_CATALOG.md")
     parser.add_argument("--tracking-dir", type=str, default="", help="Path to tracking directory")
     parser.add_argument("--bucket", type=str, default="", help="GCS bucket (not yet implemented)")
-    parser.add_argument(
-        "--prefix", type=str, default="sports/features", help="GCS prefix (not yet implemented)"
-    )
+    parser.add_argument("--prefix", type=str, default="sports/features", help="GCS prefix (not yet implemented)")
     args = parser.parse_args()
 
     logger.info("=" * 80)

@@ -7,7 +7,7 @@ This module provides functionality to:
 3. Aggregate catalogs across services
 
 # SCHEMA_PROVENANCE_EXEMPT: Service-internal @dataclass types (CatalogEntry, ServiceCatalog,
-# ExecutionConfigStatus) model deployment-service–specific GCS file count tracking.
+# ExecutionConfigStatus) model deployment-service-specific GCS file count tracking.
 # Not cross-repo contracts. See QUALITY_GATE_BYPASS_AUDIT.md §2.17.
 """
 
@@ -157,9 +157,7 @@ SERVICE_GCS_CONFIGS = {
     },
     "market-data-processing-service": {
         "bucket_template": "market-data-tick-{asset_group_lower}-{project_id}",
-        "path_template": (
-            "processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/"
-        ),
+        "path_template": ("processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/"),
         "dimensions": ["asset_group", "timeframe", "data_type", "venue", "date"],
         "list_prefix": True,
         # Expected timeframes - all 7 must be present for completion
@@ -213,16 +211,14 @@ SERVICE_GCS_CONFIGS = {
         # event_actuals (T+1 data)
         "expected_feature_groups": ["temporal", "scheduled_events", "event_actuals"],
     },
-    "ml-training-service": {
+    "ml-service": {
+        # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
+        # CORRECT-LOCAL — legacy `bucket_template` field for catalog dispatch; canonical
+        # SSOT is `cloud-providers.yaml` kind="ml-models-store". This catalog dict will be
+        # consolidated to `resolve_bucket_name()` in a follow-up sweep.
         "bucket_template": "ml-models-store-{project_id}",
         "path_template": "models/",
         "dimensions": ["instrument", "timeframe", "target_type"],
-        "list_prefix": True,
-    },
-    "ml-inference-service": {
-        "bucket_template": "ml-predictions-store-{project_id}",
-        "path_template": "predictions/{mode}/{date}/",
-        "dimensions": ["mode", "instrument", "date"],
         "list_prefix": True,
     },
     "strategy-service": {
@@ -343,9 +339,7 @@ class DataCatalog:
         # Check each combination
         entries: list[CatalogEntry] = []
         for combo in combinations:
-            entry = self._check_combination(
-                service, cast(dict[str, object], gcs_config), combo, include_files
-            )
+            entry = self._check_combination(service, cast(dict[str, object], gcs_config), combo, include_files)
             entries.append(entry)
 
         return ServiceCatalog(
@@ -375,11 +369,7 @@ class DataCatalog:
             if dim_type == "fixed":
                 values: list[object] = cast(list[object], dim.get("values") or [])
                 if filter_value:
-                    filter_list = (
-                        cast(list[object], filter_value)
-                        if isinstance(filter_value, list)
-                        else [filter_value]
-                    )
+                    filter_list = cast(list[object], filter_value) if isinstance(filter_value, list) else [filter_value]
                     values = [v for v in values if v in filter_list]
                 dimension_values[dim_name] = values
 
@@ -413,9 +403,7 @@ class DataCatalog:
 
                 if filter_value:
                     filter_list2 = (
-                        cast(list[object], filter_value)
-                        if isinstance(filter_value, list)
-                        else [filter_value]
+                        cast(list[object], filter_value) if isinstance(filter_value, list) else [filter_value]
                     )
                     hier_values = [v for v in hier_values if v in filter_list2]
 
@@ -516,9 +504,7 @@ class DataCatalog:
             services = self.config_loader.list_available_services()
 
         catalogs: dict[str, ServiceCatalog] = {}
-        dimension_filters: dict[str, object] = {
-            k: v for k, v in filters.items() if k != "include_files"
-        }
+        dimension_filters: dict[str, object] = {k: v for k, v in filters.items() if k != "include_files"}
         include_files: bool = bool(filters.get("include_files", False))
         for service in services:
             try:
@@ -573,8 +559,7 @@ class DataCatalog:
             lines.append("-" * len(service))
             lines.append(f"Date Range: {catalog.start_date} to {catalog.end_date}")
             lines.append(
-                f"Completion: {catalog.overall_completion:.1f}%"
-                f" ({catalog.complete_entries}/{catalog.total_entries})"
+                f"Completion: {catalog.overall_completion:.1f}% ({catalog.complete_entries}/{catalog.total_entries})"
             )
 
             # Show breakdown by first dimension
@@ -585,14 +570,8 @@ class DataCatalog:
                 if breakdown:
                     lines.append(f"\nBreakdown by {first_dim}:")
                     for dim_val, counts in sorted(breakdown.items()):
-                        pct = (
-                            (counts["complete"] / counts["total"] * 100)
-                            if counts["total"] > 0
-                            else 0
-                        )
-                        lines.append(
-                            f"  {dim_val}: {pct:.1f}% ({counts['complete']}/{counts['total']})"
-                        )
+                        pct = (counts["complete"] / counts["total"] * 100) if counts["total"] > 0 else 0
+                        lines.append(f"  {dim_val}: {pct:.1f}% ({counts['complete']}/{counts['total']})")
 
         lines.append("\n" + "=" * 60)
 

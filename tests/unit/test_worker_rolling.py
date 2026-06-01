@@ -51,9 +51,7 @@ def _make_state(
     dep_id: str = "dep-001",
     shard_status: ShardStatus = ShardStatus.PENDING,
 ) -> DeploymentState:
-    shards = [
-        ShardState(shard_id=f"s-{i}", status=shard_status, args=["--arg", str(i)]) for i in range(n)
-    ]
+    shards = [ShardState(shard_id=f"s-{i}", status=shard_status, args=["--arg", str(i)]) for i in range(n)]
     return DeploymentState(
         deployment_id=dep_id,
         service=service,
@@ -70,9 +68,7 @@ def _make_backend(
     backend = MagicMock(spec=["deploy_shard", "get_status_with_context", "region"])
     backend.region = "us-central1"
     backend.deploy_shard.return_value = JobInfo(job_id=job_id, shard_id="s-0", status=job_status)
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id=job_id, shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id=job_id, shard_id="s-0", status=JobStatus.SUCCEEDED)
     return backend
 
 
@@ -140,9 +136,7 @@ def test_all_shards_succeed() -> None:
     state = _make_state(n=3)
     backend = _make_backend(job_status=JobStatus.RUNNING)
     # Status check will immediately return SUCCEEDED
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     with (
@@ -180,9 +174,7 @@ def test_launch_failure_marks_shard_failed() -> None:
         status=JobStatus.FAILED,
         error_message="API error",
     )
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="failed-s-0", shard_id="s-0", status=JobStatus.FAILED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="failed-s-0", shard_id="s-0", status=JobStatus.FAILED)
     sm = _make_state_manager()
 
     with (
@@ -213,9 +205,7 @@ def test_running_shard_cancelled_marks_cancelled() -> None:
     """Shard that returns CANCELLED status in the monitoring loop is marked CANCELLED."""
     state = _make_state(n=1)
     backend = _make_backend(job_status=JobStatus.RUNNING)
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.CANCELLED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.CANCELLED)
     sm = _make_state_manager()
 
     with (
@@ -245,9 +235,7 @@ def test_unknown_status_threshold_marks_failed() -> None:
     """Shard UNKNOWN for unknown_threshold polls gets marked FAILED."""
     state = _make_state(n=1)
     backend = _make_backend(job_status=JobStatus.RUNNING)
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.UNKNOWN
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.UNKNOWN)
     sm = _make_state_manager()
 
     with (
@@ -319,9 +307,7 @@ def test_shard_index_and_total_shards_in_env() -> None:
     """SHARD_INDEX and TOTAL_SHARDS are added to environment variables."""
     state = _make_state(n=2)
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     with (
@@ -363,9 +349,7 @@ def test_venue_overrides_applied() -> None:
     state = _make_state(n=1)
     state.shards[0].dimensions = {"venue": "BINANCE"}
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
     overrides = {"BINANCE": {"cloud_run": {"memory": "8Gi"}}}
 
@@ -399,21 +383,15 @@ def test_venue_overrides_applied() -> None:
 def test_vm_zone_distribution() -> None:
     """With VM compute type, zone is assigned by round-robin via _get_zones_for_region."""
     state = _make_state(n=3)
-    backend = MagicMock(
-        spec=["deploy_shard", "get_status_with_context", "region", "_get_zones_for_region"]
-    )
+    backend = MagicMock(spec=["deploy_shard", "get_status_with_context", "region", "_get_zones_for_region"])
     backend.region = "us-central1"
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.RUNNING
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.RUNNING)
     backend._get_zones_for_region.return_value = [
         "us-central1-a",
         "us-central1-b",
         "us-central1-c",
     ]
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     with (
@@ -432,9 +410,7 @@ def test_vm_zone_distribution() -> None:
             no_wait=True,
         )
 
-    zones_used = [
-        c.kwargs.get("compute_config", {}).get("zone") for c in backend.deploy_shard.call_args_list
-    ]
+    zones_used = [c.kwargs.get("compute_config", {}).get("zone") for c in backend.deploy_shard.call_args_list]
     assert zones_used[0] == "us-central1-a"
     assert zones_used[1] == "us-central1-b"
     assert zones_used[2] == "us-central1-c"
@@ -495,9 +471,7 @@ def test_quota_lease_released_on_success() -> None:
     state = _make_state(n=1)
     state.shards[0].quota_lease_id = "lease-abc"
     backend = _make_backend(job_status=JobStatus.RUNNING)
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     quota_broker = MagicMock()
@@ -614,9 +588,7 @@ def test_mini_batch_size_splits_initial_batch() -> None:
     """With mini_batch_size=2 and 4 shards the backend gets calls in two batches."""
     state = _make_state(n=4)
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
     sleep_calls: list[float] = []
 
@@ -654,9 +626,7 @@ def test_mini_batch_size_splits_initial_batch() -> None:
 def test_final_status_completed_when_all_succeed() -> None:
     state = _make_state(n=2)
     backend = _make_backend(job_status=JobStatus.RUNNING)
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     with (
@@ -712,9 +682,7 @@ def test_final_status_failed_when_any_fail() -> None:
 def test_state_saved_after_each_mini_batch() -> None:
     state = _make_state(n=2)
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
     sm = _make_state_manager()
 
     with (
@@ -751,9 +719,7 @@ def test_quota_broker_cloud_run_ttl_override() -> None:
     quota_broker = MagicMock()
     quota_broker.enabled.return_value = True
     quota_broker.acquire.return_value = QuotaBrokerAcquireResult(granted=True, lease_id="lease-ttl")
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-001", shard_id="s-0", status=JobStatus.SUCCEEDED)
 
     compute_with_timeout: dict[str, object] = {**_COMPUTE, "timeout_seconds": 7200}
 

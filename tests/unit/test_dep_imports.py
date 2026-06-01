@@ -2,6 +2,6 @@
 
 
 def test_unified_api_contracts_importable():
-    from unified_api_contracts import market  # noqa: F401
+    from unified_api_contracts import market
 
     assert hasattr(market, "CanonicalTicker")

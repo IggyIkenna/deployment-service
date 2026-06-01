@@ -38,9 +38,7 @@ def _get_state_manager() -> StateManager:
 # ---------------------------------------------------------------------------
 
 
-class CalculateShardsRequest(
-    BaseModel
-):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class CalculateShardsRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     config_dir: str
     start_date: str | None = None
@@ -54,9 +52,7 @@ class CalculateShardsRequest(
     extra_filters: dict[str, object] = {}
 
 
-class CreateDeploymentRequest(
-    BaseModel
-):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class CreateDeploymentRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     deployment_id: str
     service: str
     region: str
@@ -84,9 +80,7 @@ class CancelVMJobsRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body,
     fire_and_forget: bool = True
 
 
-class VMStatusBatchRequest(
-    BaseModel
-):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class VMStatusBatchRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     project_id: str
     zone: str
     vm_names: list[str]
@@ -102,9 +96,7 @@ class QuotaReleaseRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body,
     batch_size: int
 
 
-class CloudRunStatusBatchRequest(
-    BaseModel
-):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class CloudRunStatusBatchRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     project_id: str
     region: str
     service_account_email: str
@@ -112,9 +104,7 @@ class CloudRunStatusBatchRequest(
     job_ids: list[str]
 
 
-class DeploymentServiceRollbackRequest(
-    BaseModel
-):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
+class DeploymentServiceRollbackRequest(BaseModel):  # CORRECT-LOCAL — FastAPI request body, not a domain contract
     service: str
     region: str
     target_revision: str | None = None
@@ -220,8 +210,8 @@ async def get_data_status(
         catalog = DataCatalog()
         result = catalog.catalog_service(
             service=service,
-            start_date=start_date,  # type: ignore[arg-type]
-            end_date=end_date,  # type: ignore[arg-type]
+            start_date=date.fromisoformat(start_date),
+            end_date=date.fromisoformat(end_date),
         )
         return result.to_dict()
     except (OSError, ValueError, RuntimeError) as e:
@@ -448,9 +438,7 @@ async def get_vm_events(deployment_id: str) -> dict[str, object]:
 
 
 @router.post("/deployments/{deployment_id}/rollback")
-async def live_rollback(
-    deployment_id: str, request: DeploymentServiceRollbackRequest
-) -> dict[str, object]:
+async def live_rollback(deployment_id: str, request: DeploymentServiceRollbackRequest) -> dict[str, object]:
     """Roll back a live Cloud Run Service to a previous revision."""
     try:
         from unified_trading_library import get_compute_client

@@ -72,6 +72,9 @@
 # Shared `soccer-football-info-api-key` rate limits: 10 concurrent SFI VMs
 # thrashed on 429 during the 2026-04-19 incident — reference: codex §2.4 +
 # singleton-locked-launchers memory.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
@@ -79,6 +82,7 @@ ENTITY=""
 CHUNKS=""
 DRY_RUN=false
 RECOVERY_FIXTURE_IDS=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
@@ -86,9 +90,15 @@ while [[ $# -gt 0 ]]; do
     --chunks) CHUNKS="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
@@ -148,7 +158,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # --- Singleton lock (sibling-aware when --chunks is used) ---
 RUN_ID=""
@@ -200,9 +210,10 @@ launch_one_vm() {
   [[ -n "$ENTITY" ]] && metadata="${metadata},VM_SPORTS_ENTITY=${ENTITY}"
   [[ -n "$RECOVERY_FIXTURE_IDS" ]] && metadata="${metadata},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
   $FORCE && metadata="${metadata},VM_FORCE=true"
+  metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
-  local labels="purpose=sfi-backfill,run-id=${run_id}"
+  local labels="purpose=sfi-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
 
   if $DRY_RUN; then

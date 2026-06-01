@@ -377,9 +377,7 @@ class TestDeployShard:
             mock_run.RunJobRequest.Overrides = MagicMock()
             mock_run.RunJobRequest.Overrides.ContainerOverride = MagicMock()
 
-            b._jobs_client.run_job.side_effect = google_exceptions.ResourceExhausted(
-                "quota exceeded"
-            )
+            b._jobs_client.run_job.side_effect = google_exceptions.ResourceExhausted("quota exceeded")
 
             result = b.deploy_shard(
                 shard_id=SHARD,
@@ -508,9 +506,7 @@ class TestGetStatus:
     def test_pending_status(self) -> None:
         b = _make_backend()
         _, execs = _inject_clients(b)
-        execs.get_execution.return_value = self._make_execution(
-            running_count=0, completion_time=None
-        )
+        execs.get_execution.return_value = self._make_execution(running_count=0, completion_time=None)
 
         result = b.get_status(EXEC_NAME)
         assert result.status == JobStatus.PENDING

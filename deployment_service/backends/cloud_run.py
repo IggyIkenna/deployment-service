@@ -93,13 +93,9 @@ class CloudRunBackend(ComputeBackend):
             # Use direct attribute access: run_v2 protobuf stubs have typed fields.
             # job.template: ExecutionTemplate, .template: TaskTemplate,
             # .containers: MutableSequence[Container]
-            job_template: run_v2.ExecutionTemplate | None = (
-                job.template if hasattr(job, "template") else None
-            )
+            job_template: run_v2.ExecutionTemplate | None = job.template if hasattr(job, "template") else None
             execution_template: run_v2.TaskTemplate | None = (
-                job_template.template
-                if job_template and hasattr(job_template, "template")
-                else None
+                job_template.template if job_template and hasattr(job_template, "template") else None
             )
             containers: list[run_v2.Container] | None = (
                 list(execution_template.containers)
@@ -110,24 +106,18 @@ class CloudRunBackend(ComputeBackend):
             env: list[run_v2.EnvVar] = []
             if containers:
                 container = containers[0]
-                container_env: list[run_v2.EnvVar] = (
-                    list(container.env) if hasattr(container, "env") else []
-                )
+                container_env: list[run_v2.EnvVar] = list(container.env) if hasattr(container, "env") else []
                 if container_env:
                     env = container_env
 
             self._template_env_cache[self.region] = env
             return env
         except (OSError, ValueError, RuntimeError) as e:
-            logger.warning(
-                "[CLOUD_RUN_ENV] Failed to fetch job template env for %s: %s", self.job_path, e
-            )
+            logger.warning("[CLOUD_RUN_ENV] Failed to fetch job template env for %s: %s", self.job_path, e)
             self._template_env_cache[self.region] = None
             return None
 
-    def _merge_env(
-        self, template_env: list[run_v2.EnvVar], overrides: dict[str, str]
-    ) -> list[run_v2.EnvVar]:
+    def _merge_env(self, template_env: list[run_v2.EnvVar], overrides: dict[str, str]) -> list[run_v2.EnvVar]:
         """
         Merge job template env vars with per-execution overrides.
 
@@ -151,8 +141,7 @@ class CloudRunBackend(ComputeBackend):
                 value_source = getattr(env, "value_source", None)
                 if value_source:
                     logger.warning(
-                        "[CLOUD_RUN_ENV] Overriding secret-backed env var '%s'"
-                        " for execution overrides",
+                        "[CLOUD_RUN_ENV] Overriding secret-backed env var '%s' for execution overrides",
                         name,
                     )
                 merged.append(run_v2.EnvVar(name=name, value=str(overrides[name])))
@@ -308,8 +297,7 @@ class CloudRunBackend(ComputeBackend):
                 if attempt < len(retry_delays):
                     delay = retry_delays[attempt]
                     logger.warning(
-                        "[RATE_LIMITED] Cloud Run rate limited for shard %s,"
-                        " retrying in %ss (attempt %s/%s)",
+                        "[RATE_LIMITED] Cloud Run rate limited for shard %s, retrying in %ss (attempt %s/%s)",
                         shard_id,
                         delay,
                         attempt + 1,
@@ -318,8 +306,7 @@ class CloudRunBackend(ComputeBackend):
                     time.sleep(delay)
                 else:
                     logger.error(
-                        "[RATE_LIMIT_EXCEEDED] Failed to trigger job for shard %s"
-                        " after %s retries in %s: %s",
+                        "[RATE_LIMIT_EXCEEDED] Failed to trigger job for shard %s after %s retries in %s: %s",
                         shard_id,
                         max_retries,
                         self.region,
@@ -329,16 +316,11 @@ class CloudRunBackend(ComputeBackend):
                         job_id=f"failed-{shard_id}",
                         shard_id=shard_id,
                         status=JobStatus.FAILED,
-                        error_message=(
-                            f"Rate limit/quota exceeded after {max_retries} retries"
-                            f" in {self.region}"
-                        ),
+                        error_message=(f"Rate limit/quota exceeded after {max_retries} retries in {self.region}"),
                     )
 
             except google_exceptions.NotFound:
-                logger.error(
-                    "[JOB_NOT_FOUND] Cloud Run Job %s not found in %s", self.job_name, self.region
-                )
+                logger.error("[JOB_NOT_FOUND] Cloud Run Job %s not found in %s", self.job_name, self.region)
                 return JobInfo(
                     job_id=f"failed-{shard_id}",
                     shard_id=shard_id,
@@ -422,9 +404,7 @@ class CloudRunBackend(ComputeBackend):
                     job_id=execution.name,
                     shard_id=execution.name.split("/")[-1],
                     status=status,
-                    start_time=cast(
-                        "datetime | None", execution.start_time if execution.start_time else None
-                    ),
+                    start_time=cast("datetime | None", execution.start_time if execution.start_time else None),
                     end_time=cast(
                         "datetime | None",
                         execution.completion_time if execution.completion_time else None,
@@ -449,16 +429,12 @@ class CloudRunBackend(ComputeBackend):
         # For any job_ids not found in listing, mark as SUCCEEDED (completed and cleaned up by GCP)
         for job_id in job_id_set:
             if job_id not in results:
-                logger.debug(
-                    "Execution %s not found in listing (likely completed and cleaned up)", job_id
-                )
+                logger.debug("Execution %s not found in listing (likely completed and cleaned up)", job_id)
                 results[job_id] = JobInfo(
                     job_id=job_id,
                     shard_id=job_id.split("/")[-1] if "/" in job_id else "unknown",
                     status=JobStatus.SUCCEEDED,
-                    metadata={
-                        "note": "Execution no longer exists - likely completed and cleaned up"
-                    },
+                    metadata={"note": "Execution no longer exists - likely completed and cleaned up"},
                 )
 
         return results
@@ -496,9 +472,7 @@ class CloudRunBackend(ComputeBackend):
                 job_id=job_id,
                 shard_id=execution.name.split("/")[-1],
                 status=status,
-                start_time=cast(
-                    "datetime | None", execution.start_time if execution.start_time else None
-                ),
+                start_time=cast("datetime | None", execution.start_time if execution.start_time else None),
                 end_time=cast(
                     "datetime | None",
                     execution.completion_time if execution.completion_time else None,
@@ -516,16 +490,12 @@ class CloudRunBackend(ComputeBackend):
             # Check if execution no longer exists (GCP cleans up completed executions)
             # Error code 5 = NOT_FOUND
             if "does not exist" in error_str or "code: 5" in error_str or "NOT_FOUND" in error_str:
-                logger.debug(
-                    "Execution %s no longer exists (completed and cleaned up by GCP)", job_id
-                )
+                logger.debug("Execution %s no longer exists (completed and cleaned up by GCP)", job_id)
                 return JobInfo(
                     job_id=job_id,
                     shard_id=job_id.split("/")[-1] if "/" in job_id else "unknown",
                     status=JobStatus.SUCCEEDED,  # Assume completed if cleaned up
-                    metadata={
-                        "note": "Execution no longer exists - likely completed and cleaned up"
-                    },
+                    metadata={"note": "Execution no longer exists - likely completed and cleaned up"},
                 )
             else:
                 logger.error("Failed to get execution status: %s", e)

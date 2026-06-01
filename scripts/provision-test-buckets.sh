@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent provisioner for `-test-` GCS buckets used by the institutional
-# smoke matrix (plans/active/institutional_smoke_matrix_2026_04_20.plan.md).
+# smoke matrix (plans/active/institutional_smoke_matrix_2026_04_20.md).
 #
 # Wraps the existing setup-buckets.py SSOT. The Python script reads
 # `dependencies.yaml` + `cloud-providers.yaml` + `bucket_config.yaml` and

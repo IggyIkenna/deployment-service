@@ -80,9 +80,7 @@ def get_bucket_stats(
 
         if group_key not in prefix_breakdown:
             prefix_breakdown[group_key] = {"size": 0, "objects": 0}
-        prefix_breakdown[group_key]["size"] = int(prefix_breakdown[group_key]["size"]) + (
-            blob.size or 0
-        )
+        prefix_breakdown[group_key]["size"] = int(prefix_breakdown[group_key]["size"]) + (blob.size or 0)
         prefix_breakdown[group_key]["objects"] = int(prefix_breakdown[group_key]["objects"]) + 1
 
     return total_size, total_objects, prefix_breakdown
@@ -114,9 +112,7 @@ def print_report(
         return
 
     # Sort by size descending
-    sorted_prefixes = sorted(
-        prefix_breakdown.items(), key=lambda kv: int(kv[1]["size"]), reverse=True
-    )
+    sorted_prefixes = sorted(prefix_breakdown.items(), key=lambda kv: int(kv[1]["size"]), reverse=True)
 
     logger.info("")
     logger.info("-" * 80)
@@ -162,18 +158,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Check GCS storage size for sports data")
-    parser.add_argument(
-        "--bucket", type=str, default="", help="GCS bucket name (overrides config default)"
-    )
-    parser.add_argument(
-        "--prefix", type=str, default="", help="Only enumerate blobs under this prefix"
-    )
-    parser.add_argument(
-        "--depth", type=int, default=2, help="Path segment depth for grouping (default 2)"
-    )
-    parser.add_argument(
-        "--top", type=int, default=10, help="Number of top prefixes to show (default 10)"
-    )
+    parser.add_argument("--bucket", type=str, default="", help="GCS bucket name (overrides config default)")
+    parser.add_argument("--prefix", type=str, default="", help="Only enumerate blobs under this prefix")
+    parser.add_argument("--depth", type=int, default=2, help="Path segment depth for grouping (default 2)")
+    parser.add_argument("--top", type=int, default=10, help="Number of top prefixes to show (default 10)")
     args = parser.parse_args()
 
     config = UnifiedCloudConfig()

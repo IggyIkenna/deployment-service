@@ -99,6 +99,16 @@ run_service() {
     local svc_dir="${WORKSPACE_ROOT}/${svc}"
     local extra_args="${2:-}"
 
+    # Post-consolidation: pnl-attribution-service, risk-and-exposure-service,
+    # position-balance-monitor-service are sub-packages of strategy-service.
+    # Route dir-check to strategy-service to avoid spurious SKIP.
+    # (strategy_repo_consolidation_2026_05_19.md)
+    case "$svc" in
+        pnl-attribution-service|risk-and-exposure-service|position-balance-monitor-service)
+            svc_dir="${WORKSPACE_ROOT}/strategy-service"
+            ;;
+    esac
+
     if [[ ! -d "$svc_dir" ]]; then
         echo "SKIP: ${svc} — repo not found at ${svc_dir}"
         return 0
@@ -139,15 +149,21 @@ run_service() {
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         pnl-attribution-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
+            # Consolidated into strategy-service post-consolidation (strategy_repo_consolidation_2026_05_19.md).
+            # cd into strategy-service dir (not the archived pnl-attribution-service dir).
+            cmd="cd ${WORKSPACE_ROOT}/strategy-service && python -m strategy_service --operation pnl-attribution --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         risk-and-exposure-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
+            # Consolidated into strategy-service post-consolidation (strategy_repo_consolidation_2026_05_19.md).
+            # cd into strategy-service dir (not the archived risk-and-exposure-service dir).
+            cmd="cd ${WORKSPACE_ROOT}/strategy-service && python -m strategy_service --operation risk-monitor --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             [[ -n "$STRATEGY" ]] && cmd="${cmd} --strategy ${STRATEGY}"
             ;;
         position-balance-monitor-service)
-            cmd="cd ${svc_dir} && python -m ${svc_under} --operation compute --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
+            # Consolidated into strategy-service post-consolidation (strategy_repo_consolidation_2026_05_19.md).
+            # cd into strategy-service dir (not the archived position-balance-monitor-service dir).
+            cmd="cd ${WORKSPACE_ROOT}/strategy-service && python -m strategy_service --operation position-recon --mode batch --asset-group ${ASSET_GROUP} --start-date ${START_DATE} --end-date ${END_DATE}"
             ;;
         *)
             echo "SKIP: ${svc} — no backfill command defined"

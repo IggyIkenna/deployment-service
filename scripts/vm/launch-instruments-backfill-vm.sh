@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Launch GCE VMs for parallel instruments-service backfill (all asset groups).
+#
+# Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
+# Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
+# Pre-condition: run `bash create-code-tarballs.sh` first.
+#
+# VM allocation (6 VMs, default ranges):
+#   instr-backfill-cefi-1:  CeFi   2020-01-01 → 2022-06-30
+#   instr-backfill-cefi-2:  CeFi   2022-07-01 → 2024-12-31
+#   instr-backfill-cefi-3:  CeFi   2025-01-01 → 2026-02-28
+#   instr-backfill-defi:    DeFi   2020-01-01 → 2026-02-28
+#   instr-backfill-tradfi:  TradFi 2020-01-01 → 2026-02-28
+#   instr-backfill-sports:  Sports 2020-06-01 → 2026-03-28
+#
+# Usage:
+#   bash launch-instruments-backfill-vm.sh                                     # All 6 VMs
+#   bash launch-instruments-backfill-vm.sh --dry-run                           # Print plan
+#   bash launch-instruments-backfill-vm.sh --asset-group DEFI                  # Only DeFi VM
+#   bash launch-instruments-backfill-vm.sh --asset-group CEFI \
+#       --start 2026-01-01 --end 2026-03-31                                    # Override window
+#   bash launch-instruments-backfill-vm.sh --force                             # Bypass manifest skip
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
+PROJECT_ID="${PROJECT_ID:-central-element-323112}"
+ZONE="${ZONE:-asia-northeast1-c}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+DRY_RUN=false
+FORCE=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+ASSET_GROUP_FILTER=""
+START_OVERRIDE=""
+END_OVERRIDE=""
+CHUNK_DAYS="${CHUNK_DAYS:-30}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)     DRY_RUN=true; shift ;;
+    --force)       FORCE=true; shift ;;
+    --project)     PROJECT_ID="$2"; shift 2 ;;
+    --zone)        ZONE="$2"; shift 2 ;;
+    --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --asset-group) ASSET_GROUP_FILTER="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
+    --start)       START_OVERRIDE="$2"; shift 2 ;;
+    --end)         END_OVERRIDE="$2"; shift 2 ;;
+    --chunk-days)  CHUNK_DAYS="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+  if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
+    echo "ERROR: --start/--end requires --asset-group to scope the override." >&2
+    exit 1
+  fi
+fi
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
+CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
+
+if $FORCE; then
+  echo "MODE: --force ON — manifest skip BYPASSED. Every day-shard will be re-fetched."
+else
+  echo "MODE: --force OFF (default) — manifest skip ACTIVE."
+fi
+
+echo "============================================================"
+echo "Instruments Backfill VM Fleet Launcher (Pattern A)"
+echo "  Project:  ${PROJECT_ID}"
+echo "  Zone:     ${ZONE}"
+echo "  Machine:  ${MACHINE_TYPE}"
+echo "  Filter:   ${ASSET_GROUP_FILTER:-all}"
+echo "  Force:    ${FORCE}"
+echo "  Chunk:    ${CHUNK_DAYS} days"
+echo "  Env:      ${DEPLOYMENT_ENV}"
+echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-code.tar.gz"
+echo "============================================================"
+
+launch_vm() {
+  local VM_NAME="$1"
+  local ASSET_GROUP="$2"
+  local START_DATE="$3"
+  local END_DATE="$4"
+
+  if [[ -n "${ASSET_GROUP_FILTER}" && "${ASSET_GROUP}" != "${ASSET_GROUP_FILTER}" ]]; then
+    echo "  Skipping ${VM_NAME} (${ASSET_GROUP} != ${ASSET_GROUP_FILTER})"
+    return 0
+  fi
+
+  if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
+    [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
+    [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
+    # Suffix avoids singleton collision on override.
+    VM_NAME="${VM_NAME}-$(echo "${END_DATE}" | tr -d '-')"
+    echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
+  fi
+
+  echo ""
+  echo "--- ${VM_NAME}: ${ASSET_GROUP} ${START_DATE} → ${END_DATE} ---"
+
+  if $DRY_RUN; then
+    echo "  [DRY RUN] Would create VM: ${VM_NAME}"
+    echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
+    return 0
+  fi
+
+  local METADATA
+  METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+  METADATA="${METADATA},VM_TASK=instruments-backfill"
+  METADATA="${METADATA},VM_SERVICE=instruments_service"
+  METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+  $FORCE && METADATA="${METADATA},VM_FORCE=true"
+
+  echo "  Creating VM ${VM_NAME}..."
+  gcloud compute instances create "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --machine-type="${MACHINE_TYPE}" \
+    --scopes=cloud-platform \
+    --no-restart-on-failure \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --labels="purpose=instruments-backfill,asset-group=$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}"
+  echo "  VM ${VM_NAME} created."
+  echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+}
+
+# VM definitions: name|asset_group|start|end
+declare -a VMS=(
+  "instr-backfill-cefi-1|CEFI|2020-01-01|2022-06-30"
+  "instr-backfill-cefi-2|CEFI|2022-07-01|2024-12-31"
+  "instr-backfill-cefi-3|CEFI|2025-01-01|2026-02-28"
+  "instr-backfill-defi|DEFI|2020-01-01|2026-02-28"
+  "instr-backfill-tradfi|TRADFI|2020-01-01|2026-02-28"
+  "instr-backfill-sports|SPORTS|2020-06-01|2026-03-28"
+  "instr-backfill-pred|PREDICTION|2020-01-01|2026-02-28"
+)
+
+for VM_DEF in "${VMS[@]}"; do
+  IFS='|' read -r VM_NAME ASSET_GROUP START_DATE END_DATE <<< "$VM_DEF"
+  launch_vm "$VM_NAME" "$ASSET_GROUP" "$START_DATE" "$END_DATE"
+done
+
+echo ""
+echo "============================================================"
+echo "All VMs launched."
+echo "  Monitor: gcloud compute instances list --filter='name~instr-backfill' --project=${PROJECT_ID}"
+echo "  Logs:    gsutil ls gs://${CODE_BUCKET}/vm-logs/ | grep instr-backfill"
+echo "============================================================"

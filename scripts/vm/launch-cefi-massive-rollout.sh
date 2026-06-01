@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Massive CeFi backfill launcher — 364 week-VMs (one per ISO week x 7 years)
 # OR 364 day-VMs on a single day for concurrency probing. Inherits the
 # 100-VM-per-batch rate-limit pattern from the legacy unified-trading-deployment-v2
@@ -36,6 +40,26 @@
 # pre-launch to verify headroom.
 set -euo pipefail
 
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Parse --env flag (anywhere in args) while preserving positional MODE+dates.
+_positional=()
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) _positional+=("$1"); shift ;;
+    esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
 MODE="${1:-}"
 shift || true
 
@@ -48,7 +72,7 @@ shift || true
 REGION="asia-northeast1"
 ZONES=("asia-northeast1-a" "asia-northeast1-b" "asia-northeast1-c")
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Resolve machine type via the empirical resource matrix in MTDS unless the
 # operator overrides via env. e2-standard-8 (32 GB) deterministically OOMs on
@@ -156,6 +180,7 @@ _common_meta() {
     echo -n ",VM_SERVICE=market_tick_data_service"
     echo -n ",VM_OPERATION=download"
     echo -n ",VM_ASSET_GROUP=CEFI"
+    echo -n ",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     echo -n ",VM_SHUTDOWN_ON_COMPLETION=true"
     echo -n ",MANIFEST_PER_VM_SHARDS=true"
 }
@@ -171,6 +196,12 @@ _launch_one() {
     local zone_count=${#ZONES[@]}
     local attempt=0
     local zone_offset=$(( (shard_idx - 1) % zone_count ))
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        echo "[DRY-RUN] Would create VM: $vm_name (window=${start_date}..${end_date}, shard=${shard_idx})"
+        echo "[DRY-RUN]   meta=${meta}"
+        echo "ok" > "$RESULTS_DIR/$vm_name"
+        return 0
+    fi
     while (( attempt < RETRY_MAX * zone_count )); do
         local zone="${ZONES[$(( (zone_offset + attempt) % zone_count ))]}"
         if gcloud compute instances create "$vm_name" \
@@ -181,7 +212,7 @@ _launch_one() {
                 --image-project=ubuntu-os-cloud \
                 --scopes=cloud-platform \
                 --metadata="$meta" \
-                --labels=purpose=cefi-massive-rollout,run-ts="$RUN_TS",mode="$MODE" \
+                --labels=purpose=cefi-massive-rollout,env="${DEPLOYMENT_ENV}",run-ts="$RUN_TS",mode="$MODE" \
                 > /dev/null 2>&1; then
             echo "ok" > "$RESULTS_DIR/$vm_name"
             return 0

@@ -54,15 +54,11 @@ def _make_prefixes_for_date(
         if venue_filter:
             venue_set = {v.upper() for v in venue_filter}
             venues = [v for v in venues if v.upper() in venue_set]
-        return [
-            (template.replace("{date}", date_str).replace("{venue}", v), v) for v in sorted(venues)
-        ]
+        return [(template.replace("{date}", date_str).replace("{venue}", v), v) for v in sorted(venues)]
 
     if service in _DEFAULT_FEATURE_GROUPS:
         groups = _DEFAULT_FEATURE_GROUPS[service]
-        return [
-            (template.replace("{date}", date_str).replace("{feature_group}", g), g) for g in groups
-        ]
+        return [(template.replace("{date}", date_str).replace("{feature_group}", g), g) for g in groups]
 
     # Services with no sub-dimension (corporate-actions, calendar)
     return [(template.replace("{date}", date_str), None)]
@@ -100,11 +96,7 @@ def make_mock_path_combinatorics(
         for cat, cat_venues in _DEFAULT_VENUES.get("instruments-service", {}).items():
             # market-tick uses CEFI venues for CEFI, TRADFI for TRADFI
             tick_venues = (
-                ["BINANCE-SPOT", "BINANCE-FUTURES"]
-                if cat == "CEFI"
-                else ["CME", "ICE"]
-                if cat == "TRADFI"
-                else []
+                ["BINANCE-SPOT", "BINANCE-FUTURES"] if cat == "CEFI" else ["CME", "ICE"] if cat == "TRADFI" else []
             )
             for v in tick_venues:
                 for dt in ["trades", "book_snapshot_5"]:
@@ -160,17 +152,11 @@ def make_mock_path_combinatorics(
             if venue_filter:
                 venue_set = {v.upper() for v in venue_filter}
                 cat_venues = [v for v in cat_venues if v.upper() in venue_set]
-            return [
-                (template.replace("{date}", date_str).replace("{venue}", v), v)
-                for v in sorted(cat_venues)
-            ]
+            return [(template.replace("{date}", date_str).replace("{venue}", v), v) for v in sorted(cat_venues)]
 
         if service in _DEFAULT_FEATURE_GROUPS:
             groups = _DEFAULT_FEATURE_GROUPS[service]
-            return [
-                (template.replace("{date}", date_str).replace("{feature_group}", g), g)
-                for g in groups
-            ]
+            return [(template.replace("{date}", date_str).replace("{feature_group}", g), g) for g in groups]
 
         return [(template.replace("{date}", date_str), None)]
 

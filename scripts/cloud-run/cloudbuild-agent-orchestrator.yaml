@@ -1,0 +1,48 @@
+# Cloud Build for agent-orchestrator images.
+#
+# Mirrors cloudbuild-odum-portal.yaml shape; right-sized for API-only:
+# no BUILD_ENV_FILE machinery (Vite dashboard is served by Firebase
+# Hosting at Phase 2, not built into this container).
+#
+# - Pulls the previous :uat or :production tag as cache source so a
+#   code-only change (no pyproject.toml / uv.lock delta) reuses the
+#   already-built deps layer. First deploy of a new tag will miss; every
+#   deploy after that reuses uv-install + UTL-import layers.
+#
+# Substitutions:
+#   _IMAGE       — full tagged image ref (e.g. .../agent-orchestrator:uat)
+#   _PROJECT_ID  — passed through as ARG PROJECT_ID to the Dockerfile
+#                  (resolves the asia-northeast1 UTL base image)
+
+steps:
+  # Warm the Docker cache. Failure is non-fatal — a missing prior image (first
+  # deploy of this tag, or after registry cleanup) simply means a cold build.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "pull-cache"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - "docker pull ${_IMAGE} || echo 'No prior image for ${_IMAGE} — cold build.'"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build"
+    args:
+      - "build"
+      - "--cache-from"
+      - "${_IMAGE}"
+      - "--build-arg"
+      - "BUILDKIT_INLINE_CACHE=1"
+      - "--build-arg"
+      - "PROJECT_ID=${_PROJECT_ID}"
+      - "-t"
+      - "${_IMAGE}"
+      - "."
+    waitFor: ["pull-cache"]
+
+images:
+  - "${_IMAGE}"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  env:
+    - "DOCKER_BUILDKIT=1"

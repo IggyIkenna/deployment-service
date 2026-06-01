@@ -81,9 +81,7 @@ class PeriodicTierState:
     ) -> None:
         self._bucket = bucket
         self._key = key
-        self._storage: SchedulerStateStorage = (
-            storage if storage is not None else _default_state_storage()
-        )
+        self._storage: SchedulerStateStorage = storage if storage is not None else _default_state_storage()
         self._last_run: dict[str, str] = {}
         self._load()
 
@@ -106,7 +104,10 @@ class PeriodicTierState:
             self._last_run = {}
             return
         try:
-            data: object = json.loads(raw)
+            # Import cast locally to avoid top-level imports
+            from typing import cast
+
+            data: object = cast(object, json.loads(raw))
         except json.JSONDecodeError as exc:
             logger.warning(
                 "Malformed scheduler state at gs://%s/%s: %s — starting fresh",
@@ -144,9 +145,7 @@ class PeriodicTierState:
         try:
             self._storage.upload_string(self._bucket, self._key, body)
         except (OSError, ValueError) as exc:
-            logger.warning(
-                "Failed to persist scheduler state to gs://%s/%s: %s", self._bucket, self._key, exc
-            )
+            logger.warning("Failed to persist scheduler state to gs://%s/%s: %s", self._bucket, self._key, exc)
 
     def snapshot(self) -> dict[str, str]:
         """Return a copy of the internal last-run map (for tests / introspection)."""

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Launch a short-lived GCE VM that forward-polls CeFi venues (Tardis fleet).
 #
 # Purpose: ingest a single day of CeFi market-data ticks for the operator-
@@ -41,11 +45,26 @@
 # VMs sharing one key thrash on 429 and waste tarball download cost.
 set -euo pipefail
 
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-  FORCE=true
-  shift
-fi
+
+_positional=()
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --force) FORCE=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) _positional+=("$1"); shift ;;
+  esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -eq 2 ]]; then
   START_DATE="$1"
@@ -57,7 +76,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
@@ -91,18 +110,26 @@ METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=CEFI"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_NAME=${VM_NAME}"
+METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-8 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=cefi-forward-poll,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-8 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=cefi-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

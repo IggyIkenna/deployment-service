@@ -81,9 +81,7 @@ REFERENCE_CORRECTIONS: list[CorrectionRecord] = [
     {"api_football_id": 11, "country": "Multi", "league": "CONMEBOL Sudamericana"},
 ]
 
-ALL_CORRECTIONS: list[CorrectionRecord] = (
-    PREDICTION_CORRECTIONS + FEATURES_CORRECTIONS + REFERENCE_CORRECTIONS
-)
+ALL_CORRECTIONS: list[CorrectionRecord] = PREDICTION_CORRECTIONS + FEATURES_CORRECTIONS + REFERENCE_CORRECTIONS
 
 # Mapping of wrong old IDs to correct new IDs for traceability
 ID_CORRECTIONS: dict[int, int] = {
@@ -127,12 +125,8 @@ def main() -> None:
     """Preview or apply CSV-verified corrections to the league config."""
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(
-        description="Apply CSV corrections to league classification config"
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", default=True, help="Preview changes (default)"
-    )
+    parser = argparse.ArgumentParser(description="Apply CSV corrections to league classification config")
+    parser.add_argument("--dry-run", action="store_true", default=True, help="Preview changes (default)")
     parser.add_argument("--apply", action="store_true", help="Write corrected Parquet back to GCS")
     parser.add_argument("--bucket", type=str, default="", help="GCS bucket name (overrides config)")
     parser.add_argument(
@@ -181,9 +175,7 @@ def main() -> None:
     logger.info("")
     logger.info("REFERENCE corrections: %d", len(REFERENCE_CORRECTIONS))
     for entry in REFERENCE_CORRECTIONS:
-        logger.info(
-            "  + ID %s  %s - %s", entry["api_football_id"], entry["country"], entry["league"]
-        )
+        logger.info("  + ID %s  %s - %s", entry["api_football_id"], entry["country"], entry["league"])
 
     logger.info("")
     logger.info("ID remappings (old -> new):")

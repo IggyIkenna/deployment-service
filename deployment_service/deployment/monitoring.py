@@ -54,9 +54,7 @@ def monitor_shards(
     if docker_image is None:
         docker_image = cast(str | None, state.config.get("docker_image"))
     if environment_variables is None:
-        environment_variables = cast(
-            dict[str, str], state.config.get("environment_variables") or {}
-        )
+        environment_variables = cast(dict[str, str], state.config.get("environment_variables") or {})
     if compute_config is None:
         compute_config = cast(dict[str, object], state.config.get("compute_config") or {})
 
@@ -132,8 +130,7 @@ def monitor_shards(
                     shard.end_time = datetime.now(UTC).isoformat()
                     completed_shards.append(shard_id)
                     logger.error(
-                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts"
-                        " (max retries reached): %s",
+                        "[RETRY_EXHAUSTED] Shard %s failed after %s attempts (max retries reached): %s",
                         shard_id,
                         shard.retries + 1,
                         job_info.error_message,
@@ -178,9 +175,7 @@ def monitor_shards(
                         ttl_override: int | None = None
                     else:
                         resources = {"RUNNING_EXECUTIONS": 1.0}
-                        timeout_s = int(
-                            cast(int, (compute_config or {}).get("timeout_seconds") or 3600)
-                        )
+                        timeout_s = int(cast(int, (compute_config or {}).get("timeout_seconds") or 3600))
                         ttl_override = max(300, min(timeout_s, 6 * 3600))
 
                     while True:
@@ -261,9 +256,7 @@ def monitor_shards(
                         quota_broker.release(lease_id=str(shard.quota_lease_id))
                         shard.quota_lease_id = None
                 except (OSError, ValueError, RuntimeError) as inner_err:
-                    logger.warning(
-                        "Unexpected error during operation: %s", inner_err, exc_info=True
-                    )
+                    logger.warning("Unexpected error during operation: %s", inner_err, exc_info=True)
                 if shard.retries >= max_retries:
                     shard.status = ShardStatus.FAILED
                     shard.error_message = f"Retry failed: {retry_err}"

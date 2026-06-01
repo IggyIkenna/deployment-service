@@ -57,6 +57,4 @@ async def receive_signal(cp_id: str, request: Request) -> JSONResponse:
         idempotency_key,
         len(body_bytes),
     )
-    return JSONResponse(
-        {"ack": True, "cp": cp_id, "idempotency_key": idempotency_key}
-    )
+    return JSONResponse({"ack": True, "cp": cp_id, "idempotency_key": idempotency_key})

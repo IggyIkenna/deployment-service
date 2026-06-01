@@ -122,6 +122,20 @@ VM_FORCE=$(_meta VM_FORCE)
 # picks it up via os.environ.get.
 TARDIS_STREAMING_FINALIZE=$(_meta TARDIS_STREAMING_FINALIZE)
 [[ -n "$TARDIS_STREAMING_FINALIZE" ]] && export TARDIS_STREAMING_FINALIZE
+# Tarball SHA gate — when set, VM boot asserts that every installed tarball's
+# manifest.json commit_sha matches this value. Set by launchers that pin a
+# specific deployment commit. Raises ManifestShaDriftError on mismatch + exits 1.
+TARBALL_EXPECTED_SHA=$(_meta TARBALL_EXPECTED_SHA)
+# Per-tarball SHA pins — when set, VM downloads the SHA-pinned tarball from GCS
+# instead of the fixed-name one. Prevents race conditions where another agent
+# rebuilds the fixed-name tarball from a different commit between tarball build
+# and VM launch. Format: full 40-char commit SHA. Key per tarball:
+#   UTL_TARBALL_SHA  → unified-trading-library-code@{sha}.tar.gz
+#   UAC_TARBALL_SHA  → unified-api-contracts-code@{sha}.tar.gz
+#   MDPS_TARBALL_SHA → market-data-processing-service-code@{sha}.tar.gz
+UTL_TARBALL_SHA=$(_meta UTL_TARBALL_SHA)
+UAC_TARBALL_SHA=$(_meta UAC_TARBALL_SHA)
+MDPS_TARBALL_SHA=$(_meta MDPS_TARBALL_SHA)
 # Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
 # tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
 # running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
@@ -131,10 +145,13 @@ TARDIS_STREAM_BLOCK_SIZE_MB=$(_meta TARDIS_STREAM_BLOCK_SIZE_MB)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# VM_DURATION_HOURS: optional run-time cap for services that accept --duration-hours.
+# Used by alerting-quietness-baseline (48h quietness run per Phase 7 of alerting plan).
+VM_DURATION_HOURS=$(_meta VM_DURATION_HOURS)
 # Recovery-mode fixture-id allowlist (instruments-service --recovery-fixture-ids).
 # Path to a parquet on GCS or local disk that scopes per-fixture entity fetches
 # to a specific af_fixture_id allowlist. Used for targeted recovery work — see
-# unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.plan.md.
+# unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md.
 VM_RECOVERY_FIXTURE_IDS=$(_meta VM_RECOVERY_FIXTURE_IDS)
 # VM_INSTRUMENT_IDS: semicolon-separated raw venue-native symbols. Added
 # 2026-04-19 so cefi-backfill launchers can restrict Tardis downloads to a
@@ -147,6 +164,11 @@ VM_RECOVERY_FIXTURE_IDS=$(_meta VM_RECOVERY_FIXTURE_IDS)
 # Semicolons are converted to spaces when appended to CLI_ARGS because argparse
 # nargs='+' takes space-separated values.
 VM_INSTRUMENT_IDS=$(_meta VM_INSTRUMENT_IDS)
+# VM_GAS_FEE_CHAINS / VM_GAS_FEE_SAMPLE_INTERVAL: optional gas-fee CLI args used
+# in the generic task handler (lines below). Must be pre-initialised here so
+# set -u does not fire when the metadata key is absent on non-gas-fee VMs.
+VM_GAS_FEE_CHAINS=$(_meta VM_GAS_FEE_CHAINS)
+VM_GAS_FEE_SAMPLE_INTERVAL=$(_meta VM_GAS_FEE_SAMPLE_INTERVAL)
 # IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
 # Read from metadata and EXPORT so Python inherits it.
 # CRITICAL: only export if non-empty — Pydantic Settings treats an empty-string
@@ -157,8 +179,37 @@ IS_TEST_RUN=$(_meta IS_TEST_RUN)
 if [[ -n "$IS_TEST_RUN" ]]; then
   export IS_TEST_RUN
 fi
+# DEPLOYMENT_ENV (env-tier for bucket-resolution per bucket_name_ssot Phase 0f,
+# 2026-05-11). Every Phase-0f launcher propagates this via
+# --metadata=DEPLOYMENT_ENV=<prod|staging|dev>. Default prod when absent so
+# legacy launchers that haven't been migrated still target the prod-tier
+# buckets without surprises. Export BEFORE any downstream env-aware code path
+# fires (bucket-resolution, manifest writes, GCS-tee, heartbeat).
+DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
+export DEPLOYMENT_ENV
+case "$DEPLOYMENT_ENV" in
+  prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+  staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+  *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
+esac
+export DEPLOYMENT_ENV_SHORT
+# Stall-watchdog timeout override. Sports MDPS processes long empty-date
+# stretches (no betting events → no log output) that would falsely trigger
+# the default 1800s threshold and SIGKILL the process before the manifest
+# shard is flushed to GCS. Launchers set STALL_TIMEOUT_SEC in metadata to
+# raise the threshold for asset_groups where empty-date gaps are expected.
+STALL_TIMEOUT_SEC=$(_meta STALL_TIMEOUT_SEC)
+[[ -n "$STALL_TIMEOUT_SEC" ]] && export STALL_TIMEOUT_SEC
+# Manifest consolidated staleness threshold override. CeFi MTDS bucket has
+# 34M+ rows (mostly Deribit options) and 1700+ per-VM shards — loading all
+# shards at startup OOM-kills the VM on any machine size. Setting this to
+# 86400s (24h) makes the ManifestReader use the consolidated availability_index
+# even when it is hours old, instead of falling back to per-VM shard merge.
+# Launchers pass MANIFEST_CONSOLIDATED_STALENESS_SEC=86400 for large buckets.
+MANIFEST_CONSOLIDATED_STALENESS_SEC=$(_meta MANIFEST_CONSOLIDATED_STALENESS_SEC)
+[[ -n "$MANIFEST_CONSOLIDATED_STALENESS_SEC" ]] && export MANIFEST_CONSOLIDATED_STALENESS_SEC
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
-log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE"
+log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
 # ── 3. Deploy code ──
 # Core repos (always required) + optional service repos.
@@ -179,6 +230,12 @@ declare -A SERVICE_TARBALLS=(
   ["instruments_service"]="instruments-service-code"
   ["features_sports_service"]="features-sports-service-code"
   ["features_onchain_service"]="features-onchain-service-code"
+  # features_service is the consolidated post-2026-05-08 module (features_repo_consolidation_2026_05_08.md).
+  # Without this mapping the script falls through to "install all" which pulls
+  # execution-service + e2e-testing transitive deps and hits the unsatisfiable
+  # betfairlightweight/requests resolve. Added 2026-05-16 after attempts 3-5 of
+  # features-onchain DeFi VM all failed at uv pip install with conflicting pins.
+  ["features_service"]="features-service-code"
   ["market_data_processing_service"]="market-data-processing-service-code"
   ["features_delta_one_service"]="features-delta-one-service-code"
   ["strategy_service"]="strategy-service-code"
@@ -194,6 +251,8 @@ declare -A SERVICE_TARBALLS=(
   ["features_multi_timeframe_service"]="features-multi-timeframe-service-code"
   ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
+  ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
+  ["alerting_service"]="alerting-service-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -203,6 +262,7 @@ declare -A TARBALL_DIRS=(
   ["unified-trading-library-code"]="utl"
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
+  ["features-service-code"]="features"
   ["features-sports-service-code"]="fss"
   ["features-onchain-service-code"]="fos"
   ["market-data-processing-service-code"]="mdps"
@@ -220,6 +280,13 @@ declare -A TARBALL_DIRS=(
   ["features-multi-timeframe-service-code"]="fmt"
   ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
+  ["batch-live-reconciliation-service-code"]="blr"
+  ["alerting-service-code"]="alerting"
+  # e2e-testing scripts (run-paper.sh / run-live.sh / colocated_engine.py) for
+  # strategy paper/live VMs. No editable install (no pyproject.toml Python package
+  # to install from e2e-testing root — strategy-service + execution-service packages
+  # are installed from their own tarballs and colocated_engine.py imports from those).
+  ["e2e-testing-code"]="e2e-testing"
 )
 
 # Always install core (UAC + UTL + deployment-service) + the service
@@ -230,12 +297,48 @@ declare -A TARBALL_DIRS=(
 # can import deployment_service.deployments_registry — without it every
 # VM silently drops DEPLOYMENT_STARTED/PROGRESS/COMPLETED events.
 NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "deployment-service-code")
-SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
-if [ -n "$SERVICE_TARBALL" ]; then
-  NEEDED_TARBALLS+=("$SERVICE_TARBALL")
+# synthetic-benchmark VMs (Phase 5 of mock_data_pipeline_benchmarking_2026_05_10):
+# the harness shells out to all 6 cutover-pipeline service CLIs in subprocess
+# mode (mtds_read → mdps_compute → features → ml_inference → strategy →
+# matching_engine), so every per-service tarball must land in $WORKSPACE
+# before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
+# triggers the multi-service install path here instead of the single-service
+# default.
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
+  # run-paper.sh / run-live.sh. colocated_engine.py imports:
+  #   strategy_service, execution_service (core logic)
+  #   position_balance_monitor_service (treasury state, line 195)
+  #   pnl_attribution_service (P&L breakdown, line 558)
+  #   risk_and_exposure_service (risk metrics, line 635)
+  # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  log "VM_TASK=${VM_TASK} — installing strategy/execution/pbm/pnl/risk + e2e-testing"
+  NEEDED_TARBALLS+=(
+    "strategy-service-code"
+    "execution-service-code"
+    "position-balance-monitor-service-code"
+    "pnl-attribution-service-code"
+    "risk-and-exposure-service-code"
+    "e2e-testing-code"
+  )
+elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_benchmark" ]]; then
+  log "VM_TASK=synthetic-benchmark — installing all 6 pipeline service tarballs"
+  NEEDED_TARBALLS+=(
+    "mtds-code"
+    "market-data-processing-service-code"
+    "features-service-code"
+    "ml-inference-service-code"
+    "strategy-service-code"
+    "execution-service-code"
+  )
 else
-  log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
-  for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
+  SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
+  if [ -n "$SERVICE_TARBALL" ]; then
+    NEEDED_TARBALLS+=("$SERVICE_TARBALL")
+  else
+    log "WARNING: Unknown VM_SERVICE=$VM_SERVICE — installing all available tarballs"
+    for k in "${!TARBALL_DIRS[@]}"; do NEEDED_TARBALLS+=("$k"); done
+  fi
 fi
 
 # Transitive sibling dependency: MDPS + features-* services declare
@@ -254,6 +357,7 @@ MTDS_DEPENDENT_SERVICES=(
   "features_cross_instrument_service"
   "features_commodity_service"
   "features_sports_service"
+  "features_service"
 )
 for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
   if [[ "$VM_SERVICE" == "$dep_svc" ]]; then
@@ -273,11 +377,39 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
   for tarball_name in "${NEEDED_TARBALLS[@]}"; do
     dir="${TARBALL_DIRS[$tarball_name]}"
     tarball_path="/tmp/${tarball_name}.tar.gz"
-    if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz" "$tarball_path" 2>/dev/null; then
+    # Resolve per-tarball SHA pin if set (prevents race with concurrent tarball rebuilds)
+    _tarball_pin_sha=""
+    case "$tarball_name" in
+      unified-trading-library-code)        _tarball_pin_sha="${UTL_TARBALL_SHA:-}" ;;
+      unified-api-contracts-code)          _tarball_pin_sha="${UAC_TARBALL_SHA:-}" ;;
+      market-data-processing-service-code) _tarball_pin_sha="${MDPS_TARBALL_SHA:-}" ;;
+    esac
+    if [[ -n "$_tarball_pin_sha" ]]; then
+      _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.tar.gz"
+      log "  Using SHA-pinned tarball: ${tarball_name}@${_tarball_pin_sha:0:12}"
+    else
+      _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz"
+    fi
+    if gsutil -q cp "$_tarball_gcs_src" "$tarball_path" 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
       tar xzf "$tarball_path" -C "$WORKSPACE/$dir"
       INSTALLED_DIRS+=("$WORKSPACE/$dir")
       log "Deployed $tarball_name → $WORKSPACE/$dir"
+
+      # Validate tarball manifest.json if present (Phase 3 SHA discipline)
+      _tarball_manifest_path="/tmp/${tarball_name}.manifest.json"
+      if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json" "$_tarball_manifest_path" 2>/dev/null; then
+        _tarball_actual_sha=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('commit_sha','unknown'))" 2>/dev/null || echo "unknown")
+        _tarball_pyproject_version=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('pyproject_version','unknown'))" 2>/dev/null || echo "unknown")
+        log "  manifest: sha=${_tarball_actual_sha:0:12} version=$_tarball_pyproject_version"
+
+        # Assert against launcher-supplied expected SHA (activated when TARBALL_EXPECTED_SHA metadata is set)
+        if [[ -n "${TARBALL_EXPECTED_SHA:-}" && "$_tarball_actual_sha" != "$TARBALL_EXPECTED_SHA" ]]; then
+          log "ERROR: Tarball SHA drift — $tarball_name expected=${TARBALL_EXPECTED_SHA:0:12} actual=${_tarball_actual_sha:0:12}"
+          log "ERROR: Deploy the correct tarball (run create-code-tarballs.sh from the expected commit) and retry."
+          exit 1
+        fi
+      fi
     else
       log "WARNING: tarball $tarball_name not found in GCS — skipping"
     fi
@@ -323,8 +455,38 @@ log "Installing Python dependencies..."
 # failure that stops the whole VM. Everything else installs normally.
 INSTALL_ARGS_STD=("--no-sources")
 INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
+# For synthetic-benchmark VMs, install every service package (mdps / features /
+# ml-infer / strategy / execution + deployment) via --no-deps. Reason: the
+# 6 service pyproject.tomls each pin transitive deps (e.g. execution-service
+# pins requests<2.33.0; another pyproject in the union wants >=2.33.0) and the
+# combined resolve raises `requirements are unsatisfiable`. The harness only
+# needs the service modules importable (it shells out to their CLIs which
+# run in the same venv UAC + UTL + MTDS set up); --no-deps gives that without
+# trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
+# install with full deps in STD — they're the SSOT for what the workspace
+# expects in the venv.
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
 for dir in "${INSTALLED_DIRS[@]}"; do
-  if [[ "$dir" == */deployment ]]; then
+  _base="$(basename "$dir")"
+  _route_to_nodeps=false
+  for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
+    if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
+  done
+  # Outside synthetic-benchmark / strategy-paper / strategy-live, only
+  # `deployment` historically routes to NODEPS — preserve that by checking
+  # VM_TASK so other VMs aren't affected.
+  # strategy-paper / strategy-live: same reason as synthetic-benchmark —
+  # execution-service's betfairlightweight dep declares requests<2.33.0 which
+  # conflicts with workspace canonical requests>=2.33.0. betfairlightweight is
+  # Betfair-specific and not used in DeFi strategy/execution; --no-deps installs
+  # the service modules without triggering the unsatisfiable conflict.
+  if [[ "$VM_TASK" != "synthetic-benchmark" && \
+        "$VM_TASK" != "strategy-paper" && \
+        "$VM_TASK" != "strategy-live" && \
+        "$_base" != "deployment" ]]; then
+    _route_to_nodeps=false
+  fi
+  if $_route_to_nodeps; then
     INSTALL_ARGS_NODEPS+=("-e" "$dir")
   else
     INSTALL_ARGS_STD+=("-e" "$dir")
@@ -344,6 +506,14 @@ uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | ta
 # the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
+# position_balance_monitor_service.storage.database eagerly imports sqlalchemy
+# at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
+# version-pinning conflicts; sqlalchemy itself has no such conflict so install
+# it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
+  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3
+fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
 INSTALL_ARGS=("${INSTALL_ARGS_STD[@]}")
@@ -376,36 +546,7 @@ export CLOUD_MOCK_MODE="${CLOUD_MOCK_MODE:-false}"
 # merges shards back into `_index/availability_index.parquet`.
 export MANIFEST_PER_VM_SHARDS="${MANIFEST_PER_VM_SHARDS:-true}"
 
-if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
-  # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
-  # deployment-service (uploaded alongside this script).
-  BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
-  BACKFILL_ARGS="--cluster ${VM_ASSET_GROUP,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
-  [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
-
-  if [[ -f "$BACKFILL_SCRIPT" ]]; then
-    log "Backtest mode: running full pipeline via backfill-cluster.sh"
-    log "  Args: $BACKFILL_ARGS"
-    nohup bash "$BACKFILL_SCRIPT" $BACKFILL_ARGS \
-      > "$LOGS/backtest-pipeline.log" 2>&1 &
-    log "Backtest pipeline launched PID: $!"
-  else
-    log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
-    # Try e2e-testing run-full-pipeline.sh as fallback
-    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_ASSET_GROUP,,}/run-full-pipeline.sh"
-    if [[ -f "$E2E_SCRIPT" ]]; then
-      nohup bash "$E2E_SCRIPT" --start-date "$VM_START_DATE" --end-date "$VM_END_DATE" \
-        > "$LOGS/backtest-pipeline.log" 2>&1 &
-      log "E2E pipeline launched PID: $!"
-    else
-      log "ERROR: No pipeline script found for asset_group $VM_ASSET_GROUP"
-    fi
-  fi
-  exit 0
-fi
-
-# Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
-# monitor any VM task from outside even when SSH is broken).
+# ── 5a. VM identity + observability setup (all task modes, including backtest) ──
 VM_NAME_SELF=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name" || echo "unknown-vm")
 GCS_LOG_DIR="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}"
 GCS_LOG_URI="${GCS_LOG_DIR}/run.log"
@@ -430,6 +571,8 @@ else
   log "WARNING: vm_heartbeat_sidecar.sh not found in GCS — external zombie-watchdog will fall back to manifest shard staleness"
 fi
 
+# Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
+# monitor any VM task from outside even when SSH is broken).
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
   chmod +x "$TEE_WRAPPER"
   log "Debug log wrapper downloaded → $TEE_WRAPPER (uploads to $GCS_LOG_URI)"
@@ -478,6 +621,32 @@ _launch_with_tee() {
   fi
   log "Task launched PID: $!"
 }
+
+if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
+  # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
+  # deployment-service (uploaded alongside this script).
+  # Routes through _launch_with_tee so DEPLOYMENT_STARTED/COMPLETED/FAILED
+  # events are emitted and GCS log is streamed (fixes 2026-05-15 audit gap:
+  # original path used bare nohup + exit 0 before heartbeat setup).
+  BACKFILL_SCRIPT="$WORKSPACE/deployment/scripts/vm/backfill-cluster.sh"
+  BACKFILL_ARGS="--cluster ${VM_ASSET_GROUP,,} --start-date $VM_START_DATE --end-date $VM_END_DATE"
+  [[ -n "$VM_STRATEGY" ]] && BACKFILL_ARGS="$BACKFILL_ARGS --strategy $VM_STRATEGY"
+
+  if [[ -f "$BACKFILL_SCRIPT" ]]; then
+    log "Backtest mode: running full pipeline via backfill-cluster.sh"
+    log "  Args: $BACKFILL_ARGS"
+    _launch_with_tee "bash $BACKFILL_SCRIPT $BACKFILL_ARGS" "$LOGS/backtest-pipeline.log"
+  else
+    log "WARNING: backfill-cluster.sh not found at $BACKFILL_SCRIPT — falling back to e2e-testing"
+    E2E_SCRIPT="$WORKSPACE/e2e/scripts/${VM_ASSET_GROUP,,}/run-full-pipeline.sh"
+    if [[ -f "$E2E_SCRIPT" ]]; then
+      _launch_with_tee "bash $E2E_SCRIPT --start-date $VM_START_DATE --end-date $VM_END_DATE" "$LOGS/backtest-pipeline.log"
+    else
+      log "ERROR: No pipeline script found for asset_group $VM_ASSET_GROUP"
+    fi
+  fi
+  exit 0  # skip generic VM_TASK routing — backtest handled above via _launch_with_tee
+fi
 
 if [[ "$VM_TASK" == "canonical-migration" ]]; then
   # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full
@@ -604,20 +773,23 @@ elif [[ "$VM_TASK" == "manifest-consolidator-poll" ]]; then
     # Default = every bucket family that uses ManifestWriter v5: reference
     # data (instruments-store-*), market tick (market-data-tick-*), derived
     # features (features-sports-*), strategy outputs (strategy-store-*).
-    BUCKETS_RAW="instruments-store-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-defi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-tradfi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-prediction-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-defi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-tradfi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-prediction-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:features-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-cefi-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-sports-${PROJECT_ID}"
-    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-defi-${PROJECT_ID}"
+    # Uses env-tiered names (Phase 0f canonical form). Cloud Run crons in
+    # manifest_consolidator_scheduler.tf handle the legacy (no-env-suffix)
+    # counterparts written by MDPS scripts not yet migrated.
+    BUCKETS_RAW="instruments-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    BUCKETS_RAW="${BUCKETS_RAW}:strategy-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
   fi
   BUCKETS_SPACE="${BUCKETS_RAW//:/ }"
   log "manifest-consolidator-poll: interval=${POLL_INTERVAL}s buckets=[$BUCKETS_SPACE]"
@@ -640,14 +812,72 @@ EOF_LOOP
   _launch_with_tee \
     "$WORKSPACE/manifest_consolidator_loop.sh" \
     "$LOGS/manifest-consolidator.log"
-elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" ]]; then
+elif [[ "$VM_TASK" == "strategy-backtest-grid" ]]; then
+  # 2026-05-10 — 2-yr config-grid backtest runner for the May-23 live-DeFi
+  # cutover (audit Item #2 + master Group F Item 18). VM_BACKFILL_CMD carries
+  # the full strategy_service.scripts.run_2yr_config_grid_backtest invocation
+  # so the host-side launcher controls --archetype / --start / --end /
+  # --grid-density / --smoke flags. Runs in $WORKSPACE/strategy.
+  # Writes per-config + summary parquets to
+  # gs://strategy-store-{pid}/backtests/config_grid_2yr/{archetype}/{run_id}/
+  # via the runner's internal GCS writer. Self-deletes on completion via
+  # the launcher-attached shutdown-script (VM_SHUTDOWN_ON_COMPLETION=true).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/strategy" || { log "ERROR: $WORKSPACE/strategy missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/strategy-backtest-grid.log"
+  else
+    log "ERROR: strategy-backtest-grid task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+  # Strategy paper/live trading VMs — run colocated_engine.py via run-paper.sh /
+  # run-live.sh from $WORKSPACE/e2e-testing/scripts/defi/.
+  # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  # VM_BACKFILL_CMD carries the full run-paper.sh / run-live.sh invocation set
+  # by the launcher (e.g. "bash scripts/defi/run-paper.sh --strategy carry_staked_basis
+  # --tick-interval 3600 --continuous").
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    E2E_DIR="$WORKSPACE/e2e-testing"
+    if [[ ! -d "$E2E_DIR" ]]; then
+      log "ERROR: $E2E_DIR not found — e2e-testing-code tarball may be missing"
+      exit 1
+    fi
+    # run-paper.sh / run-live.sh look for ${WORKSPACE}/.venv-workspace/bin/python
+    # (local-dev convention). On VM the venv lives at $VENV. Symlink so the scripts
+    # find Python without modification. (promote_workflow Phase 1 fix 2026-05-12)
+    ln -sfn "$VENV" "${WORKSPACE}/.venv-workspace"
+    log "Symlinked ${WORKSPACE}/.venv-workspace → $VENV for run-{paper,live}.sh"
+    cd "$E2E_DIR" || { log "ERROR: cannot cd into $E2E_DIR"; exit 1; }
+    # Self-delete: resolve zone at launch so the delete works even if metadata
+    # server is unavailable at engine-exit time. Chain with ';' so delete
+    # runs regardless of whether the engine exits 0 or non-zero.
+    _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
+    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: VM self-delete failed'"
+    _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/${VM_TASK}.log"
+  else
+    log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
   # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
-  # (Phase 3.D.4 writegate, 2026-05-07): BACKFILL_CMD metadata carries the
-  # full command (e.g. "python /workspace/instruments-service/scripts/
+  # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of
+  # manifest_schema_final_gate_2026_05_09, fix shipped 2026-05-11 after
+  # `cross-asset-rescan-20260511-153940` failed at `python -m instruments_service`
+  # CLI dispatch — no `cross_asset_rescan` operation registered) +
+  # synthetic-benchmark (Phase 4.A-tail of mock_data_pipeline_benchmarking_2026_05_10,
+  # 2026-05-12: launch-synthetic-benchmark-vm.sh passes the UTL benchmark CLI via
+  # VM_BACKFILL_CMD = "python -m unified_trading_library.synthetic --archetype <X>
+  # --date-start <date> --date-end <date> --input-uri gs://{pid}-synthetic-input
+  # --report-uri gs://{pid}-benchmark-reports --mode stub|subprocess ..."):
+  # BACKFILL_CMD metadata carries the full command (e.g. "python /workspace/instruments-service/scripts/
   # reconcile_phantom_manifest_rows_all.py --asset-group defi --dry-run").
   # This route lets one-off-script launchers (phantom-recon,
-  # expected-universe-enum, future) reuse the workspace tarball-pull +
-  # venv setup without bespoke startup scripts.
+  # expected-universe-enum, cross-asset-rescan, synthetic-benchmark, future) reuse
+  # the workspace tarball-pull + venv setup without bespoke startup scripts.
   VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
   if [[ -n "$VM_BACKFILL_CMD" ]]; then
@@ -655,6 +885,143 @@ elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$
     _launch_with_tee "$FULL_CMD" "$LOGS/${VM_TASK}.log"
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
+  # Chunked MTDS backfill — Tardis API requires ≤7-day download windows per request
+  # (per-IP rate limits; wider windows return 429). VM_CHUNK_DAYS default 7.
+  # Writes a self-contained chunk-loop script at boot so _launch_with_tee wraps
+  # the full loop (streaming GCS log + heartbeat + self-delete on completion).
+  VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 7)
+  VM_TIER=$(_meta VM_TIER "")
+
+  BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  [[ -n "$VM_TIER" ]] && BASE_CLI="$BASE_CLI --tier $VM_TIER"
+  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+
+  CHUNK_SCRIPT="$WORKSPACE/mtds_chunk_loop.sh"
+  cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+CHUNKS=\$("$VENV/bin/python" -c "
+from datetime import datetime, timedelta
+start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
+end   = datetime.strptime('$VM_END_DATE',   '%Y-%m-%d')
+chunk_days = int($VM_CHUNK_DAYS)
+cur = start
+while cur <= end:
+    cend = min(cur + timedelta(days=chunk_days - 1), end)
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    cur = cend + timedelta(days=1)
+")
+TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
+CHUNK_NUM=0
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+  CHUNK_NUM=\$((CHUNK_NUM + 1))
+  echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+    "$VENV/bin/python" -m market_tick_data_service \\
+      $BASE_CLI \\
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+  echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
+echo "mtds-backfill loop complete: \$(date -u)"
+MTDS_CHUNK_LOOP_EOF
+  chmod +x "$CHUNK_SCRIPT"
+  _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/mtds-backfill.log"
+elif [[ "$VM_TASK" == "instruments-backfill" ]]; then
+  # Chunked instruments-service backfill. VM_CHUNK_DAYS default 30 (no strict
+  # Tardis rate limit, but wide windows can exhaust per-API-key quotas for
+  # football/odds providers). All optional flags follow generic handler convention.
+  VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 30)
+
+  BASE_CLI="--operation instruments --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  [[ -n "$VM_SPORTS_PROVIDER" ]] && BASE_CLI="$BASE_CLI --sports-provider $VM_SPORTS_PROVIDER"
+  [[ -n "$VM_SPORTS_ENTITY" ]] && BASE_CLI="$BASE_CLI --sports-entity $VM_SPORTS_ENTITY"
+  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+
+  CHUNK_SCRIPT="$WORKSPACE/instruments_chunk_loop.sh"
+  cat >"$CHUNK_SCRIPT" <<INSTR_CHUNK_LOOP_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+CHUNKS=\$("$VENV/bin/python" -c "
+from datetime import datetime, timedelta
+start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
+end   = datetime.strptime('$VM_END_DATE',   '%Y-%m-%d')
+chunk_days = int($VM_CHUNK_DAYS)
+cur = start
+while cur <= end:
+    cend = min(cur + timedelta(days=chunk_days - 1), end)
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    cur = cend + timedelta(days=1)
+")
+TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
+CHUNK_NUM=0
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+  CHUNK_NUM=\$((CHUNK_NUM + 1))
+  echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+    "$VENV/bin/python" -m instruments_service \\
+      $BASE_CLI \\
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+  echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
+echo "instruments-backfill loop complete: \$(date -u)"
+INSTR_CHUNK_LOOP_EOF
+  chmod +x "$CHUNK_SCRIPT"
+  _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/instruments-backfill.log"
+elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
+  VM_DRIFT_MARKET=$(_meta VM_DRIFT_MARKET "SOL-PERP")
+  CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  CLI_ARGS="$CLI_ARGS --solana-protocols drift --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
+elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
+  export GAS_FEE_SOLANA=true
+  CLI_ARGS="--operation collect-gas-fees --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  CLI_ARGS="$CLI_ARGS --gas-fee-chains 99999"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-gas-backfill.log"
+elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
+  # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness run.
+  # PagerDuty disabled; all alerts route to Telegram staging-noise channel only.
+  # VM_SERVICE must be alerting_service for tarball install to work.
+  VM_SERVICE="alerting_service"
+  _DURATION="${VM_DURATION_HOURS:-48}"
+  # alerting_service uses Pydantic settings — quietness flags are env vars, not CLI args.
+  # Fetch Telegram credentials from Secret Manager metadata keys.
+  _TG_TOKEN_SECRET=$(_meta TELEGRAM_BOT_TOKEN_SECRET)
+  _TG_CHAT_SECRET=$(_meta TELEGRAM_CHAT_ID_SECRET)
+  if [[ -n "$_TG_TOKEN_SECRET" ]]; then
+    export TELEGRAM_BOT_TOKEN
+    TELEGRAM_BOT_TOKEN=$(gcloud secrets versions access latest --secret="$_TG_TOKEN_SECRET" --project="$(_meta PROJECT_ID central-element-323112)" 2>/dev/null || echo "")
+  fi
+  if [[ -n "$_TG_CHAT_SECRET" ]]; then
+    export TELEGRAM_CHAT_ID
+    TELEGRAM_CHAT_ID=$(gcloud secrets versions access latest --secret="$_TG_CHAT_SECRET" --project="$(_meta PROJECT_ID central-element-323112)" 2>/dev/null || echo "")
+  fi
+  export QUIETNESS_BASELINE_MODE=true
+  export PAGERDUTY_DISABLED=true
+  export RUN_DURATION_HOURS="$_DURATION"
+  _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness.log"
+elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
+  # B-018 Phase 4.A: daily QG snapshot → GCS parquet.
+  # Runs snapshot.sh piped into snapshot_to_parquet.py then self-deletes.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
+      "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
+    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: qg-snapshot VM self-delete failed'"
+    _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/qg-snapshot.log"
+  else
+    log "ERROR: qg-snapshot task without VM_BACKFILL_CMD metadata"
   fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
@@ -680,6 +1047,8 @@ elif [ -n "$VM_TASK" ]; then
   # //,/ fallback keeps older launchers working.
   [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types ${VM_DATA_TYPES//[,;]/ }"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ -n "$VM_GAS_FEE_CHAINS" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-chains $VM_GAS_FEE_CHAINS"
+  [[ -n "$VM_GAS_FEE_SAMPLE_INTERVAL" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-sample-interval $VM_GAS_FEE_SAMPLE_INTERVAL"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/backfill.log"
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"

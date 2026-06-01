@@ -164,9 +164,7 @@ class ProgressDisplay:
         # Errors (if any)
         if state.failed_shards:
             error_text = Text()
-            error_text.append(
-                f"\nErrors: {len(state.failed_shards)} shards failed", style="red bold"
-            )
+            error_text.append(f"\nErrors: {len(state.failed_shards)} shards failed", style="red bold")
             container.add_row(error_text)
 
         return container
@@ -216,13 +214,7 @@ class ProgressDisplay:
             key=lambda s: (
                 0
                 if s.status == ShardStatus.RUNNING
-                else (
-                    1
-                    if s.status == ShardStatus.PENDING
-                    else 2
-                    if s.status == ShardStatus.FAILED
-                    else 3
-                )
+                else (1 if s.status == ShardStatus.PENDING else 2 if s.status == ShardStatus.FAILED else 3)
             ),
         )
 

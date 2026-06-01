@@ -75,12 +75,8 @@ def _make_backend(
 ) -> MagicMock:
     backend = MagicMock(spec=["deploy_shard", "get_status_with_context", "region"])
     backend.region = "us-central1"
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="retry-job-001", shard_id="s-0", status=JobStatus.RUNNING
-    )
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-0", shard_id="s-0", status=status
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="retry-job-001", shard_id="s-0", status=JobStatus.RUNNING)
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-0", shard_id="s-0", status=status)
     return backend
 
 
@@ -228,9 +224,7 @@ def test_failed_shard_exhausted_max_retries() -> None:
         job_id="job-0", shard_id="s-0", status=JobStatus.FAILED, error_message="always fails"
     )
     # deploy_shard always returns RUNNING (so retry launches, but next get_status returns FAILED)
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING)
 
     sm = _make_sm()
 
@@ -369,9 +363,7 @@ def test_rate_limiter_called_on_retry() -> None:
         JobInfo(job_id="job-0", shard_id="s-0", status=JobStatus.FAILED),
         JobInfo(job_id="retry-job", shard_id="s-0", status=JobStatus.SUCCEEDED),
     ]
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING)
     sm = _make_sm()
     rate_limiter = MagicMock()
     rate_limiter.acquire = MagicMock()
@@ -401,18 +393,14 @@ def test_rate_limiter_called_on_retry() -> None:
 def test_vm_zone_distribution_on_retry() -> None:
     """For vm compute type, retry uses zone from _get_zones_for_region."""
     state = _make_state(n=1, compute_type="vm")
-    backend = MagicMock(
-        spec=["deploy_shard", "get_status_with_context", "region", "_get_zones_for_region"]
-    )
+    backend = MagicMock(spec=["deploy_shard", "get_status_with_context", "region", "_get_zones_for_region"])
     backend.region = "us-central1"
     backend._get_zones_for_region.return_value = ["us-central1-a", "us-central1-b"]
     backend.get_status_with_context.side_effect = [
         JobInfo(job_id="job-0", shard_id="s-0", status=JobStatus.FAILED),
         JobInfo(job_id="retry-job", shard_id="s-0", status=JobStatus.SUCCEEDED),
     ]
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="retry-job", shard_id="s-0", status=JobStatus.RUNNING)
     sm = _make_sm()
 
     with patch("deployment_service.deployment.monitoring.time.sleep"):
@@ -442,13 +430,9 @@ def test_vm_zone_distribution_on_retry() -> None:
 def test_retry_launch_returns_failed_marks_shard_failed() -> None:
     state = _make_state(n=1)
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-0", shard_id="s-0", status=JobStatus.FAILED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-0", shard_id="s-0", status=JobStatus.FAILED)
     # Retry launches also fail
-    backend.deploy_shard.return_value = JobInfo(
-        job_id="failed-retry", shard_id="s-0", status=JobStatus.FAILED
-    )
+    backend.deploy_shard.return_value = JobInfo(job_id="failed-retry", shard_id="s-0", status=JobStatus.FAILED)
     sm = _make_sm()
 
     with patch("deployment_service.deployment.monitoring.time.sleep"):
@@ -475,9 +459,7 @@ def test_retry_launch_returns_failed_marks_shard_failed() -> None:
 def test_retry_raises_oserror_marks_shard_failed() -> None:
     state = _make_state(n=1)
     backend = _make_backend()
-    backend.get_status_with_context.return_value = JobInfo(
-        job_id="job-0", shard_id="s-0", status=JobStatus.FAILED
-    )
+    backend.get_status_with_context.return_value = JobInfo(job_id="job-0", shard_id="s-0", status=JobStatus.FAILED)
     backend.deploy_shard.side_effect = OSError("disk full")
     sm = _make_sm()
 

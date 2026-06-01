@@ -57,7 +57,7 @@ class TestDimensionWeightedCompletion:
     def test_venue_completion_reflects_all_data_types(self, sample_venue_breakdown_uniswap):
         """Test that venue completion accounts for all expected data types.
 
-        Bug: UNISWAPV3-ETHEREUM showed 100% because liquidity had 30/30 dates,
+        Bug: UNISWAP_V3-ETHEREUM showed 100% because liquidity had 30/30 dates,
         but swaps only had 2/30 dates. The union was 30 dates → 100%.
         Fix: venue completion = (30 + 2) / (30 + 30) = 53.3%
         """
@@ -136,14 +136,14 @@ class TestDimensionWeightedCompletion:
     def test_category_aggregation_uses_dimension_weighted_values(self):
         """Test that category completion uses dimension-weighted venue values."""
         venues = {
-            "UNISWAPV2-ETHEREUM": {
+            "UNISWAP_V2-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 60,  # Both data types complete
                 "_dim_weighted_expected": 60,
                 "is_expected": True,
             },
-            "UNISWAPV3-ETHEREUM": {
+            "UNISWAP_V3-ETHEREUM": {
                 "dates_found": 30,  # Raw union (old)
                 "dates_expected_venue": 30,
                 "_dim_weighted_found": 32,  # liquidity=30, swaps=2
@@ -160,9 +160,7 @@ class TestDimensionWeightedCompletion:
 
         # New (fixed) category calculation: uses dimension-weighted values
         new_found = sum(
-            v.get("_dim_weighted_found", v["dates_found"])
-            for v in venues.values()
-            if v.get("is_expected", True)
+            v.get("_dim_weighted_found", v["dates_found"]) for v in venues.values() if v.get("is_expected", True)
         )
         new_expected = sum(
             v.get("_dim_weighted_expected", v["dates_expected_venue"])
@@ -219,14 +217,8 @@ class TestDimensionWeightedCompletion:
             },
         }
 
-        total_found = sum(
-            v.get("_dim_weighted_found", 0) for v in venues.values() if v.get("is_expected", True)
-        )
-        total_expected = sum(
-            v.get("_dim_weighted_expected", 0)
-            for v in venues.values()
-            if v.get("is_expected", True)
-        )
+        total_found = sum(v.get("_dim_weighted_found", 0) for v in venues.values() if v.get("is_expected", True))
+        total_expected = sum(v.get("_dim_weighted_expected", 0) for v in venues.values() if v.get("is_expected", True))
         pct = round(total_found / total_expected * 100, 1)
 
         # Only EXPECTED-VENUE counts: 50/60 = 83.3%
@@ -269,10 +261,7 @@ class TestMetricConsistency:
         }
 
         # Verify consistency
-        assert (
-            response["total_missing"]
-            == response["overall_dates_expected"] - response["overall_dates_found"]
-        )
+        assert response["total_missing"] == response["overall_dates_expected"] - response["overall_dates_found"]
 
         # If completion is not 100%, total_missing should be > 0
         if response["overall_completion_pct"] < 100:
@@ -337,7 +326,5 @@ class TestMetricConsistency:
 
         # The ratio gives approximate venue count
         if response["overall_dates_expected_category"] > 0:
-            approx_venues = (
-                response["overall_dates_expected"] / response["overall_dates_expected_category"]
-            )
+            approx_venues = response["overall_dates_expected"] / response["overall_dates_expected_category"]
             assert approx_venues >= 1  # At least 1 venue

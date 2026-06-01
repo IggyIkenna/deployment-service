@@ -243,37 +243,27 @@ class TestServiceHealthReport:
 
     @pytest.mark.unit
     def test_completion_percent_calculated(self):
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=10, completed=6
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", total_shards=10, completed=6)
         assert r.completion_percent == 60.0
 
     @pytest.mark.unit
     def test_status_summary_failed(self):
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, failed=1
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, failed=1)
         assert r.status_summary == "failed"
 
     @pytest.mark.unit
     def test_status_summary_running(self):
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, running=2
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, running=2)
         assert r.status_summary == "running"
 
     @pytest.mark.unit
     def test_status_summary_pending(self):
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, pending=5
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", total_shards=5, pending=5)
         assert r.status_summary == "pending"
 
     @pytest.mark.unit
     def test_status_summary_completed(self):
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", total_shards=3, completed=3
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", total_shards=3, completed=3)
         assert r.status_summary == "completed"
 
     @pytest.mark.unit
@@ -313,9 +303,7 @@ class TestServiceHealthReport:
     @pytest.mark.unit
     def test_to_dict_with_version(self):
         v = _make_version()
-        r = ServiceHealthReport(
-            service="svc", date="2024-01-01", asset_group="CEFI", current_version=v
-        )
+        r = ServiceHealthReport(service="svc", date="2024-01-01", asset_group="CEFI", current_version=v)
         d = r.to_dict()
         assert d["current_version"] is not None
 
@@ -490,9 +478,7 @@ class TestDeploymentMonitorGetDeploymentStatus:
             mock_cfg.is_mock_mode.return_value = True
 
             monitor = DeploymentMonitor(project_id="test-project")
-            report = monitor.get_deployment_status(
-                "features-delta-one-service", "2024-01-01", "CEFI"
-            )
+            report = monitor.get_deployment_status("features-delta-one-service", "2024-01-01", "CEFI")
 
         assert report.dependencies_met is False
         assert "market-tick-data-service" in report.missing_dependencies
@@ -713,13 +699,13 @@ class TestDeploymentMonitorGenerateStatusReport:
             monitor = DeploymentMonitor(project_id="test-project")
 
         r = ServiceHealthReport(
-            service="ml-training",
+            service="ml",
             date="2024-01-01",
             asset_group="CEFI",
             dependencies_met=False,
             missing_dependencies=["features-delta-one-service"],
         )
-        report = monitor.generate_status_report({"ml-training": r})
+        report = monitor.generate_status_report({"ml": r})
         assert "BLOCKED" in report
         assert "features-delta-one-service" in report
 

@@ -1,79 +1,336 @@
 # Cloud Providers Configuration
 #
-# Bucket name templates use ${VAR} substitution (resolved by substitute_env_vars):
-#   ${DEPLOYMENT_ENV}  — staging | prod | development
-#   ${GCP_PROJECT_ID}  — GCP project ID
-#   ${AWS_ACCOUNT_ID}  — AWS account ID
+# Bucket name templates use ${VAR} substitution (resolved by substitute_env_vars in
+# both `deployment_service.config.env_substitutor` and the canonical UTL resolver
+# `unified_trading_library.cloud_interface.bucket_naming` — they agree on every var):
+#   ${DEPLOYMENT_ENV_SHORT}  — 3-char form of DEPLOYMENT_ENV (dev | stg | prd; also
+#                              `test` for the E2E `-test-` variant, `ci`). DERIVED from
+#                              DEPLOYMENT_ENV (workspace vocab keeps the long form
+#                              `development` / `staging` / `prod` everywhere except IN
+#                              bucket names — per bucket_name_ssot Q5/A5 Scope A, to keep
+#                              long bucket names under the 63-char GCS/S3 cap). Unset → `prd`.
+#   ${GCP_PROJECT_ID}        — GCP project ID
+#   ${AWS_ACCOUNT_ID}        — AWS account ID
 #
-# Per-category domains use a dict keyed by UPPER-case category name.
+# Per-category domains use a dict keyed by UPPER-case asset_group name; the bucket-name
+# STRING under PREDICTION uses `pred` (4 chars) — the dict KEY stays `PREDICTION` per the
+# asset_group convention; the resolver does not translate, the template carries `pred` directly.
 # Shared (no-category) domains use a plain string.
+#
+# Kind aliases (consumer-facing kind → shorter yaml key, bucket-template-only — per Q5/A5):
+#   features-cross-instrument → features-xinstrument   (UTL resolver `_KIND_ALIASES` bridges)
+#   features-multi-timeframe  → features-mtf
+# Consumers keep calling `resolve_bucket(kind="features-cross-instrument")`; only the yaml
+# key + on-disk bucket name use the short form.
 
 gcp:
   storage:
+    # NOTE on shapes (Phase 0/0e, 2026-05-11 — bucket_name_ssot_canonicalisation_2026_05_10.md):
+    #   * `features-*` / `ml-*` / `strategy-store` / `execution-store` = Group B (derived,
+    #     per-env): `{prefix}-{ag}-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}` (env tier AFTER asset_group).
+    #     `DEPLOYMENT_ENV=test` (→ short form `test`) naturally yields the E2E `-test-` variant —
+    #     that's the CANONICAL `-test-` shape (`{prefix}-{ag}-test-{pid}`); the legacy before-AG
+    #     variants (`market-data-tick-test-cefi-...`) are deprecated test-mode artifacts, not here.
+    #   * `instruments-store` / `market-data` / `features-calendar` / `*-prediction` = Group A (raw /
+    #     cross-cutting): env-tiered too as of Phase 0e (operator (b+) 2026-05-11 — env tier on ALL kinds).
+    #     `DEPLOYMENT_ENV=test` is the canonical `-test-` shape; on-disk flat (no-env) buckets migrate
+    #     in code_freeze Phase 2.6 (2026-05-15→05-19). GCP `dex-pools` / `dex-swaps` / `evm-defi` /
+    #     `eigenlayer-rewards` / `solana-defi` / `config-store` env-tiered 2026-05-11 (Phase 0e follow-up).
+    #     STILL env-less (pending): GCP `events` (`{pid}-events` referenced workspace-wide — high blast
+    #     radius, needs operator confirm before env-tiering). `pnl-store-defi` / `positions-store-defi` /
+    #     `risk-store-defi` resolved 2026-05-13 (Q7(b)) — now env-tiered, buckets were empty so no migration.
+    #     The only legitimately env-less kinds workspace-wide are `terraform-state` + `secrets` (not modelled here).
+    #   * Prediction = dedicated flat keys (`instruments-store-prediction`, `market-data-tick-prediction`,
+    #     `features-prediction`, `strategy-store-prediction`, `execution-store-prediction`) PLUS per-AG
+    #     `PREDICTION:` entries in `features-delta-one`/`features-volatility`/`features-xinstrument`/`features-mtf`.
+    #     The dict KEY stays `*-prediction` / `PREDICTION:` (consumer-facing); the bucket-name STRING uses
+    #     `pred` (4 chars) — per Q5/A5 Scope A. `features-cross-instrument` / `features-multi-timeframe`
+    #     consumer kinds map to the `features-xinstrument` / `features-mtf` yaml keys (UTL `_KIND_ALIASES`).
+    #     Sports = `asset_group="sports"` in the per-AG dicts (+ the dedicated `features-sports` flat key).
+    #     Deliberate asymmetry matching how the codebase routes them; consolidate if it ever bites.
+    #   * Per option (b) 2026-05-11 (operator/Ikenna): yaml is canonical → `features-*` env-tiered.
+    #     The flat `features-delta-one-cefi-{pid}` (no env) buckets on disk are legacy; the env-tiered
+    #     ones get provisioned + the flat-bucket data migrated in code_freeze Phase 2.6 (2026-05-15→05-19).
+    # ── Temporary env-split rollback (Group B) ────────────────────────────────────────────────
+    # Per bucket inventory 2026-05-19 (phase5_features_streaming_carry_staked_basis_mvp_2026_05_19.md
+    # Phase D): env-split buckets (`-prd-`, `-prod-`, `-staging-`) for ALL Group B derived kinds
+    # are either empty or non-existent; the populated on-disk buckets are non-env-split
+    # (e.g. `features-delta-one-cefi-{pid}`, `features-volatility-cefi-{pid}`,
+    # `strategy-store-cefi-{pid}`, `ml-training-artifacts-{pid}`).
+    # Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds:
+    #   features-delta-one, features-volatility, features-onchain, features-xinstrument,
+    #   features-mtf, strategy-store, execution-store, ml-artifacts, ml-training-artifacts.
+    # Re-enable when: bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates data.
+    # Successor plan: plans/active/bucket_env_split_rollout_2026_06.md
+    # ──────────────────────────────────────────────────────────────────────────────────────────
+    # NOTE: features-delta-one env-split ROLLED BACK — non-env-split until provisioning lands.
     features-delta-one:
-      CEFI: "features-delta-one-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      TRADFI: "features-delta-one-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      DEFI: "features-delta-one-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      CEFI: "features-delta-one-cefi-${GCP_PROJECT_ID}"
+      TRADFI: "features-delta-one-tradfi-${GCP_PROJECT_ID}"
+      DEFI: "features-delta-one-defi-${GCP_PROJECT_ID}"
+      PREDICTION: "features-delta-one-pred-${GCP_PROJECT_ID}"
+      SPORTS: "features-delta-one-sports-${GCP_PROJECT_ID}"
+    # NOTE: features-volatility env-split ROLLED BACK — non-env-split until provisioning lands.
     features-volatility:
-      CEFI: "features-volatility-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      TRADFI: "features-volatility-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      CEFI: "features-volatility-cefi-${GCP_PROJECT_ID}"
+      TRADFI: "features-volatility-tradfi-${GCP_PROJECT_ID}"
+      DEFI: "features-volatility-defi-${GCP_PROJECT_ID}"
+      PREDICTION: "features-volatility-pred-${GCP_PROJECT_ID}"
+      SPORTS: "features-volatility-sports-${GCP_PROJECT_ID}"
+    # features-onchain = on-chain DeFi metrics; per-AG outputs for cefi (assets with on-chain
+    # legs) + defi. The flat `features-onchain-{pid}` ("shared") bucket on disk is legacy — the
+    # config.py `get_output_bucket()` migration resolves onchain to asset_group="defi".
+    # NOTE: env-split ROLLED BACK — non-env-split shape until provisioning lands (Phase D above).
     features-onchain:
-      CEFI: "features-onchain-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      DEFI: "features-onchain-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    ml-models-store: "ml-models-store-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    strategy-store:
-      CEFI: "strategy-store-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      TRADFI: "strategy-store-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      DEFI: "strategy-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      CEFI: "features-onchain-cefi-${GCP_PROJECT_ID}"
+      DEFI: "features-onchain-defi-${GCP_PROJECT_ID}"
+    # `features-xinstrument` / `features-mtf` are the bucket-template aliases for
+    # the long consumer-facing kinds `features-cross-instrument` / `features-multi-timeframe`
+    # (per bucket_name_ssot Q5/A5 — the long names overflow the 63-char GCS/S3 cap
+    # under the env-tiered template). Consumers call `resolve_bucket(kind="features-cross-instrument")`;
+    # the UTL resolver's `_KIND_ALIASES` map bridges to these keys. NOT touched by the
+    # `features-cross-instrument` config.py migration's `resolve_bucket()` calls — those
+    # pass the long consumer kind and the resolver aliases internally.
+    # NOTE: features-xinstrument env-split ROLLED BACK — non-env-split until provisioning lands.
+    features-xinstrument:
+      CEFI: "features-xinstrument-cefi-${GCP_PROJECT_ID}"
+      TRADFI: "features-xinstrument-tradfi-${GCP_PROJECT_ID}"
+      DEFI: "features-xinstrument-defi-${GCP_PROJECT_ID}"
+      PREDICTION: "features-xinstrument-pred-${GCP_PROJECT_ID}"
+      SPORTS: "features-xinstrument-sports-${GCP_PROJECT_ID}"
+    # NOTE: features-mtf env-split ROLLED BACK — non-env-split until provisioning lands.
+    features-mtf:
+      CEFI: "features-mtf-cefi-${GCP_PROJECT_ID}"
+      TRADFI: "features-mtf-tradfi-${GCP_PROJECT_ID}"
+      DEFI: "features-mtf-defi-${GCP_PROJECT_ID}"
+      PREDICTION: "features-mtf-pred-${GCP_PROJECT_ID}"
+      SPORTS: "features-mtf-sports-${GCP_PROJECT_ID}"
+    ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # ml-training-artifacts = training metrics / experiment outputs (model checkpoints + SHAP +
+    # variant metrics). Distinct from `ml-models-store` (final model artefacts). Flat bucket
+    # `ml-training-artifacts-${GCP_PROJECT_ID}` exists on disk with data — added here 2026-05-12
+    # per ml_artefact_path_resolver_consumer_sweep issue.
+    # NOTE: env-split ROLLED BACK — non-env-split shape until provisioning lands (Phase D).
+    ml-training-artifacts: "ml-training-artifacts-${GCP_PROJECT_ID}"
+    # ml-artifacts = generic model-artefact bucket consumed by UTL CloudModelArtifactStore (the
+    # cross-service helper that ML services inject via protocol interface). Historically flat
+    # `ml-artifacts-${GCP_PROJECT_ID}` — added here 2026-05-12 per ml_artefact_path_resolver
+    # issue. Migrates with the rest of the env-less GCP buckets in code_freeze Phase 2.6.
+    ml-artifacts: "ml-artifacts-${GCP_PROJECT_ID}"
+    # Unified flat bucket — cross-asset strategies share one bucket (D6 Phase 4, operator decision 2026-05-20).
+    # Per-AG per-env split deferred; migration from old per-AG buckets sequenced under mtds_mdps_master Phase 1.
+    strategy-store: "strategy-store-${GCP_PROJECT_ID}"
+    strategy-store-test: "strategy-store-test-${GCP_PROJECT_ID}"
+    # NOTE: execution-store env-split ROLLED BACK — non-env-split shape until provisioning lands.
     execution-store:
-      CEFI: "execution-store-cefi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      TRADFI: "execution-store-tradfi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-      DEFI: "execution-store-defi-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+      CEFI: "execution-store-cefi-${GCP_PROJECT_ID}"
+      TRADFI: "execution-store-tradfi-${GCP_PROJECT_ID}"
+      DEFI: "execution-store-defi-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
-    features-sports: "features-sports-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    # Prediction pipeline buckets (Polymarket, Kalshi)
-    instruments-store-prediction: "instruments-store-prediction-${GCP_PROJECT_ID}"
-    market-data-tick-prediction: "market-data-tick-prediction-${GCP_PROJECT_ID}"
-    features-prediction: "features-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    strategy-store-prediction: "strategy-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
-    execution-store-prediction: "execution-store-prediction-${DEPLOYMENT_ENV}-${GCP_PROJECT_ID}"
+    features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Commodity features bucket — non-env-split (flat); preserves existing on-disk name.
+    # Env-tiering deferred to bucket_env_split_rollout_2026_06.md Phase 1.
+    features-commodity: "commodity-signals-batch-${GCP_PROJECT_ID}"
+    # Per-asset-group market-data + instruments. Env-tiered AFTER asset_group per (b+)
+    # (operator direction 2026-05-11 — env tier extends to ALL bucket kinds incl. Group-A
+    # raw-tick / instruments-store). bucket_name_ssot Phase 0e. The flat
+    # `market-data-tick-cefi-{pid}` (no env) buckets on disk are legacy — env-tiered ones
+    # get provisioned + the flat-bucket data migrated in code_freeze Phase 2.6.
+    # NOTE: GCP shape includes `tick-` infix (e.g. market-data-tick-defi-...);
+    # AWS shape does NOT (e.g. unified-trading-market-data-defi-...). Per-cloud
+    # template captures the asymmetry; resolver hides it behind same `kind` key.
+    market-data:
+      CEFI: "market-data-tick-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      DEFI: "market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      TRADFI: "market-data-tick-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      SPORTS: "market-data-tick-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    instruments-store:
+      CEFI: "instruments-store-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      DEFI: "instruments-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      TRADFI: "instruments-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      SPORTS: "instruments-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Cross-cutting features-calendar (no asset_group; env-tiered per (b+) Phase 0e).
+    # Uncommented 2026-05-11 (Phase 0): the flat GCP bucket exists on disk (probed); env tier
+    # added Phase 0e — flat `features-calendar-{pid}` migrates in code_freeze Phase 2.6.
+    features-calendar: "features-calendar-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi) — env-tiered per (b+) Phase 0e.
+    instruments-store-prediction: "instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    market-data-tick-prediction: "market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    features-prediction: "features-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    strategy-store-prediction: "strategy-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # DeFi raw on-chain pools / swaps / events. Env-tiered per (b+) Phase 0e follow-up
+    # (2026-05-11 — env tier extends to ALL kinds; mirrors the AWS side which was already
+    # env-tiered). The existing flat `dex-pools-{pid}` etc. buckets on disk migrate to the
+    # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19). UCI bucket-resolver +
+    # DeFi adapters resolve from this SSOT (no hardcoded fallbacks).
+    dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-asset-group pnl/positions/risk DeFi stores. Aligned to standard GCP shape
+    # `{prefix}-{asset_group}-{env}-{project_id}` (2026-05-13, Q7(b) resolved — buckets were
+    # empty so no data migration needed; old names deleted). AWS shape unchanged (already correct).
+    pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Cross-cutting service buckets. `config-store` env-tiered per (b+) Phase 0e follow-up
+    # (mirrors AWS). `events` STILL env-less on GCP — `{pid}-events` is referenced workspace-wide
+    # (per "no fire-and-forget VM launches": `gs://{pid}-events/events/{service}/...`) — needs
+    # an operator confirm before env-tiering (high blast radius).
+    events: "${GCP_PROJECT_ID}-events"
+    config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-archetype daily Tenderly bundle-sim budget state (Phase 5C of
+    # `defi_catalogue_chain_primitives_2026_05_10.md`). Single env-tiered bucket;
+    # asset_group axis ignored (resolver exempts flat strings — see `bucket_naming.py`
+    # § "flat string template ... asset_group argument is accepted but ignored when the
+    # kind is flat"). Daily state at
+    # `gs://archetype-state-{env}-{pid}/tenderly_budget/{archetype}/day={YYYY-MM-DD}.json`
+    # per `execution_service/providers/tenderly_budget.py`.
+    archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Per-client NAV / PnL / positions / attribution parquets for the client-reporting MVP
+    # (client_reporting_pnl_attribution_mvp_2026_05_10.md Phase 2). Cross-cutting; no asset_group axis.
+    # Path: gs://{pid}-client-reports/{client_id}/{archetype}/{YYYY-MM-DD}/attribution.parquet
+    client-reports: "${GCP_PROJECT_ID}-client-reports"
+    # Per-client fee recognition + HWM ledger + daily statements
+    # (wallet_treasury_client_flow_2026_05_10 Phase 4.C + 5.A).
+    # Path: gs://{pid}-client-statements/{client_id}/fee_recognition/{YYYY-MM-DD}/*.parquet
+    # Consumed by: client-reporting-api /hwm-timeline (Phase 5.C2).
+    client-statements: "${GCP_PROJECT_ID}-client-statements"
+    # DART manual-action audit log persistence (≥7 years retention per compliance).
+    # Consumed by UAC unified_api_contracts/internal/manual_audit_paths.py BUCKET_KIND_MANUAL_AUDIT.
+    # Phase 0i tail of bucket_name_ssot_canonicalisation_2026_05_10.md.
+    manual-audit: "manual-audit-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Immutable execution audit log — GCP Object Retention Lock ≥7 years (220752000s).
+    # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
+    audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # DeFi execution validation results — Phase 2 AMM golden-swap + Phase 3C lending rate.
+    # Flat naming (no env tier) intentional: validation runs target mainnet state and results
+    # are environment-neutral. Path pattern:
+    #   gs://{pid}-defi-validation/results/lending/{DATE}/{CORRELATION_ID}/results.json
+    #   gs://{pid}-defi-validation/results/amm/{DATE}/{SHAPE}/{CORRELATION_ID}/results.json
+    # Launchers: launch-aave-lending-rate-validation-vm.sh + launch-amm-golden-fixture-validation-vm.sh
+    # Added 2026-05-13 (V2 VM-orchestration — defi_simulation_realism_2026_05_10.md Phase 2 + 3C).
+    defi-validation: "${GCP_PROJECT_ID}-defi-validation"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
 
 aws:
   storage:
+    # Phase 1 symmetry (2026-05-20, slot 2): AWS templates now mirror GCP templates 1:1
+    # (same prefix, same tick- infix on market-data, same -store suffixes).
+    # Only difference: ${AWS_ACCOUNT_ID} vs ${GCP_PROJECT_ID}.
+    # On-disk AWS buckets use OLD names until Phase 5 migration renames them.
+    # Migration: code_freeze_migrate_backfill_sequencing_2026_05_10.md Phase 5.
+    # Audit: plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20.csv
+    # NOTE: features-delta-one env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-delta-one:
-      CEFI: "unified-trading-features-delta-one-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-delta-one-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-delta-one-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      CEFI: "features-delta-one-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-delta-one-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-delta-one-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-delta-one-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-delta-one-sports-${AWS_ACCOUNT_ID}"
+    # NOTE: features-volatility env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-volatility:
-      CEFI: "unified-trading-features-volatility-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-features-volatility-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      CEFI: "features-volatility-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-volatility-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-volatility-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-volatility-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-volatility-sports-${AWS_ACCOUNT_ID}"
+    # NOTE: features-onchain env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     features-onchain:
-      CEFI: "unified-trading-features-onchain-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-features-onchain-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    ml-models-store: "unified-trading-ml-models-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    ml-predictions-store: "unified-trading-ml-predictions-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    ml-configs-store: "unified-trading-ml-configs-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    strategy-store:
-      CEFI: "unified-trading-strategy-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-strategy-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-strategy-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      CEFI: "features-onchain-cefi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-onchain-defi-${AWS_ACCOUNT_ID}"
+    # `features-xinstrument` / `features-mtf` — bucket-template aliases for the long
+    # consumer kinds `features-cross-instrument` / `features-multi-timeframe` (see GCP § comment).
+    # AWS worst case `features-xinstrument-tradfi-stg-{12-digit}` = 44 chars (≤63).
+    # NOTE: features-xinstrument env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    features-xinstrument:
+      CEFI: "features-xinstrument-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-xinstrument-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-xinstrument-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-xinstrument-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-xinstrument-sports-${AWS_ACCOUNT_ID}"
+    # NOTE: features-mtf env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    features-mtf:
+      CEFI: "features-mtf-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-mtf-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "features-mtf-defi-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-mtf-pred-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-mtf-sports-${AWS_ACCOUNT_ID}"
+    ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # NOTE: ml-training-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    ml-training-artifacts: "ml-training-artifacts-${AWS_ACCOUNT_ID}"
+    # NOTE: ml-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    ml-artifacts: "ml-artifacts-${AWS_ACCOUNT_ID}"
+    # Unified flat bucket — mirrors GCP strategy-store consolidation (D6 Phase 4, operator decision 2026-05-20).
+    strategy-store: "strategy-store-${AWS_ACCOUNT_ID}"
+    strategy-store-test: "strategy-store-test-${AWS_ACCOUNT_ID}"
+    # NOTE: execution-store env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     execution-store:
-      CEFI: "unified-trading-execution-cefi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      TRADFI: "unified-trading-execution-tradfi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-      DEFI: "unified-trading-execution-defi-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+      CEFI: "execution-store-cefi-${AWS_ACCOUNT_ID}"
+      TRADFI: "execution-store-tradfi-${AWS_ACCOUNT_ID}"
+      DEFI: "execution-store-defi-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
-    features-sports: "unified-trading-features-sports-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    # Prediction pipeline buckets (Polymarket, Kalshi)
-    instruments-store-prediction: "unified-trading-instruments-prediction-${AWS_ACCOUNT_ID}"
-    market-data-tick-prediction: "unified-trading-market-data-prediction-${AWS_ACCOUNT_ID}"
-    features-prediction: "unified-trading-features-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    strategy-store-prediction: "unified-trading-strategy-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
-    execution-store-prediction: "unified-trading-execution-prediction-${DEPLOYMENT_ENV}-${AWS_ACCOUNT_ID}"
+    features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Commodity features bucket — non-env-split (flat); mirrors GCP naming convention.
+    features-commodity: "commodity-signals-batch-${AWS_ACCOUNT_ID}"
+    # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
+    # AWS now includes the `tick-` infix (Phase 1 symmetry 2026-05-20) — mirrors GCP shape.
+    # On-disk `market-data-{ag}-{account}` (no tick-) buckets migrate in Phase 5.
+    market-data:
+      CEFI: "market-data-tick-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      DEFI: "market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      TRADFI: "market-data-tick-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      SPORTS: "market-data-tick-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    instruments-store:
+      CEFI: "instruments-store-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      DEFI: "instruments-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      TRADFI: "instruments-store-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      SPORTS: "instruments-store-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Cross-cutting features-calendar (no asset_group; env-tiered per (b+) Phase 0e).
+    features-calendar: "features-calendar-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Prediction pipeline buckets (Polymarket, Kalshi) — env-tiered per (b+) Phase 0e.
+    instruments-store-prediction: "instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    market-data-tick-prediction: "market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    features-prediction: "features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    strategy-store-prediction: "strategy-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # DeFi raw on-chain pools / swaps / events. Mirrors GCP keys 1:1.
+    dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-asset-group DeFi pnl/positions/risk stores — already symmetric (Q7(b) 2026-05-13).
+    pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Cross-cutting service buckets. `events` env-less (mirrors GCP ${GCP_PROJECT_ID}-events
+    # project-first env-less shape; AWS uses account-suffix env-less shape — intentional
+    # cloud-specific prefix, not a naming error).
+    events: "unified-trading-events-${AWS_ACCOUNT_ID}"
+    config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-archetype daily Tenderly bundle-sim budget state (mirrors GCP). Single env-tiered
+    # bucket; asset_group axis ignored (flat-string kind). See GCP § for full reference.
+    archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Per-client reports — env-less mirrors GCP ${GCP_PROJECT_ID}-client-reports env-less shape.
+    client-reports: "unified-trading-client-reports-${AWS_ACCOUNT_ID}"
+    # Per-client fee recognition + HWM ledger + daily statements — env-less mirrors GCP.
+    client-statements: "unified-trading-client-statements-${AWS_ACCOUNT_ID}"
+    # DART manual-action audit log (mirrors GCP). ≥7 years retention per compliance.
+    manual-audit: "manual-audit-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Immutable execution audit log — S3 Object Lock COMPLIANCE mode ≥7 years.
+    # Provisioned via deployment-service/scripts/provision_audit_records_retention_lock.sh
+    audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # DeFi execution validation results — env-less mirrors GCP ${GCP_PROJECT_ID}-defi-validation.
+    defi-validation: "unified-trading-defi-validation-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"

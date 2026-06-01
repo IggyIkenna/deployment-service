@@ -23,7 +23,7 @@
 #
 # References:
 #   codex/09-strategy/architecture-v2/instruments-resolver-architecture.md
-#   plans/active/dart_ui_strategy_filtering_and_onboarding_2026_04_24.plan.md (Phase 11 N2)
+#   plans/active/dart_ui_strategy_filtering_and_onboarding_2026_04_24.md (Phase 11 N2)
 
 resource "google_service_account" "catalogue_regen" {
   project      = var.project_id

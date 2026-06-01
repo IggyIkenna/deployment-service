@@ -153,7 +153,7 @@ class ShardCombinatoricsGenerator:
         service: str,
     ) -> list[dict[str, str]]:
         """
-        Get all valid asset-group–venue combinations for a service.
+        Get all valid asset-group-venue combinations for a service.
 
         Useful for understanding the test matrix without date expansion.
 
@@ -183,9 +183,7 @@ class ShardCombinatoricsGenerator:
 
         if has_venue_dim:
             for ag in ag_values:
-                categories_dict = _cast(
-                    dict[str, dict[str, object]], venues_config.get("categories") or {}
-                )
+                categories_dict = _cast(dict[str, dict[str, object]], venues_config.get("categories") or {})
                 ag_row = categories_dict.get(str(ag)) or {}
                 venues = _cast(list[object], ag_row.get("venues") or [])
                 for venue in venues:

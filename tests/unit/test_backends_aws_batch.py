@@ -68,9 +68,7 @@ def _make_backend(
     mock_client = MagicMock()
     mock_logs = MagicMock()
     mock_boto3 = MagicMock()
-    mock_boto3.client.side_effect = lambda svc, region_name: (
-        mock_client if svc == "batch" else mock_logs
-    )
+    mock_boto3.client.side_effect = lambda svc, region_name: mock_client if svc == "batch" else mock_logs
 
     with patch("deployment_service.backends.aws_batch._ensure_boto3", return_value=mock_boto3):
         backend = AWSBatchBackend(
@@ -279,9 +277,7 @@ class TestBatchDeployShardSuccess:
 class TestBatchDeployShardDynamicRegistration:
     def test_registers_when_no_job_definition(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/auto:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/auto:1"}
         mock_client.submit_job.return_value = {"jobId": "j2"}
 
         result = backend.deploy_shard(  # type: ignore[attr-defined]
@@ -290,10 +286,7 @@ class TestBatchDeployShardDynamicRegistration:
 
         mock_client.register_job_definition.assert_called_once()
         assert result.status == JobStatus.PENDING
-        assert (
-            mock_client.submit_job.call_args.kwargs["jobDefinition"]
-            == "arn:aws:batch:::job-definition/auto:1"
-        )
+        assert mock_client.submit_job.call_args.kwargs["jobDefinition"] == "arn:aws:batch:::job-definition/auto:1"
 
 
 # ---------------------------------------------------------------------------
@@ -326,18 +319,14 @@ class TestBatchDeployShardError:
 class TestBatchRegisterJobDefinition:
     def test_success_returns_arn(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"}
 
         arn = backend._register_job_definition(IMAGE, {}, {})  # type: ignore[attr-defined]
         assert arn == "arn:aws:batch:::job-definition/d:1"
 
     def test_default_vcpu_and_memory_used(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"}
 
         backend._register_job_definition(IMAGE, {}, {})  # type: ignore[attr-defined]
 
@@ -350,9 +339,7 @@ class TestBatchRegisterJobDefinition:
 
     def test_memory_gi_converted(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"}
 
         backend._register_job_definition(IMAGE, {"memory": "4Gi"}, {})  # type: ignore[attr-defined]
 
@@ -362,9 +349,7 @@ class TestBatchRegisterJobDefinition:
 
     def test_memory_mi_converted(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"}
 
         backend._register_job_definition(IMAGE, {"memory": "1024Mi"}, {})  # type: ignore[attr-defined]
 
@@ -382,9 +367,7 @@ class TestBatchRegisterJobDefinition:
 
     def test_execution_role_includes_account_id(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/d:1"}
 
         backend._register_job_definition(IMAGE, {}, {})  # type: ignore[attr-defined]
 
@@ -412,9 +395,7 @@ class TestBatchGetStatus:
 
     def test_succeeded_with_timestamps(self) -> None:
         backend, mock_client = _make_backend()
-        self._setup_describe(
-            mock_client, "SUCCEEDED", startedAt=1_700_000_000_000, stoppedAt=1_700_000_060_000
-        )
+        self._setup_describe(mock_client, "SUCCEEDED", startedAt=1_700_000_000_000, stoppedAt=1_700_000_060_000)
         result = backend.get_status("j1")  # type: ignore[attr-defined]
         assert result.status == JobStatus.SUCCEEDED
         assert result.start_time is not None
@@ -577,9 +558,7 @@ class TestBatchCancelJob:
         mock_client.terminate_job.return_value = {}
 
         assert backend.cancel_job("j1") is True  # type: ignore[attr-defined]
-        mock_client.terminate_job.assert_called_once_with(
-            jobId="j1", reason="Cancelled by deployment CLI"
-        )
+        mock_client.terminate_job.assert_called_once_with(jobId="j1", reason="Cancelled by deployment CLI")
 
     def test_client_error_returns_false(self) -> None:
         backend, mock_client = _make_backend()

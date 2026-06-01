@@ -1,0 +1,116 @@
+# AWS S3 IAM bucket policies for the unified-trading system.
+# AWS equivalent of iam-bucket-policies.yaml (GCP-specific).
+#
+# Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.md Phase 2.
+# SSOT: deployment-service/configs/cloud-providers.yaml (bucket name templates).
+#
+# Naming: AWS IAM uses ARNs and policy documents; GCP uses serviceAccount: principals.
+# For AWS, the analogous pattern uses:
+#   - IAM roles with "uts-*-prod" namespacing for prod service access
+#   - IAM roles with "uts-*-staging" / "uts-*-dev" namespacing for non-prod
+#   - Dedicated transfer user (unified-trading-gcs-to-s3-transfer) for GCS→S3 migration
+#
+# NOTE: These policies document the INTENT and recommended IAM structure.
+# Actual S3 bucket policies are applied via:
+#   aws s3api put-bucket-policy --bucket <name> --policy file://<json>
+# The JSON policy documents are generated from this YAML by the provisioning scripts.
+# See: deployment-service/scripts/aws/setup-defi-buckets.sh (bucket creation)
+#      deployment-service/scripts/aws/apply-bucket-policies.sh (policy application — TODO Phase 2 QG)
+
+version: "2026-05-08"
+account_id: "427895769566"
+region: "ap-northeast-1"
+
+# IAM roles taxonomy for unified-trading services on AWS
+iam_roles:
+  prod_services:
+    pattern: "arn:aws:iam::427895769566:role/uts-*-prod"
+    description: "Production service roles (ECS Fargate / App Runner tasks)"
+    examples:
+      - "arn:aws:iam::427895769566:role/uts-features-service-prod"
+      - "arn:aws:iam::427895769566:role/uts-strategy-service-prod"
+      - "arn:aws:iam::427895769566:role/uts-execution-service-prod"
+      - "arn:aws:iam::427895769566:role/uts-alerting-service-prod"
+      - "arn:aws:iam::427895769566:role/uts-instruments-service-prod"
+      - "arn:aws:iam::427895769566:role/uts-market-tick-data-service-prod"
+  staging_services:
+    pattern: "arn:aws:iam::427895769566:role/uts-*-staging"
+    description: "Staging service roles"
+  dev_services:
+    pattern: "arn:aws:iam::427895769566:role/uts-*-dev"
+    description: "Dev service roles — not allowed to write to prod buckets"
+  migration_user:
+    arn: "arn:aws:iam::427895769566:user/unified-trading-gcs-to-s3-transfer"
+    description: "Dedicated IAM user for GCS→S3 migration (write-only on 12 DeFi buckets)"
+    scope: "migration only — revoke after Phase 5 data transfer complete"
+  glue_crawler:
+    arn: "arn:aws:iam::427895769566:role/AWSGlueServiceRole-UnifiedTradingDeFi"
+    description: "Glue crawler role — S3 read on 12 DeFi buckets + AWSGlueServiceRole managed policy"
+  admin:
+    arn: "arn:aws:iam::427895769566:user/admin_od"
+    description: "Operator admin account — full access"
+
+# Bucket policy rules (mirrored from GCP iam-bucket-policies.yaml)
+policies:
+  prod_write_protection:
+    description: |
+      Deny writes to prod buckets from dev/staging service identities.
+      AWS analog of GCP prod_write_protection policy.
+    bucket_pattern: "*-prod-*"
+    deny_actions:
+      - "s3:PutObject"
+      - "s3:DeleteObject"
+      - "s3:DeleteObjectVersion"
+    denied_principals:
+      - "arn:aws:iam::427895769566:role/uts-*-dev"
+      - "arn:aws:iam::427895769566:role/uts-*-staging"
+    allowed_principals:
+      - "arn:aws:iam::427895769566:role/uts-*-prod"
+      - "arn:aws:iam::427895769566:role/AWSGlueServiceRole-UnifiedTradingDeFi"
+      - "arn:aws:iam::427895769566:user/admin_od"
+    # NOTE: migration user (unified-trading-gcs-to-s3-transfer) has its own
+    # inline policy scoped to 12 DeFi buckets; it is NOT listed here because
+    # it is a temporary write credential, not a service-level role.
+
+  glue_read_access:
+    description: |
+      Allow Glue crawler role to read all defi buckets for Athena/Glue catalog.
+    bucket_pattern: "unified-trading-*-defi-*"
+    allowed_actions:
+      - "s3:GetObject"
+      - "s3:ListBucket"
+    allowed_principals:
+      - "arn:aws:iam::427895769566:role/AWSGlueServiceRole-UnifiedTradingDeFi"
+
+  athena_results_write:
+    description: |
+      Allow Athena query results to land in events bucket _athena-results/ prefix.
+    bucket: "unified-trading-events-prod-427895769566"
+    prefix: "_athena-results/"
+    allowed_actions:
+      - "s3:PutObject"
+      - "s3:GetObject"
+      - "s3:ListBucket"
+    allowed_principals:
+      - "arn:aws:iam::427895769566:role/uts-*-prod"
+      - "arn:aws:iam::427895769566:user/admin_od"
+
+# DeFi-specific bucket list (Phase 2 — 10 buckets provisioned 2026-05-08)
+# Used by apply-bucket-policies.sh to enumerate targets
+defi_prod_buckets:
+  - "unified-trading-evm-defi-prod-427895769566"
+  - "unified-trading-dex-pools-prod-427895769566"
+  - "unified-trading-dex-swaps-prod-427895769566"
+  - "unified-trading-solana-defi-prod-427895769566"
+  - "unified-trading-eigenlayer-rewards-prod-427895769566"
+  - "unified-trading-pnl-store-defi-prod-427895769566"
+  - "unified-trading-positions-store-defi-prod-427895769566"
+  - "unified-trading-risk-store-defi-prod-427895769566"
+  - "unified-trading-config-store-prod-427895769566"
+  - "unified-trading-events-prod-427895769566"
+  # Pre-existing (provisioned before 2026-05-08):
+  - "unified-trading-instruments-defi-427895769566"
+  - "unified-trading-market-data-defi-427895769566"
+# Phase 2 QG: apply-bucket-policies.sh created (deployment-service@Phase-1B).
+# Run: bash scripts/aws/apply-bucket-policies.sh --apply  (requires AWS auth as admin_od)
+# IAM roles: bash scripts/aws/setup-iam-roles.sh --apply  (creates 30 uts-*-{env} roles)

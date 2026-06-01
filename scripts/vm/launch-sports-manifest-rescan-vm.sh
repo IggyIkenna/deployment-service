@@ -57,6 +57,9 @@
 #   - ``--chunks N``: allowed when the only RUNNING VMs are workers from the
 #     SAME run-id (same chunked job). Cross-job concurrency is still blocked.
 #   - ``--force``: bypass (use only for dry-run overlap or debugging).
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
@@ -68,6 +71,7 @@ WORKERS="16"
 CHUNKS=""
 COORDINATE=false
 RUN_ID=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -80,13 +84,19 @@ while [[ $# -gt 0 ]]; do
     --chunks) CHUNKS="$2"; shift 2 ;;
     --coordinate) COORDINATE=true; shift ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) echo "ERROR: unknown arg: $1" >&2; exit 1 ;;
   esac
 done
 
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Mode validation ─────────────────────────────────────────────────────
 if [[ -n "$CHUNKS" && "$COORDINATE" == "true" ]]; then
@@ -154,9 +164,10 @@ launch_vm() {
   local metadata="VM_TASK=sports-manifest-rescan"
   metadata="${metadata},VM_SERVICE=instruments_service"
   metadata="${metadata},VM_MIGRATION_CMD=${rescan_cmd}"
+  metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
 
-  local labels="purpose=sports-manifest-rescan,run-id=${run_id_label}"
+  local labels="purpose=sports-manifest-rescan,env=${DEPLOYMENT_ENV},run-id=${run_id_label}"
   if [[ -n "$chunk_label" ]]; then
     labels="${labels},chunk=${chunk_label}"
   fi

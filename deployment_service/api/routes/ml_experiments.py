@@ -2,8 +2,14 @@
 """
 FastAPI route handlers for ML experiment and model browsing.
 
-Provides read-only endpoints for listing experiments from
-ml-training-artifacts-{project_id} and models from ml-models-store-{project_id}.
+Provides read-only endpoints for listing experiments from the
+``ml-training-artifacts`` bucket and models from the ``ml-models-store`` bucket.
+Both bucket names are resolved via the canonical SSOT
+``unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name``
+(reading ``deployment-service/configs/cloud-providers.yaml``) — see
+Bucket-name SSOT (b+). Local helpers ``_artifacts_bucket()`` / ``_models_bucket()``
+keep delegating through ``get_bucket_name(...)`` for now; the resolver migration is
+tracked under the ml_artefact_path_resolver_consumer_sweep_2026_05_12 issue.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -131,12 +138,11 @@ async def get_experiment(experiment_id: str) -> ExperimentDetail:
     try:
         storage_client = get_storage_client(project_id=_config.gcp_project_id)
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
-        metrics: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
+        metrics_data = cast(dict[str, object], json.loads(raw_bytes.decode("utf-8")))
+        metrics: dict[str, object] = metrics_data
         return ExperimentDetail(experiment_id=experiment_id, metrics=metrics)
     except FileNotFoundError as e:
-        raise HTTPException(
-            status_code=404, detail=f"Experiment '{experiment_id}' not found"
-        ) from e
+        raise HTTPException(status_code=404, detail=f"Experiment '{experiment_id}' not found") from e
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as e:
         logger.error("get_experiment failed for %s: %s", experiment_id, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -156,10 +162,9 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
 
         # Try reading the manifest first (faster than scanning)
         try:
-            manifest_bytes = storage_client.download_bytes(
-                bucket=bucket, blob_path="model_registry/manifest.json"
-            )
-            manifest: dict[str, object] = json.loads(manifest_bytes.decode("utf-8"))
+            manifest_bytes = storage_client.download_bytes(bucket=bucket, blob_path="model_registry/manifest.json")
+            manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))
+            manifest: dict[str, object] = manifest_data
             models_dict = manifest.get("models", {})
             if isinstance(models_dict, dict):
                 results: list[ModelSummary] = []
@@ -191,9 +196,7 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
             if len(model_ids) >= limit:
                 break
 
-        return [
-            ModelSummary(model_id=mid, latest_training_period=None) for mid in sorted(model_ids)
-        ][:limit]
+        return [ModelSummary(model_id=mid, latest_training_period=None) for mid in sorted(model_ids)][:limit]
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("list_models failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -205,9 +208,7 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
 
 
 @router.get("/models/{model_id}/metadata")
-async def get_model_metadata(
-    model_id: str, training_period: str | None = None
-) -> ModelMetadataResponse:
+async def get_model_metadata(model_id: str, training_period: str | None = None) -> ModelMetadataResponse:
     """Read metadata.json for a specific model from the ml-models-store bucket.
 
     If training_period is not specified, reads the manifest to find the latest period.
@@ -225,11 +226,10 @@ async def get_model_metadata(
                     detail=f"No training periods found for model '{model_id}'",
                 )
 
-        gcs_path = (
-            f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
-        )
+        gcs_path = f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
-        metadata: dict[str, object] = json.loads(raw_bytes.decode("utf-8"))
+        metadata_data = cast(dict[str, object], json.loads(raw_bytes.decode("utf-8")))
+        metadata: dict[str, object] = metadata_data
         return ModelMetadataResponse(model_id=model_id, metadata=metadata)
     except FileNotFoundError as e:
         raise HTTPException(
@@ -252,7 +252,8 @@ def _resolve_latest_period(
         manifest_bytes = storage_client.download_bytes(  # pyright: ignore[reportUnknownMemberType]
             bucket=bucket, blob_path="model_registry/manifest.json"
         )
-        manifest: dict[str, object] = json.loads(manifest_bytes.decode("utf-8"))  # pyright: ignore[reportUnknownMemberType]
+        manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))  # pyright: ignore[reportUnknownMemberType]
+        manifest: dict[str, object] = manifest_data
         models_dict = manifest.get("models", {})
         if isinstance(models_dict, dict) and model_id in models_dict:
             model_info = models_dict[model_id]

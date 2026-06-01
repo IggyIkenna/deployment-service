@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
+# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
+# This launcher invokes a specialty entry-point
+# (`features_sports_service.scripts.compute_sfi_progressive_only`) NOT covered
+# by the standardised consolidated launcher. It is preserved as-is until
+# Phase 7 archives the source repo + the specialty script is migrated into
+# `features_service.sports.scripts.compute_sfi_progressive_only`. New callers
+# should still invoke this launcher for sfi_progressive halftime backfills
+# until the specialty script migration lands.
+#
 # Launch a single GCE VM that backfills sfi_progressive halftime features
 # for the entire SFI coverage window via features-sports-service.
 #
-# Phase 0.6 of features_sports_honest_coverage_2026_05_05.plan.md.
+# Phase 0.6 of features_sports_honest_coverage_2026_05_05.plan.
 #
 # Why standalone (not part of full derived_features):
 #   sfi_progressive features are computed from already-captured SFI
@@ -46,15 +55,28 @@
 #
 # VM naming: features-sfi-progressive-{TS} — covered by the heartbeat-only
 # `features-` prefix entry in vm_zombie_watchdog.VM_PREFIX_TO_BUCKET.
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 DEFAULT_START="2020-01-01"
 DEFAULT_END="$(date -u +%Y-%m-%d)"
@@ -135,18 +157,24 @@ METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=features-sfi-progressive,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-4 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=100GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=features-sfi-progressive,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

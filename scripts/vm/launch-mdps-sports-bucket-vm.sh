@@ -32,7 +32,23 @@
 #     force — live writes, --force (re-bucket even already-bucketed days;
 #             needed once after the 2026-05-05 layout refactor that split
 #             the monolithic bucketed.parquet into per-(league,horizon))
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Pre-parse --env <val> before positional args.
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]:-}"
 
 START_DATE="${1:-}"
 END_DATE="${2:-}"
@@ -40,12 +56,12 @@ MODE="${3:-dry}"  # dry | full | force
 WORKERS="${WORKERS:-16}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 
 if [[ -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 <start-date> <end-date> [dry|full|force]"
+    echo "Usage: $0 [--env prod|staging|dev] <start-date> <end-date> [dry|full|force]"
     echo "  dates: YYYY-MM-DD"
     echo "  mode:  dry (--dry-run) | full (resume-friendly) | force (re-bucket all)"
     exit 2
@@ -54,6 +70,11 @@ fi
 case "$MODE" in
     dry|full|force) ;;
     *) echo "Unknown mode: $MODE (expected dry|full|force)"; exit 2 ;;
+esac
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
@@ -91,6 +112,7 @@ md="${md},VM_START_DATE=${START_DATE}"
 md="${md},VM_END_DATE=${END_DATE}"
 md="${md},VM_MIGRATION_CMD=${CMD}"
 md="${md},VM_MIGRATION_MODE=${MODE}"
+md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
 
 gcloud compute instances create "$VM_NAME" \
@@ -102,7 +124,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-    --labels=purpose=mdps-sports-bucket,mode="${MODE}",run-ts="${RUN_TS}"
+    --labels=purpose=mdps-sports-bucket,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 
 echo ""
 echo "  SSH:    gcloud compute ssh ${VM_NAME} --zone=${ZONE}"

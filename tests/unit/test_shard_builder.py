@@ -226,9 +226,7 @@ class TestBuildShardArgsExtras:
     def test_extra_args_string_split(self):
         shard = _make_shard_dict({})
         config = _simple_config()
-        result = build_shard_args(
-            shard, config, extra_options={"extra_args": "--verbose --retry 3"}
-        )
+        result = build_shard_args(shard, config, extra_options={"extra_args": "--verbose --retry 3"})
         assert "--verbose" in result
         assert "--retry" in result
         assert "3" in result
@@ -451,9 +449,7 @@ class TestBuildStorageEnvVars:
         loader = self._mock_loader("features-delta-one-cefi-staging-myproject")
         with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
             result = build_storage_env_vars("features-delta-one-service", {"asset_group": "CEFI"})
-        assert result == {
-            "FEATURES_DELTA_ONE_CEFI_GCS_BUCKET": "features-delta-one-cefi-staging-myproject"
-        }
+        assert result == {"FEATURES_DELTA_ONE_CEFI_GCS_BUCKET": "features-delta-one-cefi-staging-myproject"}
         loader.get_bucket_name.assert_called_once_with("features-delta-one", "CEFI")
 
     @pytest.mark.unit
@@ -467,10 +463,11 @@ class TestBuildStorageEnvVars:
     def test_no_category_dimension_uses_shared_bucket_name(self):
         loader = self._mock_loader("ml-models-store-staging-myproject")
         with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
-            result = build_storage_env_vars("ml-training-service", {})
-        # ml-training-service has two domains; both injected with no category suffix
+            result = build_storage_env_vars("ml-service", {})
+        # ml-service has three domains; all injected with no category suffix
         assert "ML_MODELS_STORE_GCS_BUCKET" in result
         assert "ML_CONFIGS_STORE_GCS_BUCKET" in result
+        assert "ML_PREDICTIONS_STORE_GCS_BUCKET" in result
 
     @pytest.mark.unit
     def test_empty_bucket_name_from_loader_is_skipped(self):

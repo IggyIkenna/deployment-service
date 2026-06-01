@@ -33,9 +33,7 @@ def _collect_missing_dates(
         asset_groups=asset_groups or None,
     )
 
-    cats: dict[str, dict[str, object]] = cast(
-        dict[str, dict[str, object]], status.get("asset_groups", {})
-    )
+    cats: dict[str, dict[str, object]] = cast(dict[str, dict[str, object]], status.get("asset_groups", {}))
 
     result: dict[str, list[str]] = {}
     for cat_name, cat_info in cats.items():
@@ -144,18 +142,13 @@ def deploy_missing(
     ed = end_date.strftime("%Y-%m-%d")
 
     # ── Step 1: Collect missing dates via manifest ───────────────────────
-    click.echo(
-        click.style(
-            f"[deploy-missing] Analysing gaps: {service} ({sd} → {ed})", fg="cyan", bold=True
-        )
-    )
+    click.echo(click.style(f"[deploy-missing] Analysing gaps: {service} ({sd} → {ed})", fg="cyan", bold=True))
 
     reader = ManifestReader()
     if not reader.is_available():
         click.echo(
             click.style(
-                "ManifestReader not available (duckdb or cloud access missing). "
-                "Cannot determine missing dates.",
+                "ManifestReader not available (duckdb or cloud access missing). Cannot determine missing dates.",
                 fg="red",
             ),
             err=True,
@@ -172,11 +165,7 @@ def deploy_missing(
     # ── Step 2: Display missing summary ──────────────────────────────────
     total_missing = sum(len(dates) for dates in missing_by_cat.values())
     click.echo()
-    click.echo(
-        click.style(
-            f"Missing dates: {total_missing} across {len(missing_by_cat)} asset groups", fg="yellow"
-        )
-    )
+    click.echo(click.style(f"Missing dates: {total_missing} across {len(missing_by_cat)} asset groups", fg="yellow"))
 
     for cat_name, dates in sorted(missing_by_cat.items()):
         ranges = _dates_to_ranges(dates)
@@ -198,8 +187,7 @@ def deploy_missing(
             "date_range": {"start": sd, "end": ed},
             "total_missing_dates": total_missing,
             "asset_groups": {
-                ag: {"missing_count": len(dates), "missing_dates": dates}
-                for ag, dates in missing_by_cat.items()
+                ag: {"missing_count": len(dates), "missing_dates": dates} for ag, dates in missing_by_cat.items()
             },
         }
         click.echo()
@@ -225,7 +213,7 @@ def deploy_missing(
             if venue:
                 filters["venue"] = list(venue)
 
-            dim_filters: dict[str, object] = {k: v for k, v in filters.items()}
+            dim_filters: dict[str, object] = dict(filters.items())
 
             try:
                 calculator = ShardCalculator(config_dir)
@@ -237,9 +225,7 @@ def deploy_missing(
                     **dim_filters,
                 )
                 all_shards.extend(shards)
-                shards_by_asset_group[cat_name] = shards_by_asset_group.get(cat_name, 0) + len(
-                    shards
-                )
+                shards_by_asset_group[cat_name] = shards_by_asset_group.get(cat_name, 0) + len(shards)
             except ShardLimitExceeded as exc:
                 click.echo(
                     click.style(

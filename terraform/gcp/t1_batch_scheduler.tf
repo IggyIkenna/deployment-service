@@ -3,15 +3,6 @@
 # Each batch service runs independently on its own T+1 schedule so recon data
 # is ready when batch-live-reconciliation-service starts at 06:00 UTC.
 #
-# NOTE (2026-04-25): the original "Cloud Run Job definitions are deployed at
-# runtime by backends/cloud_run.py" claim is aspirational — that file is a
-# generic backend, not a per-service Job declarer. Net effect: every scheduler
-# entry in this file points at a target that does not exist (verified via
-# workspace-wide grep for "fast-t1-recon" / "cefi-t1-recon"). The DeFi
-# pattern in defi_collection_scheduler.tf demonstrates the correct shape —
-# co-locate `google_cloud_run_v2_job` (via the container-job module) with the
-# `google_cloud_scheduler_job` cron. Existing entries below remain as
-# placeholders pending migration to that pattern.
 #
 # Schedule design (pipeline DAG order):
 #
@@ -32,7 +23,7 @@
 #   02:00 — features-calendar, features-delta-one (TradFi), features-volatility
 #   02:30 — features-onchain, features-sports, features-cross-instrument,
 #            features-multi-timeframe, features-commodity
-#   03:00 — ml-inference-service
+#   03:00 — ml-service
 #   04:00 — strategy-service
 #
 # SLOW phase (CeFi — Tardis delayed):
@@ -153,10 +144,10 @@ locals {
       job_name    = "${local.env_prefix}-features-commodity-service-t1-recon"
       description = "features-commodity-service T+1 recon batch — writes to t1-recon/features/commodity/"
     }
-    "ml-inference" = {
+    "ml" = {
       schedule    = "0 3 * * *"
-      job_name    = "${local.env_prefix}-ml-inference-service-t1-recon"
-      description = "ml-inference-service T+1 recon batch — reads t1-recon/features/, writes to t1-recon/ml/"
+      job_name    = "${local.env_prefix}-ml-service-t1-recon"
+      description = "ml-service T+1 recon batch — reads t1-recon/features/, writes to t1-recon/ml/"
     }
     "strategy" = {
       schedule    = "0 4 * * *"

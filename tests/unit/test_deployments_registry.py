@@ -25,11 +25,7 @@ def _load_registry_module() -> ModuleType:
     """
     import sys
 
-    path = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "deployment_service"
-        / "deployments_registry.py"
-    )
+    path = pathlib.Path(__file__).resolve().parents[2] / "deployment_service" / "deployments_registry.py"
     module_name = "_deployments_registry_under_test"
     spec = importlib.util.spec_from_file_location(module_name, str(path))
     assert spec is not None and spec.loader is not None
@@ -83,9 +79,7 @@ def _make_entry(**overrides: object) -> DeploymentRegistryEntry:
     return DeploymentRegistryEntry(**base)  # type: ignore[arg-type]
 
 
-def test_register_writes_to_active(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_register_writes_to_active(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     entry = _make_entry()
     registry.register(entry)
     keys = storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX)
@@ -95,9 +89,7 @@ def test_register_writes_to_active(
     assert stored["rows_in"] == 0
 
 
-def test_heartbeat_overwrites_active_entry(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_heartbeat_overwrites_active_entry(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     entry = _make_entry()
     registry.register(entry)
     entry.rows_in = 100
@@ -113,9 +105,7 @@ def test_heartbeat_overwrites_active_entry(
     assert storage.list_keys(DEFAULT_BUCKET, ACTIVE_PREFIX) == [key]
 
 
-def test_complete_moves_from_active_to_archive(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_complete_moves_from_active_to_archive(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     entry = _make_entry()
     registry.register(entry)
     entry.status = "completed"
@@ -140,9 +130,7 @@ def test_complete_rejects_non_terminal_status(registry: DeploymentsRegistry) -> 
         registry.complete(entry)
 
 
-def test_failed_deployment_routes_to_archive(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_failed_deployment_routes_to_archive(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     entry = _make_entry(deployment_id="dep-fail-1")
     registry.register(entry)
     entry.status = "failed"
@@ -156,9 +144,7 @@ def test_failed_deployment_routes_to_archive(
     assert stored["rows_error"] == 42
 
 
-def test_list_active_skips_malformed(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_list_active_skips_malformed(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     good = _make_entry(deployment_id="good")
     registry.register(good)
     # Injecting a bad payload should not blow up list_active()
@@ -167,9 +153,7 @@ def test_list_active_skips_malformed(
     assert [e.deployment_id for e in entries] == ["good"]
 
 
-def test_list_recent_archive_covers_window(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_list_recent_archive_covers_window(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     # Seed 3 archive entries across 3 different days, all within 7-day window.
     today = datetime.now(UTC).date()
     for offset in range(3):
@@ -190,9 +174,7 @@ def test_list_recent_archive_covers_window(
     assert ids == ["dep-0", "dep-1", "dep-2"]
 
 
-def test_get_returns_active_then_archive(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_get_returns_active_then_archive(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     live = _make_entry(deployment_id="live-1")
     registry.register(live)
     # Put an unrelated archive entry from today so list_recent_archive has data.
@@ -225,16 +207,12 @@ def test_round_trip_json_preserves_fields() -> None:
 # ----- heartbeat.py subcommand integration --------------------------------
 
 
-def _iter_registered(
-    storage: InMemoryStorageClient, bucket: str = DEFAULT_BUCKET
-) -> Iterator[DeploymentRegistryEntry]:
+def _iter_registered(storage: InMemoryStorageClient, bucket: str = DEFAULT_BUCKET) -> Iterator[DeploymentRegistryEntry]:
     for key in storage.list_keys(bucket, ACTIVE_PREFIX):
         yield DeploymentRegistryEntry.from_json(storage.download_string(bucket, key))
 
 
-def test_heartbeat_cli_register_then_complete(
-    storage: InMemoryStorageClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # Load the heartbeat CLI directly. We inject:
     #   - a pre-built DeploymentsRegistry bound to our in-memory storage
     #   - no-op _init_events / _emit so the test doesn't touch Pub/Sub.
@@ -242,12 +220,7 @@ def test_heartbeat_cli_register_then_complete(
 
     spec = importlib.util.spec_from_file_location(
         "deployment_heartbeat_under_test",
-        str(
-            pathlib.Path(__file__).resolve().parents[2]
-            / "scripts"
-            / "vm"
-            / "deployment_heartbeat.py"
-        ),
+        str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "vm" / "deployment_heartbeat.py"),
     )
     assert spec is not None and spec.loader is not None
 
@@ -384,9 +357,7 @@ def test_is_entry_stale_vm_not_in_running_set_returns_true() -> None:
     assert is_entry_stale(entry2, now=now, max_age_hours=24, running_vm_names={"other-vm"}) is False
 
 
-def test_reap_stale_archives_stale_entries(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_reap_stale_archives_stale_entries(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     now = datetime.now(UTC)
     old_hb = (now - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
     fresh_hb = now.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -413,9 +384,7 @@ def test_reap_stale_archives_stale_entries(
     assert stored["extras"]["reap_reason"] == "heartbeat_stale"
 
 
-def test_reap_stale_uses_vm_name_signal(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_reap_stale_uses_vm_name_signal(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     now = datetime.now(UTC)
     old_hb = (now - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     entry = _make_entry(deployment_id="gone-1", vm_name="gone-vm", last_heartbeat_at=old_hb)
@@ -428,9 +397,7 @@ def test_reap_stale_uses_vm_name_signal(
     assert stored["extras"]["reap_reason"] == "vm_not_running"
 
 
-def test_reap_stale_skips_unparseable_heartbeat(
-    registry: DeploymentsRegistry, storage: InMemoryStorageClient
-) -> None:
+def test_reap_stale_skips_unparseable_heartbeat(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
     entry = _make_entry(deployment_id="bad-hb", last_heartbeat_at="garbage")
     registry.register(entry)
     reaped = registry.reap_stale(max_age_hours=6, now=datetime.now(UTC))

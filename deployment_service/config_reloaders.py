@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from unified_trading_library import (
     DomainConfigReloader,
@@ -55,7 +56,7 @@ def start_domain_config_reloaders(service_config: DeploymentConfig) -> None:
     """Start domain config reloaders. Call on service startup."""
     global _instrument_reloader, _venue_reloader
 
-    config_store_bucket: str = service_config.config_store_bucket
+    config_store_bucket: str = cast(str, service_config.config_store_bucket)
     project_id: str | None = service_config.gcp_project_id
 
     if not config_store_bucket:

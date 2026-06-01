@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import click
 import yaml
@@ -19,7 +20,7 @@ from unified_trading_library import (
     get_storage_client,
 )
 
-from .manifest_reader import _BUCKET_TEMPLATES, ManifestReader
+from .manifest_reader import BUCKET_TEMPLATES, ManifestReader
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,11 @@ def run_t1_check(
         raise SystemExit(1)
 
     with open(cluster_path) as fh:
-        cluster_cfg: dict[str, object] = yaml.safe_load(fh)
+        loaded_config = cast(dict[str, object], yaml.safe_load(fh))
+        cluster_cfg: dict[str, object] = loaded_config
 
     services: list[str] = []
-    raw_services: list[str] = cluster_cfg.get("services") or []  # type: ignore[assignment]
+    raw_services = cast("list[str]", cluster_cfg.get("services") or [])
     for svc in raw_services:
         svc_name = str(svc).split(":")[0]  # strip operational-mode suffix
         if svc_name not in services:
@@ -116,7 +118,7 @@ def run_t1_check(
                 status = "ERROR"
                 details = str(result["error"])
             else:
-                completion = float(result.get("overall_completion", 0))  # type: ignore[arg-type]
+                completion = float(cast(float | int, result.get("overall_completion", 0)))
                 if completion == 100:
                     status = "OK"
                 elif completion == 0:
@@ -156,11 +158,7 @@ def run_t1_check(
     ok_count = 0
     for row in rows:
         color = status_colors.get(row["status"], "white")
-        click.echo(
-            f"{row['service']:<40} "
-            + click.style(f"{row['status']:<10}", fg=color)
-            + f" {row['details']}"
-        )
+        click.echo(f"{row['service']:<40} " + click.style(f"{row['status']:<10}", fg=color) + f" {row['details']}")
         if row["status"] == "OK":
             ok_count += 1
 
@@ -220,9 +218,7 @@ def run_ml_experiments_check(output: str) -> None:
             model_part = parts[0]  # model-{model_id}
             period_part = parts[1]  # training-period={tp}
 
-            model_id = (
-                model_part.removeprefix("model-") if model_part.startswith("model-") else model_part
-            )
+            model_id = model_part.removeprefix("model-") if model_part.startswith("model-") else model_part
             training_period = (
                 period_part.removeprefix("training-period=")
                 if period_part.startswith("training-period=")
@@ -276,12 +272,10 @@ def run_ml_experiments_check(output: str) -> None:
     meta_ok = 0
     for r in results:
         has_meta = bool(r["has_metadata"])
-        meta_status = (
-            click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
-        )
+        meta_status = click.style("OK", fg="green") if has_meta else click.style("MISSING", fg="red")
         if has_meta:
             meta_ok += 1
-        click.echo(f"{str(r['model_id']):<30} {str(r['training_period']):<25} {meta_status}")
+        click.echo(f"{r['model_id']!s:<30} {r['training_period']!s:<25} {meta_status}")
 
     click.echo("-" * 80)
     total = len(results)
@@ -324,7 +318,7 @@ def run_live_freshness_check(
     project_id = config.gcp_project_id
     storage_client = get_storage_client()
 
-    bucket_template = _BUCKET_TEMPLATES.get(service)
+    bucket_template = BUCKET_TEMPLATES.get(service)
     if not bucket_template:
         click.echo(
             click.style(f"No bucket template for service: {service}", fg="red"),
@@ -332,9 +326,7 @@ def run_live_freshness_check(
         )
         raise SystemExit(1)
 
-    asset_groups_to_check = (
-        list(asset_group) if asset_group else ["cefi", "defi", "tradfi", "sports"]
-    )
+    asset_groups_to_check = list(asset_group) if asset_group else ["cefi", "defi", "tradfi", "sports"]
     now = datetime.now(tz=UTC)
 
     click.echo()
@@ -429,8 +421,7 @@ def run_live_freshness_check(
             status = click.style("FRESH", fg="green")
 
         click.echo(
-            f"{str(r['asset_group']):<15} {str(r['blob_count']):<8} "
-            f"{last_write_str:<22} {staleness_display:<12} {status}"
+            f"{r['asset_group']!s:<15} {r['blob_count']!s:<8} {last_write_str:<22} {staleness_display:<12} {status}"
         )
 
     click.echo("-" * 80)

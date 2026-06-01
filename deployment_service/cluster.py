@@ -130,13 +130,9 @@ class ClusterOrchestrator:
             raise FileNotFoundError(msg)
 
         with open(cluster_path) as f:
-            raw = yaml.safe_load(f)
+            raw = cast(dict[str, object], yaml.safe_load(f))
 
-        if not isinstance(raw, dict):
-            msg = f"Invalid cluster config format in {cluster_path}: expected mapping"
-            raise ValueError(msg)
-
-        raw_data = cast(dict[str, object], raw)
+        raw_data = raw
         services_raw = raw_data.get("services")
         if not isinstance(services_raw, list):
             msg = f"Cluster {name} has no 'services' list"
@@ -291,7 +287,7 @@ class ClusterOrchestrator:
         ordered_services.reverse()
 
         for service_name in ordered_services:
-            self._stop_service(service_name)
+            self.stop_service(service_name)
 
         log_event(
             "cluster.teardown.completed",
@@ -632,7 +628,7 @@ class ClusterOrchestrator:
 
         return svc_status
 
-    def _stop_service(self, service_name: str) -> None:
+    def stop_service(self, service_name: str) -> None:
         """Stop a running service.
 
         Args:
@@ -766,9 +762,7 @@ class ClusterOrchestrator:
                 result.success = True
                 result.jobs_completed = 1
             else:
-                result.error_message = (
-                    completed.stderr[:500] if completed.stderr else "Non-zero exit"
-                )
+                result.error_message = completed.stderr[:500] if completed.stderr else "Non-zero exit"
                 result.jobs_failed = 1
 
         except subprocess.TimeoutExpired:

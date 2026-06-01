@@ -46,9 +46,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def mock_secret_client(monkeypatch):
     """Prevent real secret access in all unit tests."""
     mock = MagicMock(return_value="fake-secret-value")
-    monkeypatch.setattr(
-        "unified_trading_library.cloud_interface.get_secret_client", lambda *a, **kw: mock
-    )
+    monkeypatch.setattr("unified_trading_library.cloud_interface.get_secret_client", lambda *a, **kw: mock)
     return mock
 
 
@@ -91,6 +89,8 @@ def gcp_auth_info() -> tuple[object | None, str, str | None]:
         project_id = adc_project or os.getenv("GCP_PROJECT_ID") or _project_from_gcloud()
         return credentials, project_id or "test-project", None
     except DefaultCredentialsError:
+        pass
+    except Exception:
         pass
 
     return None, "test-project", None
@@ -181,7 +181,7 @@ def temp_config_dir(tmp_path):
             },
             "DEFI": {
                 "description": "Test DEFI",
-                "venues": ["UNISWAPV3-ETHEREUM", "AAVEV3-ETHEREUM"],
+                "venues": ["UNISWAP_V3-ETHEREUM", "AAVE_V3-ETHEREUM"],
                 "data_types": ["swaps", "oracle_prices"],
             },
         }
@@ -323,8 +323,7 @@ def all_service_configs():
         "features-volatility-service",
         "features-onchain-service",
         "features-calendar-service",
-        "ml-training-service",
-        "ml-inference-service",
+        "ml-service",
         "strategy-service",
         "execution-service",
     ]
@@ -353,8 +352,8 @@ def expected_start_dates_config():
             "DEFI": {
                 "category_start": "2024-01-10",  # DEFI launches later
                 "venues": {
-                    "UNISWAPV3-ETHEREUM": "2024-01-10",
-                    "AAVEV3-ETHEREUM": "2024-01-15",  # Launches even later
+                    "UNISWAP_V3-ETHEREUM": "2024-01-10",
+                    "AAVE_V3-ETHEREUM": "2024-01-15",  # Launches even later
                 },
             },
         },
@@ -373,9 +372,7 @@ def expected_start_dates_config():
 
 
 @pytest.fixture
-def temp_config_with_start_dates(
-    temp_config_dir, hierarchical_service_config, expected_start_dates_config
-):
+def temp_config_with_start_dates(temp_config_dir, hierarchical_service_config, expected_start_dates_config):
     """Create a temp config dir with service config and expected_start_dates.yaml."""
     # Write the service config
     with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
@@ -409,7 +406,7 @@ def mock_venue_start_dates(monkeypatch, expected_start_dates_config):
                 for venue, start_date in venues.items():
                     venue_dates[venue] = str(start_date)
 
-    def _mock_get_venue_start_date(self, venue: str) -> str | None:  # noqa: ANN001
+    def _mock_get_venue_start_date(self, venue: str) -> str | None:
         return venue_dates.get(venue)
 
     monkeypatch.setattr(

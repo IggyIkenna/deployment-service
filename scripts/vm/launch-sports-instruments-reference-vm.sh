@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Launch 3 GCE VMs for instruments-service sports reference data backfill.
+#
+# Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
+# Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
+# Pre-condition: run `bash create-code-tarballs.sh` first.
+#
+# Per-entity skip logic: manifest checked per entity (all sports entities);
+# only fetches those actually missing. No wasted API calls.
+#
+# Date range: 2020-06-01 → 2026-04-10 (~2,141 days), split across 3 VMs:
+#   sports-ref-v3-1: 2020-06-01 → 2022-05-31
+#   sports-ref-v3-2: 2022-06-01 → 2024-05-31
+#   sports-ref-v3-3: 2024-06-01 → 2026-04-10
+#
+# Usage:
+#   bash launch-sports-instruments-reference-vm.sh           # Launch all 3 VMs
+#   bash launch-sports-instruments-reference-vm.sh --dry-run # Print plan only
+#   bash launch-sports-instruments-reference-vm.sh --env staging
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
+PROJECT_ID="${PROJECT_ID:-central-element-323112}"
+ZONE="${ZONE:-asia-northeast1-c}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
+DRY_RUN=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+CHUNK_DAYS="${CHUNK_DAYS:-30}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)    DRY_RUN=true; shift ;;
+    --project)    PROJECT_ID="$2"; shift 2 ;;
+    --zone)       ZONE="$2"; shift 2 ;;
+    --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
+    --env)        DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
+CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
+
+# 3 VM date-split ranges
+VM_CONFIGS=(
+  "sports-ref-v3-1|2020-06-01|2022-05-31"
+  "sports-ref-v3-2|2022-06-01|2024-05-31"
+  "sports-ref-v3-3|2024-06-01|2026-04-10"
+)
+
+echo "============================================================"
+echo "Instruments Reference Data VM Launcher (Pattern A)"
+echo "  Project:  ${PROJECT_ID}"
+echo "  Zone:     ${ZONE}"
+echo "  Machine:  ${MACHINE_TYPE}"
+echo "  VMs:      ${#VM_CONFIGS[@]}"
+for cfg in "${VM_CONFIGS[@]}"; do
+  IFS='|' read -r name start end <<< "$cfg"
+  echo "    ${name}: ${start} → ${end}"
+done
+echo "  Chunk:    ${CHUNK_DAYS} days"
+echo "  DryRun:   ${DRY_RUN}"
+echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-service-code.tar.gz"
+echo "============================================================"
+
+for cfg in "${VM_CONFIGS[@]}"; do
+  IFS='|' read -r VM_NAME START_DATE END_DATE <<< "$cfg"
+
+  echo ""
+  echo "--- ${VM_NAME}: ${START_DATE} → ${END_DATE} ---"
+
+  if $DRY_RUN; then
+    echo "  [DRY RUN] Would create VM: ${VM_NAME}"
+    continue
+  fi
+
+  # Delete existing VM (idempotent)
+  gcloud compute instances delete "${VM_NAME}" \
+    --project="${PROJECT_ID}" --zone="${ZONE}" --quiet 2>/dev/null || true
+
+  METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+  METADATA="${METADATA},VM_TASK=instruments-backfill"
+  METADATA="${METADATA},VM_SERVICE=instruments_service"
+  METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
+  METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
+  METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+  METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+
+  gcloud compute instances create "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --machine-type="${MACHINE_TYPE}" \
+    --scopes=cloud-platform \
+    --no-restart-on-failure \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=30GB \
+    --labels="purpose=sports-instruments-reference,env=${DEPLOYMENT_ENV}" \
+    --metadata="${METADATA}"
+  echo "  VM created and RUNNING: ${VM_NAME}"
+  echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+done
+
+echo ""
+echo "============================================================"
+echo "Monitor:"
+echo "  gcloud compute instances list --filter='name~sports-ref-v3' --project=${PROJECT_ID}"
+echo "  gsutil ls gs://${CODE_BUCKET}/vm-logs/ | grep sports-ref-v3"
+echo "============================================================"

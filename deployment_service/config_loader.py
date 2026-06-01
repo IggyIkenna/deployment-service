@@ -2,7 +2,7 @@
 Config Loader - Load sharding configurations from YAML files
 
 Handles loading:
-- venues.yaml: Canonical venue–asset-group mappings
+- venues.yaml: Canonical venue-asset-group mappings
 - sharding.SERVICE.yaml: Per-service sharding configurations
 - cloud-providers.yaml: Cloud provider configurations (GCP/AWS)
 """
@@ -37,7 +37,7 @@ class ConfigLoader(BaseConfigLoader):
     Loads sharding configuration files.
 
     Configuration files are expected to be in YAML format:
-    - configs/venues.yaml: Venue–asset-group mappings
+    - configs/venues.yaml: Venue-asset-group mappings
     - configs/sharding.{service}.yaml: Service-specific sharding configs
     - configs/cloud-providers.yaml: Cloud provider configurations
     """
@@ -99,17 +99,10 @@ class ConfigLoader(BaseConfigLoader):
                     content = cast(dict[str, object], yaml.safe_load(f) or {})
                 self._cache[cache_key] = content
                 return content
-            logger.warning(
-                "RUNTIME_TOPOLOGY_PATH=%s does not exist", bootstrap.runtime_topology_path
-            )
+            logger.warning("RUNTIME_TOPOLOGY_PATH=%s does not exist", bootstrap.runtime_topology_path)
 
         if bootstrap.workspace_root:
-            pm_path = (
-                Path(bootstrap.workspace_root)
-                / "unified-trading-pm"
-                / "configs"
-                / "runtime-topology.yaml"
-            )
+            pm_path = Path(bootstrap.workspace_root) / "unified-trading-pm" / "configs" / "runtime-topology.yaml"
             if pm_path.exists():
                 cache_key = "runtime-topology"
                 if cache_key in self._cache:
@@ -120,9 +113,7 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("PM topology not found at %s", pm_path)
 
-        logger.warning(
-            "runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT."
-        )
+        logger.warning("runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT.")
         return {}
 
     def list_available_services(self) -> list[str]:
@@ -175,9 +166,7 @@ class ConfigLoader(BaseConfigLoader):
         """
         return VenueMapping().get_instrument_discovery_start(venue)
 
-    def get_venue_expected_data_types(
-        self, asset_group: str, venue: str, date_str: str
-    ) -> list[str]:
+    def get_venue_expected_data_types(self, asset_group: str, venue: str, date_str: str) -> list[str]:
         """Get the expected data types for a specific venue on a given date."""
         venues_config = self.load_venues_config()
 
@@ -201,9 +190,7 @@ class ConfigLoader(BaseConfigLoader):
             # Fallback to asset-group-level data types
             default_types_raw = ag_config.get("data_types")
             return (
-                [str(x) for x in cast(list[object], default_types_raw)]
-                if isinstance(default_types_raw, list)
-                else []
+                [str(x) for x in cast(list[object], default_types_raw)] if isinstance(default_types_raw, list) else []
             )
 
         venue_data_types_dict = cast(dict[str, object], venue_data_types_raw)
@@ -212,9 +199,7 @@ class ConfigLoader(BaseConfigLoader):
             # Fallback to asset-group-level data types
             default_types_raw = ag_config.get("data_types")
             return (
-                [str(x) for x in cast(list[object], default_types_raw)]
-                if isinstance(default_types_raw, list)
-                else []
+                [str(x) for x in cast(list[object], default_types_raw)] if isinstance(default_types_raw, list) else []
             )
 
         venue_types_dict = cast(dict[str, object], venue_types_raw)
@@ -261,9 +246,7 @@ class ConfigLoader(BaseConfigLoader):
                             if isinstance(data_types_raw, dict):
                                 data_types_dict = cast(dict[str, object], data_types_raw)
                                 # Check if date is within a TradFi tick window (SSOT in UAC)
-                                is_tick_window = (
-                                    is_in_tradfi_tick_window(date_str) if date_str else False
-                                )
+                                is_tick_window = is_in_tradfi_tick_window(date_str) if date_str else False
 
                                 resolved_types: list[object] | None = None
                                 if is_tick_window:
@@ -273,21 +256,15 @@ class ConfigLoader(BaseConfigLoader):
                                     else:
                                         default_val = data_types_dict.get("default")
                                         resolved_types = (
-                                            cast(list[object], default_val)
-                                            if isinstance(default_val, list)
-                                            else None
+                                            cast(list[object], default_val) if isinstance(default_val, list) else None
                                         )
                                 else:
                                     default_val = data_types_dict.get("default")
                                     resolved_types = (
-                                        cast(list[object], default_val)
-                                        if isinstance(default_val, list)
-                                        else None
+                                        cast(list[object], default_val) if isinstance(default_val, list) else None
                                     )
 
-                                data_types_raw = (
-                                    resolved_types if resolved_types is not None else []
-                                )
+                                data_types_raw = resolved_types if resolved_types is not None else []
 
                             if isinstance(data_types_raw, list):
                                 return data_type in cast(list[object], data_types_raw)
@@ -309,9 +286,7 @@ class ConfigLoader(BaseConfigLoader):
         chain_config = venue_config.get("chain_data_types")
         return cast(dict[str, object], chain_config) if isinstance(chain_config, dict) else {}
 
-    def get_all_venue_data_type_expectations(
-        self, asset_group: str, date_str: str
-    ) -> dict[str, list[str]]:
+    def get_all_venue_data_type_expectations(self, asset_group: str, date_str: str) -> dict[str, list[str]]:
         """Get expected data types for ALL venues in an asset group for a given date."""
         venues_config = self.load_venues_config()
 
@@ -342,9 +317,7 @@ class ConfigLoader(BaseConfigLoader):
         return result
 
     # Compute configuration methods
-    def get_compute_recommendation(
-        self, service: str, compute_type: str = "vm"
-    ) -> dict[str, object]:
+    def get_compute_recommendation(self, service: str, compute_type: str = "vm") -> dict[str, object]:
         """Get compute recommendations for a service."""
         config = self.load_service_config(service)
         compute = config.get("compute")
@@ -357,16 +330,13 @@ class ConfigLoader(BaseConfigLoader):
             elif compute_type == "cloud_run":
                 return {"memory": "4Gi", "cpu": 2, "timeout_seconds": 3600}
             else:
-                raise ConfigurationError(
-                    f"Unknown compute type '{compute_type}' for service '{service}'"
-                )
+                raise ConfigurationError(f"Unknown compute type '{compute_type}' for service '{service}'")
 
         compute_dict = cast(dict[str, object], compute)
         compute_config = compute_dict[compute_type]
         if not isinstance(compute_config, dict):
             raise ConfigurationError(
-                f"Invalid compute config for {service}.{compute_type}"
-                f" - expected dict, got {type(compute_config)}"
+                f"Invalid compute config for {service}.{compute_type} - expected dict, got {type(compute_config)}"
             )
 
         return cast(dict[str, object], compute_config)
@@ -494,9 +464,7 @@ class ConfigLoader(BaseConfigLoader):
         return config
 
     # Cloud provider methods
-    def get_docker_image(
-        self, service: str, tag: str = "latest", provider: str | None = None
-    ) -> str:
+    def get_docker_image(self, service: str, tag: str = "latest", provider: str | None = None) -> str:
         """Get the Docker image URL for a service based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()
@@ -509,9 +477,7 @@ class ConfigLoader(BaseConfigLoader):
 
         provider_config_raw = cloud_config.get(provider)
         if not isinstance(provider_config_raw, dict):
-            logger.warning(
-                "Provider '%s' not found in cloud config, falling back to service config", provider
-            )
+            logger.warning("Provider '%s' not found in cloud config, falling back to service config", provider)
             service_config = self.load_service_config(service)
             raw = str(service_config.get("docker_image") or f"{service}:{tag}")
             return substitute_env_vars(raw)
@@ -561,9 +527,7 @@ class ConfigLoader(BaseConfigLoader):
 
         return substitute_env_vars(str(url_pattern)).format(**variables)
 
-    def get_bucket_name(
-        self, domain: str, asset_group: str = "", provider: str | None = None
-    ) -> str:
+    def get_bucket_name(self, domain: str, asset_group: str = "", provider: str | None = None) -> str:
         """Get the bucket name for a domain/asset group based on cloud provider."""
         provider = provider or get_cloud_provider()
         cloud_config = self.load_cloud_providers_config()
@@ -604,9 +568,7 @@ class ConfigLoader(BaseConfigLoader):
             bucket_template = domain_config
 
         if not bucket_template:
-            logger.warning(
-                "No bucket template found for domain '%s', asset group '%s'", domain, asset_group
-            )
+            logger.warning("No bucket template found for domain '%s', asset group '%s'", domain, asset_group)
             return ""
 
         return substitute_env_vars(str(bucket_template))

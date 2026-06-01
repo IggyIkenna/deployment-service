@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Targeted options_chain backfill — DERIBIT (CEFI) + CME-OPTIONS / CBOE-VIX-OPTIONS (TRADFI).
 #
 # Why a separate script: launch-cefi-sharded-backfill.sh re-captures the FULL
@@ -25,7 +29,7 @@ set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # 2026-05-01: bumped from e2-standard-2 (8GB) to e2-standard-4 (16GB) after
 # DERIBIT 2024-2026 options_chain OOM-killed at peak RSS. Tardis options_chain
@@ -36,16 +40,26 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY=1
 SELECTED_VENUE=""
 SELECTED_YEAR=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
         --dry)    DRY=1; shift ;;
         --commit) DRY=0; shift ;;
         --venue)  SELECTED_VENUE="$2"; shift 2 ;;
         --year)   SELECTED_YEAR="$2"; shift 2 ;;
+        --env)    DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 2 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 # Per-venue chain symbol sets (only the bases — Tardis chain glob expands server-side).
 SYMBOLS_DERIBIT="BTC;ETH"
@@ -82,6 +96,7 @@ _launch_shard() {
     meta+=",VM_END_DATE=${end_date}"
     meta+=",VM_DATA_TYPES=options_chain"
     meta+=",VM_INSTRUMENT_IDS=${symbols}"
+    meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     # 2026-05-01: opt-in auto-delete after task completion (read by
     # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
     # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
@@ -92,11 +107,17 @@ _launch_shard() {
         echo "      data_types=options_chain symbols=${symbols}"
     else
         echo "Launching ${vm_name}"
-        gcloud compute instances create "${vm_name}" \
-            --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
-            --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-            --scopes=cloud-platform --metadata="${meta}" \
-            --project="${PROJECT}" --async 2>&1 | tail -1
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+          echo "[DRY-RUN] Would create VM: "${vm_name}""
+          echo "[DRY-RUN] (gcloud compute instances create skipped)"
+        else
+          gcloud compute instances create "${vm_name}" \
+              --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
+              --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+              --scopes=cloud-platform --metadata="${meta}" \
+              --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
+              --project="${PROJECT}" --async 2>&1 | tail -1
+        fi
         sleep 2
     fi
 }

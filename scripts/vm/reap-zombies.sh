@@ -4,7 +4,7 @@
 # longer than a heartbeat window).
 #
 # History (2026-04-22, L1 in
-# ``unified-trading-pm/plans/active/manifest_schema_v6_quote_margin_combo_2026_04_23.plan.md``):
+# ``unified-trading-pm/plans/active/manifest_schema_v6_quote_margin_combo_2026_04_23.md``):
 # The first-generation Fleet Monitor used ``tail -1`` on ``run.log``, which
 # missed the CMD's ``rc=NNN`` line because the heartbeat daemon appends
 # ``DEPLOYMENT_COMPLETED`` AFTER. Result: Monitor reported "0 zombies / 95
