@@ -61,7 +61,9 @@ RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 
 _script_for() {
     case "$1" in
-        cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
+        # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
+        cefi)       echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
         tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
         # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
@@ -85,7 +87,7 @@ _launch() {
     # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
     # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
     # are write-by-default + --dry-run.
-    if [[ "$cat" == "defi" || "$cat" == "prediction" ]]; then
+    if [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" ]]; then
         [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
     else
         [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
