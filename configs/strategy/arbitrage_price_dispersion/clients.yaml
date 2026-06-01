@@ -1,0 +1,32 @@
+# Per-client configuration for arbitrage_price_dispersion archetype, shard 0.
+# Schema: unified_api_contracts.canonical.domain.strategy.ClientsYaml
+# Validated by StrategySupervisor at boot via UAC ClientsYaml.model_validate_yaml().
+#
+# May-23 ships with shard_id=0 for all clients. Multi-shard (Phase E.2) is 2026-05-28.
+# venue_creds_kms_path format: projects/{project}/secrets/{secret}/versions/{version}
+clients:
+  - client_id: "us"
+    shard_id: 0
+    venue_creds_kms_path: "projects/central-element-323112/secrets/venue-creds-us-arb/versions/latest"
+    min_balance_per_venue:
+      binance: 1000.0
+      hyperliquid: 1000.0
+      uniswap-v3: 500.0
+      orca: 500.0
+    risk_limits:
+      max_position_usd: 50000.0
+      max_drawdown_pct: 0.04
+      max_order_size_usd: 15000.0
+
+  - client_id: "defi-client-1"
+    shard_id: 0
+    venue_creds_kms_path: "projects/central-element-323112/secrets/venue-creds-defi-client-1-arb/versions/latest"
+    min_balance_per_venue:
+      binance: 500.0
+      hyperliquid: 500.0
+      uniswap-v3: 250.0
+      orca: 250.0
+    risk_limits:
+      max_position_usd: 25000.0
+      max_drawdown_pct: 0.04
+      max_order_size_usd: 7500.0

@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 from datetime import datetime
+from typing import cast
 
 import click
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Services with dynamic GCS configs (completion % is not applicable)
 DYNAMIC_DIMENSION_SERVICES = {
     "execution-service",
-    "ml-training-service",
+    "ml-service",
     "strategy-service",
 }
 
@@ -48,7 +49,6 @@ FIXED_DIMENSION_SERVICES = {
     "features-multi-timeframe-service",
     "features-commodity-service",
     "features-calendar-service",
-    "ml-inference-service",
 }
 
 
@@ -118,9 +118,36 @@ FIXED_DIMENSION_SERVICES = {
     "--mode",
     type=click.Choice(["batch", "live"], case_sensitive=False),
     default="batch",
+    help=("Data path mode: batch (historical by_date/day=) or live (persisted live sink under live/ prefix)."),
+)
+@click.option(
+    "--source",
+    type=click.Choice(["manifest", "gcs", "auto"], case_sensitive=False),
+    default="auto",
+    envvar="DATA_STATUS_SOURCE",
+    help="Data source: manifest (fast, from catalogue), gcs (slow, blob scanning), auto (try manifest first)",
+)
+@click.option(
+    "--t1-check",
+    type=str,
+    default="",
+    metavar="CLUSTER",
     help=(
-        "Data path mode: batch (historical by_date/day=) or live"
-        " (persisted live sink under live/ prefix)."
+        "T+1 check: verify yesterday's data for all services in a cluster."
+        " Pass cluster name (cefi, tradfi, defi, sports, full)."
+    ),
+)
+@click.option(
+    "--ml-experiments",
+    is_flag=True,
+    help="List ML training experiments from GCS and check model metadata existence.",
+)
+@click.option(
+    "--live-freshness",
+    is_flag=True,
+    help=(
+        "Report live-mode data freshness (staleness) per asset group."
+        " Flags stale if >15min for CeFi/DeFi, >6h for sports."
     ),
 )
 @click.option(
@@ -187,7 +214,7 @@ def data_status(
     Shows hierarchical breakdown of data completion by dimensions (asset group, venue, etc.)
     with percentages and optionally file timestamps.
 
-    For dynamic-dimension services (execution-service, ml-training-service, strategy-service),
+    For dynamic-dimension services (execution-service, ml-service, strategy-service),
     only timestamp information is shown since completion % is not applicable.
 
     Examples:
@@ -242,9 +269,7 @@ def data_status(
                 err=True,
             )
             sys.exit(1)
-        run_live_freshness_check(
-            service=service, asset_group=asset_group, config_dir=config_dir, output=output
-        )
+        run_live_freshness_check(service=service, asset_group=asset_group, config_dir=config_dir, output=output)
         return
 
     # ── Standard mode: --service, --start-date, --end-date are required ──
@@ -264,11 +289,7 @@ def data_status(
     used_manifest = False
 
     is_specialized_check = (
-        check_venues
-        or check_data_types
-        or check_feature_groups
-        or check_timeframes
-        or sports_league_breakdown
+        check_venues or check_data_types or check_feature_groups or check_timeframes or sports_league_breakdown
     )
     if not is_specialized_check and resolved_source in ("manifest", "auto"):
         used_manifest = _try_manifest_source(
@@ -331,16 +352,13 @@ def data_status(
             if service not in feature_services:
                 click.echo(
                     click.style(
-                        "--check-feature-groups is only supported for:"
-                        f" {', '.join(feature_services)}",
+                        f"--check-feature-groups is only supported for: {', '.join(feature_services)}",
                         fg="red",
                     ),
                     err=True,
                 )
                 sys.exit(1)
-            check_feature_groups_detailed(
-                service, start_date, end_date, asset_group, config_dir, output
-            )
+            check_feature_groups_detailed(service, start_date, end_date, asset_group, config_dir, output)
 
         elif check_timeframes:
             if service != "market-data-processing-service":
@@ -356,16 +374,16 @@ def data_status(
 
         elif sports_league_breakdown:
             # Sports-specific: fixture-based denominator per league
-            _SPORTS_SERVICES = {
+            sports_services = {
                 "instruments-service",
                 "market-tick-data-service",
                 "features-sports-service",
             }
-            if service not in _SPORTS_SERVICES:
+            if service not in sports_services:
                 click.echo(
                     click.style(
                         "--sports-league-breakdown is only supported for sports services:"
-                        f" {', '.join(sorted(_SPORTS_SERVICES))}",
+                        f" {', '.join(sorted(sports_services))}",
                         fg="red",
                     ),
                     err=True,
@@ -374,9 +392,7 @@ def data_status(
             display_sports_league_breakdown(service, start_date, end_date, output, show_missing)
 
         elif service in DYNAMIC_DIMENSION_SERVICES:
-            display_dynamic_service_status(
-                service, start_date, end_date, asset_group, output, config_dir, mode
-            )
+            display_dynamic_service_status(service, start_date, end_date, asset_group, output, config_dir, mode)
 
         else:
             display_fixed_service_status(
@@ -423,9 +439,7 @@ def _try_manifest_source(
     if not reader.is_available():
         if resolved_source == "manifest":
             click.echo(
-                click.style(
-                    "ManifestReader not available (duckdb or cloud access missing)", fg="red"
-                ),
+                click.style("ManifestReader not available (duckdb or cloud access missing)", fg="red"),
                 err=True,
             )
         return False
@@ -475,11 +489,7 @@ def _display_manifest_results(
         click.echo(json.dumps(results, indent=2, default=str))
         return
 
-    click.echo(
-        click.style(
-            f"[source: manifest] {service} ({start_date} → {end_date})", fg="cyan", bold=True
-        )
-    )
+    click.echo(click.style(f"[source: manifest] {service} ({start_date} → {end_date})", fg="cyan", bold=True))
     click.echo()
 
     for result in results:
@@ -488,38 +498,34 @@ def _display_manifest_results(
         days_complete = result.get("days_complete", 0)
         days_total = result.get("days_total", 0)
 
-        color = "green" if completion == 100 else "yellow" if completion >= 50 else "red"  # type: ignore[operator]
-        click.echo(
-            f"  {cat}: "
-            + click.style(f"{completion}%", fg=color)
-            + f" ({days_complete}/{days_total} days)"
-        )
+        completion_f = cast(float, completion)
+        color = "green" if completion_f == 100 else "yellow" if completion_f >= 50 else "red"
+        click.echo(f"  {cat}: " + click.style(f"{completion}%", fg=color) + f" ({days_complete}/{days_total} days)")
 
         venues_raw: object = result.get("venues", {})
         if isinstance(venues_raw, dict) and venues_raw and output == "tree":
-            venues: dict[str, object] = venues_raw  # type: ignore[assignment]
+            venues = cast("dict[str, object]", venues_raw)
             for venue_name, venue_info in venues.items():
-                v_info: dict[str, object] = venue_info  # type: ignore[assignment]
+                v_info = cast("dict[str, object]", venue_info)
                 v_pct = v_info.get("completion_percent", 0)
                 v_days = v_info.get("days_with_data", 0)
                 v_rows = v_info.get("total_rows", 0)
-                v_color = "green" if v_pct == 100 else "yellow" if v_pct >= 50 else "red"  # type: ignore[operator]
+                v_pct_f = cast(float, v_pct)
+                v_color = "green" if v_pct_f == 100 else "yellow" if v_pct_f >= 50 else "red"
                 click.echo(
-                    f"    └─ {venue_name}: "
-                    + click.style(f"{v_pct}%", fg=v_color)
-                    + f" ({v_days} days, {v_rows} rows)"
+                    f"    └─ {venue_name}: " + click.style(f"{v_pct}%", fg=v_color) + f" ({v_days} days, {v_rows} rows)"
                 )
 
         if show_missing:
-            missing: list[str] = result.get("missing_dates", [])  # type: ignore[assignment]
+            missing = cast("list[str]", result.get("missing_dates", []))
             if missing:
                 click.echo(f"    Missing: {', '.join(missing[:10])}")
                 if len(missing) > 10:
                     click.echo(f"    ... and {len(missing) - 10} more")
 
     if output == "summary":
-        total_complete = sum(r.get("days_complete", 0) for r in results)  # type: ignore[arg-type]
-        total_days = sum(r.get("days_total", 0) for r in results)  # type: ignore[arg-type]
+        total_complete = sum(cast(int, r.get("days_complete", 0)) for r in results)
+        total_days = sum(cast(int, r.get("days_total", 0)) for r in results)
         overall = round(total_complete / total_days * 100, 1) if total_days > 0 else 0
         click.echo()
         click.echo(f"  Overall: {overall}% ({total_complete}/{total_days} asset-group-days)")

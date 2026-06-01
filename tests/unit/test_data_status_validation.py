@@ -38,9 +38,7 @@ class TestRequestSizeGuard:
 
         # Mock path combinatorics: return enough venues so days x venues > threshold
         mock_pc = MagicMock()
-        mock_pc.get_all_venues_for_asset_group.return_value = [
-            f"V{i}" for i in range(test_data["venues_count"])
-        ]
+        mock_pc.get_all_venues_for_asset_group.return_value = [f"V{i}" for i in range(test_data["venues_count"])]
         mock_get_path_combinatorics.return_value = mock_pc
 
         with pytest.raises(HTTPException) as exc_info:
@@ -117,11 +115,7 @@ class TestDataTypeStartDates:
         # Simulate the is_data_type_available_for_venue logic
         config = {
             "market-tick-data-handler": {
-                "CEFI": {
-                    "data_type_start_dates": {
-                        "HYPERLIQUID": sample_data_type_start_dates["HYPERLIQUID"]
-                    }
-                }
+                "CEFI": {"data_type_start_dates": {"HYPERLIQUID": sample_data_type_start_dates["HYPERLIQUID"]}}
             }
         }
 
@@ -183,8 +177,7 @@ class TestDateHandlingConsistency:
         bad_response = {"date_range": {"start": "2026-01-04", "end": "2026-02-02", "days": 30}}
         # Frontend validation should catch this mismatch
         has_mismatch = (
-            bad_response["date_range"]["start"] != request_start
-            or bad_response["date_range"]["end"] != request_end
+            bad_response["date_range"]["start"] != request_start or bad_response["date_range"]["end"] != request_end
         )
         assert has_mismatch, "Should detect date mismatch"
 

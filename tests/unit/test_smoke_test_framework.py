@@ -105,9 +105,7 @@ def test_smoke_test_result_shard_dimensions_included() -> None:
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.ShardCalculator")
 @patch("deployment_service.smoke_test_framework.ConfigLoader")
-def test_generator_init_stores_config_dir(
-    mock_loader_cls: MagicMock, mock_calc_cls: MagicMock
-) -> None:
+def test_generator_init_stores_config_dir(mock_loader_cls: MagicMock, mock_calc_cls: MagicMock) -> None:
     gen = ShardCombinatoricsGenerator(config_dir="custom_configs")
     assert gen.config_dir == "custom_configs"
     mock_calc_cls.assert_called_once_with("custom_configs")
@@ -117,9 +115,7 @@ def test_generator_init_stores_config_dir(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.ShardCalculator")
 @patch("deployment_service.smoke_test_framework.ConfigLoader")
-def test_get_smoke_test_shards_calls_calculator(
-    mock_loader_cls: MagicMock, mock_calc_cls: MagicMock
-) -> None:
+def test_get_smoke_test_shards_calls_calculator(mock_loader_cls: MagicMock, mock_calc_cls: MagicMock) -> None:
     mock_calc = MagicMock()
     shards = [_make_shard(), _make_shard(shard_index=1)]
     mock_calc.calculate_shards.return_value = shards
@@ -141,9 +137,7 @@ def test_get_smoke_test_shards_calls_calculator(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.ShardCalculator")
 @patch("deployment_service.smoke_test_framework.ConfigLoader")
-def test_get_smoke_test_shards_applies_category_filter(
-    mock_loader_cls: MagicMock, mock_calc_cls: MagicMock
-) -> None:
+def test_get_smoke_test_shards_applies_category_filter(mock_loader_cls: MagicMock, mock_calc_cls: MagicMock) -> None:
     mock_calc = MagicMock()
     mock_calc.calculate_shards.return_value = []
     mock_calc_cls.return_value = mock_calc
@@ -288,9 +282,7 @@ def test_storage_client_lazy_init(mock_cfg: MagicMock, mock_get_client: MagicMoc
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_clean_test_bucket_deletes_blobs_and_returns_count(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_clean_test_bucket_deletes_blobs_and_returns_count(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
 
     blob1 = MagicMock()
@@ -312,9 +304,7 @@ def test_clean_test_bucket_deletes_blobs_and_returns_count(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_clean_test_bucket_handles_error_returns_zero(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_clean_test_bucket_handles_error_returns_zero(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
     mock_storage = MagicMock()
     mock_storage.bucket.side_effect = OSError("network error")
@@ -329,9 +319,7 @@ def test_clean_test_bucket_handles_error_returns_zero(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_list_output_files_filters_by_suffix(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_list_output_files_filters_by_suffix(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
 
     parquet_blob = MagicMock()
@@ -355,9 +343,7 @@ def test_list_output_files_filters_by_suffix(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_list_output_files_handles_error_returns_empty(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_list_output_files_handles_error_returns_empty(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
     mock_storage = MagicMock()
     mock_storage.bucket.side_effect = OSError("permission denied")
@@ -372,9 +358,7 @@ def test_list_output_files_handles_error_returns_empty(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_verify_output_exists_returns_true_when_enough_files(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_verify_output_exists_returns_true_when_enough_files(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
 
     blob = MagicMock()
@@ -395,9 +379,7 @@ def test_verify_output_exists_returns_true_when_enough_files(
 @pytest.mark.unit
 @patch("deployment_service.smoke_test_framework.get_storage_client")
 @patch("deployment_service.smoke_test_framework._config")
-def test_verify_output_exists_returns_false_when_no_files(
-    mock_cfg: MagicMock, mock_get_client: MagicMock
-) -> None:
+def test_verify_output_exists_returns_false_when_no_files(mock_cfg: MagicMock, mock_get_client: MagicMock) -> None:
     mock_cfg.gcp_project_id = "proj"
 
     mock_bucket = MagicMock()
@@ -473,9 +455,7 @@ def test_build_cli_command_generic_dimension_hyphenated(mock_loader_cls: MagicMo
 def test_run_single_test_dry_run_returns_passed(mock_loader_cls: MagicMock) -> None:
     runner = SmokeTestRunner(service="my-service")
     shard = _make_shard()
-    result = runner._run_single_test(
-        shard=shard, max_instruments=1, timeout_seconds=30, dry_run=True
-    )
+    result = runner._run_single_test(shard=shard, max_instruments=1, timeout_seconds=30, dry_run=True)
 
     assert result.passed is True
     assert result.error_message is not None
@@ -493,9 +473,7 @@ def test_run_single_test_success_exit_code_zero(mock_loader_cls: MagicMock) -> N
     mock_proc.stderr = ""
 
     with patch("deployment_service.smoke_test_framework.subprocess.run", return_value=mock_proc):
-        result = runner._run_single_test(
-            shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False
-        )
+        result = runner._run_single_test(shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False)
 
     assert result.passed is True
     assert result.error_message is None
@@ -512,9 +490,7 @@ def test_run_single_test_non_zero_exit_fails(mock_loader_cls: MagicMock) -> None
     mock_proc.stderr = "Some error output"
 
     with patch("deployment_service.smoke_test_framework.subprocess.run", return_value=mock_proc):
-        result = runner._run_single_test(
-            shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False
-        )
+        result = runner._run_single_test(shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False)
 
     assert result.passed is False
     assert "Exit code 1" in str(result.error_message)
@@ -530,9 +506,7 @@ def test_run_single_test_timeout_returns_failure(mock_loader_cls: MagicMock) -> 
         "deployment_service.smoke_test_framework.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
     ):
-        result = runner._run_single_test(
-            shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False
-        )
+        result = runner._run_single_test(shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False)
 
     assert result.passed is False
     assert "Timeout" in str(result.error_message)
@@ -549,9 +523,7 @@ def test_run_single_test_os_error_returns_failure(mock_loader_cls: MagicMock) ->
         "deployment_service.smoke_test_framework.subprocess.run",
         side_effect=OSError("cannot execute"),
     ):
-        result = runner._run_single_test(
-            shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False
-        )
+        result = runner._run_single_test(shard=shard, max_instruments=1, timeout_seconds=30, dry_run=False)
 
     assert result.passed is False
     assert "cannot execute" in str(result.error_message)

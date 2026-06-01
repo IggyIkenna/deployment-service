@@ -33,8 +33,7 @@ SERVICES = [
     "features-delta-one-service",
     "execution-service",
     "strategy-service",
-    "ml-training-service",
-    "ml-inference-service",
+    "ml-service",
     "alerting-service",
 ]
 
@@ -88,9 +87,7 @@ def _generate_deployments(rng: random.Random, count: int) -> list[dict[str, obje
     return deployments
 
 
-def _generate_shards(
-    rng: random.Random, deployments: list[dict[str, object]]
-) -> list[dict[str, object]]:
+def _generate_shards(rng: random.Random, deployments: list[dict[str, object]]) -> list[dict[str, object]]:
     """Generate shard records for each deployment."""
     shards: list[dict[str, object]] = []
     for dep in deployments:
@@ -110,16 +107,12 @@ def _generate_shards(
                 "duration_seconds": rng.randint(30, 3600) if status != "pending" else 0,
             }
             if status == "failed":
-                shard["failure_reason"] = rng.choice(
-                    ["OOM", "timeout", "crash", "health_gate_timeout"]
-                )
+                shard["failure_reason"] = rng.choice(["OOM", "timeout", "crash", "health_gate_timeout"])
             shards.append(shard)
     return shards
 
 
-def _generate_vms(
-    rng: random.Random, deployments: list[dict[str, object]]
-) -> list[dict[str, object]]:
+def _generate_vms(rng: random.Random, deployments: list[dict[str, object]]) -> list[dict[str, object]]:
     """Generate mock VM records linked to deployments."""
     vms: list[dict[str, object]] = []
     for i, dep in enumerate(deployments):
@@ -155,9 +148,7 @@ def _generate_services(rng: random.Random) -> list[dict[str, object]]:
                 "version": f"0.{rng.randint(1, 9)}.{rng.randint(0, 30)}",
                 "region": rng.choice(REGIONS),
                 "shard_count": rng.randint(1, 6),
-                "last_deployed_at": (
-                    datetime(2026, 3, 1, tzinfo=UTC) + timedelta(days=rng.randint(0, 20))
-                ).isoformat(),
+                "last_deployed_at": (datetime(2026, 3, 1, tzinfo=UTC) + timedelta(days=rng.randint(0, 20))).isoformat(),
             }
         )
     return services

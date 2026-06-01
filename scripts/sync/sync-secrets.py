@@ -98,7 +98,7 @@ def _aws_secret_path(env: str, name: str) -> str:
 
 def _make_aws_client(env: str, region: str) -> object:
     from unified_trading_library import (
-        AWSSecretClient,  # type: ignore[attr-defined]
+        AWSSecretClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     )
 
     return AWSSecretClient(region=region)
@@ -106,7 +106,7 @@ def _make_aws_client(env: str, region: str) -> object:
 
 def _make_gcp_client(project_id: str) -> object:
     from unified_trading_library import (
-        GCPSecretClient,  # type: ignore[attr-defined]
+        GCPSecretClient,  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     )
 
     return GCPSecretClient(project_id=project_id)
@@ -116,7 +116,7 @@ def _list_aws_secrets(aws_client: object, env: str) -> dict[str, str]:
     """Return canonical_name -> full_path mapping for all secrets under unified-trading/{env}/"""
     prefix = f"unified-trading/{env}/"
     # list_secrets returns full names (paths)
-    full_names: list[str] = aws_client.list_secrets(prefix=prefix)  # type: ignore[attr-defined]
+    full_names: list[str] = aws_client.list_secrets(prefix=prefix)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     # strip the prefix to get canonical name
     result: dict[str, str] = {}
     for full in full_names:
@@ -133,7 +133,7 @@ def _list_gcp_secrets(gcp_client: object, env: str) -> dict[str, str]:
     by deployment-service terraform: just the canonical name (no env prefix for static secrets,
     or "{name}-{env}" for env-scoped). We list ALL and filter by known naming patterns.
     """
-    all_names: list[str] = gcp_client.list_secrets()  # type: ignore[attr-defined]
+    all_names: list[str] = gcp_client.list_secrets()  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
     result: dict[str, str] = {}
     for name in all_names:
         result[name] = name
@@ -165,9 +165,9 @@ def diff_secrets(
             gcp_val: str | None = None
 
             if aws_path:
-                aws_val = aws_client.get_secret(aws_path)  # type: ignore[attr-defined]
+                aws_val = aws_client.get_secret(aws_path)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
             if gcp_id:
-                gcp_val = gcp_client.get_secret(gcp_id)  # type: ignore[attr-defined]
+                gcp_val = gcp_client.get_secret(gcp_id)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
 
             if aws_val is not None and gcp_val is not None:
                 status: SyncStatus = "match" if aws_val == gcp_val else "value_mismatch"
@@ -220,12 +220,12 @@ def sync_secrets(
             if dest == "aws":
                 aws_path = _aws_secret_path(env, diff.name)
                 # Try update first, then create
-                if not aws_client.update_secret(aws_path, value):  # type: ignore[attr-defined]
-                    aws_client.create_secret(aws_path, value)  # type: ignore[attr-defined]
+                if not aws_client.update_secret(aws_path, value):  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                    aws_client.create_secret(aws_path, value)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 print(f"  [aws] {aws_path}")
             else:  # dest == "gcp"
-                if not gcp_client.update_secret(diff.name, value):  # type: ignore[attr-defined]
-                    gcp_client.create_secret(diff.name, value)  # type: ignore[attr-defined]
+                if not gcp_client.update_secret(diff.name, value):  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
+                    gcp_client.create_secret(diff.name, value)  # pyright: ignore[reportAttributeAccessIssue]  # unified_cloud_interface storage client lacks py.typed stubs; method exists at runtime
                 print(f"   {diff.name}")
             written += 1
         except (OSError, ValueError, RuntimeError) as e:
@@ -238,21 +238,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Diff and sync secrets between AWS Secrets Manager and GCP Secret Manager"
     )
-    parser.add_argument(
-        "--env", required=True, choices=["dev", "staging", "prod"], help="Environment to operate on"
-    )
+    parser.add_argument("--env", required=True, choices=["dev", "staging", "prod"], help="Environment to operate on")
     parser.add_argument("--gcp-project", required=True, help="GCP project ID")
     parser.add_argument(
         "--aws-region",
         default=os.environ.get("AWS_REGION", "ap-northeast-1"),
         help="AWS region (default: ap-northeast-1)",
     )
-    parser.add_argument(
-        "--names", default="", help="Comma-separated list of canonical secret names to check/sync"
-    )
-    parser.add_argument(
-        "--sync", action="store_true", help="Sync differences (write source values to dest)"
-    )
+    parser.add_argument("--names", default="", help="Comma-separated list of canonical secret names to check/sync")
+    parser.add_argument("--sync", action="store_true", help="Sync differences (write source values to dest)")
     parser.add_argument(
         "--source",
         choices=["aws", "gcp"],
@@ -265,9 +259,7 @@ def main() -> int:
         default="gcp",
         help="Destination for --sync (default: gcp)",
     )
-    parser.add_argument(
-        "--check", action="store_true", help="Exit 1 if any differences found (CI gate mode)"
-    )
+    parser.add_argument("--check", action="store_true", help="Exit 1 if any differences found (CI gate mode)")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -278,9 +270,7 @@ def main() -> int:
 
     names = [n.strip() for n in args.names.split(",") if n.strip()] if args.names else None
 
-    print(
-        f"Connecting to AWS Secrets Manager ({args.aws_region}) and GCP Secret Manager ({args.gcp_project})..."
-    )
+    print(f"Connecting to AWS Secrets Manager ({args.aws_region}) and GCP Secret Manager ({args.gcp_project})...")
     try:
         aws_client = _make_aws_client(args.env, args.aws_region)
         gcp_client = _make_gcp_client(args.gcp_project)

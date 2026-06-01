@@ -38,6 +38,9 @@
 # (api_football Mega plan ≈ 900 req/min; ~117k calls expected for the
 # full PLAYER_STATS gap = ~2.2h at full quota).
 
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
@@ -45,13 +48,18 @@ CONCURRENCY=4
 START_DATE="2020-06-06"
 END_DATE=""
 LIMIT=0
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --start-date) START_DATE="$2"; shift 2 ;;
     --end-date) END_DATE="$2"; shift 2 ;;
     --limit) LIMIT="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     -h|--help)
       sed -n '1,40p' "$0"
       exit 0
@@ -60,13 +68,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
 if [[ -z "$END_DATE" ]]; then
   END_DATE="$(date -u +%Y-%m-%d)"
 fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # ── Singleton lock: api_football rate-limits per-key ──
 if ! $FORCE; then
@@ -117,18 +130,24 @@ METADATA="${METADATA},VM_SPORTS_ENTITY=PLAYER_STATS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_MIGRATION_CMD=${MIGRATION_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-2 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=fill-missing-player-stats,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-2 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=fill-missing-player-stats,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -12,14 +12,13 @@ services:
   - features-volatility-service
   - features-cross-instrument-service
   - features-multi-timeframe-service
-  - ml-training-service
-  - ml-inference-service
+  # ml-training-service + ml-inference-service removed 2026-05-21: consolidated into ml-service (ml_repo_consolidation_2026_05_19.md)
+  - ml-service
   - strategy-service
   - execution-service # LIVE operational mode (automated strategies)
   - execution-service:manual # MANUAL operational mode (operator booking + backup)
-  - position-balance-monitor-service
-  - pnl-attribution-service
-  - risk-and-exposure-service
+  # position-balance-monitor-service, pnl-attribution-service, risk-and-exposure-service
+  # removed 2026-05-21: consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
   - alerting-service
   - batch-live-reconciliation-service
 

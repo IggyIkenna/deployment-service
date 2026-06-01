@@ -34,9 +34,7 @@ def scan_venues_fast_mode(
             continue
         info = bucket_info[cat]
         all_cat_venues = (
-            list(venue)
-            if venue
-            else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+            list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
         )
 
         # Filter venues by their start dates - exclude venues launched AFTER the date range
@@ -54,9 +52,7 @@ def scan_venues_fast_mode(
                     cat_venues.append(v)
 
             if excluded_venues:
-                click.echo(
-                    f"  {cat}: Excluding {len(excluded_venues)} venues launched after {first_date}:"
-                )
+                click.echo(f"  {cat}: Excluding {len(excluded_venues)} venues launched after {first_date}:")
                 for v, start_dt in excluded_venues:
                     click.echo(click.style(f"    - {v} (launched {start_dt})", dim=True))
 
@@ -85,9 +81,7 @@ def scan_venues_fast_mode(
             )
         elif "{venue}" in path_template:
             # General venue-based checking
-            prefix_template = path_template.replace("{date}", "{date}").replace(
-                "{venue}", "{venue}"
-            )
+            prefix_template = path_template.replace("{date}", "{date}").replace("{venue}", "{venue}")
             click.echo(f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates...")
 
             valid_dates = category_valid_dates.get(cat, all_dates)
@@ -168,11 +162,7 @@ def scan_buckets_batch_mode(
         info = bucket_info[cat]
         path_template = info["path_template"]
 
-        prefix = (
-            path_template.split("{date}")[0]
-            if "{date}" in path_template
-            else path_template.split("/")[0] + "/"
-        )
+        prefix = path_template.split("{date}")[0] if "{date}" in path_template else path_template.split("/")[0] + "/"
 
         gcs_path = f"gs://{info['bucket']}/{prefix}"  # noqa: gs-uri — CLI data status scanner builds GCS paths for bucket scanning
         bucket_paths.append(gcs_path)
@@ -205,9 +195,7 @@ def check_timeframes_for_venues(
     _deployment_config,
 ) -> dict[str, object]:
     """Check timeframes for market-data-processing-service venues."""
-    expected_timeframes = gcs_config.get(
-        "expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"]
-    )
+    expected_timeframes = gcs_config.get("expected_timeframes", ["15s", "1m", "5m", "15m", "1h", "4h", "24h"])
     expected_data_types_by_cat = gcs_config.get("expected_data_types") or {}
     expected_data_types = expected_data_types_by_cat.get(cat, [])
     total_tf = len(expected_timeframes)
@@ -219,10 +207,7 @@ def check_timeframes_for_venues(
             f" x {total_tf} timeframes x {total_dt} data_types..."
         )
     else:
-        click.echo(
-            f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates"
-            f" x {total_tf} timeframes..."
-        )
+        click.echo(f"  Checking {cat}: {len(cat_venues)} venues x {len(all_dates)} dates x {total_tf} timeframes...")
 
     venue_results = {}
     valid_dates = category_valid_dates.get(cat, all_dates)

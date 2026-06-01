@@ -163,8 +163,8 @@ def expected_start_dates_full_config():
             "DEFI": {
                 "category_start": "2021-01-01",
                 "venues": {
-                    "UNISWAPV2-ETHEREUM": "2021-01-01",
-                    "UNISWAPV3-ETHEREUM": "2021-05-01",
+                    "UNISWAP_V2-ETHEREUM": "2021-01-01",
+                    "UNISWAP_V3-ETHEREUM": "2021-05-01",
                 },
             },
         },

@@ -84,6 +84,27 @@ _TRADE_KEY_PATTERNS = frozenset(
         "coinbase-api-secret",
         "betfair-session-token",
         "kalshi-api-key",
+        # 2026-05-09: extended for May-23 cutover per credentials-readiness audit
+        # (plans/questions/api_keys_wallets_accounts_readiness_2026_05_08.md R4-R6).
+        # Six perp venues from master plan Group F + 4 additional CeFi venues +
+        # custody (Copper) + prediction (Polymarket).
+        "hyperliquid-api-key",
+        "hyperliquid-api-secret",
+        "aster-api-key",
+        "aster-api-secret",
+        "upbit-api-key",
+        "upbit-api-secret",
+        "kraken-api-key",
+        "kraken-api-secret",
+        "bitfinex-api-key",
+        "bitfinex-api-secret",
+        "bitget-api-key",
+        "bitget-api-secret",
+        "polymarket-api-key",
+        "polymarket-api-secret",
+        "copper-api-key",
+        "copper-api-secret",
+        "copper-organization-id",
     ]
 )
 
@@ -97,6 +118,15 @@ _DATA_KEY_PATTERNS = frozenset(
         "coinglass-api-key",
         "odds-api-key",
         "aws-hyperliquid-s3",
+        # 2026-05-09: extended for May-23 cutover per credentials-readiness audit
+        # (plans/questions/api_keys_wallets_accounts_readiness_2026_05_08.md R4).
+        # Sports + DeFi-data + Solana-RPC sources. Public-API sources (open_meteo,
+        # understat / transfermarkt scrape) intentionally excluded — no key to rotate.
+        "api-football-api-key",
+        "footystats-api-key",
+        "soccer-football-info-api-key",
+        "coingecko-api-key",
+        "helius-api-key",
     ]
 )
 

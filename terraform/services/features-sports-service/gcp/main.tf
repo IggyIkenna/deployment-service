@@ -24,7 +24,7 @@ locals {
   # Window: yesterday (T-1) through T+7 — covers backlog catch-up for the
   # previous day (post-match enrichments that land hours after kickoff) AND
   # forward-horizon pre-match features for the next seven days of fixtures.
-  # SSOT: plans/active/features_sports_pipeline_deployment_2026_04_21.plan.md
+  # SSOT: plans/active/features_sports_pipeline_deployment_2026_04_21.md
   # Phase 1 CLI contract. Tier-3 `features_pre_match` at T-1h in
   # configs/sports-trigger-tiers.yaml still fires per-fixture on top of this
   # daily catch-up.

@@ -200,7 +200,7 @@ resource "google_storage_bucket" "ml_models_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-training-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels
@@ -235,7 +235,7 @@ resource "google_storage_bucket" "ml_predictions_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-inference-service"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels
@@ -260,7 +260,32 @@ resource "google_storage_bucket" "ml_configs_store" {
   labels = merge(
     {
       "managed-by" = "terraform"
-      "service"    = "ml-training-service"
+      "service"    = "ml-service"
+      "env"        = var.env
+    },
+    var.labels
+  )
+}
+
+# ML Training Artifacts (experiments, SHAP, grid configs, stage artifacts)
+resource "google_storage_bucket" "ml_training_artifacts" {
+  count = var.create_gcs_buckets ? 1 : 0
+
+  name     = "ml-training-artifacts-${var.env}-${var.project_id}"
+  project  = var.project_id
+  location = var.gcs_location
+
+  uniform_bucket_level_access = true
+  force_destroy               = false
+
+  versioning {
+    enabled = true
+  }
+
+  labels = merge(
+    {
+      "managed-by" = "terraform"
+      "service"    = "ml-service"
       "env"        = var.env
     },
     var.labels

@@ -35,6 +35,9 @@
 #   bash launch-openmeteo-backfill-vm.sh 2018-01-01 2019-01-15
 #   bash launch-openmeteo-backfill-vm.sh --entity WEATHER 2024-09-01 2024-09-01
 #   bash launch-openmeteo-backfill-vm.sh --lookback 1 --lookahead 7
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 ENTITY=""
@@ -42,16 +45,26 @@ LOOKBACK=""
 LOOKAHEAD=""
 FORCE_WINDOW=false
 RECOVERY_FIXTURE_IDS=""
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --entity) ENTITY="$2"; shift 2 ;;
     --lookback) LOOKBACK="$2"; shift 2 ;;
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 USE_ROLLING=false
 if [[ -n "$LOOKBACK" || -n "$LOOKAHEAD" ]]; then
@@ -107,7 +120,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="weather-backfill-${RUN_TS}"
@@ -131,18 +144,24 @@ fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=OPEN_METEO"
 METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY:-WEATHER}"
 [[ -n "$RECOVERY_FIXTURE_IDS" ]] && METADATA="${METADATA},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-2 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=openmeteo-backfill,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-2 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=openmeteo-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

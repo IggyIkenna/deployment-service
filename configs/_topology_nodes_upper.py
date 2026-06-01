@@ -70,30 +70,17 @@ def _add_l5_nodes(g: graphviz.Digraph) -> None:
             bgcolor="#fffbeb",
         )
         s.node(
-            "MLTR",
+            "ML",
             **svc(
                 "l5",
-                "ml-training-service  [VM standalone]\\n~quarterly batch (Cloud Scheduler or manual)\\nB: model x inst x tf x target x cfg (batch only)\\nSinks: GCS only (model_artifacts_registry)",
+                "ml-service  [VM standalone]\\ntrain: ~quarterly batch | infer: event-driven (on feature events)\\nB: model x inst x tf x target x cfg | L: model x venue x inst\\nSinks: GCS (model_artifacts_registry + predictions) + PubSub",
                 tooltip=(
-                    "Batch only -- no live mode\\n"
-                    "Batch dims: model x instrument x timeframe x target_type x config\\n"
+                    "Consolidated from ml-training-service + ml-inference-service (2026-05-20)\\n"
+                    "Train dims: model x instrument x timeframe x target_type x config\\n"
+                    "Infer dims: model x venue x instrument x date\\n"
                     "Deploy: standalone VM (~2hr training runs; Cloud Run max timeout insufficient)\\n"
-                    "Recovery: re-run batch job from checkpoint"
-                ),
-            ),
-        )
-        s.node(
-            "MLIN",
-            **svc(
-                "l5",
-                "ml-inference-service  [CR Svc]\\nevent-driven (on feature events)\\nB: model x venue x inst x date | L: model x venue x inst\\nSinks: GCS + PubSub (predictions-{model}-{venue}-{inst})",
-                tooltip=(
                     "PubSub topic: predictions-{model}-{venue}-{instrument}\\n"
-                    "Batch dims: model x venue x instrument x date\\n"
-                    "Live trigger: feature events from FDS/FVS/FCIS via PubSub\\n"
-                    "Models: loaded from GCS (infrequent reload ~quarterly)\\n"
-                    "GAP: currently reads features from BigQuery (target: PubSub subscription)\\n"
-                    "Recovery: reload model from GCS, subscribe live PubSub features"
+                    "Recovery: re-run batch job from checkpoint; reload model from GCS"
                 ),
             ),
         )
@@ -141,7 +128,12 @@ def _add_l6_nodes(g: graphviz.Digraph) -> None:
 
 
 def _add_l7_nodes(g: graphviz.Digraph) -> None:
-    """Add L7 Risk, PnL, Monitoring subgraph nodes."""
+    """Add L7 Risk, PnL, Monitoring subgraph nodes.
+
+    Post-consolidation (strategy_repo_consolidation_2026_05_19.md): position-balance-monitor,
+    risk-and-exposure, and pnl-attribution are sub-operations of strategy-service. They are
+    represented as a single node (STRAT_L7) with an operation axis breakdown.
+    """
     with g.subgraph(name="cluster_l7") as s:
         s.attr(
             label="L7 - Risk, PnL, Monitoring  [Client-Specific Plane]",
@@ -150,44 +142,22 @@ def _add_l7_nodes(g: graphviz.Digraph) -> None:
             bgcolor="#fdf2f8",
         )
         s.node(
-            "PBM",
+            "STRAT_L7",
             **svc(
                 "l7",
-                "position-balance-monitor  [CR Svc]\\nevent-driven (fills + exchange recon)\\nB: client x venue x date | L: client x venue\\nPBM = authoritative position truth\\nSinks: GCS + PubSub (positions-{client}-{venue})",
+                "strategy-service  [CR Svc]  --operation {position-recon | risk-monitor | pnl-attribution}\\n"
+                "event-driven (fills + mktdata + exec + risk + positions)\\n"
+                "position-recon: B: client x venue x date | L: client x venue\\n"
+                "risk-monitor:   B: client x date | L: client | VaR, Greeks, DeFi LTV\\n"
+                "pnl-attribution: B: client x date | L: client | delta, basis, funding, Greeks dims\\n"
+                "Sinks: GCS + PubSub (positions-{client}-{venue} | risk-{client} | pnl-{client})",
                 tooltip=(
-                    "PubSub topic: positions-{client}-{venue}\\n"
-                    "Batch dims: client x venue x date\\n"
-                    "Live trigger: fill events from execution + direct exchange position feed\\n"
-                    "Role: reconciles execution fills vs exchange-reported positions (authoritative source)\\n"
-                    "Startup: queries exchange REST for current positions -> publishes initial state\\n"
-                    "Recovery: query exchange REST positions+balances, publish initial snapshot"
-                ),
-            ),
-        )
-        s.node(
-            "RAE",
-            **svc(
-                "l7",
-                "risk-and-exposure-svc  [CR Svc]\\nevent-driven (positions + mktdata)\\nB: client x date | L: client\\nVaR, Greeks, DeFi LTV\\nSinks: GCS + PubSub (risk-{client})",
-                tooltip=(
-                    "PubSub topic: risk-{client}\\n"
-                    "Batch dims: client x date\\n"
-                    "Live trigger: position updates from PBM + market data from MDPS via PubSub\\n"
-                    "Also publishes risk alerts to alerting-service (circuit breaker triggers)\\n"
-                    "Recovery: subscribe PBM + MDPS PubSub"
-                ),
-            ),
-        )
-        s.node(
-            "PNL",
-            **svc(
-                "l7",
-                "pnl-attribution-svc  [CR Svc]\\nevent-driven (exec + risk + positions)\\nB: client x date | L: client\\ndelta, basis, funding, Greeks dims\\nSinks: GCS + PubSub (pnl-{client})",
-                tooltip=(
-                    "PubSub topic: pnl-{client}\\n"
-                    "Batch dims: client x date\\n"
-                    "Live trigger: execution events + risk metrics + position updates via PubSub\\n"
-                    "Recovery: load GCS historical, subscribe execution + risk PubSub"
+                    "Consolidated from 3 source repos (strategy_repo_consolidation_2026_05_19.md):\\n"
+                    "  --operation position-recon: reconciles fills vs exchange positions (was PBM)\\n"
+                    "  --operation risk-monitor: VaR/Greeks/LTV (was risk-and-exposure-service)\\n"
+                    "  --operation pnl-attribution: delta/basis/funding/Greeks dims (was pnl-attribution-service)\\n"
+                    "PubSub topics: positions-{client}-{venue} | risk-{client} | pnl-{client}\\n"
+                    "Recovery: query exchange REST + subscribe MDPS+execution PubSub"
                 ),
             ),
         )
@@ -249,7 +219,7 @@ def _add_api_nodes(g: graphviz.Digraph) -> None:
                 tooltip=(
                     "Port 8005 | OAuth authenticated\\n"
                     "Batch: historical P&L reports, portfolio summaries, invoices from GCS\\n"
-                    "Live target: SSE P&L updates from pnl-attribution PubSub\\n"
+                    "Live target: SSE P&L updates from strategy-service pnl-attribution PubSub\\n"
                     "GAP: batch only currently"
                 ),
             ),
@@ -298,8 +268,7 @@ def _add_api_nodes(g: graphviz.Digraph) -> None:
                 "api",
                 "auth-api  :8200  [CR Svc, OAuth]\\nJWT, persona, OAuth token exchange",
                 tooltip=(
-                    "Port 8200 | Authentication service\\n"
-                    "Login flows from unified-trading-system-ui and other UIs"
+                    "Port 8200 | Authentication service\\nLogin flows from unified-trading-system-ui and other UIs"
                 ),
             ),
         )
@@ -340,9 +309,7 @@ def _add_ui_nodes(g: graphviz.Digraph) -> None:
                 "EXANI",
                 **svc(
                     "ui",
-                    tooltip=(
-                        "Content migration (execution-service/visualizer-ui/ extraction) tracked separately"
-                    ),
+                    tooltip=("Content migration (execution-service/visualizer-ui/ extraction) tracked separately"),
                 ),
             )
 
@@ -363,14 +330,10 @@ def _add_ui_nodes(g: graphviz.Digraph) -> None:
             )
 
         with s.subgraph(name="cluster_ui_ops") as o:
-            o.attr(
-                label="Ops + Deployment", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa"
-            )
+            o.attr(label="Ops + Deployment", style="rounded,dashed", color="#94a3b8", bgcolor="#f0fdfa")
             o.node(
                 "DEPUI",
-                **svc(
-                    "ui", "deployment-ui  [CR Svc]\\nbatch vs live deploy\\n-> deployment-api :8001"
-                ),
+                **svc("ui", "deployment-ui  [CR Svc]\\nbatch vs live deploy\\n-> deployment-api :8001"),
             )
             o.node(
                 "UTSUI",
@@ -393,9 +356,7 @@ def _add_ui_nodes(g: graphviz.Digraph) -> None:
                 color="#94a3b8",
                 bgcolor="#f0fdfa",
             )
-            c.node(
-                "CRUI", **svc("ui", "client-reporting-ui  [CR Svc]\\n-> client-reporting-api :8005")
-            )
+            c.node("CRUI", **svc("ui", "client-reporting-ui  [CR Svc]\\n-> client-reporting-api :8005"))
             c.node(
                 "SETU",
                 **svc(

@@ -263,7 +263,7 @@ def test_format_duration_multi_minute() -> None:
 @pytest.mark.unit
 def test_format_duration_naive_timestamps() -> None:
     """Naive ISO timestamps (no tz info) should be treated as UTC."""
-    now_naive = datetime.utcnow()
+    now_naive = datetime.now(UTC).replace(tzinfo=None)
     shard = ShardState(shard_id="s1")
     shard.start_time = (now_naive - timedelta(seconds=10)).isoformat()
     shard.end_time = now_naive.isoformat()

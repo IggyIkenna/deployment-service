@@ -39,9 +39,7 @@ class DeploymentStatus(Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
-    COMPLETED_PENDING_DELETE = (
-        "completed_pending_delete"  # All shards terminal; VMs may still be deleting
-    )
+    COMPLETED_PENDING_DELETE = "completed_pending_delete"  # All shards terminal; VMs may still be deleting
     COMPLETED_WITH_ERRORS = "completed_with_errors"  # Completed but had errors in logs
     COMPLETED_WITH_WARNINGS = "completed_with_warnings"  # Completed but had warnings
     FAILED = "failed"
@@ -81,11 +79,7 @@ class FailureCategory(Enum):
 
         if "zone_resource_pool_exhausted" in error_lower or "zone exhausted" in error_lower:
             return cls.ZONE_EXHAUSTION
-        elif (
-            "in_use_addresses" in error_lower
-            or "ip quota" in error_lower
-            or "ip_quota" in error_lower
-        ):
+        elif "in_use_addresses" in error_lower or "ip quota" in error_lower or "ip_quota" in error_lower:
             return cls.IP_QUOTA
         elif "cpus" in error_lower and "quota" in error_lower:
             return cls.CPU_QUOTA
@@ -95,11 +89,7 @@ class FailureCategory(Enum):
             return cls.PREEMPTION
         elif "timeout" in error_lower or "timed out" in error_lower:
             return cls.TIMEOUT
-        elif (
-            "permission" in error_lower
-            or "unauthorized" in error_lower
-            or "forbidden" in error_lower
-        ):
+        elif "permission" in error_lower or "unauthorized" in error_lower or "forbidden" in error_lower:
             return cls.AUTH_ERROR
         elif "network" in error_lower or "connection" in error_lower:
             return cls.NETWORK_ERROR
@@ -596,9 +586,7 @@ class StateManager:
 
         self.save_state(state)
 
-    def list_deployments(
-        self, service: str | None = None, limit: int = 20
-    ) -> list[dict[str, object]]:
+    def list_deployments(self, service: str | None = None, limit: int = 20) -> list[dict[str, object]]:
         """
         List recent deployments.
 
@@ -747,9 +735,7 @@ class StateManager:
             elif new_status == DeploymentStatus.CANCELLED:
                 shard_status = ShardStatus.CANCELLED
             else:
-                raise ValueError(
-                    f"Cannot force status to {new_status.value} - must be terminal status"
-                )
+                raise ValueError(f"Cannot force status to {new_status.value} - must be terminal status")
 
         # Update all non-terminal shards
         # IMPORTANT: PENDING shards should NEVER be marked as SUCCEEDED
@@ -767,25 +753,18 @@ class StateManager:
                 # SAFETY: Never mark PENDING shards as SUCCEEDED - they never ran
                 if shard.status == ShardStatus.PENDING and shard_status == ShardStatus.SUCCEEDED:
                     actual_shard_status = ShardStatus.FAILED
-                    shard.error_message = (
-                        reason or "Marked as failed: shard was pending (never ran)"
-                    )
+                    shard.error_message = reason or "Marked as failed: shard was pending (never ran)"
                     logger.warning(
                         "Shard %s was PENDING but attempted to mark as SUCCEEDED"
                         " - marking as FAILED instead (shards that never ran cannot succeed)",
                         shard.shard_id,
                     )
                 # SAFETY: RUNNING shards without job_id should not be marked SUCCEEDED
-                elif (
-                    shard.status == ShardStatus.RUNNING
-                    and not shard.job_id
-                    and shard_status == ShardStatus.SUCCEEDED
-                ):
+                elif shard.status == ShardStatus.RUNNING and not shard.job_id and shard_status == ShardStatus.SUCCEEDED:
                     actual_shard_status = ShardStatus.FAILED
                     shard.error_message = reason or "Marked as failed: shard had no job_id"
                     logger.warning(
-                        "Shard %s was RUNNING but had no job_id"
-                        " - marking as FAILED instead of SUCCEEDED",
+                        "Shard %s was RUNNING but had no job_id - marking as FAILED instead of SUCCEEDED",
                         shard.shard_id,
                     )
                 elif actual_shard_status in (ShardStatus.FAILED, ShardStatus.CANCELLED):

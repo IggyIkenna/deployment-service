@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Template: startup-gcs-url — canonical GCS-URL startup script delivery.
+#
+# USAGE PATTERN:
+#   This template documents the preferred pattern for launchers that use
+#   the central setup-data-pipeline-vm.sh startup script. Copy the gcloud
+#   create call below and fill in the @@PLACEHOLDER@@ values.
+#
+# WHY USE THIS PATTERN:
+#   - setup-data-pipeline-vm.sh is updated centrally; VMs always pull latest.
+#   - No inline startup script to maintain per-launcher.
+#   - Used by ~61 launchers (the workspace default).
+#
+# WHEN NOT TO USE THIS PATTERN:
+#   - When your VM needs custom Python packages not in setup-data-pipeline-vm.sh.
+#   - When your VM runs a standalone script (not a pipeline VM_TASK).
+#   - Use startup-inline-heredoc.sh.tmpl instead.
+#
+# ----------------------------------------------------------------------------
+# FILL IN THESE VALUES:
+#   @@VM_NAME@@        VM name (e.g. "mtds-cefi-20260515-143000")
+#   @@PROJECT@@        GCP project ID (e.g. "central-element-323112")
+#   @@ZONE@@           GCE zone (e.g. "asia-northeast1-c")
+#   @@MACHINE_TYPE@@   Machine type (e.g. "e2-standard-4")
+#   @@DISK_GB@@        Boot disk size in GB (e.g. "50")
+#   @@CODE_BUCKET@@    deployment-scripts-${PROJECT}
+#   @@VM_TASK@@        VM_TASK value matched by setup-data-pipeline-vm.sh routing
+#   @@VM_ASSET_GROUP@@ Asset group (e.g. "CEFI")
+#   @@DEPLOYMENT_ENV@@ prod|staging|dev
+#   @@LABELS@@         purpose=...,env=...,run-ts=...
+# ----------------------------------------------------------------------------
+
+set -euo pipefail
+
+# Source the launcher common library for lc_* functions.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/launcher_common.sh
+source "${SCRIPT_DIR}/../lib/launcher_common.sh"
+
+PROJECT="@@PROJECT@@"
+ZONE="@@ZONE@@"
+CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+RUN_TS="$(lc_run_ts)"
+VM_NAME="@@VM_NAME_PREFIX@@-${RUN_TS}"
+
+lc_validate_env "$DEPLOYMENT_ENV"
+
+METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+METADATA="${METADATA},VM_TASK=@@VM_TASK@@"
+METADATA="${METADATA},VM_ASSET_GROUP=@@VM_ASSET_GROUP@@"
+METADATA="${METADATA},VM_SERVICE=@@VM_SERVICE@@"
+METADATA="${METADATA},VM_OPERATION=@@VM_OPERATION@@"
+METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},VM_NAME=${VM_NAME}"
+
+lc_gcloud_create "${VM_NAME}" "${PROJECT}" "${ZONE}" "@@MACHINE_TYPE@@" "@@DISK_GB@@" \
+    "${METADATA}" \
+    "purpose=@@PURPOSE@@,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"

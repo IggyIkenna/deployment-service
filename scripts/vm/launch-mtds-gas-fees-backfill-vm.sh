@@ -26,33 +26,53 @@
 # Cost: e2-standard-4 + 50GB. ~30s/chain/day for Tier 1+2 (block-fees endpoint
 # fast on Alchemy archival). Tier-4 public RPCs are slower (~60-120s each).
 # Single-day across 14 chains: ~5-15min.
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-    FORCE=true
-    shift
-fi
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+POSITIONAL=()
+DRY_RUN=false
 
-if [[ $# -eq 2 ]]; then
-    START_DATE="$1"
-    END_DATE="$2"
-elif [[ $# -eq 0 ]]; then
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
+        --force) FORCE=true; shift ;;
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
+        -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
+if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
+    START_DATE="${POSITIONAL[0]}"
+    END_DATE="${POSITIONAL[1]}"
+elif [[ ${#POSITIONAL[@]} -eq 0 ]]; then
     START_DATE="$(date -v-1d +%Y-%m-%d 2>/dev/null || date -d "yesterday" +%Y-%m-%d)"
     END_DATE="$START_DATE"
 else
     cat >&2 <<EOF
-Usage: $0 [--force] [START_DATE END_DATE]
+Usage: $0 [--force] [--env prod|staging|dev] [START_DATE END_DATE]
 
 Defaults to yesterday (T-1). Pass two YYYY-MM-DD dates for an explicit window.
-Pass --force as the first arg to bypass the singleton lock.
+Pass --force to bypass the singleton lock.
+Pass --env to override the env tier (default: \$DEPLOYMENT_ENV or 'prod').
 EOF
     exit 1
 fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 
@@ -92,17 +112,23 @@ METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
-gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE_TYPE" \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=mtds-gas-fees-backfill,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+      --project="$PROJECT" \
+      --zone="$ZONE" \
+      --machine-type="$MACHINE_TYPE" \
+      --image-family=ubuntu-2404-lts-amd64 \
+      --image-project=ubuntu-os-cloud \
+      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      --scopes=cloud-platform \
+      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      --labels=purpose=mtds-gas-fees-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -428,12 +428,8 @@ class TestVMLifecycleManagerZoneRotation:
 
     def _make_lifecycle_manager(self) -> object:
         with (
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.get_instances_client"
-            ) as mock_get_client,
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.VMConfigManager"
-            ) as MockConfigMgr,
+            patch("deployment_service.backends.services.vm_lifecycle.get_instances_client") as mock_get_client,
+            patch("deployment_service.backends.services.vm_lifecycle.VMConfigManager") as MockConfigMgr,
         ):
             mock_get_client.return_value = MagicMock()
             MockConfigMgr.return_value = MagicMock()
@@ -470,12 +466,8 @@ class TestVMLifecycleManagerZoneRotation:
 
     def test_single_zone_always_returns_same(self) -> None:
         with (
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.get_instances_client"
-            ) as mock_get_client,
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.VMConfigManager"
-            ) as MockConfigMgr,
+            patch("deployment_service.backends.services.vm_lifecycle.get_instances_client") as mock_get_client,
+            patch("deployment_service.backends.services.vm_lifecycle.VMConfigManager") as MockConfigMgr,
         ):
             mock_get_client.return_value = MagicMock()
             MockConfigMgr.return_value = MagicMock()
@@ -503,12 +495,8 @@ class TestVMLifecycleManagerZoneRotation:
 class TestVMLifecycleManagerZoneExhaustion:
     def _make_lifecycle_manager(self) -> object:
         with (
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.get_instances_client"
-            ) as mock_get_client,
-            patch(
-                "deployment_service.backends.services.vm_lifecycle.VMConfigManager"
-            ) as MockConfigMgr,
+            patch("deployment_service.backends.services.vm_lifecycle.get_instances_client") as mock_get_client,
+            patch("deployment_service.backends.services.vm_lifecycle.VMConfigManager") as MockConfigMgr,
         ):
             mock_get_client.return_value = MagicMock()
             MockConfigMgr.return_value = MagicMock()

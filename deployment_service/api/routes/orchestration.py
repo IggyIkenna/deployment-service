@@ -10,6 +10,7 @@ config YAML files under configs/clusters/.
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -40,7 +41,8 @@ def _load_cluster_config(cluster_name: str) -> dict[str, object]:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Cluster '{cluster_name}' not found")
     with open(path) as f:
-        data: dict[str, object] = yaml.safe_load(f)
+        loaded_data = cast(dict[str, object], yaml.safe_load(f))
+        data: dict[str, object] = loaded_data
     return data
 
 
@@ -365,9 +367,7 @@ async def start_service(service_name: str, request: ServiceStartRequest) -> Serv
         started_at=now,
     )
     _active_services[service_name] = resp
-    logger.info(
-        "Started service %s (mode=%s, mock=%s)", service_name, request.mode, request.mock_mode
-    )
+    logger.info("Started service %s (mode=%s, mock=%s)", service_name, request.mode, request.mock_mode)
     return resp
 
 
@@ -424,9 +424,7 @@ async def disable_schedule(cluster_name: str) -> dict[str, str]:
     """Disable a schedule."""
     schedule = _schedules.get(cluster_name)
     if schedule is None:
-        raise HTTPException(
-            status_code=404, detail=f"No schedule found for cluster '{cluster_name}'"
-        )
+        raise HTTPException(status_code=404, detail=f"No schedule found for cluster '{cluster_name}'")
     _schedules[cluster_name] = schedule.model_copy(update={"enabled": False})
     logger.info("Disabled schedule for cluster %s", cluster_name)
     return {"cluster": cluster_name, "status": "disabled"}

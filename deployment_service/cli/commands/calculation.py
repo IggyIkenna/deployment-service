@@ -170,7 +170,7 @@ def calculate(
             filters["instrument"] = list(instrument)
 
         # Calculate shards
-        dim_filters: dict[str, object] = {k: v for k, v in filters.items()}
+        dim_filters: dict[str, object] = dict(filters.items())
         shards = calculator.calculate_shards(
             service=service,
             start_date=start_date.date() if start_date else None,
@@ -223,10 +223,7 @@ def list_services(ctx: click.Context):
         for service in services:
             config = loader.load_service_config(service)
             description = config.get("description", "No description")
-            dims = [
-                str(d["name"])
-                for d in cast(list[dict[str, object]], config.get("dimensions") or [])
-            ]
+            dims = [str(d["name"]) for d in cast(list[dict[str, object]], config.get("dimensions") or [])]
 
             click.echo(click.style(f"  {service}", fg="green"))
             click.echo(f"    {description}")
@@ -326,9 +323,7 @@ def venues(ctx: click.Context):
         click.echo(click.style("Venues by asset group:", fg="cyan", bold=True))
         click.echo()
 
-        for category, cat_config in cast(
-            dict[str, dict[str, object]], config.get("categories") or {}
-        ).items():
+        for category, cat_config in cast(dict[str, dict[str, object]], config.get("categories") or {}).items():
             click.echo(click.style(f"  {category}", fg="green", bold=True))
             click.echo(f"    {cat_config.get('description') or ''}")
             click.echo()

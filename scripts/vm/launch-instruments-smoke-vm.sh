@@ -16,22 +16,45 @@
 # Usage:
 #   bash launch-instruments-smoke-vm.sh cefi 2026-04-19           # CeFi BINANCE-FUTURES
 #   bash launch-instruments-smoke-vm.sh tradfi 2026-04-19         # TradFi CME
-#   bash launch-instruments-smoke-vm.sh defi 2026-04-19           # DeFi AAVEV3-ETHEREUM
+#   bash launch-instruments-smoke-vm.sh defi 2026-04-19           # DeFi AAVE_V3-ETHEREUM
 #   bash launch-instruments-smoke-vm.sh all 2026-04-19            # all three sequentially
 #
 # Inspect after run:
 #   gsutil ls -r gs://instruments-store-cefi-test-central-element-323112/
 #   gsutil ls -r gs://instruments-store-tradfi-test-central-element-323112/
 #   gsutil ls -r gs://instruments-store-defi-test-central-element-323112/
+#
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Pre-parse --env <val> + --dry-run in any position before positional args.
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case "${1:-}" in
+        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --dry-run) export LC_DRY_RUN=true; shift ;;
+        *) POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]:-}"
 
 ASSET_GROUP="${1:-all}"
 SMOKE_DATE="${2:-$(date -u -v-1d +%Y-%m-%d 2>/dev/null || date -u -d 'yesterday' +%Y-%m-%d)}"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
 
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
+lc_validate_env "$DEPLOYMENT_ENV"
+
+RUN_TS="$(lc_run_ts)"
 
 launch_vm() {
     local cat="$1"; local venue="$2"; local vm_name="instruments-smoke-${cat}-${RUN_TS}"
@@ -44,17 +67,12 @@ launch_vm() {
     md="${md},VM_VENUE=${venue}"
     md="${md},VM_START_DATE=${SMOKE_DATE}"
     md="${md},VM_END_DATE=${SMOKE_DATE}"
+    md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},IS_TEST_RUN=true"
 
-    gcloud compute instances create "$vm_name" \
-        --project="$PROJECT" \
-        --zone="$ZONE" \
-        --machine-type=e2-standard-4 \
-        --image-family=ubuntu-2404-lts-amd64 \
-        --image-project=ubuntu-os-cloud \
-        --scopes=cloud-platform \
-        --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        --labels=purpose=instruments-smoke,category="${cat}",run-ts="${RUN_TS}"
+    lc_gcloud_create "$vm_name" "$PROJECT" "$ZONE" "e2-standard-4" "30" \
+        "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
+        "purpose=instruments-smoke,category=${cat},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
     echo "  → SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
@@ -62,11 +80,11 @@ launch_vm() {
 case "$ASSET_GROUP" in
     cefi)   launch_vm cefi BINANCE-FUTURES ;;
     tradfi) launch_vm tradfi CME ;;
-    defi)   launch_vm defi AAVEV3-ETHEREUM ;;
+    defi)   launch_vm defi AAVE_V3-ETHEREUM ;;
     all)
         launch_vm cefi BINANCE-FUTURES
         launch_vm tradfi CME
-        launch_vm defi AAVEV3-ETHEREUM
+        launch_vm defi AAVE_V3-ETHEREUM
         ;;
     *) echo "Unknown category: $ASSET_GROUP (expected cefi|tradfi|defi|all)"; exit 2 ;;
 esac

@@ -30,10 +30,7 @@ def _coalesce_trading_axis_filters(
     raw_filters: dict[str, object],
 ) -> dict[str, object]:
     """Allow legacy extra_filters key ``category`` to apply to the ``asset_group`` dimension."""
-    names = {
-        str(d.get("name"))
-        for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])
-    }
+    names = {str(d.get("name")) for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])}
     if _TRADING_AXIS_FILTER not in names:
         return raw_filters
     out = dict(raw_filters)
@@ -42,14 +39,9 @@ def _coalesce_trading_axis_filters(
     return out
 
 
-def _map_legacy_skip_dimensions(
-    service_config: dict[str, object], skip_dims: list[str]
-) -> list[str]:
+def _map_legacy_skip_dimensions(service_config: dict[str, object], skip_dims: list[str]) -> list[str]:
     """Map legacy ``category`` skip to ``asset_group`` when the service defines that dimension."""
-    names = {
-        str(d.get("name"))
-        for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])
-    }
+    names = {str(d.get("name")) for d in cast(list[dict[str, object]], service_config.get("dimensions") or [])}
     if _TRADING_AXIS_FILTER not in names:
         return list(skip_dims)
     mapped: list[str] = []
@@ -99,9 +91,7 @@ class DimensionProcessor:
             Tuple of (dimension_values, dimension_counts, hierarchical_dims)
         """
         effective_skip = _map_legacy_skip_dimensions(service_config, list(skip_dimensions))
-        filter_dict: dict[str, object] = _coalesce_trading_axis_filters(
-            service_config, cast(dict[str, object], dict(filters))
-        )
+        filter_dict: dict[str, object] = _coalesce_trading_axis_filters(service_config, dict(filters))
 
         dimension_values: dict[str, list[object]] = {}
         dimension_counts: dict[str, int] = {}
@@ -195,19 +185,13 @@ class DimensionProcessor:
         for parent_val in parent_vals:
             parent_val_str = str(parent_val)
             if dim_name == "venue":
-                category_config = cast(dict[str, object], self.venues_config["categories"]).get(
-                    parent_val_str, {}
-                )
-                venues: list[object] = cast(
-                    list[object], cast(dict[str, object], category_config).get("venues") or []
-                )
+                category_config = cast(dict[str, object], self.venues_config["categories"]).get(parent_val_str, {})
+                venues: list[object] = cast(list[object], cast(dict[str, object], category_config).get("venues") or [])
                 for venue in venues:
                     all_tuples.append((parent_val, venue))
                     all_values.add(venue)
             elif dim_name == "data_type":
-                category_config = cast(dict[str, object], self.venues_config["categories"]).get(
-                    parent_val_str, {}
-                )
+                category_config = cast(dict[str, object], self.venues_config["categories"]).get(parent_val_str, {})
                 data_types: list[object] = cast(
                     list[object], cast(dict[str, object], category_config).get("data_types") or []
                 )
@@ -297,9 +281,7 @@ class DimensionProcessor:
         ):
             # User provided cloud config directory
             logger.info("[CLOUD_CONFIG] Discovering configs from: %s", cloud_config_path)
-            all_files: list[str] = self.cloud_client.list_files(
-                cloud_config_path, "**/*.json", max_results=50000
-            )
+            all_files: list[str] = self.cloud_client.list_files(cloud_config_path, "**/*.json", max_results=50000)
 
             # Filter out non-config files
             excluded_filenames = {
@@ -311,9 +293,7 @@ class DimensionProcessor:
             files: list[str] = [
                 f
                 for f in all_files
-                if not any(
-                    f.endswith(f"/{excl}") or f.endswith(excl) for excl in excluded_filenames
-                )
+                if not any(f.endswith(f"/{excl}") or f.endswith(excl) for excl in excluded_filenames)
             ]
 
             if len(files) < len(all_files):
@@ -326,9 +306,7 @@ class DimensionProcessor:
         # Use template from config — support all field names for backwards compatibility
         # ("gcs_" + "bucket_template" split to avoid STEP 5.11 protocol-symbol scan)
         _compat_key = "gcs_" + "bucket_template"
-        bucket_template_raw = (
-            dim.get("source_bucket") or dim.get("bucket_template") or dim.get(_compat_key)
-        )
+        bucket_template_raw = dim.get("source_bucket") or dim.get("bucket_template") or dim.get(_compat_key)
         prefix = str(dim.get("gcs_prefix") or "")
         file_pattern = str(dim.get("file_pattern", "*") or "*")
 

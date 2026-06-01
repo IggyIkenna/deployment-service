@@ -143,9 +143,7 @@ class VMLifecycleManager:
         use_gcs_fuse = bool(gcsfuse_buckets)
         if use_gcs_fuse:
             env_vars_for_container = {
-                k: v
-                for k, v in environment_variables.items()
-                if k.upper() != "UNIFIED_CLOUD_SERVICES_USE_DIRECT_GCS"
+                k: v for k, v in environment_variables.items() if k.upper() != "UNIFIED_CLOUD_SERVICES_USE_DIRECT_GCS"
             }
             env_vars_for_container["GCS_FUSE_MOUNT_PATH"] = "/mnt/gcs"
         else:
@@ -167,11 +165,7 @@ class VMLifecycleManager:
             assert gcsfuse_buckets is not None
             resolved_buckets = []
             for b in gcsfuse_buckets:
-                name = (
-                    str(b)
-                    .replace("{project_id}", self.project_id)
-                    .replace("${GCP_PROJECT_ID}", self.project_id)
-                )
+                name = str(b).replace("{project_id}", self.project_id).replace("${GCP_PROJECT_ID}", self.project_id)
                 if name and name not in resolved_buckets:
                     resolved_buckets.append(name)
             gcsfuse_buckets_str = " ".join(resolved_buckets)
@@ -212,9 +206,7 @@ class VMLifecycleManager:
                 template_context["gcsfuse_buckets_str"] = gcsfuse_buckets_str
 
             # Generate cloud-init with current zone
-            cloud_init = self._config_manager.render_cloud_init_template(
-                template_context, use_gcs_fuse
-            )
+            cloud_init = self._config_manager.render_cloud_init_template(template_context, use_gcs_fuse)
 
             # Build the instance configuration for this zone
             instance_labels = {
@@ -252,9 +244,7 @@ class VMLifecycleManager:
                     # Wait for operation to complete
                     operation.result()
 
-                    logger.info(
-                        "Created VM %s in zone %s for shard %s", instance_name, zone, shard_id
-                    )
+                    logger.info("Created VM %s in zone %s for shard %s", instance_name, zone, shard_id)
                     successful_zone = zone
                     break  # Success, exit retry loop
 
@@ -307,8 +297,7 @@ class VMLifecycleManager:
                         if attempt < max_retries:
                             delay = retry_delays[attempt]
                             logger.warning(
-                                "[RATE_LIMITED] VM creation rate limited for shard %s,"
-                                " retrying in %ss (attempt %s/%s)",
+                                "[RATE_LIMITED] VM creation rate limited for shard %s, retrying in %ss (attempt %s/%s)",
                                 shard_id,
                                 delay,
                                 attempt + 1,
@@ -406,11 +395,10 @@ class VMLifecycleManager:
             )
         else:
             error_msg = (
-                f"Failed to create VM for shard {shard_id} in any zone."
-                f" Tried zones: {tried_zones}. Error: {error_str}"
+                f"Failed to create VM for shard {shard_id} in any zone. Tried zones: {tried_zones}. Error: {error_str}"
             )
 
-        logger.error(error_msg)
+        logger.error("%s", error_msg)
         return JobInfo(
             job_id=f"failed-{shard_id}",
             shard_id=shard_id,
@@ -522,9 +510,7 @@ class VMLifecycleManager:
         for shard_id in shard_ids:
             try:
                 # Check if shard has ZOMBIE marker
-                monitoring = VMMonitoringManager(
-                    self.project_id, self.zones, self.status_bucket, self.status_prefix
-                )
+                monitoring = VMMonitoringManager(self.project_id, self.zones, self.status_bucket, self.status_prefix)
 
                 gcs_status = monitoring.check_gcs_status(deployment_id, shard_id)
                 if gcs_status != "ZOMBIE":
@@ -551,9 +537,7 @@ class VMLifecycleManager:
                 if success:
                     logger.warning("✅ Cleaned up ZOMBIE VM %s", job_id)
                 else:
-                    logger.warning(
-                        "❌ Failed to cleanup ZOMBIE VM %s (may have already shut down)", job_id
-                    )
+                    logger.warning("❌ Failed to cleanup ZOMBIE VM %s (may have already shut down)", job_id)
 
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning("Error cleaning up zombie for %s: %s", shard_id, e)
@@ -596,9 +580,7 @@ class VMLifecycleManager:
         """Get job context (deployment_id, shard_id, zone) for a job."""
         return self._job_context.get(job_id)
 
-    def set_job_context(
-        self, job_id: str, deployment_id: str, shard_id: str, zone: str | None = None
-    ) -> None:
+    def set_job_context(self, job_id: str, deployment_id: str, shard_id: str, zone: str | None = None) -> None:
         """Set job context for external monitoring."""
         zone = zone or self.zones[0]
         self._job_context[job_id] = (deployment_id, shard_id, zone)

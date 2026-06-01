@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+from typing import cast
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -37,7 +38,7 @@ _PIPELINE_START_DATE = "2019-01-01"
 # ── Bucket resolution: uses same templates as catalog.py SERVICE_GCS_CONFIGS ──
 # Maps service → bucket template. Templates use {asset_group_lower} and {project_id}.
 # Services without {asset_group_lower} use a shared bucket (no per-category split).
-_BUCKET_TEMPLATES: dict[str, str] = {
+BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-{asset_group_lower}-{project_id}",
     "corporate-actions": "instruments-store-{asset_group_lower}-{project_id}",
     "market-tick-data-service": "market-data-tick-{asset_group_lower}-{project_id}",
@@ -50,12 +51,16 @@ _BUCKET_TEMPLATES: dict[str, str] = {
     "features-multi-timeframe-service": "features-multi-timeframe-{asset_group_lower}-{project_id}",
     "features-cross-instrument-service": "features-cross-instrument-{asset_group_lower}-{project_id}",
     "features-commodity-service": "features-commodity-{asset_group_lower}-{project_id}",
-    "ml-training-service": "ml-models-store-{project_id}",
-    "ml-inference-service": "ml-predictions-store-{project_id}",
+    # CORRECT-LOCAL — legacy local template dict; canonical SSOT is
+    # `cloud-providers.yaml` kind="ml-models-store"/"ml-predictions-store". This
+    # dict is consumed only by deployment-service CLI tooling for ad-hoc manifest
+    # reads and consolidates via `resolve_bucket_name()` in a follow-up sweep.
+    # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
+    "ml-service": "ml-models-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
     "execution-service": "execution-store-{domain}-{project_id}",
-    "risk-and-exposure-service": "risk-and-exposure-{project_id}",
-    "pnl-attribution-service": "pnl-attribution-{project_id}",
+    # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21:
+    # consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
     "alerting-service": "alerting-service-{project_id}",
 }
 
@@ -63,11 +68,9 @@ _BUCKET_TEMPLATES: dict[str, str] = {
 _SHARED_BUCKET_SERVICES = {
     "features-onchain-service",
     "features-calendar-service",
-    "ml-training-service",
-    "ml-inference-service",
+    "ml-service",
     "strategy-service",
-    "risk-and-exposure-service",
-    "pnl-attribution-service",
+    # risk-and-exposure-service + pnl-attribution-service removed (consolidated into strategy-service)
     "alerting-service",
 }
 
@@ -113,10 +116,8 @@ _SUB_DIMENSION_KEY: dict[str, str] = {
     "features-commodity-service": "feature_group",
     "execution-service": "domain",
     "strategy-service": "strategy_id",
-    "ml-training-service": "model_id",
-    "ml-inference-service": "mode",
-    "risk-and-exposure-service": "client_id",
-    "pnl-attribution-service": "strategy_id",
+    "ml-service": "model_id",
+    # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21 (consolidated into strategy-service)
     "alerting-service": "alert_type",
 }
 
@@ -138,7 +139,7 @@ class ManifestReader:
         if self._project_id is None:
             try:
                 self._project_id = get_project_id()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 self._project_id = "unknown"
         return self._project_id
 
@@ -158,7 +159,7 @@ class ManifestReader:
             probe_bucket = get_bucket_name("instruments", "CEFI", project_id=project_id)
             read_availability_index(probe_bucket)
             self._available = True
-        except Exception:  # noqa: BLE001 — broad catch is intentional for probe
+        except Exception:
             self._available = False
         return self._available
 
@@ -189,7 +190,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if index.empty:
@@ -215,11 +216,9 @@ class ManifestReader:
                 "overall_completion": completion,
                 "dates_present": dates_present,
                 "total_days": total_days,
-                "venues": sorted(filtered["venue"].unique().tolist())
-                if "venue" in filtered.columns
-                else [],
+                "venues": sorted(filtered["venue"].unique().tolist()) if "venue" in filtered.columns else [],
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("ManifestReader.get_completion failed: %s", exc)
             return {"error": str(exc), "asset_group": asset_group}
 
@@ -257,7 +256,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001 — bucket or index may not exist yet
+                except Exception:
                     logger.debug("No manifest index in %s — treating as empty", bkt)
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -307,8 +306,10 @@ class ManifestReader:
             venue_weighted_expected = 0
             venue_weighted_found = 0
             if sub_dim_key and "venue" in filtered.columns:
-                for venue_val in sorted(filtered["venue"].unique()):
-                    v_mask = filtered["venue"] == venue_val
+                for venue_val_raw in sorted(filtered["venue"].unique()):  # pyright: ignore[reportAny]
+                    venue_val_typed: object = cast(object, venue_val_raw)
+                    venue_str: str = str(venue_val_typed)
+                    v_mask = filtered["venue"] == venue_str
                     v_dates = int(filtered.loc[v_mask, "date"].nunique())
 
                     # Resolve venue-specific expected days using launch date.
@@ -317,12 +318,10 @@ class ManifestReader:
                     # ``get_instrument_discovery_start`` so HYPERLIQUID-style
                     # discovery-API gaps clip the denominator (matches the
                     # orchestrator's ``is_venue_available`` gate).
-                    base_venue = venue_val.split(":")[0] if ":" in venue_val else venue_val
+                    split_result = venue_str.split(":")[0] if ":" in venue_str else venue_str
+                    base_venue: str = str(split_result)
                     venue_start = self._venue_mapping.get_instrument_discovery_start(base_venue)
-                    if venue_start:
-                        effective_start = max(clamped_start, venue_start)
-                    else:
-                        effective_start = clamped_start
+                    effective_start = max(clamped_start, venue_start) if venue_start else clamped_start
                     v_expected = max(
                         1,
                         len(
@@ -350,10 +349,10 @@ class ManifestReader:
 
                     # Truncation + tail for long lists (same pattern as
                     # category-level date lists)
-                    _MAX_LIST = 50
-                    _TAIL = 5
-                    v_found_truncated = len(v_found_list) > _MAX_LIST
-                    v_missing_truncated = len(v_missing) > _MAX_LIST
+                    max_list = 50
+                    tail = 5
+                    v_found_truncated = len(v_found_list) > max_list
+                    v_missing_truncated = len(v_missing) > max_list
 
                     venue_entry: dict[str, object] = {
                         "dates_found": v_dates,
@@ -363,45 +362,34 @@ class ManifestReader:
                         "venue_start_date": venue_start,
                         # Available dates (green dropdown)
                         "dates_found_count": len(v_found_list),
-                        "dates_found_list": v_found_list[:_MAX_LIST],
+                        "dates_found_list": v_found_list[:max_list],
                         "dates_found_truncated": v_found_truncated,
-                        "dates_found_list_tail": v_found_list[-_TAIL:]
-                        if v_found_truncated
-                        else None,
+                        "dates_found_list_tail": v_found_list[-tail:] if v_found_truncated else None,
                         # Missing dates (red dropdown)
                         "dates_missing": max(0, v_expected - v_dates),
                         "dates_missing_count": len(v_missing),
-                        "dates_missing_list": v_missing[:_MAX_LIST],
+                        "dates_missing_list": v_missing[:max_list],
                         "dates_missing_truncated": v_missing_truncated,
-                        "dates_missing_list_tail": v_missing[-_TAIL:]
-                        if v_missing_truncated
-                        else None,
-                        "missing_dates": v_missing[:_MAX_LIST],
+                        "dates_missing_list_tail": v_missing[-tail:] if v_missing_truncated else None,
+                        "missing_dates": v_missing[:max_list],
                     }
 
                     # League sub-breakdown: when league_id column has non-empty
                     # values, build per-league stats nested under this venue.
-                    if (
-                        "league_id" in filtered.columns
-                        and filtered.loc[v_mask, "league_id"].str.len().sum() > 0
-                    ):
+                    if "league_id" in filtered.columns and filtered.loc[v_mask, "league_id"].str.len().sum() > 0:
                         venue_entry["leagues"] = self._build_league_breakdown(
                             filtered.loc[v_mask],
                             clamped_start,
                             end_date,
                         )
 
-                    sub_dims[venue_val] = venue_entry
+                    sub_dims[venue_str] = venue_entry
 
             # Find missing dates — clamp to earliest venue launch so pre-protocol
             # dates are not flagged as gaps (e.g. DeFi before Uniswap V2 launch).
             if sub_dims:
                 earliest_venue = min(
-                    (
-                        sd["venue_start_date"]
-                        for sd in sub_dims.values()
-                        if sd.get("venue_start_date")
-                    ),
+                    (sd["venue_start_date"] for sd in sub_dims.values() if sd.get("venue_start_date")),
                     default=clamped_start,
                 )
                 cat_effective_start = max(clamped_start, str(earliest_venue))
@@ -413,8 +401,7 @@ class ManifestReader:
             _cat_schedule = "24_7"
             if sub_dims:
                 schedules = {
-                    self._venue_mapping.get_venue_schedule(v.split(":")[0] if ":" in v else v)
-                    for v in sub_dims
+                    self._venue_mapping.get_venue_schedule(v.split(":")[0] if ":" in v else v) for v in sub_dims
                 }
                 if schedules == {"weekdays"} or schedules == {"weekdays", "weekdays_minus_cme"}:
                     _cat_schedule = "weekdays"
@@ -430,10 +417,7 @@ class ManifestReader:
                     end_date,
                 )
             else:
-                _cat_expected = [
-                    d.strftime("%Y-%m-%d")
-                    for d in pd.date_range(cat_effective_start, end_date, freq="D")
-                ]
+                _cat_expected = [d.strftime("%Y-%m-%d") for d in pd.date_range(cat_effective_start, end_date, freq="D")]
             found_dates = set(filtered["date"].unique())
             missing_dates = sorted(d for d in _cat_expected if d not in found_dates)
 
@@ -464,7 +448,7 @@ class ManifestReader:
             }
             if sub_dims:
                 # Use the appropriate key name for the sub-dimension
-                _SUB_DIM_RESPONSE_KEY: dict[str, str] = {
+                sub_dim_response_key: dict[str, str] = {
                     "venue": "venues",
                     "data_type": "data_types",
                     "feature_group": "feature_groups",
@@ -476,17 +460,17 @@ class ManifestReader:
                     "client_id": "clients",
                     "alert_type": "alert_types",
                 }
-                response_key = _SUB_DIM_RESPONSE_KEY.get(sub_dim_key or "", "venues")
+                response_key = sub_dim_response_key.get(sub_dim_key or "", "venues")
                 cat_result[response_key] = sub_dims
 
                 # Override display label for categories where the manifest
                 # "venue" column doesn't represent trading venues.
-                _CATEGORY_SUB_DIM_LABEL: dict[str, str] = {
+                category_sub_dim_label: dict[str, str] = {
                     "SPORTS": "Data Sources",
                     "PREDICTIONS": "Market Category Shards",
                 }
-                if service == "instruments-service" and cat_label in _CATEGORY_SUB_DIM_LABEL:
-                    cat_result["sub_dimension_label"] = _CATEGORY_SUB_DIM_LABEL[cat_label]
+                if service == "instruments-service" and cat_label in category_sub_dim_label:
+                    cat_result["sub_dimension_label"] = category_sub_dim_label[cat_label]
 
             result_categories[cat_label] = cat_result
             total_found += cat_found
@@ -526,6 +510,8 @@ class ManifestReader:
         asset_group: str,
         venue: str,
         date: str | None = None,
+        instrument_offset: int = 0,
+        instrument_limit: int = 200,
     ) -> dict[str, object]:
         """Read a single venue parquet and return instrument_type breakdown.
 
@@ -547,7 +533,7 @@ class ManifestReader:
                     v_mask = index["venue"] == venue
                     v_dates = index.loc[v_mask, "date"]
                     if not v_dates.empty:
-                        target_date = str(v_dates.max())
+                        target_date = str(cast(object, v_dates.max()))
                     else:
                         return {"error": f"No data for venue {venue}", "venue": venue}
                 else:
@@ -578,10 +564,12 @@ class ManifestReader:
                 status_counts = df["status"].value_counts().to_dict()
                 result["statuses"] = {str(k): int(v) for k, v in status_counts.items()}
 
-            # Top instruments sample
+            # Paginated instruments sample
+            result["total_instruments_unfiltered"] = len(df)
+            page_df = df.iloc[instrument_offset : instrument_offset + instrument_limit]
             top: list[dict[str, str]] = []
             key_col = "instrument_key" if "instrument_key" in df.columns else "raw_symbol"
-            for _, row in df.head(30).iterrows():
+            for _, row in page_df.iterrows():
                 top.append(
                     {
                         "key": str(row.get(key_col, "")),
@@ -593,7 +581,7 @@ class ManifestReader:
             result["top_instruments"] = top
 
             return result
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.debug("ManifestReader.get_venue_detail failed: %s", exc)
             return {"error": str(exc), "venue": venue}
 
@@ -631,7 +619,7 @@ class ManifestReader:
                     idx = read_availability_index(bkt)
                     if not idx.empty:
                         frames.append(idx)
-                except Exception:  # noqa: BLE001 — extra buckets may not exist
+                except Exception:
                     logger.debug("Extra bucket %s not found or empty", bkt)
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -653,23 +641,21 @@ class ManifestReader:
                 index["venue"] = index["venue"].replace(_VENUE_ALIASES)
 
             total_shards = len(index)
-            total_rows = (
-                int(index["instrument_count"].sum()) if "instrument_count" in index.columns else 0
-            )
+            total_rows = int(cast(float, index["instrument_count"].sum())) if "instrument_count" in index.columns else 0
             unique_dates = int(index["date"].nunique())
             unique_venues = int(index["venue"].nunique()) if "venue" in index.columns else 0
-            date_min = str(index["date"].min())
-            date_max = str(index["date"].max())
+            date_min = str(cast(object, index["date"].min()))
+            date_max = str(cast(object, index["date"].max()))
 
             # Latest-day instrument type breakdown from actual parquets
             latest_day_counts: dict[str, int] = {}
             latest_day_total = 0
             latest_date = date_max
             if "venue" in index.columns:
-                latest_venues = sorted(
-                    index.loc[index["date"] == latest_date, "venue"].unique().tolist()
-                )
-                for venue_name in latest_venues:
+                latest_venues = sorted(index.loc[index["date"] == latest_date, "venue"].unique().tolist())
+                for venue_name_raw in latest_venues:  # pyright: ignore[reportAny]
+                    venue_name_typed: object = cast(object, venue_name_raw)
+                    venue_name = str(venue_name_typed)
                     detail = self.get_venue_detail(
                         service=service,
                         asset_group=cat,
@@ -730,7 +716,7 @@ class ManifestReader:
         """
         leagues_in_data: set[str] = set()
         if "league_id" in venue_df.columns:
-            leagues_in_data = {lid for lid in venue_df["league_id"].unique() if lid}
+            leagues_in_data = {str(cast(object, lid)) for lid in venue_df["league_id"].unique() if lid}  # pyright: ignore[reportAny]
 
         # All prediction leagues — ensures newly-added leagues show 0%
         all_league_ids = set(get_all_prediction_league_ids())
@@ -751,24 +737,24 @@ class ManifestReader:
                 found_set = set()
                 missing = sorted(expected_dates) if expected_dates else []
 
-            _MAX_LIST = 50
-            _TAIL = 5
+            max_list = 50
+            tail = 5
             found_list = sorted(found_set)
-            found_truncated = len(found_list) > _MAX_LIST
-            missing_truncated = len(missing) > _MAX_LIST
+            found_truncated = len(found_list) > max_list
+            missing_truncated = len(missing) > max_list
 
             result[lid] = {
                 "dates_found": found_count,
                 "dates_expected": expected_count,
                 "completion_pct": round(found_count / expected_count * 100, 2),
-                "dates_found_list": found_list[:_MAX_LIST],
+                "dates_found_list": found_list[:max_list],
                 "dates_found_truncated": found_truncated,
-                "dates_found_list_tail": found_list[-_TAIL:] if found_truncated else None,
+                "dates_found_list_tail": found_list[-tail:] if found_truncated else None,
                 "dates_missing": max(0, expected_count - found_count),
                 "dates_missing_count": len(missing),
-                "dates_missing_list": missing[:_MAX_LIST],
+                "dates_missing_list": missing[:max_list],
                 "dates_missing_truncated": missing_truncated,
-                "dates_missing_list_tail": missing[-_TAIL:] if missing_truncated else None,
+                "dates_missing_list_tail": missing[-tail:] if missing_truncated else None,
             }
 
         return result
@@ -779,7 +765,7 @@ class ManifestReader:
 
     def _resolve_bucket(self, service: str, asset_group: str) -> str:
         """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
-        template = _BUCKET_TEMPLATES.get(service)
+        template = BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
             ag_slug = asset_group.lower().replace("_", "-") if asset_group else "default"

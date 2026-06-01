@@ -85,10 +85,7 @@ def validate_runtime_topology(
 
     for service_name in services:
         if service_name not in entities:
-            violations.append(
-                f"Unknown service in runtime topology:"
-                f" '{service_name}' not found in workspace-manifest"
-            )
+            violations.append(f"Unknown service in runtime topology: '{service_name}' not found in workspace-manifest")
 
     deployment_profiles = topology.get("deployment_profiles") or {}
     if not isinstance(deployment_profiles, dict):
@@ -100,9 +97,7 @@ def validate_runtime_topology(
             continue
         allowed = profile_cfg.get("allowed_transports") or []
         if not isinstance(allowed, list):
-            violations.append(
-                f"deployment_profiles.{profile_name}.allowed_transports must be a list"
-            )
+            violations.append(f"deployment_profiles.{profile_name}.allowed_transports must be a list")
             continue
         valid_transports.update(str(item) for item in allowed)
 
@@ -134,31 +129,23 @@ def validate_runtime_topology(
                 transport = str(mode_cfg["transport"])
                 if transport not in valid_transports:
                     violations.append(
-                        f"service_flows[{idx}] transport '{transport}'"
-                        f" is not allowed by any deployment profile"
+                        f"service_flows[{idx}] transport '{transport}' is not allowed by any deployment profile"
                     )
             else:
                 for profile_name, profile_cfg in mode_cfg.items():
                     if profile_name not in deployment_profiles:
                         violations.append(
-                            f"service_flows[{idx}] unknown deployment profile"
-                            f" '{profile_name}' in mode '{mode_name}'"
+                            f"service_flows[{idx}] unknown deployment profile '{profile_name}' in mode '{mode_name}'"
                         )
                         continue
                     if not isinstance(profile_cfg, dict):
-                        violations.append(
-                            f"service_flows[{idx}].modes.{mode_name}.{profile_name}"
-                            f" must be a mapping"
-                        )
+                        violations.append(f"service_flows[{idx}].modes.{mode_name}.{profile_name} must be a mapping")
                         continue
                     transport = str(profile_cfg.get("transport") or "")
-                    allowed = deployment_profiles.get(profile_name, {}).get(
-                        "allowed_transports", []
-                    )
+                    allowed = deployment_profiles.get(profile_name, {}).get("allowed_transports", [])
                     if transport and transport not in allowed:
                         violations.append(
-                            f"service_flows[{idx}] transport '{transport}'"
-                            f" is not allowed in profile '{profile_name}'"
+                            f"service_flows[{idx}] transport '{transport}' is not allowed in profile '{profile_name}'"
                         )
 
     api_interactions = topology.get("api_interactions") or []
@@ -176,9 +163,7 @@ def validate_runtime_topology(
         if callee not in entities:
             violations.append(f"api_interactions[{idx}] unknown callee '{callee}'")
         elif entities[callee] != "api-service":
-            violations.append(
-                f"api_interactions[{idx}] callee '{callee}' must be type 'api-service'"
-            )
+            violations.append(f"api_interactions[{idx}] callee '{callee}' must be type 'api-service'")
 
     storage_systems = topology.get("storage_systems") or {}
     valid_stores = set(storage_systems.keys()) if isinstance(storage_systems, dict) else set()
@@ -207,9 +192,7 @@ def validate_runtime_topology(
 
 
 _VALID_ISOLATIONS: frozenset[str] = frozenset({"shared", "isolated"})
-_VALID_RUNTIME_PROFILES: frozenset[str] = frozenset(
-    {"backtest", "paper", "mock-live", "staging", "prod"}
-)
+_VALID_RUNTIME_PROFILES: frozenset[str] = frozenset({"backtest", "paper", "mock-live", "staging", "prod"})
 _VALID_SLA_TIERS: frozenset[str] = frozenset({"basic", "standard", "premium"})
 _VALID_CHAOS_POINTS: frozenset[str] = frozenset(
     {
@@ -235,9 +218,7 @@ def _validate_v7_sections(topology: dict[str, object], entities: dict[str, str])
     return violations
 
 
-def _validate_isolation_policies(
-    topology: dict[str, object], entities: dict[str, str]
-) -> list[str]:
+def _validate_isolation_policies(topology: dict[str, object], entities: dict[str, str]) -> list[str]:
     violations: list[str] = []
     isolation_policies = topology.get("isolation_policies") or {}
     if not isinstance(isolation_policies, dict):
@@ -248,14 +229,12 @@ def _validate_isolation_policies(
             continue
         if service_name not in entities:
             violations.append(
-                f"isolation_policies.{service_name} refers to unknown service "
-                "(not in workspace-manifest)"
+                f"isolation_policies.{service_name} refers to unknown service (not in workspace-manifest)"
             )
         default = str(policy.get("default") or "")
         if default not in _VALID_ISOLATIONS:
             violations.append(
-                f"isolation_policies.{service_name}.default must be one of "
-                f"{sorted(_VALID_ISOLATIONS)}, got '{default}'"
+                f"isolation_policies.{service_name}.default must be one of {sorted(_VALID_ISOLATIONS)}, got '{default}'"
             )
         allowed = policy.get("allowed") or []
         if not isinstance(allowed, list):
@@ -263,14 +242,9 @@ def _validate_isolation_policies(
             continue
         for item in cast(list[object], allowed):
             if str(item) not in _VALID_ISOLATIONS:
-                violations.append(
-                    f"isolation_policies.{service_name}.allowed item '{item}' invalid"
-                )
+                violations.append(f"isolation_policies.{service_name}.allowed item '{item}' invalid")
         if default and default not in [str(x) for x in cast(list[object], allowed)]:
-            violations.append(
-                f"isolation_policies.{service_name}.default '{default}' "
-                f"not in allowed list {allowed}"
-            )
+            violations.append(f"isolation_policies.{service_name}.default '{default}' not in allowed list {allowed}")
     return violations
 
 
@@ -281,9 +255,7 @@ def _validate_sla_tiers(topology: dict[str, object]) -> list[str]:
         return ["Section 'sla_tiers' must be a mapping"]
     for tier_name, spec in sla_tiers.items():
         if tier_name not in _VALID_SLA_TIERS:
-            violations.append(
-                f"sla_tiers.{tier_name} unknown — expected one of {sorted(_VALID_SLA_TIERS)}"
-            )
+            violations.append(f"sla_tiers.{tier_name} unknown — expected one of {sorted(_VALID_SLA_TIERS)}")
         if not isinstance(spec, dict):
             violations.append(f"sla_tiers.{tier_name} must be a mapping")
             continue
@@ -316,8 +288,7 @@ def _validate_runtime_profiles(topology: dict[str, object]) -> list[str]:
     for profile_name, spec in runtime_profiles.items():
         if profile_name not in _VALID_RUNTIME_PROFILES:
             violations.append(
-                f"runtime_profiles.{profile_name} unknown — "
-                f"expected one of {sorted(_VALID_RUNTIME_PROFILES)}"
+                f"runtime_profiles.{profile_name} unknown — expected one of {sorted(_VALID_RUNTIME_PROFILES)}"
             )
         if not isinstance(spec, dict):
             violations.append(f"runtime_profiles.{profile_name} must be a mapping")
@@ -326,10 +297,7 @@ def _validate_runtime_profiles(topology: dict[str, object]) -> list[str]:
         if missing:
             violations.append(f"runtime_profiles.{profile_name} missing fields: {sorted(missing)}")
         if profile_name == "prod" and bool(spec.get("chaos_allowed")):
-            violations.append(
-                "runtime_profiles.prod.chaos_allowed must be false "
-                "(chaos is forbidden in production)"
-            )
+            violations.append("runtime_profiles.prod.chaos_allowed must be false (chaos is forbidden in production)")
     return violations
 
 
@@ -345,8 +313,7 @@ def _validate_chaos_hooks(topology: dict[str, object]) -> list[str]:
         point = str(hook.get("point") or "")
         if point not in _VALID_CHAOS_POINTS:
             violations.append(
-                f"chaos_hooks[{idx}].point '{point}' unknown — "
-                f"expected one of {sorted(_VALID_CHAOS_POINTS)}"
+                f"chaos_hooks[{idx}].point '{point}' unknown — expected one of {sorted(_VALID_CHAOS_POINTS)}"
             )
         if not hook.get("hook_location"):
             violations.append(f"chaos_hooks[{idx}].hook_location required")
@@ -354,13 +321,9 @@ def _validate_chaos_hooks(topology: dict[str, object]) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate runtime-topology.yaml against workspace-manifest.json"
-    )
+    parser = argparse.ArgumentParser(description="Validate runtime-topology.yaml against workspace-manifest.json")
     parser.add_argument("--runtime-topology", required=True, help="Path to runtime-topology.yaml")
-    parser.add_argument(
-        "--workspace-manifest", required=True, help="Path to workspace-manifest.json"
-    )
+    parser.add_argument("--workspace-manifest", required=True, help="Path to workspace-manifest.json")
     args = parser.parse_args()
 
     violations = validate_runtime_topology(
@@ -370,7 +333,7 @@ def main() -> int:
 
     if violations:
         for violation in violations:
-            logger.error(violation)
+            logger.error("%s", violation)
         return 1
 
     logger.info("runtime-topology.yaml is consistent with workspace-manifest.json")

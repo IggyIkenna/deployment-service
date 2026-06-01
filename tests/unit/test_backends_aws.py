@@ -62,9 +62,7 @@ def _make_backend(
     mock_logs_client = MagicMock()
 
     mock_boto3 = MagicMock()
-    mock_boto3.client.side_effect = lambda svc, region_name: (
-        mock_client if svc == "batch" else mock_logs_client
-    )
+    mock_boto3.client.side_effect = lambda svc, region_name: mock_client if svc == "batch" else mock_logs_client
 
     with patch("deployment_service.backends.aws._ensure_boto3", return_value=mock_boto3):
         backend = AWSBatchBackend(
@@ -388,9 +386,7 @@ class TestRegisterJobDefinition:
 
     def test_memory_gi_converted_in_registration(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"}
 
         backend._register_job_definition(
             docker_image=DOCKER_IMAGE,
@@ -405,9 +401,7 @@ class TestRegisterJobDefinition:
 
     def test_memory_mi_converted_in_registration(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"}
 
         backend._register_job_definition(
             docker_image=DOCKER_IMAGE,
@@ -433,9 +427,7 @@ class TestRegisterJobDefinition:
 
     def test_role_arn_includes_account_id(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"}
 
         backend._register_job_definition(DOCKER_IMAGE, {}, {})
 
@@ -445,9 +437,7 @@ class TestRegisterJobDefinition:
 
     def test_platform_capabilities_set_to_fargate(self) -> None:
         backend, mock_client = _make_backend(job_definition=None)
-        mock_client.register_job_definition.return_value = {
-            "jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"
-        }
+        mock_client.register_job_definition.return_value = {"jobDefinitionArn": "arn:aws:batch:::job-definition/def:1"}
 
         backend._register_job_definition(DOCKER_IMAGE, {}, {})
 
@@ -464,9 +454,7 @@ class TestRegisterJobDefinition:
 class TestGetStatus:
     def test_running_status(self) -> None:
         backend, mock_client = _make_backend()
-        mock_client.describe_jobs.return_value = {
-            "jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]
-        }
+        mock_client.describe_jobs.return_value = {"jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]}
 
         result = backend.get_status("j1")
         assert result.status == JobStatus.RUNNING
@@ -510,18 +498,14 @@ class TestGetStatus:
 
     def test_pending_status(self) -> None:
         backend, mock_client = _make_backend()
-        mock_client.describe_jobs.return_value = {
-            "jobs": [{"jobId": "j1", "jobName": "s1", "status": "PENDING"}]
-        }
+        mock_client.describe_jobs.return_value = {"jobs": [{"jobId": "j1", "jobName": "s1", "status": "PENDING"}]}
 
         result = backend.get_status("j1")
         assert result.status == JobStatus.PENDING
 
     def test_submitted_maps_to_pending(self) -> None:
         backend, mock_client = _make_backend()
-        mock_client.describe_jobs.return_value = {
-            "jobs": [{"jobId": "j1", "jobName": "s1", "status": "SUBMITTED"}]
-        }
+        mock_client.describe_jobs.return_value = {"jobs": [{"jobId": "j1", "jobName": "s1", "status": "SUBMITTED"}]}
         result = backend.get_status("j1")
         assert result.status == JobStatus.PENDING
 
@@ -543,9 +527,7 @@ class TestGetStatus:
 
     def test_logs_url_included(self) -> None:
         backend, mock_client = _make_backend()
-        mock_client.describe_jobs.return_value = {
-            "jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]
-        }
+        mock_client.describe_jobs.return_value = {"jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]}
 
         result = backend.get_status("j1")
         assert result.logs_url is not None
@@ -553,9 +535,7 @@ class TestGetStatus:
 
     def test_no_timestamps_when_not_in_response(self) -> None:
         backend, mock_client = _make_backend()
-        mock_client.describe_jobs.return_value = {
-            "jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]
-        }
+        mock_client.describe_jobs.return_value = {"jobs": [{"jobId": "j1", "jobName": "s1", "status": "RUNNING"}]}
         result = backend.get_status("j1")
         assert result.start_time is None
         assert result.end_time is None
@@ -706,9 +686,7 @@ class TestCancelJob:
 
         result = backend.cancel_job("j1")
         assert result is True
-        mock_client.terminate_job.assert_called_once_with(
-            jobId="j1", reason="Cancelled by deployment CLI"
-        )
+        mock_client.terminate_job.assert_called_once_with(jobId="j1", reason="Cancelled by deployment CLI")
 
     def test_client_error_returns_false(self) -> None:
         backend, mock_client = _make_backend()

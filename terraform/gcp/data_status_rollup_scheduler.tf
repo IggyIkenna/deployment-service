@@ -1,6 +1,6 @@
 # Data-status offline rollup — Cloud Run Job + */5 cron
 #
-# Plan: data_status_offline_rollup_2026_05_06.plan.md
+# Plan: data_status_offline_rollup_2026_05_06.plan
 #
 # Background
 #   The deployment-api ``/api/data-status/manifest`` endpoint took

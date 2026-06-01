@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
+# For NEW single-cell features-sports backfills use the consolidated launcher:
+#   bash launch-features-vm.sh --feature-family sports --asset-group SPORTS \
+#       --start-date YYYY-MM-DD --end-date YYYY-MM-DD --launch-mode full
+# This launcher is preserved for the singleton-lock + --skip-existing semantics
+# the consolidated launcher does not model. Will be archived alongside the
+# legacy features-sports-service repo when Phase 7 lands.
+#
 # Launch a GCE VM that backfills FIXTURE_FEATURES (per-fixture denormalised
 # join of Transfermarkt team value, pre-match standings, kickoff-hour
 # weather) via features-sports-service batch compute. Same code path as the
@@ -6,8 +14,8 @@
 # multi-year runs don't block a laptop.
 #
 # SSOT:
-#   plans/active/features_sports_pipeline_deployment_2026_04_21.plan.md
-#   plans/active/features_sports_denormalisation_pipeline_2026_04_21.plan.md
+#   plans/active/features_sports_pipeline_deployment_2026_04_21.plan
+#   plans/active/features_sports_denormalisation_pipeline_2026_04_21.plan
 #
 # Invocation inside the VM (VM_BACKFILL_CMD metadata; see
 # setup-data-pipeline-vm.sh line 455 branch for features-backfill):
@@ -45,17 +53,30 @@
 # day, not network fanout. Pass --force only when you have a genuinely
 # disjoint reason (e.g. two different feature groups / two different
 # non-overlapping date windows).
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
 FORCE=false
 SKIP_EXISTING=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+DRY_RUN=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --skip-existing) SKIP_EXISTING=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
@@ -80,7 +101,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Singleton lock — prevent duplicate fs-backfill-* VMs in the zone.
 if ! $FORCE; then
@@ -125,18 +146,24 @@ METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=100GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=features-sports-backfill,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-4 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=100GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=features-sports-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

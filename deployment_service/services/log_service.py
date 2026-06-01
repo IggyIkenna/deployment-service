@@ -172,9 +172,7 @@ class LogService:
 
         return f"[{timestamp}] {severity}: {message}"
 
-    def analyze_logs_for_errors(
-        self, deployment_id: str, service: str | None = None
-    ) -> dict[str, object]:
+    def analyze_logs_for_errors(self, deployment_id: str, service: str | None = None) -> dict[str, object]:
         """Analyze logs for common errors and patterns.
 
         Args:
@@ -219,9 +217,7 @@ class LogService:
                 warning_count += 1
 
         # Find the most common errors
-        top_errors: list[tuple[str, int]] = sorted(
-            common_errors.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        top_errors: list[tuple[str, int]] = sorted(common_errors.items(), key=lambda x: x[1], reverse=True)[:5]
 
         analysis: dict[str, object] = {
             "total_entries": total_entries,

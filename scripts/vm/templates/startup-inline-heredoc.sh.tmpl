@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Template: startup-inline-heredoc — VM with custom inline startup script.
+#
+# USAGE PATTERN:
+#   For VMs that need custom Python packages or run a standalone script
+#   (not setup-data-pipeline-vm.sh). The startup script is written to a temp
+#   file via lc_write_startup_file() from lib/launcher_common.sh.
+#
+# WHY USE THIS PATTERN:
+#   - Full control over VM startup (custom packages, custom paths).
+#   - lc_write_startup_file handles temp file creation + cleanup trap.
+#   - Used by ~31 launchers (custom startup VMs).
+#
+# WHEN NOT TO USE THIS PATTERN:
+#   - When your VM runs a pipeline VM_TASK via setup-data-pipeline-vm.sh.
+#   - Use startup-gcs-url.sh.tmpl instead (simpler).
+#
+# ----------------------------------------------------------------------------
+# FILL IN THESE VALUES:
+#   @@VM_NAME_PREFIX@@ e.g. "my-validation"
+#   @@PROJECT@@        GCP project ID
+#   @@ZONE@@           GCE zone
+#   @@MACHINE_TYPE@@   e.g. "n2-standard-2"
+#   @@DISK_GB@@        e.g. "30"
+#   @@LOG_FILE@@       Path for VM log, e.g. /var/log/my-validation.log
+#   @@RUN_COMMAND@@    Main command to run on the VM
+#   @@PURPOSE@@        VM purpose label (e.g. "my-validation")
+# ----------------------------------------------------------------------------
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/launcher_common.sh
+source "${SCRIPT_DIR}/../lib/launcher_common.sh"
+
+PROJECT="@@PROJECT@@"
+ZONE="@@ZONE@@"
+CODE_BUCKET="$(lc_code_bucket "$PROJECT")"
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+RUN_TS="$(lc_run_ts)"
+VM_NAME="@@VM_NAME_PREFIX@@-${RUN_TS}"
+
+lc_validate_env "$DEPLOYMENT_ENV"
+
+# ── Inline startup script ────────────────────────────────────────────────────
+# ${VARIABLE}  — interpolated at launch time (launcher's env)
+# \${VARIABLE} — deferred to VM runtime
+
+STARTUP_SCRIPT=$(cat << STARTUP_EOF
+#!/bin/bash
+set -euo pipefail
+export HOME=/root
+export PATH="/root/.local/bin:\$PATH"
+export GCP_PROJECT_ID="${PROJECT}"
+export GOOGLE_CLOUD_PROJECT="${PROJECT}"
+export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
+
+exec > >(tee @@LOG_FILE@@) 2>&1
+
+echo "=== VM Startup: ${VM_NAME} ==="
+date
+
+# Install Python 3.13 + uv
+apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
+add-apt-repository -y ppa:deadsnakes/ppa
+apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="/root/.local/bin:\$PATH"
+
+WORK_DIR=/opt/@@VM_NAME_PREFIX@@
+mkdir -p "\${WORK_DIR}"
+
+# Download code tarballs
+# gsutil -q cp "gs://${CODE_BUCKET}/code/my-service-code.tar.gz" "\${WORK_DIR}/"
+
+# Run main command
+@@RUN_COMMAND@@
+
+EXIT_CODE=\$?
+echo "=== Done: exit=\${EXIT_CODE} ==="
+date
+
+gsutil -q cp @@LOG_FILE@@ \
+  "gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log" 2>/dev/null || true
+
+shutdown -h now
+STARTUP_EOF
+)
+
+# lc_write_startup_file writes content to a temp file, sets STARTUP_FILE,
+# and registers a cleanup trap so the file is deleted on exit.
+lc_write_startup_file "$STARTUP_SCRIPT"
+
+METADATA="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_NAME=${VM_NAME}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
+gcloud compute instances create "${VM_NAME}" \
+    --project="${PROJECT}" \
+    --zone="${ZONE}" \
+    --machine-type="@@MACHINE_TYPE@@" \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size="@@DISK_GB@@GB" \
+    --scopes=cloud-platform \
+    --no-restart-on-failure \
+    --metadata="${METADATA}" \
+    --metadata-from-file="startup-script=${STARTUP_FILE}" \
+    --labels="purpose=@@PURPOSE@@,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"

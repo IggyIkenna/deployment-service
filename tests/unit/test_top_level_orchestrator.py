@@ -422,9 +422,7 @@ def test_create_daily_plan_filters_to_requested_services() -> None:
         mock_calc.calculate_shards.return_value = [mock_shard]
         mock_calc_cls.return_value = mock_calc
 
-        plan = orch.create_daily_plan(
-            target_date=_DATE, asset_group=_ASSET_GROUP, services=["svc-a"]
-        )
+        plan = orch.create_daily_plan(target_date=_DATE, asset_group=_ASSET_GROUP, services=["svc-a"])
 
     assert plan.execution_order == ["svc-a"]
     assert plan.total_jobs == 1

@@ -72,9 +72,7 @@ class TestApiAppImport:
             jobs=[],
         )
         VMStatusBatchRequest(project_id="p", zone="z", vm_names=[])
-        CloudRunStatusBatchRequest(
-            project_id="p", region="r", service_account_email="sa@iam", job_name="j", job_ids=[]
-        )
+        CloudRunStatusBatchRequest(project_id="p", region="r", service_account_email="sa@iam", job_name="j", job_ids=[])
         QuotaAcquireRequest(quota_shape={}, batch_size=1)
         QuotaReleaseRequest(quota_shape={}, batch_size=1)
 

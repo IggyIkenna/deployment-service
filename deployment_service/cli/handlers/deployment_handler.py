@@ -84,9 +84,7 @@ class DeploymentHandler:
         for key, value in kwargs.items():
             click.echo(f"  {key}: {value}")
 
-    def _handle_actual_deploy(
-        self, service: str, config_override: str | None, max_concurrent: int, **kwargs
-    ) -> None:
+    def _handle_actual_deploy(self, service: str, config_override: str | None, max_concurrent: int, **kwargs) -> None:
         """Handle actual deployment.
 
         Args:
@@ -260,9 +258,7 @@ class DeploymentHandler:
             lines: Number of lines
         """
         try:
-            logs = self.log_service.get_deployment_logs(
-                deployment_id, service, shard_id, since, follow, lines
-            )
+            logs = self.log_service.get_deployment_logs(deployment_id, service, shard_id, since, follow, lines)
 
             if not logs and not follow:
                 click.echo(f"No logs found for deployment {deployment_id}")

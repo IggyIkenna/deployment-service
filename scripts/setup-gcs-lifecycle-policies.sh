@@ -80,7 +80,7 @@ BUCKETS=(
   # NOTE: processed_candles/ live co-located under market-data-tick-*
   # (MDPS output). The separate market-data-candles-* buckets were retired
   # 2026-04-18 as empty shells — see
-  # unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.plan.md Phase 5a.
+  # unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.md Phase 5a.
   "market-data-tick-cefi-${PROJECT}"
   "market-data-tick-tradfi-${PROJECT}"
   "market-data-tick-defi-${PROJECT}"

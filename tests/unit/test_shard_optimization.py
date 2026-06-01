@@ -52,9 +52,7 @@ class TestShardCalculatorGCSDynamicDimensions:
         expected_configs = mock_cloud_files_gcs_dynamic["gs://test-configs-cefi/grid_configs/"]
         assert len(configs) > 0 or len(shards) >= len(expected_configs)
 
-    def test_gcs_dynamic_empty_bucket(
-        self, temp_config_dir, gcs_dynamic_service_config, mock_env_vars
-    ):
+    def test_gcs_dynamic_empty_bucket(self, temp_config_dir, gcs_dynamic_service_config, mock_env_vars):
         """Test handling of empty GCS bucket."""
         with open(temp_config_dir / "sharding.gcs-dynamic-test-service.yaml", "w") as f:
             yaml.dump(gcs_dynamic_service_config, f)
@@ -99,9 +97,7 @@ class TestVenueStartDateFiltering:
 
         # All dates should be >= 2024-01-05
         for date_str in dates:
-            assert date_str >= "2024-01-05", (
-                f"Found shard for {date_str} which is before venue start date"
-            )
+            assert date_str >= "2024-01-05", f"Found shard for {date_str} which is before venue start date"
 
     def test_ignore_start_dates_includes_all_combinations(
         self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
@@ -167,9 +163,7 @@ class TestVenueStartDateFiltering:
         assert "BINANCE-SPOT" in venues_in_shards
         assert "DERIBIT" in venues_in_shards
 
-    def test_category_start_date_fallback(
-        self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars
-    ):
+    def test_category_start_date_fallback(self, temp_config_with_start_dates, mock_venue_start_dates, mock_env_vars):
         """Test that category start date is used when venue start date is not configured."""
         calculator = ShardCalculator(str(temp_config_with_start_dates))
 
@@ -187,13 +181,9 @@ class TestVenueStartDateFiltering:
         # All dates should be >= 2024-01-03
         for s in shards:
             date_start = s.dimensions["date"]["start"]
-            assert date_start >= "2024-01-03", (
-                f"Found shard for {date_start} which is before venue start date"
-            )
+            assert date_start >= "2024-01-03", f"Found shard for {date_start} which is before venue start date"
 
-    def test_no_start_dates_configured_includes_all(
-        self, temp_config_dir, hierarchical_service_config, mock_env_vars
-    ):
+    def test_no_start_dates_configured_includes_all(self, temp_config_dir, hierarchical_service_config, mock_env_vars):
         """Test that when no expected_start_dates.yaml exists, all shards are included."""
         # Create service config without expected_start_dates.yaml
         with open(temp_config_dir / "sharding.hierarchical-test-service.yaml", "w") as f:
@@ -272,9 +262,7 @@ class TestAsymmetricVenueCounts:
         assert len(cefi_venues) == 3, f"Expected 3 CEFI venues, got {cefi_venues}"
         assert len(tradfi_venues) == 2, f"Expected 2 TRADFI venues, got {tradfi_venues}"
 
-    def test_total_shards_calculation_with_asymmetric_venues(
-        self, temp_config_with_start_dates, mock_env_vars
-    ):
+    def test_total_shards_calculation_with_asymmetric_venues(self, temp_config_with_start_dates, mock_env_vars):
         """Test that total shard count correctly reflects asymmetric venue counts.
 
         For a single day after all venues launched:

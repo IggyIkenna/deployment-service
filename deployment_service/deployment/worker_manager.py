@@ -76,9 +76,7 @@ def launch_shards_parallel(
         if venue and venue in venue_overrides:
             venue_config = cast("dict[str, object]", venue_overrides[venue].get(compute_type, {}))
             if venue_config:
-                logger.info(
-                    "[%s] Applying venue override for %s: %s", shard.shard_id, venue, venue_config
-                )
+                logger.info("[%s] Applying venue override for %s: %s", shard.shard_id, venue, venue_config)
                 return {**compute_config, **venue_config}
         return compute_config
 
@@ -118,9 +116,7 @@ def launch_shards_parallel(
                 ttl_override = None
             else:
                 resources = {"RUNNING_EXECUTIONS": 1.0}
-                timeout_s = int(
-                    cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600)
-                )
+                timeout_s = int(cast(int, (shard_compute_config or {}).get("timeout_seconds", 3600) or 3600))
                 ttl_override = max(300, min(timeout_s, 6 * 3600))
 
             started_wait = time.time()
@@ -197,11 +193,7 @@ def launch_shards_parallel(
                 # Release admission lease on failed launch (best-effort)
                 if job_info.status == JobStatus.FAILED:
                     try:
-                        if (
-                            quota_broker
-                            and quota_broker.enabled()
-                            and (lease_id or shard.quota_lease_id)
-                        ):
+                        if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
                             quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                             shard.quota_lease_id = None
                     except (ConnectionError, TimeoutError) as e:
@@ -211,9 +203,7 @@ def launch_shards_parallel(
                             e,
                         )
                     except (OSError, ValueError, RuntimeError) as e:
-                        logger.warning(
-                            "Failed to release quota lease for %s: %s", shard.shard_id, e
-                        )
+                        logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
 
                 # Log success after retries
                 if attempt > 0:
@@ -255,8 +245,7 @@ def launch_shards_parallel(
                     total_delay: float = delay + jitter
 
                     logger.warning(
-                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s),"
-                        " retrying in %.1fs. Error: %s",
+                        "[LAUNCH_RETRY] Shard %s failed (attempt %s/%s), retrying in %.1fs. Error: %s",
                         shard.shard_id,
                         attempt + 1,
                         max_launch_retries + 1,
@@ -274,16 +263,10 @@ def launch_shards_parallel(
                             e,
                         )
                     else:
-                        logger.error(
-                            "[LAUNCH_FAILED] Shard %s failed (non-retryable): %s", shard.shard_id, e
-                        )
+                        logger.error("[LAUNCH_FAILED] Shard %s failed (non-retryable): %s", shard.shard_id, e)
                     # Release admission lease on ultimate failure (best-effort)
                     try:
-                        if (
-                            quota_broker
-                            and quota_broker.enabled()
-                            and (lease_id or shard.quota_lease_id)
-                        ):
+                        if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
                             quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                             shard.quota_lease_id = None
                     except (ConnectionError, TimeoutError) as e:
@@ -293,24 +276,18 @@ def launch_shards_parallel(
                             e,
                         )
                     except (OSError, ValueError, RuntimeError) as e:
-                        logger.warning(
-                            "Failed to release quota lease for %s: %s", shard.shard_id, e
-                        )
+                        logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
                     return (shard, None)
 
         # Should not reach here, but just in case
-        logger.error(
-            "[LAUNCH_FAILED] Shard %s failed after all retries: %s", shard.shard_id, last_error
-        )
+        logger.error("[LAUNCH_FAILED] Shard %s failed after all retries: %s", shard.shard_id, last_error)
         # Release admission lease on ultimate failure (best-effort)
         try:
             if quota_broker and quota_broker.enabled() and (lease_id or shard.quota_lease_id):
                 quota_broker.release(lease_id=str(lease_id or shard.quota_lease_id))
                 shard.quota_lease_id = None
         except (ConnectionError, TimeoutError) as e:
-            logger.warning(
-                "Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e
-            )
+            logger.warning("Failed to release quota lease for %s (connection issue): %s", shard.shard_id, e)
         except (OSError, ValueError, RuntimeError) as e:
             logger.warning("Failed to release quota lease for %s: %s", shard.shard_id, e)
         return (shard, None)
@@ -327,8 +304,7 @@ def launch_shards_parallel(
 
     total_mini_batches = (len(indexed_shards) + mini_batch_size - 1) // mini_batch_size
     logger.info(
-        "Launching %s shards with %s parallel workers"
-        " (mini-batches of %s with %ss delay, %s batches)...",
+        "Launching %s shards with %s parallel workers (mini-batches of %s with %ss delay, %s batches)...",
         len(pending_shards),
         max_workers,
         mini_batch_size,
@@ -352,8 +328,7 @@ def launch_shards_parallel(
 
         with ThreadPoolExecutor(max_workers=min(max_workers, len(mini_batch))) as executor:
             futures: dict[Future[tuple[ShardState, JobInfo | None]], ShardState] = {
-                executor.submit(launch_single_shard, indexed_shard): indexed_shard[1]
-                for indexed_shard in mini_batch
+                executor.submit(launch_single_shard, indexed_shard): indexed_shard[1] for indexed_shard in mini_batch
             }
 
             for future in as_completed(futures):
@@ -386,9 +361,7 @@ def launch_shards_parallel(
 
         # Delay between mini-batches to let GCP provision VMs
         if mini_batch_idx + mini_batch_size < len(indexed_shards):
-            logger.debug(
-                "[MINI_BATCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds
-            )
+            logger.debug("[MINI_BATCH] Waiting %ss before next mini-batch...", mini_batch_delay_seconds)
             time.sleep(mini_batch_delay_seconds)
 
     # Recalculate overall deployment status after launch
@@ -418,9 +391,7 @@ def launch_shards_parallel(
 
             # Exponential backoff between retry rounds
             if retry_round > 0:
-                round_delay: float = min(
-                    30.0 * (2.0 ** (retry_round - 1)), 120.0
-                )  # 30s, 60s, 120s max
+                round_delay: float = min(30.0 * (2.0 ** (retry_round - 1)), 120.0)  # 30s, 60s, 120s max
                 logger.info(
                     "[AUTO_RETRY] Waiting %ss before retry round %s...",
                     round_delay,
@@ -460,9 +431,7 @@ def launch_shards_parallel(
 
                     if job_info is None or job_info.status == JobStatus.FAILED:
                         shard.status = ShardStatus.FAILED
-                        shard.error_message = (
-                            job_info.error_message if job_info else "Launch failed"
-                        )
+                        shard.error_message = job_info.error_message if job_info else "Launch failed"
                         shard.end_time = datetime.now(UTC).isoformat()
                     else:
                         shard.status = ShardStatus.RUNNING
@@ -605,17 +574,15 @@ def launch_shards_rolling(
             # Hide non-wave pending shards so launch_shards_parallel only processes this wave
             wave_ids = {s.shard_id for s in wave}
             non_wave_pending = [
-                s
-                for s in state.shards
-                if s.status == ShardStatus.PENDING and s.shard_id not in wave_ids
+                s for s in state.shards if s.status == ShardStatus.PENDING and s.shard_id not in wave_ids
             ]
             # Temporarily mark non-wave pending shards as QUEUED to hide from parallel launcher
             # We use FAILED as a safe sentinel (will be restored immediately after)
-            _HIDDEN_STATUS = ShardStatus.FAILED
+            hidden_status = ShardStatus.FAILED
             original_statuses: dict[str, ShardStatus] = {}
             for shard in non_wave_pending:
                 original_statuses[shard.shard_id] = shard.status
-                shard.status = _HIDDEN_STATUS
+                shard.status = hidden_status
 
             launch_shards_parallel(
                 state=state,
@@ -635,14 +602,13 @@ def launch_shards_rolling(
 
             # Restore non-wave pending shards to PENDING (only those still in FAILED sentinel state)
             for shard in non_wave_pending:
-                if shard.shard_id in original_statuses and shard.status == _HIDDEN_STATUS:
+                if shard.shard_id in original_statuses and shard.status == hidden_status:
                     shard.status = original_statuses[shard.shard_id]
 
             if no_wait and wave_number == 1:
                 # Fire and forget — launch first wave only, leave rest pending
                 logger.info(
-                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards,"
-                    " %s remain pending",
+                    "[ROLLING_LAUNCH] no_wait=True: launched first wave of %s shards, %s remain pending",
                     len(wave),
                     len(all_pending),
                 )

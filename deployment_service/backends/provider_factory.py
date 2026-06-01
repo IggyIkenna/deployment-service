@@ -99,9 +99,7 @@ def get_backend_for_provider(
     if provider == "local":
         return _get_local_backend(**kwargs)
     elif provider == "gcp":
-        return _get_gcp_backend(
-            normalized_type, project_id, region, service_account_email, **kwargs
-        )
+        return _get_gcp_backend(normalized_type, project_id, region, service_account_email, **kwargs)
     elif provider == "aws":
         return _get_aws_backend(normalized_type, project_id, region, **kwargs)
     else:
@@ -129,9 +127,7 @@ def get_backend(
         ComputeBackend implementation
     """
     provider = get_cloud_provider()
-    return get_backend_for_provider(
-        provider, compute_type, project_id, region, service_account_email, **kwargs
-    )
+    return get_backend_for_provider(provider, compute_type, project_id, region, service_account_email, **kwargs)
 
 
 def _get_gcp_backend(

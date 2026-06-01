@@ -29,6 +29,7 @@ import logging
 import os
 import pathlib
 import sys
+import tempfile
 from typing import cast
 
 from unified_trading_library import (
@@ -168,12 +169,12 @@ def _init_events() -> None:
     project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
         logger.warning("GCP_PROJECT_ID unset; falling back to mode=local (events only in stdout)")
-        from unified_trading_library import (
-            LocalFsEventSink,  # noqa: qg-inside-import — lazy import only on local fallback path
+        from unified_trading_library import (  # noqa: imports-inside-functions
+            LocalFsEventSink,
         )
 
         local_sink = LocalFsEventSink(
-            path=pathlib.Path("/tmp/vm-heartbeat-events.jsonl"),
+            path=pathlib.Path(tempfile.gettempdir()) / "vm-heartbeat-events.jsonl",
             service_name="vm-heartbeat-daemon",
         )
         setup_events(service_name="vm-heartbeat-daemon", mode="local", sink=local_sink)
@@ -198,9 +199,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", required=True, help="VM name")
     p.add_argument("--asset-group", required=True)
     p.add_argument("--task", required=True)
-    p.add_argument(
-        "--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"]
-    )
+    p.add_argument("--mode", required=True, choices=["dry", "full", "backfill", "forward-poll", "smoke"])
     p.add_argument("--start-date", required=True)
     p.add_argument("--end-date", required=True)
     p.add_argument("--log-uri", required=True, help="gs://bucket/key for the tailed log")  # noqa: gs-uri

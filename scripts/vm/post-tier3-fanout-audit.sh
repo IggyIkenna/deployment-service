@@ -81,7 +81,7 @@ ls -la "${SCRIPTS}/"reclassify_404_failures_to_empty.py "${SCRIPTS}/"reconcile_p
 # ----------------------------------------------------------------------------
 # Step 4: run scripts in sequence
 # ----------------------------------------------------------------------------
-BUCKET="market-data-tick-cefi-central-element-323112"
+BUCKET="market-data-tick-cefi-${PROJECT}"
 
 log "=== Step 4a: reclassifier (real, not dry-run) ==="
 "${PYTHON}" "${SCRIPTS}/reclassify_404_failures_to_empty.py" \

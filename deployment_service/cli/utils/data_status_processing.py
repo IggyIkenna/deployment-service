@@ -34,9 +34,7 @@ def process_fast_results(
 
         if has_venue_dimension:
             cat_venues = (
-                list(venue)
-                if venue
-                else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+                list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
             )
         else:
             cat_venues = ["ALL"]
@@ -137,9 +135,7 @@ def process_batch_results(
 
         if has_venue_dimension:
             cat_venues = (
-                list(venue)
-                if venue
-                else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
+                list(venue) if venue else venues_config.get("categories") or {}.get(cat, {}).get("venues") or []
             )
         else:
             cat_venues = ["ALL"]

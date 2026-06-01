@@ -66,9 +66,7 @@ def test_required_common_events_exist(all_event_markers: set[str]) -> None:
     missing = set(REQUIRED_COMMON_EVENTS) - all_event_markers
     if missing:
         pytest.fail(f"Missing required common events: {sorted(missing)}")
-    assert not (set(REQUIRED_COMMON_EVENTS) - all_event_markers), (
-        "Some required common events missing"
-    )
+    assert not (set(REQUIRED_COMMON_EVENTS) - all_event_markers), "Some required common events missing"
 
 
 def test_service_specific_events_exist(all_event_markers: set[str]) -> None:

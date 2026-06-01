@@ -200,9 +200,7 @@ def _print_report(report: VerifyReport) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(
-        description="Verify UCI bootstrap resources (buckets + secrets) exist."
-    )
+    parser = argparse.ArgumentParser(description="Verify UCI bootstrap resources (buckets + secrets) exist.")
     parser.add_argument(
         "--bucket-prefix",
         required=True,

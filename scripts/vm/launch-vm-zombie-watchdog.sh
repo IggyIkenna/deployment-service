@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# The watchdog VM itself reads the events bucket (gs://{pid}-events) — env-aware
+# resolution lets the watchdog scope its event-stream + heartbeat reads to the
+# correct env tier. The watchdog Python (vm_zombie_watchdog.py) keys VM filters
+# by VM-NAME prefix; env-tier acts as an orthogonal axis for any future
+# per-env bucket reads.
+#
 # Launch always-on VM zombie watchdog daemon.
 #
 # Polls every 5 min via vm_zombie_watchdog.py:
@@ -48,6 +57,7 @@ FORCE=false
 HB_STALE=15
 SHARD_STALE=120
 MIN_AGE=15
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -57,10 +67,16 @@ while [[ $# -gt 0 ]]; do
         --heartbeat-stale) HB_STALE="$2"; shift 2 ;;
         --shard-stale)     SHARD_STALE="$2"; shift 2 ;;
         --min-age)         MIN_AGE="$2"; shift 2 ;;
+        --env)             DEPLOYMENT_ENV="$2"; shift 2 ;;
         --help|-h)         grep '^#' "$0" | head -40; exit 0 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if ! $FORCE; then
     EXISTING=$(gcloud compute instances list \
@@ -115,7 +131,7 @@ LOOP_CMD="
 cd /tmp
 gsutil cp gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py /tmp/watchdog.py
 while true; do
-    python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
+    /opt/watchdog-venv/bin/python3 /tmp/watchdog.py --min-age ${MIN_AGE} --heartbeat-stale ${HB_STALE} --shard-stale ${SHARD_STALE} ${DRY_FLAG} || true
     sleep ${INTERVAL}
 done
 "
@@ -134,25 +150,34 @@ for i in \$(seq 1 60); do
     sleep 1
 done
 
-# Bootstrap pip via get-pip.py — does NOT depend on apt mirrors. The
-# previous design used 'apt-get update + apt-get install python3-pip'
-# but the mirror hangs 7+ min on slow asia-northeast1 days, AND skipping
-# apt-get update leaves the cached lists missing python3-pip entirely
-# (observed 2026-05-05: 'Package python3-pip has no installation
-# candidate'). Python3 is pre-installed on Ubuntu 24.04 GCE; pip is not.
-if ! python3 -m pip --version >/dev/null 2>&1; then
-    curl -sSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-    python3 /tmp/get-pip.py --break-system-packages 2>&1 || true
+# UAC requires Python >=3.13,<3.14; Ubuntu 24.04 ships Python 3.12.
+# Install Python 3.13 via deadsnakes PPA, then create a dedicated venv.
+apt-get install -y software-properties-common 2>&1 | tail -2 || true
+add-apt-repository ppa:deadsnakes/ppa -y 2>&1 | tail -2 || true
+apt-get update -y 2>&1 | tail -2 || true
+apt-get install -y python3.13 python3.13-venv 2>&1 | tail -2 || true
+
+python3.13 -m venv /opt/watchdog-venv
+
+# Install google-cloud packages + UAC into the Python 3.13 venv.
+/opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
+
+# Install UAC (needed for VmPrefixSpec + LifecycleClass imports).
+# Use system tar to extract (avoids Python 3.12+ tarfile security filter on symlinks).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
+if [[ -f /tmp/uac.tar.gz ]]; then
+    mkdir -p /tmp/uac-src
+    tar xf /tmp/uac.tar.gz -C /tmp/uac-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/uac-src 2>&1 | tail -3 || true
 fi
 
-# Watchdog only imports google.cloud.{compute_v1, storage} — no pandas,
-# no pyarrow. --ignore-installed avoids the typing_extensions trap
-# (apt-managed package without a pip RECORD file).
-python3 -m pip install \
-    --break-system-packages \
-    --ignore-installed \
-    --quiet \
-    google-cloud-compute google-cloud-storage 2>&1 || true
+# Install UTL (needed for resolve_bucket_name import).
+gsutil -q cp "gs://${CODE_BUCKET}/code/unified-trading-library-code.tar.gz" /tmp/utl.tar.gz 2>&1 || true
+if [[ -f /tmp/utl.tar.gz ]]; then
+    mkdir -p /tmp/utl-src
+    tar xf /tmp/utl.tar.gz -C /tmp/utl-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/utl-src 2>&1 | tail -3 || true
+fi
 
 ${LOOP_CMD}
 "
@@ -176,8 +201,9 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=20GB \
     --scopes=cloud-platform \
+    --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
     --metadata-from-file=startup-script="$STARTUP_FILE" \
-    --labels=purpose=vm-zombie-watchdog,tier=daemon 2>&1 | tail -5
+    --labels=purpose=vm-zombie-watchdog,tier=daemon,env="${DEPLOYMENT_ENV}" 2>&1 | tail -5
 
 echo ""
 echo "VM running. Tail logs:"

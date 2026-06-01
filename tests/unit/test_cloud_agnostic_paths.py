@@ -71,9 +71,7 @@ class TestCloudAgnosticPaths:
                         if "get_gcs_client(" in line and not (
                             line.strip().startswith("#") or '"""' in line or "'''" in line
                         ):
-                            violations.append(
-                                f"{file_path}:{i + 1}: Direct call to get_gcs_client()"
-                            )
+                            violations.append(f"{file_path}:{i + 1}: Direct call to get_gcs_client()")
 
             except (OSError, UnicodeDecodeError):
                 # Skip files that can't be parsed
@@ -82,6 +80,5 @@ class TestCloudAgnosticPaths:
         assert len(violations) == 0, (
             f"Found {len(violations)} violations - unified-trading-deployment-v2 domain code should use "
             f"StandardizedDomainCloudService, not get_gcs_client. Infrastructure code (monitor.py, "
-            f"orchestrator.py, cloud_client.py) is allowed to use get_gcs_client() directly:\n"
-            + "\n".join(violations)
+            f"orchestrator.py, cloud_client.py) is allowed to use get_gcs_client() directly:\n" + "\n".join(violations)
         )

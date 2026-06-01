@@ -311,9 +311,7 @@ def _print_text_report(
         for idx, extra in enumerate(extra_in_config, 1):
             logger.info("%d. League ID: %s (PLACEHOLDER)", idx, extra["league_id"])
             logger.info("   League: %s (%s)", extra.get("league_name"), extra.get("country"))
-            logger.info(
-                "   Classification: %s, Tier: %s", extra.get("classification"), extra.get("tier")
-            )
+            logger.info("   Classification: %s, Tier: %s", extra.get("classification"), extra.get("tier"))
             logger.info("   Note: %s", extra.get("note"))
 
     # Known conflicts

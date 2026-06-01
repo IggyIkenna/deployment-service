@@ -86,8 +86,8 @@ locals {
     "features-delta-one-service",
     "features-volatility-service",
     "features-onchain-service",
-    "ml-training-service",
-    "ml-inference-service",
+    # ml-training-service + ml-inference-service removed 2026-05-21: consolidated into ml-service (ml_repo_consolidation_2026_05_19.md)
+    "ml-service",
     "strategy-service",
     "execution-services",
   ]

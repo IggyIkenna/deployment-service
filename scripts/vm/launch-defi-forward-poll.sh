@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+# Applied to the future-template below (the stub above exits before reaching it).
+#
 # DeFi forward-poll launcher — STUB.
 #
 # Status (2026-04-28): NOT FUNCTIONAL on the standard ``--operation download``
@@ -25,7 +30,7 @@
 # indices, perp funding, oracle prices, gas fees, LST rates, plus the
 # Phase-1-expansion event types (liquidation_events, flash_loan_events,
 # staking_yields, etc.) across the protocol-chain composite venues
-# (UNISWAPV2/3/4, CURVE, BALANCER, AAVEV3, COMPOUNDV3, MORPHO, FLUID, LIDO,
+# (UNISWAP_V2/3/4, CURVE, BALANCER, AAVE_V3, COMPOUND_V3, MORPHO, FLUID, LIDO,
 # ETHERFI, ETHENA, JITO).
 #
 # Same code path as launch-canonical-migration-vm.sh DEFI path / the existing
@@ -72,11 +77,26 @@ exit 1
 
 # ─────────── unreachable below — kept as the future template ───────────
 
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
-if [[ "${1:-}" == "--force" ]]; then
-  FORCE=true
-  shift
-fi
+
+_positional=()
+DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --force) FORCE=true; shift ;;
+    --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) _positional+=("$1"); shift ;;
+  esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 if [[ $# -eq 2 ]]; then
   START_DATE="$1"
@@ -88,7 +108,7 @@ fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
@@ -122,18 +142,24 @@ METADATA="${METADATA},VM_OPERATION=backfill"
 METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-gcloud compute instances create "$VM_NAME" \
-  --project="$PROJECT" \
-  --zone="$ZONE" \
-  --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2404-lts-amd64 \
-  --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
-  --scopes=cloud-platform \
-  --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-  --labels=purpose=defi-forward-poll,run-ts="${RUN_TS}"
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: "$VM_NAME""
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-4 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=defi-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
 
 echo ""
 echo "VM launched: $VM_NAME"

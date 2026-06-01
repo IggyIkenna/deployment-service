@@ -76,10 +76,7 @@ class CombinationCalculator:
         if non_hier_dims:
             non_hier_keys = list(non_hier_dims.keys())
             non_hier_lists = [non_hier_dims[k] for k in non_hier_keys]
-            non_hier_combos = [
-                dict(zip(non_hier_keys, c, strict=False))
-                for c in itertools.product(*non_hier_lists)
-            ]
+            non_hier_combos = [dict(zip(non_hier_keys, c, strict=False)) for c in itertools.product(*non_hier_lists)]
         else:
             non_hier_combos = [{}]
 
@@ -97,9 +94,7 @@ class CombinationCalculator:
 
         return combinations
 
-    def _simple_combinations(
-        self, dimension_values: dict[str, list[object]]
-    ) -> list[dict[str, object]]:
+    def _simple_combinations(self, dimension_values: dict[str, list[object]]) -> list[dict[str, object]]:
         """Calculate simple cartesian product for non-hierarchical dimensions."""
         keys = list(dimension_values.keys())
         value_lists = [dimension_values[k] for k in keys]
@@ -164,11 +159,7 @@ class CombinationCalculator:
                 continue
 
             # Extract the date string for comparison
-            combo_date = (
-                cast(dict[str, str], date_val).get("start")
-                if isinstance(date_val, dict)
-                else str(date_val)
-            )
+            combo_date = cast(dict[str, str], date_val).get("start") if isinstance(date_val, dict) else str(date_val)
 
             if combo_date is None:
                 filtered.append(combo)
@@ -185,9 +176,7 @@ class CombinationCalculator:
 
             if start_date is None and trading_axis is not None:
                 # Fall back to asset-group start date (YAML: category_start)
-                start_date = self.config_loader.get_asset_group_start_date(
-                    service, str(trading_axis)
-                )
+                start_date = self.config_loader.get_asset_group_start_date(service, str(trading_axis))
 
             if start_date is None:
                 # No start date configured, include the combo
@@ -215,10 +204,7 @@ class CombinationCalculator:
         service: str,
     ) -> list[dict[str, object]]:
         """Filter venues based on Tardis subscription access for market-tick-data-handler."""
-        if (
-            "venue" not in [combo.get("venue") for combo in combinations]
-            or service != "market-tick-data-handler"
-        ):
+        if "venue" not in [combo.get("venue") for combo in combinations] or service != "market-tick-data-handler":
             return combinations
 
         original_count = len(combinations)
@@ -357,9 +343,7 @@ class CombinationCalculator:
         # Auto-detect from secrets
         try:
             providers_config = self.config_loader.load_data_providers_config()
-            tardis_config: dict[str, object] = cast(
-                dict[str, object], providers_config.get("tardis") or {}
-            )
+            tardis_config: dict[str, object] = cast(dict[str, object], providers_config.get("tardis") or {})
 
             # Check if auto mode is configured
             mode_setting = str(tardis_config.get("mode", "auto") or "auto")
@@ -368,12 +352,8 @@ class CombinationCalculator:
                 return mode_setting
 
             # Auto-detect: Check if full access secret exists
-            secrets_config: dict[str, object] = cast(
-                dict[str, object], tardis_config.get("secrets") or {}
-            )
-            full_secret_name = str(
-                secrets_config.get("full_access", "tardis-api-key-full") or "tardis-api-key-full"
-            )
+            secrets_config: dict[str, object] = cast(dict[str, object], tardis_config.get("secrets") or {})
+            full_secret_name = str(secrets_config.get("full_access", "tardis-api-key-full") or "tardis-api-key-full")
 
             try:
                 client = get_secret_client()
@@ -405,14 +385,11 @@ class CombinationCalculator:
         """Filter out spot-only venues for perpetuals-only Tardis subscriptions."""
         try:
             providers_config = self.config_loader.load_data_providers_config()
-            tardis_config_raw: dict[str, object] = cast(
-                dict[str, object], providers_config.get("tardis") or {}
-            )
+            tardis_config_raw: dict[str, object] = cast(dict[str, object], providers_config.get("tardis") or {})
             spot_only_venues: set[str] = set(
                 cast(
                     list[str],
-                    tardis_config_raw.get("spot_only_venues")
-                    or ["BINANCE-SPOT", "COINBASE", "UPBIT"],
+                    tardis_config_raw.get("spot_only_venues") or ["BINANCE-SPOT", "COINBASE", "UPBIT"],
                 )
             )
         except (OSError, ValueError, RuntimeError) as e:

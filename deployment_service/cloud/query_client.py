@@ -48,12 +48,8 @@ class BucketIndex:
         if not self.blobs:
             return BucketStats(file_count=0, total_size_bytes=0)
         total_size = sum(cast(int, b.get("size", 0)) for b in self.blobs)
-        created_times: list[datetime] = [
-            cast(datetime, b["created"]) for b in self.blobs if b.get("created")
-        ]
-        updated_times: list[datetime] = [
-            cast(datetime, b["updated"]) for b in self.blobs if b.get("updated")
-        ]
+        created_times: list[datetime] = [cast(datetime, b["created"]) for b in self.blobs if b.get("created")]
+        updated_times: list[datetime] = [cast(datetime, b["updated"]) for b in self.blobs if b.get("updated")]
         return BucketStats(
             file_count=len(self.blobs),
             total_size_bytes=total_size,
@@ -125,9 +121,7 @@ class QueryClient:
         for date_str in dates:
             matching_files = index.filter_by_date(date_str)
             if file_pattern != "*":
-                matching_files = [
-                    f for f in matching_files if fnmatch.fnmatch(str(f["name"]), f"*{file_pattern}")
-                ]
+                matching_files = [f for f in matching_files if fnmatch.fnmatch(str(f["name"]), f"*{file_pattern}")]
             results[date_str] = len(matching_files) > 0
         return results
 
@@ -144,9 +138,7 @@ class QueryClient:
         for date_str in dates:
             matching_files = index.filter_by_date(date_str)
             if file_pattern != "*":
-                matching_files = [
-                    f for f in matching_files if fnmatch.fnmatch(str(f["name"]), f"*{file_pattern}")
-                ]
+                matching_files = [f for f in matching_files if fnmatch.fnmatch(str(f["name"]), f"*{file_pattern}")]
             total_size = sum(cast(int, f.get("size") or 0) for f in matching_files)
             results[date_str] = {"file_count": len(matching_files), "total_size": total_size}
         return results
@@ -243,14 +235,10 @@ class QueryClient:
                     if dt not in data_types:
                         data_types[dt] = {"file_count": 0, "total_size": 0}
                     data_types[dt]["file_count"] = cast(int, data_types[dt]["file_count"]) + 1
-                    data_types[dt]["total_size"] = cast(int, data_types[dt]["total_size"]) + (
-                        b.size or 0
-                    )
+                    data_types[dt]["total_size"] = cast(int, data_types[dt]["total_size"]) + (b.size or 0)
                 return date_str, data_types
             except (OSError, ValueError, RuntimeError) as e:
-                logger.warning(
-                    "Error checking data types for venue %s date %s: %s", venue, date_str, e
-                )
+                logger.warning("Error checking data types for venue %s date %s: %s", venue, date_str, e)
                 return date_str, {}
 
         results: dict[str, dict[str, dict[str, object]]] = {}

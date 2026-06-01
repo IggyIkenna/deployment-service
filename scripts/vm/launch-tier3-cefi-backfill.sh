@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
 # Tier-3 CeFi backfill launcher — Bitfinex / Bitget / Kraken venues via Tardis.
 #
-# Phase 1 of cefi_venue_universe_expansion_2026_05_01.plan.md (initial 8-symbol
+# Phase 1 of cefi_venue_universe_expansion_2026_05_01.md (initial 8-symbol
 # fanout). 2026-05-04 expansion: top-25 perp universe per venue covers >90%
 # of liquid volume per Tardis availableSymbols probe.
 #
@@ -20,14 +24,21 @@ set -euo pipefail
 DRY_RUN=false
 DO_INSTRUMENTS=true
 DO_MARKET_TICK=true
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)        DRY_RUN=true; shift ;;
         --instruments)    DO_MARKET_TICK=false; shift ;;
         --market-tick)    DO_INSTRUMENTS=false; shift ;;
+        --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+case "$DEPLOYMENT_ENV" in
+    prod|staging|dev) ;;
+    *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -145,14 +156,14 @@ filter_symbols_for_year() {
 # Default = all 6 Tier-3 CeFi venues. Override via ONLY_VENUES env var to limit
 # scope (e.g. resume after partial-failure / target a single venue):
 #   ONLY_VENUES="BITGET-SPOT BITGET-FUTURES KRAKEN-SPOT KRAKEN-FUTURES" \
-#     MACHINE_TYPE=e2-highmem-4 \
+#     MACHINE_TYPE=e2-highmem-8 \
 #     bash launch-tier3-cefi-backfill.sh --market-tick
 #
 # Default machine type: e2-highmem-2 (16 GB / $0.10/hr). Streaming-finalize
 # (MTDS f07f3f9 default-on 2026-05-06) keeps Tardis peak RSS bounded by one
 # pyarrow-CSV row-group (~100-300 MB on smoke). 16 GB is comfortable for
 # anything except Coinbase BTC-USD book_snapshot_5 heavy days; bump to
-# e2-highmem-4 (32 GB) only for those.
+# e2-highmem-8 (32 GB) only for those.
 if [[ -n "${ONLY_VENUES:-}" ]]; then
     # shellcheck disable=SC2206
     VENUES=($ONLY_VENUES)
@@ -166,14 +177,14 @@ create_vm() {
         echo "[DRY-RUN] $vm_name"
         return
     fi
-    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-4})"
+    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-8})"
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
-        --machine-type="${MACHINE_TYPE:-e2-highmem-4}" \
+        --machine-type="${MACHINE_TYPE:-e2-highmem-8}" \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
-        --metadata="startup-script-url=${STARTUP},${md}" \
-        --labels=purpose=cefi-tier3-fullbackfill 2>&1 | tail -1
+        --metadata="startup-script-url=${STARTUP},${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+        --labels=purpose=cefi-tier3-fullbackfill,env="${DEPLOYMENT_ENV}" 2>&1 | tail -1
     sleep 2
 }
 

@@ -12,7 +12,7 @@ import logging
 import types
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from .base import ComputeBackend, JobInfo, JobStatus
 
@@ -49,7 +49,7 @@ class AWSEC2Backend(ComputeBackend):
 
     # Amazon Linux 2 ECS-optimized AMI IDs by region (updated periodically)
     # These run Docker out of the box
-    ECS_OPTIMIZED_AMI = {
+    ECS_OPTIMIZED_AMI: ClassVar[dict[str, str]] = {
         "us-east-1": "ami-0a699202e5027c10d",
         "us-west-2": "ami-0f1e01f2f52d3de50",
         "eu-west-1": "ami-0b84fd1c50b6c7e1f",
@@ -237,9 +237,7 @@ shutdown -h now
                 )
 
             if self._instance_profile_arn:
-                launch_params["IamInstanceProfile"] = cast(
-                    object, {"Arn": self._instance_profile_arn}
-                )
+                launch_params["IamInstanceProfile"] = cast(object, {"Arn": self._instance_profile_arn})
 
             if self._key_name:
                 launch_params["KeyName"] = self._key_name

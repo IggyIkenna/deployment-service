@@ -117,9 +117,7 @@ class TestVenueExtraction:
         for filename, expected_venue in pattern_data["examples"]:
             match = pattern.search(filename)
             assert match is not None, f"Pattern should match {filename}"
-            assert match.group(1) == expected_venue, (
-                f"Should extract {expected_venue} from {filename}"
-            )
+            assert match.group(1) == expected_venue, f"Should extract {expected_venue} from {filename}"
 
 
 class TestTimeframeExtraction:
@@ -279,19 +277,19 @@ class TestDefiVenueExtraction:
 
     def test_venue_is_directory_in_defi_structure(self):
         """Test that DEFI venues are directories, not in filenames."""
-        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/file.parquet
-        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAPV2-ETHEREUM/UNISWAPV2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
+        # DEFI path: .../data_type=liquidity/instrument_type=pool/venue=UNISWAP_V2-ETHEREUM/file.parquet
+        sample_path = "raw_tick_data/by_date/day=2026-01-01/data_type=liquidity/instrument_type=pool/venue=UNISWAP_V2-ETHEREUM/UNISWAP_V2-ETHEREUM:POOL:DAI-USDC@ETHEREUM.parquet"
         parts = sample_path.split("/")
 
-        # Venue is in the 6th part (index 5): venue=UNISWAPV2-ETHEREUM
+        # Venue is in the 6th part (index 5): venue=UNISWAP_V2-ETHEREUM
         venue_part = parts[5]
         assert venue_part.startswith("venue=")
-        assert venue_part.split("=", 1)[1] == "UNISWAPV2-ETHEREUM"
+        assert venue_part.split("=", 1)[1] == "UNISWAP_V2-ETHEREUM"
 
     def test_venue_vs_underlying_detection(self):
         """Test distinguishing venues from underlyings in directory names.
 
-        Venues: UNISWAPV2-ETHEREUM, BINANCE-FUTURES, DERIBIT
+        Venues: UNISWAP_V2-ETHEREUM, BINANCE-FUTURES, DERIBIT
         Underlyings: BTC-USD, ETH-USDT (short asset-quote pairs)
         """
 
@@ -313,7 +311,7 @@ class TestDefiVenueExtraction:
             return is_underlying
 
         # Test venues (should NOT be underlyings)
-        assert not is_underlying("UNISWAPV2-ETHEREUM")
+        assert not is_underlying("UNISWAP_V2-ETHEREUM")
         assert not is_underlying("BINANCE-FUTURES")
         assert not is_underlying("DERIBIT")  # No dash
 
@@ -324,7 +322,7 @@ class TestDefiVenueExtraction:
 
         # Edge cases
         assert is_underlying("AAVE-USD")  # Looks like underlying
-        assert not is_underlying("UNISWAPV3-BASE")  # Chain suffix, not quote
+        assert not is_underlying("UNISWAP_V3-BASE")  # Chain suffix, not quote
 
     def test_three_level_depth_for_venue_extraction(self, mock_defi_gcs_structure):
         """Test that venue extraction goes 3 levels deep for DEFI."""
@@ -345,5 +343,5 @@ class TestDefiVenueExtraction:
                         venue = venue.split("=", 1)[1]
                         venues_found.add(venue)
 
-        expected_venues = {"UNISWAPV2-ETHEREUM", "UNISWAPV3-ETHEREUM", "LIDO-ETHEREUM"}
+        expected_venues = {"UNISWAP_V2-ETHEREUM", "UNISWAP_V3-ETHEREUM", "LIDO-ETHEREUM"}
         assert venues_found == expected_venues

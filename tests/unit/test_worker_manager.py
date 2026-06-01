@@ -176,9 +176,7 @@ def test_launch_shards_parallel_backend_raises_non_retryable(mock_cfg: MagicMock
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_parallel_retryable_ssl_error(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_parallel_retryable_ssl_error(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """SSL errors are retryable — backend should be retried before failing."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0
@@ -311,8 +309,7 @@ def test_launch_shards_parallel_vm_zone_distribution(mock_cfg: MagicMock) -> Non
     )
 
     zones_used = [
-        call_args.kwargs.get("compute_config", {}).get("zone")
-        for call_args in backend.deploy_shard.call_args_list
+        call_args.kwargs.get("compute_config", {}).get("zone") for call_args in backend.deploy_shard.call_args_list
     ]
     # All three zones should be represented (one per shard in round-robin)
     assert set(zones_used) == {"us-central1-a", "us-central1-b", "us-central1-c"}
@@ -321,9 +318,7 @@ def test_launch_shards_parallel_vm_zone_distribution(mock_cfg: MagicMock) -> Non
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_parallel_auto_retry_recovers_failed(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_parallel_auto_retry_recovers_failed(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """auto_retry_failed=True should retry failed shards and mark them RUNNING on retry success."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0
@@ -361,9 +356,7 @@ def test_launch_shards_parallel_auto_retry_recovers_failed(
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_parallel_auto_retry_exhausted_stays_failed(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_parallel_auto_retry_exhausted_stays_failed(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """When retry rounds exhausted and shard still fails, DeploymentStatus is FAILED."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0
@@ -468,9 +461,7 @@ def test_launch_shards_parallel_quota_broker_granted(mock_cfg: MagicMock) -> Non
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_parallel_quota_broker_denied_timeout(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_parallel_quota_broker_denied_timeout(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """When quota broker always denies and max_wait exceeded, shard should be FAILED."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0
@@ -624,9 +615,7 @@ def test_launch_shards_rolling_no_wait_returns_after_first_wave(mock_cfg: MagicM
     rate_limiter = _make_rate_limiter()
     state_manager = _make_state_manager()
 
-    with patch(
-        "deployment_service.deployment.worker_manager.launch_shards_parallel"
-    ) as mock_parallel:
+    with patch("deployment_service.deployment.worker_manager.launch_shards_parallel") as mock_parallel:
         launch_shards_rolling(
             state=state,
             backend=backend,
@@ -684,9 +673,7 @@ def test_launch_shards_rolling_all_in_one_wave_when_under_limit(mock_cfg: MagicM
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_rolling_polls_running_shard_status(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_rolling_polls_running_shard_status(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """Running shards should have their status polled when slots are full."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0
@@ -743,9 +730,7 @@ def test_launch_shards_rolling_polls_running_shard_status(
 @pytest.mark.unit
 @patch("deployment_service.deployment.worker_manager.time")
 @patch("deployment_service.deployment.worker_manager._config")
-def test_launch_shards_rolling_poll_failure_logged_not_raised(
-    mock_cfg: MagicMock, mock_time: MagicMock
-) -> None:
+def test_launch_shards_rolling_poll_failure_logged_not_raised(mock_cfg: MagicMock, mock_time: MagicMock) -> None:
     """Errors during polling should be caught and logged, not propagate."""
     mock_cfg.vm_launch_mini_batch_size = 50
     mock_cfg.vm_launch_mini_batch_delay_seconds = 0

@@ -91,9 +91,7 @@ class TestCalculationHandlerInit:
     @pytest.mark.cli
     def test_init_extracts_config_dir(self) -> None:
         ctx = _make_ctx({"config_dir": "/my/configs", "project_id": None, "cloud": "gcp"})
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds:
             handler = CalculationHandler(ctx)
         assert handler.config_dir == "/my/configs"
         mock_ds.assert_called_once_with("/my/configs")
@@ -114,14 +112,10 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_table_output(self, capsys: pytest.CaptureFixture) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {
-                "shards": [
-                    {"shard_id": "shard-001", "date": "2024-01-01", "venue": "BINANCE-SPOT"}
-                ],
+                "shards": [{"shard_id": "shard-001", "date": "2024-01-01", "venue": "BINANCE-SPOT"}],
                 "summary": {"service": "svc-a"},
             }
             mock_ds_cls.return_value = mock_ds
@@ -137,9 +131,7 @@ class TestCalculationHandlerCalculate:
         runner = CliRunner()
         with (
             runner.isolated_filesystem(),
-            patch(
-                "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls,
         ):
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {
@@ -149,9 +141,7 @@ class TestCalculationHandlerCalculate:
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_calculate(service="svc-a", output="json", dry_run=False)
 
         combined = "\n".join(output_lines)
@@ -163,9 +153,7 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_commands_output(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {
                 "shards": [{"shard_id": "s1", "args": {"category": "CEFI"}}],
@@ -174,9 +162,7 @@ class TestCalculationHandlerCalculate:
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_calculate(service="svc-a", output="commands", dry_run=False)
 
         combined = "\n".join(output_lines)
@@ -186,9 +172,7 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_unknown_output_raises(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {
                 "shards": [{"shard_id": "s1"}],
@@ -211,9 +195,7 @@ class TestCalculationHandlerCalculate:
             breakdown={"date": 999},
         )
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.side_effect = exc
             mock_ds_cls.return_value = mock_ds
@@ -225,9 +207,7 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_value_error(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.side_effect = ValueError("bad param")
             mock_ds_cls.return_value = mock_ds
@@ -239,9 +219,7 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_runtime_error(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.side_effect = RuntimeError("crash")
             mock_ds_cls.return_value = mock_ds
@@ -253,17 +231,13 @@ class TestCalculationHandlerCalculate:
     @pytest.mark.cli
     def test_handle_calculate_no_shards_table(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {"shards": [], "summary": {}}
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_calculate(service="svc-a", output="table", dry_run=True)
 
         assert any("No shards" in line for line in output_lines)
@@ -273,9 +247,7 @@ class TestCalculationHandlerCalculate:
     def test_handle_calculate_filters_none_params(self) -> None:
         """Ensure None-valued params are removed before calling calculator.calculate."""
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.shard_calculator.calculate.return_value = {"shards": [], "summary": {}}
             mock_ds_cls.return_value = mock_ds
@@ -301,16 +273,12 @@ class TestCalculationHandlerListServices:
     @pytest.mark.cli
     def test_list_services_displays_all(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_list_services()
 
         combined = "\n".join(output_lines)
@@ -321,17 +289,13 @@ class TestCalculationHandlerListServices:
     @pytest.mark.cli
     def test_list_services_empty(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.list_available_services.return_value = []
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_list_services()
 
         assert any("No services" in line for line in output_lines)
@@ -340,9 +304,7 @@ class TestCalculationHandlerListServices:
     @pytest.mark.cli
     def test_list_services_os_error(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.list_available_services.side_effect = OSError("disk error")
             mock_ds_cls.return_value = mock_ds
@@ -358,9 +320,7 @@ class TestCalculationHandlerServiceInfo:
     @pytest.mark.cli
     def test_service_info_shows_config(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.get_service_info.return_value = {
                 "config": {"machine_type": "n1-standard-4"},
@@ -369,9 +329,7 @@ class TestCalculationHandlerServiceInfo:
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_service_info("svc-a")
 
         combined = "\n".join(output_lines)
@@ -381,9 +339,7 @@ class TestCalculationHandlerServiceInfo:
     @pytest.mark.cli
     def test_service_info_value_error(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.get_service_info.side_effect = ValueError("not found")
             mock_ds_cls.return_value = mock_ds
@@ -399,16 +355,12 @@ class TestCalculationHandlerVenues:
     @pytest.mark.cli
     def test_venues_lists_by_service(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_venues()
 
         combined = "\n".join(output_lines)
@@ -418,17 +370,13 @@ class TestCalculationHandlerVenues:
     @pytest.mark.cli
     def test_venues_no_services(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.list_available_services.return_value = []
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_venues()
 
         assert any("No services" in line for line in output_lines)
@@ -437,17 +385,13 @@ class TestCalculationHandlerVenues:
     @pytest.mark.cli
     def test_venues_handles_get_venues_error_gracefully(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.get_venues_for_service.side_effect = ValueError("bad config")
             mock_ds_cls.return_value = mock_ds
             handler = CalculationHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_venues()
 
         combined = "\n".join(output_lines)
@@ -458,9 +402,7 @@ class TestCalculationHandlerVenues:
     @pytest.mark.cli
     def test_venues_runtime_error_propagates(self) -> None:
         ctx = _make_ctx()
-        with patch(
-            "deployment_service.cli.handlers.calculation_handler.DeploymentService"
-        ) as mock_ds_cls:
+        with patch("deployment_service.cli.handlers.calculation_handler.DeploymentService") as mock_ds_cls:
             mock_ds = _mock_deployment_service()
             mock_ds.list_available_services.side_effect = RuntimeError("kaboom")
             mock_ds_cls.return_value = mock_ds
@@ -498,9 +440,7 @@ class TestDeploymentHandlerDeploy:
     def test_dry_run_deploy_shows_info(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.deployment_handler.StatusService"),
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
@@ -508,9 +448,7 @@ class TestDeploymentHandlerDeploy:
             mock_ds_cls.return_value = mock_ds
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_deploy(service="svc-a", dry_run=True)
 
         combined = "\n".join(output_lines)
@@ -522,9 +460,7 @@ class TestDeploymentHandlerDeploy:
     def test_actual_deploy_generates_deployment_id(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.deployment_handler.StatusService"),
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
@@ -532,9 +468,7 @@ class TestDeploymentHandlerDeploy:
             mock_ds_cls.return_value = mock_ds
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_deploy(service="svc-a", dry_run=False, max_concurrent=10)
 
         combined = "\n".join(output_lines)
@@ -546,9 +480,7 @@ class TestDeploymentHandlerDeploy:
     def test_deploy_validation_error_raises_click_exception(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.deployment_handler.StatusService"),
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
@@ -569,9 +501,7 @@ class TestDeploymentHandlerResume:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -579,9 +509,7 @@ class TestDeploymentHandlerResume:
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_resume("dep-001")
 
         assert any("already completed" in line for line in output_lines)
@@ -592,9 +520,7 @@ class TestDeploymentHandlerResume:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -602,9 +528,7 @@ class TestDeploymentHandlerResume:
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_resume("dep-002")
 
         assert any("already running" in line for line in output_lines)
@@ -615,9 +539,7 @@ class TestDeploymentHandlerResume:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -625,9 +547,7 @@ class TestDeploymentHandlerResume:
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_resume("dep-003")
 
         assert any("Resuming" in line or "completed" in line for line in output_lines)
@@ -642,9 +562,7 @@ class TestDeploymentHandlerStatus:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -660,9 +578,7 @@ class TestDeploymentHandlerStatus:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -672,9 +588,7 @@ class TestDeploymentHandlerStatus:
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_status(show_all=True)
 
         mock_ss.list_deployments.assert_called_with(limit=100)
@@ -685,18 +599,14 @@ class TestDeploymentHandlerStatus:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_status()
 
         assert any("No deployments" in line for line in output_lines)
@@ -711,18 +621,14 @@ class TestDeploymentHandlerCancel:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_cancel("dep-001", force=True)
 
         mock_ss.cancel_deployment.assert_called_once_with("dep-001", True)
@@ -734,9 +640,7 @@ class TestDeploymentHandlerCancel:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
         ):
             mock_ss = _mock_status_service()
@@ -744,9 +648,7 @@ class TestDeploymentHandlerCancel:
             mock_ss_cls.return_value = mock_ss
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_cancel("dep-001", force=True)
 
         assert any("Failed to cancel" in line for line in output_lines)
@@ -757,9 +659,7 @@ class TestDeploymentHandlerCancel:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.deployment_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.deployment_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.deployment_handler.StatusService") as mock_ss_cls,
             patch("deployment_service.cli.handlers.deployment_handler.LogService"),
             patch("click.confirm", return_value=False),
         ):
@@ -787,9 +687,7 @@ class TestDeploymentHandlerLogs:
             mock_ls_cls.return_value = mock_ls
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_logs("dep-001")
 
         assert any("No logs" in line for line in output_lines)
@@ -811,9 +709,7 @@ class TestDeploymentHandlerLogs:
             mock_ls_cls.return_value = mock_ls
             handler = DeploymentHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_logs("dep-001")
 
         assert any("INFO" in line or "Started" in line for line in output_lines)
@@ -905,9 +801,7 @@ class TestMaintenanceHandlerCleanupGcs:
             )
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_cleanup_gcs("my-bucket", dry_run=True, older_than_days=30)
 
         combined = "\n".join(output_lines)
@@ -933,9 +827,7 @@ class TestMaintenanceHandlerCleanupGcs:
             mock_run.return_value = MagicMock(stdout=gsutil_line + "\n", returncode=0)
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_cleanup_gcs("my-bucket", dry_run=True, older_than_days=30)
 
         combined = "\n".join(output_lines)
@@ -951,18 +843,14 @@ class TestMaintenanceHandlerFixStale:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
             mock_ss.get_deployment_status.return_value = {"status": "completed"}
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_fix_stale(deployment_id="dep-001", auto_fix=True)
 
         assert any("not stale" in line for line in output_lines)
@@ -973,18 +861,14 @@ class TestMaintenanceHandlerFixStale:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
             mock_ss.get_deployment_status.return_value = {"status": "stale"}
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_fix_stale(deployment_id="dep-001", auto_fix=True)
 
         combined = "\n".join(output_lines)
@@ -996,18 +880,14 @@ class TestMaintenanceHandlerFixStale:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
             mock_ss.list_deployments.return_value = []
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_fix_stale(deployment_id=None, auto_fix=True)
 
         assert any("No stale" in line for line in output_lines)
@@ -1018,9 +898,7 @@ class TestMaintenanceHandlerFixStale:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
             mock_ss.list_deployments.return_value = [
@@ -1030,9 +908,7 @@ class TestMaintenanceHandlerFixStale:
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_fix_stale(deployment_id=None, auto_fix=True)
 
         combined = "\n".join(output_lines)
@@ -1052,9 +928,7 @@ class TestMaintenanceHandlerRetryFailed:
         ):
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_retry_failed("dep-001", shard_id="sh-1", max_retries=2)
 
         combined = "\n".join(output_lines)
@@ -1066,9 +940,7 @@ class TestMaintenanceHandlerRetryFailed:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
             mock_ss.get_deployment_status.return_value = {
@@ -1080,9 +952,7 @@ class TestMaintenanceHandlerRetryFailed:
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_retry_failed("dep-001", shard_id=None, max_retries=1)
 
         combined = "\n".join(output_lines)
@@ -1094,20 +964,14 @@ class TestMaintenanceHandlerRetryFailed:
         ctx = _make_ctx()
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.StatusService"
-            ) as mock_ss_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.StatusService") as mock_ss_cls,
         ):
             mock_ss = _mock_status_service()
-            mock_ss.get_deployment_status.return_value = {
-                "shards": [{"shard_id": "sh-1", "status": "completed"}]
-            }
+            mock_ss.get_deployment_status.return_value = {"shards": [{"shard_id": "sh-1", "status": "completed"}]}
             mock_ss_cls.return_value = mock_ss
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_retry_failed("dep-001")
 
         assert any("No failed shards" in line for line in output_lines)
@@ -1209,9 +1073,7 @@ class TestMaintenanceHandlerValidateBuckets:
     def test_validate_no_bucket_configs(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.maintenance_handler.StatusService"),
         ):
             mock_ds = _mock_deployment_service()
@@ -1219,9 +1081,7 @@ class TestMaintenanceHandlerValidateBuckets:
             mock_ds_cls.return_value = mock_ds
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_validate_buckets("svc-a")
 
         assert any("No bucket" in line for line in output_lines)
@@ -1231,9 +1091,7 @@ class TestMaintenanceHandlerValidateBuckets:
     def test_validate_buckets_with_bucket_config(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.maintenance_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.maintenance_handler.StatusService"),
             patch("subprocess.run") as mock_run,
         ):
@@ -1246,9 +1104,7 @@ class TestMaintenanceHandlerValidateBuckets:
             mock_run.return_value = MagicMock(returncode=0)
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_validate_buckets("svc-a")
 
         combined = "\n".join(output_lines)
@@ -1293,9 +1149,7 @@ class TestReportingHandlerReport:
             mock_ss_cls.return_value = mock_ss
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_report(output_format="text")
 
         combined = "\n".join(output_lines)
@@ -1340,9 +1194,7 @@ class TestReportingHandlerReport:
             mock_ss_cls.return_value = mock_ss
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_report(output_format="csv")
 
         combined = "\n".join(output_lines)
@@ -1362,9 +1214,7 @@ class TestReportingHandlerReport:
             mock_ss_cls.return_value = mock_ss
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_report(output_format="text", service_filter="svc-a")
 
         combined = "\n".join(output_lines)
@@ -1499,9 +1349,7 @@ class TestReportingHandlerVersions:
     def test_show_single_service_version(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1513,9 +1361,7 @@ class TestReportingHandlerVersions:
             mock_ds_cls.return_value = mock_ds
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_versions("svc-a")
 
         combined = "\n".join(output_lines)
@@ -1526,9 +1372,7 @@ class TestReportingHandlerVersions:
     def test_show_all_versions(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1540,9 +1384,7 @@ class TestReportingHandlerVersions:
             mock_ds_cls.return_value = mock_ds
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_versions()
 
         combined = "\n".join(output_lines)
@@ -1554,9 +1396,7 @@ class TestReportingHandlerVersions:
         """_show_all_service_versions swallows errors with click.echo (no raise)."""
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1565,9 +1405,7 @@ class TestReportingHandlerVersions:
             mock_ds_cls.return_value = mock_ds
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 # Should not raise — the error is swallowed and displayed
                 handler.handle_versions()
 
@@ -1580,9 +1418,7 @@ class TestReportingHandlerVersions:
         """handle_versions(service=...) delegates to _show_service_version which propagates OSError."""
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1591,9 +1427,7 @@ class TestReportingHandlerVersions:
             mock_ds_cls.return_value = mock_ds
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 # _show_service_version also swallows errors
                 handler.handle_versions("svc-a")
 
@@ -1609,9 +1443,7 @@ class TestReportingHandlerDataFlow:
     def test_data_flow_text_format(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1619,9 +1451,7 @@ class TestReportingHandlerDataFlow:
             mock_ds_cls.return_value = mock_ds
             handler = ReportingHandler(ctx)
             output_lines: list[str] = []
-            with patch(
-                "click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))
-            ):
+            with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
                 handler.handle_data_flow(output="text")
 
         combined = "\n".join(output_lines)
@@ -1632,9 +1462,7 @@ class TestReportingHandlerDataFlow:
     def test_data_flow_json_format(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):
@@ -1655,9 +1483,7 @@ class TestReportingHandlerDataFlow:
     def test_data_flow_category_filter(self) -> None:
         ctx = _make_ctx()
         with (
-            patch(
-                "deployment_service.cli.handlers.reporting_handler.DeploymentService"
-            ) as mock_ds_cls,
+            patch("deployment_service.cli.handlers.reporting_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.reporting_handler.StatusService"),
             patch("deployment_service.cli.handlers.reporting_handler.LogService"),
         ):

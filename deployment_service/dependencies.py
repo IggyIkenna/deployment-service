@@ -148,9 +148,7 @@ class DependencyGraph:
         """Get list of services that depend on this service."""
         downstream: list[str] = []
 
-        for svc_name, svc_config in cast(
-            "dict[str, dict[str, object]]", self.config.get("services") or {}
-        ).items():
+        for svc_name, svc_config in cast("dict[str, dict[str, object]]", self.config.get("services") or {}).items():
             if svc_name == service:
                 continue
 
@@ -224,9 +222,7 @@ class DependencyGraph:
 
         for dep in upstream:
             # Support shorthand: upstream: [service-name] or full: [{service: ..., required: ...}]
-            dep_config: dict[str, object] = (
-                {"service": dep, "required": True} if isinstance(dep, str) else dep
-            )
+            dep_config: dict[str, object] = {"service": dep, "required": True} if isinstance(dep, str) else dep
             check = self._check_single_dependency(
                 service=service,
                 dep_config=dep_config,
@@ -304,9 +300,7 @@ class DependencyGraph:
                 )
             )
             path_template = str(
-                ValidationUtils.get_required(
-                    check_config, "path_template", f"dependency check for {upstream_service}"
-                )
+                ValidationUtils.get_required(check_config, "path_template", f"dependency check for {upstream_service}")
             )
 
             str_template_vars = {k: str(v) for k, v in template_vars.items()}
@@ -370,9 +364,7 @@ class DependencyGraph:
 
         default_transport = str(mode_default.get("transport") or "gcs")
         default_check = str(mode_default.get("dependency_check") or "gcs")
-        effective_profile = deployment_profile or str(
-            defaults.get("deployment_profile") or "distributed"
-        )
+        effective_profile = deployment_profile or str(defaults.get("deployment_profile") or "distributed")
 
         services_cfg = cast(dict[str, object], topology.get("services") or {})
         service_cfg = cast(dict[str, object], services_cfg.get(service) or {})
@@ -389,11 +381,7 @@ class DependencyGraph:
             profile_for_edge = str(mode_cfg.get("deployment_profile") or effective_profile)
         elif effective_profile in mode_cfg:
             profile_cfg_raw = mode_cfg.get(effective_profile)
-            profile_cfg_inner = (
-                cast(dict[str, object], profile_cfg_raw)
-                if isinstance(profile_cfg_raw, dict)
-                else {}
-            )
+            profile_cfg_inner = cast(dict[str, object], profile_cfg_raw) if isinstance(profile_cfg_raw, dict) else {}
             transport = str(profile_cfg_inner.get("transport") or default_transport)
             dependency_check = str(profile_cfg_inner.get("dependency_check") or default_check)
             profile_for_edge = effective_profile
@@ -404,14 +392,10 @@ class DependencyGraph:
 
         profiles_cfg = cast(dict[str, object], topology.get("deployment_profiles") or {})
         profile_cfg_raw2 = profiles_cfg.get(profile_for_edge)
-        profile_cfg = (
-            cast(dict[str, object], profile_cfg_raw2) if isinstance(profile_cfg_raw2, dict) else {}
-        )
+        profile_cfg = cast(dict[str, object], profile_cfg_raw2) if isinstance(profile_cfg_raw2, dict) else {}
         allowed_transports_raw = profile_cfg.get("allowed_transports")
         allowed_transports = (
-            cast(list[str], allowed_transports_raw)
-            if isinstance(allowed_transports_raw, list)
-            else ["gcs", "pubsub"]
+            cast(list[str], allowed_transports_raw) if isinstance(allowed_transports_raw, list) else ["gcs", "pubsub"]
         )
 
         if transport not in allowed_transports:
@@ -422,8 +406,7 @@ class DependencyGraph:
 
         if dependency_check not in {"gcs", "none", "pubsub"}:
             raise ValueError(
-                f"Invalid dependency_check '{dependency_check}'"
-                f" for {service} <- {upstream_service} ({mode})"
+                f"Invalid dependency_check '{dependency_check}' for {service} <- {upstream_service} ({mode})"
             )
 
         return transport, dependency_check
@@ -549,7 +532,7 @@ class DependencyGraph:
                 "features-volatility-service",
                 "features-onchain-service",
             ],
-            "ML": ["ml-training-service", "ml-inference-service"],
+            "ML": ["ml-service"],
             "Backtesting": ["strategy-service", "execution-service"],
         }
 
@@ -558,18 +541,14 @@ class DependencyGraph:
             for svc in services:
                 # Convert service name to valid Mermaid node ID
                 node_id = svc.replace("-", "_")
-                short_name = (
-                    svc.replace("-service", "").replace("market-", "m-").replace("features-", "f-")
-                )
+                short_name = svc.replace("-service", "").replace("market-", "m-").replace("features-", "f-")
                 lines.append(f"        {node_id}[{short_name}]")
             lines.append("    end")
 
         lines.append("")
 
         # Add edges
-        for svc_name, svc_config in cast(
-            "dict[str, dict[str, object]]", self.config.get("services") or {}
-        ).items():
+        for svc_name, svc_config in cast("dict[str, dict[str, object]]", self.config.get("services") or {}).items():
             source_id = svc_name.replace("-", "_")
 
             for dep in cast("list[dict[str, object]]", svc_config.get("upstream") or []):

@@ -26,9 +26,7 @@ def format_json_output(
         "service": service,
         "start_date": start_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
-        "overall_completion": (
-            (overall_complete / overall_total * 100) if overall_total > 0 else 0
-        ),
+        "overall_completion": ((overall_complete / overall_total * 100) if overall_total > 0 else 0),
         "overall_complete": overall_complete,
         "overall_total": overall_total,
         "overall_excluded": overall_excluded,
@@ -52,12 +50,8 @@ def format_json_output(
                 "total": d_total,
                 "excluded": data.get("excluded", 0),
                 "missing_dates": data.get("missing_dates") or [],
-                "oldest_update": (
-                    cast(datetime, data["oldest"]).isoformat() if data["oldest"] else None
-                ),
-                "newest_update": (
-                    cast(datetime, data["newest"]).isoformat() if data["newest"] else None
-                ),
+                "oldest_update": (cast(datetime, data["oldest"]).isoformat() if data["oldest"] else None),
+                "newest_update": (cast(datetime, data["newest"]).isoformat() if data["newest"] else None),
             }
     click.echo(json.dumps(result, indent=2))
 
@@ -67,9 +61,7 @@ def format_summary_output(
 ) -> None:
     """Format and output summary results."""
     overall_pct = (overall_complete / overall_total * 100) if overall_total > 0 else 0
-    click.echo(
-        f"\nOverall: {overall_pct:.1f}% ({overall_complete}/{overall_total} day-combinatorics)"
-    )
+    click.echo(f"\nOverall: {overall_pct:.1f}% ({overall_complete}/{overall_total} day-combinatorics)")
     click.echo()
 
     for cat in sorted(hierarchy.keys()):
@@ -95,10 +87,7 @@ def format_tree_output(
     if overall_excluded > 0:
         excluded_note = click.style(f" [{overall_excluded} pre-launch days excluded]", dim=True)
 
-    click.echo(
-        f"\n{overall_icon} Overall: {overall_pct:.1f}%"
-        f" ({overall_complete}/{overall_total}){excluded_note}"
-    )
+    click.echo(f"\n{overall_icon} Overall: {overall_pct:.1f}% ({overall_complete}/{overall_total}){excluded_note}")
 
     for cat in sorted(hierarchy.keys()):
         cat_complete = sum(int(cast(int, d["complete"])) for d in hierarchy[cat].values())
@@ -113,10 +102,7 @@ def format_tree_output(
             cat_excluded_note = click.style(f" [{cat_excluded} excluded]", dim=True)
 
         click.echo()
-        click.echo(
-            f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)}"
-            f" ({cat_pct:.1f}%){cat_excluded_note}"
-        )
+        click.echo(f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)} ({cat_pct:.1f}%){cat_excluded_note}")
 
         venues_sorted = sorted(hierarchy[cat].keys())
         for i, v in enumerate(venues_sorted):
@@ -131,16 +117,8 @@ def format_tree_output(
 
             timestamp_info = ""
             if show_timestamps and (data["oldest"] or data["newest"]):
-                oldest = (
-                    cast(datetime, data["oldest"]).strftime("%m/%d %H:%M")
-                    if data["oldest"]
-                    else "?"
-                )
-                newest = (
-                    cast(datetime, data["newest"]).strftime("%m/%d %H:%M")
-                    if data["newest"]
-                    else "?"
-                )
+                oldest = cast(datetime, data["oldest"]).strftime("%m/%d %H:%M") if data["oldest"] else "?"
+                newest = cast(datetime, data["newest"]).strftime("%m/%d %H:%M") if data["newest"] else "?"
                 timestamp_info = f" [updated: {oldest} - {newest}]"
 
             click.echo(
@@ -151,12 +129,8 @@ def format_tree_output(
 
 def format_detailed_breakdown(fast_results: dict[str, object]) -> None:
     """Format and display detailed breakdown for timeframes and data types."""
-    tf_breakdown = cast(
-        dict[str, dict[str, dict[str, int]]], fast_results.get("_tf_breakdown") or {}
-    )
-    dt_breakdown = cast(
-        dict[str, dict[str, dict[str, int]]], fast_results.get("_dt_breakdown") or {}
-    )
+    tf_breakdown = cast(dict[str, dict[str, dict[str, int]]], fast_results.get("_tf_breakdown") or {})
+    dt_breakdown = cast(dict[str, dict[str, dict[str, int]]], fast_results.get("_dt_breakdown") or {})
 
     if tf_breakdown or dt_breakdown:
         click.echo()
@@ -177,10 +151,7 @@ def format_detailed_breakdown(fast_results: dict[str, object]) -> None:
                         pct = (data["complete"] / data["total"] * 100) if data["total"] > 0 else 0
                         icon = "✅" if pct == 100 else ("⏳" if pct > 0 else "❌")
                         bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
-                        click.echo(
-                            f"    {tf:>5}: {icon} {bar}"
-                            f" {pct:5.1f}% ({data['complete']}/{data['total']})"
-                        )
+                        click.echo(f"    {tf:>5}: {icon} {bar} {pct:5.1f}% ({data['complete']}/{data['total']})")
 
             # Data type breakdown
             if cat in dt_breakdown:
@@ -191,10 +162,7 @@ def format_detailed_breakdown(fast_results: dict[str, object]) -> None:
                         pct = data["complete"] / data["total"] * 100
                         icon = "✅" if pct == 100 else ("⏳" if pct > 0 else "❌")
                         bar = "█" * int(pct / 10) + "░" * (10 - int(pct / 10))
-                        click.echo(
-                            f"    {dt:>20}: {icon} {bar}"
-                            f" {pct:5.1f}% ({data['complete']}/{data['total']})"
-                        )
+                        click.echo(f"    {dt:>20}: {icon} {bar} {pct:5.1f}% ({data['complete']}/{data['total']})")
 
         click.echo()
         click.echo("-" * 70)
@@ -249,18 +217,13 @@ def format_benchmark_info(start_time: float, start_date: datetime, end_date: dat
     click.echo(f"  Throughput: {days / total_time:.1f} days/second")
 
 
-def format_backfill_hint(
-    service: str, start_date: datetime, end_date: datetime, overall_pct: float
-) -> None:
+def format_backfill_hint(service: str, start_date: datetime, end_date: datetime, overall_pct: float) -> None:
     """Format and display backfill command hint."""
     if overall_pct < 100:
         click.echo()
         click.echo(click.style("Missing data detected. To backfill:", fg="yellow"))
         click.echo(f"  python deploy.py deploy -s {service} \\")
-        click.echo(
-            f"      --start-date {start_date.strftime('%Y-%m-%d')}"
-            f" --end-date {end_date.strftime('%Y-%m-%d')}"
-        )
+        click.echo(f"      --start-date {start_date.strftime('%Y-%m-%d')} --end-date {end_date.strftime('%Y-%m-%d')}")
 
 
 def format_dynamic_service_header(service: str, start_date: datetime, end_date: datetime) -> None:
@@ -354,20 +317,15 @@ def format_venue_coverage_results(
         # Tree view
         for cat in sorted(results.keys()):
             dates_data = results[cat]
-            dates_with_issues = sum(
-                1 for d in dates_data.values() if cast(dict[str, object], d)["missing_venues"]
-            )
+            dates_with_issues = sum(1 for d in dates_data.values() if cast(dict[str, object], d)["missing_venues"])
             total_dates = len(dates_data)
-            pct_ok = (
-                ((total_dates - dates_with_issues) / total_dates * 100) if total_dates > 0 else 100
-            )
+            pct_ok = ((total_dates - dates_with_issues) / total_dates * 100) if total_dates > 0 else 100
 
             cat_icon = "✅" if pct_ok == 100 else ("⚠️" if pct_ok > 80 else "❌")
             cat_style = "green" if pct_ok == 100 else ("yellow" if pct_ok > 80 else "red")
 
             click.echo(
-                f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)}"
-                f" ({pct_ok:.0f}% complete venue coverage)"
+                f"├── {cat_icon} {click.style(cat, fg=cat_style, bold=True)} ({pct_ok:.0f}% complete venue coverage)"
             )
 
             if dates_with_issues > 0:
@@ -378,13 +336,10 @@ def format_venue_coverage_results(
                     for venue in cast(list[object], data_dict["missing_venues"]):
                         venue_missing_dates[venue].append(date_str)
 
-                for venue, dates in sorted(
-                    venue_missing_dates.items(), key=lambda x: len(x[1]), reverse=True
-                ):
+                for venue, dates in sorted(venue_missing_dates.items(), key=lambda x: len(x[1]), reverse=True):
                     date_range = f"{min(dates)} to {max(dates)}" if len(dates) > 1 else dates[0]
                     click.echo(
-                        f"│   ├── ⚠️  {click.style(venue, fg='yellow')}:"
-                        f" missing in {len(dates)} dates ({date_range})"
+                        f"│   ├── ⚠️  {click.style(venue, fg='yellow')}: missing in {len(dates)} dates ({date_range})"
                     )
 
             click.echo("│")
@@ -393,10 +348,7 @@ def format_venue_coverage_results(
 
         # Summary
         total_issues = sum(
-            1
-            for cat in results.values()
-            for data in cat.values()
-            if cast(dict[str, object], data)["missing_venues"]
+            1 for cat in results.values() for data in cat.values() if cast(dict[str, object], data)["missing_venues"]
         )
         if total_issues > 0:
             click.echo()
@@ -405,14 +357,8 @@ def format_venue_coverage_results(
             click.echo()
             click.echo("Possible causes:")
             click.echo("  • API rate limiting for specific venue adapters")
-            click.echo(
-                "  • Venue adapter errors (check logs with: logs <deployment-id> --severity ERROR)"
-            )
-            click.echo(
-                "  • Venue not yet available on that date (check UAC VenueMapping start dates)"
-            )
+            click.echo("  • Venue adapter errors (check logs with: logs <deployment-id> --severity ERROR)")
+            click.echo("  • Venue not yet available on that date (check UAC VenueMapping start dates)")
         else:
             click.echo()
-            click.echo(
-                click.style("✅ All expected venues present in all files!", fg="green", bold=True)
-            )
+            click.echo(click.style("✅ All expected venues present in all files!", fg="green", bold=True))
