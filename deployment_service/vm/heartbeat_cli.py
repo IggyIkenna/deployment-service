@@ -227,7 +227,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--upload-interval-sec",
         type=int,
-        default=int(os.environ.get("UPLOAD_INTERVAL_SEC", "30")),
+        # 120s default (was 30s) — anti-churn for VM run.log re-upload. The primary
+        # cap is the LogUploader min_growth_bytes threshold (UTL uploader.py); this
+        # just reduces stat-check cadence. See deployment_scripts_bucket_softdelete_log_churn.
+        default=int(os.environ.get("UPLOAD_INTERVAL_SEC", "120")),
     )
     p.add_argument(
         "--bucket",

@@ -11,11 +11,14 @@ Two modes:
      `<service>-code.tar.gz` accumulate silently.  Delete all noncurrent
      versions older than --max-age-days (default 7).
 
-Current state (2026-05-15): the bucket uses single-file-per-service naming
-(`<service>-code.tar.gz`) with versioning Suspended.  No cleanup is needed
-today.  This script is the canonical cleanup tool for when either:
-  (a) SHA-versioned naming is adopted per vm-tarball-deployment.md SSOT, or
-  (b) Bucket versioning is re-enabled to track history.
+Current state (2026-06-01): SHA-versioned naming IS adopted —
+`<service>-code@<sha>.tar.gz` tarballs accumulate unbounded (~366 live @sha
+objects; 72 for unified-api-contracts alone), so the name-versioned cleanup
+(mode 1, `--keep N`) IS needed and should run on a schedule.  This script is the
+canonical cleanup tool.  (The earlier docstring claimed "no cleanup needed today"
+under single-file naming — that is stale.)  Scheduling follow-up (daily Cloud
+Scheduler + Cloud Run Job, `--keep 5`):
+`plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md`.
 
 SSOT: codex/05-infrastructure/vm-tarball-deployment.md
 
