@@ -115,6 +115,7 @@ Some services benefit from running on the same VM to avoid network/PubSub latenc
 | Co-Located Group                    | Reason                                                                                                                                                                                                                       | Live Transport |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | **MTDH + MDPS + execution-service** | All three share the same VM. MDPS processes raw ticks from MTDH (hot path); execution-service needs the same live market feed. In_memory avoids PubSub latency for both. Single co-location group — not two separate groups. | in_memory      |
+| **features VM + greeks-service (live)** | greeks-service (live) co-locates **inside the features VM**. Greeks/IV are derived from the same live marks the features services consume; one shared greeks process serves the whole book (all strategies + clients) — there is **no per-strategy / per-client greeks instance**. in_memory avoids re-subscribing to the mark stream. greeks **batch** is NOT co-located — it runs as a separate scheduled job (see Layer 3). | in_memory      |
 
 **Co-location constraints (apply to ALL groups):**
 
@@ -207,6 +208,26 @@ or operator would see/experience differently.
 - **Batch only.** Reads on-chain data (Aave, Uniswap, Curve), computes DeFi features. No live
   mode — on-chain data is fetched periodically.
 - **Data produced:** `onchain_features` (GCS)
+
+**greeks-service** _(data-pipeline derivation — a Layer-3 peer of the features services, NOT ml;
+ml is downstream)_
+
+- **Dependencies are DATA, not code.** Code deps are UTL + UAC only (no `features-service` /
+  `market-data-processing-service` / `market-tick-data-service` imports). Inputs are the
+  **market-data-processing / market-tick marks** (and features data where a Greek needs it),
+  consumed as data — so both batch and live reduce to a **pre-flight on input data + compute**.
+- **Batch:** runs as a **separate** scheduled job/VM (NOT co-located). `GreeksBackfillProcessor`
+  reads MDPS/MTDS `mark_update` parquets from GCS over a date horizon, computes Greeks/IV per
+  shard, writes the pricing ledger to GCS. Must pre-flight input availability (honest-empty /
+  typed-failure on absent inputs), not silently emit zero rows.
+- **Live:** **co-located inside the features VM** (see § 4 Co-Location Policy). Subscribes to the
+  live mark stream (in_memory), computes Greeks/IV, publishes + persists. **One shared service
+  for the whole book — all strategies + clients — NOT a per-strategy or per-client instance**
+  (Greeks generalise across the book; instancing per strategy would duplicate identical compute).
+- **Data produced:** `pricing_ledger` (Greeks/IV) — GCS + live PubSub.
+- **Data consumed:** `mark_update` from MDPS/MTDS (+ features data where required).
+- **Batch == Live:** same `MarkUpdateHandler` + `PricingLedgerWriter`; only the source differs
+  (GCS parquet vs live sub) — per the workspace Batch=Live invariant.
 
 ### Layer 4 — ML Pipeline
 
