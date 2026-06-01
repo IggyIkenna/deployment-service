@@ -63,7 +63,7 @@ _script_for() {
     case "$1" in
         cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_canonical --buckets all --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
@@ -80,7 +80,13 @@ _launch() {
     local vm_name="canonical-migration-${cat}-${RUN_TS}"
     local cmd; cmd="$(_script_for "$cat")"
     [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
-    if [[ "$MODE" == "dry" ]]; then cmd="$cmd --dry-run"; fi
+    # Flag convention differs by tool: the defi v9 tool (migrate_defi_full_v9_canonical) is
+    # DRY-BY-DEFAULT and takes --apply to write; the others are write-by-default + --dry-run.
+    if [[ "$cat" == "defi" ]]; then
+        [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
+    else
+        [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
+    fi
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
