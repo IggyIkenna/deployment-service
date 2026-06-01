@@ -81,7 +81,9 @@ _script_for() {
 
 _launch() {
     local cat="$1"
-    local vm_name="canonical-migration-${cat}-${RUN_TS}"
+    # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
+    # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
+    local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
     local cmd; cmd="$(_script_for "$cat")"
     [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
     # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
@@ -92,6 +94,9 @@ _launch() {
     else
         [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
     fi
+    # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
+    # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
+    [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
