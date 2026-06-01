@@ -446,9 +446,13 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
     esac
     if [[ -n "$_tarball_pin_sha" ]]; then
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.tar.gz"
+      # A pinned pull verifies the PINNED manifest (not the floating one, which a
+      # concurrent rebuild can move out from under us).
+      _tarball_manifest_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.manifest.json"
       log "  Using SHA-pinned tarball: ${tarball_name}@${_tarball_pin_sha:0:12}"
     else
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz"
+      _tarball_manifest_src="gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json"
     fi
     if gsutil -q cp "$_tarball_gcs_src" "$tarball_path" 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
@@ -458,10 +462,22 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
 
       # Validate tarball manifest.json if present (Phase 3 SHA discipline)
       _tarball_manifest_path="/tmp/${tarball_name}.manifest.json"
-      if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json" "$_tarball_manifest_path" 2>/dev/null; then
+      if gsutil -q cp "$_tarball_manifest_src" "$_tarball_manifest_path" 2>/dev/null; then
         _tarball_actual_sha=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('commit_sha','unknown'))" 2>/dev/null || echo "unknown")
         _tarball_pyproject_version=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('pyproject_version','unknown'))" 2>/dev/null || echo "unknown")
         log "  manifest: sha=${_tarball_actual_sha:0:12} version=$_tarball_pyproject_version"
+
+        # Self-verify: a SHA-pinned pull MUST carry that exact sha in its own manifest
+        # (prefix-compare so short pins match full manifest shas). Mismatch = loud fail,
+        # never run wrong code.
+        if [[ -n "$_tarball_pin_sha" && "$_tarball_actual_sha" != "unknown" ]]; then
+          _cmp_n=${#_tarball_pin_sha}
+          [[ ${#_tarball_actual_sha} -lt $_cmp_n ]] && _cmp_n=${#_tarball_actual_sha}
+          if [[ "${_tarball_actual_sha:0:$_cmp_n}" != "${_tarball_pin_sha:0:$_cmp_n}" ]]; then
+            log "ERROR: pinned tarball $tarball_name@${_tarball_pin_sha:0:12} carries manifest sha=${_tarball_actual_sha:0:12} — pin/manifest mismatch; refusing to run."
+            exit 1
+          fi
+        fi
 
         # Assert against launcher-supplied expected SHA (activated when TARBALL_EXPECTED_SHA metadata is set)
         if [[ -n "${TARBALL_EXPECTED_SHA:-}" && "$_tarball_actual_sha" != "$TARBALL_EXPECTED_SHA" ]]; then
@@ -469,7 +485,16 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
           log "ERROR: Deploy the correct tarball (run create-code-tarballs.sh from the expected commit) and retry."
           exit 1
         fi
+      elif [[ -n "$_tarball_pin_sha" ]]; then
+        log "ERROR: pinned tarball $tarball_name@${_tarball_pin_sha:0:12} has no manifest — cannot verify provenance; refusing to run unverified code."
+        exit 1
       fi
+    elif [[ -n "$_tarball_pin_sha" ]]; then
+      # A SHA pin was explicitly requested but the pinned object is absent. Never
+      # silently fall back to floating/stale code (the exit-2 silent-stale hazard).
+      log "ERROR: SHA-pinned tarball not found: $_tarball_gcs_src"
+      log "ERROR: rebuild it (create-code-tarballs.sh @ ${_tarball_pin_sha:0:12}) before launch; refusing floating fallback."
+      exit 1
     else
       log "WARNING: tarball $tarball_name not found in GCS — skipping"
     fi
