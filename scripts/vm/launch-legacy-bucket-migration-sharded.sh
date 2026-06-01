@@ -30,9 +30,9 @@ ONLY_GROUP=""
 # *-code.tar.gz, which parallel-agent rebuilds overwrite — that race caused the
 # 2026-06-01 first-attempt failure where mtds-code.tar.gz lacked the migration
 # script). Override via env if rebuilding from a newer commit.
-UAC_TARBALL_SHA="${UAC_TARBALL_SHA:-9ad04ab0970a}"
-UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-3732ffaad952}"
-MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-6372bd5dabed}"
+UAC_TARBALL_SHA="${UAC_TARBALL_SHA:-6b98c9d91af3}"
+UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-13d20a251d0b}"
+MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-844124f7e0a3}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
