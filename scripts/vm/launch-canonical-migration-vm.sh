@@ -64,7 +64,9 @@ _script_for() {
         cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
-        prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
+        # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
+        prediction) echo "python -u -m market_tick_data_service.scripts.migrate_prediction_to_pred_prd_v9 --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -80,9 +82,10 @@ _launch() {
     local vm_name="canonical-migration-${cat}-${RUN_TS}"
     local cmd; cmd="$(_script_for "$cat")"
     [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
-    # Flag convention differs by tool: the defi v9 tool (migrate_defi_full_v9_canonical) is
-    # DRY-BY-DEFAULT and takes --apply to write; the others are write-by-default + --dry-run.
-    if [[ "$cat" == "defi" ]]; then
+    # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
+    # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
+    # are write-by-default + --dry-run.
+    if [[ "$cat" == "defi" || "$cat" == "prediction" ]]; then
         [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
     else
         [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
