@@ -63,7 +63,7 @@ _script_for() {
     case "$1" in
         cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
         prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
