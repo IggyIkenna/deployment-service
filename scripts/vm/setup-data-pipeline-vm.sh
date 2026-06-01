@@ -442,6 +442,7 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
       unified-trading-library-code)        _tarball_pin_sha="${UTL_TARBALL_SHA:-}" ;;
       unified-api-contracts-code)          _tarball_pin_sha="${UAC_TARBALL_SHA:-}" ;;
       market-data-processing-service-code) _tarball_pin_sha="${MDPS_TARBALL_SHA:-}" ;;
+      mtds-code)                           _tarball_pin_sha="${MTDS_TARBALL_SHA:-}" ;;
     esac
     if [[ -n "$_tarball_pin_sha" ]]; then
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.tar.gz"

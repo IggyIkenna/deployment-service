@@ -26,6 +26,14 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 PREVIEW=false
 ONLY_GROUP=""
 
+# SHA-pin the core tarballs so the VMs pull immutable copies (NOT the floating
+# *-code.tar.gz, which parallel-agent rebuilds overwrite — that race caused the
+# 2026-06-01 first-attempt failure where mtds-code.tar.gz lacked the migration
+# script). Override via env if rebuilding from a newer commit.
+UAC_TARBALL_SHA="${UAC_TARBALL_SHA:-9ad04ab0970a}"
+UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-3732ffaad952}"
+MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-6372bd5dabed}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --preview) PREVIEW=true; shift ;;
@@ -71,6 +79,9 @@ for GROUP in cefi defi tradfi sports prediction; do
     MD="${MD},VM_MIGRATION_MODE=full"
     MD="${MD},DEPLOYMENT_ENV=prod"
     MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
+    MD="${MD},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
+    MD="${MD},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+    MD="${MD},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
     gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
