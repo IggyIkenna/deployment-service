@@ -7,15 +7,15 @@ completes in **<5 minutes** instead of the cold-boot ~5-15 min.
 
 ## What's baked in
 
-| Layer        | Item                                                                      | Skipped at first boot |
-| ------------ | ------------------------------------------------------------------------- | --------------------- |
-| OS deps      | `git`, `tmux`, `python3`, `python3-pip`, `python3-yaml`, `curl`, `jq`, `unzip` | bootstrap STEP 1 |
-| Node.js      | Node.js 20 (NodeSource)                                                   | bootstrap STEP 1     |
-| CLIs         | Claude Code CLI (`@anthropic-ai/claude-code` global), AWS CLI v2          | bootstrap STEP 2     |
-| Python       | `uv` (in `/usr/local/bin/`)                                               | bootstrap STEP 4.5   |
-| Repos        | `agent-orchestrator`, `unified-trading-library`, `unified-api-contracts`, `unified-trading-pm` warm-cached at `/opt/orchestrator-warm/` | bootstrap STEP 3 rsync seed |
-| venv         | `/opt/orchestrator-warm/agent-orchestrator/.venv` (deps installed)        | bootstrap STEP 4.5 rsync seed |
-| Marker       | `/etc/orchestrator-ami-version` containing the build timestamp            | bootstrap detection  |
+| Layer   | Item                                                                                                                                    | Skipped at first boot         |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| OS deps | `git`, `tmux`, `python3`, `python3-pip`, `python3-yaml`, `curl`, `jq`, `unzip`                                                          | bootstrap STEP 1              |
+| Node.js | Node.js 20 (NodeSource)                                                                                                                 | bootstrap STEP 1              |
+| CLIs    | Claude Code CLI (`@anthropic-ai/claude-code` global), AWS CLI v2                                                                        | bootstrap STEP 2              |
+| Python  | `uv` (in `/usr/local/bin/`)                                                                                                             | bootstrap STEP 4.5            |
+| Repos   | `agent-orchestrator`, `unified-trading-library`, `unified-api-contracts`, `unified-trading-pm` warm-cached at `/opt/orchestrator-warm/` | bootstrap STEP 3 rsync seed   |
+| venv    | `/opt/orchestrator-warm/agent-orchestrator/.venv` (deps installed)                                                                      | bootstrap STEP 4.5 rsync seed |
+| Marker  | `/etc/orchestrator-ami-version` containing the build timestamp                                                                          | bootstrap detection           |
 
 ## What still happens at first boot
 
