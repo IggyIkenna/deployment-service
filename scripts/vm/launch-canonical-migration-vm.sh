@@ -99,6 +99,12 @@ _launch() {
     md="${md},VM_MIGRATION_MODE=${MODE}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+    # SHA-pin the code tarballs so the VM provably runs the intended commit (race-proof
+    # via setup-data-pipeline-vm.sh authoritative pinned pull). Pass the SHAs in the env
+    # at launch: UAC_TARBALL_SHA / UTL_TARBALL_SHA / MTDS_TARBALL_SHA. Unset = floating pull.
+    [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
+    [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+    [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

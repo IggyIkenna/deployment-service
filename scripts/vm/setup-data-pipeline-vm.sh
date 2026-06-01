@@ -172,6 +172,9 @@ TARBALL_EXPECTED_SHA=$(_meta TARBALL_EXPECTED_SHA)
 UTL_TARBALL_SHA=$(_meta UTL_TARBALL_SHA)
 UAC_TARBALL_SHA=$(_meta UAC_TARBALL_SHA)
 MDPS_TARBALL_SHA=$(_meta MDPS_TARBALL_SHA)
+# MTDS_TARBALL_SHA → mtds-code@{sha}.tar.gz. (The pin *case* was added in 58ee0a9 but the
+# metadata read was missing, so the mtds pin never engaged — completed here.)
+MTDS_TARBALL_SHA=$(_meta MTDS_TARBALL_SHA)
 # Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
 # tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
 # running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
