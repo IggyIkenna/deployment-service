@@ -59,7 +59,7 @@
 ```python
 from ml_training_service.app.core.gcs_feature_reader import GCSFeatureReader
 
-reader = GCSFeatureReader(project_id="test-project")
+reader = GCSFeatureReader(project_id="{project_id}")
 features_df = reader.read_features(
     instrument_ids=["BINANCE-FUTURES:PERPETUAL:BTC-USDT"],
     start_date="2023-01-01",
@@ -132,7 +132,7 @@ BigQuery can extract partition keys from folder names using the `key=value` form
 **GCS Structure:**
 
 ```
-gs://features-delta-one-cefi-{project}/
+gs://features-delta-one-cefi-{env}-{project}/
   by_date/
     day=2023-01-01/           ← Extracted as partition column "day"
       feature_group=technical_indicators/  ← Extracted as "feature_group"
@@ -146,10 +146,10 @@ gs://features-delta-one-cefi-{project}/
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
   format = 'PARQUET',
-  uris = ['gs://features-delta-one-cefi-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
+  uris = ['gs://features-delta-one-cefi-{env}-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
   hive_partitioning_options = '{
     "mode": "AUTO",
-    "sourceUriPrefix": "gs://features-delta-one-cefi-{project}/by_date/"
+    "sourceUriPrefix": "gs://features-delta-one-cefi-{env}-{project}/by_date/"
   }'
 );
 
@@ -203,11 +203,11 @@ WHERE rsi_14 > 70;
 
 ```bash
 # Check features bucket
-gsutil ls gs://features-delta-one-cefi-test-project/by_date/ | head -5
+gsutil ls gs://features-delta-one-cefi-{env}-{project_id}/by_date/ | head -5
 
 # Should see folders like:
-# gs://features-delta-one-cefi-test-project/by_date/day=2023-01-01/
-# gs://features-delta-one-cefi-test-project/by_date/day=2023-01-02/
+# gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=2023-01-01/
+# gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=2023-01-02/
 ```
 
 ### Step 2: Run Setup Script
@@ -227,13 +227,13 @@ cd deployment-service
 
 ```bash
 # List tables
-bq ls --project_id=test-project features_data
+bq ls --project_id={project_id} features_data
 
 # Check schema
-bq show --project_id=test-project features_data.features_1m_cefi
+bq show --project_id={project_id} features_data.features_1m_cefi
 
 # Test query
-bq query --project_id=test-project \
+bq query --project_id={project_id} \
   "SELECT day, feature_group, COUNT(*) as files
    FROM features_data.features_1m_cefi
    GROUP BY day, feature_group
@@ -245,23 +245,23 @@ bq query --project_id=test-project \
 ```python
 from google.cloud import bigquery
 
-client = bigquery.Client(project='test-project')
+client = bigquery.Client(project="{project_id}")
 
 # Create external table
 external_config = bigquery.ExternalConfig('PARQUET')
 external_config.source_uris = [
-    'gs://features-delta-one-cefi-test-project/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'
+    'gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'
 ]
 external_config.autodetect = True
 
 # Configure hive partitioning
 hive_partitioning = bigquery.HivePartitioningOptions()
 hive_partitioning.mode = 'AUTO'
-hive_partitioning.source_uri_prefix = 'gs://features-delta-one-cefi-test-project/by_date/'
+hive_partitioning.source_uri_prefix = 'gs://features-delta-one-cefi-{env}-{project_id}/by_date/'
 external_config.hive_partitioning = hive_partitioning
 
 # Create table
-table = bigquery.Table('test-project.features_data.features_1m_cefi')
+table = bigquery.Table("{project_id}.features_data.features_1m_cefi')
 table.external_data_configuration = external_config
 client.create_table(table, exists_ok=True)
 ```
@@ -282,7 +282,7 @@ SELECT
   macd,
   swing_high,
   swing_low
-FROM `test-project.features_data.features_1m_cefi`
+FROM `{project_id}.features_data.features_1m_cefi`
 WHERE day BETWEEN '2023-01-01' AND '2023-01-31'
   AND instrument_id = 'BINANCE-FUTURES:PERPETUAL:BTC-USDT'
   AND feature_group = 'technical_indicators'
@@ -298,7 +298,7 @@ SELECT
   feature_group,
   COUNT(*) as record_count,
   COUNT(DISTINCT instrument_id) as instrument_count
-FROM `test-project.features_data.features_1m_cefi`
+FROM `{project_id}.features_data.features_1m_cefi`
 WHERE day BETWEEN '2023-01-01' AND '2023-01-31'
 GROUP BY day, feature_group
 ORDER BY day, feature_group;
@@ -316,7 +316,7 @@ SELECT
   MIN(rsi_14) as min_rsi,
   MAX(rsi_14) as max_rsi,
   AVG(rsi_14) as avg_rsi
-FROM `test-project.features_data.features_1m_cefi`
+FROM `{project_id}.features_data.features_1m_cefi`
 WHERE day = '2023-01-15'
 GROUP BY feature_group;
 ```
@@ -333,8 +333,8 @@ SELECT
   c.hour_of_day,
   c.day_of_week,
   c.is_market_open
-FROM `test-project.features_data.features_1m_cefi` d
-JOIN `test-project.features_data.features_calendar` c
+FROM `{project_id}.features_data.features_1m_cefi` d
+JOIN `{project_id}.features_data.features_calendar` c
   ON DATE(d.timestamp) = c.day
 WHERE d.day = '2023-01-15'
   AND d.instrument_id = 'BINANCE-FUTURES:PERPETUAL:BTC-USDT'
@@ -347,7 +347,7 @@ LIMIT 100;
 from google.cloud import bigquery
 import pandas as pd
 
-client = bigquery.Client(project='test-project')
+client = bigquery.Client(project="{project_id}")
 
 query = """
 SELECT *
@@ -453,7 +453,7 @@ df = pd.read_parquet('local_cache/features_2023-01-15.parquet')
 **If you have old data with folder names like:**
 
 ```
-gs://features-delta-one-cefi-{project}/
+gs://features-delta-one-cefi-{env}-{project}/
   by_date/
     day-2023-01-01/           ← OLD format (dash separator)
       feature_group-technical_indicators/
@@ -480,7 +480,7 @@ gs://features-delta-one-cefi-{project}/
 
 ```bash
 # Delete old prefix-value format folders
-gsutil -m rm -r gs://features-delta-one-cefi-{project}/by_date/day-*/
+gsutil -m rm -r gs://features-delta-one-cefi-{env}-{project}/by_date/day-*/
 ```
 
 **Option 3: Migrate Old Data** (If Needed for Historical Analysis)
@@ -521,10 +521,10 @@ source_uri_prefix = 'gs://bucket/by_date/'  # Stops before first wildcard
 
 ```bash
 # Check actual GCS structure
-gsutil ls -r gs://features-delta-one-cefi-{project}/by_date/ | head -20
+gsutil ls -r gs://features-delta-one-cefi-{env}-{project}/by_date/ | head -20
 
 # Verify table sees partitions
-bq show --project_id=test-project features_data.features_1m_cefi
+bq show --project_id={project_id} features_data.features_1m_cefi
 
 # Query without partition filter
 bq query "SELECT day, COUNT(*) FROM features_data.features_1m_cefi GROUP BY day LIMIT 10"

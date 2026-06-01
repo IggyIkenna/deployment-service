@@ -44,7 +44,7 @@ See [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDA
 **All services already use `key=value` format in production code:**
 
 ```
-gs://features-delta-one-{category}-{project}/
+gs://features-delta-one-{category}-{env}-{project}/
   by_date/
     day=2023-01-01/                    ← key=value format
       feature_group=technical_indicators/  ← key=value format
@@ -68,10 +68,10 @@ Total: Nested structure with ~140 files per instrument per day (20 groups × 7 t
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
   format = 'PARQUET',
-  uris = ['gs://features-delta-one-cefi-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
+  uris = ['gs://features-delta-one-cefi-{env}-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
   hive_partitioning_options = '{
     "mode": "AUTO",
-    "sourceUriPrefix": "gs://features-delta-one-cefi-{project}/by_date/"
+    "sourceUriPrefix": "gs://features-delta-one-cefi-{env}-{project}/by_date/"
   }'
 );
 -- Automatically extracts: day, feature_group, timeframe as queryable columns
@@ -249,10 +249,10 @@ if feature_groups:
 CREATE EXTERNAL TABLE features_data.features_1m_cefi
 OPTIONS (
   format = 'PARQUET',
-  uris = ['gs://features-delta-one-cefi-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
+  uris = ['gs://features-delta-one-cefi-{env}-{project}/by_date/day=*/feature_group=*/timeframe=1m/*.parquet'],
   hive_partitioning_options = '{
     "mode": "AUTO",
-    "sourceUriPrefix": "gs://features-delta-one-cefi-{project}/by_date/"
+    "sourceUriPrefix": "gs://features-delta-one-cefi-{env}-{project}/by_date/"
   }'
 );
 ```
@@ -415,7 +415,7 @@ ml-training --mode final-training --training-period 2023-Q1
 
 - Stage 1: `gs://ml-training-artifacts-{project}/stage1-preselection/{training_period}/selected_features.json`
 - Stage 2: `gs://ml-training-artifacts-{project}/stage2-hyperparams/{training_period}/best_hyperparams.json`
-- Stage 3: `gs://ml-models-store-{project}/models/{model_id}/training-period-{YYYY-MM}/model.joblib`
+- Stage 3: `gs://ml-models-store-{env}-{project}/models/{model_id}/training-period-{YYYY-MM}/model.joblib`
 
 **Next:** Test end-to-end with real features data
 

@@ -35,7 +35,7 @@ Assumptions: 4 vCPU + 16 Gi; cross-instrument is the most resource-intensive fea
 ## Data Flow
 
 - **Source:** GCS features bucket (upstream per-instrument features from delta-one + volatility)
-- **Sink:** GCS features bucket (`features-cross-instrument-{project_id}`)
+- **Sink:** GCS features bucket (`features-cross-instrument-{env}-{project_id}`)
 
 ## Special Requirements
 

@@ -57,7 +57,7 @@ Assumptions: 4 vCPU + 16 Gi; full training across 4 instruments × 5 timeframes 
 - `timeframe`: 1m, 5m, 15m, 1h, 4h
 - `target_type`: swing_high, swing_low
 - `training_period`: monthly rolling, 72-month lookback (6 years)
-- `config`: JSON grid configs from GCS (`ml-configs-store-{project_id}/training/grid_configs/`)
+- `config`: JSON grid configs from GCS (`ml-configs-store-{env}-{project_id}/training/grid_configs/`)
 
 ## Special Requirements
 

@@ -35,7 +35,7 @@ Assumptions: 1 vCPU + 1 Gi; cheapest service in the features tier.
 ## Data Flow
 
 - **Source:** Static calendar data (exchange holidays, market open/close times)
-- **Sink:** GCS features bucket (`features-calendar-{project_id}`)
+- **Sink:** GCS features bucket (`features-calendar-{env}-{project_id}`)
 
 ## Special Requirements
 

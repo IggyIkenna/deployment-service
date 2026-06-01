@@ -42,7 +42,7 @@ See [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDA
 Features use **nested** structure (not flat):
 
 ```
-gs://features-delta-one-{category}-{project}/
+gs://features-delta-one-{category}-{env}-{project}/
   by_date/
     day=2023-01-01/                    ← key=value format
       feature_group=technical_indicators/  ← key=value format
@@ -142,9 +142,9 @@ If you have legacy data with folder names like `day-2023-01-01/`, `feature_group
 
 | Pattern                                   | Example                                |
 | ----------------------------------------- | -------------------------------------- |
-| `instruments-store-{category}-{project}`  | instruments-store-cefi-test-project    |
-| `market-data-tick-{category}-{project}`   | market-data-tick-cefi-test-project     |
-| `features-delta-one-{category}-{project}` | features-delta-one-cefi-test-project   |
+| `instruments-store-{category}-{env}-{project}`  | instruments-store-cefi-{env}-{project_id}    |
+| `market-data-tick-{category}-{env}-{project}`   | market-data-tick-cefi-{env}-{project_id}     |
+| `features-delta-one-{category}-{env}-{project}` | features-delta-one-cefi-{env}-{project_id}   |
 | `deployment-orchestration-{project}`      | Deployment state (not terraform-state) |
 
 ---

@@ -323,7 +323,7 @@ For data older than 90 days in ARCHIVE:
 
 ```bash
 # Check storage class distribution
-gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/**/*.parquet | \
+gsutil ls -L gs://features-delta-one-cefi-{env}-{project}/by_date/**/*.parquet | \
   grep "Storage class" | sort | uniq -c
 
 # Expected after 3 days:
@@ -335,7 +335,7 @@ gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/**/*.parquet | \
 
 ```bash
 # Count by storage class
-gsutil ls -Lr gs://market-data-tick-cefi-{project}/raw_tick_data/ | \
+gsutil ls -Lr gs://market-data-tick-cefi-{env}-{project}/raw_tick_data/ | \
   grep "Storage class" | awk '{print $3}' | sort | uniq -c
 
 # Expected after 14 days:
