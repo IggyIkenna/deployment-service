@@ -154,7 +154,14 @@ _launch() {
     # Source-bucket env var is read by MDPS config.py (line 75-80) to locate the
     # raw tick bucket. Without it, every shard fails with "No source bucket
     # configured for category=…" before any candle is produced.
-    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${PROJECT}}"
+    local env_short
+    case "$DEPLOYMENT_ENV" in
+        prod)    env_short="prd" ;;
+        staging) env_short="stg" ;;
+        dev)     env_short="dev" ;;
+        *)       env_short="$DEPLOYMENT_ENV" ;;
+    esac
+    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${env_short}-${PROJECT}}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
     # Narrow-scope filter env vars — only set when flags are passed.

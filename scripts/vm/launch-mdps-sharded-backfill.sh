@@ -231,7 +231,7 @@ launch_year_shard() {
     local env_short
     case "$DEPLOYMENT_ENV" in
         prod)    env_short="prd" ;;
-        staging) env_short="staging" ;;
+        staging) env_short="stg" ;;
         dev)     env_short="dev" ;;
         *)       env_short="$DEPLOYMENT_ENV" ;;
     esac

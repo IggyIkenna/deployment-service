@@ -17,7 +17,7 @@
 # the per-day rolling pass on a single VM with the standard MTDS CLI.
 #
 # Writes to:
-#   gs://market-data-tick-cefi-central-element-323112/
+#   gs://market-data-tick-cefi-prd-central-element-323112/
 #     by_date/day={D}/category=cefi/venue={V}/instrument_type={IT}/
 #     data_type={DT}/instrument_id={ID}.parquet
 #

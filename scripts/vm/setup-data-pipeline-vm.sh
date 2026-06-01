@@ -225,7 +225,7 @@ DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
 export DEPLOYMENT_ENV
 case "$DEPLOYMENT_ENV" in
   prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
-  staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+  staging) DEPLOYMENT_ENV_SHORT="stg" ;;
   *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
 esac
 export DEPLOYMENT_ENV_SHORT
