@@ -1,0 +1,63 @@
+# Cloud Build — deployment-service maintenance-jobs image
+#
+# Publishes `<region>-docker.pkg.dev/<project>/unified-trading-system/deployment-service:latest`
+# (+ :$SHORT_SHA), built from the Dockerfile `api` stage which now contains `scripts/`.
+#
+# Why a dedicated config (not the main cloudbuild.yaml): the main config builds the
+# `deployment-dashboard` Cloud Run SERVICE (api/QG/deploy/scan/set-iam). This image is
+# only the base for short-lived maintenance Cloud Run JOBS that override the CMD:
+#   - terraform/gcp/tarball_cleanup_scheduler.tf   -> scripts/vm/cleanup_old_tarballs.py
+#   - terraform/gcp/vm_log_archival_scheduler.tf   -> python -m scripts.vm.vm_log_archival_cron
+# The jobs run in every environment off the SAME image (one GCP project, env via TF var).
+#
+# Run:
+#   gcloud builds submit --config=cloud-build/deployment-service-jobs-image.cloudbuild.yaml \
+#     --region=asia-northeast1 --project=<project>
+# Plan: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+
+substitutions:
+  _REGION: asia-northeast1
+  _REGISTRY_REPO: unified-trading-system
+  _IMAGE_NAME: deployment-service
+  _GIT_SHA: manual # overridden by trigger or --substitutions=_GIT_SHA=<sha>
+
+steps:
+  - name: "gcr.io/cloud-builders/gcloud"
+    id: "configure-docker"
+    args: ["auth", "configure-docker", "${_REGION}-docker.pkg.dev", "--quiet"]
+    waitFor: ["-"]
+
+  # Pull the UTL base explicitly so the Dockerfile FROM-line hits local cache (AR auth quirk).
+  - name: "gcr.io/cloud-builders/docker"
+    id: "pull-base-image"
+    waitFor: ["configure-docker"]
+    args:
+      - "pull"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library:latest"
+
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build"
+    waitFor: ["pull-base-image"]
+    args:
+      - "build"
+      - "--cache-from"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
+      - "--build-arg"
+      - "PROJECT_ID=${PROJECT_ID}"
+      - "--target"
+      - "maintenance-jobs"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:${_GIT_SHA}"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
+      - "."
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:${_GIT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
+
+options:
+  machineType: "E2_HIGHCPU_8"
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: "1800s"

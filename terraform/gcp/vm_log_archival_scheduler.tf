@@ -24,6 +24,9 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
   location = var.region
   project  = var.project_id
 
+  # Maintenance job — safe to replace on image/command changes (no persistent state).
+  deletion_protection = false
+
   template {
     parallelism = 1
     task_count  = 1
@@ -33,12 +36,19 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
       service_account = google_service_account.unified_trading.email
 
       containers {
-        image = "asia-northeast1-docker.pkg.dev/${var.project_id}/unified-trading-library/deployment-service:latest"
-        
+        # deployment-service jobs image (api stage + scripts/). The previous path
+        # unified-trading-library/deployment-service:latest never existed in Artifact
+        # Registry (job creation errored "Image not found", 2026-06-02). Built+pushed by
+        # cloud-build/deployment-service-jobs-image.cloudbuild.yaml.
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/deployment-service:latest"
+
+        # File-path invocation (scripts/vm/ has no __init__.py, so `python -m
+        # scripts.vm....` would not import). WORKDIR is /app; script is at /app/scripts/.
         command = [
           "python",
-          "-m",
-          "scripts.vm.vm_log_archival_cron"
+          "scripts/vm/vm_log_archival_cron.py",
+          "--project-id",
+          var.project_id,
         ]
 
         env {

@@ -41,8 +41,11 @@ module "tarball_cleanup_job" {
   region                = var.region
   service_account_email = google_service_account.unified_trading.email
 
-  # Reuses MTDS image (UTL bundled as a dep; same as manifest-consolidator jobs).
-  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
+  # deployment-service jobs image — built from the Dockerfile `api` stage (now includes
+  # scripts/). The MTDS image does NOT contain deployment-service source, so the script
+  # path below would not exist there (caused exit 2 on first run, 2026-06-02).
+  # Built+pushed by cloud-build/deployment-service-jobs-image.cloudbuild.yaml.
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/deployment-service:latest"
 
   # Cleanup is a list-and-delete pass; single-digit CPU + modest memory is
   # sufficient for ~400 objects. 300s (5 min) is generous for the expected ~5s
@@ -54,11 +57,12 @@ module "tarball_cleanup_job" {
   parallelism     = 1
   task_count      = 1
 
-  # Invoke cleanup_old_tarballs.py as a module entrypoint.
+  # Invoke cleanup_old_tarballs.py by file path. WORKDIR in the image is /app and
+  # scripts/ is at /app/scripts/, so the path is scripts/vm/... (NOT deployment-service/...).
   # --bucket is omitted — the script defaults to deployment-scripts-{project}.
   # --keep 5 retains the 5 most recent SHA-versioned tarballs per service.
   command = ["python"]
-  args    = ["deployment-service/scripts/vm/cleanup_old_tarballs.py", "--project", var.project_id, "--keep", "5"]
+  args    = ["scripts/vm/cleanup_old_tarballs.py", "--project", var.project_id, "--keep", "5"]
 
   environment_variables = {
     GCP_PROJECT_ID = var.project_id
