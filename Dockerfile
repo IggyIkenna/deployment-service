@@ -123,9 +123,17 @@ CMD ["python", "-m", "deployment_service", "sports-trigger", "run", "--one-shot"
 # DECLARED deps (google-cloud-run, botocore, …) that are NOT in the UTL base. Install them
 # here (WITH deps) so the eager package import resolves. Kept as a separate stage so the
 # api/dashboard image is unchanged.
+# The `api` stage already installs deployment_service (--no-deps); we cannot re-run
+# `uv pip install -e .` WITH deps here because the lockfile pins workspace path-deps
+# (unified-trading-library, …) that are absent as source in the image. So we install ONLY
+# the third-party packages the eager backends-import chain needs that are NOT in the UTL
+# base — verified by probing the image: jinja2 (backends/services/vm_config.py), flask +
+# functions-framework (cloud-functions backend imports). All other backend deps
+# (google-cloud-run/compute, botocore, web3, …) are already present in the base.
+# TODO(P3): declare jinja2/flask/functions-framework in deployment-service pyproject.
 FROM api AS maintenance-jobs
 USER root
-RUN uv pip install --system -e . \
+RUN uv pip install --system --no-cache-dir jinja2 flask functions-framework \
     && chown -R appuser:appuser /app
 USER appuser
 HEALTHCHECK NONE
