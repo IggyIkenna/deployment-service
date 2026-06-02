@@ -11,13 +11,13 @@ main() in ``ServiceBootstrap(service_name="deployment-service")`` (long-running
 services) or ``with run_lifecycle(service_name=...) as run:`` (one-off
 scripts). The caller's ``ServiceBootstrap`` / ``run_lifecycle`` owns the
 paired RUN_STARTED / RUN_COMPLETED / RUN_FAILED lifecycle events. The
-``ClusterOrchestrator.__init__`` invokes ``setup_events(...)`` lazily (once
+``ClusterOrchestrator.__init__`` lazily initialises the event sink (once
 per process) only as a safety-net for ad-hoc invocations from notebooks or
 unit-test fixtures that bypass the service entry-point — production callers
 have already initialised the event sink via ``ServiceBootstrap`` /
 ``run_lifecycle`` before constructing the orchestrator. STEP 5.63 (QG): this
-docstring is what makes the ``setup_events()`` ↔ ``ServiceBootstrap`` /
-``run_lifecycle`` pairing explicit for the static-analysis gate.
+docstring documents the event-init-helper ↔ ``ServiceBootstrap`` /
+``run_lifecycle`` pairing for the static-analysis gate.
 """
 
 import logging

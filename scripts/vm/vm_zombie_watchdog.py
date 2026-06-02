@@ -483,6 +483,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-dex-swaps-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
+    # raydium, phoenix, jito, kamino_lending). Drift + marinade have their
+    # own dedicated launchers.
+    "mtds-solana-defi-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
     # but doesn't write per-VM manifest shards. Migrated 2026-05-08
@@ -690,6 +694,23 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     "canonical-migration-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # legacy→canonical sharded migration VMs — launch-legacy-bucket-migration-sharded.sh
+    # naming: canonical-migration-legacy-{cefi|tradfi|defi|prediction|sports}-{shard}-{ts}
+    # (bucket_name_ssot_legacy_dual_write_remediation Phase 5; per-shard data-only copy).
+    "canonical-migration-legacy-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "canonical-migration-legacy-tradfi-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-legacy-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "canonical-migration-legacy-prediction-": VmPrefixSpec(
+        bucket=_TICK_PRED,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "canonical-migration-legacy-sports-": VmPrefixSpec(
         bucket=_TICK_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
@@ -1178,6 +1199,61 @@ def _evaluate_vm(
     return WatchdogVerdict(vm_name, zone, age, hb_age, shard_age, "alive")
 
 
+def _backup_vm_logs_before_kill(vm_name: str, zone: str) -> None:
+    """Backup VM logs (run.log + serial console) before deletion.
+
+    Archives to gs://deployment-scripts-{project}/log-archive/snapshot_{ts}/
+    for forensics. Best-effort — raises on failure but caller should proceed
+    with delete anyway (logs are nice-to-have, not a kill blocker).
+
+    Uses the canonical helper paths from deployment_service/deployments_registry.py.
+    """
+    from datetime import datetime
+
+    from deployment_service.deployments_registry import (
+        vm_log_stream_uri,
+        vm_run_log_archive_uri,
+        vm_serial_console_archive_uri,
+    )
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M")
+    storage_client = storage.Client(project=PROJECT_ID)
+
+    # 1. Archive run.log (if it exists) via server-side copy
+    src_uri = vm_log_stream_uri(vm_name, PROJECT_ID)
+    dst_uri = vm_run_log_archive_uri(vm_name, timestamp, PROJECT_ID)
+
+    # Strip gs:// prefix for storage client operations
+    src_bucket = src_uri.split("/")[2]
+    src_path = "/".join(src_uri.split("/")[3:])
+    dst_bucket = dst_uri.split("/")[2]
+    dst_path = "/".join(dst_uri.split("/")[3:])
+
+    try:
+        src_blob = storage_client.bucket(src_bucket).blob(src_path)
+        if src_blob.exists():
+            dst_blob = storage_client.bucket(dst_bucket).blob(dst_path)
+            dst_blob.rewrite(src_blob)
+            logger.info("Archived run.log for %s to %s", vm_name, dst_uri)
+    except Exception as exc:
+        logger.debug("Failed to archive run.log for %s: %s", vm_name, exc)
+
+    # 2. Capture serial console via compute API
+    try:
+        compute_client = compute_v1.InstancesClient()
+        serial_output = compute_client.get_serial_port_output(project=PROJECT_ID, zone=zone, instance=vm_name)
+        if serial_output.contents:
+            serial_uri = vm_serial_console_archive_uri(vm_name, timestamp, PROJECT_ID)
+            serial_bucket = serial_uri.split("/")[2]
+            serial_path = "/".join(serial_uri.split("/")[3:])
+
+            serial_blob = storage_client.bucket(serial_bucket).blob(serial_path)
+            serial_blob.upload_from_string(serial_output.contents)
+            logger.info("Archived serial console for %s to %s", vm_name, serial_uri)
+    except Exception as exc:
+        logger.debug("Failed to capture serial console for %s: %s", vm_name, exc)
+
+
 def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str) -> bool:
     """Issue a delete and treat best-effort.
 
@@ -1188,7 +1264,16 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     delete is still in-flight, so the kill counts. Previously we returned
     False on poll-raise, which under-counted real kills (observed
     2026-05-05: watchdog reported `killed 0/4` while all 4 VMs deleted).
+
+    Pre-kill hook (2026-05-27): backup VM logs before deletion to preserve
+    forensics. Captures run.log + serial console to durable archive.
     """
+    # Pre-kill hook: backup logs before deletion (best-effort — don't block kill on backup failure)
+    try:
+        _backup_vm_logs_before_kill(vm_name, zone)
+    except Exception as exc:
+        logger.warning("Pre-kill log backup failed for %s (proceeding with delete): %s", vm_name, exc)
+
     try:
         op = compute_client.delete(project=PROJECT_ID, zone=zone, instance=vm_name)
     except Exception as exc:

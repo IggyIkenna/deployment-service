@@ -5,12 +5,15 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+from typing import cast
 
 import click
 from unified_api_contracts.internal import MarketCategory
 from unified_api_contracts.registry.market_data_categories import (  # noqa: qg-deep-import
     is_in_tradfi_tick_window,
 )
+from unified_trading_library import AssetGroup, get_cloud_provider, resolve_bucket_name
+from unified_trading_library.cloud_interface.bucket_naming import Cloud  # noqa: qg-deep-import
 
 from ...catalog import SERVICE_GCS_CONFIGS
 from ...cloud_client import CloudClient
@@ -583,7 +586,6 @@ def check_timeframes_detailed(
 
     Supports output formats: tree, json, summary
     """
-    _deployment_config = DeploymentConfig()
     scan_start = time.time()
     ConfigLoader(config_dir)
     cloud_client = CloudClient()
@@ -620,8 +622,14 @@ def check_timeframes_detailed(
         if show_progress:
             click.echo(f"Scanning {cat}...")
 
-        # Build bucket name
-        bucket = f"market-data-tick-{cat.lower()}-{_deployment_config.gcp_project_id}"
+        # Build bucket name via the canonical SSOT resolver (cloud-providers.yaml,
+        # kind="market-data" → market-data-tick-{ag}-{env}-{pid}) so this survives
+        # migrations that delete legacy non-env-tiered buckets. A11.
+        bucket = resolve_bucket_name(
+            cloud=cast(Cloud, get_cloud_provider()),
+            kind="market-data",
+            asset_group=cast(AssetGroup, cat.lower()),
+        )
 
         category_results = {}
 

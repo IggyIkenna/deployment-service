@@ -45,6 +45,42 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-central-element-323112}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 
+# ── EXIT trap: self-delete on early-bootstrap failure ──
+# 2026-05-28 follow-up to the cefi-heavy zombie incident: this script uses
+# `set -euo pipefail` so any apt/tarball/pip failure exits non-zero before
+# _launch_with_tee fires. Without this trap the VM_SHUTDOWN_ON_COMPLETION
+# wiring in vm-exec-with-gcs-tee.sh never runs (the wrapper is never launched),
+# so the VM sits RUNNING until the zombie-watchdog reaps it. When the watchdog
+# is also broken (2026-05-24 → 28 window), VMs accumulate as zombies.
+# Defense in depth: detect non-zero exit here, upload the setup log to
+# vm-logs/<vm>/vm-setup.log for forensics, then self-delete (gated on
+# VM_SHUTDOWN_ON_COMPLETION=true). Runs detached so SIGHUP/SIGTERM on VM
+# teardown can't interrupt the gcloud delete.
+_self_delete_on_setup_failure() {
+    local rc=$?
+    [[ $rc -eq 0 ]] && return 0
+    local shutdown
+    shutdown=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
+        2>/dev/null || echo '')
+    [[ "$shutdown" == "true" ]] || return 0
+    local vm_name vm_zone
+    vm_name=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+    vm_zone=$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')
+    [[ -n "$vm_name" && -n "$vm_zone" ]] || return 0
+    log "SETUP FAILED rc=$rc — uploading log + scheduling self-delete (VM_SHUTDOWN_ON_COMPLETION=true)" || true
+    gsutil -q cp "$LOG" "gs://${CODE_BUCKET}/vm-logs/${vm_name}/vm-setup.log" 2>/dev/null || true
+    echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" 2>/dev/null || true
+    nohup setsid bash -c "
+        sleep 10
+        gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all \
+            || sudo shutdown -h now
+    " </dev/null >/dev/null 2>&1 &
+}
+trap _self_delete_on_setup_failure EXIT
+
 # ── 0. File descriptor limit (Gate G8.1) ──
 # MTDS backfill opens one StreamingParquetWriter per shard (per instrument, per
 # data_type). Busy venues can exceed the default Linux soft limit of 1024 FDs in
@@ -136,6 +172,9 @@ TARBALL_EXPECTED_SHA=$(_meta TARBALL_EXPECTED_SHA)
 UTL_TARBALL_SHA=$(_meta UTL_TARBALL_SHA)
 UAC_TARBALL_SHA=$(_meta UAC_TARBALL_SHA)
 MDPS_TARBALL_SHA=$(_meta MDPS_TARBALL_SHA)
+# MTDS_TARBALL_SHA → mtds-code@{sha}.tar.gz. (The pin *case* was added in 58ee0a9 but the
+# metadata read was missing, so the mtds pin never engaged — completed here.)
+MTDS_TARBALL_SHA=$(_meta MTDS_TARBALL_SHA)
 # Tardis pyarrow-CSV block size in MiB. Default 8 MiB (lives in MTDS
 # tardis_stream_processor._resolve_block_size_bytes); set 1-2 for 16 GB VMs
 # running heavy Coinbase BTC-USD book_snapshot_5 days, higher for fatter VMs
@@ -189,7 +228,7 @@ DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
 export DEPLOYMENT_ENV
 case "$DEPLOYMENT_ENV" in
   prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
-  staging) DEPLOYMENT_ENV_SHORT="staging" ;;
+  staging) DEPLOYMENT_ENV_SHORT="stg" ;;
   *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
 esac
 export DEPLOYMENT_ENV_SHORT
@@ -208,6 +247,21 @@ STALL_TIMEOUT_SEC=$(_meta STALL_TIMEOUT_SEC)
 # Launchers pass MANIFEST_CONSOLIDATED_STALENESS_SEC=86400 for large buckets.
 MANIFEST_CONSOLIDATED_STALENESS_SEC=$(_meta MANIFEST_CONSOLIDATED_STALENESS_SEC)
 [[ -n "$MANIFEST_CONSOLIDATED_STALENESS_SEC" ]] && export MANIFEST_CONSOLIDATED_STALENESS_SEC
+# Pair with the shell-level OOM preflight in section 5b. When opt-in, UTL
+# read_availability_index raises ManifestConsolidatorStaleError on stale-fallback
+# instead of OOM-killing at the per-VM shard merge (2026-05-28).
+MANIFEST_FAIL_ON_STALE_FALLBACK=$(_meta MANIFEST_FAIL_ON_STALE_FALLBACK)
+[[ -n "$MANIFEST_FAIL_ON_STALE_FALLBACK" ]] && export MANIFEST_FAIL_ON_STALE_FALLBACK
+# TARDIS_FREE_ONLY: when 1, TickDataHandler skips paid-tier dates (non-1st-of-month
+# outside the rolling 7-day window) for CEFI/TRADFI asset groups — avoids 100%
+# CPU spin on 401 responses when the Tardis key is expired.
+# Set by launch-cefi-sharded-backfill.sh when FREE_ONLY=1 + key expired.
+TARDIS_FREE_ONLY=$(_meta TARDIS_FREE_ONLY)
+[[ -n "$TARDIS_FREE_ONLY" ]] && export TARDIS_FREE_ONLY
+TARDIS_DERIBIT_BOOK_MAX_CONCURRENT=$(_meta TARDIS_DERIBIT_BOOK_MAX_CONCURRENT)
+[[ -n "$TARDIS_DERIBIT_BOOK_MAX_CONCURRENT" ]] && export TARDIS_DERIBIT_BOOK_MAX_CONCURRENT
+TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=$(_meta TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT)
+[[ -n "$TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT" ]] && export TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
@@ -369,6 +423,14 @@ for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
   fi
 done
 
+# Sports scheduler needs instruments-service for subprocess dispatches
+if [[ "$VM_TASK" == "sports-scheduler-poll" ]]; then
+  case " ${NEEDED_TARBALLS[*]} " in
+    *" instruments-service-code "*) ;;
+    *) NEEDED_TARBALLS+=("instruments-service-code"); log "  (added instruments-service-code — sports scheduler dispatches instruments commands)" ;;
+  esac
+fi
+
 log "Tarballs to install: ${NEEDED_TARBALLS[*]}"
 
 INSTALLED_DIRS=()
@@ -383,12 +445,17 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
       unified-trading-library-code)        _tarball_pin_sha="${UTL_TARBALL_SHA:-}" ;;
       unified-api-contracts-code)          _tarball_pin_sha="${UAC_TARBALL_SHA:-}" ;;
       market-data-processing-service-code) _tarball_pin_sha="${MDPS_TARBALL_SHA:-}" ;;
+      mtds-code)                           _tarball_pin_sha="${MTDS_TARBALL_SHA:-}" ;;
     esac
     if [[ -n "$_tarball_pin_sha" ]]; then
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.tar.gz"
+      # A pinned pull verifies the PINNED manifest (not the floating one, which a
+      # concurrent rebuild can move out from under us).
+      _tarball_manifest_src="gs://${CODE_BUCKET}/code/${tarball_name}@${_tarball_pin_sha}.manifest.json"
       log "  Using SHA-pinned tarball: ${tarball_name}@${_tarball_pin_sha:0:12}"
     else
       _tarball_gcs_src="gs://${CODE_BUCKET}/code/${tarball_name}.tar.gz"
+      _tarball_manifest_src="gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json"
     fi
     if gsutil -q cp "$_tarball_gcs_src" "$tarball_path" 2>/dev/null; then
       mkdir -p "$WORKSPACE/$dir"
@@ -398,10 +465,22 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
 
       # Validate tarball manifest.json if present (Phase 3 SHA discipline)
       _tarball_manifest_path="/tmp/${tarball_name}.manifest.json"
-      if gsutil -q cp "gs://${CODE_BUCKET}/code/${tarball_name}.manifest.json" "$_tarball_manifest_path" 2>/dev/null; then
+      if gsutil -q cp "$_tarball_manifest_src" "$_tarball_manifest_path" 2>/dev/null; then
         _tarball_actual_sha=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('commit_sha','unknown'))" 2>/dev/null || echo "unknown")
         _tarball_pyproject_version=$(python3 -c "import json; d=json.load(open('$_tarball_manifest_path')); print(d.get('pyproject_version','unknown'))" 2>/dev/null || echo "unknown")
         log "  manifest: sha=${_tarball_actual_sha:0:12} version=$_tarball_pyproject_version"
+
+        # Self-verify: a SHA-pinned pull MUST carry that exact sha in its own manifest
+        # (prefix-compare so short pins match full manifest shas). Mismatch = loud fail,
+        # never run wrong code.
+        if [[ -n "$_tarball_pin_sha" && "$_tarball_actual_sha" != "unknown" ]]; then
+          _cmp_n=${#_tarball_pin_sha}
+          [[ ${#_tarball_actual_sha} -lt $_cmp_n ]] && _cmp_n=${#_tarball_actual_sha}
+          if [[ "${_tarball_actual_sha:0:$_cmp_n}" != "${_tarball_pin_sha:0:$_cmp_n}" ]]; then
+            log "ERROR: pinned tarball $tarball_name@${_tarball_pin_sha:0:12} carries manifest sha=${_tarball_actual_sha:0:12} — pin/manifest mismatch; refusing to run."
+            exit 1
+          fi
+        fi
 
         # Assert against launcher-supplied expected SHA (activated when TARBALL_EXPECTED_SHA metadata is set)
         if [[ -n "${TARBALL_EXPECTED_SHA:-}" && "$_tarball_actual_sha" != "$TARBALL_EXPECTED_SHA" ]]; then
@@ -409,7 +488,16 @@ if gsutil ls "gs://${CODE_BUCKET}/code/" >/dev/null 2>&1; then
           log "ERROR: Deploy the correct tarball (run create-code-tarballs.sh from the expected commit) and retry."
           exit 1
         fi
+      elif [[ -n "$_tarball_pin_sha" ]]; then
+        log "ERROR: pinned tarball $tarball_name@${_tarball_pin_sha:0:12} has no manifest — cannot verify provenance; refusing to run unverified code."
+        exit 1
       fi
+    elif [[ -n "$_tarball_pin_sha" ]]; then
+      # A SHA pin was explicitly requested but the pinned object is absent. Never
+      # silently fall back to floating/stale code (the exit-2 silent-stale hazard).
+      log "ERROR: SHA-pinned tarball not found: $_tarball_gcs_src"
+      log "ERROR: rebuild it (create-code-tarballs.sh @ ${_tarball_pin_sha:0:12}) before launch; refusing floating fallback."
+      exit 1
     else
       log "WARNING: tarball $tarball_name not found in GCS — skipping"
     fi
@@ -437,7 +525,11 @@ mkdir -p "$WHEEL_CACHE"
 # Try to download cached wheels
 if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   log "Downloading cached wheels from GCS..."
-  gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
+  # timeout-guard: a deadlocked `gsutil -m` (parallel-mode hang, observed
+  # 2026-05-25 bricking bybit/hyperliquid/kraken at boot) never returns to hit
+  # `|| true`, blocking the whole startup script forever. Bound it so boot
+  # proceeds (falls back to building wheels from source if the cache is missing).
+  timeout 180 gsutil -m -q cp "$WHEEL_GCS/*.whl" "$WHEEL_CACHE/" 2>/dev/null || true
   WHEEL_COUNT=$(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l)
   log "Downloaded $WHEEL_COUNT cached wheels"
 fi
@@ -494,8 +586,12 @@ for dir in "${INSTALLED_DIRS[@]}"; do
 done
 log "  uv pip install ${INSTALL_ARGS_STD[*]}"
 uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
-log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
-uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+if [[ "${#INSTALL_ARGS_NODEPS[@]}" -gt 2 ]]; then
+  log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
+  uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
+else
+  log "  (skipping --no-deps install — no packages routed to NODEPS for VM_TASK=${VM_TASK})"
+fi
 
 # deployment_service/__init__.py eagerly imports the whole package
 # (monitor/orchestrator/backends), which transitively needs jinja2 +
@@ -524,7 +620,10 @@ if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
   log "Caching compiled wheels to GCS..."
   # Build wheels for all installed packages (captures compiled C extensions)
   uv pip wheel --wheel-dir "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" -q 2>/dev/null || true
-  gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
+  # timeout-guard the upload too — this is the exact step that deadlocked and
+  # left 3 CeFi VMs hung at boot (gsutil -m parallel-upload hang). Bounded so
+  # the workload still launches even if the cache refresh wedges.
+  timeout 180 gsutil -m -q cp "$WHEEL_CACHE"/*.whl "$WHEEL_GCS/" 2>/dev/null || true
   touch "$WHEEL_CACHE/.uploaded"
   log "Wheels cached to $WHEEL_GCS"
 fi
@@ -616,11 +715,80 @@ _launch_with_tee() {
     log "  VM_NAME=$VM_NAME VM_ASSET_GROUP=$VM_ASSET_GROUP VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
     nohup bash "$TEE_WRAPPER" "$GCS_LOG_URI" bash -c "$cmd" > "$fallback_log" 2>&1 &
   else
-    log "Launching plain: $cmd"
-    nohup bash -c "$cmd" > "$fallback_log" 2>&1 &
+    # No TEE_WRAPPER (download failed) — add inline VM_SHUTDOWN_ON_COMPLETION
+    # handling so the VM self-deletes even without the tee wrapper.
+    # Uses setsid + trap '' HUP TERM to survive systemd cgroup teardown
+    # (mirrors the same strategy in vm-exec-with-gcs-tee.sh lines 59-63).
+    log "Launching plain (no TEE_WRAPPER): $cmd"
+    nohup setsid bash -c "
+      trap '' HUP TERM
+      $cmd
+      _PLAIN_RC=\$?
+      _SD=\$(curl -sf -H 'Metadata-Flavor: Google' \
+          'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
+          2>/dev/null || echo '')
+      if [[ \"\$_SD\" == 'true' ]]; then
+        _NM=\$(curl -sf -H 'Metadata-Flavor: Google' \
+            'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+        _ZN=\$(curl -sf -H 'Metadata-Flavor: Google' \
+            'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print \$NF}')
+        if [[ -n \"\$_NM\" && -n \"\$_ZN\" ]]; then
+          sleep 10
+          gcloud compute instances delete \"\$_NM\" --zone=\"\$_ZN\" --quiet --delete-disks=all \
+            || sudo shutdown -h now
+        fi
+      fi
+      exit \$_PLAIN_RC
+    " > "$fallback_log" 2>&1 &
   fi
   log "Task launched PID: $!"
+  # Disarm the early-bootstrap EXIT trap — from this point on, the wrapped
+  # vm-exec-with-gcs-tee.sh (or the plain setsid wrapper above) owns lifecycle.
+  # A non-zero exit of this setup script AFTER successful launch must NOT delete
+  # the VM, or we'd wipe the running pipeline.
+  trap - EXIT
 }
+
+# ── 5b. OOM preflight: availability_index.parquet mtime check ──
+# 2026-05-28 defense-in-depth: when manifest-consolidator is degraded, the
+# consolidated availability_index.parquet goes stale. UTL's read_availability_index
+# falls back to merging all per-VM shards (1700+ on cefi) → ~12GB+ Python heap
+# → OOM-kill at startup before vm-exec-with-gcs-tee.sh's wrapped lifecycle
+# triggers. Catch this before Python runs: if the index is staler than the
+# launcher-supplied MANIFEST_CONSOLIDATED_STALENESS_SEC budget (default 86400s),
+# exit 78 (EX_CONFIG). The EXIT trap above catches and self-deletes the VM
+# (forensics: vm-logs/<vm>/vm-setup.log + SETUP_EXIT_STATUS).
+#
+# Composes with todo (b) in vm_zombie_watchdog_diagnosis_2026_05_28.md:
+# this is the "option (b) shell preflight" variant; option (a) (in-Python
+# fail-fast at UTL ManifestReader) remains a future hardening.
+if [[ "${VM_SERVICE:-}" == "market_tick_data_service" && "${VM_OPERATION:-}" == "download" ]]; then
+    _AG_LOWER=$(echo "${VM_ASSET_GROUP:-}" | tr '[:upper:]' '[:lower:]')
+    # cloud-providers.yaml uses 'pred' (not 'prediction') in the bucket short name.
+    [[ "$_AG_LOWER" == "prediction" ]] && _AG_LOWER="pred"
+    case "$_AG_LOWER" in
+        cefi|defi|tradfi|sports|pred)
+            _BUDGET_SEC="${MANIFEST_CONSOLIDATED_STALENESS_SEC:-86400}"
+            _BUCKET="market-data-tick-${_AG_LOWER}-${DEPLOYMENT_ENV_SHORT:-prd}-${GCP_PROJECT_ID:-central-element-323112}"
+            _INDEX_URI="gs://${_BUCKET}/_index/availability_index.parquet"
+            log "OOM preflight: checking ${_INDEX_URI} mtime against budget ${_BUDGET_SEC}s"
+            _INDEX_UPDATED=$(gsutil ls -L "${_INDEX_URI}" 2>/dev/null | awk -F': +' '/Update time/{print $2; exit}')
+            if [[ -z "${_INDEX_UPDATED}" ]]; then
+                log "OOM preflight WARNING: ${_INDEX_URI} not found — consolidator hasn't materialised the index yet (proceeding; reader will use per-VM fallback)"
+            else
+                _INDEX_EPOCH=$(date -d "${_INDEX_UPDATED}" +%s 2>/dev/null || echo 0)
+                _NOW_EPOCH=$(date +%s)
+                _AGE_SEC=$(( _NOW_EPOCH - _INDEX_EPOCH ))
+                if (( _AGE_SEC > _BUDGET_SEC )); then
+                    log "OOM preflight FAIL: ${_INDEX_URI} is ${_AGE_SEC}s stale (budget ${_BUDGET_SEC}s) — exiting 78 to skip Python startup; EXIT trap will self-delete VM."
+                    log "  Diagnosis: manifest-consolidator for asset_group=${_AG_LOWER} is degraded. Reader would fall back to merging per-VM shards → OOM at startup. Fix consolidator + relaunch."
+                    exit 78
+                fi
+                log "OOM preflight OK: index is ${_AGE_SEC}s fresh (budget ${_BUDGET_SEC}s)"
+            fi
+            ;;
+    esac
+fi
 
 if [[ "$VM_PIPELINE_MODE" == "backtest" ]]; then
   # Full L1-L7 pipeline for the asset_group — uses backfill-cluster.sh from
@@ -975,18 +1143,49 @@ INSTR_CHUNK_LOOP_EOF
   chmod +x "$CHUNK_SCRIPT"
   _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/instruments-backfill.log"
 elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
-  VM_DRIFT_MARKET=$(_meta VM_DRIFT_MARKET "SOL-PERP")
+  # Bug-D-prime fix 2026-05-31: route through SolanaDefiHandler (collect-solana-defi
+  # --solana-drift-backfill), NOT PerpFundingHandler (collect-perp-funding
+  # --perp-protocols drift). PerpFundingHandler has no _collect_drift dispatch +
+  # silently produced "Unknown protocol drift — skipping" plus chain="" row_keys.
+  # The canonical Drift backfill path lives in solana_defi_handler.py
+  # _backfill_drift_s3_date / _backfill_drift_helius_date (includes the OOM-safe
+  # sig-index pyarrow filter pushdown). VM_DRIFT_MARKET defaults to SOL-PERP.
+  VM_DRIFT_MARKET="${VM_DRIFT_MARKET:-$(_meta VM_DRIFT_MARKET)}"
+  VM_DRIFT_MARKET="${VM_DRIFT_MARKET:-SOL-PERP}"
   CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
-  CLI_ARGS="$CLI_ARGS --solana-protocols drift --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
+  CLI_ARGS="$CLI_ARGS --solana-drift-backfill --solana-drift-market $VM_DRIFT_MARKET"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
+elif [[ "$VM_TASK" == "solana-defi-backfill" ]]; then
+  # Multi-protocol Solana DeFi backfill (collect-solana-defi op).
+  # Distinct from solana-drift-backfill (Drift S3 historical only).
+  # VM_SOLANA_PROTOCOLS uses ';' as separator (gcloud metadata uses ',' for
+  # key separator).  Empty = handler default (all 10 protocols).
+  CLI_ARGS="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
+  [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
+  VM_SOLANA_PROTOCOLS=$(_meta VM_SOLANA_PROTOCOLS)
+  if [[ -n "$VM_SOLANA_PROTOCOLS" ]]; then
+    CLI_ARGS="$CLI_ARGS --solana-protocols ${VM_SOLANA_PROTOCOLS//[,;]/ }"
+  fi
+  # --solana-lending-backfill enables historical-aware DeFiLlama paths for
+  # marginfi (api.llama.fi/protocol/marginfi) + solend (yields.llama.fi/chart/{pool_id}).
+  # Required for any historical date.
+  CLI_ARGS="$CLI_ARGS --solana-lending-backfill"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-defi-backfill.log"
 elif [[ "$VM_TASK" == "solana-gas-backfill" ]]; then
   export GAS_FEE_SOLANA=true
   CLI_ARGS="--operation collect-gas-fees --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
-  CLI_ARGS="$CLI_ARGS --gas-fee-chains 99999"
+  # Bug-G fix 2026-05-29: Solana doesn't have an EVM numeric chain_id. The
+  # gas_fees handler accepts the sentinel string "solana" via --gas-fee-chains
+  # and routes the entry through its _collect_solana_historical branch
+  # (SolanaGasFeeClient → getBlock historical sampling). Previously this
+  # passed 99999 → handler logged "Unknown chain_id 99999, skipping" for every
+  # date, producing 0 rows.
+  CLI_ARGS="$CLI_ARGS --gas-fee-chains solana"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/solana-gas-backfill.log"
 elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
   # Phase 7 of alerting_service_live_rules_2026_05_07: 48h quietness run.

@@ -61,10 +61,16 @@ RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 
 _script_for() {
     case "$1" in
-        cefi)       echo "python scripts/migrate_cefi_v2.py --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        tradfi)     echo "python -m market_tick_data_service.scripts.migrate_tradfi_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        defi)       echo "python -m market_tick_data_service.scripts.migrate_defi_canonical --buckets all --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
-        prediction) echo "python -m market_tick_data_service.scripts.migrate_polymarket_canonical --start-date $START_DATE --end-date $END_DATE --workers 32" ;;
+        # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
+        # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
+        cefi)       echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
+        # TradFi v9: 3-layout-aware path canonicaliser (L-hive pipeline_mode insert + L-hyphen pseudo-hive parse +
+        # candles; overlap dedup). DRY-BY-DEFAULT + --apply (same convention as the defi/cefi/prediction v9 tools).
+        tradfi)     echo "python -u -m market_tick_data_service.scripts.migrate_tradfi_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
+        defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
+        # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
+        # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
+        prediction) echo "python -u -m market_tick_data_service.scripts.migrate_prediction_to_pred_prd_v9 --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -77,10 +83,22 @@ _script_for() {
 
 _launch() {
     local cat="$1"
-    local vm_name="canonical-migration-${cat}-${RUN_TS}"
+    # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
+    # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
+    local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
     local cmd; cmd="$(_script_for "$cat")"
     [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
-    if [[ "$MODE" == "dry" ]]; then cmd="$cmd --dry-run"; fi
+    # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
+    # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
+    # are write-by-default + --dry-run.
+    if [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" ]]; then
+        [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
+    else
+        [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
+    fi
+    # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
+    # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
+    [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
@@ -93,6 +111,12 @@ _launch() {
     md="${md},VM_MIGRATION_MODE=${MODE}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+    # SHA-pin the code tarballs so the VM provably runs the intended commit (race-proof
+    # via setup-data-pipeline-vm.sh authoritative pinned pull). Pass the SHAs in the env
+    # at launch: UAC_TARBALL_SHA / UTL_TARBALL_SHA / MTDS_TARBALL_SHA. Unset = floating pull.
+    [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
+    [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+    [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

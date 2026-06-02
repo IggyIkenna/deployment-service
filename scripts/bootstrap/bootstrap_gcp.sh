@@ -100,10 +100,15 @@ if [[ ! -d "$TF_DIR" ]]; then
   exit 1
 fi
 
-echo "==> terraform init ($TF_DIR)"
+# Backend prefix is PER-ENVIRONMENT: terraform/state/{dev,staging,prod}. The live prod
+# resources (198 of them, incl. SAs + every Cloud Scheduler/Run job) live under
+# terraform/state/prod. The old value here ("shared-infrastructure") pointed at an EMPTY
+# state — running this script against prod would have tried to CREATE every resource
+# (409 ALREADY_EXISTS) and forked a bogus parallel state. (Fixed 2026-06-02.)
+echo "==> terraform init ($TF_DIR) — backend prefix: terraform/state/${ENV}"
 terraform -chdir="$TF_DIR" init \
   -backend-config="bucket=${STATE_BUCKET}" \
-  -backend-config="prefix=shared-infrastructure" \
+  -backend-config="prefix=terraform/state/${ENV}" \
   -reconfigure
 
 echo "==> terraform apply"

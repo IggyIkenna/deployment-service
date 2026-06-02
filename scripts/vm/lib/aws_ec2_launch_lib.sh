@@ -146,8 +146,19 @@ lc_aws_ec2_run() {
         exit 1
     fi
 
+    # AMI resolution: Phase 9 prebaked AMI override > SSM Ubuntu fallback.
+    # Callers can set AMI_ID in env to force a specific image — typically the
+    # output of `packer build` from deployment-service/packer/agent-orchestrator/.
+    # When unset, fall back to the latest Canonical Ubuntu 24.04 via SSM (slow
+    # cold-boot path; bootstrap_vm.sh installs everything from scratch).
     local ami_id
-    ami_id="$(lc_aws_resolve_ami "$region")"
+    if [[ -n "${AMI_ID:-}" ]]; then
+        ami_id="${AMI_ID}"
+        echo "[lc_aws_ec2_run] Using operator-supplied AMI: ${ami_id}" >&2
+    else
+        ami_id="$(lc_aws_resolve_ami "$region")"
+        echo "[lc_aws_ec2_run] Using Ubuntu 24.04 latest from SSM: ${ami_id}" >&2
+    fi
 
     local name_tag
     name_tag='[{"Key":"Name","Value":"'"$vm_name"'"}]'

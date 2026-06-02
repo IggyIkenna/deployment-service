@@ -227,7 +227,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--upload-interval-sec",
         type=int,
-        default=int(os.environ.get("UPLOAD_INTERVAL_SEC", "30")),
+        # 120s default (was 30s) — anti-churn for VM run.log re-upload. The primary
+        # cap is the LogUploader min_growth_bytes threshold (UTL uploader.py); this
+        # just reduces stat-check cadence. See deployment_scripts_bucket_softdelete_log_churn.
+        default=int(os.environ.get("UPLOAD_INTERVAL_SEC", "120")),
     )
     p.add_argument(
         "--bucket",
@@ -241,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     """Heartbeat daemon entry-point — wrapped in `run_lifecycle` for STEP 5.63.
 
     The body is wrapped in `with run_lifecycle(service_name="vm-heartbeat-daemon")`
-    so the workspace QG `setup_events()` ↔ `run_lifecycle()` / `ServiceBootstrap()`
+    so the workspace QG event-init-helper ↔ `run_lifecycle` / `ServiceBootstrap`
     pairing rule (STEP 5.63) is satisfied. `run_lifecycle` emits
     `VM_HEARTBEAT_DAEMON_RUN_STARTED` / `_RUN_COMPLETED` / `_RUN_FAILED` around
     the daemon's main loop. `_init_events()` initialises the underlying event

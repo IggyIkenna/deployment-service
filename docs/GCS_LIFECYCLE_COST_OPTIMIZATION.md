@@ -110,9 +110,9 @@
 
 **Buckets:**
 
-- `instruments-store-cefi-{project}`
-- `instruments-store-tradfi-{project}`
-- `instruments-store-defi-{project}`
+- `instruments-store-cefi-{env}-{project}`
+- `instruments-store-tradfi-{env}-{project}`
+- `instruments-store-defi-{env}-{project}`
 
 **Savings:** ~55% (instruments rarely accessed after generation)
 
@@ -147,9 +147,9 @@
 
 **Buckets:**
 
-- `market-data-tick-cefi-{project}`
-- `market-data-tick-tradfi-{project}`
-- `market-data-tick-defi-{project}`
+- `market-data-tick-cefi-{env}-{project}`
+- `market-data-tick-tradfi-{env}-{project}`
+- `market-data-tick-defi-{env}-{project}`
 
 **Savings:** ~39% (largest buckets, biggest impact)
 
@@ -162,7 +162,7 @@
 **Retirement note:** The standalone `market-data-candles-{category}-{project}`
 buckets were retired 2026-04-18 (all 10 prod + test variants verified empty).
 MDPS now writes candles **co-located** under the MTDS tick bucket at
-`market-data-tick-{category}-{project}/processed_candles/...`. The lifecycle
+`market-data-tick-{category}-{env}-{project}/processed_candles/...`. The lifecycle
 policy applied to `market-data-tick-*` (see section 2) now covers candles too,
 and no separate policy is required.
 
@@ -225,10 +225,10 @@ Phase 5a for the full retirement manifest.
 
 **Buckets:**
 
-- `features-delta-one-cefi-{project}`
-- `features-delta-one-tradfi-{project}`
-- `features-delta-one-defi-{project}`
-- `features-calendar-{project}`
+- `features-delta-one-cefi-{env}-{project}`
+- `features-delta-one-tradfi-{env}-{project}`
+- `features-delta-one-defi-{env}-{project}`
+- `features-calendar-{env}-{project}`
 
 **Savings:** ~25% (more conservative due to frequent access)
 
@@ -269,8 +269,8 @@ Phase 5a for the full retirement manifest.
 
 **Buckets:**
 
-- `ml-models-store-{project}`
-- `ml-training-artifacts-{project}`
+- `ml-models-store-{env}-{project}`
+- `ml-training-artifacts-{env}-{project}`
 
 **Savings:** ~50% (small buckets, but still beneficial)
 
@@ -307,7 +307,7 @@ Phase 5a for the full retirement manifest.
 
 **Buckets:**
 
-- `ml-predictions-store-{project}`
+- `ml-predictions-store-{env}-{project}`
 
 **Savings:** ~20% (smallest bucket, least aggressive policy)
 
@@ -350,7 +350,7 @@ done
 
 ```bash
 # See storage class of objects
-gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/day=2023-01-01/ | grep "Storage class"
+gsutil ls -L gs://features-delta-one-cefi-{env}-{project}/by_date/day=2023-01-01/ | grep "Storage class"
 ```
 
 **Timeline:**
@@ -445,12 +445,12 @@ gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/day=2023-01-01/ | gr
 
 ```bash
 # List objects with storage class
-gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/ | \
+gsutil ls -L gs://features-delta-one-cefi-{env}-{project}/by_date/ | \
   grep -E "(gs://|Storage class)" | \
   paste - -
 
 # Count objects by storage class
-gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/**/*.parquet | \
+gsutil ls -L gs://features-delta-one-cefi-{env}-{project}/by_date/**/*.parquet | \
   grep "Storage class" | \
   sort | uniq -c
 ```
@@ -499,7 +499,7 @@ gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/**/*.parquet | \
 
 ```bash
 # Remove lifecycle policy
-gsutil lifecycle set /dev/null gs://features-delta-one-cefi-{project}
+gsutil lifecycle set /dev/null gs://features-delta-one-cefi-{env}-{project}
 ```
 
 ### Modify Policy

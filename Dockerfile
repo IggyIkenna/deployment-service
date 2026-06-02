@@ -49,6 +49,11 @@ RUN id -u appuser >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /b
 COPY pyproject.toml uv.lock README.md ./
 COPY deployment_service/ ./deployment_service/
 COPY configs/ ./configs/
+# scripts/ holds the maintenance Cloud Run Job entrypoints (vm/cleanup_old_tarballs.py,
+# vm/vm_log_archival_cron.py, …). Those jobs (terraform/gcp/{tarball_cleanup,vm_log_archival}_scheduler.tf)
+# override the CMD, so the scripts must be present in the published `api` image — not just the
+# api-dev test stage. WORKDIR is /app, so they resolve as `scripts/...` (file) / `scripts.vm....` (module).
+COPY scripts/ ./scripts/
 
 # Install dependencies (UTL base image already has transitive deps + UAC + UTL pre-installed).
 # uv >= 0.11 removed --system from `uv sync`; mirror features-sports-service pattern instead.
@@ -107,3 +112,31 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # One-shot evaluation cycle — Cloud Scheduler drives cadence externally.
 CMD ["python", "-m", "deployment_service", "sports-trigger", "run", "--one-shot"]
+
+# ============================================
+# Stage 4: maintenance-jobs (Cloud Run Jobs that import the full deployment_service package)
+# ============================================
+# The `api` stage installs deployment_service with --no-deps (the UTL base provides the
+# API server's runtime needs). Maintenance jobs (scripts/vm/vm_log_archival_cron.py, …)
+# import the full backends chain (deployment_service/__init__ -> live_deployment ->
+# backends.provider_factory -> {aws,gcp,vm} backends), which needs deployment-service's
+# DECLARED deps (google-cloud-run, botocore, …) that are NOT in the UTL base. Install them
+# here (WITH deps) so the eager package import resolves. Kept as a separate stage so the
+# api/dashboard image is unchanged.
+# The `api` stage already installs deployment_service (--no-deps); we cannot re-run
+# `uv pip install -e .` WITH deps here because the lockfile pins workspace path-deps
+# (unified-trading-library, …) that are absent as source in the image. So we install ONLY
+# the third-party packages the eager backends-import chain needs that are NOT in the UTL
+# base — verified by probing the image: jinja2 (backends/services/vm_config.py), flask +
+# functions-framework (cloud-functions backend imports). All other backend deps
+# (google-cloud-run/compute, botocore, web3, …) are already present in the base.
+# TODO(P3): declare jinja2/flask/functions-framework in deployment-service pyproject.
+FROM api AS maintenance-jobs
+USER root
+RUN uv pip install --system --no-cache-dir jinja2 flask functions-framework \
+    && chown -R appuser:appuser /app
+USER appuser
+HEALTHCHECK NONE
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# CMD is overridden per-job by the Cloud Run Job definition (terraform/gcp/*_scheduler.tf).
+CMD ["python", "-c", "import deployment_service; print('deployment-service maintenance-jobs image OK')"]

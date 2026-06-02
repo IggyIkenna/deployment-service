@@ -15,6 +15,10 @@
 #   AWS_SECURITY_GROUP_IDS  — security group(s), e.g. "sg-xxxxxxxx"
 #   AWS_SUBNET_ID           — subnet in ap-northeast-1a/b/c
 #   AWS_KEY_PAIR_NAME       — optional (SSH access)
+#   AMI_ID                  — optional (Phase 9). Pre-baked AMI from
+#                             `packer build deployment-service/packer/agent-orchestrator/`.
+#                             When set, the launch uses this AMI and bootstrap_vm.sh
+#                             completes in <5 min vs ~5-15 min for the Ubuntu fallback.
 #   uts-orchestrator-epic IAM instance profile (setup-orchestrator-iam.sh)
 #   S3 buckets + Secrets Manager (Phase 2 OPERATOR tasks in aws_epic_vm_fleet_2026_05_22.md)
 #
@@ -24,6 +28,7 @@
 #   bash launch-epic-vm-aws.sh --vm-id vm-defi --force
 #   bash launch-epic-vm-aws.sh --all
 #   bash launch-epic-vm-aws.sh --all --dry-run
+#   AMI_ID=ami-0123456789abcdef bash launch-epic-vm-aws.sh --vm-id vm-defi   # Phase 9 prebaked
 #
 # Post-launch T+10min check:
 #   aws ec2 describe-instances --filters Name=tag:Name,Values=agent-orch-vm-defi-* --region ap-northeast-1 \

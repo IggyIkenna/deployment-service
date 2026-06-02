@@ -89,16 +89,16 @@ Each service has `configs/checklist.{service}.yaml`. Key phases:
 
 ---
 
-## GCS Path Standards (Nested)
+## GCS Path Standards (key=value)
 
 | Pattern                                 | Example            |
 | --------------------------------------- | ------------------ |
-| `by_date/day-{YYYY-MM-DD}/`             | Date partitioning  |
-| `feature_group-{group}/timeframe-{tf}/` | Feature structure  |
-| `data_type-{type}/`                     | Data type grouping |
+| `by_date/day={YYYY-MM-DD}/`             | Date partitioning  |
+| `feature_group={group}/timeframe={tf}/` | Feature structure  |
+| `data_type={type}/`                     | Data type grouping |
 
 **Instruments:** `instrument_availability/by_date/day={date}/instruments.parquet` (key=value)
-**Features:** `by_date/day-{date}/feature_group-{group}/timeframe-{tf}/{instrument}.parquet` (nested)
+**Features:** `by_date/day={date}/feature_group={group}/timeframe={tf}/{instrument}.parquet` (key=value)
 
 ---
 

@@ -456,7 +456,7 @@ def test_check_reference_season_boundary_no_trigger_when_far_from_boundary() -> 
 # ---------------------------------------------------------------------------
 
 
-def test_cloud_backend_stub_shared_between_per_fixture_and_periodic(
+def test_cloud_backend_routes_periodic_dispatch_via_dispatch_cloud(
     scheduler: SportsTriggerScheduler,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -468,8 +468,70 @@ def test_cloud_backend_stub_shared_between_per_fixture_and_periodic(
     """
     scheduler._backend = "cloud"
 
-    caplog.set_level("WARNING")
-    scheduler._check_discovery()
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        scheduler._check_discovery()
 
     warns = [r.message for r in caplog.records if "cloud_run_job_name" in r.message or "cloud_run_config" in r.message]
     assert warns, "periodic dispatch must reach the cloud dispatch branch"
+
+
+# ---------------------------------------------------------------------------
+# get_upcoming_fixtures — blob.name fix
+# ---------------------------------------------------------------------------
+
+
+def test_get_upcoming_fixtures_returns_fixtures_within_horizon() -> None:
+    """Regression: blob.name — not str(blob) — must be used to match .parquet path.
+
+    BlobMetadata.__str__ returns the dataclass repr, which never ends with
+    ".parquet". Using str(blob).endswith(".parquet") would silently skip every
+    blob, giving "Found 0 upcoming fixtures" on every poll. This test verifies
+    blob.name is used for the filter and the download path.
+    """
+    import io
+    from unittest.mock import MagicMock
+
+    import pandas as pd
+    from unified_trading_library import BlobMetadata
+
+    kickoff = (datetime.now(UTC) + timedelta(hours=24)).isoformat()
+    df = pd.DataFrame(
+        [
+            {
+                "fixture_id": "fx-001",
+                "league_id": "EPL",
+                "kickoff_utc": kickoff,
+                "home_team": "Arsenal",
+                "away_team": "Chelsea",
+            }
+        ]
+    )
+    buf = io.BytesIO()
+    df.to_parquet(buf)
+    parquet_bytes = buf.getvalue()
+
+    blob = BlobMetadata(
+        name="sports_reference/fixtures/day=2026-06-01/fixtures.parquet",
+        bucket="test-bucket",
+        size=len(parquet_bytes),
+        last_modified=None,
+    )
+
+    mock_storage = MagicMock()
+    mock_storage.list_blobs.return_value = [blob]
+    mock_storage.download_bytes.return_value = parquet_bytes
+
+    sched = SportsTriggerScheduler.__new__(SportsTriggerScheduler)
+
+    with (
+        patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
+        patch("deployment_service.sports_trigger_scheduler.DeploymentConfig") as mock_cfg,
+        patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
+    ):
+        mock_cfg.return_value.project_id = "test-project"
+        fixtures = sched.get_upcoming_fixtures(horizon_hours=48)
+
+    assert len(fixtures) >= 1
+    assert any(f["fixture_id"] == "fx-001" for f in fixtures)

@@ -52,7 +52,7 @@ gcloud auth login
 gcloud auth application-default login
 
 # Set project
-gcloud config set project test-project
+gcloud config set project {project_id}
 gcloud config set run/region asia-northeast1
 ```
 
@@ -158,7 +158,7 @@ python deploy.py status <deployment-id>
 
 ```bash
 # Check GCS for output
-gsutil ls gs://instruments-store-cefi-test-project/instrument_availability/by_date/day-2024-01-15/
+gsutil ls gs://instruments-store-cefi-{env}-{project_id}/instrument_availability/by_date/day=2024-01-15/
 
 # Expected: instruments.parquet file exists
 ```
@@ -185,7 +185,7 @@ gsutil ls gs://instruments-store-cefi-test-project/instrument_availability/by_da
 
 ```bash
 # Ensure instruments exist for the date
-gsutil ls gs://instruments-store-cefi-test-project/instrument_availability/by_date/day-2024-01-15/
+gsutil ls gs://instruments-store-cefi-{env}-{project_id}/instrument_availability/by_date/day=2024-01-15/
 ```
 
 ### Step 2.2: Dry Run
@@ -217,9 +217,9 @@ python deploy.py deploy -s market-tick-data-handler -c cloud_run \
 
 ```bash
 # Check GCS for tick data
-gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024-01-15/
+gsutil ls gs://market-data-tick-cefi-{env}-{project_id}/raw_tick_data/by_date/day=2024-01-15/
 
-# Expected: data_type-trades/, data_type-book_snapshot_5/, etc.
+# Expected: data_type=trades/, data_type=book_snapshot_5/, etc.
 ```
 
 ### Nuances
@@ -245,7 +245,7 @@ gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024
 
 ```bash
 # Ensure tick data exists
-gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024-01-15/data_type-trades/
+gsutil ls gs://market-data-tick-cefi-{env}-{project_id}/raw_tick_data/by_date/day=2024-01-15/data_type=trades/
 ```
 
 ### Step 3.2: Dry Run
@@ -266,9 +266,9 @@ python deploy.py deploy -s market-data-processing-service -c cloud_run \
 
 ```bash
 # Check GCS for candles
-gsutil ls gs://market-data-tick-cefi-test-project/processed_candles/by_date/day-2024-01-15/
+gsutil ls gs://market-data-tick-cefi-{env}-{project_id}/processed_candles/by_date/day=2024-01-15/
 
-# Expected: timeframe-1m/, timeframe-5m/, timeframe-1h/, etc.
+# Expected: timeframe=1m/, timeframe=5m/, timeframe=1h/, etc.
 ```
 
 ### Nuances
@@ -295,7 +295,7 @@ gsutil ls gs://market-data-tick-cefi-test-project/processed_candles/by_date/day-
 
 ```bash
 # Ensure candles exist
-gsutil ls gs://market-data-tick-cefi-test-project/processed_candles/by_date/day-2024-01-15/timeframe-1h/
+gsutil ls gs://market-data-tick-cefi-{env}-{project_id}/processed_candles/by_date/day=2024-01-15/timeframe=1h/
 ```
 
 ### Step 4.2: Dry Run
@@ -325,9 +325,9 @@ python deploy.py deploy -s features-delta-one-service -c cloud_run \
 
 ```bash
 # Check GCS for features
-gsutil ls gs://features-delta-one-cefi-test-project/by_date/day-2024-01-15/
+gsutil ls gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=2024-01-15/
 
-# Expected: feature_group-technical_indicators/, feature_group-moving_averages/, etc.
+# Expected: feature_group=technical_indicators/, feature_group=moving_averages/, etc.
 ```
 
 ### Nuances
@@ -352,7 +352,7 @@ gsutil ls gs://features-delta-one-cefi-test-project/by_date/day-2024-01-15/
 
 ```bash
 # Ensure options chain data exists
-gsutil ls gs://market-data-tick-cefi-test-project/raw_tick_data/by_date/day-2024-01-15/data_type-options_chain/
+gsutil ls gs://market-data-tick-cefi-{env}-{project_id}/raw_tick_data/by_date/day=2024-01-15/data_type=options_chain/
 ```
 
 ### Step 5.2: Dry Run
@@ -372,9 +372,9 @@ python deploy.py deploy -s features-volatility-service -c cloud_run \
 ### Step 5.4: Verify Success
 
 ```bash
-gsutil ls gs://features-volatility-cefi-test-project/by_date/day-2024-01-15/
+gsutil ls gs://features-volatility-cefi-{env}-{project_id}/by_date/day=2024-01-15/
 
-# Expected: feature_group-options_iv/, feature_group-futures_basis/, etc.
+# Expected: feature_group=options_iv/, feature_group=futures_basis/, etc.
 ```
 
 ### Nuances
@@ -412,9 +412,9 @@ python deploy.py deploy -s features-onchain-service -c cloud_run \
 ### Step 6.3: Verify Success
 
 ```bash
-gsutil ls gs://features-onchain-defi-test-project/by_date/day-2024-01-15/
+gsutil ls gs://features-onchain-defi-{env}-{project_id}/by_date/day=2024-01-15/
 
-# Expected: feature_group-lending_rates/, feature_group-lst_yields/, etc.
+# Expected: feature_group=lending_rates/, feature_group=lst_yields/, etc.
 ```
 
 ### Nuances
@@ -442,7 +442,7 @@ gsutil ls gs://features-onchain-defi-test-project/by_date/day-2024-01-15/
 
 ```bash
 # Ensure features exist
-gsutil ls gs://features-delta-one-cefi-test-project/by_date/day-2024-01-15/
+gsutil ls gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=2024-01-15/
 ```
 
 ### Step 7.2: Dry Run
@@ -465,7 +465,7 @@ python deploy.py deploy -s ml-training-service -c cloud_run \
 
 ```bash
 # Check for trained models
-gsutil ls gs://ml-models-store-test-project/models/
+gsutil ls gs://ml-models-store-{env}-{project_id}/models/
 
 # Expected: model directories with model.joblib files
 ```
@@ -491,10 +491,10 @@ gsutil ls gs://ml-models-store-test-project/models/
 
 ```bash
 # Ensure models exist
-gsutil ls gs://ml-models-store-test-project/model_registry/
+gsutil ls gs://ml-models-store-{env}-{project_id}/model_registry/
 
 # Ensure features exist for inference date
-gsutil ls gs://features-delta-one-cefi-test-project/by_date/day-2024-01-15/
+gsutil ls gs://features-delta-one-cefi-{env}-{project_id}/by_date/day=2024-01-15/
 ```
 
 ### Step 8.2: Dry Run
@@ -515,7 +515,7 @@ python deploy.py deploy -s ml-inference-service -c cloud_run \
 ### Step 8.4: Verify Success
 
 ```bash
-gsutil ls gs://ml-predictions-store-test-project/predictions/batch/2024-01-15/
+gsutil ls gs://ml-predictions-store-{env}-{project_id}/predictions/batch/2024-01-15/
 ```
 
 ### Nuances
@@ -537,7 +537,7 @@ gsutil ls gs://ml-predictions-store-test-project/predictions/batch/2024-01-15/
 
 ```bash
 # Strategy configs are stored in GCS
-gsutil ls gs://strategy-store-cefi-test-project/configs_grid/
+gsutil ls gs://strategy-store-cefi-{env}-{project_id}/configs_grid/
 
 # If empty, create a config first
 ```
@@ -554,14 +554,14 @@ python deploy.py deploy -s strategy-service -c cloud_run \
 ```bash
 python deploy.py deploy -s strategy-service -c cloud_run \
   --start-date 2024-01-15 --end-date 2024-01-21 --asset-group CEFI \
-  --extra-args "--config-gcs gs://strategy-store-cefi-test-project/configs_grid/my_strategy.json"
+  --extra-args "--config-gcs gs://strategy-store-cefi-{env}-{project_id}/configs_grid/my_strategy.json"
 ```
 
 ### Step 9.4: Verify Success
 
 ```bash
-gsutil ls gs://strategy-store-cefi-test-project/signals/
-gsutil ls gs://strategy-store-cefi-test-project/backtest_results/
+gsutil ls gs://strategy-store-cefi-{env}-{project_id}/signals/
+gsutil ls gs://strategy-store-cefi-{env}-{project_id}/backtest_results/
 ```
 
 ### Nuances
@@ -586,7 +586,7 @@ gsutil ls gs://strategy-store-cefi-test-project/backtest_results/
 
 ```bash
 # Execution configs are stored in GCS
-gsutil ls gs://execution-store-cefi-test-project/grid_configs/
+gsutil ls gs://execution-store-cefi-{env}-{project_id}/grid_configs/
 
 # If empty, create configs first
 ```
@@ -604,13 +604,13 @@ python deploy.py deploy -s execution-service -c cloud_run \
 ```bash
 python deploy.py deploy -s execution-service -c cloud_run \
   --start-date 2024-01-15 --end-date 2024-01-15 \
-  --extra-args "--domain cefi --config-gcs gs://execution-store-cefi-test-project/grid_configs/btc_momentum.json"
+  --extra-args "--domain cefi --config-gcs gs://execution-store-cefi-{env}-{project_id}/grid_configs/btc_momentum.json"
 ```
 
 ### Step 10.4: Verify Success
 
 ```bash
-gsutil ls gs://execution-store-cefi-test-project/backtest_results/
+gsutil ls gs://execution-store-cefi-{env}-{project_id}/backtest_results/
 ```
 
 ### Nuances
@@ -663,7 +663,7 @@ Error: Unable to fetch image
 ```bash
 # Check if image exists
 gcloud artifacts docker images list \
-  asia-northeast1-docker.pkg.dev/test-project/instruments/instruments-service
+  asia-northeast1-docker.pkg.dev/{project_id}/instruments/instruments-service
 ```
 
 #### 4. Permission Denied on GCS
@@ -675,8 +675,8 @@ Error: 403 Forbidden
 **Solution:** Grant the service account storage access
 
 ```bash
-gcloud projects add-iam-policy-binding test-project \
-  --member="serviceAccount:instruments-service-cloud-run@test-project.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding {project_id} \
+  --member="serviceAccount:instruments-service-cloud-run@{project_id}.iam.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 ```
 
@@ -715,10 +715,10 @@ gcloud run jobs executions list --job=instruments-service --region=asia-northeas
 
 ```bash
 # Check data completeness for a date
-gsutil ls gs://instruments-store-cefi-test-project/instrument_availability/by_date/day-2024-01-15/
+gsutil ls gs://instruments-store-cefi-{env}-{project_id}/instrument_availability/by_date/day=2024-01-15/
 
 # Download and inspect a file
-gsutil cp gs://instruments-store-cefi-test-project/instrument_availability/by_date/day-2024-01-15/instruments.parquet /tmp/
+gsutil cp gs://instruments-store-cefi-{env}-{project_id}/instrument_availability/by_date/day=2024-01-15/instruments.parquet /tmp/
 python -c "import pandas as pd; print(pd.read_parquet('/tmp/instruments.parquet'))"
 ```
 

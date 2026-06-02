@@ -7,7 +7,7 @@
 #   Instance profile:    uts-orchestrator-epic          (wraps the role; attached to EC2 instances)
 #
 # Permissions granted:
-#   secretsmanager:GetSecretValue  on secrets: GH_PAT, ORCHESTRATOR_ENV_LOCAL
+#   secretsmanager:GetSecretValue  on secrets: GH_PAT, ORCHESTRATOR_ENV_LOCAL, ORCHESTRATOR_VM_GCP_ADC
 #   s3:GetObject                   on uts-orchestrator-creds-{account}/config/*
 #   s3:PutObject                   on uts-orchestrator-events-{account}/orchestrator/*
 #
@@ -90,7 +90,8 @@ PERMISSION_POLICY="{
       \"Action\": \"secretsmanager:GetSecretValue\",
       \"Resource\": [
         \"arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:GH_PAT*\",
-        \"arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:ORCHESTRATOR_ENV_LOCAL*\"
+        \"arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:ORCHESTRATOR_ENV_LOCAL*\",
+        \"arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:ORCHESTRATOR_VM_GCP_ADC*\"
       ]
     },
     {

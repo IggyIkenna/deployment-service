@@ -47,3 +47,6 @@ secrets:
     sm_path: unified-trading/telegram-chat-id
   - name: PAGERDUTY_API_KEY
     sm_path: unified-trading/pagerduty-api-key
+  # UTS Live Alerts → #uts-live-alerts Slack mirror (same agent-orchestrator-alerts app)
+  - name: UTS_LIVE_ALERTS_SLACK_WEBHOOK
+    sm_path: unified-trading/uts-live-alerts-slack-webhook

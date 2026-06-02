@@ -153,7 +153,8 @@ WHEEL_CACHE="/tmp/wheel-cache"
 mkdir -p "$WHEEL_CACHE"
 
 # Try to pull cached wheels from S3 (speeds up installs on repeated launches)
-aws s3 sync "s3://$S3_CODE_BUCKET/wheels/py313-linux-x86_64/" "$WHEEL_CACHE/" \
+# timeout-guard: prevents indefinite hangs (similar to gsutil -m fix for GCP)
+timeout 180 aws s3 sync "s3://$S3_CODE_BUCKET/wheels/py313-linux-x86_64/" "$WHEEL_CACHE/" \
     --region "$AWS_REGION" --quiet 2>/dev/null || true
 
 INSTALL_ARGS="--no-sources"
@@ -166,7 +167,8 @@ uv pip install --find-links "$WHEEL_CACHE" $INSTALL_ARGS
 uv pip install --find-links "$WHEEL_CACHE" pandas pyarrow boto3 2>/dev/null || true
 
 # Push wheels back to S3 cache for next launch
-aws s3 sync "$WHEEL_CACHE/" "s3://$S3_CODE_BUCKET/wheels/py313-linux-x86_64/" \
+# timeout-guard: prevents indefinite hangs (similar to gsutil -m fix for GCP)
+timeout 180 aws s3 sync "$WHEEL_CACHE/" "s3://$S3_CODE_BUCKET/wheels/py313-linux-x86_64/" \
     --region "$AWS_REGION" --quiet 2>/dev/null || true
 
 log "Install complete."

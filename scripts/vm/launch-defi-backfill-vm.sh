@@ -86,14 +86,21 @@ echo "============================================================"
 if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
   echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-  echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=DEFI  VM_CHUNK_DAYS=${CHUNK_DAYS}"
+  echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=defi  VM_CHUNK_DAYS=${CHUNK_DAYS}"
   exit 0
 fi
 
 METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 METADATA="${METADATA},VM_TASK=instruments-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
-METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
+# instruments-service InstrumentsHandler validates asset_group against the lowercase
+# closed set {cefi,defi,prediction,sports,tradfi}. Uppercase `DEFI` is rejected with
+# `Unknown asset_group 'DEFI'. Valid: ['cefi','defi','prediction','sports','tradfi']`
+# and ALL payloads are dropped (0 results collected, manifest unchanged). MTDS normalises
+# uppercase so the MTDS launchers don't hit this. Reference fix for sports/footystats:
+# deployment-service@9ded013. Reference plan: cefi_venue_backfill_coverage_remediation_2026_05_27.md
+# § 6G.
+METADATA="${METADATA},VM_ASSET_GROUP=defi"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"

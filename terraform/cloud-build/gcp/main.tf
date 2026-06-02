@@ -116,6 +116,40 @@ locals {
   }
 }
 
+# deployment-service maintenance-jobs image trigger.
+# Rebuilds unified-trading-system/deployment-service:latest (the base image for the
+# tarball-cleanup + vm-log-archival Cloud Run Jobs) on push to main when image-affecting
+# files change. Standalone (NOT via the cloud_build_triggers module) because it uses a
+# non-default build config + the live "iggyikenna-github" connection. Adopted via
+# `terraform import` (created imperatively 2026-06-02).
+# SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+# NOTE: the module-based service triggers below default to connection_name="ln", which no
+# longer exists (live connections = only "iggyikenna-github") — pre-existing drift tracked
+# separately; this resource deliberately pins the correct connection.
+resource "google_cloudbuild_trigger" "deployment_service_jobs_image" {
+  name        = "deployment-service-jobs-image-build"
+  project     = var.project_id
+  location    = var.region
+  description = "Rebuild+push unified-trading-system/deployment-service:latest (maintenance-jobs image) on main when image-affecting files change"
+
+  repository_event_config {
+    repository = "projects/${var.project_id}/locations/${var.region}/connections/iggyikenna-github/repositories/deployment-service"
+    push {
+      branch = "^main$"
+    }
+  }
+
+  included_files = [
+    "Dockerfile",
+    "cloud-build/deployment-service-jobs-image.cloudbuild.yaml",
+    "scripts/vm/**",
+    "pyproject.toml",
+    "uv.lock",
+  ]
+
+  filename = "cloud-build/deployment-service-jobs-image.cloudbuild.yaml"
+}
+
 # Create Cloud Build triggers for each service
 module "cloud_build_triggers" {
   for_each = local.services
