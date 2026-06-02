@@ -55,14 +55,13 @@ aws --version
 # ── Step 5: uv (Python package manager — orchestrator + venv toolchain) ──
 log "STEP 5: uv"
 if ! command -v uv >/dev/null 2>&1; then
-  # uv install script puts uv in /root/.cargo/bin by default; symlink to /usr/local/bin
+  # uv install location varies by HOME: this provisioner runs `sudo -E` so
+  # HOME=/home/ubuntu is preserved → uv lands in /home/ubuntu/.local/bin, NOT
+  # /root/*. Resolve wherever it landed and symlink to /usr/local/bin (on PATH).
   curl -fsSL https://astral.sh/uv/install.sh | sh
-  # Find installed uv and symlink
-  if [[ -x /root/.cargo/bin/uv ]]; then
-    ln -sf /root/.cargo/bin/uv /usr/local/bin/uv
-  elif [[ -x /root/.local/bin/uv ]]; then
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv
-  fi
+  for _uv in /root/.cargo/bin/uv /root/.local/bin/uv "${HOME}/.local/bin/uv" /home/ubuntu/.local/bin/uv; do
+    if [[ -x "${_uv}" ]]; then ln -sf "${_uv}" /usr/local/bin/uv; break; fi
+  done
 fi
 uv --version
 
