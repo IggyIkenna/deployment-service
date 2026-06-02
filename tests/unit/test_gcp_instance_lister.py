@@ -1,59 +1,52 @@
-"""Tests for deployment_service.vm.gcp_instance_lister."""
+"""Tests for deployment_service.vm.gcp_instance_lister.
+
+The lister routes through the UTL Compute Engine client
+(``get_compute_engine_client`` → ``aggregated_list_instances``) rather than
+importing ``google.cloud.compute_v1`` directly (cloud-interface SSOT / QG
+STEP 5.10), so these tests mock that interface — which returns plain
+``list[dict]`` rows of ``{"name", "status", "zone"}``.
+"""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 
-def _make_scoped_list(names: list[str], status: str = "RUNNING") -> MagicMock:
-    instances = []
-    for name in names:
-        inst = MagicMock()
-        inst.status = status
-        inst.name = name
-        instances.append(inst)
-    scoped = MagicMock()
-    scoped.instances = instances
-    return scoped
+def _make_client(rows: list[dict[str, object]]) -> MagicMock:
+    """A mock ComputeEngineClient whose aggregated_list_instances returns ``rows``."""
+    client = MagicMock()
+    client.aggregated_list_instances.return_value = rows
+    return client
 
 
 def test_returns_running_vm_names() -> None:
-    """Aggregated response with RUNNING + TERMINATED → only RUNNING names returned."""
+    """RUNNING + TERMINATED rows → only RUNNING names returned."""
     from deployment_service.vm.gcp_instance_lister import list_running_vm_names
 
-    running_scoped = _make_scoped_list(["vm-a", "vm-b"])
-    stopped_scoped = _make_scoped_list(["vm-c"], status="TERMINATED")
-
-    mock_client = MagicMock()
-    mock_client.aggregated_list.return_value = [
-        ("zones/asia-northeast1-a", running_scoped),
-        ("zones/asia-northeast1-b", stopped_scoped),
-    ]
+    client = _make_client(
+        [
+            {"name": "vm-a", "status": "RUNNING", "zone": "asia-northeast1-a"},
+            {"name": "vm-b", "status": "RUNNING", "zone": "asia-northeast1-a"},
+            {"name": "vm-c", "status": "TERMINATED", "zone": "asia-northeast1-b"},
+        ]
+    )
 
     with patch(
-        "deployment_service.vm.gcp_instance_lister.compute_v1.InstancesClient",
-        return_value=mock_client,
+        "deployment_service.vm.gcp_instance_lister.get_compute_engine_client",
+        return_value=client,
     ):
         result = list_running_vm_names("test-project")
 
     assert result == {"vm-a", "vm-b"}
 
 
-def test_empty_zone_skipped() -> None:
-    """Zone with no instances does not crash."""
+def test_empty_list_returns_empty_set() -> None:
+    """No instances → empty set (does not crash)."""
     from deployment_service.vm.gcp_instance_lister import list_running_vm_names
 
-    empty_scoped = MagicMock()
-    empty_scoped.instances = None
-
-    mock_client = MagicMock()
-    mock_client.aggregated_list.return_value = [
-        ("zones/asia-northeast1-a", empty_scoped),
-    ]
-
     with patch(
-        "deployment_service.vm.gcp_instance_lister.compute_v1.InstancesClient",
-        return_value=mock_client,
+        "deployment_service.vm.gcp_instance_lister.get_compute_engine_client",
+        return_value=_make_client([]),
     ):
         result = list_running_vm_names("test-project")
 
@@ -64,14 +57,14 @@ def test_api_error_returns_empty_set() -> None:
     """API exception → empty set returned + warning logged (never raises)."""
     from deployment_service.vm.gcp_instance_lister import list_running_vm_names
 
-    mock_client = MagicMock()
-    mock_client.aggregated_list.side_effect = RuntimeError("GCP quota exceeded")
+    client = MagicMock()
+    client.aggregated_list_instances.side_effect = RuntimeError("GCP quota exceeded")
     mock_logger = MagicMock()
 
     with (
         patch(
-            "deployment_service.vm.gcp_instance_lister.compute_v1.InstancesClient",
-            return_value=mock_client,
+            "deployment_service.vm.gcp_instance_lister.get_compute_engine_client",
+            return_value=client,
         ),
         patch(
             "deployment_service.vm.gcp_instance_lister.logger",
