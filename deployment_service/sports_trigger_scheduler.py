@@ -187,7 +187,10 @@ class SportsTriggerScheduler:
             ]
             for day_offset in range(4):
                 scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-                bucket_name = get_bucket_name("instruments", "SPORTS", project_id=config.project_id)
+                # No explicit project_id → delegates to cloud-providers.yaml SSOT
+                # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
+                # (never the legacy no-env bucket decommissioned at sports cutover).
+                bucket_name = get_bucket_name("instruments", "SPORTS")
 
                 for path_pattern in _fixture_path_patterns:
                     prefix = path_pattern.format(date=scan_date)

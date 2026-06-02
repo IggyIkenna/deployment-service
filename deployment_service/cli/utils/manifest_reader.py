@@ -178,8 +178,10 @@ class ManifestReader:
             # Probe with a real bucket — instruments-store-cefi is the most
             # common and always exists.  An empty string fails silently on
             # some cloud backends, giving a false negative.
-            project_id = self._get_project_id()
-            probe_bucket = get_bucket_name("instruments", "CEFI", project_id=project_id)
+            # No explicit project_id → delegates to cloud-providers.yaml SSOT →
+            # env-tiered ``instruments-store-cefi-prd-{pid}`` canonical probe bucket
+            # (never the legacy no-env form decommissioned at the cefi cutover).
+            probe_bucket = get_bucket_name("instruments", "CEFI")
             read_availability_index(probe_bucket)
             self._available = True
         except Exception:
