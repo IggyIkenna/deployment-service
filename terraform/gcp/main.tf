@@ -397,6 +397,50 @@ resource "google_storage_bucket" "instruments_prediction_test" {
   labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
 }
 
+# deployment-scripts — SINGLETON bucket (one physical bucket in the central project: VM code
+# tarballs + run.log archives + heartbeats). NOT per-env, so guard to the central project
+# (dev/staging applies skip it). Adopted via `terraform import` — it predates TF. Settings
+# match the 2026-06-02 bloat remediation: soft-delete OFF (was retaining 56 TiB of run.log
+# re-upload shadow copies) + prefix-scoped Delete lifecycle. No versioning, fine-grained ACLs
+# (UBLA off) — matches live. SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+resource "google_storage_bucket" "deployment_scripts" {
+  count    = var.project_id == "central-element-323112" ? 1 : 0
+  name     = "deployment-scripts-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = false
+  force_destroy               = false
+
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+
+  lifecycle_rule {
+    condition {
+      age            = 14
+      matches_prefix = ["vm-logs/"]
+    }
+    action { type = "Delete" }
+  }
+  lifecycle_rule {
+    condition {
+      age            = 15
+      matches_prefix = ["vm-heartbeat/"]
+    }
+    action { type = "Delete" }
+  }
+  lifecycle_rule {
+    condition {
+      age            = 30
+      matches_prefix = ["logs/", "recon-logs/", "audit-results/", "migration-bundle/staging/", "log-archive/", "deployments/archive/"]
+    }
+    action { type = "Delete" }
+  }
+
+  labels = merge(local.common_labels, { "purpose" = "deployment-scripts", "tier" = "group-a" })
+}
+
 resource "google_storage_bucket" "market_data_cefi" {
   name     = "market-data-tick-cefi-${var.project_id}"
   project  = var.project_id
