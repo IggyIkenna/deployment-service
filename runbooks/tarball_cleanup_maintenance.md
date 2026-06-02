@@ -1,10 +1,10 @@
 ---
 title: Tarball Cleanup — Daily maintenance of SHA-versioned code tarballs
 owner: ikenna
-cadence: "0 2 * * * UTC (Cloud Scheduler)"
+cadence: "0 2 * * * UTC (Cloud Scheduler — uts-prod-tarball-cleanup-cron, ENABLED)"
 verifier: operator
-last_executed: never
-source_plan: plans/active/issues/issue_docs_remediation_sweep_2026_06_02.md
+last_executed: "2026-06-02 (manual gcloud run jobs execute — succeeded=1; image fixed to deployment-service:latest)"
+source_plan: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
 ---
 
 # Tarball Cleanup — Daily Maintenance
@@ -39,7 +39,7 @@ Run a dry-run first to confirm what would be deleted:
 gcloud run jobs execute uts-prod-tarball-cleanup \
   --project=central-element-323112 \
   --region=asia-northeast1 \
-  --args="deployment-service/scripts/vm/cleanup_old_tarballs.py,--project,central-element-323112,--keep,5,--dry-run" \
+  --args="scripts/vm/cleanup_old_tarballs.py,--project,central-element-323112,--keep,5,--dry-run" \
   --wait
 ```
 
