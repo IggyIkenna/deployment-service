@@ -199,6 +199,11 @@ set -euo pipefail
 export HOME=/home/${OPERATOR}
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/home/${OPERATOR}/.local/bin"
 export VM_NAME="${VM_NAME}"
+# Short canonical id (e.g. vm-defi) — bootstrap uses it for ORCHESTRATOR_VM_ID
+# (assigned_vm routing) AND the branch operator (tab/<vm-id>/<slot>). Without it,
+# bootstrap falls back to the long instance name / unknown-vm and worker spawns
+# FM7-quarantine on the operator mismatch.
+export ORCHESTRATOR_VM_ID="${vm_id}"
 export CLOUD_PROVIDER=aws
 export CLOUD_MOCK_MODE=false
 export AWS_DEFAULT_REGION="${AWS_REGION}"
