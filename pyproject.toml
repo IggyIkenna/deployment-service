@@ -6,7 +6,6 @@ description = "Deployment orchestration engine (split from unified-trading-deplo
 dependencies = [
     "unified-trading-library>=0.1.0,<1.0.0",
     "unified-api-contracts>=0.1.0,<1.0.0",
-    "deployment-api>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
     "prometheus-client>=0.20.0,<1.0.0",
     "fastapi<1.0.0,>=0.115.0",
@@ -39,10 +38,6 @@ deploy-shards = "deployment_service.cli.main:main"
 
 [tool.uv.sources.unified-trading-library]
 path = "../unified-trading-library"
-editable = true
-
-[tool.uv.sources.deployment-api]
-path = "../deployment-api"
 editable = true
 
 [tool.uv.sources.unified-api-contracts]
