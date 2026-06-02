@@ -71,6 +71,12 @@ variable "ssh_username" {
   default = "ubuntu"
 }
 
+variable "gh_pat" {
+  type        = string
+  sensitive   = true
+  description = "GitHub PAT (workflow-capable, from Secret Manager via load-gh-token.sh) used to warm-clone the PRIVATE repos. Injected as a git insteadOf credential before warm-cache and SCRUBBED in the cleanup step so it is never baked into the AMI."
+}
+
 locals {
   build_timestamp = formatdate("YYYYMMDD-hhmmss", timestamp())
   ami_name        = "${var.ami_name_prefix}-${local.build_timestamp}"
@@ -132,6 +138,15 @@ build {
     ]
   }
 
+  // Step 1.5: inject the PAT as a git insteadOf credential in root's config
+  // (warm-cache.sh clones the PRIVATE repos over https as root via `sudo bash`).
+  // Scrubbed in Step 4 cleanup so the token is never baked into the AMI.
+  provisioner "shell" {
+    inline = [
+      "sudo git config --global url.\"https://x-access-token:${var.gh_pat}@github.com/\".insteadOf \"https://github.com/\"",
+    ]
+  }
+
   // Step 2: pre-clone repos + build warm venv
   provisioner "shell" {
     script          = "scripts/warm-cache.sh"
@@ -152,6 +167,9 @@ build {
   // Step 4: cleanup transient caches before snapshot
   provisioner "shell" {
     inline = [
+      // SCRUB the warm-clone PAT — never bake a token into the AMI.
+      "sudo git config --global --remove-section url.\"https://x-access-token:${var.gh_pat}@github.com/\" || true",
+      "sudo rm -f /root/.gitconfig /root/.git-credentials || true",
       "sudo apt-get clean",
       "sudo rm -rf /var/lib/apt/lists/*",
       "sudo rm -rf /tmp/* /var/tmp/*",
