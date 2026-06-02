@@ -140,12 +140,12 @@ If you have legacy data with folder names like `day-2023-01-01/`, `feature_group
 
 ## Bucket Naming
 
-| Pattern                                   | Example                                |
-| ----------------------------------------- | -------------------------------------- |
-| `instruments-store-{category}-{env}-{project}`  | instruments-store-cefi-{env}-{project_id}    |
-| `market-data-tick-{category}-{env}-{project}`   | market-data-tick-cefi-{env}-{project_id}     |
-| `features-delta-one-{category}-{env}-{project}` | features-delta-one-cefi-{env}-{project_id}   |
-| `deployment-orchestration-{project}`      | Deployment state (not terraform-state) |
+| Pattern                                         | Example                                    |
+| ----------------------------------------------- | ------------------------------------------ |
+| `instruments-store-{category}-{env}-{project}`  | instruments-store-cefi-{env}-{project_id}  |
+| `market-data-tick-{category}-{env}-{project}`   | market-data-tick-cefi-{env}-{project_id}   |
+| `features-delta-one-{category}-{env}-{project}` | features-delta-one-cefi-{env}-{project_id} |
+| `deployment-orchestration-{project}`            | Deployment state (not terraform-state)     |
 
 ---
 
