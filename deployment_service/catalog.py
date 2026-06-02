@@ -19,6 +19,8 @@ from itertools import product
 from typing import cast
 
 from unified_api_contracts import DATA_TYPES_BY_ASSET_GROUP
+from unified_trading_library import AssetGroup, get_cloud_provider, resolve_bucket_name
+from unified_trading_library.cloud_interface.bucket_naming import Cloud  # noqa: qg-deep-import
 
 from .cloud_client import CloudClient
 from .config_loader import ConfigLoader
@@ -29,6 +31,36 @@ logger = logging.getLogger(__name__)
 # Project ID from config (used in GCS bucket name templates)
 _config = DeploymentConfig()
 _PROJECT_ID: str | None = cast(str | None, _config.gcp_project_id)
+
+# Services whose primary bucket has a canonical `cloud-providers.yaml` kind.
+# Resolved via `resolve_bucket_name()` so the env-tiered canonical name
+# (market-data-tick-{ag}-${DEPLOYMENT_ENV_SHORT}-{pid}) is always used and the
+# catalog survives migrations that delete legacy non-env-tiered buckets. This is
+# the resolve_bucket_name sweep promised by the `market-tick-data-service` /
+# `market-data-processing-service` config comments below (A11, 2026-06-02).
+_SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
+    "market-tick-data-service": "market-data",
+    "market-data-processing-service": "market-data",
+}
+
+
+def _resolve_service_bucket(service: str, bucket_template: str, str_template_vars: dict[str, str]) -> str:
+    """Resolve a service's GCS bucket name.
+
+    Services with a canonical `cloud-providers.yaml` kind resolve via the SSOT
+    `resolve_bucket_name()` (env-tiered); the rest fall back to formatting the
+    legacy `bucket_template` string until their own canonicalisation sweep.
+    """
+    canonical_kind = _SERVICE_TO_CANONICAL_KIND.get(service)
+    if canonical_kind is not None:
+        ag_lower = str_template_vars.get("asset_group_lower") or str_template_vars.get("category_lower")
+        asset_group = cast(AssetGroup, ag_lower) if ag_lower else None
+        return resolve_bucket_name(
+            cloud=cast(Cloud, get_cloud_provider()),
+            kind=canonical_kind,
+            asset_group=asset_group,
+        )
+    return bucket_template.format(**str_template_vars)
 
 
 @dataclass
@@ -150,12 +182,18 @@ SERVICE_GCS_CONFIGS = {
         "config_template": "corporate_actions/config/",
     },
     "market-tick-data-service": {
+        # bucket_template is the legacy display/fallback shape; the runtime bucket
+        # is resolved via resolve_bucket_name(kind="market-data") — see
+        # _SERVICE_TO_CANONICAL_KIND / _resolve_service_bucket (A11, 2026-06-02).
         "bucket_template": "market-data-tick-{asset_group_lower}-{project_id}",
         "path_template": "raw_tick_data/by_date/day={date}/data_type={data_type}/",
         "dimensions": ["asset_group", "venue", "data_type", "date"],
         "list_prefix": True,  # List files in prefix (includes instrument_type=, venue= subdirs)
     },
     "market-data-processing-service": {
+        # bucket_template is the legacy display/fallback shape; the runtime bucket
+        # is resolved via resolve_bucket_name(kind="market-data") — see
+        # _SERVICE_TO_CANONICAL_KIND / _resolve_service_bucket (A11, 2026-06-02).
         "bucket_template": "market-data-tick-{asset_group_lower}-{project_id}",
         "path_template": ("processed_candles/by_date/day={date}/timeframe={timeframe}/data_type={data_type}/"),
         "dimensions": ["asset_group", "timeframe", "data_type", "venue", "date"],
@@ -447,11 +485,12 @@ class DataCatalog:
         if date_val:
             str_template_vars["date"] = str(date_val)
 
-        # Build bucket and path
+        # Build bucket and path. Canonical-kind services (MTDS / MDPS) resolve
+        # via the cloud-providers.yaml SSOT; others format the legacy template.
         bucket_template = str(gcs_config["bucket_template"])
         path_template = str(gcs_config["path_template"])
         try:
-            bucket = bucket_template.format(**str_template_vars)
+            bucket = _resolve_service_bucket(service, bucket_template, str_template_vars)
             path = path_template.format(**str_template_vars)
         except KeyError as e:
             logger.debug("Missing template var for %s: %s", service, e)
@@ -600,10 +639,12 @@ class DataCatalog:
 
         try:
             bucket_template = str(gcs_config["bucket_template"])
-            # Use a neutral template fill for listing (category=cefi as fallback)
-            bucket = bucket_template.format(
-                asset_group_lower="cefi",
-                project_id=self.project_id,
+            # Use a neutral template fill for listing (asset_group=cefi as fallback).
+            # Canonical-kind services resolve via the cloud-providers.yaml SSOT.
+            bucket = _resolve_service_bucket(
+                service,
+                bucket_template,
+                {"asset_group_lower": "cefi", "project_id": self.project_id},
             )
             prefix = "instrument_availability/"
             all_files = self.cloud_client.list_files(f"gs://{bucket}/{prefix}", "*")  # noqa: gs-uri — catalog builds GCS path for instrument availability scan
