@@ -441,6 +441,56 @@ resource "google_storage_bucket" "deployment_scripts" {
   labels = merge(local.common_labels, { "purpose" = "deployment-scripts", "tier" = "group-a" })
 }
 
+# Out-of-band buckets codified 2026-06-02 (were live but untracked in terraform/state/prod).
+# Both central-project-only; settings match live exactly (durability codification, not a behavior
+# change). SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+#
+# client-reporting-data: client financial reports. Soft-delete 7d KEPT (appropriate for client
+# data) + bounded versioning (delete noncurrent >90d once >=5 newer exist). UBLA off (fine-grained).
+resource "google_storage_bucket" "client_reporting_data" {
+  count    = var.project_id == "central-element-323112" ? 1 : 0
+  name     = "client-reporting-data-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = false
+  force_destroy               = false
+
+  soft_delete_policy {
+    retention_duration_seconds = 604800
+  }
+
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 90
+      num_newer_versions         = 5
+    }
+    action { type = "Delete" }
+  }
+
+  labels = merge(local.common_labels, { "purpose" = "client-reporting-data", "tier" = "group-a" })
+}
+
+# instruments-store-sports-prd: the NEW canonical sports instruments bucket (env-suffixed naming
+# is the new convention; the old no-env instruments-store-sports-<pid> above is the legacy
+# migration source — migration old->new in place). NOT a duplicate. Soft-delete already cleared
+# (0); no lifecycle / versioning live — matched exactly. UBLA off (fine-grained).
+resource "google_storage_bucket" "instruments_store_sports_prd" {
+  count    = var.project_id == "central-element-323112" ? 1 : 0
+  name     = "instruments-store-sports-prd-${var.project_id}"
+  project  = var.project_id
+  location = var.region
+
+  uniform_bucket_level_access = false
+  force_destroy               = false
+
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+
+  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
+}
+
 resource "google_storage_bucket" "market_data_cefi" {
   name     = "market-data-tick-cefi-${var.project_id}"
   project  = var.project_id
