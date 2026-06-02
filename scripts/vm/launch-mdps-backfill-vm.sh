@@ -31,6 +31,16 @@
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
 #
+# Force-reprocess (densify reprocess — re-write already-captured candle cells):
+#   --force                                            # or FORCE=true env. Threads --force into the
+#                                                      # MDPS `process` CLI (_write_candles(force=True)),
+#                                                      # so existing parquets are re-aggregated with the
+#                                                      # dense / no-leading-NaN finalizer instead of being
+#                                                      # SKIPed as fresh-in-manifest. Use for the leading-NaN
+#                                                      # historical remediation (mdps_state_adapter_leading_nan_audit_2026_05_29.md).
+#                                                      # Example (densify cefi state adapters over the read window):
+#                                                      #   bash launch-mdps-backfill-vm.sh --force cefi 2025-01-01 2026-04-18 full
+#
 # Narrow-scope filters (all optional; omit for full-category sweep):
 #   --data-types trades                                # space-separated; MDPS_DATA_TYPES
 #   --venues "BINANCE-FUTURES BYBIT"                   # space-separated; MDPS_VENUES
@@ -67,8 +77,16 @@ FILTER_DATA_TYPES=""
 FILTER_VENUES=""
 FILTER_INSTRUMENT_IDS=""
 OUTPUT_BUCKET_OVERRIDE=""
+# --force / FORCE=true env (universal launcher contract, deployment-api backfill_launch.py
+# _build_argv): threads `--force` into the MDPS `process` CLI, which sets
+# `_write_candles(force=True)` so already-`captured` cells are re-written instead of
+# short-circuiting on `blob_exists`. This is the densify-reprocess lever for the
+# MDPS leading-NaN historical remediation (issue mdps_state_adapter_leading_nan_audit_2026_05_29.md
+# `[DATA] P1`). Without it the `mdps-backfill` VM_TASK branch in setup-data-pipeline-vm.sh
+# runs VM_BACKFILL_CMD verbatim and never re-processes fresh-in-manifest cells.
+FORCE_REPROCESS="${FORCE:-false}"
 
-# Pre-parse --env, --source-bucket, and narrow-scope filter flags before positional args.
+# Pre-parse --env, --source-bucket, --force, and narrow-scope filter flags before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
@@ -78,6 +96,7 @@ while [[ $# -gt 0 ]]; do
         --venues) FILTER_VENUES="$2"; shift 2 ;;
         --instrument-ids) FILTER_INSTRUMENT_IDS="$2"; shift 2 ;;
         --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
+        --force) FORCE_REPROCESS="true"; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -111,7 +130,7 @@ MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
 MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] [--force] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -204,6 +223,13 @@ _launch() {
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
     fi
+    # Force-reprocess already-captured cells (densify reprocess) — re-writes existing
+    # candle parquets instead of SKIP-on-fresh. Threaded into VM_BACKFILL_CMD because
+    # the mdps-backfill VM_TASK branch runs the cmd verbatim (it does NOT honour the
+    # VM_FORCE→--force metadata bridge that the download/instruments BASE_CLI branches use).
+    if [[ "$FORCE_REPROCESS" == "true" ]]; then
+        cmd="$cmd --force"
+    fi
 
     echo "Launching $vm_name"
     echo "  cmd: $cmd"
@@ -217,6 +243,7 @@ _launch() {
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=${MODE}"
+    md="${md},VM_FORCE=${FORCE_REPROCESS}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
