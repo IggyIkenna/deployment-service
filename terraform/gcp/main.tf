@@ -146,6 +146,23 @@ resource "google_storage_bucket" "instruments_cefi" {
       storage_class = "NEARLINE"
     }
   }
+  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
+  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
+  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
+  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
+  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+      num_newer_versions         = 3
+    }
+    action {
+      type = "Delete"
+    }
+  }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
@@ -162,6 +179,23 @@ resource "google_storage_bucket" "instruments_tradfi" {
     action {
       type          = "SetStorageClass"
       storage_class = "NEARLINE"
+    }
+  }
+  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
+  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
+  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
+  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
+  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+      num_newer_versions         = 3
+    }
+    action {
+      type = "Delete"
     }
   }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
@@ -182,6 +216,23 @@ resource "google_storage_bucket" "instruments_defi" {
       storage_class = "NEARLINE"
     }
   }
+  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
+  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
+  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
+  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
+  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+      num_newer_versions         = 3
+    }
+    action {
+      type = "Delete"
+    }
+  }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
@@ -200,6 +251,23 @@ resource "google_storage_bucket" "instruments_sports" {
       storage_class = "NEARLINE"
     }
   }
+  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
+  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
+  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
+  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
+  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+      num_newer_versions         = 3
+    }
+    action {
+      type = "Delete"
+    }
+  }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
@@ -216,6 +284,23 @@ resource "google_storage_bucket" "instruments_prediction" {
     action {
       type          = "SetStorageClass"
       storage_class = "NEARLINE"
+    }
+  }
+  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
+  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
+  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
+  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
+  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+      num_newer_versions         = 3
+    }
+    action {
+      type = "Delete"
     }
   }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
