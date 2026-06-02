@@ -52,9 +52,40 @@ steps:
       - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
       - "."
 
-images:
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:${_GIT_SHA}"
-  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
+  # Push explicitly (not via the `images:` block) so the push completes BEFORE the
+  # redeploy step below — `images:` pushes only after ALL steps finish, which would leave
+  # redeploy-jobs re-resolving the OLD :latest.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push"
+    waitFor: ["build"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -e
+        BASE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}"
+        docker push "$${BASE}:${_GIT_SHA}"
+        docker push "$${BASE}:latest"
+
+  # Re-resolve the maintenance Cloud Run Jobs to the freshly-pushed :latest digest.
+  # Cloud Run Jobs pin the image digest at deploy time, so a rebuilt :latest is NOT picked
+  # up until the job is updated — this makes the jobs track each build automatically.
+  # Failure-tolerant: a job absent in this env logs a WARN and does not fail the build
+  # (the image push already succeeded). Requires the Cloud Build SA to have roles/run.developer
+  # + roles/iam.serviceAccountUser on the jobs' runtime SA (granted 2026-06-02).
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    id: "redeploy-jobs"
+    waitFor: ["push"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        IMG="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
+        for job in uts-prod-tarball-cleanup vm-log-archival-prd; do
+          echo "Re-resolving $${job} -> $${IMG}"
+          gcloud run jobs update "$${job}" --image="$${IMG}" --region="${_REGION}" --project="${PROJECT_ID}" \
+            || echo "WARN: could not update $${job} (may not exist in this env) — image push still succeeded"
+        done
 
 options:
   machineType: "E2_HIGHCPU_8"
