@@ -35,7 +35,7 @@ name: Semver Agent
 
 on:
   workflow_run:
-    workflows: ["Quality Gates"]
+    workflows: ["quality-gates-v2"]
     types: [completed]
     branches: [staging]
 
