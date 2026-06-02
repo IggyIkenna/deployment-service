@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -115,7 +115,10 @@ class TestFixtureCalendarDiagnostic:
         scheduler = _make_scheduler()
 
         now = datetime.now(UTC)
-        kickoff = now.replace(hour=(now.hour + 2) % 24).isoformat()
+        # +2h from "now" — use timedelta, not hour-replace: replace(hour=(h+2)%24)
+        # wraps to the early morning of the SAME day when run at >=22:00 UTC, which
+        # lands in the PAST and falls outside the 48h forward window (time-of-day flake).
+        kickoff = (now + timedelta(hours=2)).isoformat()
         parquet_bytes = _make_fixture_parquet(kickoff)
 
         mock_blob = MagicMock()
@@ -130,7 +133,6 @@ class TestFixtureCalendarDiagnostic:
 
         with (
             patch("deployment_service.sports_trigger_scheduler.DeploymentConfig", return_value=mock_config),
-            patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_config),
             patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
             patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
         ):
