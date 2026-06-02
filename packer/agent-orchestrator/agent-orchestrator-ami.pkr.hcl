@@ -138,12 +138,14 @@ build {
     ]
   }
 
-  // Step 1.5: inject the PAT as a git insteadOf credential in root's config
-  // (warm-cache.sh clones the PRIVATE repos over https as root via `sudo bash`).
-  // Scrubbed in Step 4 cleanup so the token is never baked into the AMI.
+  // Step 1.5: inject the PAT as a git insteadOf credential SYSTEM-wide
+  // (/etc/gitconfig). warm-cache.sh clones the PRIVATE repos via `sudo -S -E bash`,
+  // so git runs as root but with HOME=/home/ubuntu preserved (-E) — it would read
+  // /home/ubuntu/.gitconfig, NOT /root/.gitconfig. --system is read regardless of
+  // HOME. Scrubbed in Step 4 cleanup so the token is never baked into the AMI.
   provisioner "shell" {
     inline = [
-      "sudo git config --global url.\"https://x-access-token:${var.gh_pat}@github.com/\".insteadOf \"https://github.com/\"",
+      "sudo git config --system url.\"https://x-access-token:${var.gh_pat}@github.com/\".insteadOf \"https://github.com/\"",
     ]
   }
 
@@ -168,8 +170,8 @@ build {
   provisioner "shell" {
     inline = [
       // SCRUB the warm-clone PAT — never bake a token into the AMI.
-      "sudo git config --global --remove-section url.\"https://x-access-token:${var.gh_pat}@github.com/\" || true",
-      "sudo rm -f /root/.gitconfig /root/.git-credentials || true",
+      "sudo git config --system --remove-section url.\"https://x-access-token:${var.gh_pat}@github.com/\" || true",
+      "sudo rm -f /root/.gitconfig /home/${var.ssh_username}/.gitconfig /root/.git-credentials || true",
       "sudo apt-get clean",
       "sudo rm -rf /var/lib/apt/lists/*",
       "sudo rm -rf /tmp/* /var/tmp/*",
