@@ -4175,7 +4175,7 @@ requires-dist = [
     { name = "pytest-timeout", specifier = ">=2.4.0,<3.0.0" },
     { name = "pytest-xdist", specifier = ">=3.6.0,<4.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.2,<3.0.0" },
-    { name = "python-multipart", specifier = ">=0.0.26,<1.0.0" },
+    { name = "python-multipart", specifier = ">=0.0.27,<1.0.0" },
     { name = "pyyaml", specifier = ">=6.0.1,<7.0.0" },
     { name = "requests", specifier = ">=2.33.0,<3.0.0" },
     { name = "responses", specifier = ">=0.24.1,<1.0.0" },
@@ -4408,6 +4408,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pandas-stubs" },
     { name = "pip-audit" },
+    { name = "polars" },
     { name = "pre-commit" },
     { name = "pyarrow" },
     { name = "pydantic" },
@@ -4439,6 +4440,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.0,<3.0.0" },
     { name = "pandas-stubs", specifier = ">=2.2.0,<3.0.0" },
     { name = "pip-audit", specifier = ">=2.7.0,<3.0.0" },
+    { name = "polars", specifier = ">=1.37.0,<2.0.0" },
     { name = "pre-commit", specifier = ">=3.0,<4.0.0" },
     { name = "pyarrow", specifier = ">=23.0.0,<24.0.0" },
     { name = "pydantic", specifier = ">=2.12.5,<3.0.0" },
@@ -4583,7 +4585,7 @@ requires-dist = [
     { name = "unified-api-contracts", editable = "../unified-api-contracts" },
     { name = "urllib3", specifier = ">=2.7.0,<3.0.0" },
     { name = "vulture", specifier = ">=2.0,<3.0.0" },
-    { name = "web3", specifier = ">=6.20.0,<7.0.0" },
+    { name = "web3", specifier = ">=6.20.0,<8.0.0" },
 ]
 
 [[package]]
