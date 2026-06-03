@@ -130,6 +130,10 @@ gcp:
       DEFI: "execution-store-defi-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Sports venue-balance snapshot store — EOD snapshots written by VenueBalanceTracker.
+    # Env-tiered (sports_manifest_canonicalisation_2026_06_01.md fix — replaces legacy
+    # no-env `position-store-sports-{pid}` f-string in position/core/venue_balance_tracker.py).
+    position-store-sports: "position-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Commodity features bucket — non-env-split (flat); preserves existing on-disk name.
     # Env-tiering deferred to bucket_env_split_rollout_2026_06.md Phase 1.
     features-commodity: "commodity-signals-batch-${GCP_PROJECT_ID}"
@@ -288,6 +292,8 @@ aws:
       DEFI: "execution-store-defi-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Sports venue-balance snapshot store — mirrors GCP position-store-sports.
+    position-store-sports: "position-store-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Commodity features bucket — non-env-split (flat); mirrors GCP naming convention.
     features-commodity: "commodity-signals-batch-${AWS_ACCOUNT_ID}"
     # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
