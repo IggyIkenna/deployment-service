@@ -45,6 +45,10 @@ editable = true
 path = "../unified-api-contracts"
 editable = true
 
+[tool.uv.sources.unified-api-contracts]
+path = "../unified-api-contracts"
+editable = true
+
 [tool.ruff]
 line-length = 120
 target-version = "py313"
