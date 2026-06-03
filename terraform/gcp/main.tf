@@ -545,6 +545,96 @@ resource "google_storage_bucket" "market_data_defi" {
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
 
+# Dedicated per-type DeFi market-data buckets (canonical-migration targets;
+# cloud-providers.yaml resolves `{stem}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`
+# → `{stem}-prd-<pid>` in prod). C0-PROVISION for defi_manifest_canonicalisation
+# §C — migrate_defi_full_v9_canonical writes oracle/lst/lending/perp/gas data_types
+# to these (dex-pools/dex-swaps already exist). Same shape as market_data_defi.
+resource "google_storage_bucket" "market_data_defi_oracle_prices_prd" {
+  name                        = "oracle-prices-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_lst_rates_prd" {
+  name                        = "lst-rates-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_lending_indices_prd" {
+  name                        = "lending-indices-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_perp_funding_prd" {
+  name                        = "perp-funding-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_gas_fees_prd" {
+  name                        = "gas-fees-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
 resource "google_storage_bucket" "market_data_sports" {
   name     = "market-data-tick-sports-${var.project_id}"
   project  = var.project_id
@@ -1487,7 +1577,7 @@ resource "google_bigquery_dataset" "market_data" {
   location                   = var.region
   description                = "Market data tables — raw ticks and normalized OHLCV"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "market-data" })
+  labels                     = merge(local.common_labels, { "purpose" = "market-data" })
 }
 
 resource "google_bigquery_dataset" "market_data_hft" {
@@ -1496,7 +1586,7 @@ resource "google_bigquery_dataset" "market_data_hft" {
   location                   = "US" # pre-existing dataset created in US — location is immutable
   description                = "HFT market data tables — high-frequency tick and order book data"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "market-data-hft" })
+  labels                     = merge(local.common_labels, { "purpose" = "market-data-hft" })
 
   lifecycle {
     ignore_changes = [description, labels]
@@ -1509,7 +1599,7 @@ resource "google_bigquery_dataset" "features" {
   location                   = var.region
   description                = "Computed feature tables for ML and strategy services"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "feature-store" })
+  labels                     = merge(local.common_labels, { "purpose" = "feature-store" })
 }
 
 resource "google_bigquery_dataset" "ml_models_bq" {
@@ -1518,7 +1608,7 @@ resource "google_bigquery_dataset" "ml_models_bq" {
   location                   = var.region
   description                = "Model metadata, hyperparameters, and evaluation metrics"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "ml-models" })
+  labels                     = merge(local.common_labels, { "purpose" = "ml-models" })
 }
 
 resource "google_bigquery_dataset" "ml_predictions_bq" {
@@ -1527,7 +1617,7 @@ resource "google_bigquery_dataset" "ml_predictions_bq" {
   location                   = var.region
   description                = "ML model predictions and inference results"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "ml-predictions" })
+  labels                     = merge(local.common_labels, { "purpose" = "ml-predictions" })
 }
 
 resource "google_bigquery_dataset" "audit" {
@@ -1536,7 +1626,7 @@ resource "google_bigquery_dataset" "audit" {
   location                   = var.region
   description                = "Audit logs and compliance events"
   delete_contents_on_destroy = false
-  labels = merge(local.common_labels, { "purpose" = "audit" })
+  labels                     = merge(local.common_labels, { "purpose" = "audit" })
 }
 
 # =============================================================================
