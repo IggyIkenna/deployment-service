@@ -82,6 +82,7 @@ class TestVmPrefixRegistration:
         {
             "mdps-features-live-",  # → mdps-features-live-{ag}- all registered
             "mtds-live-",  # → mtds-live-{ag}- all registered
+            "canonical-migration-legacy-",  # → canonical-migration-legacy-{ag}- all registered
         }
     )
 

@@ -92,12 +92,12 @@ gcsfuse memory overhead caused OOM on VMs:
 ```yaml
 # market-tick-data-handler
 gcsfuse_buckets:
-  - instruments-store-cefi-{project_id} # Input
-  - instruments-store-defi-{project_id} # Input
-  - instruments-store-tradfi-{project_id} # Input
-  - market-data-tick-cefi-{project_id} # Output (no benefit!)
-  - market-data-tick-defi-{project_id} # Output (no benefit!)
-  - market-data-tick-tradfi-{project_id} # Output (no benefit!)
+  - instruments-store-cefi-{env}-{project_id} # Input
+  - instruments-store-defi-{env}-{project_id} # Input
+  - instruments-store-tradfi-{env}-{project_id} # Input
+  - market-data-tick-cefi-{env}-{project_id} # Output (no benefit!)
+  - market-data-tick-defi-{env}-{project_id} # Output (no benefit!)
+  - market-data-tick-tradfi-{env}-{project_id} # Output (no benefit!)
 ```
 
 **After:**

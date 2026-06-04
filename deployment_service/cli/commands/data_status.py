@@ -150,36 +150,6 @@ FIXED_DIMENSION_SERVICES = {
         " Flags stale if >15min for CeFi/DeFi, >6h for sports."
     ),
 )
-@click.option(
-    "--source",
-    type=click.Choice(["manifest", "gcs", "auto"], case_sensitive=False),
-    default="auto",
-    envvar="DATA_STATUS_SOURCE",
-    help="Data source: manifest (fast, from catalogue), gcs (slow, blob scanning), auto (try manifest first)",
-)
-@click.option(
-    "--t1-check",
-    type=str,
-    default="",
-    metavar="CLUSTER",
-    help=(
-        "T+1 check: verify yesterday's data for all services in a cluster."
-        " Pass cluster name (cefi, tradfi, defi, sports, full)."
-    ),
-)
-@click.option(
-    "--ml-experiments",
-    is_flag=True,
-    help="List ML training experiments from GCS and check model metadata existence.",
-)
-@click.option(
-    "--live-freshness",
-    is_flag=True,
-    help=(
-        "Report live-mode data freshness (staleness) per asset group."
-        " Flags stale if >15min for CeFi/DeFi, >6h for sports."
-    ),
-)
 @click.pass_context
 def data_status(
     ctx,

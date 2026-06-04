@@ -128,8 +128,18 @@ gcp:
       CEFI: "execution-store-cefi-${GCP_PROJECT_ID}"
       TRADFI: "execution-store-tradfi-${GCP_PROJECT_ID}"
       DEFI: "execution-store-defi-${GCP_PROJECT_ID}"
+      # Sports execution-store — separate per-AG fill/order/manifest store. Sports execution
+      # is event-driven venue-API placement (no canonical GCS reads); results land here so
+      # they are queryable by asset_group=sports rather than in the CeFi bucket. Non-env-split
+      # to match the execution-store family rollback + the shape ExecutionServicesConfig
+      # constructs (execution-store-sports-{pid}).
+      SPORTS: "execution-store-sports-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Sports venue-balance snapshot store — EOD snapshots written by VenueBalanceTracker.
+    # Env-tiered (sports_manifest_canonicalisation_2026_06_01.md fix — replaces legacy
+    # no-env `position-store-sports-{pid}` f-string in position/core/venue_balance_tracker.py).
+    position-store-sports: "position-store-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Commodity features bucket — non-env-split (flat); preserves existing on-disk name.
     # Env-tiering deferred to bucket_env_split_rollout_2026_06.md Phase 1.
     features-commodity: "commodity-signals-batch-${GCP_PROJECT_ID}"
@@ -171,6 +181,15 @@ gcp:
     evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Dedicated per-type DeFi market-data buckets (canonical migration target {stem}-prd-{pid};
+    # added 2026-06-02 so data-status / manifest-handlers resolve via resolve_bucket_name() instead of
+    # hardcoded f-strings — A11). dex-pools/dex-swaps/evm-defi/eigenlayer-rewards/solana-defi above.
+    lending-indices: "lending-indices-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    lst-rates: "lst-rates-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    oracle-prices: "oracle-prices-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    perp-funding: "perp-funding-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    gas-fees: "gas-fees-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    liquidations: "liquidations-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Per-asset-group pnl/positions/risk DeFi stores. Aligned to standard GCP shape
     # `{prefix}-{asset_group}-{env}-{project_id}` (2026-05-13, Q7(b) resolved — buckets were
     # empty so no data migration needed; old names deleted). AWS shape unchanged (already correct).
@@ -277,8 +296,12 @@ aws:
       CEFI: "execution-store-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "execution-store-tradfi-${AWS_ACCOUNT_ID}"
       DEFI: "execution-store-defi-${AWS_ACCOUNT_ID}"
+      # Sports execution-store — mirrors GCP (separate per-AG fill/order/manifest store).
+      SPORTS: "execution-store-sports-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Sports venue-balance snapshot store — mirrors GCP position-store-sports.
+    position-store-sports: "position-store-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Commodity features bucket — non-env-split (flat); mirrors GCP naming convention.
     features-commodity: "commodity-signals-batch-${AWS_ACCOUNT_ID}"
     # Per-asset-group market-data + instruments. Env-tiered per (b+) Phase 0e (mirrors GCP).
@@ -308,6 +331,13 @@ aws:
     evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Dedicated per-type DeFi market-data buckets (A11, 2026-06-02) — mirrors GCP keys 1:1.
+    lending-indices: "lending-indices-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    lst-rates: "lst-rates-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    oracle-prices: "oracle-prices-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    perp-funding: "perp-funding-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    gas-fees: "gas-fees-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    liquidations: "liquidations-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Per-asset-group DeFi pnl/positions/risk stores — already symmetric (Q7(b) 2026-05-13).
     pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"

@@ -20,11 +20,15 @@ from unified_api_contracts.sports import (
     get_league_fixture_calendar,
 )
 from unified_trading_library import (
+    AssetGroup,
     get_bucket_name,
+    get_cloud_provider,
     get_project_id,
     get_storage_client,
     read_availability_index,
+    resolve_bucket_name,
 )
+from unified_trading_library.cloud_interface.bucket_naming import Cloud  # noqa: qg-deep-import
 
 _ALL_CATEGORIES = [str(c) for c in MarketCategory]
 
@@ -38,6 +42,13 @@ _PIPELINE_START_DATE = "2019-01-01"
 # ── Bucket resolution: uses same templates as catalog.py SERVICE_GCS_CONFIGS ──
 # Maps service → bucket template. Templates use {asset_group_lower} and {project_id}.
 # Services without {asset_group_lower} use a shared bucket (no per-category split).
+#
+# NOTE (A11, 2026-06-02): services whose buckets have a canonical
+# `cloud-providers.yaml` kind are resolved via `resolve_bucket_name()` instead of
+# these legacy templates (see `_SERVICE_TO_CANONICAL_KIND` below) so data-status
+# survives migrations that delete the legacy non-env-tiered buckets. The remaining
+# template strings are the still-pre-canonical services (kept verbatim until their
+# own canonicalisation sweep).
 BUCKET_TEMPLATES: dict[str, str] = {
     "instruments-service": "instruments-store-{asset_group_lower}-{project_id}",
     "corporate-actions": "instruments-store-{asset_group_lower}-{project_id}",
@@ -74,22 +85,34 @@ _SHARED_BUCKET_SERVICES = {
     "alerting-service",
 }
 
-# MTDS DeFi operations write to additional buckets beyond the main category bucket.
-# These are scanned alongside the primary bucket when querying MTDS defi data.
-_EXTRA_BUCKETS: dict[str, dict[str, list[str]]] = {
+# Services whose primary bucket has a canonical `cloud-providers.yaml` kind.
+# Resolved via `resolve_bucket_name(cloud=..., kind=..., asset_group=...)` so the
+# env-tiered canonical name (e.g. market-data-tick-defi-${DEPLOYMENT_ENV_SHORT}-{pid})
+# is always used and the reader survives legacy-bucket deletion (A11, 2026-06-02).
+_SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
+    "market-tick-data-service": "market-data",
+    "market-data-processing-service": "market-data",
+}
+
+# MTDS DeFi operations write to additional per-type buckets beyond the main
+# category bucket. These are scanned alongside the primary bucket when querying
+# MTDS defi data. Each entry is a canonical `cloud-providers.yaml` kind resolved
+# via `resolve_bucket_name()` (A11, 2026-06-02) — never a hardcoded f-string —
+# so they pick up the env tier and survive migrations that delete legacy buckets.
+_EXTRA_BUCKET_KINDS: dict[str, dict[str, list[str]]] = {
     "market-tick-data-service": {
         "defi": [
-            "gas-fees-{project_id}",
-            "evm-defi-{project_id}",
-            "solana-defi-{project_id}",
-            "lending-indices-{project_id}",
-            "dex-pools-{project_id}",
-            "lst-rates-{project_id}",
-            "perp-funding-{project_id}",
-            "liquidations-{project_id}",
-            "dex-swaps-{project_id}",
-            "oracle-prices-{project_id}",
-            "eigenlayer-rewards-{project_id}",
+            "gas-fees",
+            "evm-defi",
+            "solana-defi",
+            "lending-indices",
+            "dex-pools",
+            "lst-rates",
+            "perp-funding",
+            "liquidations",
+            "dex-swaps",
+            "oracle-prices",
+            "eigenlayer-rewards",
         ],
     },
 }
@@ -155,8 +178,10 @@ class ManifestReader:
             # Probe with a real bucket — instruments-store-cefi is the most
             # common and always exists.  An empty string fails silently on
             # some cloud backends, giving a false negative.
-            project_id = self._get_project_id()
-            probe_bucket = get_bucket_name("instruments", "CEFI", project_id=project_id)
+            # No explicit project_id → delegates to cloud-providers.yaml SSOT →
+            # env-tiered ``instruments-store-cefi-prd-{pid}`` canonical probe bucket
+            # (never the legacy no-env form decommissioned at the cefi cutover).
+            probe_bucket = get_bucket_name("instruments", "CEFI")
             read_availability_index(probe_bucket)
             self._available = True
         except Exception:
@@ -764,7 +789,21 @@ class ManifestReader:
     # ------------------------------------------------------------------
 
     def _resolve_bucket(self, service: str, asset_group: str) -> str:
-        """Resolve primary bucket name using real templates from SERVICE_GCS_CONFIGS."""
+        """Resolve primary bucket name.
+
+        Services with a canonical ``cloud-providers.yaml`` kind resolve via
+        ``resolve_bucket_name()`` (env-tiered SSOT); the rest fall back to the
+        legacy ``BUCKET_TEMPLATES`` strings until their own canonicalisation sweep.
+        """
+        canonical_kind = _SERVICE_TO_CANONICAL_KIND.get(service)
+        if canonical_kind is not None:
+            ag = cast(AssetGroup, asset_group.lower()) if asset_group else None
+            return resolve_bucket_name(
+                cloud=cast(Cloud, get_cloud_provider()),
+                kind=canonical_kind,
+                asset_group=ag,
+            )
+
         template = BUCKET_TEMPLATES.get(service)
         if not template:
             # Fallback for unknown services
@@ -784,9 +823,26 @@ class ManifestReader:
         """Resolve primary bucket + any extra buckets for the service/asset_group pair."""
         primary = self._resolve_bucket(service, asset_group)
         buckets = [primary]
-        extras = _EXTRA_BUCKETS.get(service, {}).get(asset_group.lower(), [])
-        if extras:
-            project_id = self._get_project_id()
-            for tmpl in extras:
-                buckets.append(tmpl.format(project_id=project_id))
+        extra_kinds = _EXTRA_BUCKET_KINDS.get(service, {}).get(asset_group.lower(), [])
+        if extra_kinds:
+            cloud = cast(Cloud, get_cloud_provider())
+            ag = cast(AssetGroup, asset_group.lower()) if asset_group else None
+            for kind in extra_kinds:
+                # Flat-string kinds (dex-pools etc.) ignore asset_group; pass it
+                # through for uniformity — the resolver drops it for flat kinds.
+                buckets.append(resolve_bucket_name(cloud=cloud, kind=kind, asset_group=ag))
         return buckets
+
+    def resolve_all_buckets(self, service: str, asset_group: str) -> list[str]:
+        """Public wrapper: resolve every manifest bucket for a service/asset_group.
+
+        Every name is produced via ``resolve_bucket_name`` (the bucket-name SSOT) —
+        never an inline ``gs://`` string. Used by the deployment-API data-status
+        route to feed canonical buckets into ``compute_coverage_for_bucket``.
+        """
+        return self._resolve_all_buckets(service, asset_group)
+
+
+def all_asset_group_categories() -> list[str]:
+    """Public accessor for the full asset-group/category list (MarketCategory)."""
+    return list(_ALL_CATEGORIES)

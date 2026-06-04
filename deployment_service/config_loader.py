@@ -113,7 +113,9 @@ class ConfigLoader(BaseConfigLoader):
                 return content
             logger.warning("PM topology not found at %s", pm_path)
 
-        logger.warning("runtime-topology.yaml not found. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT.")
+        logger.debug(
+            "runtime-topology.yaml not found; using empty defaults. Set RUNTIME_TOPOLOGY_PATH or WORKSPACE_ROOT to enable."
+        )
         return {}
 
     def list_available_services(self) -> list[str]:

@@ -36,7 +36,7 @@
 # Same code path as launch-canonical-migration-vm.sh DEFI path / the existing
 # DEFI MTDS adapter set — this launcher runs the rolling 1-day pass.
 #
-# Writes to: gs://market-data-tick-defi-central-element-323112/by_date/...
+# Writes to: gs://market-data-tick-defi-prd-central-element-323112/by_date/...
 #
 # Invocation inside the VM:
 #   python -m market_tick_data_service \

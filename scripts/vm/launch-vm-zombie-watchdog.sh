@@ -155,9 +155,22 @@ done
 apt-get install -y software-properties-common 2>&1 | tail -2 || true
 add-apt-repository ppa:deadsnakes/ppa -y 2>&1 | tail -2 || true
 apt-get update -y 2>&1 | tail -2 || true
-apt-get install -y python3.13 python3.13-venv 2>&1 | tail -2 || true
+apt-get install -y python3.13 python3.13-venv python3.13-dev 2>&1 | tail -2 || true
+
+# Install C toolchain + dev headers for source-builds of UTL's transitive C
+# extensions (ckzg, lru-dict, via web3). The 2026-05-24→27 incident assumed an
+# upgraded pip alone would pull cp313 manylinux wheels — in practice these
+# packages still source-build on python3.13 (no manylinux_2_28 cp313 wheel),
+# so gcc + Python.h + libssl + libffi must be present or the watchdog
+# re-enters the same ModuleNotFoundError crash-loop. Observed 2026-05-28 on
+# vm-zombie-watchdog-20260528-112656: same crash despite the pip-upgrade fix.
+apt-get install -y build-essential libssl-dev libffi-dev pkg-config 2>&1 | tail -2 || true
 
 python3.13 -m venv /opt/watchdog-venv
+
+# Upgrade pip FIRST. Pulls prebuilt wheels when available; falls back to
+# source builds (now possible thanks to the build-essential install above).
+/opt/watchdog-venv/bin/pip install --quiet --upgrade pip 2>&1 | tail -1 || true
 
 # Install google-cloud packages + UAC into the Python 3.13 venv.
 /opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
@@ -178,6 +191,34 @@ if [[ -f /tmp/utl.tar.gz ]]; then
     tar xf /tmp/utl.tar.gz -C /tmp/utl-src --strip-components=1 2>&1 | head -5 || true
     /opt/watchdog-venv/bin/pip install --quiet /tmp/utl-src 2>&1 | tail -3 || true
 fi
+
+# Stage cloud-providers.yaml SSOT (needed by UTL resolve_bucket_name at
+# watchdog module-load; watchdog computes _TICK_CEFI = _b('market-data','cefi')
+# at import time, which calls _load_cloud_providers_yaml). Extract from the
+# deployment-service tarball + export the env override so probing succeeds
+# regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
+# and no zombies get reaped — observed 2026-05-28.
+gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
+if [[ -f /tmp/dep.tar.gz ]]; then
+    mkdir -p /tmp/dep-src
+    tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
+    # Install the package so watchdog's _backup_vm_logs_before_kill can
+    # import deployment_service.deployments_registry at kill time (2026-05-28).
+    /opt/watchdog-venv/bin/pip install --quiet --no-deps /tmp/dep-src 2>&1 | tail -3 || true
+fi
+export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
+
+# cloud-providers.yaml bucket-name templates reference \${GCP_PROJECT_ID} +
+# \${DEPLOYMENT_ENV_SHORT} (e.g. market-data-tick-cefi-\${DEPLOYMENT_ENV_SHORT}-\${GCP_PROJECT_ID}).
+# UTL _substitute_env_vars raises BucketNamingError on any unset var, so both
+# must be exported before the watchdog imports — 2026-05-28 incident.
+export GCP_PROJECT_ID=${PROJECT}
+export PROJECT_ID=${PROJECT}
+case "${DEPLOYMENT_ENV}" in
+    prod)    export DEPLOYMENT_ENV_SHORT=prd ;;
+    staging) export DEPLOYMENT_ENV_SHORT=stg ;;
+    dev)     export DEPLOYMENT_ENV_SHORT=dev ;;
+esac
 
 ${LOOP_CMD}
 "

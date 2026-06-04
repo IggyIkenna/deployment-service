@@ -12,9 +12,9 @@
 #
 # ## Substitution placeholders (rendered by rollout-workflow-templates.sh):
 #
-# - `unified-trading-library unified-api-contracts` — rendered from workspace-manifest.json
-# - `alerting-service` — repo name
-# - `alerting_service` — Python source dir
+# - `unified-trading-library deployment-api unified-api-contracts strategy-service market-tick-data-service` — rendered from workspace-manifest.json
+# - `deployment-service` — repo name
+# - `deployment_service` — Python source dir
 
 name: quality-gates-v2
 

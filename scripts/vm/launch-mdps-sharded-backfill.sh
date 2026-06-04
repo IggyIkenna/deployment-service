@@ -46,15 +46,23 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Default e2-standard-8 (32GB) is sufficient for cefi/defi/sports/prediction.
-# TradFi options-heavy days (legacy ticks.parquet bundles with 4000+ symbols
-# loaded into one Polars DataFrame) hit OOM/SIGKILL on 32GB — incidents
-# 2026-05-06 (2 of 7 sharded VMs killed mid-flight) + 2026-05-07
-# (mdps-tradfi-2025 OOM-killed at 86.5% RSS).
+# TradFi options-heavy days use e2-highmem-8 (64GB) + max-workers=2; see below.
+#
+# TradFi memory mitigation — attribution (2026-05-28 audit, plan task 4.2):
+#   This mitigation targets the BUNDLE-READER issue, NOT the filter-pushdown bug
+#   fixed at MDPS commit e47205d. Root cause: legacy ticks.parquet bundles contain
+#   4000+ symbols in one DataFrame; one bundle load occupies ~25-30 GB before
+#   any per-instrument work begins. Incidents: 2026-05-06 (2/7 sharded VMs
+#   OOM-killed mid-flight) + 2026-05-07 (mdps-tradfi-2025 at 86.5% RSS).
+#   The filter-pushdown fix shrinks the FILE LIST the scanner returns; it does NOT
+#   shrink any single bundle file's in-memory footprint. Reverting this mitigation
+#   would still OOM. Unblock: bundle-reader streaming refactor (lazify so only the
+#   requested symbols are loaded per bundle), tracked in
+#   plans/active/mdps_long_running_multi_shard_architecture_audit_2026_05_28.md.
+#   Leave this mitigation in place until that refactor ships.
 #
 # Auto-defaults below are chosen per-asset_group; explicit MACHINE_TYPE /
-# MDPS_MAX_WORKERS env overrides still win. TradFi gets e2-highmem-8 (64GB) +
-# max-workers=2 (halves concurrent peak footprint vs default 4) until the MDPS
-# streaming refactor lazifies the bundle reader. Operator override pattern:
+# MDPS_MAX_WORKERS env overrides still win. Operator override pattern:
 #   MACHINE_TYPE=e2-standard-8 MDPS_MAX_WORKERS=4 bash launch-mdps-sharded-backfill.sh tradfi
 MACHINE_TYPE_OVERRIDE="${MACHINE_TYPE:-}"
 MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
@@ -166,8 +174,8 @@ _filter_year() {
 }
 
 # Per-asset-group resource defaults.
-# tradfi: high-memory + halved concurrency (legacy ticks.parquet bundles with
-# 4000+ symbols hit OOM on 32GB; halving max_workers further bounds peak).
+# tradfi: e2-highmem-8 + max-workers=2 — bundle-reader memory mitigation
+# (see header comment for attribution; leave until streaming refactor ships).
 # All others: standard 32GB / default workers.
 _machine_type_for() {
     case "$1" in
@@ -223,7 +231,7 @@ launch_year_shard() {
     local env_short
     case "$DEPLOYMENT_ENV" in
         prod)    env_short="prd" ;;
-        staging) env_short="staging" ;;
+        staging) env_short="stg" ;;
         dev)     env_short="dev" ;;
         *)       env_short="$DEPLOYMENT_ENV" ;;
     esac

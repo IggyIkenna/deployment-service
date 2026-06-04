@@ -46,7 +46,7 @@ Assumptions: 1 vCPU + 4 Gi (sharding YAML values); estimated 10 min per category
 ## Data Flow
 
 - **Source:** DeFi protocol APIs (lending rates, LST yields, macro sentiment endpoints)
-- **Sink:** GCS features bucket (shared, no category suffix: `features-onchain-{project_id}`)
+- **Sink:** GCS features bucket (shared, no category suffix: `features-onchain-{env}-{project_id}`)
 
 ## Feature Groups Produced
 

@@ -82,6 +82,12 @@ variable "slack_webhook_url_secret_arn" {
   type        = string
 }
 
+variable "uts_live_alerts_slack_webhook_secret_arn" {
+  description = "ARN of Secrets Manager secret for the #uts-live-alerts Slack webhook (live-ops alert mirror)"
+  type        = string
+  default     = ""
+}
+
 variable "live_workflow_name" {
   description = "Name of the live alerting Step Functions workflow"
   type        = string

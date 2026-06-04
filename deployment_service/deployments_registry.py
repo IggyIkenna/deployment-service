@@ -47,6 +47,93 @@ def _resolve_default_bucket() -> str:
     return f"deployment-scripts-{proj}" if proj else ""
 
 
+def vm_log_stream_uri(vm_name: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's live log stream.
+
+    Live logs are streamed to this path every 30s by heartbeat_daemon.py.
+    This prefix has a 14-day delete lifecycle.
+
+    Returns: gs://deployment-scripts-{project}/vm-logs/{vm}/run.log
+
+    This function IS the SSOT for the VM live-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/vm-logs/{vm_name}/run.log"  # noqa: gs-uri  — canonical VM live-log path SSOT
+
+
+def vm_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived logs.
+
+    Archived logs persist indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/
+
+    This function IS the SSOT for the VM archive-log path shape — callers must
+    use it instead of constructing the URI themselves (the analogue of the
+    bucket-naming SSOT pattern). The scheme literal here is intentional.
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/snapshot_{timestamp}/{vm_name}/"  # noqa: gs-uri  — canonical VM archive-log path SSOT
+
+
+def vm_serial_console_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived serial console output.
+
+    Serial console is captured via GCP API and persists indefinitely.
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/serial-console.txt
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}serial-console.txt"
+
+
+def vm_run_log_archive_uri(vm_name: str, timestamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's archived run.log.
+
+    Archived run.log persists indefinitely (no lifecycle rule).
+    The timestamp should be in YYYYMMDD_HHMM format.
+
+    Returns: gs://deployment-scripts-{project}/log-archive/snapshot_{timestamp}/{vm}/run.log
+    """
+    base = vm_log_archive_uri(vm_name, timestamp, project_id)
+    return f"{base}run.log"
+
+
+def vm_serial_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a long-lived VM's rolling serial capture.
+
+    Distinct from the snapshot-style serial path (vm_serial_console_archive_uri):
+    rolling captures run on a schedule for LONG_LIVED_LIVE / SCHEDULED_RECURRING VMs
+    to preserve serial output before the ring buffer wraps.
+
+    date_stamp should be YYYYMMDD format (one bucket per calendar day;
+    captures within the same day are idempotent — existing objects are skipped).
+
+    Returns: gs://deployment-scripts-{project}/log-archive/serial-rolling/{date}/{vm}/serial-console.txt
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/serial-rolling/{date_stamp}/{vm_name}/serial-console.txt"  # noqa: gs-uri  — canonical rolling serial path SSOT
+
+
+def vm_run_log_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None = None) -> str:
+    """Return the canonical GCS URI for a VM's daily-rolled run.log.
+
+    The daily archival cron (vm_log_archival_cron.py) copies vm-logs/{vm}/run.log →
+    log-archive/rolling/{date}/{vm}/run.log on a daily schedule, escaping the 14-day
+    TTL on the vm-logs/ prefix.
+
+    date_stamp should be YYYYMMDD format (daily granularity).
+
+    Returns: gs://deployment-scripts-{project}/log-archive/rolling/{date}/{vm}/run.log
+    """
+    bucket = f"deployment-scripts-{project_id}" if project_id else DEFAULT_BUCKET
+    return f"gs://{bucket}/log-archive/rolling/{date_stamp}/{vm_name}/run.log"  # noqa: gs-uri  — canonical rolling run.log path SSOT
+
+
 # Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
 # Empty string at import time = no GCP_PROJECT_ID set (e.g. unit tests); callers
 # must pass ``bucket=`` explicitly in that case.
@@ -421,4 +508,10 @@ __all__ = [
     "DeploymentRegistryEntry",
     "DeploymentsRegistry",
     "InMemoryStorageClient",
+    "vm_log_archive_uri",
+    "vm_log_stream_uri",
+    "vm_run_log_archive_uri",
+    "vm_run_log_rolling_uri",
+    "vm_serial_console_archive_uri",
+    "vm_serial_rolling_uri",
 ]

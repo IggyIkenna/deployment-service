@@ -29,7 +29,7 @@
 
 ### 1.1 instruments-service
 
-**Bucket:** `instruments-store-{category}-{project_id}` (3 buckets: CEFI, TRADFI, DEFI)
+**Bucket:** `instruments-store-{category}-{env}-{project_id}` (3 buckets: CEFI, TRADFI, DEFI)
 
 | Data Type                | Size       | Notes                           |
 | ------------------------ | ---------- | ------------------------------- |
@@ -45,7 +45,7 @@
 
 ### 1.2 market-tick-data-handler
 
-**Buckets:** `market-data-tick-{category}-{project_id}` (3 buckets)
+**Buckets:** `market-data-tick-{category}-{env}-{project_id}` (3 buckets)
 
 | Instrument             | Data Types             | Size/Day   | 6 Years | Notes                              |
 | ---------------------- | ---------------------- | ---------- | ------- | ---------------------------------- |
@@ -111,7 +111,7 @@ Phase 5a).
 
 ### 1.5 features-calendar-service
 
-**Bucket:** `features-calendar-{project_id}` (universal, no category)
+**Bucket:** `features-calendar-{env}-{project_id}` (universal, no category)
 
 | Feature Type    | Size/Month  | 6 Years    | Notes                     |
 | --------------- | ----------- | ---------- | ------------------------- |
@@ -129,8 +129,8 @@ Phase 5a).
 
 **Buckets:**
 
-- `ml-training-artifacts-{project_id}` (intermediate outputs)
-- `ml-models-store-{project_id}` (final models)
+- `ml-training-artifacts-{env}-{project_id}` (intermediate outputs)
+- `ml-models-store-{env}-{project_id}` (final models)
 
 | Artifact Type                       | Size/Model | Models | Total       | Notes                      |
 | ----------------------------------- | ---------- | ------ | ----------- | -------------------------- |
@@ -149,7 +149,7 @@ Phase 5a).
 
 ### 1.7 ml-inference-service
 
-**Bucket:** `ml-predictions-store-{project_id}`
+**Bucket:** `ml-predictions-store-{env}-{project_id}`
 
 | Timeframe          | Predictions/Day | Size/Day    | 6 Years    | Notes          |
 | ------------------ | --------------- | ----------- | ---------- | -------------- |
@@ -1233,14 +1233,14 @@ cd deployment-service
 Week 1: Verify NEARLINE transitions (3 days)
 
 ```bash
-gsutil ls -L gs://features-delta-one-cefi-{project}/by_date/**/*.parquet | \
+gsutil ls -L gs://features-delta-one-cefi-{env}-{project}/by_date/**/*.parquet | \
   grep "Storage class" | sort | uniq -c
 ```
 
 Week 2: Validate COLDLINE transitions (14 days)
 
 ```bash
-gsutil ls -Lr gs://market-data-tick-cefi-{project}/raw_tick_data/ | \
+gsutil ls -Lr gs://market-data-tick-cefi-{env}-{project}/raw_tick_data/ | \
   grep "Storage class" | awk '{print $3}' | sort | uniq -c
 ```
 

@@ -14,6 +14,8 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from unified_api_contracts import CaptureStatusCounts, compute_honest_coverage
+from unified_trading_library import compute_coverage_for_bucket
 
 from deployment_service.deployment.state import StateManager
 from deployment_service.deployment_config import DeploymentConfig
@@ -203,7 +205,18 @@ async def get_data_status(
     asset_groups: list[str] | None = None,
     venues: list[str] | None = None,
 ) -> dict[str, object]:
-    """Query data status for a service."""
+    """Query data status for a service.
+
+    The catalog ``to_dict()`` retains the existing file-existence completion
+    fields (``overall_completion`` / ``complete_entries`` / ``entries``) the UI
+    consumes. The canonical 5-field honest-coverage ratio is computed separately
+    via UTL's ``compute_coverage_for_bucket`` — the single SSOT formula owned by
+    UAC's ``compute_honest_coverage`` — and returned additively under
+    ``coverage`` / ``coverage_counts`` so the data-status endpoint never
+    re-implements the manifest read or coverage formula inline.
+
+    SSOT: codex/06-coding-standards/data-status-endpoint-contract.md (STEP 5.90).
+    """
     try:
         from deployment_service.catalog import DataCatalog
 
@@ -213,10 +226,63 @@ async def get_data_status(
             start_date=date.fromisoformat(start_date),
             end_date=date.fromisoformat(end_date),
         )
-        return result.to_dict()
+        payload = result.to_dict()
+
+        # Canonical honest-coverage: route through the UTL/UAC SSOT helper
+        # rather than computing a coverage ratio inline (contract banned pattern).
+        counts, ratio = _canonical_coverage(
+            service=service,
+            start_date=date.fromisoformat(start_date),
+            end_date=date.fromisoformat(end_date),
+            asset_groups=asset_groups,
+        )
+        payload["coverage"] = round(ratio, 6)
+        payload["coverage_counts"] = counts._asdict()
+        return payload
     except (OSError, ValueError, RuntimeError) as e:
         logger.error("get_data_status failed for %s: %s", service, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _canonical_coverage(
+    *,
+    service: str,
+    start_date: date,
+    end_date: date,
+    asset_groups: list[str] | None,
+) -> tuple[CaptureStatusCounts, float]:
+    """Compute honest coverage for *service* via the canonical UTL helper.
+
+    Sums the per-(bucket, asset_group) ``CaptureStatusCounts`` returned by
+    ``compute_coverage_for_bucket`` (which delegates to UAC
+    ``compute_honest_coverage``), then re-applies the canonical formula to the
+    aggregate. Bucket names are resolved through ``resolve_bucket_name`` (via
+    ``ManifestReader.resolve_all_buckets``) — never an inline ``gs://`` string.
+    Per-bucket read failures degrade to zero counts so the additive coverage
+    field never breaks the endpoint.
+    """
+    from deployment_service.cli.utils.manifest_reader import ManifestReader, all_asset_group_categories
+
+    reader = ManifestReader()
+    cat_list = asset_groups or all_asset_group_categories()
+
+    totals = [0, 0, 0, 0, 0]
+    for cat in cat_list:
+        for bucket in reader.resolve_all_buckets(service, str(cat)):
+            try:
+                counts, _ratio = compute_coverage_for_bucket(
+                    bucket,
+                    asset_group=str(cat).lower() if cat else None,
+                    date_range=(start_date, end_date),
+                )
+            except (OSError, ValueError, RuntimeError, KeyError) as cov_err:
+                logger.debug("coverage read failed for bucket %s: %s", bucket, cov_err)
+                continue
+            for i, v in enumerate(counts):
+                totals[i] += int(v)
+
+    aggregate = CaptureStatusCounts(*totals)
+    return aggregate, compute_honest_coverage(aggregate)
 
 
 # ---------------------------------------------------------------------------

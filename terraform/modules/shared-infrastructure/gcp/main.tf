@@ -292,31 +292,6 @@ resource "google_storage_bucket" "ml_training_artifacts" {
   )
 }
 
-# ML Training Artifacts (experiments, SHAP, grid configs, stage artifacts)
-resource "google_storage_bucket" "ml_training_artifacts" {
-  count = var.create_gcs_buckets ? 1 : 0
-
-  name     = "ml-training-artifacts-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "ml-training-service"
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
 # =============================================================================
 # GCS Buckets - Strategy & Execution Services (per domain)
 # =============================================================================

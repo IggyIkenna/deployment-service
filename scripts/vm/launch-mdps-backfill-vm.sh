@@ -31,6 +31,40 @@
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
 #
+# Force-reprocess (densify reprocess — re-write already-captured candle cells):
+#   --force                                            # or FORCE=true env. Threads --force into the
+#                                                      # MDPS `process` CLI (_write_candles(force=True)),
+#                                                      # so existing parquets are re-aggregated with the
+#                                                      # dense / no-leading-NaN finalizer instead of being
+#                                                      # SKIPed as fresh-in-manifest. Use for the leading-NaN
+#                                                      # historical remediation (mdps_state_adapter_leading_nan_audit_2026_05_29.md).
+#                                                      # Example (densify cefi state adapters over the read window):
+#                                                      #   bash launch-mdps-backfill-vm.sh --force cefi 2025-01-01 2026-04-18 full
+#
+# Narrow-scope filters (all optional; omit for full-category sweep):
+#   --data-types trades                                # space-separated; MDPS_DATA_TYPES
+#   --venues "BINANCE-FUTURES BYBIT"                   # space-separated; MDPS_VENUES
+#   --instrument-ids "BINANCE-FUTURES:PERPETUAL:BTCUSDT BINANCE-FUTURES:PERPETUAL:ETHUSDT"
+#                                                      # RECOMMENDED: canonical VENUE:INSTRUMENT_TYPE:SYMBOL
+#                                                      # Each segment matched independently against hive path:
+#                                                      #   venue=BINANCE-FUTURES/instrument_type=perpetual/BTCUSDT.parquet
+#                                                      # LEGACY (deprecated): bare symbol e.g. "BTCUSDT"
+#                                                      #   Triggers substring match + deprecation log; will be
+#                                                      #   removed in a future release. Use canonical form.
+#                                                      # Codex SSOT: codex/06-coding-standards/cli-convention.md
+#                                                      #   § "Instrument Identity and CLI Granularity"
+#                                                      # UAC parser: from unified_api_contracts.canonical import parse_instrument_key
+#   --output-bucket market-data-tick-cefi-test-central-element-323112
+#                                                      # MDPS_OUTPUT_BUCKET_{CAT}; writes go here
+#
+# Example — 3.X-3 16-day narrow-scope canary (plan mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md):
+#   bash launch-mdps-backfill-vm.sh \
+#     --data-types trades \
+#     --venues "BINANCE-FUTURES BYBIT" \
+#     --instrument-ids "BINANCE-FUTURES:PERPETUAL:BTCUSDT BINANCE-FUTURES:PERPETUAL:ETHUSDT BYBIT:PERPETUAL:BTCUSDT BYBIT:PERPETUAL:ETHUSDT" \
+#     --output-bucket market-data-tick-cefi-test-central-element-323112 \
+#     cefi 2026-04-15 2026-04-30 full
+#
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
@@ -39,13 +73,30 @@ set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 SOURCE_BUCKET_OVERRIDE=""
+FILTER_DATA_TYPES=""
+FILTER_VENUES=""
+FILTER_INSTRUMENT_IDS=""
+OUTPUT_BUCKET_OVERRIDE=""
+# --force / FORCE=true env (universal launcher contract, deployment-api backfill_launch.py
+# _build_argv): threads `--force` into the MDPS `process` CLI, which sets
+# `_write_candles(force=True)` so already-`captured` cells are re-written instead of
+# short-circuiting on `blob_exists`. This is the densify-reprocess lever for the
+# MDPS leading-NaN historical remediation (issue mdps_state_adapter_leading_nan_audit_2026_05_29.md
+# `[DATA] P1`). Without it the `mdps-backfill` VM_TASK branch in setup-data-pipeline-vm.sh
+# runs VM_BACKFILL_CMD verbatim and never re-processes fresh-in-manifest cells.
+FORCE_REPROCESS="${FORCE:-false}"
 
-# Pre-parse --env <val> and --source-bucket <val> before positional args.
+# Pre-parse --env, --source-bucket, --force, and narrow-scope filter flags before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --source-bucket) SOURCE_BUCKET_OVERRIDE="$2"; shift 2 ;;
+        --data-types) FILTER_DATA_TYPES="$2"; shift 2 ;;
+        --venues) FILTER_VENUES="$2"; shift 2 ;;
+        --instrument-ids) FILTER_INSTRUMENT_IDS="$2"; shift 2 ;;
+        --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
+        --force) FORCE_REPROCESS="true"; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -59,11 +110,27 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-8"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="50"
 
+# Filter pass-through (added 2026-05-28 for filter-pushdown canary verification —
+# see unified-trading-pm/plans/active/mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md
+# Phase 3). Unset by default → no behavior change for existing callers; when
+# set, exported on the VM so cli/main.py::_build_legacy_argv translates them
+# into --data-types / --venues / --instrument-ids.
+MDPS_DATA_TYPES_OVERRIDE="${MDPS_DATA_TYPES:-}"
+MDPS_VENUES_OVERRIDE="${MDPS_VENUES:-}"
+MDPS_INSTRUMENT_IDS_OVERRIDE="${MDPS_INSTRUMENT_IDS:-}"
+MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
+# Test-isolation write target (config.py:497 — MDPS_OUTPUT_BUCKET_{CAT})
+MDPS_OUTPUT_BUCKET_CEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_CEFI:-}"
+MDPS_OUTPUT_BUCKET_DEFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_DEFI:-}"
+MDPS_OUTPUT_BUCKET_TRADFI_OVERRIDE="${MDPS_OUTPUT_BUCKET_TRADFI:-}"
+MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
+MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
+
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] [--force] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -106,9 +173,32 @@ _launch() {
     # Source-bucket env var is read by MDPS config.py (line 75-80) to locate the
     # raw tick bucket. Without it, every shard fails with "No source bucket
     # configured for category=…" before any candle is produced.
-    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${PROJECT}}"
+    local env_short
+    case "$DEPLOYMENT_ENV" in
+        prod)    env_short="prd" ;;
+        staging) env_short="stg" ;;
+        dev)     env_short="dev" ;;
+        *)       env_short="$DEPLOYMENT_ENV" ;;
+    esac
+    local source_bucket="${SOURCE_BUCKET_OVERRIDE:-market-data-tick-${cat}-${env_short}-${PROJECT}}"
     local cmd="PROTOCOL_DATA_SOURCE_BUCKET_${cat_upper}=${source_bucket}"
     cmd="$cmd MDPS_ASSET_GROUP=$cat_upper"
+    # Narrow-scope filter env vars — only set when flags are passed.
+    # Values with spaces are single-quoted so bash -c "$cmd" parses them
+    # correctly on the VM. Canonical instrument IDs: VENUE:ITYPE:SYMBOL
+    # (supported since market-data-processing-service@9ea08c8).
+    if [[ -n "$FILTER_DATA_TYPES" ]]; then
+        cmd="$cmd MDPS_DATA_TYPES='${FILTER_DATA_TYPES}'"
+    fi
+    if [[ -n "$FILTER_VENUES" ]]; then
+        cmd="$cmd MDPS_VENUES='${FILTER_VENUES}'"
+    fi
+    if [[ -n "$FILTER_INSTRUMENT_IDS" ]]; then
+        cmd="$cmd MDPS_INSTRUMENT_IDS='${FILTER_INSTRUMENT_IDS}'"
+    fi
+    if [[ -n "$OUTPUT_BUCKET_OVERRIDE" ]]; then
+        cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=${OUTPUT_BUCKET_OVERRIDE}"
+    fi
     # Sports MDPS catch-up: pre-2026 dates often lack upstream raw because
     # sports forward-poll has only been running recently. The dependency
     # check would otherwise abort the run on the first empty date. Bridge
@@ -119,10 +209,26 @@ _launch() {
     if [[ "$cat" == "sports" ]]; then
         cmd="$cmd SKIP_DEPENDENCY_CHECK=true"
     fi
+    # Filter overrides (canary / narrow-scope reruns) — env-var pass-through.
+    [[ -n "$MDPS_DATA_TYPES_OVERRIDE" ]]    && cmd="$cmd MDPS_DATA_TYPES='$MDPS_DATA_TYPES_OVERRIDE'"
+    [[ -n "$MDPS_VENUES_OVERRIDE" ]]        && cmd="$cmd MDPS_VENUES='$MDPS_VENUES_OVERRIDE'"
+    [[ -n "$MDPS_INSTRUMENT_IDS_OVERRIDE" ]] && cmd="$cmd MDPS_INSTRUMENT_IDS='$MDPS_INSTRUMENT_IDS_OVERRIDE'"
+    [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]   && cmd="MAX_WORKERS=$MDPS_MAX_WORKERS_OVERRIDE $cmd"
+    # MDPS_OUTPUT_BUCKET_{CAT} — per-asset-group output bucket override (test-isolation).
+    local _out_var="MDPS_OUTPUT_BUCKET_${cat_upper}_OVERRIDE"
+    local _out_val="${!_out_var:-}"
+    [[ -n "$_out_val" ]] && cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=$_out_val"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"
     if [[ "$MODE" == "dry" ]]; then
         cmd="$cmd --dry-run"
+    fi
+    # Force-reprocess already-captured cells (densify reprocess) — re-writes existing
+    # candle parquets instead of SKIP-on-fresh. Threaded into VM_BACKFILL_CMD because
+    # the mdps-backfill VM_TASK branch runs the cmd verbatim (it does NOT honour the
+    # VM_FORCE→--force metadata bridge that the download/instruments BASE_CLI branches use).
+    if [[ "$FORCE_REPROCESS" == "true" ]]; then
+        cmd="$cmd --force"
     fi
 
     echo "Launching $vm_name"
@@ -137,10 +243,15 @@ _launch() {
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=${MODE}"
+    md="${md},VM_FORCE=${FORCE_REPROCESS}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
+    [[ -n "$FILTER_DATA_TYPES" ]] && md="${md},VM_DATA_TYPES=${FILTER_DATA_TYPES// /;}"
+    [[ -n "$FILTER_VENUES" ]] && md="${md},VM_VENUES=${FILTER_VENUES// /;}"
+    [[ -n "$FILTER_INSTRUMENT_IDS" ]] && md="${md},VM_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS// /;}"
+    [[ -n "$OUTPUT_BUCKET_OVERRIDE" ]] && md="${md},VM_OUTPUT_BUCKET=${OUTPUT_BUCKET_OVERRIDE}"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
