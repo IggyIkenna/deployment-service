@@ -128,6 +128,12 @@ gcp:
       CEFI: "execution-store-cefi-${GCP_PROJECT_ID}"
       TRADFI: "execution-store-tradfi-${GCP_PROJECT_ID}"
       DEFI: "execution-store-defi-${GCP_PROJECT_ID}"
+      # Sports execution-store — separate per-AG fill/order/manifest store. Sports execution
+      # is event-driven venue-API placement (no canonical GCS reads); results land here so
+      # they are queryable by asset_group=sports rather than in the CeFi bucket. Non-env-split
+      # to match the execution-store family rollback + the shape ExecutionServicesConfig
+      # constructs (execution-store-sports-{pid}).
+      SPORTS: "execution-store-sports-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Sports venue-balance snapshot store — EOD snapshots written by VenueBalanceTracker.
@@ -290,6 +296,8 @@ aws:
       CEFI: "execution-store-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "execution-store-tradfi-${AWS_ACCOUNT_ID}"
       DEFI: "execution-store-defi-${AWS_ACCOUNT_ID}"
+      # Sports execution-store — mirrors GCP (separate per-AG fill/order/manifest store).
+      SPORTS: "execution-store-sports-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Sports venue-balance snapshot store — mirrors GCP position-store-sports.
