@@ -6,7 +6,6 @@ description = "Deployment orchestration engine (split from unified-trading-deplo
 dependencies = [
     "unified-trading-library>=0.1.0,<1.0.0",
     "unified-api-contracts>=0.1.0,<1.0.0",
-    "deployment-api>=0.1.0,<1.0.0",
     "pyyaml>=6.0.1,<7.0.0",
     "prometheus-client>=0.20.0,<1.0.0",
     "fastapi<1.0.0,>=0.115.0",
@@ -30,7 +29,7 @@ dependencies = [
     "basedpyright==1.38.2",
     "pygments>=2.20.0,<3.0.0",
     "requests>=2.33.0,<3.0.0",
-    "aiohttp>=3.13.4,<4.0.0",
+    "aiohttp>=3.14.0,<4.0.0",
     "web3>=6.20.0,<8.0.0",
     "py-solc-x>=2.0.3,<3.0.0",
 ]
@@ -46,9 +45,11 @@ editable = true
 path = "../unified-api-contracts"
 editable = true
 
-[tool.uv.sources.deployment-api]
-path = "../deployment-api"
-editable = true
+# NOTE: deployment-api is a TEST-ONLY peer dep (tests/ import deployment_api; source never does).
+# It is installed for tests via LOCAL_DEPS in scripts/quality-gates.sh, NOT declared here —
+# deployment-api -> deployment-service is the real dependency direction (manifest reflects this).
+# Keeping it as a [project.dependencies] / [tool.uv.sources] entry re-introduced the circular dep
+# and broke dependency-alignment (manifest has no deployment-api). Removed 2026-06-04.
 
 [tool.ruff]
 line-length = 120
