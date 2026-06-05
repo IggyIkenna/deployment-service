@@ -8,6 +8,12 @@ Tests missing data calculations, fallback logic, and deployment filtering:
 - Dates found list inclusion for frontend integration
 """
 
+import pytest
+
+# deployment-api is a TEST-ONLY peer (absent in CI; circular-dep break 2026-06-04 @5734823).
+# These tests exercise deployment_api routes — skip the whole module when the peer is absent.
+pytest.importorskip("deployment_api")
+
 
 class TestTotalMissingFallback:
     """Tests for total_missing fallback to category-level when no venues found.

@@ -15,6 +15,10 @@ from fastapi import HTTPException
 
 from .turbo_fixtures import create_filter_dates_function
 
+# deployment-api is a TEST-ONLY peer (absent in CI; circular-dep break 2026-06-04 @5734823).
+# These tests exercise deployment_api routes — skip the whole module when the peer is absent.
+pytest.importorskip("deployment_api")
+
 
 class TestRequestSizeGuard:
     """Tests for the request-size guard that prevents 503 timeout on large turbo requests."""

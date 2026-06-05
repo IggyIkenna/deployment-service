@@ -11,6 +11,12 @@ Tests the turbo mode service configurations:
 import asyncio
 import inspect
 
+import pytest
+
+# deployment-api is a TEST-ONLY peer (absent in CI; circular-dep break 2026-06-04 @5734823).
+# These tests exercise deployment_api routes — skip the whole module when the peer is absent.
+pytest.importorskip("deployment_api")
+
 
 class TestTurboServiceConfig:
     """Tests for turbo API service configuration."""
