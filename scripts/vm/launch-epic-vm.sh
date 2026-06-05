@@ -206,10 +206,6 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export VM_NAME="${VM_NAME}"
-# Short canonical id (e.g. vm-defi) — bootstrap uses it for ORCHESTRATOR_VM_ID
-# (assigned_vm routing) AND the branch operator (tab/<vm-id>/<slot>); a mismatch
-# is the FM7 worker-spawn quarantine.
-export ORCHESTRATOR_VM_ID="${vm_id}"
 export CLOUD_PROVIDER=gcp
 export CLOUD_MOCK_MODE=false
 

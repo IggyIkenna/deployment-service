@@ -12,13 +12,7 @@ SOURCE_DIR="deployment_service"
 MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
-# deployment-api is a TEST-ONLY peer dep: deployment_service/ source never imports it,
-# but tests/ do (tests/mocks.py → deployment_api.utils.path_combinatorics). It is NOT a
-# [project.dependencies] entry because deployment-api -> deployment-service is the real
-# runtime edge; declaring the reverse would re-create a manifest cycle (fails
-# system-integration-tests test_dependency_graph_is_acyclic) and a dep-alignment mismatch.
-# Peer-installing it here satisfies the test imports without entering the runtime graph.
-LOCAL_DEPS=(deployment-api)
+LOCAL_DEPS=()
 # Deployment orchestration has inherently large functions:
 # - Cloud backends deploy_shard(): 90-324L (API calls, retries, error handling)
 # - Worker managers launch_shards_*(): 232-502L (parallel shard dispatch + monitoring)
