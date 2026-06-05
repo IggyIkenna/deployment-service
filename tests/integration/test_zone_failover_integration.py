@@ -13,6 +13,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# deployment-api is a TEST-ONLY peer (absent in CI; circular-dep break 2026-06-04 @5734823).
+# Every test here depends on the `deployment_api.main` app — skip the module when it's absent.
+pytest.importorskip("deployment_api")
+
 
 @pytest.fixture
 def app(monkeypatch):

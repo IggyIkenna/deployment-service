@@ -116,6 +116,7 @@ class TestExcludeDatesDeploymentFiltering:
 
     def test_exclude_dates_field_in_deploy_request(self):
         """Test that DeployRequest model accepts exclude_dates field."""
+        pytest.importorskip("deployment_api")  # test-only peer, absent in CI (2026-06-04 @5734823)
         from deployment_api.routes.deployments import DeployRequest
 
         # Should be able to create a request with exclude_dates
@@ -135,6 +136,7 @@ class TestExcludeDatesDeploymentFiltering:
 
     def test_exclude_dates_field_optional(self):
         """Test that exclude_dates is optional in DeployRequest."""
+        pytest.importorskip("deployment_api")  # test-only peer, absent in CI (2026-06-04 @5734823)
         from deployment_api.routes.deployments import DeployRequest
 
         # Should work without exclude_dates

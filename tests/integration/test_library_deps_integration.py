@@ -40,6 +40,7 @@ def test_unified_trading_library_cloud_interface_import() -> None:
 
 @pytest.mark.integration
 def test_deployment_api_import() -> None:
+    pytest.importorskip("deployment_api")  # test-only peer, not a manifest dep (2026-06-04 @5734823)
     import deployment_api
 
     assert hasattr(deployment_api, "__version__")
