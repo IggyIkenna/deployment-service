@@ -506,261 +506,6 @@ resource "google_storage_bucket" "instruments_sports" {
       storage_class = "NEARLINE"
     }
   }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_prediction" {
-  name     = "instruments-store-prediction-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
-
-# Test buckets for instruments (30-day lifecycle)
-resource "google_storage_bucket" "instruments_cefi_test" {
-  name     = "instruments-store-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_tradfi_test" {
-  name     = "instruments-store-tradfi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_defi_test" {
-  name     = "instruments-store-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_sports_test" {
-  name     = "instruments-store-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_prediction_test" {
-  name     = "instruments-store-prediction-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-# deployment-scripts — SINGLETON bucket (one physical bucket in the central project: VM code
-# tarballs + run.log archives + heartbeats). NOT per-env, so guard to the central project
-# (dev/staging applies skip it). Adopted via `terraform import` — it predates TF. Settings
-# match the 2026-06-02 bloat remediation: soft-delete OFF (was retaining 56 TiB of run.log
-# re-upload shadow copies) + prefix-scoped Delete lifecycle. No versioning, fine-grained ACLs
-# (UBLA off) — matches live. SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-resource "google_storage_bucket" "deployment_scripts" {
-  count    = var.project_id == "central-element-323112" ? 1 : 0
-  name     = "deployment-scripts-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = false
-  force_destroy               = false
-
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-
-  lifecycle_rule {
-    condition {
-      age            = 14
-      matches_prefix = ["vm-logs/"]
-    }
-    action { type = "Delete" }
-  }
-  lifecycle_rule {
-    condition {
-      age            = 15
-      matches_prefix = ["vm-heartbeat/"]
-    }
-    action { type = "Delete" }
-  }
-  lifecycle_rule {
-    condition {
-      age            = 30
-      matches_prefix = ["logs/", "recon-logs/", "audit-results/", "migration-bundle/staging/", "log-archive/", "deployments/archive/"]
-    }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, { "purpose" = "deployment-scripts", "tier" = "group-a" })
-}
-
-# Out-of-band buckets codified 2026-06-02 (were live but untracked in terraform/state/prod).
-# Both central-project-only; settings match live exactly (durability codification, not a behavior
-# change). SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-#
-# client-reporting-data: client financial reports. Soft-delete 7d KEPT (appropriate for client
-# data) + bounded versioning (delete noncurrent >90d once >=5 newer exist). UBLA off (fine-grained).
-resource "google_storage_bucket" "client_reporting_data" {
-  count    = var.project_id == "central-element-323112" ? 1 : 0
-  name     = "client-reporting-data-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = false
-  force_destroy               = false
-
-  soft_delete_policy {
-    retention_duration_seconds = 604800
-  }
-
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 90
-      num_newer_versions         = 5
-    }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, { "purpose" = "client-reporting-data", "tier" = "group-a" })
-}
-
-# instruments-store-sports-prd: the NEW canonical sports instruments bucket (env-suffixed naming
-# is the new convention; the old no-env instruments-store-sports-<pid> above is the legacy
-# migration source — migration old->new in place). NOT a duplicate. Soft-delete already cleared
-# (0); no lifecycle / versioning live — matched exactly. UBLA off (fine-grained).
-resource "google_storage_bucket" "instruments_store_sports_prd" {
-  count    = var.project_id == "central-element-323112" ? 1 : 0
-  name     = "instruments-store-sports-prd-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = false
-  force_destroy               = false
-
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_sports" {
-  name     = "instruments-store-sports-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
@@ -914,6 +659,96 @@ resource "google_storage_bucket" "market_data_defi" {
   project  = var.project_id
   location = var.region
 
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+# Dedicated per-type DeFi market-data buckets (canonical-migration targets;
+# cloud-providers.yaml resolves `{stem}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`
+# → `{stem}-prd-<pid>` in prod). C0-PROVISION for defi_manifest_canonicalisation
+# §C — migrate_defi_full_v9_canonical writes oracle/lst/lending/perp/gas data_types
+# to these (dex-pools/dex-swaps already exist). Same shape as market_data_defi.
+resource "google_storage_bucket" "market_data_defi_oracle_prices_prd" {
+  name                        = "oracle-prices-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_lst_rates_prd" {
+  name                        = "lst-rates-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_lending_indices_prd" {
+  name                        = "lending-indices-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_perp_funding_prd" {
+  name                        = "perp-funding-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = false
+  versioning { enabled = true }
+  lifecycle_rule {
+    condition { age = 90 }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "NEARLINE"
+    }
+  }
+  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
+}
+
+resource "google_storage_bucket" "market_data_defi_gas_fees_prd" {
+  name                        = "gas-fees-prd-${var.project_id}"
+  project                     = var.project_id
+  location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = false
   versioning { enabled = true }
