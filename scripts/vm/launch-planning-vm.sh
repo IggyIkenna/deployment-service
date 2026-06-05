@@ -116,6 +116,11 @@ export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export CLOUD_PROVIDER=gcp
 export CLOUD_MOCK_MODE=false
+# Brand tab branches by the canonical ROLE id, NOT the long instance name (operator 2026-06-05).
+# bootstrap_vm.sh does VM_ID=\${ORCHESTRATOR_VM_ID:-\${VM_NAME}}; without this it would fall back to
+# the dated VM_NAME (agent-orch-planning-vm-YYYYMMDD) and brand tab/<that-long-name>/N instead of
+# tab/planning/N. SSOT: plans/active/planning_vm_canonical_bringup_and_topology_reconcile_2026_06_05.md.
+export ORCHESTRATOR_VM_ID=planning
 
 exec > >(tee /var/log/planning-vm-bootstrap.log) 2>&1
 
@@ -146,7 +151,7 @@ fi
 # ── 4. Run bootstrap_vm.sh ──
 bash "\${ORCH_DIR}/scripts/bootstrap_vm.sh" \
   --operator ${OPERATOR} \
-  --slots 2 \
+  --slots 5 \
   --role planning
 
 # ── 5. Emit STARTED event to GCS ──
