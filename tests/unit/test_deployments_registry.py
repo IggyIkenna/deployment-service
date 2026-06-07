@@ -413,10 +413,7 @@ def test_reap_stale_skips_unparseable_heartbeat(registry: DeploymentsRegistry, s
 
 def test_vm_log_stream_uri_canonical_shape() -> None:
     """Pin the canonical live stream path format: vm-logs/{vm}/run.log."""
-    assert (
-        vm_log_stream_uri("my-vm", "central-element-323112")
-        == "gs://deployment-scripts-central-element-323112/vm-logs/my-vm/run.log"
-    )
+    assert vm_log_stream_uri("my-vm", "test-project") == "gs://deployment-scripts-test-project/vm-logs/my-vm/run.log"
     assert vm_log_stream_uri("other-vm", "prod-123") == "gs://deployment-scripts-prod-123/vm-logs/other-vm/run.log"
     # When project_id not provided, falls back to DEFAULT_BUCKET (whose value
     # depends on the active UnifiedCloudConfig — empty in fully sterile envs,
@@ -427,8 +424,8 @@ def test_vm_log_stream_uri_canonical_shape() -> None:
 def test_vm_log_archive_uri_canonical_shape() -> None:
     """Pin the canonical archive path format: log-archive/snapshot_{ts}/{vm}/."""
     assert (
-        vm_log_archive_uri("my-vm", "20260527_0830", "central-element-323112")
-        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/"
+        vm_log_archive_uri("my-vm", "20260527_0830", "test-project")
+        == "gs://deployment-scripts-test-project/log-archive/snapshot_20260527_0830/my-vm/"
     )
     assert (
         vm_log_archive_uri("other-vm", "20260101_1200", "prod-456")
@@ -444,8 +441,8 @@ def test_vm_log_archive_uri_canonical_shape() -> None:
 def test_vm_serial_console_archive_uri_canonical_shape() -> None:
     """Pin the canonical serial console archive path: .../{vm}/serial-console.txt."""
     assert (
-        vm_serial_console_archive_uri("my-vm", "20260527_0830", "central-element-323112")
-        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/serial-console.txt"
+        vm_serial_console_archive_uri("my-vm", "20260527_0830", "test-project")
+        == "gs://deployment-scripts-test-project/log-archive/snapshot_20260527_0830/my-vm/serial-console.txt"
     )
     assert (
         vm_serial_console_archive_uri("other-vm", "20260101_1200", "prod-456")
@@ -456,8 +453,8 @@ def test_vm_serial_console_archive_uri_canonical_shape() -> None:
 def test_vm_run_log_archive_uri_canonical_shape() -> None:
     """Pin the canonical run.log archive path: .../{vm}/run.log."""
     assert (
-        vm_run_log_archive_uri("my-vm", "20260527_0830", "central-element-323112")
-        == "gs://deployment-scripts-central-element-323112/log-archive/snapshot_20260527_0830/my-vm/run.log"
+        vm_run_log_archive_uri("my-vm", "20260527_0830", "test-project")
+        == "gs://deployment-scripts-test-project/log-archive/snapshot_20260527_0830/my-vm/run.log"
     )
     assert (
         vm_run_log_archive_uri("other-vm", "20260101_1200", "prod-456")
@@ -468,8 +465,8 @@ def test_vm_run_log_archive_uri_canonical_shape() -> None:
 def test_vm_serial_rolling_uri_canonical_shape() -> None:
     """Pin the serial-rolling path: log-archive/serial-rolling/{date}/{vm}/serial-console.txt."""
     assert (
-        vm_serial_rolling_uri("strategy-live-20260530", "20260530", "central-element-323112")
-        == "gs://deployment-scripts-central-element-323112/log-archive/serial-rolling/20260530/strategy-live-20260530/serial-console.txt"
+        vm_serial_rolling_uri("strategy-live-20260530", "20260530", "test-project")
+        == "gs://deployment-scripts-test-project/log-archive/serial-rolling/20260530/strategy-live-20260530/serial-console.txt"
     )
     assert (
         vm_serial_rolling_uri("mtds-live-defi-abc", "20260101", "prod-456")

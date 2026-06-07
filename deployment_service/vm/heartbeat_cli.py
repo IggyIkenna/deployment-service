@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import pathlib
 import sys
 import tempfile
@@ -39,6 +38,7 @@ from unified_trading_library import (
     DEPLOYMENT_STARTED,
     HeartbeatDaemon,
     HeartbeatEntry,
+    LocalFsEventSink,  # pyright: ignore[reportPrivateImportUsage]
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     SignalProtocol,
     get_storage_client,
@@ -46,6 +46,7 @@ from unified_trading_library import (
     setup_events,
 )
 
+from deployment_service.deployment_config import DeploymentConfig
 from deployment_service.deployments_registry import (
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
@@ -164,25 +165,20 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _init_events() -> None:
+def _init_events(config: DeploymentConfig) -> None:
     """Initialise the UTL event sink targeting ``deployment-events``."""
-    project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    project_id = config.gcp_project_id
     if not project_id:
-        logger.warning("GCP_PROJECT_ID unset; falling back to mode=local (events only in stdout)")
-        from unified_trading_library import (  # noqa: imports-inside-functions
-            LocalFsEventSink,
-        )
-
+        logger.warning("Project id unset; falling back to mode=local (events only in stdout)")
         local_sink = LocalFsEventSink(
             path=pathlib.Path(tempfile.gettempdir()) / "vm-heartbeat-events.jsonl",
             service_name="vm-heartbeat-daemon",
         )
         setup_events(service_name="vm-heartbeat-daemon", mode="local", sink=local_sink)
         return
-    topic = os.environ.get("DEPLOYMENT_EVENTS_TOPIC", "deployment-events")
     sink = PubSubEventSink(
         project_id=project_id,
-        topic=topic,
+        topic=config.deployment_events_topic,
         service_name="vm-heartbeat-daemon",
     )
     setup_events(service_name="vm-heartbeat-daemon", mode="batch", sink=sink)
@@ -193,7 +189,7 @@ def _init_events() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(config: DeploymentConfig) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="VM deployment heartbeat + uploader daemon")
     p.add_argument("--id", required=True, help="Deployment UUID")
     p.add_argument("--name", required=True, help="VM name")
@@ -222,7 +218,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--heartbeat-interval-sec",
         type=int,
-        default=int(os.environ.get("HEARTBEAT_INTERVAL_SEC", "60")),
+        default=config.heartbeat_interval_sec,
     )
     p.add_argument(
         "--upload-interval-sec",
@@ -230,7 +226,7 @@ def _build_parser() -> argparse.ArgumentParser:
         # 120s default (was 30s) — anti-churn for VM run.log re-upload. The primary
         # cap is the LogUploader min_growth_bytes threshold (UTL uploader.py); this
         # just reduces stat-check cadence. See deployment_scripts_bucket_softdelete_log_churn.
-        default=int(os.environ.get("UPLOAD_INTERVAL_SEC", "120")),
+        default=config.upload_interval_sec,
     )
     p.add_argument(
         "--bucket",
@@ -252,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     the configured sink (PubSub or local fallback).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    parser = _build_parser()
+    config = DeploymentConfig()
+    parser = _build_parser(config)
     raw_args = parser.parse_args(argv)
 
     # Pull each field as str/int with an explicit cast so the rest of main()
@@ -279,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     upload_interval = _i("upload_interval_sec")
     bucket = _s("bucket")
 
-    _init_events()
+    _init_events(config)
 
     with run_lifecycle(
         service_name="vm-heartbeat-daemon",
