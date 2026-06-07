@@ -526,9 +526,9 @@ def test_get_upcoming_fixtures_returns_fixtures_within_horizon() -> None:
     sched = SportsTriggerScheduler.__new__(SportsTriggerScheduler)
 
     with (
-        patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
-        patch("deployment_service.sports_trigger_scheduler.DeploymentConfig") as mock_cfg,
-        patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
+        patch("deployment_service.sports_trigger_state.get_storage_client", return_value=mock_storage),
+        patch("deployment_service.sports_trigger_state.DeploymentConfig") as mock_cfg,
+        patch("deployment_service.sports_trigger_state.get_bucket_name", return_value="test-bucket"),
     ):
         mock_cfg.return_value.project_id = "test-project"
         fixtures = sched.get_upcoming_fixtures(horizon_hours=48)

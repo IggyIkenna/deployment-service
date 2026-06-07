@@ -20,7 +20,6 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import logging
 import shlex
 import subprocess
@@ -28,21 +27,23 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TypedDict, cast
 
-if TYPE_CHECKING:
-    from .backends.cloud_run import CloudRunBackend
-
-import pandas as pd
 import yaml
-from unified_trading_library import get_bucket_name, get_storage_client
 
 from .backends.base import JobStatus
 from .backends.cloud_run import CloudRunBackend
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
 from .sports_trigger_periodic import PeriodicTierDispatcher
-from .sports_trigger_state import PeriodicTierState, resolve_state_bucket
+from .sports_trigger_state import (
+    FixtureInfo,
+    PeriodicTierState,
+    resolve_state_bucket,
+)
+from .sports_trigger_state import (
+    get_upcoming_fixtures as _get_upcoming_fixtures,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
-
-
-class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
-    """Minimal fixture data read from GCS parquets."""
-
-    fixture_id: str
-    league_id: str
-    kickoff_utc: str  # ISO 8601
-    home_team: str
-    away_team: str
 
 
 class TriggerEvent(TypedDict):  # CORRECT-LOCAL: scheduler-internal event dict, never exported
@@ -167,106 +158,12 @@ class SportsTriggerScheduler:
     def get_upcoming_fixtures(self, horizon_hours: int = 48) -> list[FixtureInfo]:
         """Read upcoming fixtures from GCS.
 
-        Looks at the fixture calendar for today and the next few days,
-        returning fixtures with kickoff within ``horizon_hours`` from now.
+        Thin instance wrapper around the module-level
+        :func:`sports_trigger_state.get_upcoming_fixtures` (extracted to keep
+        this module under the 900-line codex cap; the logic uses no instance
+        state).
         """
-        try:
-            config = DeploymentConfig()
-            storage = get_storage_client(project_id=config.project_id)
-
-            now = datetime.now(UTC)
-            fixtures: list[FixtureInfo] = []
-            total_parquets_scanned = 0
-
-            # Scan today and next 3 days for fixtures.
-            # Try multiple GCS path patterns — the fixture calendar may be at
-            # the legacy path or the new entity-partitioned path.
-            _fixture_path_patterns = [
-                "sports_reference/fixtures/day={date}/",
-                "sports_reference/by_date/day={date}/entity=fixtures/",
-            ]
-            for day_offset in range(4):
-                scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-                # No explicit project_id → delegates to cloud-providers.yaml SSOT
-                # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
-                # (never the legacy no-env bucket decommissioned at sports cutover).
-                bucket_name = get_bucket_name("instruments", "SPORTS")
-
-                for path_pattern in _fixture_path_patterns:
-                    prefix = path_pattern.format(date=scan_date)
-
-                    try:
-                        blobs = list(
-                            storage.list_blobs(
-                                bucket=bucket_name,
-                                prefix=prefix,
-                                max_results=100,
-                            )
-                        )
-                    except Exception as exc:
-                        logger.debug("No fixtures at %s: %s", prefix, exc)
-                        continue
-
-                    for blob in blobs:
-                        if not blob.name.endswith(".parquet"):
-                            continue
-
-                        total_parquets_scanned += 1
-
-                        # Read parquet to get fixture details
-                        try:
-                            raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
-                            df = pd.read_parquet(io.BytesIO(raw))
-
-                            for _, row in df.iterrows():
-                                kickoff_str = str(row.get("kickoff_utc", ""))  # pyright: ignore[reportAny]
-                                if not kickoff_str:
-                                    continue
-
-                                try:
-                                    kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
-                                except ValueError:
-                                    continue
-
-                                # Only include fixtures within horizon
-                                hours_until = (kickoff - now).total_seconds() / 3600
-                                if -2 <= hours_until <= horizon_hours:
-                                    fixtures.append(
-                                        FixtureInfo(
-                                            fixture_id=str(cast(object, row.get("fixture_id", ""))),
-                                            league_id=str(cast(object, row.get("league_id", ""))),
-                                            kickoff_utc=kickoff_str,
-                                            home_team=str(cast(object, row.get("home_team", ""))),
-                                            away_team=str(cast(object, row.get("away_team", ""))),
-                                        )
-                                    )
-                        except Exception as exc:
-                            logger.warning("Failed to read fixture parquet %s: %s", blob.name, exc)
-
-            # end of path_pattern loop for this scan_date
-
-            if total_parquets_scanned == 0:
-                # No fixture parquets found at all — instruments-service has not yet written
-                # fixture data to GCS. Tier-3/4 triggers will remain silent until
-                # instruments-service runs successfully. Check that the sports-scheduler
-                # venv includes instruments_service and that IS has been dispatched.
-                logger.warning(
-                    "Fixture calendar is empty — 0 parquets found across all scanned paths "
-                    "(instruments-service may not have written fixture data yet). "
-                    "Tier-3/4 pre/post-match triggers will not fire until fixture data is present."
-                )
-            else:
-                logger.info(
-                    "Found %d upcoming fixtures within %dh horizon (scanned %d parquets)",
-                    len(fixtures),
-                    horizon_hours,
-                    total_parquets_scanned,
-                )
-            return fixtures
-
-        except Exception as exc:
-            logger.error("Failed to read fixture calendar from GCS: %s", exc)
-            return []
+        return _get_upcoming_fixtures(horizon_hours)
 
     # ------------------------------------------------------------------
     # Trigger evaluation
@@ -609,9 +506,7 @@ class SportsTriggerScheduler:
             )
             return None
         try:
-            from .backends.cloud_run import CloudRunBackend as _CloudRunBackend
-
-            backend = _CloudRunBackend(
+            backend = CloudRunBackend(
                 project_id=self._cloud_run_config["project_id"],
                 region=self._cloud_run_config["region"],
                 service_account_email=self._cloud_run_config["service_account_email"],

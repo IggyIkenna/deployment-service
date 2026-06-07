@@ -64,10 +64,10 @@ class TestFixtureCalendarDiagnostic:
         mock_config.project_id = "test-project"
 
         with (
-            patch("deployment_service.sports_trigger_scheduler.DeploymentConfig", return_value=mock_config),
-            patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
-            patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
-            caplog.at_level("WARNING", logger="deployment_service.sports_trigger_scheduler"),
+            patch("deployment_service.sports_trigger_state.DeploymentConfig", return_value=mock_config),
+            patch("deployment_service.sports_trigger_state.get_storage_client", return_value=mock_storage),
+            patch("deployment_service.sports_trigger_state.get_bucket_name", return_value="test-bucket"),
+            caplog.at_level("WARNING", logger="deployment_service.sports_trigger_state"),
         ):
             fixtures = scheduler.get_upcoming_fixtures(horizon_hours=48)
 
@@ -97,10 +97,10 @@ class TestFixtureCalendarDiagnostic:
         mock_config.project_id = "test-project"
 
         with (
-            patch("deployment_service.sports_trigger_scheduler.DeploymentConfig", return_value=mock_config),
-            patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
-            patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
-            caplog.at_level("WARNING", logger="deployment_service.sports_trigger_scheduler"),
+            patch("deployment_service.sports_trigger_state.DeploymentConfig", return_value=mock_config),
+            patch("deployment_service.sports_trigger_state.get_storage_client", return_value=mock_storage),
+            patch("deployment_service.sports_trigger_state.get_bucket_name", return_value="test-bucket"),
+            caplog.at_level("WARNING", logger="deployment_service.sports_trigger_state"),
         ):
             fixtures = scheduler.get_upcoming_fixtures(horizon_hours=48)
 
@@ -132,9 +132,9 @@ class TestFixtureCalendarDiagnostic:
         mock_config.project_id = "test-project"
 
         with (
-            patch("deployment_service.sports_trigger_scheduler.DeploymentConfig", return_value=mock_config),
-            patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
-            patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
+            patch("deployment_service.sports_trigger_state.DeploymentConfig", return_value=mock_config),
+            patch("deployment_service.sports_trigger_state.get_storage_client", return_value=mock_storage),
+            patch("deployment_service.sports_trigger_state.get_bucket_name", return_value="test-bucket"),
         ):
             fixtures = scheduler.get_upcoming_fixtures(horizon_hours=48)
 
@@ -154,10 +154,10 @@ class TestFixtureCalendarDiagnostic:
         mock_config.project_id = "test-project"
 
         with (
-            patch("deployment_service.sports_trigger_scheduler.DeploymentConfig", return_value=mock_config),
-            patch("deployment_service.sports_trigger_scheduler.get_storage_client", return_value=mock_storage),
-            patch("deployment_service.sports_trigger_scheduler.get_bucket_name", return_value="test-bucket"),
-            caplog.at_level("DEBUG", logger="deployment_service.sports_trigger_scheduler"),
+            patch("deployment_service.sports_trigger_state.DeploymentConfig", return_value=mock_config),
+            patch("deployment_service.sports_trigger_state.get_storage_client", return_value=mock_storage),
+            patch("deployment_service.sports_trigger_state.get_bucket_name", return_value="test-bucket"),
+            caplog.at_level("DEBUG", logger="deployment_service.sports_trigger_state"),
         ):
             fixtures = scheduler.get_upcoming_fixtures(horizon_hours=48)
 

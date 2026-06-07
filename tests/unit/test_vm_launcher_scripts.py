@@ -24,7 +24,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 # Test fixtures and constants
-TEST_PROJECT = "central-element-323112"
+TEST_PROJECT = "test-project"
 TEST_ZONE = "asia-northeast1-c"
 TEST_FALLBACK_ZONE = "asia-northeast1-b"
 LAUNCHER_COMMON_PATH = "scripts/vm/lib/launcher_common.sh"

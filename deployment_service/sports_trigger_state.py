@@ -15,18 +15,135 @@ Extracted from ``sports_trigger_scheduler`` to keep that module under the
 
 from __future__ import annotations
 
+import io
 import json
 import logging
-from datetime import datetime
-from typing import Protocol
+from datetime import UTC, datetime, timedelta
+from typing import Protocol, TypedDict, cast
 
-from unified_trading_library import StorageClient, get_storage_client
+import pandas as pd
+from unified_trading_library import StorageClient, get_bucket_name, get_storage_client
 
 from .deployment_config import DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_KEY = "sports_scheduler_state/scheduler.json"
+
+
+class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
+    """Minimal fixture data read from GCS parquets."""
+
+    fixture_id: str
+    league_id: str
+    kickoff_utc: str  # ISO 8601
+    home_team: str
+    away_team: str
+
+
+def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
+    """Read upcoming fixtures from GCS.
+
+    Looks at the fixture calendar for today and the next few days,
+    returning fixtures with kickoff within ``horizon_hours`` from now.
+    """
+    try:
+        config = DeploymentConfig()
+        storage = get_storage_client(project_id=config.project_id)
+
+        now = datetime.now(UTC)
+        fixtures: list[FixtureInfo] = []
+        total_parquets_scanned = 0
+
+        # Scan today and next 3 days for fixtures.
+        # Try multiple GCS path patterns — the fixture calendar may be at
+        # the legacy path or the new entity-partitioned path.
+        _fixture_path_patterns = [
+            "sports_reference/fixtures/day={date}/",
+            "sports_reference/by_date/day={date}/entity=fixtures/",
+        ]
+        for day_offset in range(4):
+            scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+            # No explicit project_id → delegates to cloud-providers.yaml SSOT
+            # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
+            # (never the legacy no-env bucket decommissioned at sports cutover).
+            bucket_name = get_bucket_name("instruments", "SPORTS")
+
+            for path_pattern in _fixture_path_patterns:
+                prefix = path_pattern.format(date=scan_date)
+
+                try:
+                    blobs = list(
+                        storage.list_blobs(
+                            bucket=bucket_name,
+                            prefix=prefix,
+                            max_results=100,
+                        )
+                    )
+                except Exception as exc:
+                    logger.debug("No fixtures at %s: %s", prefix, exc)
+                    continue
+
+                for blob in blobs:
+                    if not blob.name.endswith(".parquet"):
+                        continue
+
+                    total_parquets_scanned += 1
+
+                    # Read parquet to get fixture details
+                    try:
+                        raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
+                        df = pd.read_parquet(io.BytesIO(raw))
+
+                        for _, row in df.iterrows():
+                            kickoff_str = str(row.get("kickoff_utc", ""))  # pyright: ignore[reportAny]
+                            if not kickoff_str:
+                                continue
+
+                            try:
+                                kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+                            except ValueError:
+                                continue
+
+                            # Only include fixtures within horizon
+                            hours_until = (kickoff - now).total_seconds() / 3600
+                            if -2 <= hours_until <= horizon_hours:
+                                fixtures.append(
+                                    FixtureInfo(
+                                        fixture_id=str(cast(object, row.get("fixture_id", ""))),
+                                        league_id=str(cast(object, row.get("league_id", ""))),
+                                        kickoff_utc=kickoff_str,
+                                        home_team=str(cast(object, row.get("home_team", ""))),
+                                        away_team=str(cast(object, row.get("away_team", ""))),
+                                    )
+                                )
+                    except Exception as exc:
+                        logger.warning("Failed to read fixture parquet %s: %s", blob.name, exc)
+
+        # end of path_pattern loop for this scan_date
+
+        if total_parquets_scanned == 0:
+            # No fixture parquets found at all — instruments-service has not yet written
+            # fixture data to GCS. Tier-3/4 triggers will remain silent until
+            # instruments-service runs successfully. Check that the sports-scheduler
+            # venv includes instruments_service and that IS has been dispatched.
+            logger.warning(
+                "Fixture calendar is empty — 0 parquets found across all scanned paths "
+                "(instruments-service may not have written fixture data yet). "
+                "Tier-3/4 pre/post-match triggers will not fire until fixture data is present."
+            )
+        else:
+            logger.info(
+                "Found %d upcoming fixtures within %dh horizon (scanned %d parquets)",
+                len(fixtures),
+                horizon_hours,
+                total_parquets_scanned,
+            )
+        return fixtures
+
+    except Exception as exc:
+        logger.error("Failed to read fixture calendar from GCS: %s", exc)
+        return []
 
 
 class SchedulerStateStorage(Protocol):
@@ -104,9 +221,6 @@ class PeriodicTierState:
             self._last_run = {}
             return
         try:
-            # Import cast locally to avoid top-level imports
-            from typing import cast
-
             data: object = cast(object, json.loads(raw))
         except json.JSONDecodeError as exc:
             logger.warning(

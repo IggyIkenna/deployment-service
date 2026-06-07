@@ -135,7 +135,7 @@ def vm_run_log_rolling_uri(vm_name: str, date_stamp: str, project_id: str | None
 
 
 # Deployment registry bucket — derived from UnifiedCloudConfig.gcp_project_id.
-# Empty string at import time = no GCP_PROJECT_ID set (e.g. unit tests); callers
+# Empty string at import time = no project id configured (e.g. unit tests); callers
 # must pass ``bucket=`` explicitly in that case.
 DEFAULT_BUCKET = _resolve_default_bucket()
 ACTIVE_PREFIX = "deployments/active/"
