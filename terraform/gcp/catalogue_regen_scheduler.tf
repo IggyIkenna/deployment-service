@@ -9,7 +9,7 @@
 #   - enumerate_envelope.py  (envelope.md + envelope.json)
 #   - enumerate_availability.py  (availability.json)
 #   - enumerate_strategy_instruments.py --with-real-instruments
-#       (joins envelope with instruments-store-{cefi,defi,sports,prediction}
+#       (joins envelope with instruments-store-{cefi,defi,tradfi,sports,prediction}
 #        parquet to produce ~17 MB JSON of real instrument keys per slot)
 #
 # The Cloud Run Job declaration is a follow-up — for now this scheduler entry
@@ -42,6 +42,10 @@ resource "google_storage_bucket_iam_member" "catalogue_regen_instruments_reader"
   for_each = toset([
     "instruments-store-cefi-central-element-323112",
     "instruments-store-defi-central-element-323112",
+    # tradfi added (slot-7 2026-06-08) — the regen job's strategy_instruments join
+    # reads the tradfi instruments-store parquet too; it was missing from the reader
+    # grant (the sibling lifecycle/instrument_catalogue schedulers already cover it).
+    "instruments-store-tradfi-central-element-323112",
     "instruments-store-sports-central-element-323112",
     "instruments-store-prediction-central-element-323112",
   ])
