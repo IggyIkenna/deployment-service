@@ -89,6 +89,11 @@ coverage.xml
 htmlcov/
 nosetests.xml
 
+# --- QG sentinels (local-only caches written by quality-gates.sh; NEVER commit — they churn
+#     the worktree + jam slot-cron-ff-pull; HARD RULE codified 2026-06-03) ---
+.qg_last_passed_sha
+.qg_content_sentinel
+
 # --- Data / logs (repo-local, not for git) ---
 data/
 logs/

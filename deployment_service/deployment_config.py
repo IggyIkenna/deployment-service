@@ -85,6 +85,28 @@ class DeploymentConfig(UnifiedCloudConfig):
     )
 
     # =========================================================================
+    # VM HEARTBEAT DAEMON CONFIGURATION
+    # =========================================================================
+
+    deployment_events_topic: str = Field(
+        default="deployment-events",
+        validation_alias=AliasChoices("DEPLOYMENT_EVENTS_TOPIC"),
+        description="PubSub topic the VM heartbeat daemon publishes lifecycle events to",
+    )
+
+    heartbeat_interval_sec: int = Field(
+        default=60,
+        validation_alias=AliasChoices("HEARTBEAT_INTERVAL_SEC"),
+        description="Default seconds between VM heartbeat emissions",
+    )
+
+    upload_interval_sec: int = Field(
+        default=120,
+        validation_alias=AliasChoices("UPLOAD_INTERVAL_SEC"),
+        description="Default seconds between VM run.log re-uploads (anti-churn)",
+    )
+
+    # =========================================================================
     # QUOTA BROKER CONFIGURATION
     # =========================================================================
 

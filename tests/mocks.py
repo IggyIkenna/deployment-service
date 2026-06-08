@@ -4,10 +4,19 @@ Shared mocks for deployment-service tests.
 Provides reusable mock builders for GCS, PathCombinatorics, etc.
 """
 
+import importlib.util
 from unittest.mock import MagicMock
 
-# deployment-api is required (editable dep in venv)
-from deployment_api.utils.path_combinatorics import CombinatoricEntry as _CombinatoricEntry
+# deployment-api is a TEST-ONLY peer (NOT a runtime dep — declaring it would re-create the
+# deployment-api -> deployment-service circular edge + break dependency-alignment; dropped
+# 2026-06-04 @5734823). It is editable-installed locally via LOCAL_DEPS, but ABSENT in CI.
+# Resolve it optionally so conftest (which imports this module) loads in either environment;
+# the `if _CombinatoricEntry is not None` guard below already degrades to empty combos when
+# absent. find_spec avoids a try/except-ImportError fallback (banned for runtime imports).
+if importlib.util.find_spec("deployment_api") is not None:
+    from deployment_api.utils.path_combinatorics import CombinatoricEntry as _CombinatoricEntry
+else:
+    _CombinatoricEntry = None
 
 # Minimal SERVICE_PATH_TEMPLATES mirror (instruments-service only) so that
 # make_mock_path_combinatorics can generate realistic prefixes without loading

@@ -406,6 +406,7 @@ class TestArtifactRegistryIntegration:
 
         sys.path.insert(0, str(__file__).rsplit("/", 3)[0])
 
+        pytest.importorskip("deployment_api")  # test-only peer, absent in CI (2026-06-04 @5734823)
         from deployment_api.utils.artifact_registry import get_image_info
 
         # Test with a known image (instruments-service)
