@@ -136,3 +136,6 @@ override.tf.json
 # --- Optional: Jupyter (uncomment if repo has notebooks) ---
 # .ipynb_checkpoints/
 # profile_default/
+
+# agent-local scratch (worktrees, session state) — never track
+.claude/
