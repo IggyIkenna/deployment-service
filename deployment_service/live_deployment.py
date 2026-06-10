@@ -18,6 +18,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import cast
 
 import httpx
@@ -27,7 +28,7 @@ from deployment_service.backends import _gcp_sdk as _gcp_sdk_mod
 
 from .deployment_config import DeploymentConfig
 from .events import ShardEvent, VMEventType
-from .monitor import DeploymentMonitor
+from .monitor import DeploymentMonitor, ServiceVersion, VersionRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,7 @@ class LiveDeployer:
                 VMEventType.LIVE_HEALTH_CHECK_PASSED,
                 f"{request.service} health gate passed — routing 100% traffic to new revision",
             )
+            self._register_deployed_version(request)
             return LiveDeploymentResult(
                 deployment_id=deployment_id,
                 service=request.service,
@@ -266,6 +268,37 @@ class LiveDeployer:
             )
 
     # ── Private helpers ────────────────────────────────────────────────────
+
+    def _register_deployed_version(self, request: LiveDeploymentRequest) -> None:
+        """BoM: persist the deployed version to the VersionRegistry.
+
+        Wires ``monitor.VersionRegistry.register_version`` onto the live deploy
+        path (the writer previously had zero callers) — every healthy live
+        deploy now lands ``versions/{service}/current.json`` + a history row in
+        ``gs://deployment-metadata-{project}/``. ``git_commit`` rides the
+        DeploymentConfig SHORT_SHA/GIT_COMMIT build passthrough. ``run_v2``
+        does not expose the tag→digest resolution on the Service object, so
+        image-digest provenance for live services is the FROM-digest ratchet
+        (QG STEP 5.79) + the IMAGE_DIGEST passthrough recorded on the
+        deployments-registry BoM, not this record. Best-effort by design:
+        ``register_version`` returns False instead of raising, so a registry
+        write failure can never fail or roll back a healthy deploy.
+        """
+        now = datetime.now(UTC)
+        version = ServiceVersion(
+            service=request.service,
+            image_tag=request.image_tag,
+            git_commit=str(_config.git_commit),
+            git_branch="",
+            build_date=now,  # build date not exposed at deploy time — deploy-time stamp
+            deployed_at=now,
+        )
+        if not VersionRegistry().register_version(version):
+            logger.warning(
+                "[BOM] version registration failed for %s:%s — deploy unaffected",
+                request.service,
+                request.image_tag,
+            )
 
     def _resolve_service_url(self, service: str, region: str) -> str:
         """

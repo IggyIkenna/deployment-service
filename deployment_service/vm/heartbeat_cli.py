@@ -46,6 +46,7 @@ from unified_trading_library import (
     setup_events,
 )
 
+from deployment_service.bom import resolve_deployment_bom
 from deployment_service.deployment_config import DeploymentConfig
 from deployment_service.deployments_registry import (
     DEFAULT_BUCKET,
@@ -64,6 +65,7 @@ logger = logging.getLogger("heartbeat_daemon")
 def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
     md = entry.metadata
     counters = entry.counters
+    dep_versions_raw = cast("dict[str, object]", md.get("dep_versions") or {})
     return DeploymentRegistryEntry(
         deployment_id=entry.deployment_id,
         vm_name=str(md.get("vm_name", entry.service_name)),
@@ -82,6 +84,9 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         rows_error=int(counters.get("rows_error", 0)),
         events_emitted=int(counters.get("events_emitted", 0)),
         log_uri=str(md.get("log_uri", "")),
+        image_digest=str(md.get("image_digest", "")),
+        git_commit=str(md.get("git_commit", "")),
+        dep_versions={str(k): str(v) for k, v in dep_versions_raw.items()},
     )
 
 
@@ -108,6 +113,9 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "start_date": reg.start_date,
             "end_date": reg.end_date,
             "log_uri": reg.log_uri,
+            "image_digest": reg.image_digest,
+            "git_commit": reg.git_commit,
+            "dep_versions": dict(reg.dep_versions),
         },
     )
 
@@ -157,6 +165,9 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
         "events_emitted": counters.get("events_emitted", 0),
         "exit_code": entry.exit_code,
         "log_uri": md.get("log_uri", ""),
+        "image_digest": md.get("image_digest", ""),
+        "git_commit": md.get("git_commit", ""),
+        "dep_versions": md.get("dep_versions") or {},
     }
 
 
@@ -292,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
         store = _RegistryAdapter(registry)
         storage_client = get_storage_client()
 
+        # BoM: resolve provenance once at daemon start — stamped on every
+        # register/heartbeat/complete write via _entry_to_registry.
+        bom = resolve_deployment_bom(config)
+
         entry = HeartbeatEntry(
             deployment_id=deployment_id,
             service_name=vm_name,
@@ -306,6 +321,9 @@ def main(argv: list[str] | None = None) -> int:
                 "start_date": start_date,
                 "end_date": end_date,
                 "log_uri": log_uri,
+                "image_digest": bom.image_digest,
+                "git_commit": bom.git_commit,
+                "dep_versions": dict(bom.dep_versions),
             },
         )
 

@@ -9,6 +9,7 @@ This is the new modularized version that delegates to service modules.
 
 import logging
 
+from ..bom import extract_image_digest
 from ..events import VMEventType
 from .base import ComputeBackend, JobInfo, JobStatus
 from .services.vm_config import VMConfigManager
@@ -141,6 +142,11 @@ class VMBackend(ComputeBackend):
             compute_config=compute_config,
             labels=labels,
         )
+
+        # BoM: stamp the digest when the launch ref was digest-pinned. A
+        # tag-only ref honestly yields "" — the GCE backend launches the given
+        # ref as-is and never resolves a mutable tag to a digest itself.
+        job_info.metadata.setdefault("image_digest", extract_image_digest(docker_image))
 
         # Emit VM lifecycle events based on result
         if job_info.status == JobStatus.RUNNING:

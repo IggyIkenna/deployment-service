@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from typing import cast
 
+from ..bom import extract_image_digest
 from ._gcp_sdk import google_exceptions, run_v2
 from .base import ComputeBackend, JobInfo, JobStatus
 
@@ -278,6 +279,11 @@ class CloudRunBackend(ComputeBackend):
                         "execution_id": execution_id,
                         "job_name": self.job_name,
                         "region": self.region,
+                        # BoM: digest unavailable on this backend unless the caller
+                        # already pinned by digest — Cloud Run Jobs execute the
+                        # pre-configured template image, and no cloud-interface
+                        # helper exists for Artifact Registry describe. "" = unknown.
+                        "image_digest": extract_image_digest(docker_image),
                     },
                 )
 
