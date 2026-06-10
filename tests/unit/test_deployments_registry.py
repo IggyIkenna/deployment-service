@@ -36,7 +36,22 @@ def _load_registry_module() -> ModuleType:
     return mod
 
 
+def _load_bom_module() -> ModuleType:
+    """Load bom.py directly (stdlib-only at module level) — same isolation rationale."""
+    import sys
+
+    path = pathlib.Path(__file__).resolve().parents[2] / "deployment_service" / "bom.py"
+    module_name = "_bom_for_registry_tests"
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 _registry_module = _load_registry_module()
+_bom_module = _load_bom_module()
 ACTIVE_PREFIX = _registry_module.ACTIVE_PREFIX
 ARCHIVE_PREFIX = _registry_module.ARCHIVE_PREFIX
 DEFAULT_BUCKET = _registry_module.DEFAULT_BUCKET
@@ -209,6 +224,72 @@ def test_round_trip_json_preserves_fields() -> None:
     assert restored == entry
 
 
+# ----- bill-of-materials (BoM) provenance fields ---------------------------
+
+_BOM_DIGEST = "sha256:" + "a" * 64
+_BOM_BASE_DIGEST = "sha256:" + "b" * 64
+
+
+def test_bom_fields_round_trip() -> None:
+    entry = _make_entry(
+        image_digest=_BOM_DIGEST,
+        git_commit="deadbee",
+        dep_versions={
+            "unified-trading-library": "0.5.0",
+            "unified-api-contracts": "0.6.0",
+            "base_image_digest": _BOM_BASE_DIGEST,
+        },
+    )
+    restored = DeploymentRegistryEntry.from_json(entry.to_json())
+    assert restored == entry
+    assert restored.image_digest == _BOM_DIGEST
+    assert restored.git_commit == "deadbee"
+    assert restored.dep_versions["unified-trading-library"] == "0.5.0"
+    assert restored.dep_versions["base_image_digest"] == _BOM_BASE_DIGEST
+
+
+def test_legacy_row_without_bom_fields_loads_with_defaults() -> None:
+    # A pre-BoM GCS row (written before 2026-06-10) — none of the BoM keys exist.
+    legacy = {
+        "deployment_id": "dep-legacy-1",
+        "vm_name": "vm-legacy",
+        "category": "CEFI",  # pre-asset_group rows used category only
+        "task": "canonical-migration",
+        "mode": "dry",
+        "start_date": "2024-06-01",
+        "end_date": "2024-06-30",
+        "status": "running",
+        "started_at": "2026-04-18T04:23:59Z",
+        "last_heartbeat_at": "2026-04-18T04:23:59Z",
+        "completed_at": None,
+        "exit_code": None,
+        "rows_in": 0,
+        "rows_out": 0,
+        "rows_error": 0,
+        "events_emitted": 1,
+        "log_uri": "gs://bucket/vm-logs/x/run.log",
+    }
+    restored = DeploymentRegistryEntry.from_json(json.dumps(legacy))
+    assert restored.deployment_id == "dep-legacy-1"
+    assert restored.asset_group == "CEFI"
+    assert restored.image_digest == ""
+    assert restored.git_commit == ""
+    assert restored.dep_versions == {}
+
+
+def test_register_persists_bom_fields(registry: DeploymentsRegistry, storage: InMemoryStorageClient) -> None:
+    entry = _make_entry(
+        image_digest=_BOM_DIGEST,
+        git_commit="abc1234",
+        dep_versions={"unified-trading-library": "0.5.0"},
+    )
+    registry.register(entry)
+    stored = json.loads(storage.download_string(DEFAULT_BUCKET, f"{ACTIVE_PREFIX}{entry.deployment_id}.json"))
+    assert stored["image_digest"] == _BOM_DIGEST
+    assert stored["git_commit"] == "abc1234"
+    assert stored["dep_versions"] == {"unified-trading-library": "0.5.0"}
+
+
 # ----- heartbeat.py subcommand integration --------------------------------
 
 
@@ -239,6 +320,8 @@ def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, mo
         stub_pkg.__path__ = []  # type: ignore[attr-defined]
         sys.modules[stub_pkg_name] = stub_pkg
     sys.modules[stub_reg_name] = _registry_module
+    # The CLI also imports the BoM resolver — satisfy it with the direct-loaded module.
+    sys.modules["deployment_service.bom"] = _bom_module
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -247,6 +330,14 @@ def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, mo
     monkeypatch.setattr(module, "_init_events", lambda: None)
     monkeypatch.setattr(module, "_emit", lambda *a, **k: None)
     monkeypatch.setattr(module, "DeploymentsRegistry", lambda bucket: registry)
+    # Deterministic BoM — resolve_deployment_bom(config=None) would otherwise
+    # lazily import DeploymentConfig through the stub package and fail.
+    stub_bom = _bom_module.DeploymentBom(
+        image_digest=_BOM_DIGEST,
+        git_commit="cafebab",
+        dep_versions={"unified-trading-library": "0.5.0"},
+    )
+    monkeypatch.setattr(module, "resolve_deployment_bom", lambda config=None: stub_bom)
 
     rc = module.main(
         [
@@ -274,6 +365,10 @@ def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, mo
     assert len(entries) == 1
     assert entries[0].deployment_id == "cli-1"
     assert entries[0].status == "running"
+    # BoM stamped at register time.
+    assert entries[0].image_digest == _BOM_DIGEST
+    assert entries[0].git_commit == "cafebab"
+    assert entries[0].dep_versions == {"unified-trading-library": "0.5.0"}
 
     rc = module.main(
         [
@@ -299,6 +394,10 @@ def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, mo
     assert final.status == "completed"
     assert final.exit_code == 0
     assert final.rows_in == 10
+    # BoM survives the heartbeat→complete round-trip (registry.get → from_json).
+    assert final.image_digest == _BOM_DIGEST
+    assert final.git_commit == "cafebab"
+    assert final.dep_versions == {"unified-trading-library": "0.5.0"}
 
 
 # ----- reap_stale / is_entry_stale / _parse_iso_utc ------------------------
