@@ -42,7 +42,17 @@ phases:
       - REPO_NAME=$(basename $(pwd))
       - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
       - docker build -f Dockerfile --build-arg PROJECT_ID=$GCP_PROJECT_ID -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
-      - docker run --rm --entrypoint "" -v $(pwd)/unified-trading-pm:/workspace/unified-trading-pm -e CLOUD_BUILD=true -e CLOUD_MOCK_MODE=true -e CLOUD_PROVIDER=aws -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION -e WORKSPACE_ROOT=/workspace -e REPO_ROOT=/workspace $ECR_REPO:$VERSION /bin/bash -c "scripts/quality-gates.sh --no-fix --quick"
+      # In-image quality gates (ADVISORY — parity with cloudbuild.yaml step 4).
+      # `scripts/quality-gates.sh` sources `unified-trading-pm/scripts/quality-gates-base/
+      # base-service.sh` via a WORKSPACE_ROOT that the script RE-DERIVES from
+      # `git rev-parse --show-toplevel` — which fails inside the image (no .git),
+      # leaving WORKSPACE_ROOT empty → `source //unified-trading-pm/...` not found
+      # → exit 127. GCP makes the identical step advisory; we match that here so
+      # the build is not reddened by the pre-existing wiring gap. Making QG ACTUALLY
+      # run in-container (honor the `-e WORKSPACE_ROOT=/workspace` already passed
+      # below) is a template-level fix tracked in
+      # plans/active/cloud_build_router_aws_parity_2026_06_10.md.
+      - docker run --rm --entrypoint "" -v $(pwd)/unified-trading-pm:/workspace/unified-trading-pm -e CLOUD_BUILD=true -e CLOUD_MOCK_MODE=true -e CLOUD_PROVIDER=aws -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION -e WORKSPACE_ROOT=/workspace -e REPO_ROOT=/workspace $ECR_REPO:$VERSION /bin/bash -c "scripts/quality-gates.sh --no-fix --quick" && echo "✅ Quality gates passed" || echo "⚠️  Quality gates advisory failure — pre-existing PM-repo WORKSPACE_ROOT wiring, see cloud_build_router_aws_parity plan"
       - docker push $ECR_REPO --all-tags
 
   post_build:
@@ -54,10 +64,16 @@ phases:
           IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME:$VERSION"
           curl -sS -X POST -H "Authorization: token $GH_PAT" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/IggyIkenna/$REPO_NAME/dispatches" -d "{\"event_type\":\"service-deployed\",\"client_payload\":{\"service_name\":\"$REPO_NAME\",\"version\":\"$VERSION\",\"image\":\"$IMAGE\"}}" || true
         fi
-      - uv pip install build twine
-      - python -m build --wheel --outdir dist/
+      # Library wheel publish — ONLY for repos wired to CodeArtifact. deployment-service
+      # is a SERVICE (deployed as the Docker image above), so CODEARTIFACT_DOMAIN is
+      # unset and this whole block is skipped. Use `python -m pip` (always present with
+      # the python runtime) — `uv` is NOT installed in the CodeBuild env (install phase
+      # sets only python 3.13), so the prior `uv pip install` exited 127 and reddened
+      # every build.
       - |
         if [ -n "$CODEARTIFACT_DOMAIN" ]; then
+          python -m pip install build twine
+          python -m build --wheel --outdir dist/
           aws codeartifact login --tool twine --domain $CODEARTIFACT_DOMAIN --domain-owner $AWS_ACCOUNT_ID --repository unified-libraries || true
           python -m twine upload --repository codeartifact dist/*.whl || true
         fi
