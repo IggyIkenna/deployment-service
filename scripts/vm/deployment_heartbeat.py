@@ -46,6 +46,7 @@ from unified_trading_library import (
 
 # deployment-service is installed in the VM's tarball venv — importing here
 # gives us the registry + GCS adapter for free.
+from deployment_service.bom import resolve_deployment_bom
 from deployment_service.deployments_registry import (
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
@@ -109,6 +110,9 @@ def _emit(
         "events_emitted": entry.events_emitted,
         "exit_code": entry.exit_code,
         "log_uri": entry.log_uri,
+        "image_digest": entry.image_digest,
+        "git_commit": entry.git_commit,
+        "dep_versions": entry.dep_versions,
     }
     if extra:
         payload.update(extra)
@@ -120,6 +124,9 @@ def _emit(
 
 def cmd_register(args: argparse.Namespace, registry: DeploymentsRegistry) -> int:
     now = _utcnow_iso()
+    # BoM: stamp provenance (image digest / git commit / dep versions) at
+    # launch — heartbeat/complete preserve it via registry.get() round-trips.
+    bom = resolve_deployment_bom()
     entry = DeploymentRegistryEntry(
         deployment_id=args.id,
         vm_name=args.name,
@@ -138,6 +145,9 @@ def cmd_register(args: argparse.Namespace, registry: DeploymentsRegistry) -> int
         rows_error=0,
         events_emitted=1,
         log_uri=args.log_uri,
+        image_digest=bom.image_digest,
+        git_commit=bom.git_commit,
+        dep_versions=dict(bom.dep_versions),
     )
     registry.register(entry)
     _emit(DEPLOYMENT_STARTED, "INFO", entry)
