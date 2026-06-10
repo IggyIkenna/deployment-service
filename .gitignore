@@ -136,3 +136,6 @@ override.tf.json
 # --- Optional: Jupyter (uncomment if repo has notebooks) ---
 # .ipynb_checkpoints/
 # profile_default/
+
+# Claude Code agent worktrees — gitlinks that leak as phantom submodules in CI (never track)
+.claude/worktrees/
