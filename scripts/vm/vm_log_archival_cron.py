@@ -22,79 +22,76 @@ import logging
 import sys
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1, storage
-from unified_trading_library import UnifiedCloudConfig
+from google.cloud import compute_v1
+from unified_trading_library import UnifiedCloudConfig, get_storage_client, upload_to_storage
 
 from deployment_service.deployments_registry import vm_serial_rolling_uri
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def archive_vm_logs(project_id: str, dry_run: bool = False) -> int:
     """Archive VM logs from live stream to durable storage.
-    
+
     Copies all objects from gs://deployment-scripts-{project}/vm-logs/
     to gs://deployment-scripts-{project}/log-archive/rolling/{date}/
-    
+
     Returns number of objects archived.
     """
     bucket_name = f"deployment-scripts-{project_id}"
     source_prefix = "vm-logs/"
-    
+
     # Use date-stamped archive to preserve history
     date_stamp = datetime.now(UTC).strftime("%Y%m%d")
     dest_prefix = f"log-archive/rolling/{date_stamp}/"
-    
-    client = storage.Client(project=project_id)
+
+    client = get_storage_client()
     bucket = client.bucket(bucket_name)
-    
+
     archived_count = 0
     error_count = 0
-    
+
     # List all objects in vm-logs/
     blobs = bucket.list_blobs(prefix=source_prefix)
-    
+
     for blob in blobs:
         # Skip directory markers
-        if blob.name.endswith('/'):
+        if blob.name.endswith("/"):
             continue
-            
+
         # Derive destination path
-        relative_path = blob.name[len(source_prefix):]
+        relative_path = blob.name[len(source_prefix) :]
         dest_name = f"{dest_prefix}{relative_path}"
-        
+
         if dry_run:
             logger.info("[DRY-RUN] Would copy %s to %s", blob.name, dest_name)
             archived_count += 1
             continue
-        
+
         try:
             # Check if destination already exists (idempotent)
             dest_blob = bucket.blob(dest_name)
             if dest_blob.exists():
                 logger.debug("Already archived: %s", dest_name)
                 continue
-            
+
             # Server-side copy (fast, no download)
             bucket.copy_blob(blob, bucket, dest_name)
             logger.info("Archived: %s -> %s", blob.name, dest_name)
             archived_count += 1
-            
+
         except Exception as exc:
             logger.error("Failed to archive %s: %s", blob.name, exc)
             error_count += 1
-    
+
     logger.info(
         "Archival complete: %d objects archived, %d errors%s",
         archived_count,
         error_count,
-        " (DRY-RUN)" if dry_run else ""
+        " (DRY-RUN)" if dry_run else "",
     )
-    
+
     # Return non-zero if any errors occurred
     return 1 if error_count > 0 else 0
 
@@ -153,7 +150,6 @@ def capture_long_lived_serial(project_id: str, dry_run: bool = False) -> int:
     Returns number of serial captures written (or would-write in dry-run).
     """
     date_stamp = datetime.now(UTC).strftime("%Y%m%d")
-    storage_client = storage.Client(project=project_id)
     compute_client = compute_v1.InstancesClient()
 
     request = compute_v1.AggregatedListInstancesRequest(project=project_id)
@@ -182,20 +178,20 @@ def capture_long_lived_serial(project_id: str, dry_run: bool = False) -> int:
             continue
 
         try:
-            serial_output = compute_client.get_serial_port_output(
-                project=project_id, zone=zone, instance=vm_name
-            )
+            serial_output = compute_client.get_serial_port_output(project=project_id, zone=zone, instance=vm_name)
             if not serial_output.contents:
                 logger.info("No serial output for %s (normal for freshly booted VMs)", vm_name)
                 continue
 
             # Parse canonical GCS URI into bucket + blob path
             # URI shape: gs://{bucket}/log-archive/serial-rolling/{date}/{vm}/serial-console.txt
-            uri_parts = dest_uri[len("gs://"):].split("/", 1)
+            uri_parts = dest_uri[len("gs://") :].split("/", 1)
             dest_bucket_name, dest_blob_path = uri_parts[0], uri_parts[1]
 
-            dest_blob = storage_client.bucket(dest_bucket_name).blob(dest_blob_path)
-            dest_blob.upload_from_string(serial_output.contents, content_type="text/plain")
+            serial_bytes = (
+                serial_output.contents.encode() if isinstance(serial_output.contents, str) else serial_output.contents
+            )
+            upload_to_storage(dest_bucket_name, dest_blob_path, serial_bytes, "text/plain")
             logger.info("Captured serial for %s -> %s", vm_name, dest_uri)
             captured += 1
 
@@ -213,18 +209,11 @@ def capture_long_lived_serial(project_id: str, dry_run: bool = False) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entry point for Cloud Run Job execution."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview what would be archived without making changes"
-    )
-    parser.add_argument(
-        "--project-id",
-        help="GCP project ID (defaults to UnifiedCloudConfig)"
-    )
-    
+    parser.add_argument("--dry-run", action="store_true", help="Preview what would be archived without making changes")
+    parser.add_argument("--project-id", help="GCP project ID (defaults to UnifiedCloudConfig)")
+
     args = parser.parse_args(argv)
-    
+
     # Resolve project ID
     if args.project_id:
         project_id = args.project_id
@@ -235,11 +224,11 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             logger.error("Failed to resolve project ID: %s", exc)
             return 1
-    
+
     if not project_id:
         logger.error("No project ID available")
         return 1
-    
+
     logger.info(
         "Starting VM log archival for project %s%s",
         project_id,
