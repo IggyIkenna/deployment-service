@@ -69,6 +69,30 @@ class DeploymentConfig(UnifiedCloudConfig):
     )
 
     # =========================================================================
+    # DEPLOYMENT BILL-OF-MATERIALS (BoM) PROVENANCE PASSTHROUGH
+    # Build/launch-time stamps consumed by deployment_service.bom — recorded on
+    # every DeploymentRegistryEntry so "what code is deployed" is queryable.
+    # =========================================================================
+
+    git_commit: str = Field(
+        default="",
+        validation_alias=AliasChoices("GIT_COMMIT", "SHORT_SHA", "COMMIT_SHA"),
+        description="Service git commit baked into the running image at build time",
+    )
+
+    image_digest: str = Field(
+        default="",
+        validation_alias=AliasChoices("IMAGE_DIGEST"),
+        description="Immutable sha256 digest (or digest-pinned ref) of the running service image",
+    )
+
+    base_image_digest: str = Field(
+        default="",
+        validation_alias=AliasChoices("BASE_IMAGE_DIGEST"),
+        description="sha256 digest of the unified-trading-library base image baked at build (QG 5.79 ratchet)",
+    )
+
+    # =========================================================================
     # DEPLOYMENT CONCURRENCY LIMITS
     # =========================================================================
 

@@ -166,6 +166,12 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     rows_error: int
     events_emitted: int
     log_uri: str
+    # ---- bill-of-materials (BoM) provenance — what code is in this deployment.
+    # Empty defaults keep legacy GCS rows (written before 2026-06-10) loadable.
+    # Resolution SSOT: deployment_service/bom.py (resolve_deployment_bom).
+    image_digest: str = ""  # immutable "sha256:..." image digest; "" = honestly unknown
+    git_commit: str = ""  # service git commit baked at build time ($SHORT_SHA / $COMMIT_SHA)
+    dep_versions: dict[str, str] = field(default_factory=dict)  # UTL/UAC versions + base_image_digest
     extras: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
@@ -179,6 +185,9 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
         data = cast(dict[str, object], json.loads(payload))
         extras_raw = cast(dict[str, object], data.get("extras", {}))
         extras = {str(k): str(v) for k, v in extras_raw.items()}
+        # Legacy rows predate the BoM fields — default to honest-unknown.
+        dep_versions_raw = cast(dict[str, object], data.get("dep_versions") or {})
+        dep_versions = {str(k): str(v) for k, v in dep_versions_raw.items()}
         return cls(
             deployment_id=str(data["deployment_id"]),
             vm_name=str(data["vm_name"]),
@@ -197,6 +206,9 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
             rows_error=int(data.get("rows_error", 0) or 0),
             events_emitted=int(data.get("events_emitted", 0) or 0),
             log_uri=str(data.get("log_uri", "")),
+            image_digest=str(data.get("image_digest", "") or ""),
+            git_commit=str(data.get("git_commit", "") or ""),
+            dep_versions=dep_versions,
             extras=extras,
         )
 
