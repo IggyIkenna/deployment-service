@@ -90,7 +90,8 @@ def test_dry_run_counts_target_vms() -> None:
 
     with (
         patch("scripts.vm.vm_serial_capture_cron.compute_v1.InstancesClient") as mock_cc,
-        patch("scripts.vm.vm_serial_capture_cron.storage.Client"),
+        patch("scripts.vm.vm_serial_capture_cron.storage_exists", return_value=False),
+        patch("scripts.vm.vm_serial_capture_cron.upload_to_storage"),
     ):
         mock_cc.return_value.aggregated_list.return_value = fake_zones
         result = capture_serial_for_long_lived_vms("test-project", dry_run=True)
@@ -113,19 +114,17 @@ def test_skips_already_captured() -> None:
         ),
     ]
 
-    mock_blob = MagicMock()
-    mock_blob.exists.return_value = True  # already exists
-
     with (
         patch("scripts.vm.vm_serial_capture_cron.compute_v1.InstancesClient") as mock_cc,
-        patch("scripts.vm.vm_serial_capture_cron.storage.Client") as mock_sc,
+        patch("scripts.vm.vm_serial_capture_cron.storage_exists", return_value=True) as mock_exists,
+        patch("scripts.vm.vm_serial_capture_cron.upload_to_storage") as mock_upload,
     ):
         mock_cc.return_value.aggregated_list.return_value = fake_zones
-        mock_sc.return_value.bucket.return_value.blob.return_value = mock_blob
         result = capture_serial_for_long_lived_vms("test-project", dry_run=False)
 
     assert result == 0
-    mock_blob.upload_from_string.assert_not_called()
+    mock_upload.assert_not_called()
+    mock_exists.assert_called_once()
 
 
 def test_upload_on_new_vm() -> None:
@@ -143,23 +142,23 @@ def test_upload_on_new_vm() -> None:
         ),
     ]
 
-    mock_blob = MagicMock()
-    mock_blob.exists.return_value = False
-
     mock_serial = MagicMock()
     mock_serial.contents = "Linux vm kernel output..."
 
     with (
         patch("scripts.vm.vm_serial_capture_cron.compute_v1.InstancesClient") as mock_cc,
-        patch("scripts.vm.vm_serial_capture_cron.storage.Client") as mock_sc,
+        patch("scripts.vm.vm_serial_capture_cron.storage_exists", return_value=False),
+        patch("scripts.vm.vm_serial_capture_cron.upload_to_storage") as mock_upload,
     ):
         mock_cc.return_value.aggregated_list.return_value = fake_zones
         mock_cc.return_value.get_serial_port_output.return_value = mock_serial
-        mock_sc.return_value.bucket.return_value.blob.return_value = mock_blob
         result = capture_serial_for_long_lived_vms("test-project", dry_run=False)
 
     assert result == 0
-    mock_blob.upload_from_string.assert_called_once_with("Linux vm kernel output...")
+    mock_upload.assert_called_once()
+    # Verify the bytes and bucket/path were passed (contents is a str, so encode() is applied)
+    call_args = mock_upload.call_args
+    assert call_args.args[2] == b"Linux vm kernel output..."
 
 
 def test_error_on_serial_fetch_returns_nonzero() -> None:
@@ -177,16 +176,13 @@ def test_error_on_serial_fetch_returns_nonzero() -> None:
         ),
     ]
 
-    mock_blob = MagicMock()
-    mock_blob.exists.return_value = False
-
     with (
         patch("scripts.vm.vm_serial_capture_cron.compute_v1.InstancesClient") as mock_cc,
-        patch("scripts.vm.vm_serial_capture_cron.storage.Client") as mock_sc,
+        patch("scripts.vm.vm_serial_capture_cron.storage_exists", return_value=False),
+        patch("scripts.vm.vm_serial_capture_cron.upload_to_storage"),
     ):
         mock_cc.return_value.aggregated_list.return_value = fake_zones
         mock_cc.return_value.get_serial_port_output.side_effect = RuntimeError("API unavailable")
-        mock_sc.return_value.bucket.return_value.blob.return_value = mock_blob
         result = capture_serial_for_long_lived_vms("test-project", dry_run=False)
 
     assert result == 1

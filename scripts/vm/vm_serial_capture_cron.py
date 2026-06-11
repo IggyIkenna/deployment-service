@@ -27,17 +27,19 @@ import logging
 import sys
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1, storage
-from unified_trading_library import UnifiedCloudConfig
+from google.cloud import compute_v1
+from unified_trading_library import UnifiedCloudConfig, storage_exists, upload_to_storage
 from unified_api_contracts.canonical.crosscutting import LifecycleClass, VmPrefixSpec
 
 from deployment_service.deployments_registry import vm_serial_rolling_uri
 from scripts.vm.vm_zombie_watchdog import VM_PREFIX_TO_BUCKET
 
-_TARGET_LIFECYCLE_CLASSES: frozenset[LifecycleClass] = frozenset({
-    LifecycleClass.LONG_LIVED_LIVE,
-    LifecycleClass.SCHEDULED_RECURRING,
-})
+_TARGET_LIFECYCLE_CLASSES: frozenset[LifecycleClass] = frozenset(
+    {
+        LifecycleClass.LONG_LIVED_LIVE,
+        LifecycleClass.SCHEDULED_RECURRING,
+    }
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,7 +77,6 @@ def capture_serial_for_long_lived_vms(
     logger.info("Target prefixes (%d classified)", len(target_prefixes))
 
     compute_client = compute_v1.InstancesClient()
-    storage_client = storage.Client(project=project_id)
 
     request = compute_v1.AggregatedListInstancesRequest(project=project_id)
 
@@ -105,12 +106,9 @@ def capture_serial_for_long_lived_vms(
             uri_no_scheme = serial_uri[5:]  # strip "gs://"
             slash = uri_no_scheme.index("/")
             bucket_name = uri_no_scheme[:slash]
-            object_path = uri_no_scheme[slash + 1:]
+            object_path = uri_no_scheme[slash + 1 :]
 
-            bucket = storage_client.bucket(bucket_name)
-            dest_blob = bucket.blob(object_path)
-
-            if dest_blob.exists():
+            if storage_exists(bucket_name, object_path):
                 logger.debug("Already captured %s on %s — skipping", vm_name, date_stamp)
                 skipped_existing += 1
                 continue
@@ -122,7 +120,12 @@ def capture_serial_for_long_lived_vms(
                     instance=vm_name,
                 )
                 if serial_response.contents:
-                    dest_blob.upload_from_string(serial_response.contents)
+                    serial_bytes = (
+                        serial_response.contents.encode()
+                        if isinstance(serial_response.contents, str)
+                        else serial_response.contents
+                    )
+                    upload_to_storage(bucket_name, object_path, serial_bytes)
                     logger.info("Captured serial for %s -> %s", vm_name, serial_uri)
                     captured += 1
                 else:

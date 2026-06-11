@@ -45,13 +45,18 @@
 
 locals {
   # asset_group → { bucket = instruments-store bucket, extra_args = per-AG CLI overrides }
+  # CORRECTED 2026-06-11 (canonicalisation autonomous run): the prior literals were the
+  # LEGACY flat buckets (no env segment) + a nonexistent instruments-store-prediction-…
+  # (404 — the live bucket is the "pred" short key). The lifecycle roll-up reads/writes
+  # the CANONICAL env-short buckets (where prod/catalog.parquet actually lives, verified
+  # via gcloud storage ls 2026-06-11) per resolve_bucket_name / cloud-providers.yaml.
   lifecycle_catalogue_asset_groups = {
-    cefi   = { bucket = "instruments-store-cefi-central-element-323112", extra_args = [] }
-    defi   = { bucket = "instruments-store-defi-central-element-323112", extra_args = [] }
-    tradfi = { bucket = "instruments-store-tradfi-central-element-323112", extra_args = [] }
-    sports = { bucket = "instruments-store-sports-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"] }
-    # prediction → flat "pred" key in cloud-providers.yaml; sibling tf uses "prediction" literal (see header note).
-    prediction = { bucket = "instruments-store-prediction-central-element-323112", extra_args = [] }
+    cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [] }
+    defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [] }
+    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [] }
+    sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"] }
+    # prediction → flat "pred" short key per cloud-providers.yaml (instruments-store-prediction-… does not exist).
+    prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [] }
   }
 }
 

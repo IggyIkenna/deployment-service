@@ -251,7 +251,9 @@ resource "google_monitoring_alert_policy" "cf_manifest_audit_red" {
     mime_type = "text/markdown"
   }
 
-  labels = {
+  # google_monitoring_alert_policy uses user_labels (a top-level `labels`
+  # argument is not part of the resource schema — caught at first validate).
+  user_labels = {
     "purpose" = "cf-manifest-audit-alert"
     "tier"    = "continuous-verification"
   }
