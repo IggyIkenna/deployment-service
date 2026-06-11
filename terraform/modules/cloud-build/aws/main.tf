@@ -259,5 +259,19 @@ resource "aws_codebuild_webhook" "github" {
         pattern = var.github_branch_filter
       }
     }
+
+    # OPT-IN LDR image build (Gap 5, ci_pipeline_self_healing_gaps_2026_06_11): gate the LDR webhook
+    # on the `Build-LDR: true` commit trailer stamped by `quickmerge --build`. Empty = no gate (always
+    # build on the branch filter). When set to "Build-LDR: true", non-opted LDR pushes do NOT build →
+    # saves cost + removes the CodeBuild status from LDR→staging drain PRs.
+    # NOTE: the LIVE webhooks are currently imperatively managed + DRIFTED from this module — do NOT
+    # `terraform apply` blindly (would revert live config). Reconcile TF↔live first (BUILD-FIX P3).
+    dynamic "filter" {
+      for_each = var.github_commit_message_filter != "" ? [1] : []
+      content {
+        type    = "COMMIT_MESSAGE"
+        pattern = var.github_commit_message_filter
+      }
+    }
   }
 }
