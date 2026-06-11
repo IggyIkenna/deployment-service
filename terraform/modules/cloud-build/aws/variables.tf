@@ -126,6 +126,12 @@ variable "github_branch_filter" {
   default     = ""
 }
 
+variable "github_commit_message_filter" {
+  description = "Optional COMMIT_MESSAGE webhook filter (e.g. 'Build-LDR: true') gating the build to opt-in pushes (Gap 5 LDR opt-in via quickmerge --build). Empty = no commit-message gate."
+  type        = string
+  default     = ""
+}
+
 variable "service_name" {
   description = "Name of the service (for tagging)"
   type        = string
