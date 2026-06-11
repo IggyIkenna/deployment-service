@@ -39,9 +39,10 @@ EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calcula
 EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py" --glob "!**/orchestrator.py")
 # GCP_PROJECT_ID: docstrings, template substitution strings, error messages, bash heredocs
 GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_framework.py" "!**/deployment_config.py" "!**/config_loader.py" "!**/cloud_client.py" "!**/backends/services/vm_config.py" "!**/dependencies.py" "!**/shard_builder.py" "!**/backends/services/vm_lifecycle.py")
-# 8 pre-existing codex violations in service source (os.getenv, direct cloud SDK imports,
-# pip-audit findings, bandit issues). New code must not introduce additional violations.
-CODEX_MAX_VIOLATIONS=8
+# Ratcheted 8→1 on 2026-06-11 (codex_violations_ratchet_to_five_2026_06_10 plan): census run
+# showed a single firing class (broad-except, documented in QUALITY_GATE_BYPASS_AUDIT.md).
+# Budgets only ratchet DOWN — a bump is review-blocking.
+CODEX_MAX_VIOLATIONS=1
 # 2026-05-26 baseline: 1297 errors with pre-rollout basedpyright strictness (reportUnknown* partially enabled).
 # Ratchet this down as type errors are fixed. Enforced by base-service.sh BASEDPYRIGHT_MAX_ERRORS ratchet.
 BASEDPYRIGHT_MAX_ERRORS=1297
