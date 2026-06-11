@@ -32,9 +32,9 @@ from vm_zombie_watchdog import PROJECT_ID, VM_PREFIX_TO_BUCKET
 
 
 def _bucket_exists(project_id: str, bucket_name: str) -> bool:
-    from google.cloud import storage  # pyright: ignore[reportMissingModuleSource]  # library has no py.typed marker
+    from unified_trading_library import get_storage_client  # lazy import — script-only, no module init cost
 
-    client = storage.Client(project=project_id)
+    client = get_storage_client()
     bucket = client.bucket(bucket_name)
     return bucket.exists()
 

@@ -69,11 +69,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1, storage
+from google.cloud import compute_v1
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
 from unified_trading_library import resolve_bucket_name
+from unified_trading_library import StorageClient, get_storage_client, upload_to_storage
+from unified_trading_library.cloud_interface import gcs_copy_object  # noqa: qg-deep-import — gcs_copy_object not yet promoted to UTL top-level __init__
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -1146,7 +1148,7 @@ def _vm_age_minutes(compute_client: compute_v1.InstancesClient, vm_name: str, zo
 
 def _evaluate_vm(
     compute_client: compute_v1.InstancesClient,
-    storage_client: storage.Client,
+    storage_client: StorageClient,
     vm_name: str,
     zone: str,
     min_age: float,
@@ -1217,23 +1219,16 @@ def _backup_vm_logs_before_kill(vm_name: str, zone: str) -> None:
     )
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M")
-    storage_client = storage.Client(project=PROJECT_ID)
 
     # 1. Archive run.log (if it exists) via server-side copy
     src_uri = vm_log_stream_uri(vm_name, PROJECT_ID)
     dst_uri = vm_run_log_archive_uri(vm_name, timestamp, PROJECT_ID)
 
-    # Strip gs:// prefix for storage client operations
-    src_bucket = src_uri.split("/")[2]
-    src_path = "/".join(src_uri.split("/")[3:])
-    dst_bucket = dst_uri.split("/")[2]
-    dst_path = "/".join(dst_uri.split("/")[3:])
-
     try:
-        src_blob = storage_client.bucket(src_bucket).blob(src_path)
-        if src_blob.exists():
-            dst_blob = storage_client.bucket(dst_bucket).blob(dst_path)
-            dst_blob.rewrite(src_blob)
+        src_bucket = src_uri.split("/")[2]
+        src_path = "/".join(src_uri.split("/")[3:])
+        if get_storage_client().blob_exists(src_bucket, src_path):
+            gcs_copy_object(src_uri, dst_uri)
             logger.info("Archived run.log for %s to %s", vm_name, dst_uri)
     except Exception as exc:
         logger.debug("Failed to archive run.log for %s: %s", vm_name, exc)
@@ -1246,9 +1241,10 @@ def _backup_vm_logs_before_kill(vm_name: str, zone: str) -> None:
             serial_uri = vm_serial_console_archive_uri(vm_name, timestamp, PROJECT_ID)
             serial_bucket = serial_uri.split("/")[2]
             serial_path = "/".join(serial_uri.split("/")[3:])
-
-            serial_blob = storage_client.bucket(serial_bucket).blob(serial_path)
-            serial_blob.upload_from_string(serial_output.contents)
+            serial_bytes = (
+                serial_output.contents.encode() if isinstance(serial_output.contents, str) else serial_output.contents
+            )
+            upload_to_storage(serial_bucket, serial_path, serial_bytes)
             logger.info("Archived serial console for %s to %s", vm_name, serial_uri)
     except Exception as exc:
         logger.debug("Failed to capture serial console for %s: %s", vm_name, exc)
@@ -1319,9 +1315,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     compute_client = compute_v1.InstancesClient()
-    storage_client = storage.Client(project=PROJECT_ID)
+    storage_client = get_storage_client()
     _bump_pool_size(compute_client.transport._session)
-    _bump_pool_size(storage_client._http)
+    _bump_pool_size(storage_client._client._http)  # noqa: SLF001 — internal pool-size tuning, no UTL abstraction
 
     t0 = time.monotonic()
     watchable = _list_watchable_vms(compute_client)
