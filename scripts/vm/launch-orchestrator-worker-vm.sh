@@ -89,7 +89,7 @@ NAME="${NAME:-agent-orch-${VM_ID}-$(date -u +%Y%m%d)}"
 
 # Refuse a duplicate running instance with the same Name prefix unless --force.
 if ! $FORCE; then
-  lc_aws_guard_duplicate "${NAME}" "${AWS_REGION}"
+  lc_aws_singleton_check "${NAME}" "${AWS_REGION}"
 fi
 
 # Validate --env entries early (KEY=VAL, KEY a shell identifier).
