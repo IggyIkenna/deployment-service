@@ -288,17 +288,22 @@ class TestVmPrefixSpecBucketPatterns:
 
 # ── shellcheck smoke ──────────────────────────────────────────────────────────
 
+import shutil
+
+_SHELLCHECK = shutil.which("shellcheck")
+
 
 class TestShellcheckClean:
     """Launcher scripts must pass shellcheck with no errors (SC >= 2000 severity)."""
 
+    @pytest.mark.skipif(_SHELLCHECK is None, reason="shellcheck not installed")
     @pytest.mark.parametrize("script", sorted(SCRIPTS_VM_DIR.glob("launch-*.sh")))
     def test_shellcheck_no_errors(self, script: Path) -> None:
         """Each launcher must be shellcheck-clean (errors only; style/info acceptable)."""
         import subprocess
 
         result = subprocess.run(
-            ["shellcheck", "--severity=error", str(script)],
+            [_SHELLCHECK, "--severity=error", str(script)],
             capture_output=True,
             text=True,
         )
