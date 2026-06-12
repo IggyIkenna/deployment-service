@@ -89,7 +89,15 @@ echo "=== Deploy target: $(echo "${DEPLOY_ENV}" | tr '[:lower:]' '[:upper:]') ($
 
 IMAGE_REF="${IMAGE}:${IMAGE_TAG}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# REPO_ROOT is the UI repo being built — NOT this (deployment-service) repo. The script
+# migrated here 2026-05-08 from unified-trading-system-ui/scripts/, where "${SCRIPT_DIR}/.."
+# used to resolve to the UI repo root; post-migration that resolved inside deployment-service
+# and silently broke both build contexts (finding F29, capability-wizard analysis 2026-06-12).
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)/unified-trading-system-ui"
+if [[ ! -d "${REPO_ROOT}" || ! -f "${REPO_ROOT}/scripts/cloudbuild-odum-portal.yaml" ]]; then
+  echo "ERROR: unified-trading-system-ui repo (with scripts/cloudbuild-odum-portal.yaml) not found at ${REPO_ROOT}" >&2
+  exit 1
+fi
 
 if [[ -n "${BUILD_ENV_FILE_OVERRIDE}" ]]; then
   case "${BUILD_ENV_FILE_OVERRIDE}" in
@@ -110,7 +118,7 @@ fi
 if [[ "${USE_CLOUD_BUILD}" == true ]]; then
   echo "=== Cloud Build (${BUILD_ENV_FILE} → ${IMAGE_REF}) ==="
   gcloud builds submit "${REPO_ROOT}" \
-    --config="${SCRIPT_DIR}/cloudbuild-odum-portal.yaml" \
+    --config="${REPO_ROOT}/scripts/cloudbuild-odum-portal.yaml" \
     --substitutions=_IMAGE="${IMAGE_REF}",_BUILD_ENV_FILE="${BUILD_ENV_FILE}" \
     --timeout=1200 \
     --project="${PROJECT_ID}"
