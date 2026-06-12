@@ -188,6 +188,13 @@ print(json.dumps([{'ResourceType':'instance','Tags':tags}]))
         key_args=(--key-name "$AWS_KEY_PAIR_NAME")
     fi
 
+    # Shutdown behavior (2026-06-12): default `terminate` (the original
+    # ephemeral-batch contract). LONG-RUNNING instances (orchestrator worker
+    # VMs) set LC_AWS_SHUTDOWN_BEHAVIOR=stop so an in-VM `shutdown` stops the
+    # instance (root disk kept, restartable) instead of terminating it and
+    # wiping the DeleteOnTermination gp3 root.
+    local shutdown_behavior="${LC_AWS_SHUTDOWN_BEHAVIOR:-terminate}"
+
     local instance_id
     instance_id="$(aws ec2 run-instances \
         --region "$region" \
@@ -198,7 +205,7 @@ print(json.dumps([{'ResourceType':'instance','Tags':tags}]))
         "${profile_args[@]+"${profile_args[@]}"}" \
         "${key_args[@]+"${key_args[@]}"}" \
         --user-data "file://${user_data_file}" \
-        --instance-initiated-shutdown-behavior terminate \
+        --instance-initiated-shutdown-behavior "${shutdown_behavior}" \
         --metadata-options "HttpTokens=required,HttpEndpoint=enabled" \
         --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":${disk_gb},\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
         --tag-specifications "$tag_spec" \
