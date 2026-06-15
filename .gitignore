@@ -5,7 +5,7 @@
 contracts/cache/
 contracts/lib/
 contracts/out/
-contracts/.gas-snapshot
+# contracts/.gas-snapshot is intentionally TRACKED (Foundry gas baseline for `forge snapshot --check`) — do not ignore
 
 # =============================================================================
 # Central .gitignore — workspace SSOT (Python + React/TS + security)
