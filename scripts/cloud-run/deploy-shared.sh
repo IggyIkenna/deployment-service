@@ -144,6 +144,31 @@ if $DO_BUILD; then
     "$UAC_SRC/" "$TEMP_UAC/"
   echo "    unified-api-contracts: $(du -sh "$TEMP_UAC" | cut -f1)"
 
+  # Bundle strategy-service — deployment-api's treasury_routes.py imports
+  # strategy_service.position; the Dockerfile installs it from this directory with
+  # --no-deps (sqlalchemy is installed separately first). buildspec.aws.yaml clones
+  # it; the tier-3 path must rsync it the same way (added 2026-06-14 — the Dockerfile
+  # gained this COPY in 7be50f0 but this script was never updated → COPY _strategy-service
+  # failed).
+  SS_SRC="${WORKSPACE_ROOT}/strategy-service"
+  if [ ! -d "$SS_SRC" ]; then
+    echo "ERROR: strategy-service sibling repo not found at $SS_SRC" >&2
+    exit 1
+  fi
+  TEMP_SS="${DEPLOYMENT_API_DIR}/_strategy-service"
+  if [ -e "$TEMP_SS" ] || [ -L "$TEMP_SS" ]; then rm -rf "$TEMP_SS"; fi
+  rsync -a \
+    --exclude='.venv' --exclude='.git' --exclude='__pycache__' \
+    --exclude='*.egg-info' --exclude='build' --exclude='dist' \
+    --exclude='node_modules' --exclude='.pytest_cache' \
+    --exclude='.coverage' --exclude='htmlcov' \
+    --exclude='terraform' --exclude='terraform.tfstate*' \
+    --exclude='.terraform' --exclude='*.tfstate*' \
+    --exclude='tests' --exclude='docs' --exclude='data' \
+    --exclude='coverage.json' --exclude='coverage.xml' \
+    "$SS_SRC/" "$TEMP_SS/"
+  echo "    strategy-service: $(du -sh "$TEMP_SS" | cut -f1)"
+
   # Materialise the codex-data / pm-plans / pm-configs symlinks. Local checkouts
   # have these as symlinks into ../unified-trading-pm/{codex/10-audit/repos,plans,configs};
   # Cloud Build's tarball prep doesn't follow symlinks, so the COPY steps
@@ -161,7 +186,7 @@ if $DO_BUILD; then
   echo "    codex-data:  $(du -sh "${DEPLOYMENT_API_DIR}/codex-data" | cut -f1)"
   echo "    pm-plans:    $(du -sh "${DEPLOYMENT_API_DIR}/pm-plans" | cut -f1)"
   echo "    pm-configs:  $(du -sh "${DEPLOYMENT_API_DIR}/pm-configs" | cut -f1)"
-  trap 'rm -rf "${DEPLOYMENT_API_DIR}/ui" "${DEPLOYMENT_API_DIR}/codex-data" "${DEPLOYMENT_API_DIR}/pm-plans" "${DEPLOYMENT_API_DIR}/pm-configs" "${DEPLOYMENT_API_DIR}/_deployment-service" "${DEPLOYMENT_API_DIR}/_unified-api-contracts" 2>/dev/null; ln -sfn ../unified-trading-pm/codex/10-audit/repos "${DEPLOYMENT_API_DIR}/codex-data"; ln -sfn ../unified-trading-pm/plans "${DEPLOYMENT_API_DIR}/pm-plans"; ln -sfn ../unified-trading-pm/configs "${DEPLOYMENT_API_DIR}/pm-configs"' EXIT
+  trap 'rm -rf "${DEPLOYMENT_API_DIR}/ui" "${DEPLOYMENT_API_DIR}/codex-data" "${DEPLOYMENT_API_DIR}/pm-plans" "${DEPLOYMENT_API_DIR}/pm-configs" "${DEPLOYMENT_API_DIR}/_deployment-service" "${DEPLOYMENT_API_DIR}/_unified-api-contracts" "${DEPLOYMENT_API_DIR}/_strategy-service" 2>/dev/null; ln -sfn ../unified-trading-pm/codex/10-audit/repos "${DEPLOYMENT_API_DIR}/codex-data"; ln -sfn ../unified-trading-pm/plans "${DEPLOYMENT_API_DIR}/pm-plans"; ln -sfn ../unified-trading-pm/configs "${DEPLOYMENT_API_DIR}/pm-configs"' EXIT
 
   # Manual `gcloud builds submit` does not auto-populate SHORT_SHA / COMMIT_SHA
   # (those only come from Cloud Build triggers). The repo's cloudbuild.yaml
