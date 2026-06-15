@@ -18,10 +18,11 @@
 #   bash unified-trading-pm/scripts/dev/deploy-shared-cloudrun.sh --no-build
 #
 # Env overrides:
-#   GCP_PROJECT_ID  (default: central-element-323112)
-#   REGION          (default: asia-northeast1)
-#   SERVICE_NAME    (default: uts-shared-deployment-api)
-#   BRANCH          (default: live-defi-rollout)
+#   GCP_PROJECT_ID    (default: central-element-323112)
+#   REGION            (default: asia-northeast1)
+#   SERVICE_NAME      (default: uts-shared-deployment-api)
+#   BRANCH            (default: live-defi-rollout)
+#   ROLLUP_JOB_NAME   (default: uts-prod-data-status-rollup)
 
 set -euo pipefail
 
@@ -31,6 +32,7 @@ SERVICE_NAME="${SERVICE_NAME:-uts-shared-deployment-api}"
 IMAGE="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-system/deployment-api:latest"
 BRANCH="${BRANCH:-live-defi-rollout}"
 SA="unified-trading-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+ROLLUP_JOB_NAME="${ROLLUP_JOB_NAME:-uts-prod-data-status-rollup}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${UNIFIED_TRADING_WORKSPACE_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
@@ -65,6 +67,7 @@ echo "  Service:  $SERVICE_NAME"
 echo "  Image:    $IMAGE"
 echo "  Branch:   $BRANCH"
 echo "  SA:       $SA"
+echo "  Rollup:   $ROLLUP_JOB_NAME"
 echo
 
 if $DO_BUILD; then
@@ -239,4 +242,32 @@ if $DO_DEPLOY; then
   echo "  Data-status latency (in-region GCS reads): expect ~2-5s warm."
   echo "  Subsequent re-deploys: same URL, zero-downtime revision swap."
   echo
+
+  # ── Sync data-status rollup Job to the new image ─────────────────────────
+  # The rollup job (uts-prod-data-status-rollup, cron */5) runs independently
+  # from the Cloud Run SERVICE and is pinned to its own image tag.  Without
+  # this step the job keeps executing old code after every service deploy,
+  # so live data-status (served_from=rollup) silently reflects stale logic.
+  # We update the job to the SAME $IMAGE the service just rolled to so the
+  # two can never drift, then fire one async execution so the rollup refreshes
+  # immediately without waiting for the next cron tick.
+  echo "==> [3/3] Sync data-status rollup Job to the new image"
+  if gcloud run jobs describe "$ROLLUP_JOB_NAME" \
+       --project="$PROJECT_ID" --region="$REGION" \
+       --format='value(name)' >/dev/null 2>&1; then
+    gcloud run jobs update "$ROLLUP_JOB_NAME" \
+      --image="$IMAGE" \
+      --region="$REGION" \
+      --project="$PROJECT_ID"
+    gcloud run jobs execute "$ROLLUP_JOB_NAME" \
+      --region="$REGION" \
+      --project="$PROJECT_ID" \
+      --async
+    echo "    Rollup job updated + execution triggered (async)."
+  else
+    echo "    WARNING: rollup job '$ROLLUP_JOB_NAME' not found in project" \
+         "'$PROJECT_ID' / region '$REGION' — skipping rollup sync." \
+         "(Set ROLLUP_JOB_NAME= to suppress this warning.)" >&2
+  fi
+  # ── end rollup sync ───────────────────────────────────────────────────────
 fi
