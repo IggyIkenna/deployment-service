@@ -26,7 +26,9 @@ class TestApiAppImport:
     def test_router_is_included(self):
         from deployment_service.api.app import app
 
-        paths = {r.path for r in app.routes}
+        # FastAPI >= 0.115 wraps included routers in _IncludedRouter (no .path);
+        # use the OpenAPI paths dict which reflects the fully-resolved route set.
+        paths = set(app.openapi().get("paths", {}).keys())
         assert "/api/v1/shards/calculate" in paths
 
     def test_route_state_module_imports(self):

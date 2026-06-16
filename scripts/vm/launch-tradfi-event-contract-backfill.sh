@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
+# `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
+# is propagated to VM metadata so bucket-resolution targets the right env tier.
+#
+# Launch instruments-service TradFi backfill VM for the 9 CME event-contract roots:
+#   ECES / ECBTC / ECRTY / ECYM / ECGC / ECCL / ECNG / EC6E / ECNQ
+#
+# These are listed on Databento as GLBX.MDP3 parent instruments with .OPT suffix
+# (e.g. ECES.OPT). Databento coverage start: 2025-09-28. The adapter classifies
+# them as EVENT_CONTRACT via the BAG stype / EC* prefix logic.
+#
+# Writes to:
+#   gs://instruments-store-tradfi-{env}-{project}/_index/availability_index.parquet
+#   (per-VM shard: _index/per_vm/{VM_NAME}.parquet, merged by manifest-consolidator)
+#
+# Phase 0 of the CME x Polymarket arb plan (tradfi_cme_event_contract_backfill plan).
+# Unblocks Phases 1-5 of the archived cme_polymarket_arb_2026_05_08 sub-plan.
+#
+# Usage:
+#   bash launch-tradfi-event-contract-backfill.sh                     # 2025-09-28 → today
+#   bash launch-tradfi-event-contract-backfill.sh 2025-09-28 2026-01-01   # explicit window
+#   bash launch-tradfi-event-contract-backfill.sh --dry-run           # no VM created
+#   bash launch-tradfi-event-contract-backfill.sh --force             # bypass singleton lock
+#
+# Prerequisites:
+#   - Tarballs uploaded: bash deployment-service/scripts/vm/create-code-tarballs.sh --asset-group TRADFI
+#   - databento-api-key in Secret Manager (shared with other tradfi backfill VMs)
+#
+# Cost: e2-standard-4 ~30-90 min for [2025-09-28, today] (~9 months at 30d chunks).
+#
+# Singleton lock: refuses to launch if a tradfi-event-contract-backfill-* VM is RUNNING.
+# Databento account is shared across all TradFi backfill VMs — concurrent runs risk
+# rate-limit errors. Use --force to bypass.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+FORCE=false
+DRY_RUN=false
+DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+_positional=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --force)   FORCE=true; shift ;;
+    --env)     DEPLOYMENT_ENV="$2"; shift 2 ;;
+    *) _positional+=("$1"); shift ;;
+  esac
+done
+set -- "${_positional[@]}"
+
+case "$DEPLOYMENT_ENV" in
+  prod|staging|dev) ;;
+  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
+if [[ $# -ge 2 ]]; then
+  START_DATE="$1"
+  END_DATE="$2"
+else
+  START_DATE="2025-09-28"
+  END_DATE="$(date -u +%Y-%m-%d)"
+fi
+
+ZONE="asia-northeast1-c"
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
+
+if ! $FORCE; then
+  EXISTING="$(~/google-cloud-sdk/bin/gcloud compute instances list \
+    --filter='name~"^tradfi-event-contract-backfill-" AND status=RUNNING' \
+    --zones="$ZONE" \
+    --project="$PROJECT" \
+    --format='value(name)' 2>/dev/null | head -1)"
+  if [[ -n "$EXISTING" ]]; then
+    cat >&2 <<EOF
+ERROR: tradfi-event-contract-backfill VM already running in $ZONE: $EXISTING
+Refusing to launch a duplicate — Databento rate limits are per-IP.
+
+Options:
+  Inspect:   ~/google-cloud-sdk/bin/gcloud compute ssh $EXISTING --zone=$ZONE --project=$PROJECT
+  GCS log:   gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
+  Stop:      ~/google-cloud-sdk/bin/gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
+  Force:     bash $0 --force ${START_DATE} ${END_DATE}
+EOF
+    exit 1
+  fi
+fi
+
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+VM_NAME="tradfi-event-contract-backfill-${RUN_TS}"
+
+echo "Launching $VM_NAME"
+echo "  service:     instruments-service"
+echo "  asset_group: TRADFI"
+echo "  venue:       CME (EC* event contracts)"
+echo "  range:       ${START_DATE} → ${END_DATE}"
+echo "  zone:        $ZONE"
+
+METADATA="VM_TASK=instruments-backfill"
+METADATA="${METADATA},VM_SERVICE=instruments_service"
+METADATA="${METADATA},VM_OPERATION=download"
+METADATA="${METADATA},VM_ASSET_GROUP=TRADFI"
+METADATA="${METADATA},VM_VENUE=CME"
+METADATA="${METADATA},VM_START_DATE=${START_DATE}"
+METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA},VM_CHUNK_DAYS=30"
+METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+
+if [[ "${DRY_RUN:-false}" == "true" ]]; then
+  echo "[DRY-RUN] Would create VM: $VM_NAME"
+  echo "[DRY-RUN] Metadata: $METADATA"
+  echo "[DRY-RUN] (gcloud compute instances create skipped)"
+else
+  ~/google-cloud-sdk/bin/gcloud compute instances create "$VM_NAME" \
+    --project="$PROJECT" \
+    --zone="$ZONE" \
+    --machine-type=e2-standard-4 \
+    --image-family=ubuntu-2404-lts-amd64 \
+    --image-project=ubuntu-os-cloud \
+    --boot-disk-size=30GB \
+    --scopes=cloud-platform \
+    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --labels=purpose=tradfi-event-contract-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+fi
+
+echo ""
+echo "VM launched: $VM_NAME"
+echo "GCS log:     gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
+echo "Shard:       gs://instruments-store-tradfi-prd-${PROJECT}/_index/per_vm/${VM_NAME}.parquet"
+echo "Delete:      ~/google-cloud-sdk/bin/gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
+echo ""
+echo "Verify STARTED (T+10min):"
+echo "  ~/google-cloud-sdk/bin/gcloud compute instances describe $VM_NAME --zone=$ZONE --project=$PROJECT --format='value(status)'"

@@ -23,7 +23,9 @@ class TestApiMainModule:
         from deployment_service.api.main import create_app
 
         app = create_app()
-        paths = {r.path for r in app.routes}
+        # FastAPI >= 0.115 wraps included routers in _IncludedRouter (no .path);
+        # use the OpenAPI paths dict which reflects the fully-resolved route set.
+        paths = set(app.openapi().get("paths", {}).keys())
         assert "/health" in paths or any("/health" in p for p in paths)
 
     def test_module_level_app_is_fastapi(self):
