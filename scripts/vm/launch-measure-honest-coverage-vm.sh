@@ -25,7 +25,11 @@
 #   bash launch-measure-honest-coverage-vm.sh --env staging          # staging manifests
 #   bash launch-measure-honest-coverage-vm.sh --force                # bypass singleton lock
 #
-# Cost: e2-standard-2 for ~5-15 minutes depending on manifest sizes.
+# Cost: e2-highmem-4 (4 vCPU / 32 GiB) for ~5-15 minutes depending on manifest sizes.
+# Bumped from e2-standard-2 (8 GiB) 2026-06-16: the per-asset-group manifest loads
+# (cefi's index underlies ~35M cells) OOM/swap-thrashed the 8 GiB box → the measure
+# process hung indefinitely and never wrote coverage.json (the VM-side half of the
+# month-long honest-coverage outage; the launcher-SA actAs grant was the other half).
 set -euo pipefail
 
 FORCE=false
@@ -111,7 +115,7 @@ else
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type=e2-highmem-4 \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
