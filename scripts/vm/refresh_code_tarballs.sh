@@ -44,7 +44,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 BUCKET="deployment-scripts-${PROJECT_ID}"
-log() { echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [refresh-tarballs] $*"; }
+# Log to STDERR: Cloud Run Jobs capture stderr but swallow stdout, so a cron run is otherwise
+# a black box (the honest-coverage-job lesson). stderr keeps the SHA-scan + build progress visible.
+log() { echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') [refresh-tarballs] $*" >&2; }
 
 # repo_dir:tarball_name — MUST match create-code-tarballs.sh (CORE_REPOS + the {svc}->{svc}-code
 # convention for services). MTDS is the one non-identity name.
@@ -102,21 +104,35 @@ if $DRY_RUN; then
     exit 0
 fi
 
-# ── Phase 2: clone ONLY the changed repos (shallow, LDR) into a clean temp workspace ──
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-log "Cloning ${#CHANGED[@]} changed repo(s) at ${BRANCH} into ${WORK} ..."
+# ── Phase 2+3: per changed repo — clone → build+upload → cleanup, SEQUENTIALLY ──
+# Process ONE repo at a time so peak scratch is a single repo's clone + tarball (~3-4 GiB), NOT
+# the sum of all changed repos. LDR is highly active (9/11 repos can change between two runs),
+# and the Cloud Run Job's /tmp is memory-backed — building them all at once would OOM. Each temp
+# workspace holds only the one repo, so create-code-tarballs.sh --all builds exactly it (every
+# other repo absent → SKIPped). A single repo's failure is isolated (logged, others continue).
+ok=0
+failed=()
 for entry in "${CHANGED[@]}"; do
     repo_dir="${entry%%:*}"
-    git clone --quiet --depth 1 --branch "$BRANCH" "$(auth_url "$repo_dir")" "$WORK/$repo_dir" \
-        || { log "ERROR cloning $repo_dir"; exit 1; }
-    log "  cloned $repo_dir @ $(git -C "$WORK/$repo_dir" rev-parse --short HEAD)"
+    work="$(mktemp -d)"
+    if git clone --quiet --depth 1 --branch "$BRANCH" "$(auth_url "$repo_dir")" "$work/$repo_dir" 2>/dev/null; then
+        log "  building $repo_dir @ $(git -C "$work/$repo_dir" rev-parse --short HEAD) ..."
+        if WORKSPACE_ROOT="$work" bash "$SCRIPT_DIR/create-code-tarballs.sh" --all --bucket "$BUCKET" >&2; then
+            ok=$((ok + 1))
+        else
+            log "  ERROR building $repo_dir"
+            failed+=("$repo_dir")
+        fi
+    else
+        log "  ERROR cloning $repo_dir"
+        failed+=("$repo_dir")
+    fi
+    rm -rf "$work"
 done
 
-# ── Phase 3: build + upload via create-code-tarballs.sh (absent=unchanged repos are SKIPped) ──
-# WORKSPACE_ROOT points at the temp clones; --all iterates the full set but only the cloned
-# (changed) repos exist → exactly those are (re)built + uploaded.
-log "Building + uploading changed tarballs via create-code-tarballs.sh ..."
-WORKSPACE_ROOT="$WORK" bash "$SCRIPT_DIR/create-code-tarballs.sh" --all --bucket "$BUCKET"
-
-log "Refresh complete — ${#CHANGED[@]} tarball(s) updated to ${BRANCH} tip."
+if [[ ${#failed[@]} -eq 0 ]]; then
+    log "Refresh complete — ${ok}/${#CHANGED[@]} tarball(s) updated to ${BRANCH} tip."
+else
+    log "Refresh PARTIAL — ${ok}/${#CHANGED[@]} updated; FAILED: ${failed[*]}"
+    exit 1
+fi
