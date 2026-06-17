@@ -104,35 +104,57 @@ if $DRY_RUN; then
     exit 0
 fi
 
-# ── Phase 2+3: per changed repo — clone → build+upload → cleanup, SEQUENTIALLY ──
-# Process ONE repo at a time so peak scratch is a single repo's clone + tarball (~3-4 GiB), NOT
-# the sum of all changed repos. LDR is highly active (9/11 repos can change between two runs),
-# and the Cloud Run Job's /tmp is memory-backed — building them all at once would OOM. Each temp
-# workspace holds only the one repo, so create-code-tarballs.sh --all builds exactly it (every
-# other repo absent → SKIPped). A single repo's failure is isolated (logged, others continue).
-ok=0
-failed=()
-for entry in "${CHANGED[@]}"; do
-    repo_dir="${entry%%:*}"
-    work="$(mktemp -d)"
-    if git clone --quiet --depth 1 --branch "$BRANCH" "$(auth_url "$repo_dir")" "$work/$repo_dir" 2>/dev/null; then
-        log "  building $repo_dir @ $(git -C "$work/$repo_dir" rev-parse --short HEAD) ..."
-        if WORKSPACE_ROOT="$work" bash "$SCRIPT_DIR/create-code-tarballs.sh" --all --bucket "$BUCKET" >&2; then
-            ok=$((ok + 1))
-        else
-            log "  ERROR building $repo_dir"
-            failed+=("$repo_dir")
-        fi
-    else
-        log "  ERROR cloning $repo_dir"
-        failed+=("$repo_dir")
-    fi
-    rm -rf "$work"
-done
+# ── Phase 2+3: rebuild the changed repos in BOUNDED PARALLEL — clone → build+upload → cleanup ──
+# Serial (~3-4 min/repo, clone-bound) can't keep up with LDR's churn (~9-11 repos change between
+# runs). Run MAX_PAR at a time: each build is independent (its own temp workspace; create-code-
+# tarballs.sh uses its own mktemp TMP_DIR; the shared vm/ script uploads are atomic GCS overwrites).
+# MAX_PAR bounds peak scratch (the Cloud Run Job's /tmp is memory-backed) to ~MAX_PAR repos at once.
+MAX_PAR="${REFRESH_MAX_PARALLEL:-4}"
+status_dir="$(mktemp -d)"
+trap 'rm -rf "$status_dir"' EXIT
 
-if [[ ${#failed[@]} -eq 0 ]]; then
+build_one() {
+    local entry="$1"
+    local repo_dir="${entry%%:*}"
+    local attempt
+    # One retry: concurrent clones (up to MAX_PAR) can hit a transient GitHub timeout/rate-limit.
+    for attempt in 1 2; do
+        local work
+        work="$(mktemp -d)"
+        if git clone --quiet --depth 1 --branch "$BRANCH" "$(auth_url "$repo_dir")" "$work/$repo_dir" 2>/dev/null \
+            && WORKSPACE_ROOT="$work" bash "$SCRIPT_DIR/create-code-tarballs.sh" --all --bucket "$BUCKET" >&2; then
+            rm -rf "$work"
+            echo ok >"$status_dir/$repo_dir"
+            log "  ✓ $repo_dir"
+            return
+        fi
+        rm -rf "$work"
+        [[ $attempt -eq 1 ]] && { log "  … $repo_dir attempt 1 failed, retrying"; sleep 3; }
+    done
+    echo fail >"$status_dir/$repo_dir"
+    log "  ✗ $repo_dir (clone or build failed after retry)"
+}
+
+log "Rebuilding ${#CHANGED[@]} repo(s), up to ${MAX_PAR} in parallel ..."
+for entry in "${CHANGED[@]}"; do
+    build_one "$entry" &
+    while [[ "$(jobs -rp | wc -l)" -ge "$MAX_PAR" ]]; do wait -n 2>/dev/null || break; done
+done
+wait
+
+ok=$(grep -rl '^ok$' "$status_dir" 2>/dev/null | wc -l | tr -d ' ')
+failed_repos=$(grep -rl '^fail$' "$status_dir" 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ')
+
+# Observability: Cloud Run Jobs do not reliably surface container stdout/stderr in Cloud Logging
+# (honest-coverage-job lesson), so write a status object the cron can be audited by regardless:
+# gs://{bucket}/code/_refresh_status.json — last run's ts/changed/rebuilt/failed.
+status_json=$(printf '{"ts":"%s","branch":"%s","scanned":%d,"changed":%d,"rebuilt_ok":%s,"failed":"%s"}\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$BRANCH" "${#REPOS[@]}" "${#CHANGED[@]}" "$ok" "${failed_repos% }")
+echo "$status_json" | gcloud storage cp - "gs://${BUCKET}/code/_refresh_status.json" 2>/dev/null || true
+
+if [[ -z "${failed_repos// /}" ]]; then
     log "Refresh complete — ${ok}/${#CHANGED[@]} tarball(s) updated to ${BRANCH} tip."
 else
-    log "Refresh PARTIAL — ${ok}/${#CHANGED[@]} updated; FAILED: ${failed[*]}"
+    log "Refresh PARTIAL — ${ok}/${#CHANGED[@]} updated; FAILED: ${failed_repos}"
     exit 1
 fi
