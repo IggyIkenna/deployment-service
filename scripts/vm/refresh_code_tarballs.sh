@@ -142,8 +142,20 @@ for entry in "${CHANGED[@]}"; do
 done
 wait
 
-ok=$(grep -rl '^ok$' "$status_dir" 2>/dev/null | wc -l | tr -d ' ')
-failed_repos=$(grep -rl '^fail$' "$status_dir" 2>/dev/null | xargs -r -n1 basename | tr '\n' ' ')
+# Tally per-repo results with a plain loop — NOT `grep -l '^ok$'`: grep exits 1 when it finds no
+# match (e.g. ZERO failures — the common all-success case), and under `set -euo pipefail` that 1
+# propagates out of the `$(...)` and kills the script BEFORE the status write, so the job
+# ironically reports "failed" exactly when every repo succeeded (incident 2026-06-17).
+ok=0
+failed_repos=""
+for f in "$status_dir"/*; do
+    [[ -e "$f" ]] || continue
+    if [[ "$(cat "$f" 2>/dev/null)" == "ok" ]]; then
+        ok=$((ok + 1))
+    else
+        failed_repos="${failed_repos}$(basename "$f") "
+    fi
+done
 
 # Observability: Cloud Run Jobs do not reliably surface container stdout/stderr in Cloud Logging
 # (honest-coverage-job lesson), so write a status object the cron can be audited by regardless:

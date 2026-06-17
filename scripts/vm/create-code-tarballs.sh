@@ -19,7 +19,7 @@
 #
 # Also supports additional repos for services beyond the category set:
 #   bash scripts/vm/create-code-tarballs.sh --include instruments-service
-#   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI --include features-onchain-service
+#   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI --include features-service
 #
 # GCS layout:
 #   gs://{bucket}/code/unified-api-contracts-code.tar.gz
@@ -52,35 +52,36 @@ ML_TRAINING=false
 
 # ── Category → service repo mappings ──
 # Each category includes the full pipeline from instruments through risk.
+# The per-domain features-* repos (features-delta-one / cross-instrument / multi-timeframe /
+# calendar / volatility / onchain / sports / commodity) were CONSOLIDATED into the single
+# `features-service` repo (its subdirs) — every category uses features-service for feature code.
 CEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-delta-one-service features-cross-instrument-service
-    features-multi-timeframe-service features-calendar-service
+    features-service
     ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
 TRADFI_REPOS=(
     "${CEFI_REPOS[@]}"
-    features-volatility-service
 )
 DEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-onchain-service features-delta-one-service
+    features-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     e2e-testing
 )
 SPORTS_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-sports-service
+    features-service
     ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
 PREDICTION_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-cross-instrument-service
+    features-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service
 )
@@ -91,17 +92,13 @@ PREDICTION_REPOS=(
 # the model artefact is registered.
 ML_TRAINING_REPOS=(
     instruments-service market-tick-data-service
-    features-multi-timeframe-service features-calendar-service
-    features-volatility-service features-cross-instrument-service
+    features-service
     ml-service
 )
 # All known service repos (union of all categories)
 ALL_SERVICE_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
-    features-delta-one-service features-cross-instrument-service
-    features-multi-timeframe-service features-calendar-service
-    features-volatility-service features-onchain-service features-sports-service
-    features-commodity-service
+    features-service
     ml-service
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
@@ -242,10 +239,9 @@ create_tarball() {
     if [[ ! -d "$repo_path" ]]; then
         log "SKIP $repo_dir — not found at $repo_path"
         # SKIP is non-fatal: upload step uses $TMP_DIR/*.tar.gz glob which only
-        # matches actually-created tarballs. Return 0 so set -e doesn't abort
-        # the outer for-loop (features-delta-one-service / features-onchain-service
-        # were consolidated into features-service; their entries in the category
-        # arrays are historical and should not block builds for present repos).
+        # matches actually-created tarballs. Return 0 so set -e doesn't abort the
+        # outer for-loop — e.g. the refresh_code_tarballs.sh path clones only the
+        # CHANGED repos into the workspace, so the unchanged ones are legitimately absent.
         return 0
     fi
 
