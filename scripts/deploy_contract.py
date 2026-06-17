@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Aave V3 Pool addresses per chain (SSOT for deploy script)
 AAVE_POOL_ADDRESSES: dict[int, str] = {
-    1: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",  # mainnet
-    11155111: "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",  # sepolia
-    8453: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",  # base
+    1: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",  # mainnet  # DERIVED ethereum aave-docs (Aave V3 Pool)
+    11155111: "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951",  # sepolia  # DERIVED sepolia aave-docs (Aave V3 Pool testnet)
+    8453: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",  # base  # DERIVED base aave-docs (Aave V3 Pool)
 }
 
 # Chain name to chain_id mapping

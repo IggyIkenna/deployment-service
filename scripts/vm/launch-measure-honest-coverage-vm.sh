@@ -25,7 +25,13 @@
 #   bash launch-measure-honest-coverage-vm.sh --env staging          # staging manifests
 #   bash launch-measure-honest-coverage-vm.sh --force                # bypass singleton lock
 #
-# Cost: e2-standard-2 for ~5-15 minutes depending on manifest sizes.
+# Cost: e2-standard-4 (4 vCPU / 16 GiB) for ~5-15 minutes depending on manifest sizes.
+# Right-sized 2026-06-16 once the column-pruned measure_honest_coverage.py (reads only
+# capture_status/venue/data_type → ~5 GiB peak, validated) propagated into the instruments
+# tarball. History: the per-AG manifest loads (cefi's availability_index ~35.8M rows)
+# OOM-killed (rc=137) even a 32 GiB box pre-pruning → briefly bumped to e2-highmem-8 (64 GiB)
+# as a stopgap; with column-pruning live in the tarball, 16 GiB is comfortable headroom
+# (~5 GiB peak + OS/heartbeat) and bounded as the index grows.
 set -euo pipefail
 
 FORCE=false
@@ -111,7 +117,7 @@ else
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type=e2-standard-4 \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \

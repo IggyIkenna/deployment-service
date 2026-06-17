@@ -20,7 +20,9 @@
 #     state not set up for Harsh's operator account. Terraform here is the SSOT.
 #   - Cloud Scheduler job requires cloudscheduler.jobs.create (Ikenna/owner);
 #     see setup-honest-coverage-scheduler.sh for the one-liner.
-#   - SA: instruments-service-cloud-run@ (already has compute.instanceAdmin.v1)
+#   - SA: instruments-service-cloud-run@ — needs compute.instanceAdmin.v1 (on the SA)
+#     AND iam.serviceAccountUser/actAs on the VM's attached SA (the default compute SA).
+#     The latter was missing → launcher failed daily; see the IAM block below.
 #   - Image: gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine (public GCS SDK)
 
 module "honest_coverage_daily_job" {
@@ -60,6 +62,21 @@ module "honest_coverage_daily_job" {
     "purpose"  = "honest-coverage-cron"
     "type"     = "daily"
   }
+}
+
+# The launcher SA needs iam.serviceAccountUser (actAs) on the GCE VM's ATTACHED
+# service account. launch-measure-honest-coverage-vm.sh's `gcloud compute instances
+# create` does NOT pass --service-account, so the VM attaches the DEFAULT COMPUTE SA —
+# and creating a VM with an attached SA requires actAs on THAT SA. compute.instanceAdmin.v1
+# (already granted to the launcher SA) is necessary but NOT sufficient without this.
+# Missing this binding silently failed the launcher Cloud Run Job (exit 1, logs swallowed)
+# every day from ~2026-05-18 to 2026-06-16 → no coverage.json was produced and the
+# data-status "Honest Coverage" panel showed "Coverage data not yet computed for this date".
+# Granted imperatively 2026-06-16 (ADC admin); this block makes it the IaC SSOT.
+resource "google_service_account_iam_member" "honest_coverage_launcher_actas_default_compute" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${var.project_number}-compute@developer.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:instruments-service-cloud-run@${var.project_id}.iam.gserviceaccount.com"
 }
 
 resource "google_cloud_scheduler_job" "honest_coverage_daily" {

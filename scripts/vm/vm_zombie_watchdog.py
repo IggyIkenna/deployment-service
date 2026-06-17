@@ -273,6 +273,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     # ------------------------------------------------------------------
+    # TradFi CME event-contract catalog backfill (instruments-service)
+    # ------------------------------------------------------------------
+    "tradfi-event-contract-backfill-": VmPrefixSpec(
+        bucket=_INSTR_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    # ------------------------------------------------------------------
     # TradFi instrument discovery + audits (heartbeat-only)
     # ------------------------------------------------------------------
     "tradfi-instr-": None,  # tradfi-instr-{venue}-{year} from instruments-service
