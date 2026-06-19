@@ -51,28 +51,11 @@ locals {
       github_repo            = "market-data-processing-service"
       artifact_registry_repo = "market-data-processing-service"
     }
-    # Feature services
-    "features-delta-one-service" = {
-      github_repo            = "features-delta-one-service"
-      artifact_registry_repo = "features-delta-one-service"
-    }
-    "features-volatility-service" = {
-      github_repo            = "features-volatility-service"
-      artifact_registry_repo = "features-volatility-service"
-    }
-    "features-onchain-service" = {
-      github_repo            = "features-onchain-service"
-      artifact_registry_repo = "features-onchain-service"
-    }
-    "features-calendar-service" = {
-      github_repo            = "features-calendar-service"
-      artifact_registry_repo = "features-calendar-service"
-    }
-    # Repo created + linked to iggyikenna-github connection 2026-02-28
-    "features-multi-timeframe-service" = {
-      github_repo            = "features-multi-timeframe-service"
-      artifact_registry_repo = "features-multi-timeframe-service"
-    }
+    # Feature services — CONSOLIDATED into features-service (8 per-feature repos → sub-packages,
+    # 2026-05-08, features_repo_consolidation_2026_05_08.md). The per-feature repos are archived;
+    # features-service builds ONE image parameterised by --feature-family. Their 5 zombie component
+    # triggers were deleted 2026-06-19; features-service's own trigger is managed imperatively pending
+    # the ln→iggyikenna-github connection fix (build_operability_smoke_all_repos_2026_06_19.md).
     # ML service (consolidated from ml-training-service + ml-inference-service, 2026-05-21, ml_repo_consolidation_2026_05_19.md)
     "ml-service" = {
       github_repo            = "ml-service"
@@ -95,20 +78,9 @@ locals {
       github_repo            = "alerting-service"
       artifact_registry_repo = "alerting-service"
     }
-    # UI services (renamed from ml-deployment-ui 2026-02-28)
-    "ml-training-ui" = {
-      github_repo            = "ml-training-ui"
-      artifact_registry_repo = "ml-training-ui"
-    }
+    # ml-training-ui / execution-results-api / market-data-api — REMOVED 2026-06-19 (archived/renamed;
+    # absent from the live 25-repo set). Their zombie Cloud Build triggers + connection links were deleted.
     # API services
-    "execution-results-api" = {
-      github_repo            = "execution-results-api"
-      artifact_registry_repo = "execution-results-api"
-    }
-    "market-data-api" = {
-      github_repo            = "market-data-api"
-      artifact_registry_repo = "market-data-api"
-    }
     "client-reporting-api" = {
       github_repo            = "client-reporting-api"
       artifact_registry_repo = "client-reporting-api"
