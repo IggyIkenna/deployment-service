@@ -47,12 +47,19 @@ locals {
   # NEITHER the live AWS projects NOR GCP. The live projects were created imperatively (see § "terraform import"
   # in plans/active/test_fleet_image_builds_from_current_code_2026_06_17.md) — apply/import against THIS set.
   #
-  # build_branch mirrors the GCP firing model exactly: the base library fires on live-defi-rollout, every
-  # deployable service fires on main (services build on promotion, like GCP's `^main$` triggers). ECR repo and
-  # GitHub repo both equal the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
+  # build_branch mirrors the GCP firing model exactly. GCP fires three triggers on live-defi-rollout —
+  # unified-trading-library (base image), unified-api-contracts (base wheel) and market-tick-data-service
+  # (which also has a `-build` main trigger) — and every other service on `^main$`. ECR repo and GitHub repo
+  # both equal the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
+  #
+  # NOTE — unified-api-contracts is intentionally ABSENT from the AWS set: there is no AWS CodeArtifact domain,
+  # so a UAC wheel build would have nowhere to publish. AWS service images obtain UAC from the GCP-AR base image
+  # (cross-cloud `FROM`) and an in-build source clone, not a published AWS wheel. Adding UAC here requires first
+  # standing up CodeArtifact + wiring the lib-publish path (separate decision; see plan Phase 3 follow-up).
   services = {
-    # Base library — fires on live-defi-rollout (GCP parity: base image republished on LDR push)
-    "unified-trading-library" = { build_timeout = 45, build_branch = "live-defi-rollout" }
+    # Fire on live-defi-rollout (GCP parity: base image + the mtds LDR-tip build)
+    "unified-trading-library"  = { build_timeout = 45, build_branch = "live-defi-rollout" }
+    "market-tick-data-service" = { build_timeout = 30, build_branch = "live-defi-rollout" }
 
     # Deployable services — fire on main (GCP parity: services build on promotion to main)
     "alerting-service"                  = { build_timeout = 30, build_branch = "main" }
@@ -67,7 +74,6 @@ locals {
     "greeks-service"                    = { build_timeout = 30, build_branch = "main" }
     "instruments-service"               = { build_timeout = 30, build_branch = "main" }
     "market-data-processing-service"    = { build_timeout = 30, build_branch = "main" }
-    "market-tick-data-service"          = { build_timeout = 30, build_branch = "main" }
     "ml-service"                        = { build_timeout = 45, build_branch = "main" }
     "strategy-service"                  = { build_timeout = 30, build_branch = "main" }
     "trading-agent-service"             = { build_timeout = 30, build_branch = "main" }
