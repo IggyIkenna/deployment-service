@@ -140,10 +140,28 @@ steps:
           || echo "⚠️  Quality gates advisory failure — pre-existing PM-repo dependency, see plan 12 follow-up"
     waitFor: ["build-dev"]
 
+  # Step 4.5: Operability smoke — import probe against the api image.
+  # Verifies the production image loads deployment_service without crashing
+  # (credential-free). QG runs against api-dev; this step probes the real api
+  # target that actually deploys to Cloud Run.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "operability-probe"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -e
+        IMG="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}"
+        echo "=== Operability probe: IMPORT deployment_service ==="
+        docker run --rm --entrypoint python "$$IMG" \
+          -c "import deployment_service; print('IMPORT OK')"
+        echo "=== Operability probe PASSED ==="
+    waitFor: ["quality-gates", "build"]
+
   # Step 5: Push image ONLY if quality gates passed
   - name: "gcr.io/cloud-builders/docker"
     id: "push"
-    waitFor: ["quality-gates"]
+    waitFor: ["operability-probe"]
     args:
       - "push"
       - "--all-tags"
@@ -154,7 +172,7 @@ steps:
   # BOTH images (no silent scheduler deploys on broken code).
   - name: "gcr.io/cloud-builders/docker"
     id: "push-sports-scheduler"
-    waitFor: ["quality-gates", "build-sports-scheduler"]
+    waitFor: ["operability-probe", "build-sports-scheduler"]
     args:
       - "push"
       - "--all-tags"
