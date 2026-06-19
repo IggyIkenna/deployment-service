@@ -141,10 +141,14 @@ if ! $DRY_RUN; then
     fi
 fi
 
-# The daily cron runs the engine + uploads the book to GCS. The engine reads its
-# capital + data source from these env vars (DATA_SOURCE is read by the engine;
-# the gcs_complete loader is wired with the strategy-service engine fold).
-RUNNER_CMD="DATA_SOURCE=${DATA_SOURCE} .venv-workspace/bin/python e2e-testing/scripts/defi/funding_ensemble_engine.py --capital ${CAPITAL} --out /tmp/funding_ensemble.html"
+# One-shot run: setup-data-pipeline-vm.sh runs VM_BACKFILL_CMD once via _launch_with_tee
+# (which emits DEPLOYMENT_STARTED/COMPLETED/FAILED + streams the log to GCS), then
+# VM_SHUTDOWN_ON_COMPLETION=true self-deletes the VM. The engine itself also emits
+# STARTED/STOPPED/FAILED (setup_events). The DAILY recurrence is an external trigger
+# (Cloud Scheduler / a crontab on an always-on VM invoking this launcher) — the canonical
+# ephemeral-compute pattern (cf. the manifest consolidator = Scheduler + ephemeral compute).
+# The "python " token is rewritten to the venv python by setup-data-pipeline-vm.sh.
+RUNNER_CMD="DATA_SOURCE=${DATA_SOURCE} python e2e-testing/scripts/defi/funding_ensemble_engine.py --capital ${CAPITAL} --out /tmp/funding_ensemble.html && gsutil -q cp /tmp/funding_ensemble.html gs://${CODE_BUCKET}/funding_ensemble/\$(date +%Y-%m-%d)/funding_ensemble.html || true"
 
 METADATA_ITEMS=(
     "VM_TASK=funding-ensemble-paper"
@@ -154,9 +158,9 @@ METADATA_ITEMS=(
     "VM_ASSET_GROUP=DEFI"
     "VM_DATA_SOURCE=${DATA_SOURCE}"
     "VM_CAPITAL=${CAPITAL}"
-    "VM_CRON_SCHEDULE=${CRON_SCHEDULE}"
-    "VM_CRON_CMD=${RUNNER_CMD}"
-    "VM_LIFECYCLE_CLASS=SCHEDULED_RECURRING"
+    "VM_BACKFILL_CMD=${RUNNER_CMD}"
+    "VM_SHUTDOWN_ON_COMPLETION=true"
+    "VM_LIFECYCLE_CLASS=EPHEMERAL_EXPERIMENT"
     "MANIFEST_PER_VM_SHARDS=true"
     "VM_NAME=${VM_NAME}"
     "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"

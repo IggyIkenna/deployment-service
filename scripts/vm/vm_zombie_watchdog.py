@@ -432,13 +432,14 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # lifecycle (runs 7+ days during paper-soak).
     # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
     "defi-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
-    # Funding/basis ensemble paper-cron VM (launch-funding-ensemble-paper-cron-vm.sh; plan:
+    # Funding/basis ensemble paper VM (launch-funding-ensemble-paper-cron-vm.sh; plan:
     # carry_staked_basis_funding_scan_experiment_2026_06_16.md). VM name pattern:
     # `funding-ensemble-paper-{ts}`. Heartbeat-only — runs funding_ensemble_engine.py
-    # on a daily cron + uploads the desired-state book to GCS (no per-VM manifest
-    # shards). SCHEDULED_RECURRING lifecycle (stays up for the cron).
+    # ONCE (VM_BACKFILL_CMD via _launch_with_tee → DEPLOYMENT_STARTED/COMPLETED), uploads
+    # the desired-state book to GCS, then self-deletes (VM_SHUTDOWN_ON_COMPLETION). Daily
+    # recurrence = an external scheduler re-launching it. EPHEMERAL_EXPERIMENT lifecycle.
     # Registered 2026-06-19 (P2 funding ensemble paper path).
-    "funding-ensemble-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.SCHEDULED_RECURRING),
+    "funding-ensemble-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_EXPERIMENT),
     # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
     # `strategy-live-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
