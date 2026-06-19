@@ -49,6 +49,16 @@ resource "google_bigquery_dataset" "feature_external" {
   location    = var.region
   description = "BigQuery external tables over canonical GCS parquet feature data. Hive-partitioned (asset_group/data_type/timeframe/day). READ-ONLY — no data copy. Plan: bigquery_feature_ml_compute_engine_option_2026_06_08.md Phase 1."
 
+  # BigQuery dataset policy updates are FULL replacements and MUST always
+  # include at least one OWNER bound directly to the dataset (no inherited /
+  # conditional bindings) — otherwise the update 400s "No owners specified".
+  # projectOwners as OWNER is the default BQ grants on dataset creation; we
+  # declare it explicitly so the TF-managed access list stays valid on update.
+  access {
+    role          = "OWNER"
+    special_group = "projectOwners"
+  }
+
   # Access: grant the unified_trading SA dataViewer (read-only queries).
   access {
     role          = "READER"
@@ -172,7 +182,12 @@ resource "google_bigquery_table" "feature_external" {
     # Wildcard covers all parquet files under the bucket root, regardless of
     # pipeline_mode or other intermediate path segments. BQ hive partitioning
     # then resolves the key chain from the path template declared below.
-    source_uris = ["${each.value.source_uri_prefix}**/*.parquet"]
+    # NOTE: BigQuery REJECTS multiple asterisks in a source URI
+    # ("Using multiple asterisks ... is not supported"). For a CUSTOM
+    # hive-partitioned external table the source URI must be a SINGLE trailing
+    # `*` over the static bucket root — BQ walks every object beneath it and
+    # extracts the partition keys from `hive_partitioning_options.source_uri_prefix`.
+    source_uris = ["${each.value.source_uri_prefix}*"]
 
     hive_partitioning_options {
       # CUSTOM mode: BQ reads partition key names from the source_uri_prefix
@@ -185,8 +200,11 @@ resource "google_bigquery_table" "feature_external" {
       #
       # The source_uri_prefix is the static root (bucket root here); BQ will
       # extract the partition keys listed in the template from the file paths.
+      # CUSTOM-mode partition keys MUST be encoded as `{name:TYPE}` (BQ rejects a
+      # bare `{name}` with "Custom partition schema encoding must be of the form
+      # {name:TYPE}"). All hive keys here are string-valued path segments.
       mode              = "CUSTOM"
-      source_uri_prefix = "${each.value.source_uri_prefix}{pipeline_mode}/{asset_group}/{data_type}/{timeframe}/{day}"
+      source_uri_prefix = "${each.value.source_uri_prefix}{pipeline_mode:STRING}/{asset_group:STRING}/{data_type:STRING}/{timeframe:STRING}/{day:STRING}"
 
       # Require at least one partition key in queries (reinforces require_partition_filter).
       require_partition_filter = true
