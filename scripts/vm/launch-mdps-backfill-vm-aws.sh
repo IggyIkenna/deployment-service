@@ -96,10 +96,13 @@ _launch() {
   local DRY_FLAG=""
   [[ "$MODE" == "dry" ]] && DRY_FLAG="--dry-run"
 
+  local LOG_TRAP
+  LOG_TRAP="$(lc_aws_log_upload_trap_block "${vm_name}" "${AWS_ACCOUNT_ID}" "${cat}" "mdps-backfill")"
+
   cat > "${USER_DATA_FILE}" <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
-exec > >(tee /var/log/mdps-backfill-bootstrap.log) 2>&1
+${LOG_TRAP}
 
 export VM_NAME="${vm_name}"
 export VM_TASK=mdps-backfill
@@ -188,7 +191,7 @@ MDPS_ASSET_GROUP=${cat_upper} \
 echo ""
 echo "=== MDPS backfill complete: \${VM_NAME} ==="
 date
-shutdown -h now
+# Teardown owned by lc_aws_log_upload_trap_block EXIT trap (final S3 upload + EXIT_STATUS, then shutdown -h +1).
 STARTUP_EOF
 
   local EXTRA_TAGS

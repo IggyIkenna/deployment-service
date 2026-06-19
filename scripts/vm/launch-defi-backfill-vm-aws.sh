@@ -94,10 +94,12 @@ USER_DATA_FILE="$(mktemp /tmp/startup-defi-instr-XXXX.sh)"
 # shellcheck disable=SC2064
 trap "rm -f '${USER_DATA_FILE}'" RETURN
 
+LOG_TRAP="$(lc_aws_log_upload_trap_block "${VM_NAME}" "${AWS_ACCOUNT_ID}" "defi" "instruments-backfill")"
+
 cat > "${USER_DATA_FILE}" <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
-exec > >(tee /var/log/defi-instr-backfill-bootstrap.log) 2>&1
+${LOG_TRAP}
 
 export VM_NAME="${VM_NAME}"
 export VM_TASK=instruments-backfill
@@ -184,7 +186,7 @@ python3 -m instruments_service \
 echo ""
 echo "=== DeFi instruments backfill complete: \${VM_NAME} ==="
 date
-shutdown -h now
+# Teardown owned by lc_aws_log_upload_trap_block EXIT trap (final S3 upload + EXIT_STATUS, then shutdown -h +1).
 STARTUP_EOF
 
 EXTRA_TAGS='[{"Key":"purpose","Value":"defi-instruments-backfill"},{"Key":"asset-group","Value":"defi"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"}]'

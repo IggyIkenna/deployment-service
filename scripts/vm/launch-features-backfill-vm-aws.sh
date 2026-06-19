@@ -143,10 +143,12 @@ esac
 [[ -n "${FORCE}" ]]                 && BUILD_CMD="${BUILD_CMD} --force"
 [[ "${MODE}" == "dry" ]]            && BUILD_CMD="${BUILD_CMD} --dry-run"
 
+LOG_TRAP="$(lc_aws_log_upload_trap_block "${VM_NAME}" "${AWS_ACCOUNT_ID}" "${CATEGORY_LOWER}" "features-backfill")"
+
 cat > "${USER_DATA_FILE}" <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
-exec > >(tee /var/log/features-backfill-bootstrap.log) 2>&1
+${LOG_TRAP}
 
 export VM_NAME="${VM_NAME}"
 export VM_TASK=features-backfill
@@ -230,7 +232,7 @@ CLOUD_PROVIDER=aws CLOUD_MOCK_MODE=false ${BUILD_CMD}
 echo ""
 echo "=== Features backfill complete: \${VM_NAME} ==="
 date
-shutdown -h now
+# Teardown owned by lc_aws_log_upload_trap_block EXIT trap (final S3 upload + EXIT_STATUS, then shutdown -h +1).
 STARTUP_EOF
 
 EXTRA_TAGS='[{"Key":"purpose","Value":"features-backfill"},{"Key":"feature-family","Value":"'"${FEATURE_FAMILY}"'"},{"Key":"asset-group","Value":"'"${CATEGORY_LOWER}"'"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"}]'
