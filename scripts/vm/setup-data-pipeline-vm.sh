@@ -557,7 +557,12 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # trying to satisfy every transitive pin. Anchor deps (UAC + UTL + MTDS) still
 # install with full deps in STD — they're the SSOT for what the workspace
 # expects in the venv.
-_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk)
+# e2e-testing routes to NODEPS too (paper/benchmark VMs): e2e-testing's pyproject declares
+# the service packages (execution-service / strategy-service) as deps, which --no-sources
+# CANNOT resolve from PyPI → the STD resolve fails before the NODEPS services install. Those
+# deps are the other editables (installed separately), so --no-deps installs the e2e-testing
+# scripts without the unsatisfiable resolution. (fix 2026-06-19 — funding-ensemble paper VM.)
+_SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk e2e-testing)
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   _route_to_nodeps=false
@@ -607,8 +612,8 @@ uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 # version-pinning conflicts; sqlalchemy itself has no such conflict so install
 # it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
-  log "  uv pip install sqlalchemy  (pbm storage runtime dep, strategy VMs only)"
-  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy 2>&1 | tail -3
+  log "  uv pip install sqlalchemy plotly  (pbm storage + e2e desired-state HTML, strategy VMs only)"
+  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy plotly 2>&1 | tail -3
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
@@ -1025,7 +1030,13 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
     # runs regardless of whether the engine exits 0 or non-zero.
     _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
       "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
-    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: VM self-delete failed'"
+    # `log` is a function in this script's shell, NOT available in the _launch_with_tee
+    # `bash -c` subshell — and the self-delete frequently kills its own process mid-delete
+    # (the VM removes itself while gcloud is still running) → a non-zero, which `|| log`
+    # turned into a `log: command not found` rc=127 → a FALSE DEPLOYMENT_FAILED even when the
+    # task exited rc=0. Use `echo` (always available) + `|| true` so the self-delete race can
+    # never mask a successful run as failed. (fix 2026-06-19 — funding-ensemble paper VM.)
+    _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || echo 'WARNING: VM self-delete returned nonzero (often the self-delete killing its own process)' || true"
     _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/${VM_TASK}.log"
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"

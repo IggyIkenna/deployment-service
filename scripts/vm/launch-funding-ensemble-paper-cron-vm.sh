@@ -141,17 +141,20 @@ if ! $DRY_RUN; then
     fi
 fi
 
-# One-shot run: setup-data-pipeline-vm.sh runs VM_BACKFILL_CMD once via _launch_with_tee
-# (which emits DEPLOYMENT_STARTED/COMPLETED/FAILED + streams the log to GCS), then
-# VM_SHUTDOWN_ON_COMPLETION=true self-deletes the VM. The engine itself also emits
-# STARTED/STOPPED/FAILED (setup_events). The DAILY recurrence is an external trigger
-# (Cloud Scheduler / a crontab on an always-on VM invoking this launcher) — the canonical
-# ephemeral-compute pattern (cf. the manifest consolidator = Scheduler + ephemeral compute).
-# The "python " token is rewritten to the venv python by setup-data-pipeline-vm.sh.
-RUNNER_CMD="DATA_SOURCE=${DATA_SOURCE} python e2e-testing/scripts/defi/funding_ensemble_engine.py --capital ${CAPITAL} --out /tmp/funding_ensemble.html && gsutil -q cp /tmp/funding_ensemble.html gs://${CODE_BUCKET}/funding_ensemble/\$(date +%Y-%m-%d)/funding_ensemble.html || true"
+# One-shot run via VM_TASK=strategy-paper — setup-data-pipeline-vm.sh installs e2e-testing,
+# cd's to $WORKSPACE/e2e-testing, symlinks .venv-workspace, then runs VM_BACKFILL_CMD via
+# _launch_with_tee (emits DEPLOYMENT_STARTED/COMPLETED/FAILED + streams the log to GCS) and
+# self-deletes the VM. So the cmd path is RELATIVE to e2e-testing and uses the symlinked
+# .venv-workspace/bin/python (the run-paper.sh convention; this handler does NOT rewrite a
+# bare `python`). The engine itself also emits STARTED/STOPPED/FAILED (setup_events). DAILY
+# recurrence is an external trigger (Cloud Scheduler / a crontab invoking this launcher) —
+# the canonical ephemeral-compute pattern (cf. the manifest consolidator = Scheduler + VM).
+# cwd on the VM is $WORKSPACE/e2e-testing; the venv symlink is at $WORKSPACE/.venv-workspace
+# → reach it with ../.venv-workspace/bin/python (run-paper.sh uses the absolute $WORKSPACE form).
+RUNNER_CMD="DATA_SOURCE=${DATA_SOURCE} ../.venv-workspace/bin/python scripts/defi/funding_ensemble_engine.py --capital ${CAPITAL} --out /tmp/funding_ensemble.html && gsutil -q cp /tmp/funding_ensemble.html gs://${CODE_BUCKET}/funding_ensemble/\$(date +%Y-%m-%d)/funding_ensemble.html || true"
 
 METADATA_ITEMS=(
-    "VM_TASK=funding-ensemble-paper"
+    "VM_TASK=strategy-paper"
     "VM_SERVICE=strategy_service"
     "VM_OPERATION=paper"
     "VM_PIPELINE_MODE=live"
