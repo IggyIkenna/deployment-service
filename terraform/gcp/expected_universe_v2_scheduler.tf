@@ -45,19 +45,20 @@
 # job RAN (T+10min: `gcloud run jobs executions list --job
 # expected-universe-v2-<ag>` = Succeeded) before the gate is GREEN.
 #
-# ⚠️ KNOWN GAP — idle-bucket consolidator trap (issue
-# `plans/active/issues/consolidator_idle_bucket_incremental_trap_2026_06_19.md`):
-# the `*/1` manifest consolidator merges a per-VM shard INCREMENTALLY (only if shard
-# mtime > canonical mtime - skew). On a bucket with NO concurrent capture writes at
-# 01:30, the idle consolidator cycle `_touch`es the canonical mtime forward and can
-# prune the just-written enumerator shard as "settled" BEFORE it merges → the seed
-# silently never reaches the canonical `_index`. (Observed 2026-06-19: defi/sports
-# merged within 1 cycle because captures were flowing; cefi/tradfi were idle and
-# needed a manual `consolidate(bucket, force=True)`.) Until the consolidator is fixed
-# (issue option 1), this scheduler is NOT self-sustaining on idle AGs — the
-# companion fix (issue option 2) is a per-AG `consolidate(bucket, force=True)` Cloud
-# Run job ~5 min AFTER the enumerator job. TODO: add that companion job here (or land
-# the consolidator fix) before relying on this for idle-AG denominators.
+# ✅ IDLE-BUCKET CONSOLIDATOR TRAP — FIXED at the UTL SSOT (2026-06-19, issue option 1;
+# issue `plans/active/issues/consolidator_idle_bucket_incremental_trap_2026_06_19.md`
+# RESOLVED). The `*/1` manifest consolidator's incremental cutoff used to read the
+# canonical's FRESHNESS mtime, which the idle `_touch` advances every cycle — so on a
+# bucket with NO concurrent capture writes at 01:30, the just-written enumerator shard
+# could be `_touch`-advanced past + pruned as "settled" BEFORE it merged (observed
+# 2026-06-19: defi/sports merged within 1 cycle; cefi/tradfi idle → never merged,
+# needed a manual `consolidate(bucket, force=True)`). The fix splits the markers: the
+# incremental cutoff + prune now read a dedicated `consolidator_content_write_at`
+# marker stamped ONLY by a real merge (never by the idle `_touch`), so an idle touch
+# can no longer move the cutoff past an unmerged shard. This scheduler is therefore
+# self-sustaining on idle AGs — NO companion force-consolidate job is needed. SSOT:
+# `codex/05-infrastructure/manifest-consolidator-ssot.md` § "Incremental cutoff =
+# LAST-CONTENT-WRITE marker".
 #
 # References:
 #   codex/02-data/availability-manifest-and-data-status.md § "expected_unattempted (F4)"

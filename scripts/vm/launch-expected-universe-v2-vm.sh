@@ -43,10 +43,16 @@
 #
 # Execution ownership (Runbook SSOT):
 #   execution:
-#     owner: operator / daily Tab assignment for cefi sharding runs
-#     cadence: one-shot (per-asset-group backfill trigger) then quarterly maintenance
-#     verifier: ENUMERATOR_COMPLETED event in gs://{pid}-events/.../
-#     last_executed: NEVER
+#     owner: Cloud Scheduler (recurring) — this VM launcher is the manual/backfill fallback
+#     cadence: RECURRING daily 01:30 UTC via Cloud Scheduler (expected-universe-v2-<ag>-daily,
+#              terraform/gcp/expected_universe_v2_scheduler.tf, tofu apply 2026-06-19) —
+#              the per-AG Cloud Run Job runs the enumerator --apply-write on a bounded window.
+#              This VM launcher remains for ad-hoc one-shot / full-history backfills only.
+#     verifier: gcloud scheduler jobs list --location=asia-northeast1 | grep expected-universe-v2 (ENABLED)
+#               + gcloud run jobs executions list --job expected-universe-v2-<ag> (Succeeded)
+#               + ENUMERATOR_COMPLETED event in gs://{pid}-events/.../
+#     last_executed: 2026-06-19 (scheduler+jobs created prod via tofu apply; first scheduled
+#                    materialisation fires 2026-06-20 01:30 UTC)
 #
 # VM naming: expected-universe-v2-{asset_group}-{timestamp}
 # Watchdog: registered under prefix "expected-universe-v2-" (None bucket — per-VM shards)
