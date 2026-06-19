@@ -54,8 +54,8 @@ locals {
     # Feature services — CONSOLIDATED into features-service (8 per-feature repos → sub-packages,
     # 2026-05-08, features_repo_consolidation_2026_05_08.md). The per-feature repos are archived;
     # features-service builds ONE image parameterised by --feature-family. Their 5 zombie component
-    # triggers were deleted 2026-06-19; features-service's own trigger is managed imperatively pending
-    # the ln→iggyikenna-github connection fix (build_operability_smoke_all_repos_2026_06_19.md).
+    # triggers were deleted 2026-06-19; features-service's own trigger is managed imperatively
+    # (build_operability_smoke_all_repos_2026_06_19.md — import into module on next TF pass).
     # ML service (consolidated from ml-training-service + ml-inference-service, 2026-05-21, ml_repo_consolidation_2026_05_19.md)
     "ml-service" = {
       github_repo            = "ml-service"
@@ -85,6 +85,25 @@ locals {
       github_repo            = "client-reporting-api"
       artifact_registry_repo = "client-reporting-api"
     }
+    # Batch reconciliation + fund admin + greeks + trading-agent — added 2026-06-19
+    # (build_operability_smoke_all_repos_2026_06_19.md); triggers created imperatively
+    # via gcloud, imported into TF state via `terraform import` (see plan for commands).
+    "batch-live-reconciliation-service" = {
+      github_repo            = "batch-live-reconciliation-service"
+      artifact_registry_repo = "batch-live-reconciliation-service"
+    }
+    "fund-administration-service" = {
+      github_repo            = "fund-administration-service"
+      artifact_registry_repo = "fund-administration-service"
+    }
+    "greeks-service" = {
+      github_repo            = "greeks-service"
+      artifact_registry_repo = "greeks-service"
+    }
+    "trading-agent-service" = {
+      github_repo            = "trading-agent-service"
+      artifact_registry_repo = "trading-agent-service"
+    }
   }
 }
 
@@ -95,9 +114,8 @@ locals {
 # non-default build config + the live "iggyikenna-github" connection. Adopted via
 # `terraform import` (created imperatively 2026-06-02).
 # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-# NOTE: the module-based service triggers below default to connection_name="ln", which no
-# longer exists (live connections = only "iggyikenna-github") — pre-existing drift tracked
-# separately; this resource deliberately pins the correct connection.
+# NOTE: the module-based service triggers use connection_name defaulting to "iggyikenna-github"
+# (modules/cloud-build/gcp/variables.tf). This resource pins it explicitly for clarity.
 resource "google_cloudbuild_trigger" "deployment_service_jobs_image" {
   name        = "deployment-service-jobs-image-build"
   project     = var.project_id
