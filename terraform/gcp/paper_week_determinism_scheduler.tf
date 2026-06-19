@@ -60,8 +60,9 @@ locals {
   # Stage A uses strategy-service; Stages B+C use their own images once wired.
   # For now all jobs use the unified-trading-library base which carries all deps.
   paper_det_base_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/strategy-service:latest"
-  blrs_image           = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/batch-live-reconciliation-service:latest"
-  reporting_image      = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/client-reporting-api:latest"
+  # blrs_image is declared in audit03_cron_provisioning.tf (same value) — reuse
+  # local.blrs_image (a 2nd declaration breaks `tofu apply` for ALL of terraform/gcp/).
+  reporting_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/client-reporting-api:latest"
 
   # Shared environment variables injected into every job container.
   paper_det_base_env = {
