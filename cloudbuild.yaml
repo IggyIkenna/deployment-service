@@ -140,10 +140,38 @@ steps:
           || echo "⚠️  Quality gates advisory failure — pre-existing PM-repo dependency, see plan 12 follow-up"
     waitFor: ["build-dev"]
 
-  # Step 5: Push image ONLY if quality gates passed
+  # ── STEP 5.5: REQUIRED — Operability smoke (import + FastAPI app init) ──────
+  # Validates the freshly-built image (1) IMPORTS cleanly and (2) can initialise
+  # the FastAPI app (catches broken route registrations, missing env-driven
+  # config that would prevent the app from starting under credential-free env).
+  # Uses --entrypoint python for both steps (gunicorn CMD is NOT probe-friendly).
+  # MUST run BEFORE push — a broken image must never reach the registry.
+  # Credential-free env: CLOUD_PROVIDER=local + CLOUD_MOCK_MODE=true.
+  - name: "gcr.io/cloud-builders/docker"
+    id: "operability-probe"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -e
+        echo "=== Operability probe: IMPORT deployment_service ==="
+        docker run --rm --entrypoint python "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev" \
+          -c "import deployment_service; print('IMPORT OK')"
+        echo "=== Operability probe: INIT FastAPI app ==="
+        docker run --rm --entrypoint python \
+          -e CLOUD_PROVIDER=local \
+          -e CLOUD_MOCK_MODE=true \
+          -e GCP_PROJECT_ID=smoke \
+          -e ENVIRONMENT=dev \
+          "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev" \
+          -c "from deployment_service.api.main import app; print('APP INIT OK')"
+        echo "=== Operability probe PASSED ==="
+    waitFor: ["quality-gates"]
+
+  # Step 5: Push image ONLY if quality gates + operability probe passed
   - name: "gcr.io/cloud-builders/docker"
     id: "push"
-    waitFor: ["quality-gates"]
+    waitFor: ["operability-probe"]
     args:
       - "push"
       - "--all-tags"
@@ -154,7 +182,7 @@ steps:
   # BOTH images (no silent scheduler deploys on broken code).
   - name: "gcr.io/cloud-builders/docker"
     id: "push-sports-scheduler"
-    waitFor: ["quality-gates", "build-sports-scheduler"]
+    waitFor: ["operability-probe", "build-sports-scheduler"]
     args:
       - "push"
       - "--all-tags"
