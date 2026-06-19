@@ -134,27 +134,29 @@ if [[ -n "$ENTITY" && "$ENTITY" != "SFI_LEAGUES" && "$ENTITY" != "SFI_PROGRESSIV
   exit 1
 fi
 
-if [[ -n "$CHUNKS" ]]; then
-  if ! [[ "$CHUNKS" =~ ^[0-9]+$ ]] || [[ "$CHUNKS" -lt 2 ]]; then
-    echo "ERROR: --chunks must be an integer >= 2 (use single-VM mode for N=1)" >&2
-    exit 1
-  fi
-  if [[ "$CHUNKS" -gt 4 ]]; then
-    cat >&2 <<EOF
-WARNING: --chunks $CHUNKS > 4 — recommended ceiling is 4 for SFI.
-
-  Rationale: the shared soccer-football-info-api-key per-minute quota is
-  ~14 calls/min (measured 2026-04-22). At N=4 each chunk averages ~3.5
-  calls/min sustained, roughly at the per-key floor. N > 4 causes 429
-  thrash without a shared rate-limit coordinator (Plan 5 Option 1, TBD).
-  Proceed with --force if you have a specific reason.
+if [[ -n "$CHUNKS" && "$CHUNKS" != "1" ]]; then
+  # Chunk-parallelism is BANNED for SFI: the soccer-football-info RapidAPI key's
+  # rate limit (4 req/s, max tier 6, 100k/day — operator 2026-06-19) is
+  # PER-ACCOUNT, not per-VM. Running N chunks against the ONE shared key multiplies
+  # the request rate by N (each chunk self-paces independently) → 4×2.94≈11.8 req/s
+  # vs the 4/s account cap → constant 429 collisions → 60s back-off sleeps →
+  # aggregate throughput WORSE than a single clean stream (incident 2026-06-19:
+  # 4 chunks each 429-thrashing). A single stream at <4/s saturates the 100k/day
+  # ceiling (the true binding constraint) in ~9.4h with zero collisions.
+  # The sfi_chunk_parallel_backfill_2026_04_22 premise (independent per-chunk rate
+  # budgets) is INVALID for a shared key and is superseded.
+  cat >&2 <<EOF
+ERROR: --chunks is not supported for SFI (got --chunks $CHUNKS).
+  The soccer-football-info RapidAPI key rate limit is PER-ACCOUNT (4 req/s, 100k/day),
+  so N chunks sharing the one key multiply the rate by N → 429 collision storms that
+  make throughput WORSE, not better. Run a SINGLE stream instead (omit --chunks):
+      bash $0 ${FORCE:+--force }<START_DATE> <END_DATE>
+  One stream paces under 4/s and saturates the 100k/day ceiling cleanly. To genuinely
+  parallelize you would need a SECOND RapidAPI account/key + a shared-budget coordinator.
 EOF
-    if ! $FORCE; then
-      echo "ERROR: use --force to override the N<=4 recommendation." >&2
-      exit 1
-    fi
-  fi
+  exit 1
 fi
+CHUNKS=""  # force single-stream mode
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
