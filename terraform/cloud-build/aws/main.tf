@@ -52,13 +52,14 @@ locals {
   # (which also has a `-build` main trigger) — and every other service on `^main$`. ECR repo and GitHub repo
   # both equal the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
   #
-  # NOTE — unified-api-contracts is intentionally ABSENT from the AWS set: there is no AWS CodeArtifact domain,
-  # so a UAC wheel build would have nowhere to publish. AWS service images obtain UAC from the GCP-AR base image
-  # (cross-cloud `FROM`) and an in-build source clone, not a published AWS wheel. Adding UAC here requires first
-  # standing up CodeArtifact + wiring the lib-publish path (separate decision; see plan Phase 3 follow-up).
+  # unified-api-contracts builds the UAC wheel (no Docker image) and publishes it to the CodeArtifact domain
+  # `unified-trading` / repo `unified-libraries` (the AWS analogue of GCP's AR python index) — see the
+  # aws_codeartifact_* resources + the CodeArtifactPublish IAM statement below. It fires on live-defi-rollout
+  # like the other base lib, matching GCP's UAC LDR trigger.
   services = {
-    # Fire on live-defi-rollout (GCP parity: base image + the mtds LDR-tip build)
+    # Fire on live-defi-rollout (GCP parity: base image + UAC wheel + the mtds LDR-tip build)
     "unified-trading-library"  = { build_timeout = 45, build_branch = "live-defi-rollout" }
+    "unified-api-contracts"    = { build_timeout = 30, build_branch = "live-defi-rollout" }
     "market-tick-data-service" = { build_timeout = 30, build_branch = "live-defi-rollout" }
 
     # Deployable services — fire on main (GCP parity: services build on promotion to main)
@@ -67,6 +68,9 @@ locals {
     "client-reporting-api"              = { build_timeout = 30, build_branch = "main" }
     "deployment-api"                    = { build_timeout = 30, build_branch = "main" }
     "deployment-service"                = { build_timeout = 30, build_branch = "main" }
+    # deployment-ui builds NO standalone image — its buildspec.aws.yaml dispatches a deployment-api
+    # build (the SPA is bundled into deployment-api). Mirrors GCP deployment-ui-main-deploy. The
+    # codebuild_role's DispatchDeploymentApiBuild statement grants the StartBuild.
     "deployment-ui"                     = { build_timeout = 30, build_branch = "main" }
     "execution-service"                 = { build_timeout = 45, build_branch = "main" }
     "features-service"                  = { build_timeout = 30, build_branch = "main" }
@@ -153,9 +157,48 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "arn:aws:s3:::unified-trading-*",
           "arn:aws:s3:::unified-trading-*/*"
         ]
+      },
+      {
+        # deployment-ui's buildspec dispatches a deployment-api build instead of building its own
+        # image (the SPA is bundled into deployment-api). This grants that dispatch.
+        Sid      = "DispatchDeploymentApiBuild"
+        Effect   = "Allow"
+        Action   = ["codebuild:StartBuild"]
+        Resource = "arn:aws:codebuild:${local.region}:${local.account_id}:project/deployment-api"
+      },
+      {
+        # unified-api-contracts publishes its wheel to the CodeArtifact unified-libraries repo.
+        Sid      = "CodeArtifactPublish"
+        Effect   = "Allow"
+        Action   = ["codeartifact:GetAuthorizationToken", "codeartifact:GetRepositoryEndpoint", "codeartifact:ReadFromRepository", "codeartifact:PublishPackageVersion", "codeartifact:DescribePackageVersion", "codeartifact:DescribeRepository"]
+        Resource = "*"
+      },
+      {
+        Sid      = "CodeArtifactStsBearer"
+        Effect   = "Allow"
+        Action   = ["sts:GetServiceBearerToken"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "sts:AWSServiceName" = "codeartifact.amazonaws.com" }
+        }
       }
     ]
   })
+}
+
+# =============================================================================
+# CodeArtifact — internal Python wheel distribution (AWS analogue of GCP's AR
+# python index). unified-api-contracts publishes its wheel here.
+# =============================================================================
+
+resource "aws_codeartifact_domain" "internal" {
+  domain = "unified-trading"
+}
+
+resource "aws_codeartifact_repository" "libraries" {
+  repository  = "unified-libraries"
+  domain      = aws_codeartifact_domain.internal.domain
+  description = "Internal Python wheels (UAC, etc.) — AWS analogue of the GCP AR python index"
 }
 
 # =============================================================================
