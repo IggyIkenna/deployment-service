@@ -128,10 +128,12 @@ _make_user_data() {
   local tmpfile
   tmpfile="$(mktemp /tmp/startup-cefi-shard-XXXX.sh)"
 
+  LOG_TRAP="$(lc_aws_log_upload_trap_block "${vm_name}" "${AWS_ACCOUNT_ID}" "cefi" "cefi-backfill")"
+
   cat > "${tmpfile}" <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
-exec > >(tee /var/log/cefi-shard-bootstrap.log) 2>&1
+${LOG_TRAP}
 
 export VM_NAME="${vm_name}"
 export VM_TASK=cefi-backfill
@@ -228,7 +230,7 @@ CLOUD_PROVIDER=aws CLOUD_MOCK_MODE=false \
 echo ""
 echo "=== CeFi shard complete: \${VM_NAME} ==="
 date
-shutdown -h now
+# Teardown owned by lc_aws_log_upload_trap_block EXIT trap (final S3 upload + EXIT_STATUS, then shutdown -h +1).
 STARTUP_EOF
 
   echo "${tmpfile}"

@@ -63,6 +63,14 @@ GCS_STAGING="${GCS_BUCKET}/_vm_staging/prediction_features"
 TARBALL_NAME="prediction_features_codebase.tar.gz"
 VM_NAME="${VM_NAME_OVERRIDE:-prediction-features-1}"
 
+# Durable observability: continuous GCS log stream + heartbeat + terminal
+# EXIT_STATUS marker, so a dead/hung VM's full log + status are queryable
+# without SSH (≤30s loss). SSOT: scripts/vm/lib/launcher_common.sh.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+LOG_TRAP="$(lc_log_upload_trap_block "${VM_NAME}" "${PROJECT_ID}" "prediction" "prediction-features")"
+
 TOTAL_DAYS=$(python3 -c "
 from datetime import datetime
 d1 = datetime.strptime('${START_DATE}', '%Y-%m-%d')
@@ -166,13 +174,14 @@ export WORK_DIR=/tmp/prediction_features
 export HOME=/root
 export PATH="/root/.local/bin:$PATH"
 export WORKSPACE_ROOT=/tmp/prediction_features
-
-exec > >(tee /var/log/prediction-features.log) 2>&1
-
 STARTUP_EOF
 
-# Append variable expansions (not single-quoted)
+# Append variable expansions (not single-quoted). The LOG_TRAP block must lead
+# (it sets up tee→/var/log/run.log + the continuous GCS streamer + EXIT trap)
+# before any workload runs. Replaces the old exec>(tee ...)-then-upload-at-end
+# pattern (which froze + lost logs on a mid-run hang).
 cat >> "$STARTUP_FILE" << STARTUP_EOF
+${LOG_TRAP}
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
