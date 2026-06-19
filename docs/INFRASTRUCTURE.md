@@ -48,8 +48,6 @@ gsutil ls gs://deployment-orchestration-test-project/
 | `databento-api-key`                                             | TradFi market data                                 |
 | `alchemy-api-key`                                               | DeFi RPC                                           |
 | `thegraph-api-key`, `thegraph-api-key-2` … `thegraph-api-key-9` | TheGraph API (9 keys, round-robin via SHARD_INDEX) |
-| `openbb-fred-api-key`                                           | FRED economic data                                 |
-| `openbb-fmp-api-key`                                            | FMP fundamentals                                   |
 
 ---
 
