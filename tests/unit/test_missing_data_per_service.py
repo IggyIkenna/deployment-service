@@ -75,8 +75,9 @@ def build_instruments_mock(venues_with_data, dates, category="CEFI"):
 def build_market_tick_mock(venues_with_data, dates, data_types, category="CEFI"):
     """Build GCS mock for market-tick-data-handler.
 
-    Path layout (fast path, from_path_parsing):
-      raw_tick_data/by_date/day={date}/data_type={TYPE}/instrument_type={inst_type}/venue={VENUE}/
+    Path layout (canonical post-pipeline_mode= migration):
+      raw_tick_data/by_date/day={date}/pipeline_mode=batch_{source}/asset_group={ag}/
+        venue={VENUE}/instrument_type={inst_type}/data_type={TYPE}/
 
     Parameters
     ----------
@@ -89,26 +90,29 @@ def build_market_tick_mock(venues_with_data, dates, data_types, category="CEFI")
     """
     mock_storage_client = MagicMock()
 
-    base = "raw_tick_data/by_date/"
-
     def list_blobs(bucket_name_arg, prefix=None, max_results=None, delimiter=None):
-        # Venue-level listing (used by query_specific_prefixes_for_category)
-        # → return a mock blob when this venue+data_type+date has data
+        # Canonical path shape (TURBO engine uses CombinatoricEntry.to_gcs_prefixes which
+        # emits: raw_tick_data/by_date/day={D}/pipeline_mode=batch_{src}/asset_group={ag}/
+        #        venue={V}/instrument_type={it}/data_type={dt}/
+        # Match by checking canonical path components — independent of pipeline_mode source.
+        if not prefix:
+            return []
         for d in dates:
-            date_prefix = f"{base}day={d}/"
-            for dt in data_types:
-                dt_prefix = f"{date_prefix}data_type={dt}/"
-                for v, v_dates in venues_with_data.items():
-                    venue_prefix = f"{dt_prefix}instrument_type=spot/venue={v}/"
-                    if prefix == venue_prefix or (prefix and prefix.startswith(venue_prefix)):
-                        if d in v_dates:
-                            mock_blob = MagicMock()
-                            mock_blob.name = f"{venue_prefix}data.parquet"
-                            mock_blob.updated = None
-                            mock_blob.size = 1024
-                            mock_blob.time_created = None
-                            return [mock_blob]
-
+            if f"day={d}/" not in prefix:
+                continue
+            for v, v_dates in venues_with_data.items():
+                if f"venue={v.upper()}/" not in prefix:
+                    continue
+                for dt in data_types:
+                    if f"data_type={dt}/" not in prefix:
+                        continue
+                    if d in v_dates:
+                        mock_blob = MagicMock()
+                        mock_blob.name = f"{prefix}data.parquet"
+                        mock_blob.updated = None
+                        mock_blob.size = 1024
+                        mock_blob.time_created = None
+                        return [mock_blob]
         return []
 
     mock_storage_client.list_blobs.side_effect = list_blobs
