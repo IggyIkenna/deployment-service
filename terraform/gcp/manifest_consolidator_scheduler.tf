@@ -163,6 +163,13 @@ locals {
     "execution-tradfi"          = "execution-store-tradfi-${var.project_id}"
     "execution-defi"            = "execution-store-defi-${var.project_id}"
     "ml-training-artifacts"     = "ml-training-artifacts-${var.project_id}"
+    # gas-fees reference bucket (flat name, Group B). Added 2026-06-19 after the
+    # mtds-gas-fees backfill crashed with ManifestConsolidatorStaleError: the
+    # collector writes per-VM shards here + read-preflights via
+    # assert_consolidator_healthy(), but NO consolidator job covered this bucket
+    # → the index was always stale → every gas-fees backfill VM died ~4min in.
+    # Small bucket (~13 _index shards) → default 4vCPU/16Gi/300s is ample.
+    "gas-fees"                  = "gas-fees-${var.project_id}"
   }
 }
 
