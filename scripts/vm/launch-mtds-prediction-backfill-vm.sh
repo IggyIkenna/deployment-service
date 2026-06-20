@@ -52,6 +52,11 @@ VM_FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
+# Prediction venue to backfill. Default POLYMARKET (historical default); KALSHI is
+# wired (kalshi_adapter.py routes via the VENUE_REGISTRY factory; market-data read
+# endpoints are PUBLIC — no auth/RSA-PSS needed, that's trading-only). Both run the
+# generic MTDS `download --asset-group PREDICTION --venues <V> --data-types trades`.
+VENUE="${VENUE:-POLYMARKET}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -59,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         --force) FORCE=true; shift ;;
         --vm-force) VM_FORCE=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --venue) VENUE="$2"; shift 2 ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -68,6 +74,12 @@ done
 case "$DEPLOYMENT_ENV" in
     prod|staging|dev) ;;
     *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
+esac
+
+VENUE="$(echo "$VENUE" | tr '[:lower:]' '[:upper:]')"
+case "$VENUE" in
+    POLYMARKET|KALSHI) ;;
+    *) echo "ERROR: --venue must be POLYMARKET or KALSHI (got: $VENUE)" >&2; exit 1 ;;
 esac
 
 # Default: yesterday only. Pass two dates for explicit window.
@@ -118,9 +130,9 @@ EOF
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="mtds-prediction-${RUN_TS}"
+VM_NAME="mtds-prediction-$(echo "$VENUE" | tr '[:upper:]' '[:lower:]')-${RUN_TS}"
 
-echo "Launching $VM_NAME: Polymarket trades ${START_DATE}..${END_DATE}"
+echo "Launching $VM_NAME: ${VENUE} trades ${START_DATE}..${END_DATE}"
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly (the task
@@ -129,7 +141,7 @@ METADATA="VM_TASK=cefi-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=PREDICTION"
-METADATA="${METADATA},VM_VENUE=POLYMARKET"
+METADATA="${METADATA},VM_VENUE=${VENUE}"
 METADATA="${METADATA},VM_DATA_TYPES=trades"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
