@@ -48,9 +48,9 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 variable "paper_determinism_enabled" {
-  description = "Enable the Cloud Scheduler trigger for the paper-week T+1 determinism pipeline. Set true only after all three CLI entrypoints (strategy-service paper run / BLRS daily_determinism_stage / client-reporting-api daily_ledger_digest) are implemented."
+  description = "Enable the Cloud Scheduler trigger for the paper-week T+1 determinism pipeline. All three CLI entrypoints are now implemented (P7.1-A strategy-service --operation paper-run [2026-06-20]; P7.1-B BLRS daily_determinism_handler; P7.1-C client-reporting-api daily-ledger-digest), so the gate is open by default — a `tofu apply` instantiates the Cloud Scheduler triggers. Set false to pause the soak."
   type        = bool
-  default     = false
+  default     = true
 }
 
 # ── Local helpers ─────────────────────────────────────────────────────────────
@@ -98,13 +98,19 @@ module "paper_engine_run_job" {
   parallelism     = 1
   task_count      = 1
 
-  # TODO P7.1-A: replace placeholder with real paper-run CLI args once entrypoint exists
+  # P7.1-A SHIPPED (2026-06-20): the real paper-run CLI entrypoint. Loads real
+  # features-onchain GCS data → GroupBRunner (benchmark fills) → emit_paper_run_ledger
+  # → the canonical client-reports GCS ledger root the dashboard reads.
+  # --date is resolved to YESTERDAY by the Scheduler body (T+1 cadence).
   command = ["python"]
   args = [
     "-m", "strategy_service",
-    "--operation", "run",   # TODO: implement this operation in strategy-service
+    "--operation", "paper-run",
     "--mode", "paper",
-    "--asset-group", "cefi",
+    "--asset-group", "defi",
+    "--client-id", "firm-paper-determinism",
+    "--start-date", "PAPER_RUN_START_DATE",  # Scheduler body overrides to the soak window
+    "--end-date", "PAPER_RUN_END_DATE",
   ]
 
   environment_variables = local.paper_det_base_env
