@@ -93,8 +93,8 @@ module "paper_engine_run_job" {
 
   cpu             = "4"
   memory          = "8Gi"
-  timeout_seconds = 3600  # 1h — a paper week-rerun may take O(minutes) per strategy
-  max_retries     = 0     # no retry on first-run failures; next nightly will self-heal
+  timeout_seconds = 3600 # 1h — a paper week-rerun may take O(minutes) per strategy
+  max_retries     = 0    # no retry on first-run failures; next nightly will self-heal
   parallelism     = 1
   task_count      = 1
 
@@ -109,7 +109,7 @@ module "paper_engine_run_job" {
     "--mode", "paper",
     "--asset-group", "defi",
     "--client-id", "firm-paper-determinism",
-    "--start-date", "PAPER_RUN_START_DATE",  # Scheduler body overrides to the soak window
+    "--start-date", "PAPER_RUN_START_DATE", # Scheduler body overrides to the soak window
     "--end-date", "PAPER_RUN_END_DATE",
   ]
 
@@ -152,8 +152,8 @@ module "blrs_daily_determinism_job" {
 
   cpu             = "2"
   memory          = "4Gi"
-  timeout_seconds = 1800  # 30 min — reconcile_day over one day is fast
-  max_retries     = 1     # one retry; BLRS reconcile is idempotent
+  timeout_seconds = 1800 # 30 min — reconcile_day over one day is fast
+  max_retries     = 1    # one retry; BLRS reconcile is idempotent
   parallelism     = 1
   task_count      = 1
 
@@ -208,7 +208,7 @@ module "daily_ledger_digest_job" {
 
   cpu             = "1"
   memory          = "2Gi"
-  timeout_seconds = 600  # 10 min — digest is a lightweight read + Slack post
+  timeout_seconds = 600 # 10 min — digest is a lightweight read + Slack post
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
@@ -217,7 +217,7 @@ module "daily_ledger_digest_job" {
   command = ["python"]
   args = [
     "-m", "client_reporting_api",
-    "--operation", "daily_ledger_digest",  # TODO: add this operation
+    "--operation", "daily_ledger_digest", # TODO: add this operation
     "--mode", "batch",
     "--asset-group", "cefi",
   ]
