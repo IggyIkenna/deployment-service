@@ -1,6 +1,6 @@
 # Layer-0 Deterministic Recovery Scripts
 
-> SSOT directory for the 10 closed-set deterministic recovery actions consumed
+> SSOT directory for the 11 closed-set deterministic recovery actions consumed
 > by the Incident Gateway state machine + the LLM Layer-1.5 backup actuator +
 > the DART Safety Ops manual-override tab.
 
@@ -11,7 +11,7 @@ Codex SSOT:
 
 Implementation plan: `plans/active/agent_recovery_controller_layer0_deterministic_2026_05_23.md`.
 
-## The 10 scripts
+## The 11 scripts
 
 | Script                         | Action                                          | Runbook       | Idempotent |
 | ------------------------------ | ----------------------------------------------- | ------------- | ---------- |
@@ -20,11 +20,21 @@ Implementation plan: `plans/active/agent_recovery_controller_layer0_deterministi
 | `redeploy_known_good.py`       | Flip Cloud Run traffic to previous revision     | RB-DEPLOY-001 | yes        |
 | `resize_machine_after_oom.py`  | `gcloud compute instances set-machine-type`     | RB-INFRA-001  | yes        |
 | `failover_feed.py`             | MTDS handler primary → backup feed              | RB-CONN-001   | yes        |
+| `refetch_feed.py`              | Re-pull a stale feed via its owning service CLI | RB-CONN-001   | yes        |
 | `pause_strategy.py`            | strategy-service pause endpoint                 | RB-RISK-004   | yes        |
 | `cancel_open_orders.py`        | execution-service cancel-all-orders             | RB-RECON-002  | **no**     |
 | `disable_venue.py`             | circuit-breaker force-open                      | RB-CONN-001   | yes        |
 | `enter_safe_mode.py`           | strategy-service safe-mode entry                | RB-RISK-004   | yes        |
 | `enter_readonly_recon_mode.py` | service reads but rejects writes                | RB-CONN-004   | yes        |
+
+`refetch_feed.py` is the **active self-healing** verb (data-feed SLA registry plan):
+a stale `critical` feed → re-pull the SAME feed (vs `failover_feed` which flips
+primary→backup). Scope flag `--feed_id` = a key of
+`ALL_FRESHNESS_CONTRACTS`; the bound re-fetch is the contract's
+`refetch_action` (`refetch-feed:<source>`). Storm guard: per-feed cooldown +
+per-window cap + breaker-OPEN skip (the breaker owns backoff when OPEN). Market-data
+feeds route to the `market-tick-data-service` CLI (`--operation download --day <today>`);
+execution/feature/ml feeds raise `UnroutableFeedError` → the escalation ladder owns them.
 
 ## Contract (every script)
 
@@ -52,7 +62,7 @@ python -m deployment_service.scripts.recovery.<action> \
     --provenance AUTOMATIC|MANUAL_OPERATOR|LLM_LAYER15 \
     --incident-key <key> \
     [--dry-run] \
-    [--service <name> | --venue <name> | --strategy <id> | --vm <name>] ...
+    [--service <name> | --venue <name> | --strategy <id> | --vm <name> | --feed_id <key>] ...
 ```
 
 ## Layer-1.5 LLM wrapper
