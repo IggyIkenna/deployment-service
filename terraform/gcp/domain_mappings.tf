@@ -32,15 +32,20 @@ resource "google_cloud_run_domain_mapping" "odum_portal" {
   }
 
   spec {
-    route_name       = "odum-portal"
-    certificate_mode = "AUTOMATIC"
-    force_override   = false
+    route_name     = "odum-portal"
+    force_override = false
+    # certificate_mode omitted — AUTOMATIC is the gcloud default and setting it
+    # explicitly forces a destroy+recreate cycle (replace-on-change field).
   }
 
   lifecycle {
-    # The domain mapping is created externally (gcloud CLI) and imported;
-    # prevent tofu from deleting and re-creating on annotation drift.
-    ignore_changes = [metadata[0].annotations]
+    # The domain mapping was created externally (gcloud CLI) and imported;
+    # prevent tofu from deleting and re-creating on annotation/label/cert drift.
+    ignore_changes = [
+      metadata[0].annotations,
+      metadata[0].labels,
+      spec[0].certificate_mode,
+    ]
   }
 }
 
