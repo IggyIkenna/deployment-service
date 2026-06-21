@@ -97,7 +97,12 @@ launch_shard() {
     local meta="startup-script-url=${STARTUP}"
     meta+=",VM_TASK=cefi-hl-aster-backfill"
     meta+=",VM_SERVICE=market_tick_data_service"
-    meta+=",VM_OPERATION=download"
+    # collect-onchain-perp-batch drives HyperliquidS3Downloader + AsterAdapter DIRECTLY,
+    # bypassing the orchestrator DeFi-strip that no-ops VM_OPERATION=download for HL/ASTER.
+    # Writes cefi canonical parquet + manifest (source=hyperliquid/aster, batch_<source>).
+    # SSOT: market-tick-data-service OnchainPerpBatchHandler
+    # (live_tardis_machine_and_hl_aster_s3_batch_2026_06_21 §2).
+    meta+=",VM_OPERATION=collect-onchain-perp-batch"
     meta+=",VM_ASSET_GROUP=cefi"
     meta+=",VM_VENUE=${venue}"
     meta+=",VM_START_DATE=${start_date}"
