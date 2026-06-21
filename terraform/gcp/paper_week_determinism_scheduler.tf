@@ -107,10 +107,14 @@ module "paper_engine_run_job" {
     "-m", "strategy_service",
     "--operation", "paper-run",
     "--mode", "paper",
-    "--asset-group", "defi",
+    "--asset-group", "DEFI", # CLI argparse choices are UPPERCASE (CEFI/TRADFI/DEFI/…); lowercase → exit 2
     "--client-id", "firm-paper-determinism",
-    "--start-date", "PAPER_RUN_START_DATE", # Scheduler body overrides to the soak window
-    "--end-date", "PAPER_RUN_END_DATE",
+    # Fixed known-good data window (the determinism soak re-proves ε=0 on real Aave
+    # rates nightly). The scheduler body does NOT override (empty body) — these base
+    # args ARE what the cron fires; placeholders here = argparse failure. Verified
+    # green: execution uts-prod-paper-engine-run-2q8bj → run paper-20260621134256-3c4eb321.
+    "--start-date", "2026-05-16",
+    "--end-date", "2026-05-22",
   ]
 
   environment_variables = local.paper_det_base_env
