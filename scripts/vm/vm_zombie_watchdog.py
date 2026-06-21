@@ -177,12 +177,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-aster-forward-poll.sh
     # ------------------------------------------------------------------
-    # DeFi forward-poll (launch-defi-forward-poll.sh). Heartbeat-only —
-    # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS. Writes
-    # to market-data-tick-defi-* but does NOT write _index/per_vm/ shards.
-    # Registered 2026-05-15 (slot-2 B-011 blindspot audit).
+    # DeFi forward-poll (launch-defi-forward-poll.sh). Implemented 2026-06-21
+    # (was a stub). Runs collect-lst-rates --mode live with
+    # MANIFEST_PER_VM_SHARDS=true → writes _index/per_vm/{vm_name}.parquet to
+    # market-data-tick-defi-* bucket. Updated from None to VmPrefixSpec so the
+    # watchdog checks the per-VM shard (not just the heartbeat).
     # ------------------------------------------------------------------
-    "defi-fwd-": None,  # launch-defi-forward-poll.sh — DeFi on-chain forward poll
+    "defi-fwd-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # Prediction forward-poll (launch-prediction-forward-poll.sh).
     # VM_SHUTDOWN_ON_COMPLETION=true; no MANIFEST_PER_VM_SHARDS.

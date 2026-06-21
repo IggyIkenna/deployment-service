@@ -25,6 +25,13 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
+# Optional: restrict the sweep to ONE sports entity (e.g. FIXTURES). When set,
+# only that entity is fetched per date — used for the fixtures-first phase so the
+# catalogue (and the odds expected-universe it gates) fills WITHOUT the heavy
+# per-fixture enrichment fan-out (player-stats/lineups) that rate-limits the API.
+# Empty (default) = all entities per date. Phase-2 enrichment entities read
+# fixture IDs from GCS (_per_fixture_gcs_fast_path), so fixtures-first composes.
+ENTITY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --zone)       ZONE="$2"; shift 2 ;;
     --env)        DEPLOYMENT_ENV="$2"; shift 2 ;;
     --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
+    --entity)     ENTITY="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -94,6 +102,7 @@ launch_vm() {
   METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
   METADATA="${METADATA},VM_START_DATE=${START_DATE}"
   METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+  [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
 
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \

@@ -222,6 +222,11 @@ VM_GAS_FEE_SAMPLE_INTERVAL=$(_meta VM_GAS_FEE_SAMPLE_INTERVAL)
 # which sources VM_BACKFILL_MODE, not the metadata VM_MODE key.
 VM_SHARD_SPEC=$(_meta VM_SHARD_SPEC)
 VM_MODE_LIVE=$(_meta VM_MODE)
+# VM_LIVE_SOURCE: live websocket source selector ("native" default | "tardis-machine").
+# Set by launch-mtds-live.sh --live-source. When "tardis-machine", a local
+# tardis-machine Node sidecar (stream-normalized, FREE) is installed + started
+# below before the CLI runs, and --live-source tardis-machine is passed to MTDS.
+VM_LIVE_SOURCE=$(_meta VM_LIVE_SOURCE)
 # IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
 # Read from metadata and EXPORT so Python inherits it.
 # CRITICAL: only export if non-empty — Pydantic Settings treats an empty-string
@@ -1273,6 +1278,24 @@ elif [ -n "$VM_TASK" ]; then
     export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
     log "Redis started; MTDS_STREAMING_REDIS_URL=redis://127.0.0.1:6379"
   fi
+  # tardis-machine live source: install Node + the tardis-machine sidecar and
+  # start its stream-normalized endpoint (FREE — no API key for live). MTDS then
+  # connects to ws://localhost:8001/ws-stream-normalized for uniform normalised
+  # trade/book_snapshot_5/derivative_ticker. Default native source needs none of this.
+  if [[ "${VM_OPERATION:-}" == "live_websocket" && "${VM_LIVE_SOURCE:-native}" == "tardis-machine" ]]; then
+    log "live_websocket: VM_LIVE_SOURCE=tardis-machine — installing Node + tardis-machine sidecar..."
+    if ! command -v node >/dev/null 2>&1; then
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1 || true
+      apt-get install -y -qq nodejs
+    fi
+    npm install -g tardis-machine >/dev/null 2>&1 || npm install -g tardis-machine
+    # stream-normalized needs no API key; TM_API_KEY left unset for the free live endpoint.
+    nohup tardis-machine --port 8001 > "$LOGS/tardis-machine.log" 2>&1 &
+    sleep 3
+    export MTDS_TARDIS_MACHINE_WS_URL="ws://localhost:8001/ws-stream-normalized"
+    export MTDS_LIVE_SOURCE="tardis-machine"
+    log "tardis-machine started on :8001; MTDS_TARDIS_MACHINE_WS_URL=$MTDS_TARDIS_MACHINE_WS_URL"
+  fi
   # Use VM_MODE_LIVE (set by live launchers via VM_MODE metadata) when present;
   # fall back to batch for all historical/backfill launchers.
   _MODE="${VM_MODE_LIVE:-batch}"
@@ -1296,6 +1319,9 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types ${VM_DATA_TYPES//[,;]/ }"
   # VM_SHARD_SPEC: required for websocket-streaming ("asset_group:venue:data_type").
   [[ -n "$VM_SHARD_SPEC" ]] && CLI_ARGS="$CLI_ARGS --shard-spec ${VM_SHARD_SPEC//[,;]/ }"
+  # VM_LIVE_SOURCE: live source selector (native | tardis-machine). Only meaningful
+  # for websocket-streaming; native is the CLI default so pass only when non-native.
+  [[ -n "$VM_LIVE_SOURCE" && "$VM_LIVE_SOURCE" != "native" ]] && CLI_ARGS="$CLI_ARGS --live-source $VM_LIVE_SOURCE"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ -n "$VM_GAS_FEE_CHAINS" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-chains $VM_GAS_FEE_CHAINS"
   [[ -n "$VM_GAS_FEE_SAMPLE_INTERVAL" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-sample-interval $VM_GAS_FEE_SAMPLE_INTERVAL"
