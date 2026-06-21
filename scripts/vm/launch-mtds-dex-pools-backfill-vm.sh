@@ -40,7 +40,7 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
-VM_NAME="mtds-dex-pools-backfill"
+VM_NAME="${VM_NAME:-mtds-dex-pools-backfill}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/launcher_common.sh"
