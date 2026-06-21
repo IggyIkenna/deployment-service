@@ -2,7 +2,7 @@
 # Launch GCE VM for DEX swaps backfill (Uniswap V3 / Balancer / Curve / GMX / etc. via The Graph)
 #
 # Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
-# Writes to market-data-tick-defi-{project_id} (canonical DEFI tick bucket) using
+# Writes to market-data-tick-defi-prd-{project_id} (canonical env-tiered DEFI tick bucket) using
 # resolve_bucket_name(cloud="gcp", kind="market-data", asset_group="defi").
 #
 # Usage:
@@ -58,7 +58,7 @@ echo "  Machine:   ${MACHINE_TYPE}"
 echo "  Range:     ${START_DATE} → ${END_DATE}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
 echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
-echo "  Bucket:    market-data-tick-defi-central-element-323112"
+echo "  Bucket:    market-data-tick-defi-prd-${PROJECT_ID}  (resolved by resolve_bucket_name)"
 echo "============================================================"
 
 if ! $FORCE; then
