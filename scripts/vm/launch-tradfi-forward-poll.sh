@@ -104,16 +104,20 @@ VM_NAME="tradfi-fwd-${RUN_TS}"
 
 echo "Launching $VM_NAME: TradFi market-data ${START_DATE}..${END_DATE}"
 
+# VM_TASK=mtds-backfill routes to the chunked MTDS-download branch that builds the
+# CLI with --source (REQUIRED for a TradFi OHLCV run). The prior cefi-backfill task
+# + missing --source made every forward-poll fail "--source ... is REQUIRED" + write
+# 0 rows. VM_SOURCE=databento = the 3-dataset subscription path (GLBX/DBEQ/XCBF);
+# VM_DATA_TYPES=ohlcv_1m mirrors the batch backfill (live = batch, same data_types).
 METADATA="VM_TASK=mtds-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=TRADFI"
+METADATA="${METADATA},VM_DATA_TYPES=ohlcv_1m"
+METADATA="${METADATA},VM_SOURCE=databento"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
-METADATA="${METADATA},VM_SOURCE=databento"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
 if $DRY_RUN; then

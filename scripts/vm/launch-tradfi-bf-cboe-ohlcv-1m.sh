@@ -74,7 +74,11 @@ for spec in "${CBOE_ROOTS[@]}"; do
         root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
         root_safe="${root_lower//./-}"
         vm_name="tradfi-bf-cboe-ohlcv-1m-${root_safe}-${year}-${run_ts}"
-        ohlcv_create_vm "$vm_name" "XCBF" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+        # Venue MUST be CBOE (not XCBF): the MTDS adapter maps CBOE→XCBF.PITCH;
+        # "XCBF" is unmapped → defaults to GLBX.MDP3 (wrong dataset), and existing
+        # manifest rows use venue=CBOE. XCBF.PITCH is the Databento DATASET, CBOE is
+        # the canonical VENUE (UAC DatabentoInstrumentDef VX.FUT → "CBOE").
+        ohlcv_create_vm "$vm_name" "CBOE" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
     done
 done
 
@@ -87,5 +91,5 @@ else
     echo "CBOE/XCBF OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
-    echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='XCBF')&(df.data_type=='ohlcv_1m')].groupby(['symbol','capture_status']).size())\""
+    echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='CBOE')&(df.data_type=='ohlcv_1m')].groupby(['symbol','capture_status']).size())\""
 fi
