@@ -1072,10 +1072,16 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   # the full loop (streaming GCS log + heartbeat + self-delete on completion).
   VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 7)
   VM_TIER=$(_meta VM_TIER "")
+  [[ -n "$VM_TIER" ]] && log "mtds-backfill architecture tier (informational only, not a CLI flag): $VM_TIER"
 
   BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
-  [[ -n "$VM_TIER" ]] && BASE_CLI="$BASE_CLI --tier $VM_TIER"
+  # NOTE: VM_TIER is NOT a CLI flag — the MTDS download CLI has no `--tier` option
+  # (argparse rejects it: "unrecognized arguments: --tier 1"). "Tier" is an
+  # ARCHITECTURE label only (e.g. sports Tier-1 = Odds API), selected by the
+  # asset_group + instrument universe (venue=odds_api auto-routed by the
+  # orchestrator); the Odds-API paid-plan tier is encoded in the Secret-Manager
+  # API key, not passed per-run. VM_TIER stays in metadata for documentation/logs.
   [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
