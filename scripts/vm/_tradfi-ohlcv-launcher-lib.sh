@@ -29,6 +29,13 @@ TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/v
 # SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
 TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-databento}"
 
+# Data-types to fetch. Default = BOTH ohlcv_1m + ohlcv_1s: the Databento
+# subscription includes both at L0/free 16y and the registry expects them
+# "fetched alongside" (1s aggregates downstream to 15m/1h/24h via MDPS). Override
+# e.g. OHLCV_DATA_TYPES=ohlcv_1s for a 1s-only backfill wave (no 1m re-fetch).
+# Semicolon-delimited (gcloud metadata-safe; startup splits [,;] → spaces).
+TRADFI_OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_1m;ohlcv_1s}"
+
 # Singleton-lock check: refuse to launch if any tradfi-bf-* VM is RUNNING in
 # the zone, unless $FORCE=true or $DRY_RUN=true.
 ohlcv_check_singleton_lock() {
@@ -88,7 +95,7 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_FORCE_WINDOW=${force_window}"
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
-    metadata="${metadata},VM_DATA_TYPES=ohlcv_1m"
+    metadata="${metadata},VM_DATA_TYPES=${TRADFI_OHLCV_DATA_TYPES}"
     metadata="${metadata},VM_SOURCE=${TRADFI_OHLCV_SOURCE}"
     metadata="${metadata},VM_INSTRUMENT_IDS=${instrument_ids}"
     metadata="${metadata},DEPLOYMENT_ENV=${deployment_env}"
