@@ -19,7 +19,7 @@ ARG PROJECT_ID
 # Digest-pinned UTL base image (QG STEP 5.79 -- reproducible builds + UTL/UAC provenance).
 # Refreshed by the dependency-update fan-out (update-dependency-version.yml) on base-image
 # republish; cloudbuild may override at build time: --build-arg BASE_IMAGE_DIGEST=sha256:...
-ARG BASE_IMAGE_DIGEST=sha256:c54f13d926710ae13e69c1d26459eeda257c62cd101439beebcfd7a844c1597c
+ARG BASE_IMAGE_DIGEST=sha256:dac7c8f696700fbd18777b4f1b4d72a42a12993a88af8c6ef968adf4da5fa741
 FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST} AS base
 
 FROM base AS api
@@ -61,8 +61,17 @@ COPY scripts/ ./scripts/
 
 # Install dependencies (UTL base image already has transitive deps + UAC + UTL pre-installed).
 # uv >= 0.11 removed --system from `uv sync`; mirror features-sports-service pattern instead.
+#
+# `--no-deps` installs ONLY the deployment_service package and relies on the UTL base for
+# transitive runtime deps. The base image dropped `uvicorn` + `jinja2` (UTL 0.13.0 digest
+# refresh 2026-06-19) — they are DECLARED deps of deployment-service (pyproject `uvicorn[standard]`,
+# `jinja2`) but were never installed under `--no-deps`, so the `api` image crashed at gunicorn
+# startup: the `uvicorn.workers.UvicornWorker` worker_class was unresolvable AND the eager backends
+# import chain (deployment_service/__init__ -> live_deployment -> backends -> vm/services/vm_config)
+# hit `from jinja2 import Template`. Install both explicitly so the image is self-contained and
+# does not depend on incidental base-image transitives.
 RUN uv pip install --system --no-deps -e . \
-    && uv pip install --system --no-cache-dir gunicorn[gevent] gevent
+    && uv pip install --system --no-cache-dir gunicorn[gevent] gevent "uvicorn[standard]" jinja2
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

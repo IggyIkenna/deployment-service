@@ -42,64 +42,45 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
 
-  # Service configurations for CodeBuild projects
-  # Each service builds from its GitHub repo and pushes to ECR
+  # Canonical live CodeBuild set — reconciled 1:1 with workspace-manifest.json live repos (2026-06-19).
+  # Replaces the stale list (archived per-family features-* / mis-named execution-services) that matched
+  # NEITHER the live AWS projects NOR GCP. The live projects were created imperatively (see § "terraform import"
+  # in plans/active/test_fleet_image_builds_from_current_code_2026_06_17.md) — apply/import against THIS set.
+  #
+  # build_branch mirrors the GCP firing model exactly. GCP fires three triggers on live-defi-rollout —
+  # unified-trading-library (base image), unified-api-contracts (base wheel) and market-tick-data-service
+  # (which also has a `-build` main trigger) — and every other service on `^main$`. ECR repo and GitHub repo
+  # both equal the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
+  #
+  # unified-api-contracts builds the UAC wheel (no Docker image) and publishes it to the CodeArtifact domain
+  # `unified-trading` / repo `unified-libraries` (the AWS analogue of GCP's AR python index) — see the
+  # aws_codeartifact_* resources + the CodeArtifactPublish IAM statement below. It fires on live-defi-rollout
+  # like the other base lib, matching GCP's UAC LDR trigger.
   services = {
-    # Data I/O services
-    "instruments-service" = {
-      github_repo      = "instruments-service"
-      ecr_repo         = "instruments-service"
-      build_timeout    = 30
-    }
-    "market-tick-data-service" = {
-      github_repo      = "market-tick-data-service"
-      ecr_repo         = "market-tick-data-service"
-      build_timeout    = 30
-    }
-    # Processing services
-    "market-data-processing-service" = {
-      github_repo      = "market-data-processing-service"
-      ecr_repo         = "market-data-processing-service"
-      build_timeout    = 30
-    }
-    # Feature services
-    "features-calendar-service" = {
-      github_repo      = "features-calendar-service"
-      ecr_repo         = "features-calendar-service"
-      build_timeout    = 30
-    }
-    "features-delta-one-service" = {
-      github_repo      = "features-delta-one-service"
-      ecr_repo         = "features-delta-one-service"
-      build_timeout    = 30
-    }
-    "features-volatility-service" = {
-      github_repo      = "features-volatility-service"
-      ecr_repo         = "features-volatility-service"
-      build_timeout    = 30
-    }
-    "features-onchain-service" = {
-      github_repo      = "features-onchain-service"
-      ecr_repo         = "features-onchain-service"
-      build_timeout    = 30
-    }
-    # ML service (consolidated from ml-training-service + ml-inference-service, 2026-05-21, ml_repo_consolidation_2026_05_19.md)
-    "ml-service" = {
-      github_repo      = "ml-service"
-      ecr_repo         = "ml-service"
-      build_timeout    = 45
-    }
-    # Strategy and execution
-    "strategy-service" = {
-      github_repo      = "strategy-service"
-      ecr_repo         = "strategy-service"
-      build_timeout    = 30
-    }
-    "execution-services" = {
-      github_repo      = "execution-services"
-      ecr_repo         = "execution-services"
-      build_timeout    = 45
-    }
+    # Fire on live-defi-rollout (GCP parity: base image + UAC wheel + the mtds LDR-tip build)
+    "unified-trading-library"  = { build_timeout = 45, build_branch = "live-defi-rollout" }
+    "unified-api-contracts"    = { build_timeout = 30, build_branch = "live-defi-rollout" }
+    "market-tick-data-service" = { build_timeout = 30, build_branch = "live-defi-rollout" }
+
+    # Deployable services — fire on main (GCP parity: services build on promotion to main)
+    "alerting-service"                  = { build_timeout = 30, build_branch = "main" }
+    "batch-live-reconciliation-service" = { build_timeout = 30, build_branch = "main" }
+    "client-reporting-api"              = { build_timeout = 30, build_branch = "main" }
+    "deployment-api"                    = { build_timeout = 30, build_branch = "main" }
+    "deployment-service"                = { build_timeout = 30, build_branch = "main" }
+    # deployment-ui builds NO standalone image — its buildspec.aws.yaml dispatches a deployment-api
+    # build (the SPA is bundled into deployment-api). Mirrors GCP deployment-ui-main-deploy. The
+    # codebuild_role's DispatchDeploymentApiBuild statement grants the StartBuild.
+    "deployment-ui"                     = { build_timeout = 30, build_branch = "main" }
+    "execution-service"                 = { build_timeout = 45, build_branch = "main" }
+    "features-service"                  = { build_timeout = 30, build_branch = "main" }
+    "fund-administration-service"       = { build_timeout = 30, build_branch = "main" }
+    "greeks-service"                    = { build_timeout = 30, build_branch = "main" }
+    "instruments-service"               = { build_timeout = 30, build_branch = "main" }
+    "market-data-processing-service"    = { build_timeout = 30, build_branch = "main" }
+    "ml-service"                        = { build_timeout = 45, build_branch = "main" }
+    "strategy-service"                  = { build_timeout = 30, build_branch = "main" }
+    "trading-agent-service"             = { build_timeout = 30, build_branch = "main" }
   }
 }
 
@@ -176,9 +157,48 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "arn:aws:s3:::unified-trading-*",
           "arn:aws:s3:::unified-trading-*/*"
         ]
+      },
+      {
+        # deployment-ui's buildspec dispatches a deployment-api build instead of building its own
+        # image (the SPA is bundled into deployment-api). This grants that dispatch.
+        Sid      = "DispatchDeploymentApiBuild"
+        Effect   = "Allow"
+        Action   = ["codebuild:StartBuild"]
+        Resource = "arn:aws:codebuild:${local.region}:${local.account_id}:project/deployment-api"
+      },
+      {
+        # unified-api-contracts publishes its wheel to the CodeArtifact unified-libraries repo.
+        Sid      = "CodeArtifactPublish"
+        Effect   = "Allow"
+        Action   = ["codeartifact:GetAuthorizationToken", "codeartifact:GetRepositoryEndpoint", "codeartifact:ReadFromRepository", "codeartifact:PublishPackageVersion", "codeartifact:DescribePackageVersion", "codeartifact:DescribeRepository"]
+        Resource = "*"
+      },
+      {
+        Sid      = "CodeArtifactStsBearer"
+        Effect   = "Allow"
+        Action   = ["sts:GetServiceBearerToken"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "sts:AWSServiceName" = "codeartifact.amazonaws.com" }
+        }
       }
     ]
   })
+}
+
+# =============================================================================
+# CodeArtifact — internal Python wheel distribution (AWS analogue of GCP's AR
+# python index). unified-api-contracts publishes its wheel here.
+# =============================================================================
+
+resource "aws_codeartifact_domain" "internal" {
+  domain = "unified-trading"
+}
+
+resource "aws_codeartifact_repository" "libraries" {
+  repository  = "unified-libraries"
+  domain      = aws_codeartifact_domain.internal.domain
+  description = "Internal Python wheels (UAC, etc.) — AWS analogue of the GCP AR python index"
 }
 
 # =============================================================================
@@ -222,13 +242,13 @@ resource "aws_codebuild_project" "services" {
     }
 
     environment_variable {
-      name  = "AWS_REGION"
+      name  = "AWS_DEFAULT_REGION"
       value = local.region
     }
 
     environment_variable {
-      name  = "ECR_REPO"
-      value = each.value.ecr_repo
+      name  = "CLOUD_BUILD"
+      value = "true"
     }
 
     environment_variable {
@@ -236,16 +256,18 @@ resource "aws_codebuild_project" "services" {
       value = "aws"
     }
 
+    # Buildspec reads github-pat + unified-trading/github-actions-sa-key directly via the AWS CLI;
+    # GH_PAT here gates the optional post_build deploy-dispatch (see templates/buildspec.aws.yaml).
     environment_variable {
-      name  = "GITHUB_TOKEN"
-      value = "github-token"
+      name  = "GH_PAT"
+      value = "GH_PAT"
       type  = "SECRETS_MANAGER"
     }
   }
 
   source {
     type            = "GITHUB"
-    location        = "https://github.com/${var.github_owner}/${each.value.github_repo}.git"
+    location        = "https://github.com/${var.github_owner}/${each.key}.git"
     git_clone_depth = 1
     buildspec       = "buildspec.aws.yaml"
 
@@ -254,7 +276,8 @@ resource "aws_codebuild_project" "services" {
     }
   }
 
-  source_version = var.branch_pattern
+  # Branch name (not a regex) — GCP-parity firing: base lib on live-defi-rollout, services on main.
+  source_version = each.value.build_branch
 
   logs_config {
     cloudwatch_logs {
@@ -286,7 +309,7 @@ resource "aws_codebuild_webhook" "services" {
 
     filter {
       type    = "HEAD_REF"
-      pattern = var.branch_pattern
+      pattern = "^refs/heads/${each.value.build_branch}$"
     }
   }
 }

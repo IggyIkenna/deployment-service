@@ -256,8 +256,17 @@ lc_aws_upload_script() {
 # ---------------------------------------------------------------------------
 # lc_aws_log_upload_trap_block <vm_name> <account_id>
 # ---------------------------------------------------------------------------
+# lc_aws_log_upload_trap_block <vm_name> <account_id> [asset_group] [task]
+# ---------------------------------------------------------------------------
 # Emit a bash snippet to inject at the TOP of an EC2 user-data heredoc.
-# Mirrors lc_log_upload_trap_block (gsutil → aws s3 cp).
+# AWS mirror of lc_log_upload_trap_block (gsutil → aws s3 cp): durable
+# observability for an inline EC2 bootstrap — continuous S3 log stream
+# (every LC_LOG_STREAM_INTERVAL s, default 30) + liveness/progress heartbeat
+# object + terminal EXIT_STATUS marker + guaranteed final upload on any exit.
+# So a dead/hung EC2 box's full log + its terminal status live in S3,
+# queryable WITHOUT SSM/SSH (≤30 s loss). Mirrors the durability contract of
+# the GCP `vm-exec-with-gcs-tee.sh` path. SSOT:
+# codex/05-infrastructure/vm-tarball-deployment.md § "VM observability".
 #
 # CALLER: emit this inside the user-data heredoc BEFORE set -e or workload commands.
 # Inside the heredoc body, bash $-vars are pre-escaped with \$ — caller does NOT
@@ -265,19 +274,48 @@ lc_aws_upload_script() {
 lc_aws_log_upload_trap_block() {
     local vm_name="${1:?lc_aws_log_upload_trap_block: vm_name required}"
     local account_id="${2:?lc_aws_log_upload_trap_block: account_id required}"
+    local asset_group="${3:-UNKNOWN}"
+    local task="${4:-vm-exec}"
     local code_bucket="unified-trading-deployment-scripts-${account_id}"
+    local region="${AWS_DEFAULT_REGION:-ap-northeast-1}"
+    local stream_interval="${LC_LOG_STREAM_INTERVAL:-30}"
     cat <<TRAPSNIPPET
 # --- lc_aws_log_upload_trap_block (deployment-service/scripts/vm/lib/aws_ec2_launch_lib.sh) ---
+# Continuous S3 log stream (every ${stream_interval}s) + heartbeat object +
+# terminal EXIT_STATUS + guaranteed final upload. Canonical run.log path:
+# s3://${code_bucket}/vm-logs/${vm_name}/run.log
 LOG_LOCAL="/var/log/run.log"
 S3_LOG_URI="s3://${code_bucket}/vm-logs/${vm_name}/run.log"
+S3_HEARTBEAT_URI="s3://${code_bucket}/vm-heartbeat/${vm_name}.txt"
+S3_EXIT_URI="s3://${code_bucket}/vm-logs/${vm_name}/EXIT_STATUS"
+S3_REGION="${region}"
+LC_STREAM_INTERVAL=${stream_interval}
+LC_VM_ASSET_GROUP="${asset_group}"
+LC_VM_TASK="${task}"
+LC_START_EPOCH=\$(date +%s)
 mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
 exec > >(tee -a "\$LOG_LOCAL") 2>&1
+echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group=${asset_group} task=${task} ==="
+_lc_stream_loop() {
+    while true; do
+        aws s3 cp "\$LOG_LOCAL" "\$S3_LOG_URI" --region "\$S3_REGION" --quiet 2>/dev/null || true
+        printf 'vm=%s asset_group=%s task=%s alive_at=%s uptime_s=%s\n' \
+            "${vm_name}" "\$LC_VM_ASSET_GROUP" "\$LC_VM_TASK" \
+            "\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "\$(( \$(date +%s) - LC_START_EPOCH ))" \
+            | aws s3 cp - "\$S3_HEARTBEAT_URI" --region "\$S3_REGION" --quiet 2>/dev/null || true
+        sleep "\$LC_STREAM_INTERVAL"
+    done
+}
+_lc_stream_loop &
+_LC_STREAM_PID=\$!
 _lc_final_upload() {
     local rc=\$?
+    kill "\$_LC_STREAM_PID" 2>/dev/null || true
     echo ""
     echo "=== VM EXIT rc=\$rc \$(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
+    echo "\$rc" | aws s3 cp - "\$S3_EXIT_URI" --region "\$S3_REGION" --quiet 2>/dev/null || true
     for _i in 1 2 3; do
-        if aws s3 cp "\$LOG_LOCAL" "\$S3_LOG_URI" --region "${AWS_DEFAULT_REGION:-ap-northeast-1}" --quiet 2>/dev/null; then
+        if aws s3 cp "\$LOG_LOCAL" "\$S3_LOG_URI" --region "\$S3_REGION" --quiet 2>/dev/null; then
             echo "log uploaded to \$S3_LOG_URI (attempt \$_i)"
             break
         fi
@@ -285,7 +323,7 @@ _lc_final_upload() {
         sleep 5
     done
     sleep 2
-    aws s3 cp "\$LOG_LOCAL" "\$S3_LOG_URI" --region "${AWS_DEFAULT_REGION:-ap-northeast-1}" --quiet 2>/dev/null || true
+    aws s3 cp "\$LOG_LOCAL" "\$S3_LOG_URI" --region "\$S3_REGION" --quiet 2>/dev/null || true
     shutdown -h +1 2>/dev/null || true
     return \$rc
 }

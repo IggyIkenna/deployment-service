@@ -243,7 +243,10 @@ resource "google_cloud_scheduler_job" "mtds_paper_smoke_cron" {
     retry_count          = 0
     min_backoff_duration = "5s"
     max_backoff_duration = "3600s"
-    max_doublings        = 0
+    # GCP normalises max_doublings=0 → its default of 5 server-side, so declaring 0
+    # produces a perpetual TF diff (plan always shows 0 -> 5). Match GCP's canonical
+    # value. retry_count=0 means no retries fire regardless of this knob.
+    max_doublings = 5
   }
 }
 
@@ -316,7 +319,10 @@ resource "google_cloud_scheduler_job" "mtds_scenario_matrix_cron" {
     retry_count          = 0
     min_backoff_duration = "5s"
     max_backoff_duration = "3600s"
-    max_doublings        = 0
+    # GCP normalises max_doublings=0 → its default of 5 server-side, so declaring 0
+    # produces a perpetual TF diff (plan always shows 0 -> 5). Match GCP's canonical
+    # value. retry_count=0 means no retries fire regardless of this knob.
+    max_doublings = 5
   }
 }
 

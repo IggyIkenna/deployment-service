@@ -107,10 +107,15 @@ USER_DATA_FILE="$(mktemp /tmp/startup-mtds-backfill-XXXX.sh)"
 # shellcheck disable=SC2064
 trap "rm -f '${USER_DATA_FILE}'" RETURN
 
+# Durable observability: continuous S3 log stream + heartbeat + terminal
+# EXIT_STATUS + guaranteed final upload (so a dead/hung VM's full log + status
+# are queryable without SSM). SSOT: lib/aws_ec2_launch_lib.sh.
+LOG_TRAP="$(lc_aws_log_upload_trap_block "${VM_NAME}" "${AWS_ACCOUNT_ID}" "${CATEGORY_LOWER}" "mtds-backfill")"
+
 cat > "${USER_DATA_FILE}" <<STARTUP_EOF
 #!/bin/bash
+${LOG_TRAP}
 set -euo pipefail
-exec > >(tee /var/log/mtds-backfill-bootstrap.log) 2>&1
 
 export VM_NAME="${VM_NAME}"
 export VM_TASK=mtds-backfill
@@ -211,7 +216,9 @@ eval "\${CMD}"
 echo ""
 echo "=== MTDS backfill complete: \${VM_NAME} ==="
 date
-shutdown -h now
+# No explicit shutdown — the lc_aws_log_upload_trap_block EXIT trap does the
+# final S3 upload + EXIT_STATUS marker, THEN schedules shutdown -h +1. An
+# explicit shutdown here would race the final upload (logs lost).
 STARTUP_EOF
 
 EXTRA_TAGS='[{"Key":"purpose","Value":"mtds-backfill"},{"Key":"asset-group","Value":"'"${CATEGORY_LOWER}"'"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"}]'
