@@ -137,6 +137,7 @@ METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 # concurrent backfills". The consolidator daemon merges per-VM shards
 # into the canonical manifest with last-writer-wins on row_key.
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
