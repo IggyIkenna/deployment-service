@@ -184,6 +184,14 @@ TARDIS_STREAM_BLOCK_SIZE_MB=$(_meta TARDIS_STREAM_BLOCK_SIZE_MB)
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# VM_SOURCE: operator free-switch --source (databento|massive) for TradFi OHLCV
+# downloads (2026-06-19). The MTDS TickDataHandler REQUIRES --source for a TradFi
+# OHLCV run (provenance-ambiguous massive-vs-databento legs) — it selects the
+# fetching adapter AND stamps row-level provenance. Without it the run fails every
+# payload ("--source databento|massive is REQUIRED") and writes 0 rows. Ignored by
+# the CLI for non-tradfi venue-fixed runs. SSOT:
+# codex/02-data/tradfi-databento-sourcing-ssot.md.
+VM_SOURCE=$(_meta VM_SOURCE)
 # VM_DURATION_HOURS: optional run-time cap for services that accept --duration-hours.
 # Used by alerting-quietness-baseline (48h quietness run per Phase 7 of alerting plan).
 VM_DURATION_HOURS=$(_meta VM_DURATION_HOURS)
@@ -1089,6 +1097,9 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   # orchestrator); the Odds-API paid-plan tier is encoded in the Secret-Manager
   # API key, not passed per-run. VM_TIER stays in metadata for documentation/logs.
   [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  # --source: REQUIRED for a TradFi OHLCV download (selects fetcher + stamps
+  # provenance); the CLI ignores it for non-tradfi venue-fixed runs.
+  [[ -n "$VM_SOURCE" ]] && BASE_CLI="$BASE_CLI --source $VM_SOURCE"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
 
