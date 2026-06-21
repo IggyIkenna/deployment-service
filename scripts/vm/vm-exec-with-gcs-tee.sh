@@ -160,6 +160,21 @@ echo "$CMD_PID" > "$PID_FILE"
 # gives 2× headroom without letting memory-stalled 32 GB VMs idle for 1h.
 STALL_TIMEOUT_SEC="${STALL_TIMEOUT_SEC:-1800}"
 STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
+# Per-shard PROGRESS watchdog (backfill_vm_silent_worker_stall_watchdog_2026_06_19 P1).
+# Default = log-SIZE growth (below). But raw size grows on ANY output — heartbeats,
+# empty-date "no events" lines — so a worker that HANGS on a network call while the
+# log keeps emitting noise is NOT caught, and the blunt fix (raising STALL_TIMEOUT_SEC
+# for empty-date asset_groups like sports) then lets a GENUINE hang idle for hours
+# (SFI froze 3h25m / gas-fees 1h48m, 2026-06-19, both with raised thresholds).
+# When STALL_PROGRESS_REGEX is set, the timer resets ONLY when a NEW line matching it
+# appears (a real progress marker: a date advanced / a shard parquet was written) —
+# scanned over ONLY the bytes appended since the last reset (bounded; never re-greps a
+# multi-GB log). An empty-date stretch still advances the date → still resets, so the
+# threshold can stay TIGHT (30 min) without false-killing; a frozen worker emits no new
+# marker → trips fast. Launchers set STALL_PROGRESS_REGEX in metadata per asset_group
+# (e.g. a date-advance / "wrote .* rows" / "record_(captured|empty)" marker). Unset ⇒
+# identical size-based behavior (fully backward compatible).
+STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
 # ever writing the STALL: breadcrumb. Any intermediate command returning
@@ -170,6 +185,7 @@ STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
 (
     set +e
     last_size=-1
+    last_progress_size=0
     last_change_epoch=$(date +%s)
     iteration=0
     while kill -0 "$CMD_PID" 2>/dev/null; do
@@ -179,16 +195,35 @@ STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
         now=$(date +%s)
         cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null)
         cur_size=${cur_size:-0}
-        echo "watchdog iter=$iteration size=$cur_size last=$last_size ts=$now" > "$WATCHDOG_HEARTBEAT"
-        if [[ "$cur_size" != "$last_size" ]]; then
-            last_size=$cur_size
-            last_change_epoch=$now
-            continue
+        if [[ -n "$STALL_PROGRESS_REGEX" ]]; then
+            # Progress-marker mode: reset ONLY on a real progress line, scanning just
+            # the bytes appended since the last check (bounded). Raw growth WITHOUT a
+            # marker (heartbeat/empty noise) does NOT reset → a hung worker trips.
+            made_progress=0
+            if [[ "$cur_size" -gt "$last_progress_size" ]]; then
+                if tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null | grep -qE "$STALL_PROGRESS_REGEX"; then
+                    made_progress=1
+                fi
+                last_progress_size=$cur_size
+            fi
+            echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress ts=$now" > "$WATCHDOG_HEARTBEAT"
+            if [[ "$made_progress" == "1" ]]; then
+                last_change_epoch=$now
+                continue
+            fi
+        else
+            echo "watchdog iter=$iteration mode=size size=$cur_size last=$last_size ts=$now" > "$WATCHDOG_HEARTBEAT"
+            if [[ "$cur_size" != "$last_size" ]]; then
+                last_size=$cur_size
+                last_change_epoch=$now
+                continue
+            fi
         fi
         stalled_for=$(( now - last_change_epoch ))
         if [[ $stalled_for -ge $STALL_TIMEOUT_SEC ]]; then
+            _stall_mode=$([[ -n "$STALL_PROGRESS_REGEX" ]] && echo "no-progress-marker" || echo "log-not-grown")
             {
-                echo "[vm-exec] STALL: log has not grown in ${stalled_for}s (threshold=${STALL_TIMEOUT_SEC}s) — killing CMD_PID=$CMD_PID"
+                echo "[vm-exec] WORKER_STALLED (${_stall_mode}): no progress in ${stalled_for}s (threshold=${STALL_TIMEOUT_SEC}s) — killing CMD_PID=$CMD_PID"
                 if command -v py-spy >/dev/null 2>&1; then
                     py-spy dump --pid "$CMD_PID" 2>&1 || true
                 else
@@ -201,7 +236,7 @@ STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
                     fi
                 fi
             } >> "$LOCAL_LOG" 2>&1
-            echo "stalled_for=$stalled_for threshold=$STALL_TIMEOUT_SEC" > "$STALL_BREADCRUMB"
+            echo "reason=WORKER_STALLED mode=${_stall_mode} stalled_for=$stalled_for threshold=$STALL_TIMEOUT_SEC" > "$STALL_BREADCRUMB"
             pkill -TERM -P "$CMD_PID" 2>/dev/null || true
             kill -TERM "$CMD_PID" 2>/dev/null || true
             sleep 5
