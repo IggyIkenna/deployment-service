@@ -48,7 +48,7 @@ if [[ ! -d "$UAC_DIR" ]]; then
     echo "ERROR: unified-api-contracts not found at $UAC_DIR" >&2
     exit 1
 fi
-TICKER_LIST="$(cd "$UAC_DIR" && python3 -c "
+TICKER_LIST="$(cd "$UAC_DIR" && "${WORKSPACE_ROOT}/.venv-workspace/bin/python3" -c "
 from unified_api_contracts.registry.tradfi_ticker_universe import (
     SP500_TICKERS, ETF_TICKERS,
 )

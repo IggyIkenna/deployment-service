@@ -21,6 +21,14 @@ TRADFI_OHLCV_BOOT_GB="${TRADFI_OHLCV_BOOT_GB:-50}"
 TRADFI_OHLCV_CODE_BUCKET="${TRADFI_OHLCV_CODE_BUCKET:-deployment-scripts-${TRADFI_OHLCV_PROJECT}}"
 TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/vm/setup-data-pipeline-vm.sh}"
 
+# --source provenance selector (REQUIRED for a TradFi OHLCV download, 2026-06-19):
+# selects the fetching adapter AND stamps row-level provenance. Default = databento
+# (the 3-dataset subscription path: GLBX.MDP3 CME / DBEQ.BASIC equities / XCBF.PITCH
+# CFE — databento is capable for every tradfi OHLCV venue; only `massive` is excluded
+# for CBOE/VX). Override with OHLCV_SOURCE=massive for a Massive-sourced leg.
+# SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
+TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-databento}"
+
 # Singleton-lock check: refuse to launch if any tradfi-bf-* VM is RUNNING in
 # the zone, unless $FORCE=true or $DRY_RUN=true.
 ohlcv_check_singleton_lock() {
@@ -68,7 +76,11 @@ ohlcv_create_vm() {
     # Normalise underscores in vm_name (gcloud naming rule).
     local vm_name_safe="${vm_name//_/-}"
 
-    local metadata="VM_TASK=cefi-backfill"
+    # VM_TASK=mtds-backfill routes to the chunked MTDS download branch in
+    # setup-data-pipeline-vm.sh that builds the CLI with --source (REQUIRED for a
+    # TradFi OHLCV run). The prior `cefi-backfill` task did NOT pass --source → every
+    # payload failed ("--source databento|massive is REQUIRED") + 0 rows at rc=0/1.
+    local metadata="VM_TASK=mtds-backfill"
     metadata="${metadata},VM_SERVICE=market_tick_data_service"
     metadata="${metadata},VM_OPERATION=download"
     metadata="${metadata},VM_ASSET_GROUP=TRADFI"
@@ -77,6 +89,7 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=ohlcv_1m"
+    metadata="${metadata},VM_SOURCE=${TRADFI_OHLCV_SOURCE}"
     metadata="${metadata},VM_INSTRUMENT_IDS=${instrument_ids}"
     metadata="${metadata},DEPLOYMENT_ENV=${deployment_env}"
     metadata="${metadata},VM_NAME=${vm_name_safe}"
@@ -118,8 +131,10 @@ ohlcv_year_shards() {
     local floor_iso="$2"
     local current_year
     current_year="$(date +%Y)"
+    # End the current-year shard at YESTERDAY (UTC): Databento historical data is
+    # T+1, so requesting today returns `DATA_NOT_AVAILABLE: is in the future`.
     local today_iso
-    today_iso="$(date +%Y-%m-%d)"
+    today_iso="$(date -u -d 'yesterday' +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)"
     local out=""
     for ((y = floor_year; y <= current_year; y++)); do
         local start="${y}-01-01"
