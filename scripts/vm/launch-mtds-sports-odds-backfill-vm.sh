@@ -15,6 +15,7 @@
 #   bash launch-mtds-sports-odds-backfill-vm.sh --start 2025-01-04 --end 2025-01-04
 #   bash launch-mtds-sports-odds-backfill-vm.sh --vm-name mtds-backfill-odds-2020 --start 2020-06-01 --end 2020-12-31 --force
 #   bash launch-mtds-sports-odds-backfill-vm.sh --env staging
+#   bash launch-mtds-sports-odds-backfill-vm.sh --allow-parallel --vm-name mtds-backfill-odds-2021 --start 2021-01-01 --end 2021-12-31
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -24,6 +25,7 @@ DRY_RUN=false
 START_DATE="${START_DATE:-2020-06-01}"
 END_DATE="${END_DATE:-2026-03-28}"
 FORCE=false
+ALLOW_PARALLEL=false
 CHUNK_SIZE="${CHUNK_SIZE:-7}"
 VM_NAME_OVERRIDE=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
@@ -35,7 +37,8 @@ while [[ $# -gt 0 ]]; do
     --zone)         ZONE="$2"; shift 2 ;;
     --start)        START_DATE="$2"; shift 2 ;;
     --end)          END_DATE="$2"; shift 2 ;;
-    --force)        FORCE=true; shift ;;
+    --force)          FORCE=true; shift ;;
+    --allow-parallel) ALLOW_PARALLEL=true; shift ;;  # bypass singleton guard without VM_FORCE=true
     --chunk-size)   CHUNK_SIZE="$2"; shift 2 ;;
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --vm-name)      VM_NAME_OVERRIDE="$2"; shift 2 ;;
@@ -69,7 +72,7 @@ echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "============================================================"
 
 # ── Singleton lock ──
-if ! $FORCE; then
+if ! $FORCE && ! $ALLOW_PARALLEL; then
   EXISTING="$(gcloud compute instances list \
     --filter="name~\"^mtds-backfill-odds-\" AND status=RUNNING" \
     --zones="${ZONE}" \
@@ -77,7 +80,7 @@ if ! $FORCE; then
     --format='value(name)' 2>/dev/null | head -1 || true)"
   if [[ -n "$EXISTING" ]]; then
     echo "WARN: Sports odds VM already running: ${EXISTING}" >&2
-    echo "      Use --force to bypass. Aborting." >&2
+    echo "      Use --allow-parallel to run alongside (no VM_FORCE), or --force to force-reprocess. Aborting." >&2
     exit 1
   fi
 fi
@@ -86,6 +89,7 @@ if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
   echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
   echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=SPORTS  (no VM_TIER — sports MTDS has no --tier)"
+  echo "  FORCE=${FORCE}  ALLOW_PARALLEL=${ALLOW_PARALLEL}"
   exit 0
 fi
 
