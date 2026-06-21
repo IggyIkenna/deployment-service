@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 DRY_RUN=false
 START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
