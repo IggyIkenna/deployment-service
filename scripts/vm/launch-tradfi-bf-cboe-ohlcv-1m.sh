@@ -1,58 +1,44 @@
 #!/usr/bin/env bash
-# Launch CBOE/XCBF OHLCV-1m backfill VMs (one per year-shard).
+# Epic: mtds_mdps_master
+# Lifecycle: campaign
+# Delete-when: tradfi CBOE/XCBF ohlcv_1m backfill is complete + honest-cov maxed
+#              (the 3-dataset Databento universe: GLBX + DBEQ + XCBF all captured).
+# Launch CBOE / XCBF.PITCH (Cboe Futures Exchange) OHLCV-1m backfill VMs — VX (VIX)
+# FUTURES, one per year-shard.
 #
-# Dataset: XCBF.PITCH (Cboe Futures Exchange — VX/VIX futures).
-# IMPORTANT: Databento's dataset CODE is XCBF.PITCH; a bare "CFE" 400-errors.
-# This launcher only covers VX futures (VX.FUT parent symbol); the VIX cash
-# index is NOT available via Databento CFE — that gap stays Barchart+Yahoo.
+# Symbol-set: Databento parent symbology `VX.FUT` pulls all listed VX contract
+# months for the window (UAC tradfi_instrument_universe:
+# DatabentoInstrumentDef("VX.FUT","CBOE","FUTURE","XCBF.PITCH","parent",...)).
+# The MTDS adapter routes VM_VENUE=CBOE → XCBF.PITCH (the operator's "CFE"
+# subscription; a bare "CFE" 400-errors). This is the 3rd of the 3 subscribed
+# Databento datasets (GLBX.MDP3 + DBEQ.BASIC + XCBF.PITCH).
 #
-# The `massive` source is excluded for CBOE/VX; only `databento` is capable
-# (per _tradfi-ohlcv-launcher-lib.sh comment + operator 2026-06-19).
+# NOTE: XCBF.PITCH gives VIX *futures* (VX), NOT the VIX *cash index* (that gap
+# is Barchart + Yahoo per CLAUDE.md). `--source databento` is the ONLY capable
+# source for CBOE — UAC `_VENUE_SOURCE_EXCLUSIONS` excludes `massive` for CBOE.
 #
-# Window: 2026-01-01 → today by default (CBOE/XCBF cells are 2026-YTD per
-# audit data_completion_to_100_all_ag_2026_06_21.md ~212 unattempted cells).
-# Override with --start-floor YYYY-MM-DD.
-#
-# Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true (CLAUDE.md
-# HARD RULE). Singleton lock matches ^tradfi-bf-.
+# Window: 2019-01-01 → yesterday by default (futures, no equity clip — XCBF L0
+# 16y included history covers the window). Override with `--start-floor`.
+# Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true. Singleton lock
+# matches ^tradfi-bf-.
 #
 # Usage:
 #   bash launch-tradfi-bf-cboe-ohlcv-1m.sh --dry-run
-#   bash launch-tradfi-bf-cboe-ohlcv-1m.sh --force   # (when other tradfi-bf-* VMs running)
-#   bash launch-tradfi-bf-cboe-ohlcv-1m.sh --env staging --start-floor 2025-01-01
+#   bash launch-tradfi-bf-cboe-ohlcv-1m.sh
+#   bash launch-tradfi-bf-cboe-ohlcv-1m.sh --year 2026 --force
 #
-# Epic: tradfi_master
-# Lifecycle: campaign
-# Delete-when: CBOE/XCBF ohlcv_1m coverage reaches 100% confirmed in manifest
-#
-# SSOT: tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6 +
-#       data_completion_to_100_all_ag_2026_06_21.md tradfi fan-out.
+# SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md +
+#       plans/active/data_completion_to_100_all_ag_2026_06_21.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
-# CBOE only uses databento (massive is excluded for CBOE/VX per operator 2026-06-19).
-OHLCV_SOURCE="databento"
-export OHLCV_SOURCE
-
-# Default floor: 2026-01-01 (CBOE unattempted cells are 2026-YTD).
-START_FLOOR="${START_FLOOR:-2026-01-01}"
-
 ohlcv_parse_common_args "$@"
 
-# Override the floor to CBOE minimum if not user-set below our default.
-# (ohlcv_parse_common_args resets START_FLOOR to 2019-01-01; re-apply 2026 floor.)
-if [[ "${START_FLOOR}" == "2019-01-01" ]]; then
-    START_FLOOR="2026-01-01"
-fi
-
-# CBOE/XCBF instrument universe (VX futures).
-# VX.FUT is the Databento parent symbol for VX futures on XCBF.PITCH.
-declare -a CBOE_ROOTS=(
-    "VX|VX.FUT"
-)
+# CBOE root universe — VX (VIX) futures parent symbol (XCBF.PITCH dataset).
+VX_PARENT="VX.FUT"
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
@@ -63,29 +49,23 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
-for spec in "${CBOE_ROOTS[@]}"; do
-    root="${spec%%|*}"
-    syms="${spec##*|}"
-    for shard in "${_shards[@]}"; do
-        start="${shard%%:*}"
-        end="${shard##*:}"
-        year="${start:0:4}"
-        run_ts="$(date +%Y%m%d-%H%M%S)"
-        root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
-        root_safe="${root_lower//./-}"
-        vm_name="tradfi-bf-cboe-ohlcv-1m-${root_safe}-${year}-${run_ts}"
-        ohlcv_create_vm "$vm_name" "XCBF" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
-    done
+for shard in "${_shards[@]}"; do
+    start="${shard%%:*}"
+    end="${shard##*:}"
+    year="${start:0:4}"
+    run_ts="$(date +%Y%m%d-%H%M%S)"
+    vm_name="tradfi-bf-cboe-ohlcv-1m-vx-${year}-${run_ts}"
+    ohlcv_create_vm "$vm_name" "CBOE" "$start" "$end" "$VX_PARENT" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
 done
 
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
-    echo "DRY-RUN: CBOE/XCBF OHLCV-1m year-shards (${START_FLOOR}..today)"
+    echo "DRY-RUN: CBOE/XCBF VX-futures OHLCV-1m year-shards (${START_FLOOR}..yesterday)"
     echo "=========================================="
 else
-    echo "CBOE/XCBF OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
+    echo "CBOE/XCBF VX-futures OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
-    echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='XCBF')&(df.data_type=='ohlcv_1m')].groupby(['symbol','capture_status']).size())\""
+    echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='CBOE')&(df.data_type=='ohlcv_1m')].groupby('capture_status').size())\""
 fi
