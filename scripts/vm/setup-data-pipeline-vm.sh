@@ -208,6 +208,12 @@ VM_INSTRUMENT_IDS=$(_meta VM_INSTRUMENT_IDS)
 # set -u does not fire when the metadata key is absent on non-gas-fee VMs.
 VM_GAS_FEE_CHAINS=$(_meta VM_GAS_FEE_CHAINS)
 VM_GAS_FEE_SAMPLE_INTERVAL=$(_meta VM_GAS_FEE_SAMPLE_INTERVAL)
+# VM_SHARD_SPEC: live_websocket shard ("asset_group:venue:data_type", e.g. "cefi:HYPERLIQUID:trades").
+# VM_MODE_LIVE: explicit mode from live launchers (launch-mtds-live.sh sets VM_MODE=live in metadata).
+# Named VM_MODE_LIVE to avoid collision with the VM_MODE export inside _launch_with_tee() at line ~714
+# which sources VM_BACKFILL_MODE, not the metadata VM_MODE key.
+VM_SHARD_SPEC=$(_meta VM_SHARD_SPEC)
+VM_MODE_LIVE=$(_meta VM_MODE)
 # IS_TEST_RUN controls whether MTDS writes to market-data-tick-test-{cat} or prod.
 # Read from metadata and EXPORT so Python inherits it.
 # CRITICAL: only export if non-empty — Pydantic Settings treats an empty-string
@@ -1241,10 +1247,25 @@ elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
   fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
+  # Translate metadata op name → CLI op name for live mode.
+  [[ "$_OP" == "live_websocket" ]] && _OP="websocket-streaming"
   if [[ "$VM_SERVICE" == "instruments_service" && "$_OP" == "download" ]]; then
     _OP="instruments"
   fi
-  CLI_ARGS="--operation $_OP --mode batch --asset-group $VM_ASSET_GROUP"
+  # Live websocket mode: install Redis locally as the streaming pipeline backbone.
+  # websocket-streaming handler requires MTDS_STREAMING_REDIS_URL for the
+  # Redis Stream that MDPS consumes (CandleBoundaryCrossedEvent).
+  if [[ "${VM_OPERATION:-}" == "live_websocket" ]]; then
+    log "live_websocket: installing Redis for websocket-streaming pipeline..."
+    apt-get install -y -qq redis-server
+    systemctl start redis-server 2>/dev/null || service redis-server start 2>/dev/null || true
+    export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
+    log "Redis started; MTDS_STREAMING_REDIS_URL=redis://127.0.0.1:6379"
+  fi
+  # Use VM_MODE_LIVE (set by live launchers via VM_MODE metadata) when present;
+  # fall back to batch for all historical/backfill launchers.
+  _MODE="${VM_MODE_LIVE:-batch}"
+  CLI_ARGS="--operation $_OP --mode $_MODE --asset-group $VM_ASSET_GROUP"
   [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
@@ -1262,10 +1283,14 @@ elif [ -n "$VM_TASK" ]; then
   # historically used commas but we harmonise both on ; going forward; the
   # //,/ fallback keeps older launchers working.
   [[ -n "$VM_DATA_TYPES" ]] && CLI_ARGS="$CLI_ARGS --data-types ${VM_DATA_TYPES//[,;]/ }"
+  # VM_SHARD_SPEC: required for websocket-streaming ("asset_group:venue:data_type").
+  [[ -n "$VM_SHARD_SPEC" ]] && CLI_ARGS="$CLI_ARGS --shard-spec ${VM_SHARD_SPEC//[,;]/ }"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ -n "$VM_GAS_FEE_CHAINS" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-chains $VM_GAS_FEE_CHAINS"
   [[ -n "$VM_GAS_FEE_SAMPLE_INTERVAL" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-sample-interval $VM_GAS_FEE_SAMPLE_INTERVAL"
-  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$LOGS/backfill.log"
+  _LAUNCH_LOG="$LOGS/backfill.log"
+  [[ "${VM_OPERATION:-}" == "live_websocket" ]] && _LAUNCH_LOG="$LOGS/live.log"
+  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$_LAUNCH_LOG"
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"
 fi
