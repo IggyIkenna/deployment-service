@@ -1326,7 +1326,7 @@ elif [ -n "$VM_TASK" ]; then
   fi
   # tardis-machine live source: install Node + the tardis-machine sidecar and
   # start its stream-normalized endpoint (FREE — no API key for live). MTDS then
-  # connects to ws://localhost:8001/ws-stream-normalized for uniform normalised
+  # connects to ws://localhost:8002/ws-stream-normalized for uniform normalised
   # trade/book_snapshot_5/derivative_ticker. Default native source needs none of this.
   if [[ "${VM_OPERATION:-}" == "live_websocket" && "${VM_LIVE_SOURCE:-native}" == "tardis-machine" ]]; then
     log "live_websocket: VM_LIVE_SOURCE=tardis-machine — installing Node + tardis-machine sidecar..."
@@ -1338,9 +1338,9 @@ elif [ -n "$VM_TASK" ]; then
     # stream-normalized needs no API key; TM_API_KEY left unset for the free live endpoint.
     nohup tardis-machine --port 8001 > "$LOGS/tardis-machine.log" 2>&1 &
     sleep 3
-    export MTDS_TARDIS_MACHINE_WS_URL="ws://localhost:8001/ws-stream-normalized"
+    export MTDS_TARDIS_MACHINE_WS_URL="ws://localhost:8002/ws-stream-normalized"
     export MTDS_LIVE_SOURCE="tardis-machine"
-    log "tardis-machine started on :8001; MTDS_TARDIS_MACHINE_WS_URL=$MTDS_TARDIS_MACHINE_WS_URL"
+    log "tardis-machine started: HTTP :8001 / WS :8002; MTDS_TARDIS_MACHINE_WS_URL=$MTDS_TARDIS_MACHINE_WS_URL"
   fi
   # Use VM_MODE_LIVE (set by live launchers via VM_MODE metadata) when present;
   # fall back to batch for all historical/backfill launchers.
