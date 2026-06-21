@@ -35,14 +35,25 @@
 #   - Tarball refresh via `create-code-tarballs.sh --all`
 #
 # Usage:
-#   bash launch-mtds-live.sh --asset-group cefi                       # prod (default)
-#   bash launch-mtds-live.sh --asset-group defi --env staging         # staging cluster
-#   bash launch-mtds-live.sh --asset-group cefi --force               # bypass singleton lock
+#   bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:HYPERLIQUID:trades --instrument-ids BTC-USD;ETH-USD
+#   bash launch-mtds-live.sh --asset-group defi --shard-spec defi:UNISWAP_V3:trade --instrument-ids WETH-USDC --env staging
+#   bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:BINANCE-FUTURES:perp_funding --instrument-ids BTC;ETH --force
+#
+# --shard-spec: required for setup-data-pipeline-vm.sh to pass --shard-spec to the MTDS CLI.
+#   Format: "asset_group:venue:data_type" (e.g. "cefi:HYPERLIQUID:trades").
+# --instrument-ids: semicolon-separated (e.g. "BTC-USD;ETH-USD"). setup-data-pipeline-vm.sh
+#   converts semicolons to spaces for CLI nargs='+'.
+#
+# Singleton-locked per (asset_group, shard_spec): refuses to launch if a same-prefix VM
+# (`mtds-live-{asset_group}-{shard_slug}-*`) is already RUNNING. Per-shard lock allows
+# multiple data_type shards per asset_group without conflict.
 #
 # Cost: e2-standard-8 ~24/7 — live producer; auto-shutdown on STOPPED event only.
 set -euo pipefail
 
 ASSET_GROUP=""
+SHARD_SPEC=""
+INSTRUMENT_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 
@@ -52,6 +63,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --asset-group) ASSET_GROUP="$2"; shift 2 ;;
+    --shard-spec) SHARD_SPEC="$2"; shift 2 ;;
+    --instrument-ids) INSTRUMENT_IDS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
     *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
@@ -63,10 +76,27 @@ if [[ -z "$ASSET_GROUP" ]]; then
 ERROR: --asset-group required.
 
 Usage:
-  bash launch-mtds-live.sh --asset-group <cefi|defi|tradfi|sports|prediction> [--env prod|staging|dev] [--force]
+  bash launch-mtds-live.sh --asset-group <cefi|defi|tradfi|sports|prediction> \
+    --shard-spec <asset_group:venue:data_type> \
+    --instrument-ids <semicolon-separated> \
+    [--env prod|staging|dev] [--force]
 
-One MTDS-live VM per asset_group. Singleton-locked per (asset_group).
+One VM per (asset_group, shard_spec). Singleton-locked per shard.
+
+Examples:
+  bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:HYPERLIQUID:trades --instrument-ids "BTC-USD;ETH-USD;SOL-USD"
+  bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:ASTER:derivative_ticker --instrument-ids "BTC;ETH"
 EOF
+  exit 1
+fi
+
+if [[ -z "$SHARD_SPEC" ]]; then
+  echo "ERROR: --shard-spec required (format: asset_group:venue:data_type, e.g. cefi:HYPERLIQUID:trades)" >&2
+  exit 1
+fi
+
+if [[ -z "$INSTRUMENT_IDS" ]]; then
+  echo "ERROR: --instrument-ids required (semicolon-separated, e.g. BTC-USD;ETH-USD)" >&2
   exit 1
 fi
 
@@ -84,37 +114,44 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 
+# Build a slug from the shard spec for VM naming and singleton lock.
+# cefi:HYPERLIQUID:trades → cefi-hyperliquid-trades (lowercase, colons→hyphens)
+SHARD_SLUG="${SHARD_SPEC//:/-}"
+SHARD_SLUG="${SHARD_SLUG,,}"  # lowercase
+VM_PREFIX="mtds-live-${SHARD_SLUG}"
+
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
-    --filter="name~\"^mtds-live-${ASSET_GROUP}-\" AND status=RUNNING" \
+    --filter="name~\"^${VM_PREFIX}-\" AND status=RUNNING" \
     --zones="$ZONE" \
     --format='value(name)' 2>/dev/null | head -1)"
   if [[ -n "$EXISTING" ]]; then
     cat >&2 <<EOF
-ERROR: MTDS-live VM already running for asset_group=${ASSET_GROUP} in $ZONE: $EXISTING
-Refusing to launch a duplicate — per-asset_group WebSocket feed + Redis Stream
-consumer group must be singleton.
+ERROR: MTDS-live VM already running for shard_spec=${SHARD_SPEC} in $ZONE: $EXISTING
+Refusing to launch a duplicate — per-shard WebSocket feed must be singleton.
 
 Options:
   Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
   Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
   Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
-  Force:     bash $0 --asset-group ${ASSET_GROUP} --env ${DEPLOYMENT_ENV} --force
+  Force:     bash $0 --asset-group ${ASSET_GROUP} --shard-spec ${SHARD_SPEC} --instrument-ids "${INSTRUMENT_IDS}" --env ${DEPLOYMENT_ENV} --force
 EOF
     exit 1
   fi
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="mtds-live-${ASSET_GROUP}-${RUN_TS}"
+VM_NAME="${VM_PREFIX}-${RUN_TS}"
 
-echo "Launching $VM_NAME: MTDS live producer asset_group=${ASSET_GROUP} env=${DEPLOYMENT_ENV}"
+echo "Launching $VM_NAME: MTDS live producer asset_group=${ASSET_GROUP} shard=${SHARD_SPEC} env=${DEPLOYMENT_ENV}"
 
 METADATA="VM_TASK=mtds-live"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=live_websocket"
 METADATA="${METADATA},VM_MODE=live"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP^^}"
+METADATA="${METADATA},VM_SHARD_SPEC=${SHARD_SPEC}"
+METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
@@ -133,7 +170,7 @@ else
     --boot-disk-size=50GB \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=mtds-live,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=mtds-live,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",shard-slug="${SHARD_SLUG:0:63}"
 fi
 
 echo ""

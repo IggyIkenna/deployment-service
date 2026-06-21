@@ -101,7 +101,9 @@ module "paper_engine_run_job" {
   # P7.1-A SHIPPED (2026-06-20): the real paper-run CLI entrypoint. Loads real
   # features-onchain GCS data → GroupBRunner (benchmark fills) → emit_paper_run_ledger
   # → the canonical client-reports GCS ledger root the dashboard reads.
-  # --date is resolved to YESTERDAY by the Scheduler body (T+1 cadence).
+  # --rolling-days 7 computes start=today-7, end=today-1 (T-1 UTC) at job start,
+  # so each nightly cron processes a fresh trailing 7-day window automatically.
+  # Roll-forward implemented: P11.1 (2026-06-21).
   command = ["python"]
   args = [
     "-m", "strategy_service",
@@ -109,12 +111,7 @@ module "paper_engine_run_job" {
     "--mode", "paper",
     "--asset-group", "DEFI", # CLI argparse choices are UPPERCASE (CEFI/TRADFI/DEFI/…); lowercase → exit 2
     "--client-id", "firm-paper-determinism",
-    # Fixed known-good data window (the determinism soak re-proves ε=0 on real Aave
-    # rates nightly). The scheduler body does NOT override (empty body) — these base
-    # args ARE what the cron fires; placeholders here = argparse failure. Verified
-    # green: execution uts-prod-paper-engine-run-2q8bj → run paper-20260621134256-3c4eb321.
-    "--start-date", "2026-05-16",
-    "--end-date", "2026-05-22",
+    "--rolling-days", "7",
   ]
 
   environment_variables = local.paper_det_base_env

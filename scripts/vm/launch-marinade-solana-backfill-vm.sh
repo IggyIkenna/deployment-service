@@ -75,7 +75,7 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="50"
 
 if ! $FORCE; then
