@@ -55,6 +55,7 @@ ASSET_GROUP=""
 SHARD_SPEC=""
 INSTRUMENT_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+LIVE_SOURCE="native"
 FORCE=false
 
 DRY_RUN=false
@@ -66,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --shard-spec) SHARD_SPEC="$2"; shift 2 ;;
     --instrument-ids) INSTRUMENT_IDS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --live-source) LIVE_SOURCE="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
     *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
   esac
@@ -79,7 +81,7 @@ Usage:
   bash launch-mtds-live.sh --asset-group <cefi|defi|tradfi|sports|prediction> \
     --shard-spec <asset_group:venue:data_type> \
     --instrument-ids <semicolon-separated> \
-    [--env prod|staging|dev] [--force]
+    [--env prod|staging|dev] [--live-source native|tardis-machine] [--force]
 
 One VM per (asset_group, shard_spec). Singleton-locked per shard.
 
@@ -110,13 +112,23 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
+case "$LIVE_SOURCE" in
+  native|tardis-machine) ;;
+  *) echo "ERROR: --live-source must be one of native/tardis-machine (got: $LIVE_SOURCE)" >&2; exit 1 ;;
+esac
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 # Build a slug from the shard spec for VM naming and singleton lock.
 # cefi:HYPERLIQUID:trades → cefi-hyperliquid-trades (lowercase, colons→hyphens)
+# GCE instance names allow ONLY [a-z0-9-]; data_types with underscores (book_snapshot,
+# perp_funding, derivative_ticker, …) must have _ → - in the NAME slug (the real shard-spec
+# passed to the MTDS CLI via VM_SHARD_SPEC keeps the underscore). Fixes the
+# "instances.create Could not fetch resource" invalid-name failure on underscore data_types.
 SHARD_SLUG="${SHARD_SPEC//:/-}"
+SHARD_SLUG="${SHARD_SLUG//_/-}"  # GCE name: underscores → hyphens
 SHARD_SLUG="${SHARD_SLUG,,}"  # lowercase
 VM_PREFIX="mtds-live-${SHARD_SLUG}"
 
@@ -152,6 +164,7 @@ METADATA="${METADATA},VM_MODE=live"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP^^}"
 METADATA="${METADATA},VM_SHARD_SPEC=${SHARD_SPEC}"
 METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
+METADATA="${METADATA},VM_LIVE_SOURCE=${LIVE_SOURCE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
