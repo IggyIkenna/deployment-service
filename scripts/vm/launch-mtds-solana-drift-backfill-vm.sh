@@ -19,7 +19,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 DRY_RUN=false
 START_DATE="${START_DATE:-$(date -v-180d +%Y-%m-%d 2>/dev/null || date -d '180 days ago' +%Y-%m-%d)}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
@@ -47,7 +47,7 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
-VM_NAME="mtds-solana-drift-backfill"
+VM_NAME="${VM_NAME:-mtds-solana-drift-backfill}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/launcher_common.sh"
