@@ -105,6 +105,14 @@ resource "google_storage_bucket_iam_member" "expected_universe_v2_manifest_admin
   member   = "serviceAccount:${google_service_account.expected_universe_v2_enum.email}"
 }
 
+# Cloud Scheduler invokes Cloud Run Jobs via OAuth — the SA used in
+# oauth_token must have roles/run.invoker or every trigger returns 403.
+resource "google_project_iam_member" "expected_universe_v2_run_invoker" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.expected_universe_v2_enum.email}"
+}
+
 module "expected_universe_v2_job" {
   source   = "../modules/container-job/gcp"
   for_each = local.expected_universe_v2_asset_groups
