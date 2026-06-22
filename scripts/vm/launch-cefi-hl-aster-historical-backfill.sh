@@ -50,9 +50,12 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # ASTER native convention: same (Binance Futures-compatible)
 SYMBOLS="BTC;ETH;SOL;XRP;BNB;DOGE;ADA;AVAX;LINK"
 
-# data_types: trades, book_snapshot_5, derivative_ticker
-# liquidations excluded — HL does not publish historical liquidations publicly.
-DATA_TYPES="trades;book_snapshot_5;derivative_ticker"
+# data_types: trades, book_snapshot_5, derivative_ticker (env-overridable).
+# liquidations excluded from the DEFAULT — HL/ASTER publish no historical liquidations feed.
+# A targeted re-run CAN pass DATA_TYPES="liquidations" to flip the already-failed
+# liquidations cells to empty_confirmed(EXPECTED_SOURCE_DOES_NOT_OFFER_DATA_TYPE) via the
+# OnchainPerpBatchHandler structural-unsupported path (cefi_hl_aster_batch_data_gaps_2026_06_22 BUG #3 residual).
+DATA_TYPES="${DATA_TYPES:-trades;book_snapshot_5;derivative_ticker}"
 
 # ── Year shards ───────────────────────────────────────────────────────────────
 # HL:    2023-01-01 → 2026-06-20
