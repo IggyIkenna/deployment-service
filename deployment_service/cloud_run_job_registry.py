@@ -180,6 +180,8 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _paper("paper-engine-run", service="strategy-service"),
     _paper("blrs-daily-determinism", service="batch-live-reconciliation-service"),
     _paper("daily-ledger-digest", service="batch-live-reconciliation-service"),
+    # paper_stream_scheduler.tf — PAPER umbrella (B2 continuous-live paper-stream loop)
+    _paper("paper-stream", service="strategy-service"),
 )
 
 
