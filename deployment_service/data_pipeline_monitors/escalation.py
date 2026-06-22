@@ -20,6 +20,26 @@ The DP_* event itself is ALWAYS emitted (verbose-to-start) via
 governs the EXTRA action (issue-file / recover / page). This module never
 raises: an escalation-side failure must not crash the watcher sweep.
 
+Auto-recover actuators (Phase 6 C)
+----------------------------------
+An ``auto_recover``-tagged finding is routed through ``_DP_RECOVERY_ACTIONS`` —
+a small per-event dispatch onto the Layer-0 ``scripts/recovery/`` actuators (the
+shipped ``refetch_feed`` pattern: idempotent, dry-runnable, cloud-agnostic,
+per-action cooldown / budget). Today wired:
+
+  - ``CONSOLIDATOR_DOWN`` → ``relaunch_consolidator`` (re-execute the
+    ``manifest-consolidator-{ag}`` Cloud Run Job — in-scope-autonomous per the
+    autonomous-recovery-matrix; bounded 1/cooldown).
+  - ``DP_VM_EXIT_NONZERO`` with ``oom``/``exit_code==137`` →
+    ``relaunch_backfill_vm`` (re-launch the OOM'd backfill via its launcher;
+    ≤2 relaunches per (vm-prefix, day) then page_operator).
+
+An ``auto_recover`` event with **no** wired actuator (e.g.
+``DP_SOURCE_RATE_LIMITED`` — a backoff the runtime owns) does NOT silently
+no-op: it **falls through to ``file_issue``** so a planning-VM slot still picks
+it up. The actuator's own cooldown/budget guarantees it cannot loop; a FAILED
+actuator (SDK error) also falls through to ``file_issue``.
+
 Cross-repo issue write: the deployment-service watcher runs on a Cloud Run Job /
 VM that does NOT hold the PM working tree. ``file_issue`` therefore targets the
 PM clone at ``PM_REPO_PATH`` (default ``$UNIFIED_TRADING_PM_PATH``, else the
@@ -34,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -42,6 +63,9 @@ from pathlib import Path
 from unified_trading_library import (  # noqa: qg-deep-import
     log_event,
 )
+
+from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm
+from scripts.recovery.relaunch_consolidator import RelaunchConsolidator
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +104,72 @@ class PipelineFinding:
     registry_id: str = ""
 
 
+# Events that have a wired auto_recover actuator. An auto_recover finding whose
+# event is NOT here falls through to file_issue (never a silent no-op).
+_EVENT_CONSOLIDATOR_DOWN = "CONSOLIDATOR_DOWN"
+_EVENT_VM_EXIT_NONZERO = "DP_VM_EXIT_NONZERO"
+
+
 def _slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
     return slug[:64] or "data_pipeline_finding"
+
+
+def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover ``CONSOLIDATOR_DOWN`` → re-execute the consolidator Cloud Run Job.
+
+    Returns the actuator result dict (carries ``status``). ``recovered`` is True
+    only when the relaunch SUCCEEDED (or was skipped by its own cooldown — the
+    job is already in-flight). A FAILED/PAGE verdict → ``recovered=False`` so the
+    caller falls through to file_issue.
+    """
+    asset_group = str(finding.details.get("asset_group", "")).strip()
+    actuator = RelaunchConsolidator()
+    result = actuator.relaunch(asset_group, dry_run=dry_run)
+    recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+    return {"recovered": recovered, "actuator": "relaunch_consolidator", "result": result}
+
+
+def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM only) → re-launch the backfill VM.
+
+    Only the OOM subcase (``oom`` true / ``exit_code==137``) is recoverable here;
+    a non-OOM crash returns ``recovered=False`` → file_issue. A budget-exceeded
+    relaunch returns ``recovered=False`` too (the actuator already paged).
+    """
+    details = finding.details
+    exit_code_raw = details.get("exit_code")
+    exit_code = (
+        int(exit_code_raw)
+        if isinstance(exit_code_raw, (int, float, str)) and str(exit_code_raw).lstrip("-").isdigit()
+        else None
+    )
+    launcher = str(details.get("relaunch_launcher", "")).strip()
+    if not launcher:
+        # No launcher binding in the finding → cannot relaunch deterministically.
+        return {
+            "recovered": False,
+            "actuator": "relaunch_backfill_vm",
+            "result": {"status": "SKIPPED", "reason": "no_launcher_binding"},
+        }
+    actuator = RelaunchBackfillVm()
+    result = actuator.relaunch(
+        str(details.get("vm_name", "")),
+        exit_code=exit_code,
+        launcher=launcher,
+        asset_group=str(details.get("asset_group", "")),
+        dry_run=dry_run,
+    )
+    recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+    return {"recovered": recovered, "actuator": "relaunch_backfill_vm", "result": result}
+
+
+# event-name → actuator dispatch (the auto_recover tier). An auto_recover finding
+# whose event is absent here falls through to file_issue (never a silent no-op).
+_DP_RECOVERY_ACTIONS: dict[str, Callable[..., dict[str, object]]] = {
+    _EVENT_CONSOLIDATOR_DOWN: _recover_consolidator,
+    _EVENT_VM_EXIT_NONZERO: _recover_backfill_vm,
+}
 
 
 def _resolve_pm_path(pm_repo_path: str | None) -> Path | None:
@@ -189,16 +276,26 @@ def route_finding(
 
     The ``DP_*`` event is ALWAYS emitted (the alerting-service router does the
     Slack mirror + CRITICAL paging). The tier governs the extra action:
-      - ``auto_recover``  : the caller already ran (or will run) the in-band fix;
-                            we record ``auto_recover_ran`` in the event details.
+      - ``auto_recover``  : invoke the wired Layer-0 actuator (``relaunch_*``)
+                            via ``_DP_RECOVERY_ACTIONS``. If the actuator
+                            RECOVERED (or its cooldown skipped a redundant fire),
+                            the tier stays ``auto_recover``. If there is **no**
+                            wired actuator for the event, or the actuator FAILED
+                            / paged (budget spent), the finding **falls through
+                            to ``file_issue``** so a planning-VM slot still picks
+                            it up (never a silent no-op).
       - ``file_issue``    : write the PM-clone issue doc + ping the orchestrator
                             inbox (no-op when the PM clone isn't on disk — the
                             event carries the candidate list so a planning-VM
                             slot files it from the alert).
       - ``page_operator`` : the CRITICAL event is the page (router-side).
 
-    Returns a structured result dict (the tier taken, the issue path if any).
-    Never raises.
+    ``auto_recover_ran`` is a back-compat hint a caller may set when it ran the
+    fix out-of-band; it is recorded in the event details but the wired actuator
+    is the authoritative path.
+
+    Returns a structured result dict (the tier taken, the issue path if any,
+    the actuator outcome). Never raises.
     """
     result: dict[str, object] = {
         "event": finding.event,
@@ -213,10 +310,37 @@ def route_finding(
     event_details["escalation_tier"] = str(finding.tier)
     if finding.registry_id:
         event_details["registry_id"] = finding.registry_id
+
+    # The effective tier — an auto_recover finding whose actuator does NOT
+    # recover (no wired actuator, FAILED, or budget-paged) falls through to
+    # file_issue so it is never lost.
+    effective_tier = finding.tier
     if finding.tier is EscalationTier.AUTO_RECOVER:
         event_details["auto_recover_ran"] = auto_recover_ran
+        actuator = _DP_RECOVERY_ACTIONS.get(finding.event)
+        if actuator is None:
+            event_details["auto_recover_actuator"] = "none"
+            event_details["auto_recover_fell_through"] = "no_actuator"
+            effective_tier = EscalationTier.FILE_ISSUE
+        else:
+            try:
+                outcome = actuator(finding, dry_run=dry_run)
+            except Exception as exc:  # an actuator must never crash the sweep
+                logger.warning("auto_recover: actuator for %s raised: %s", finding.event, exc)
+                outcome = {
+                    "recovered": False,
+                    "actuator": "error",
+                    "result": {"status": "FAILED", "detail": repr(exc)[:300]},
+                }
+            result["recovery"] = outcome
+            event_details["auto_recover_actuator"] = outcome.get("actuator")
+            event_details["auto_recover_recovered"] = bool(outcome.get("recovered"))
+            if not outcome.get("recovered"):
+                event_details["auto_recover_fell_through"] = "actuator_not_recovered"
+                effective_tier = EscalationTier.FILE_ISSUE
+    result["effective_tier"] = str(effective_tier)
 
-    if finding.tier is EscalationTier.FILE_ISSUE and not dry_run:
+    if effective_tier is EscalationTier.FILE_ISSUE and not dry_run:
         pm_root = _resolve_pm_path(pm_repo_path)
         if pm_root is not None:
             issue_path = _write_issue_doc(pm_root, finding)
