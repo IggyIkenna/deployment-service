@@ -624,5 +624,118 @@ SKIP_GCS_PREFLIGHT=true bash "{launcher_path}" --dry-run
         assert "DRY-RUN" in result.stdout
 
 
+class TestDurableLogStreamerCoverage:
+    """Guard: every GCP ``launch-*.sh`` workload launcher streams its run-log +
+    heartbeat + terminal EXIT_STATUS to the durable GCS ``vm-logs/`` path, so the
+    /deployments surface + the exit_code monitor see EVERY GCP target (0 untracked,
+    self-delete-proof).
+
+    A launcher "uses the durable-log streamer" if it wires one of the three
+    canonical mechanisms (reuse, never rebuild — see
+    plan deployment_observability_parity_live_batch_paper_2026_06_22 Phase 4 +
+    vm_launcher_durable_log_observability):
+
+      1. ``setup-data-pipeline-vm.sh``        — GCE startup fetches + runs the
+         vm-exec-with-gcs-tee.sh wrapper (the 30s GCS log + EXIT_STATUS uploader).
+      2. ``vm-exec-with-gcs-tee.sh``          — direct reference to the tee wrapper.
+      3. ``lc_log_upload_trap_block``         — the inline-startup streamer in
+         lib/launcher_common.sh (continuous run.log stream + heartbeat +
+         EXIT_STATUS trap), for bespoke launchers that build their own startup.
+      4. ``_tradfi-ohlcv-launcher-lib.sh``    — the shared tradfi-OHLCV lib whose
+         TRADFI_OHLCV_STARTUP defaults to setup-data-pipeline-vm.sh (transitively #1).
+
+    A future "added a launcher, forgot the durable log" regression fails here.
+    Genuinely-exempt launchers are whitelisted EXPLICITLY below with a reason.
+    """
+
+    STREAMER_TOKENS = (
+        "setup-data-pipeline-vm",
+        "vm-exec-with-gcs-tee",
+        "lc_log_upload_trap_block",
+        "_tradfi-ohlcv-launcher-lib",
+    )
+
+    # Genuinely-exempt GCP launchers (NOT batch-workload VMs that need a run-log
+    # lifecycle). Each entry MUST carry a reason — a new launcher added here
+    # without justification is itself a review smell.
+    EXEMPT: dict[str, str] = {
+        # --- AWS launcher (not a GCP VM; AWS parity is Phase 5) ---
+        "launch-ec2-vm.sh": "AWS EC2 master launcher — not a GCP VM (AWS parity tracked separately).",
+        # --- LONG_LIVED service VMs (persistent; systemd/container logging, no
+        #     batch run.log/EXIT_STATUS lifecycle — VM_SHUTDOWN_ON_COMPLETION=false) ---
+        "launch-planning-vm.sh": "LONG_LIVED_LIVE interactive planning VM (no batch run-log lifecycle).",
+        "launch-orchestrator-worker-vm.sh": "LONG_LIVED agent-orchestrator worker (systemd-managed, persistent).",
+        "launch-dashboard-vm.sh": "LONG_LIVED container VM (restart=always; container logging, no startup-script run.log).",
+        "launch-epic-vm.sh": "Epic VM from the orchestrator registry; long-lived, delegates the planning VM to launch-planning-vm.sh.",
+        "launch-data-pipeline-fleet-monitor.sh": "Permanent observability monitor VM (it IS the fleet monitor).",
+        # --- Pure fan-out wrappers that delegate to a covered per-shard launcher ---
+        "launch-cefi-week-test.sh": "Fan-out wrapper → launch-cefi-forward-poll.sh (covered) per day.",
+        "launch-sku-matrix-v2-benchmark.sh": "Fan-out wrapper → launch-synthetic-benchmark-vm.sh (covered) per archetype.",
+    }
+
+    def _gcp_launchers(self) -> list[Path]:
+        scripts_dir = Path(__file__).parent.parent.parent / "scripts" / "vm"
+        # Exclude *-aws.sh (AWS family) — this guard is GCP-scoped.
+        return sorted(p for p in scripts_dir.glob("launch-*.sh") if not p.name.endswith("-aws.sh"))
+
+    def _streams_durable_log(self, content: str) -> bool:
+        return any(token in content for token in self.STREAMER_TOKENS)
+
+    def test_gcp_launchers_present(self) -> None:
+        assert len(self._gcp_launchers()) > 0, "No GCP launch-*.sh scripts found"
+
+    def test_every_gcp_launcher_streams_durable_log_or_is_whitelisted(self) -> None:
+        """No GCP workload launcher may skip the durable-log streamer without an
+        explicit whitelist reason."""
+        offenders: list[str] = []
+        for script in self._gcp_launchers():
+            content = script.read_text()
+            if self._streams_durable_log(content):
+                continue
+            if script.name in self.EXEMPT:
+                continue
+            offenders.append(script.name)
+
+        assert not offenders, (
+            "GCP launcher(s) do NOT wire the durable-log streamer "
+            f"({', '.join(self.STREAMER_TOKENS)}) and are not whitelisted-exempt: "
+            f"{offenders}. Wire lc_log_upload_trap_block (or route through "
+            "setup-data-pipeline-vm.sh) so run.log + EXIT_STATUS land in "
+            "vm-logs/<VM_NAME>/ — else /deployments + the exit_code monitor go blind. "
+            "If genuinely exempt (AWS / long-lived service VM / pure fan-out wrapper), "
+            "add it to TestDurableLogStreamerCoverage.EXEMPT with a reason."
+        )
+
+    def test_whitelist_entries_still_exist(self) -> None:
+        """A whitelisted launcher that no longer exists is stale — drop it so the
+        guard stays honest."""
+        scripts_dir = Path(__file__).parent.parent.parent / "scripts" / "vm"
+        for name in self.EXEMPT:
+            assert (scripts_dir / name).exists(), (
+                f"Whitelisted-exempt launcher {name} no longer exists — remove it from "
+                "TestDurableLogStreamerCoverage.EXEMPT."
+            )
+
+    def test_whitelist_entries_have_reasons(self) -> None:
+        for name, reason in self.EXEMPT.items():
+            assert reason.strip(), f"Exempt launcher {name} has no reason — add one."
+
+    def test_guard_catches_an_unconverted_launcher(self) -> None:
+        """Self-test: a synthetic launcher that creates a GCP VM but omits the
+        streamer (and is not whitelisted) is detected as an offender — proving the
+        guard would catch the regression it exists to prevent."""
+        fake_content = (
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            'gcloud compute instances create "my-vm" --zone=asia-northeast1-c '
+            '--metadata-from-file=startup-script=/tmp/x\n'
+        )
+        assert not self._streams_durable_log(fake_content), (
+            "Self-test sentinel: a launcher with no streamer token must read as un-streamed."
+        )
+        # And a converted one (wires lc_log_upload_trap_block) reads as covered.
+        converted = fake_content + 'LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PID")"\n'
+        assert self._streams_durable_log(converted)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
