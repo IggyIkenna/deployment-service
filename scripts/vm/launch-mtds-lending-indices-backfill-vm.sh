@@ -80,7 +80,7 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="50"
 
 if ! $FORCE; then
@@ -127,6 +127,8 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  PREEMPTIBLE_ARG=""
+  $PREEMPTIBLE && PREEMPTIBLE_ARG="--preemptible"
   gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -135,6 +137,8 @@ else
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
+      --no-restart-on-failure \
+      ${PREEMPTIBLE_ARG} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
       --labels=purpose=mtds-lending-indices-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi
