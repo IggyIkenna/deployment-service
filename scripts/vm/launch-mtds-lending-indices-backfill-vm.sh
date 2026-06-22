@@ -43,12 +43,14 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run) DRY_RUN=true; shift ;;
-        --force) FORCE=true; shift ;;
-        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --dry-run)     DRY_RUN=true; shift ;;
+        --force)       FORCE=true; shift ;;
+        --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --preemptible) PREEMPTIBLE=true; shift ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
