@@ -8,6 +8,7 @@ escalation modules — credential-free + block-network safe.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 import pytest
 
@@ -85,8 +86,20 @@ def test_shard_bucket_for_vm_unknown_is_none():
 
 
 # ── cli.main dispatch (dry-run, mocked clients) ──────────────────────────────
+@contextmanager
+def _noop_lifecycle(service_name: str):  # noqa: ARG001
+    yield
+
+
+def _stub_main_cloud(monkeypatch) -> None:
+    """Stub PubSub / lifecycle wiring so main() tests stay credential-free."""
+    monkeypatch.setattr(cli, "setup_events", lambda **_kw: None)
+    monkeypatch.setattr(cli, "run_lifecycle", _noop_lifecycle)
+
+
 def test_main_exit_code_mode_dry_run(monkeypatch):
     storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
     monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
     monkeypatch.setattr(cli, "_list_running_vms", lambda: [("cefi-mr-2025", "asia-northeast1-c")])
     monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
@@ -96,6 +109,7 @@ def test_main_exit_code_mode_dry_run(monkeypatch):
 
 def test_main_heartbeat_mode_dry_run(monkeypatch):
     storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
     monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
     monkeypatch.setattr(cli, "_list_running_vms", lambda: [("mtds-live-defi-2025", "asia-northeast1-c")])
     monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-defi-prd-x")
@@ -105,6 +119,7 @@ def test_main_heartbeat_mode_dry_run(monkeypatch):
 
 def test_main_meta_mode_dry_run(monkeypatch):
     storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
     monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
     monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "bucket-x")
     rc = cli.main(["--mode", "meta", "--dry-run"])

@@ -29,10 +29,13 @@ from typing import cast
 
 import pandas as pd
 from unified_trading_library import (
+    PubSubEventSink,
     StorageClient,
     UnifiedCloudConfig,
     get_storage_client,
     resolve_bucket_name,
+    run_lifecycle,
+    setup_events,
 )
 from unified_trading_library.cloud_interface import get_compute_engine_client  # noqa: qg-deep-import
 
@@ -221,100 +224,111 @@ def main(argv: list[str] | None = None) -> int:
     dry_run: bool = bool(cast("object", args.dry_run))
     stall_minutes: float = float(cast("str | float", args.stall_minutes))
 
-    storage_client = get_storage_client()
-    captured_reader = _make_captured_reader(storage_client)
-    log_bucket = _log_bucket()
+    # Wire log_event to PubSub so DP_* findings reach #data-pipeline-alerts.
+    # Best-effort — a setup failure must not crash the monitor.
+    try:
+        project_id = getattr(UnifiedCloudConfig(), "gcp_project_id", "") or ""
+        if project_id:
+            sink = PubSubEventSink(project_id=project_id, topic="lifecycle-events", service_name="dp-fleet-monitor")
+            setup_events(service_name="dp-fleet-monitor", mode="live", sink=sink)
+    except Exception as exc:
+        logger.warning("dp_fleet_monitor live-events setup failed (best-effort): %s", exc)
 
-    if mode == "exit-code":
-        running = _list_running_vms()
-        results = exit_code_fleet_monitor.sweep(
-            storage_client=storage_client,
-            log_bucket=log_bucket,
-            running_vms=running,
-            captured_reader=captured_reader,
-            asset_group_for_vm=_asset_group_for_vm,
-            pm_repo_path=pm_repo_path,
-            dry_run=dry_run,
-        )
-        non_clean = [r for r in results if r.verdict.value not in ("clean",)]
-        logger.info(
-            "exit-code sweep: %d terminated, %d non-clean (%s)",
-            len(results),
-            len(non_clean),
-            ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
-        )
-    elif mode == "heartbeat":
-        running = _list_running_vms()
-        prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
-        # VM age is derived from a first-seen census the monitor maintains (no
-        # per-instance compute describe — keeps the cloud SDK fully confined to
-        # the UTL list call above). A VM in the prior census has been seen ≥1
-        # tick → past grace; a brand-new VM is treated as just-booted (defer).
-        first_seen = _load_first_seen(storage_client, log_bucket)
-        now_iso = _utcnow_iso()
-        updated_first_seen = dict(first_seen)
-        for vm_name, _zone in running:
-            updated_first_seen.setdefault(vm_name, now_iso)
+    with run_lifecycle(service_name="dp-fleet-monitor"):
+        storage_client = get_storage_client()
+        captured_reader = _make_captured_reader(storage_client)
+        log_bucket = _log_bucket()
 
-        def _age_reader(vm_name: str, _zone: str) -> float:
-            return _minutes_since(updated_first_seen.get(vm_name))
-
-        results = heartbeat_stall_watcher.sweep(
-            storage_client=storage_client,
-            log_bucket=log_bucket,
-            running_vms=running,
-            vm_age_reader=_age_reader,
-            captured_reader=captured_reader,
-            asset_group_for_vm=_asset_group_for_vm,
-            prior_captured=prior,
-            stall_minutes=stall_minutes,
-            pm_repo_path=pm_repo_path,
-            dry_run=dry_run,
-        )
-        stalled = [r for r in results if r.verdict.value in ("stall", "event_loop_starved")]
-        logger.info("heartbeat sweep: %d running, %d stalled", len(results), len(stalled))
-        if not dry_run:
-            # Prune first-seen entries for VMs that have gone (terminated), then persist.
-            running_names = {name for name, _ in running}
-            pruned = {vm: ts for vm, ts in updated_first_seen.items() if vm in running_names}
-            _write_first_seen(storage_client, log_bucket, pruned)
-    else:  # meta
-        meta_watchers.check_catalogue_freshness(
-            storage_client=storage_client,
-            targets=_catalogue_targets(),
-            pm_repo_path=pm_repo_path,
-            dry_run=dry_run,
-        )
-        meta_watchers.check_zombie_watchdog_alive(
-            storage_client=storage_client,
-            log_bucket=log_bucket,
-            pm_repo_path=pm_repo_path,
-            dry_run=dry_run,
-        )
-        # Cron freshness: the orphan-ping / consolidator / digest crons leave a
-        # durable artifact. Probe the consolidator heartbeat (per-AG market-data
-        # _index) + the data-pipeline daily digest output (when present).
-        cron_targets: list[meta_watchers.FreshnessTarget] = []
-        for ag in ASSET_GROUPS:
-            try:
-                bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
-            except Exception:
-                continue
-            cron_targets.append(
-                meta_watchers.FreshnessTarget(
-                    bucket=bucket,
-                    blob_path="_index/availability_index.parquet",
-                    max_age_min=180.0,  # consolidator should touch every cycle
-                    label=f"manifest-consolidator-{ag}",
-                )
+        if mode == "exit-code":
+            running = _list_running_vms()
+            results = exit_code_fleet_monitor.sweep(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                running_vms=running,
+                captured_reader=captured_reader,
+                asset_group_for_vm=_asset_group_for_vm,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
             )
-        meta_watchers.check_cron_fired(
-            storage_client=storage_client,
-            targets=cron_targets,
-            pm_repo_path=pm_repo_path,
-            dry_run=dry_run,
-        )
-        logger.info("meta sweep complete")
+            non_clean = [r for r in results if r.verdict.value not in ("clean",)]
+            logger.info(
+                "exit-code sweep: %d terminated, %d non-clean (%s)",
+                len(results),
+                len(non_clean),
+                ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
+            )
+        elif mode == "heartbeat":
+            running = _list_running_vms()
+            prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
+            # VM age is derived from a first-seen census the monitor maintains (no
+            # per-instance compute describe — keeps the cloud SDK fully confined to
+            # the UTL list call above). A VM in the prior census has been seen ≥1
+            # tick → past grace; a brand-new VM is treated as just-booted (defer).
+            first_seen = _load_first_seen(storage_client, log_bucket)
+            now_iso = _utcnow_iso()
+            updated_first_seen = dict(first_seen)
+            for vm_name, _zone in running:
+                updated_first_seen.setdefault(vm_name, now_iso)
+
+            def _age_reader(vm_name: str, _zone: str) -> float:
+                return _minutes_since(updated_first_seen.get(vm_name))
+
+            results = heartbeat_stall_watcher.sweep(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                running_vms=running,
+                vm_age_reader=_age_reader,
+                captured_reader=captured_reader,
+                asset_group_for_vm=_asset_group_for_vm,
+                prior_captured=prior,
+                stall_minutes=stall_minutes,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
+            stalled = [r for r in results if r.verdict.value in ("stall", "event_loop_starved")]
+            logger.info("heartbeat sweep: %d running, %d stalled", len(results), len(stalled))
+            if not dry_run:
+                # Prune first-seen entries for VMs that have gone (terminated), then persist.
+                running_names = {name for name, _ in running}
+                pruned = {vm: ts for vm, ts in updated_first_seen.items() if vm in running_names}
+                _write_first_seen(storage_client, log_bucket, pruned)
+        else:  # meta
+            meta_watchers.check_catalogue_freshness(
+                storage_client=storage_client,
+                targets=_catalogue_targets(),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
+            meta_watchers.check_zombie_watchdog_alive(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
+            # Cron freshness: the orphan-ping / consolidator / digest crons leave a
+            # durable artifact. Probe the consolidator heartbeat (per-AG market-data
+            # _index) + the data-pipeline daily digest output (when present).
+            cron_targets: list[meta_watchers.FreshnessTarget] = []
+            for ag in ASSET_GROUPS:
+                try:
+                    bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
+                except Exception:
+                    continue
+                cron_targets.append(
+                    meta_watchers.FreshnessTarget(
+                        bucket=bucket,
+                        blob_path="_index/availability_index.parquet",
+                        max_age_min=180.0,  # consolidator should touch every cycle
+                        label=f"manifest-consolidator-{ag}",
+                    )
+                )
+            meta_watchers.check_cron_fired(
+                storage_client=storage_client,
+                targets=cron_targets,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
+            logger.info("meta sweep complete")
 
     return 0
 
