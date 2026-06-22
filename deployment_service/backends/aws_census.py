@@ -92,7 +92,7 @@ def _ensure_boto3() -> types.ModuleType:
         raise ImportError(
             "boto3 is required for the AWS census. Install with: uv pip install 'deployment-service[aws]'"
         )
-    import boto3  # Deferred — deployment AWS control-plane boundary
+    import boto3  # noqa: imports-inside-functions — deferred: boto3 optional dep, guarded by importlib.util.find_spec above
 
     return boto3
 
