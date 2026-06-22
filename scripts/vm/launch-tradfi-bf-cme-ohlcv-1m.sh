@@ -43,14 +43,66 @@ ohlcv_parse_common_args "$@"
 
 # CME root universe (parent-symbol set). Each entry: "root|parent_symbols"
 # semicolon-delimited parent-symbols form a single VM's instrument-ids list.
+# CME root universe — ALL 47 catalogue future roots (operator 2026-06-22: download
+# everything, no client-side filters; the market is the filter — listed-no-trade -> empty).
+# Each root fetched as <root>.FUT + <root>.OPT (options bundle is empty for futures-only roots).
 declare -a CME_ROOTS=(
-    "ES|ES.FUT"
-    "MES|MES.FUT"
-    "NQ|NQ.FUT"
-    "MNQ|MNQ.FUT"
-    "CL|CL.FUT"
-    "GC|GC.FUT"
-    "ES_OPT|ES.OPT;EW.OPT;EW1.OPT;EW2.OPT;EW4.OPT;E1A.OPT;E2A.OPT;E3A.OPT;E4A.OPT;E5A.OPT;EOM.OPT"
+    "6A|6A.FUT;6A.OPT"
+    "6B|6B.FUT;6B.OPT"
+    "6C|6C.FUT;6C.OPT"
+    "6E|6E.FUT;6E.OPT"
+    "6J|6J.FUT;6J.OPT"
+    "6L|6L.FUT;6L.OPT"
+    "6M|6M.FUT;6M.OPT"
+    "6N|6N.FUT;6N.OPT"
+    "6S|6S.FUT;6S.OPT"
+    "6Z|6Z.FUT;6Z.OPT"
+    "BTC|BTC.FUT;BTC.OPT"
+    "CL|CL.FUT;CL.OPT"
+    "CT|CT.FUT;CT.OPT"
+    "ES|ES.FUT;ES.OPT"
+    "ETH|ETH.FUT;ETH.OPT"
+    "GC|GC.FUT;GC.OPT"
+    "HE|HE.FUT;HE.OPT"
+    "HG|HG.FUT;HG.OPT"
+    "HO|HO.FUT;HO.OPT"
+    "LE|LE.FUT;LE.OPT"
+    "MBT|MBT.FUT;MBT.OPT"
+    "MES|MES.FUT;MES.OPT"
+    "MET|MET.FUT;MET.OPT"
+    "NG|NG.FUT;NG.OPT"
+    "NKD|NKD.FUT;NKD.OPT"
+    "NQ|NQ.FUT;NQ.OPT"
+    "RB|RB.FUT;RB.OPT"
+    "RTY|RTY.FUT;RTY.OPT"
+    "SI|SI.FUT;SI.OPT"
+    "XAB|XAB.FUT;XAB.OPT"
+    "XAF|XAF.FUT;XAF.OPT"
+    "XAI|XAI.FUT;XAI.OPT"
+    "XAK|XAK.FUT;XAK.OPT"
+    "XAP|XAP.FUT;XAP.OPT"
+    "XAU|XAU.FUT;XAU.OPT"
+    "XAV|XAV.FUT;XAV.OPT"
+    "XAY|XAY.FUT;XAY.OPT"
+    "YM|YM.FUT;YM.OPT"
+    "ZB|ZB.FUT;ZB.OPT"
+    "ZC|ZC.FUT;ZC.OPT"
+    "ZF|ZF.FUT;ZF.OPT"
+    "ZL|ZL.FUT;ZL.OPT"
+    "ZM|ZM.FUT;ZM.OPT"
+    "ZN|ZN.FUT;ZN.OPT"
+    "ZS|ZS.FUT;ZS.OPT"
+    "ZT|ZT.FUT;ZT.OPT"
+    "ZW|ZW.FUT;ZW.OPT"
+    "ECES|ECES.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECBTC|ECBTC.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECRTY|ECRTY.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECYM|ECYM.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECGC|ECGC.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECCL|ECCL.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECNG|ECNG.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "EC6E|EC6E.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
+    "ECNQ|ECNQ.OPT"  # CME event contract (binary market), GLBX.MDP3, coverage 2025-09-28+
 )
 
 if [[ -n "$ONLY_ROOT" ]]; then
