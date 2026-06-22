@@ -21,7 +21,9 @@ source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
+# 32GB default: the IS fixtures catalogue + per-fixture footprint OOM-kills
+# e2-standard-2 (8GB). SSOT: plans/active/sports_reference_backfill_oom_2026_06_22.md
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
