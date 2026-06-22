@@ -276,7 +276,11 @@ module "dp_reprobe_empty_job" {
 
   command = ["python3", "${local.dp_audit_script_dir}/reprobe_new_empty_confirmed.py"]
   # No --day → defaults to today; no --asset-group → all 5 AGs.
-  args = []
+  # --reclassify-apply: after detect+emit, AUTO-FLIP the cells a live re-fetch PROVED
+  # were misclassified (verdict REPROBE_RETURNED_ROWS) empty_confirmed → attempted_failed
+  # so the orchestrator re-captures them. Oracle-only / ambiguous verdicts are NEVER
+  # flipped (proof-gated). Closes the detect→prove→flip→re-capture self-healing loop.
+  args = ["--reclassify-apply"]
 
   environment_variables = local.dp_audit_env
 
