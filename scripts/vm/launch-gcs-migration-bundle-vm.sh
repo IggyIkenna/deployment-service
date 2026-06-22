@@ -22,6 +22,10 @@
 #   done
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-8}"
@@ -94,6 +98,13 @@ if [[ "${APPLY}" == "true" ]]; then
   APPLY_FLAG="--apply"
 fi
 
+# Durable-log streamer (deployment-service/scripts/vm/lib/launcher_common.sh):
+# continuous GCS run.log stream every 30s + heartbeat + terminal EXIT_STATUS
+# marker + guaranteed final upload + shutdown — self-delete-proof observability
+# so the /deployments surface + exit_code monitor see this VM. Replaces the old
+# inline 30s log loop (which lacked the EXIT_STATUS marker the monitor reads).
+LOG_TRAP="$(lc_log_upload_trap_block "${VM_NAME}" "${PROJECT_ID}" "${ASSET_GROUP}" "gcs-migration-bundle")"
+
 STARTUP_FILE=$(mktemp)
 cat > "${STARTUP_FILE}" << STARTUP_EOF
 #!/bin/bash
@@ -104,18 +115,7 @@ export PYTHONUNBUFFERED=1
 export VM_NAME="${VM_NAME}"
 export MANIFEST_PER_VM_SHARDS=true
 
-exec > >(tee /var/log/gcs-migration-bundle.log) 2>&1
-
-LOG_GCS="${LOG_GCS}"
-
-(
-  while true; do
-    sleep 30
-    gcloud storage cp /var/log/gcs-migration-bundle.log "\${LOG_GCS}" 2>/dev/null || true
-  done
-) &
-LOG_PID=\$!
-trap "kill \${LOG_PID} 2>/dev/null; gcloud storage cp /var/log/gcs-migration-bundle.log \${LOG_GCS} 2>/dev/null || true" EXIT
+${LOG_TRAP}
 
 echo "=== GCS Migration Bundle VM: ${ASSET_GROUP} / ${YEAR} ==="
 echo "VM: ${VM_NAME}"
@@ -182,8 +182,9 @@ else
   echo "=== Migration FAILED: ${ASSET_GROUP} / ${YEAR} exit_code=\${MIGRATION_EXIT} ==="
 fi
 date
-gcloud storage cp /var/log/gcs-migration-bundle.log "\${LOG_GCS}" 2>/dev/null || true
-shutdown -h now
+# run.log + EXIT_STATUS upload + shutdown handled by the lc_log_upload_trap_block
+# EXIT trap above. Surface the migration rc so the trap records it as EXIT_STATUS.
+exit \${MIGRATION_EXIT}
 STARTUP_EOF
 
 echo "Launching VM..."
