@@ -62,6 +62,7 @@ have a heartbeat — they fall through to the SHARD_STALE check.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -82,6 +83,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ID = "central-element-323112"
 HEARTBEAT_BUCKET = f"deployment-scripts-{PROJECT_ID}"
+CENSUS_BLOB_PATH = "vm-census/watchdog-census.json"
 
 
 def _b(kind: str, asset_group: str | None = None) -> str:
@@ -1317,6 +1319,43 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     return True
 
 
+def _write_census_snapshot(
+    storage_client: StorageClient,
+    running: list[WatchdogVerdict],
+    zombies: list[WatchdogVerdict],
+) -> None:
+    """Persist a small census JSON so deployment-api can surface zombie/OOM counts.
+
+    Best-effort — a GCS failure logs a warning but never blocks the watchdog.
+    Payload:
+      ts      – ISO-8601 UTC write time
+      running – sorted VM names currently alive (alive-verdict evaluated VMs)
+      zombies – sorted VM names the watchdog classified as zombie this cycle
+      oom     – always [] (no OOM signal today — honest absence)
+    """
+    payload = {
+        "ts": datetime.now(UTC).isoformat(),
+        "running": sorted(v.vm_name for v in running),
+        "zombies": sorted(v.vm_name for v in zombies),
+        "oom": [],
+    }
+    try:
+        upload_to_storage(
+            HEARTBEAT_BUCKET,
+            CENSUS_BLOB_PATH,
+            json.dumps(payload).encode(),
+        )
+        logger.info(
+            "census snapshot written to %s/%s: %d running / %d zombie",
+            HEARTBEAT_BUCKET,
+            CENSUS_BLOB_PATH,
+            len(running),
+            len(zombies),
+        )
+    except Exception as exc:
+        logger.warning("census snapshot write failed (non-blocking): %s", exc)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Report zombies but do not delete.")
@@ -1390,6 +1429,7 @@ def main(argv: list[str]) -> int:
     zombies = [v for v in verdicts if v.is_zombie()]
     alive = [v for v in verdicts if v.verdict == "alive"]
     young = [v for v in verdicts if v.verdict == "too_young"]
+    _write_census_snapshot(storage_client, alive, zombies)
 
     logger.info("=" * 60)
     logger.info(
