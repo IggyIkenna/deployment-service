@@ -191,6 +191,14 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "prediction-fwd-": None,  # launch-prediction-forward-poll.sh — Polymarket/Kalshi forward poll
     # ------------------------------------------------------------------
+    # Prediction live WS producer (launch-prediction-live.sh).
+    # MANIFEST_PER_VM_SHARDS=true; LONG_LIVED_LIVE — runs continuously
+    # as a live websocket stream for the full IS-enumerated universe.
+    # One VM per (venue × data_type) shard; singleton lock per shard.
+    # Registered 2026-06-22.
+    # ------------------------------------------------------------------
+    "prediction-live-": VmPrefixSpec(bucket=_TICK_PRED, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # ------------------------------------------------------------------
     # CeFi instrument discovery + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
     "cefi-instr-": None,  # cefi-instr-{venue}-{ts} from instruments-service launchers
