@@ -148,6 +148,41 @@ def _asset_group_for_vm(vm_name: str) -> str:
     return "unknown"
 
 
+# VM-name prefixes that ARE data-pipeline backfill / live-capture VMs (the only
+# ones that emit a PIPELINE_HEARTBEAT + write a per-VM manifest shard). The
+# heartbeat / exit-code sweeps must SKIP infra VMs (zombie-watchdog, orchestrator,
+# consolidator, qg-snapshot, …) — they never heartbeat, so sweeping them produced
+# a flood of false EVENT_LOOP_STARVED verdicts (2026-06-22 BUG2).
+_DATA_VM_PREFIXES = (
+    "mtds-",
+    "tm-backfill",
+    "fs-backfill",
+    "instruments-",
+    "tradfi-bf",
+    "tradfi-fwd",
+    "cefi-",
+    "defi-",
+    "sports-",
+    "prediction-",
+    "weather-backfill",
+    "solana-",
+)
+
+
+def _is_data_vm(vm_name: str) -> bool:
+    """True when ``vm_name`` is a data-pipeline VM (heartbeats + per-VM shard).
+
+    Filters the RUNNING census down to the data VMs the heartbeat/exit-code
+    sweeps apply to. An AG segment in the name (cefi/defi/tradfi/sports/
+    prediction) OR a known data-VM prefix qualifies; everything else (infra /
+    orchestrator / watchdog VMs) is skipped so they never false-alert.
+    """
+    lowered = vm_name.lower()
+    if _asset_group_for_vm(vm_name) != "unknown":
+        return True
+    return any(lowered.startswith(p) for p in _DATA_VM_PREFIXES)
+
+
 def _shard_bucket_for_vm(vm_name: str) -> str | None:
     ag = _asset_group_for_vm(vm_name)
     if ag == "unknown":
@@ -240,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         log_bucket = _log_bucket()
 
         if mode == "exit-code":
-            running = _list_running_vms()
+            running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
             results = exit_code_fleet_monitor.sweep(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
@@ -258,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
                 ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
             )
         elif mode == "heartbeat":
-            running = _list_running_vms()
+            running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
             # VM age is derived from a first-seen census the monitor maintains (no
             # per-instance compute describe — keeps the cloud SDK fully confined to

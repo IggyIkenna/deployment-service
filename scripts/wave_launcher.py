@@ -81,8 +81,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-from unified_trading_library.cloud_interface import get_storage_client
-from unified_trading_library.events import log_event, setup_events
+from unified_trading_library import get_storage_client, log_event, setup_events
 
 logger = logging.getLogger("tradfi_wave_launcher")
 

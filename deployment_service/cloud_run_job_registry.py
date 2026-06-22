@@ -176,6 +176,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("vm-log-archival", service="deployment-service"),
     # vm_serial_capture_scheduler.tf
     _batch("vm-serial-capture", service="deployment-service"),
+    # wave_launcher_scheduler.tf — BATCH tradfi OHLCV wave-launcher (autonomous
+    # backfill driver: launches/clamps tradfi-bf-* VMs wave-by-wave). Registry
+    # entry required by the cloud_run_job_registry guard for every scheduler tf.
+    _batch("tradfi-wave-launcher", service="deployment-service"),
     # paper_week_determinism_scheduler.tf — PAPER umbrella (paper-week determinism + paper engine)
     _paper("paper-engine-run", service="strategy-service"),
     _paper("blrs-daily-determinism", service="batch-live-reconciliation-service"),

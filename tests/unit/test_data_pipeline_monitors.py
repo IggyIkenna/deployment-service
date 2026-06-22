@@ -253,6 +253,129 @@ def test_heartbeat_sweep_emits_stall(monkeypatch):
     assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
 
 
+# ── _gcs content-epoch heartbeat age (BUG2: last_modified is bare on the bucket) ─
+def test_heartbeat_blob_age_uses_content_epoch_when_metadata_bare():
+    """The real bug: get_blob_metadata().last_modified is None for every blob, so
+    age MUST come from the heartbeat blob's first-line Unix epoch (the sidecar
+    writes `<epoch>\\n<rc>\\n<status>`). A FRESH epoch ⇒ a small (non-None) age."""
+    vm = "tm-backfill-2026"
+    fresh_epoch = int(datetime.now(UTC).timestamp()) - 30  # 30s ago
+    # age_min=None ⇒ FakeStorage returns _FakeBlobMeta(None) (bare metadata).
+    storage = FakeStorage({(LOG_BUCKET, _heartbeat_blob(vm)): (f"{fresh_epoch}\n-1\nrunning".encode(), None)})
+    age = _gcs.heartbeat_blob_age_minutes(storage, LOG_BUCKET, vm)
+    assert age is not None and 0.0 <= age < 2.0  # ~0.5 min, NOT None → no false starve
+
+
+def test_heartbeat_blob_age_none_when_blob_absent():
+    """No heartbeat blob at all ⇒ None (genuine total silence — EVENT_LOOP_STARVED)."""
+    assert _gcs.heartbeat_blob_age_minutes(FakeStorage({}), LOG_BUCKET, "vm-x") is None
+
+
+def test_run_log_age_from_embedded_timestamp_tail():
+    """run.log freshness derives from the LAST embedded `YYYY-MM-DD HH:MM:SS` line
+    (last_modified is bare), so a frozen log reads as STALE-by-content."""
+    vm = "tradfi-bf-cme-2025"
+    old = (datetime.now(UTC) - timedelta(minutes=90)).strftime("%Y-%m-%d %H:%M:%S")
+    log = f"2026-06-22 10:00:00,000 INFO start\n{old},123 INFO last line\n".encode()
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, None)})
+    age = _gcs.run_log_age_minutes(storage, LOG_BUCKET, vm)
+    assert age is not None and age > 60.0  # ~90 min frozen
+
+
+# ── classifier: run.log hang signal + corroborated-flat + live-vs-backfill ──────
+def test_classify_stall_on_frozen_runlog_even_when_heartbeat_fresh():
+    """Hung-process class: heartbeat fresh but run.log frozen past the generous
+    threshold ⇒ STALL (the bash heartbeat ticks but the worker made no progress)."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=False,
+        run_log_age_min=60.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
+def test_classify_alive_when_heartbeat_fresh_and_runlog_recent():
+    """Fresh heartbeat + recently-advancing run.log ⇒ ALIVE (no false stall)."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=False,
+        run_log_age_min=3.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_captured_flat_alone_does_not_stall():
+    """A live-capture VM's per-VM shard count legitimately holds flat between
+    ticks — captured_flat alone (no corroborating stale log) must NOT stall."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "mtds-live-cefi-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=None,  # live VMs pass None (run.log signal not applied)
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_captured_flat_with_stale_log_does_stall():
+    """Captured flat AND run.log also stopped advancing ⇒ corroborated stall."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=20.0,
+        stall_minutes=10.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
+def test_is_backfill_vm_classification():
+    assert heartbeat_stall_watcher._is_backfill_vm("tm-backfill-20260622-211407")
+    assert heartbeat_stall_watcher._is_backfill_vm("tradfi-bf-cme-ohlcv-1m-rb-2025")
+    assert heartbeat_stall_watcher._is_backfill_vm("fs-backfill-20260622")
+    # live-capture VMs are NOT backfill (run.log signal must not apply to them).
+    assert not heartbeat_stall_watcher._is_backfill_vm("mtds-live-cefi-okx-trades-2026")
+    assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
+
+
+def test_live_vm_with_quiet_runlog_reads_alive_in_sweep(monkeypatch):
+    """End-to-end of the false-positive fix: a LIVE VM with a fresh heartbeat but a
+    long-quiet run.log (296 min, like the real mtds-live-deribit) must read ALIVE,
+    because the run.log progress signal is NOT applied to live-capture VMs."""
+    vm = "mtds-live-cefi-deribit-trades-2026"
+    fresh_epoch = int(datetime.now(UTC).timestamp()) - 45  # heartbeat 45s ago
+    old_log_line = (datetime.now(UTC) - timedelta(minutes=296)).strftime("%Y-%m-%d %H:%M:%S")
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, _heartbeat_blob(vm)): (f"{fresh_epoch}\n-1\nrunning".encode(), None),
+            (LOG_BUCKET, _run_log_blob(vm)): (f"{old_log_line},000 INFO connected\n".encode(), None),
+        }
+    )
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 300.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert not emitted  # no false DP_VM_STALL / DP_EVENT_LOOP_STARVED
+
+
 # ── escalation hop ───────────────────────────────────────────────────────────
 def test_route_page_operator_emits_event(monkeypatch):
     emitted: list[tuple[str, str, dict]] = []

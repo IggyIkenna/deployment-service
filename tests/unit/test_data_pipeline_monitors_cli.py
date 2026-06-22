@@ -39,6 +39,23 @@ def test_asset_group_for_vm(vm, expected):
     assert cli._asset_group_for_vm(vm) == expected
 
 
+@pytest.mark.parametrize(
+    ("vm", "is_data"),
+    [
+        ("tm-backfill-20260622-211407", True),
+        ("fs-backfill-20260622", True),
+        ("mtds-live-cefi-okx-trades-2026", True),
+        ("tradfi-bf-cme-ohlcv-1m-es-2025", True),
+        ("prediction-live-kalshi-trades", True),
+        # infra VMs are NOT data VMs — must be skipped so they never false-alert.
+        ("vm-zombie-watchdog-20260528-212634", False),
+        ("agent-orchestrator-vm-1", False),
+    ],
+)
+def test_is_data_vm_filters_infra(vm, is_data):
+    assert cli._is_data_vm(vm) is is_data
+
+
 def test_minutes_since_missing_is_zero():
     assert cli._minutes_since(None) == 0.0
     assert cli._minutes_since("not-a-date") == 0.0

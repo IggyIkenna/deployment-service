@@ -53,6 +53,28 @@ logger = logging.getLogger(__name__)
 # healthy 60s heartbeat). Was 15.0 (coarse, sized for the old per-chunk-only cadence).
 DEFAULT_STALL_MINUTES = 10.0
 DEFAULT_GRACE_MINUTES = 10.0  # don't flag a VM in its first N minutes (boot/warmup)
+# The run.log PROGRESS signal uses a SEPARATE, generous threshold (CLAUDE.md
+# 2026-06-22): the GCS-tee'd run.log LAGS the on-VM log by minutes, and a healthy
+# worker can legitimately go several minutes between log lines on a slow upstream
+# fetch. A frozen run.log only signals a genuine hung-process stall once it is
+# this far past its last advance — well beyond the heartbeat-blob staleness bound.
+DEFAULT_RUN_LOG_STALL_MINUTES = 45.0
+
+
+def _is_backfill_vm(vm_name: str) -> bool:
+    """True for a BATCH backfill VM (logs continuously) vs a live-capture VM.
+
+    Backfill VMs (``*-backfill-*``, ``tradfi-bf-*``, ``tm-backfill``,
+    ``fs-backfill``) print a log line per date/league/chunk, so a FROZEN run.log
+    is a meaningful hung-process signal. Live-capture VMs (``*-live-*``) stream
+    over a WS and log sparsely — their run.log goes legitimately quiet, so the
+    run.log-freshness signal is NOT applied to them (heartbeat-blob freshness is
+    their liveness signal).
+    """
+    lowered = vm_name.lower()
+    if "-live-" in lowered or lowered.endswith("-live"):
+        return False
+    return "backfill" in lowered or "-bf-" in lowered or lowered.startswith(("tradfi-bf", "tm-backfill", "fs-backfill"))
 
 
 class LivenessVerdict(StrEnum):
@@ -76,7 +98,9 @@ def classify_vm_liveness(
     vm_age_min: float,
     heartbeat_age_min: float | None,
     captured_flat: bool,
+    run_log_age_min: float | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
+    run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
 ) -> LivenessResult:
     """Pure liveness classification. No I/O.
@@ -85,15 +109,36 @@ def classify_vm_liveness(
       - VM younger than ``grace_minutes``                        → TOO_YOUNG (skip)
       - no heartbeat blob at all (``heartbeat_age_min is None``) → EVENT_LOOP_STARVED
       - heartbeat older than ``stall_minutes``                  → STALL
-      - heartbeat fresh but captured FLAT across the window      → STALL
+      - heartbeat fresh but the ``run.log`` is FROZEN past the
+        generous ``run_log_stall_minutes`` (hung-process: bash heartbeat
+        ticks but the worker made zero progress)               → STALL
+      - heartbeat fresh, log advancing, but captured FLAT AND the
+        log is itself stale past ``stall_minutes`` (corroborated
+        no-progress, not just a between-window lull)            → STALL
       - otherwise                                                → ALIVE
+
+    ``run_log_age_min`` is the PROGRESS signal (CLAUDE.md 2026-06-22 hung-process
+    rule) on a SEPARATE generous threshold (the GCS-tee'd run.log lags the on-VM
+    log by minutes — a tight bound false-flags a healthy slow fetch). ``None``
+    (no parseable log) is NOT a hang (fail-safe: only flag a positively-measured
+    stale log). ``captured_flat`` alone does NOT stall — a live-capture VM's
+    per-VM shard count legitimately holds flat between ticks; it only contributes
+    when CORROBORATED by a run.log that has also stopped advancing past the
+    heartbeat threshold, so a genuine "alive but doing nothing" is still caught
+    without false-flagging normal between-tick flatness.
     """
     if vm_age_min < grace_minutes:
         verdict = LivenessVerdict.TOO_YOUNG
     elif heartbeat_age_min is None:
         verdict = LivenessVerdict.EVENT_LOOP_STARVED
-    elif heartbeat_age_min > stall_minutes or captured_flat:
-        # heartbeat stale OR captured flat-across-window while alive → STALL.
+    elif heartbeat_age_min > stall_minutes:
+        verdict = LivenessVerdict.STALL
+    elif run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
+        # Heartbeat fresh but the worker's own log froze → hung-process stall.
+        verdict = LivenessVerdict.STALL
+    elif captured_flat and run_log_age_min is not None and run_log_age_min > stall_minutes:
+        # Captured flat AND the log has also stopped advancing past the heartbeat
+        # bound → corroborated no-progress (alive-but-not-working).
         verdict = LivenessVerdict.STALL
     else:
         verdict = LivenessVerdict.ALIVE
@@ -151,6 +196,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     prior_captured: dict[str, int] | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
+    run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
@@ -169,7 +215,20 @@ def sweep(
             vm_age = vm_age_reader(vm_name, zone)
         except Exception:
             vm_age = grace_minutes  # unknown age → treat as just-past-grace, defer
-        hb_age = _gcs.blob_age_minutes(storage_client, log_bucket, _gcs.HEARTBEAT_BLOB.format(vm=vm_name))
+        # Content-epoch aware (the storage-client last_modified is bare on this
+        # bucket — see _gcs.blob_age_minutes). A None here means NO heartbeat blob
+        # at all (genuine total silence), not "metadata not populated".
+        hb_age = _gcs.heartbeat_blob_age_minutes(storage_client, log_bucket, vm_name)
+        # run.log progress signal — frozen log past threshold = hung-process stall
+        # even when the bash heartbeat blob is fresh (CLAUDE.md 2026-06-22). ONLY
+        # applies to BACKFILL VMs (they log continuously per date/league/chunk). A
+        # LIVE-capture WS VM logs sparsely — its run.log goes legitimately quiet for
+        # hours while the stream is healthy (captured climbs, heartbeat fresh) — so
+        # the run.log-freshness signal would false-flag it. For live VMs the
+        # heartbeat-blob freshness (the 60s timer) IS the liveness signal.
+        run_log_age = (
+            _gcs.run_log_age_minutes(storage_client, log_bucket, vm_name) if _is_backfill_vm(vm_name) else None
+        )
         try:
             captured_now = captured_reader(vm_name)
         except Exception:
@@ -181,7 +240,9 @@ def sweep(
             vm_age_min=vm_age,
             heartbeat_age_min=hb_age,
             captured_flat=captured_flat,
+            run_log_age_min=run_log_age,
             stall_minutes=stall_minutes,
+            run_log_stall_minutes=run_log_stall_minutes,
             grace_minutes=grace_minutes,
         )
         results.append(result)
