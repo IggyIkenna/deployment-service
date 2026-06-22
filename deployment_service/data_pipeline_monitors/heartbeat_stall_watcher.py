@@ -44,7 +44,14 @@ from deployment_service.data_pipeline_monitors.escalation import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STALL_MINUTES = 15.0
+# With the 60s BACKGROUND-TIMER heartbeat (UTL ``PipelineHeartbeatTimer``, every VM emits
+# a PIPELINE_HEARTBEAT every ~60s INDEPENDENT of chunk/window boundaries —
+# data_pipeline_hardening_self_monitoring_2026_06_22 Phase 2), a genuine hang is detected
+# within ~one threshold + the ``*/5`` poll. 10 min = ~10 missed 60s heartbeats — tight
+# enough to alert a mid-chunk hang fast, loose enough to tolerate the GCS-tee'd heartbeat
+# blob lagging the on-VM emit by a minute or two + the */5 poll jitter (no false alarm on a
+# healthy 60s heartbeat). Was 15.0 (coarse, sized for the old per-chunk-only cadence).
+DEFAULT_STALL_MINUTES = 10.0
 DEFAULT_GRACE_MINUTES = 10.0  # don't flag a VM in its first N minutes (boot/warmup)
 
 
