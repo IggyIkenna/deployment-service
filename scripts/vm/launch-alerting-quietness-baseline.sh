@@ -160,17 +160,17 @@ else
     --service-account="${SERVICE_ACCOUNT}" \
     --scopes=cloud-platform \
     --metadata="\
-  SERVICE_REPO=alerting-service,\
-  VM_SERVICE=alerting_service,\
-  VM_TASK=alerting-quietness-baseline,\
-  VM_NAME=${VM_NAME},\
-  VM_DURATION_HOURS=${DURATION_HOURS},\
-  VM_SHUTDOWN_ON_COMPLETION=true,\
-  TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
-  TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
-  DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
-  CODE_BUCKET=${CODE_BUCKET},\
-  PROJECT_ID=${PROJECT}" \
+SERVICE_REPO=alerting-service,\
+VM_SERVICE=alerting_service,\
+VM_TASK=alerting-quietness-baseline,\
+VM_NAME=${VM_NAME},\
+VM_DURATION_HOURS=${DURATION_HOURS},\
+VM_SHUTDOWN_ON_COMPLETION=true,\
+TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
+TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
+DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
+CODE_BUCKET=${CODE_BUCKET},\
+PROJECT_ID=${PROJECT}" \
     --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
     --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
 fi
