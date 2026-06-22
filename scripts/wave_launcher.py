@@ -15,26 +15,27 @@ so it stalls the moment a VM finishes. This module is the missing autonomous
 driver — a Cloud Run Job + Scheduler (every 2-3h) re-evaluates the gap and tops
 the running fleet back up to ``MAX_CONCURRENT``.
 
-Dispatch model (1 dispatch == exactly 1 VM)
--------------------------------------------
-The per-venue OHLCV launchers
-(``launch-tradfi-bf-{cme,cboe,nasdaq,nyse,ice}-ohlcv-1m.sh``) shard differently:
+Multi-source (2026-06-22)
+-------------------------
+The backfill is MULTI-SOURCE, not databento-only:
 
-* CME / CBOE: one VM per (root, year). CME exposes ``--only-root`` so we narrow
-  to a single root → 1 VM. CBOE has a single root (VX) so ``--year`` alone is
-  already 1 VM.
-* NASDAQ / NYSE: the whole equity ticker universe rides ONE VM per year, so
-  ``--year`` alone is 1 VM.
+* CME / CBOE / NASDAQ / NYSE → Databento (GLBX.MDP3 / DBEQ.BASIC / XCBF.PITCH),
+  fetching ``ohlcv_1m`` + ``ohlcv_1s`` (L0/free; 15m/24h aggregate downstream).
+* FX (spot pairs, e.g. USD/KRW) → Yahoo Finance DAILY (``ohlcv_24h``), via
+  ``launch-tradfi-bf-fx-ohlcv-24h.sh`` (venue-routed to the Yahoo adapter; no
+  ``--source`` — the MTDS CLI only accepts databento|massive there).
+* ICE (IFEU/IFUS — Brent/Gasoil/softs/DX) → **NO source available**, so ICE is
+  INTENTIONALLY NOT dispatched. Databento dropped ICE in the 3-dataset
+  subscription lockdown, and Massive's flat-files carry NO ICE prefix (only
+  ``us_futures_{cme,cbot,comex,nymex}`` + equities + ``global_forex``). ICE
+  genuinely needs an ICE-data subscription ask (operator decision).
 
-So the wave-launcher's atom is "one launcher invocation that produces exactly
-one VM", which makes the MAX_CONCURRENT cap trivially exact (budget == VMs).
-
-These launchers fetch ``ohlcv_1m`` + ``ohlcv_1s`` only (the registry's L0/free
-Databento OHLCV path; 15m/24h aggregate downstream via MDPS). So the
-wave-launcher's addressable surface is exactly the ``ohlcv_1m`` / ``ohlcv_1s``
-gap cells at the OHLCV venues. Non-OHLCV data_types (trades / tbbo / mbp_10 /
-earnings / corporate_action) and non-OHLCV venues (FX / YAHOO_FINANCE /
-UNKNOWN) are NOT in scope for this launcher and are reported but never launched.
+Dispatch model (1 dispatch == exactly 1 VM): CME shards one VM per (root, year)
+via ``--only-root``; CBOE / NASDAQ / NYSE / FX ride ONE VM per year. A venue's
+gap cell only counts toward the wave if its data_type is in that venue's
+addressable set (``VENUE_DATA_TYPES``: FX=ohlcv_24h, Databento venues=1m/1s).
+Out-of-scope data_types (trades / tbbo / mbp_10 / earnings) + un-sourced venues
+(ICE / YAHOO_FINANCE / UNKNOWN) are reported but never launched.
 
 Idempotency
 -----------
@@ -93,16 +94,39 @@ MANIFEST_KEY = "_index/availability_index.parquet"
 # Statuses that count as "needs work". attempted_failed is the P1 retry.
 NEEDS_WORK = frozenset({"expected_unattempted", "attempted_failed"})
 
-# The per-venue OHLCV launchers only fetch these data_types.
+# The default OHLCV data_types a per-venue launcher fetches (Databento L0 path).
 OHLCV_DATA_TYPES = frozenset({"ohlcv_1m", "ohlcv_1s"})
 
-# Venues with an OHLCV backfill launcher. ICE has no declared roots yet
-# (scaffolding launcher) so it is intentionally NOT dispatched.
+# Per-venue addressable data_types (multi-source, 2026-06-22). A venue's gap
+# cells only count toward the wave if their data_type is addressable by that
+# venue's launcher. Databento OHLCV venues fetch ohlcv_1m/1s; FX is Yahoo
+# DAILY (ohlcv_24h) — a different surface entirely, so it has its own set.
+# Venues absent from this map fall back to OHLCV_DATA_TYPES.
+VENUE_DATA_TYPES: dict[str, frozenset[str]] = {
+    "FX": frozenset({"ohlcv_24h"}),
+}
+
+
+def _addressable_data_types(venue: str) -> frozenset[str]:
+    """data_types the per-venue launcher for *venue* actually backfills."""
+    return VENUE_DATA_TYPES.get(venue, OHLCV_DATA_TYPES)
+
+
+# Venues with an OHLCV backfill launcher → multi-source (2026-06-22):
+#   * CME / CBOE / NASDAQ / NYSE → Databento (GLBX.MDP3 / DBEQ.BASIC / XCBF.PITCH)
+#   * FX                          → Yahoo Finance daily (ohlcv_24h, venue-routed)
+# ICE is INTENTIONALLY ABSENT: it is NOT backfillable today. Databento dropped
+# ICE (IFEU/IFUS) in the 3-dataset subscription lockdown, AND Massive's
+# flat-files carry NO ICE prefix (only us_futures_{cme,cbot,comex,nymex} +
+# equities + global_forex) — verified by S3 bucket probe 2026-06-22. ICE
+# therefore genuinely needs an ICE-data subscription ask (operator decision),
+# NOT a wave-launcher dispatch. SSOT: tradfi_multisource_backfill_2026_06_22.md.
 LAUNCHER_FOR_VENUE: dict[str, str] = {
     "CME": "launch-tradfi-bf-cme-ohlcv-1m.sh",
     "CBOE": "launch-tradfi-bf-cboe-ohlcv-1m.sh",
     "NASDAQ": "launch-tradfi-bf-nasdaq-ohlcv-1m.sh",
     "NYSE": "launch-tradfi-bf-nyse-ohlcv-1m.sh",
+    "FX": "launch-tradfi-bf-fx-ohlcv-24h.sh",
 }
 
 # Venues that shard one-VM-per-(root, year) and expose --only-root, so the
@@ -110,7 +134,7 @@ LAUNCHER_FOR_VENUE: dict[str, str] = {
 PER_ROOT_VENUES = frozenset({"CME"})
 
 # Venues that shard one-VM-per-year (whole universe in a single VM).
-PER_YEAR_VENUES = frozenset({"CBOE", "NASDAQ", "NYSE"})
+PER_YEAR_VENUES = frozenset({"CBOE", "NASDAQ", "NYSE", "FX"})
 
 DEFAULT_MAX_CONCURRENT = 12
 HARD_CEILING_MAX_CONCURRENT = 20  # operator HARD cap — NEVER exceed.
@@ -220,7 +244,14 @@ def compute_dispatch_candidates(df: pd.DataFrame) -> tuple[list[Dispatch], dict[
 
     # Out-of-scope accounting (reported, never launched).
     out_of_scope: dict[str, int] = {}
-    addressable_mask = need["venue"].isin(LAUNCHER_FOR_VENUE) & need["data_type"].isin(OHLCV_DATA_TYPES)
+
+    # A cell is addressable iff its venue has a launcher AND its data_type is in
+    # THAT venue's addressable set (FX=ohlcv_24h, Databento venues=ohlcv_1m/1s).
+    # Vectorised per-venue (mirrors the original .isin() style): OR together each
+    # launcher venue's (venue==V) & (data_type in _addressable_data_types(V)).
+    addressable_mask = need["venue"].isin([])  # all-False seed of the right index
+    for _venue, _dts in ((v, _addressable_data_types(v)) for v in LAUNCHER_FOR_VENUE):
+        addressable_mask = addressable_mask | ((need["venue"] == _venue) & need["data_type"].isin(_dts))
     oos = need[~addressable_mask]
     if len(oos):
         for (venue, dtype), grp in oos.groupby(["venue", "data_type"]):
@@ -250,8 +281,11 @@ def compute_dispatch_candidates(df: pd.DataFrame) -> tuple[list[Dispatch], dict[
 
 
 # ── Running-VM inspection (idempotency) ──────────────────────────────────────
+# Venue-agnostic + timeframe-agnostic: ``ohlcv-1m`` (Databento venues) AND
+# ``ohlcv-24h`` (FX/Yahoo). The optional ``root`` segment is the per-root CME
+# shard (e.g. ``es``); PER_YEAR venues (incl. FX) carry none.
 _VM_NAME_RE = re.compile(
-    r"^tradfi-bf-(?P<venue>cme|cboe|nasdaq|nyse|ice)-ohlcv-1m-"
+    r"^tradfi-bf-(?P<venue>cme|cboe|nasdaq|nyse|ice|fx)-ohlcv-(?:1m|1s|24h|15m)-"
     r"(?:(?P<root>[a-z0-9-]+?)-)?(?P<year>\d{4})-\d{8}-\d{6}$"
 )
 
