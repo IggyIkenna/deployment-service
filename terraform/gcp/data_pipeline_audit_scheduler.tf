@@ -27,35 +27,38 @@
 # it so each job covers the whole fleet in one run).
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚠️ IMAGE GAP — these scripts are NOT in any existing container image yet.
+# ✅ IMAGE GAP CLOSED (2026-06-22) — the e2e-audit runner image now bundles the scripts.
 #
 #   The e2e audit scripts live in `e2e-testing/scripts/audit/*.py` (plain python
-#   files invoked by PATH, alongside their `_dp_common.py` shared module). They
-#   are deployed to VMs today via the GCS code-tarball (`create-code-tarballs.sh`
-#   bundles `e2e-testing` in CORE_REPOS) — NOT as a Cloud Run image. `e2e-testing`
-#   has no Dockerfile, and the MTDS image's `COPY . .` copies ONLY the MTDS repo,
-#   so the cf-audit's `market-tick-data-service:latest` image does NOT contain
-#   `/app/e2e-testing/...`.
+#   files invoked by PATH, alongside their `_dp_common.py` shared module). The MTDS
+#   image's `COPY . .` copies ONLY the MTDS repo, so `market-tick-data-service:latest`
+#   does NOT contain `/app/e2e-testing/...` — invoking the scripts against it fails at
+#   the script PATH.
 #
-#   So `var.dp_audit_image` below DEFAULTS to the MTDS image (UTL+UAC bundled, the
-#   `resolve_bucket_name`/`StorageClient`/`log_event` deps these scripts import are
-#   present) but that image is MISSING the `e2e-testing/scripts/audit/` files — the
-#   jobs will fail to find the script PATH until the image is built to include them.
-#   The image-build change is tracked as a Wave-4b todo in the plan (see report).
-#   Override `var.dp_audit_image` once a `:latest` image that bundles the audit
-#   scripts is published. The terraform (Jobs + Schedulers + SA wiring) is correct
-#   and complete; only the image content is the open hop.
+#   FIX: `e2e-testing/Dockerfile` + `e2e-testing/cloudbuild.yaml` now build a dedicated
+#   runner image `unified-trading-library/e2e-audit:latest` that FROMs the UTL base
+#   (carries UTL `StorageClient`/`log_event`/the DP_* events + UAC + pandas + gcsfs)
+#   AND `COPY . /app/e2e-testing`, so it contains `/app/e2e-testing/scripts/audit/*.py`.
+#   The cloudbuild runs each script's credential-free `--smoke` (imports + arg-parse)
+#   BEFORE push. `var.dp_audit_image` below now DEFAULTS to that image. The terraform
+#   (Jobs + Schedulers + SA wiring) was already correct; this default closes the hop.
 # ─────────────────────────────────────────────────────────────────────────────
 
 variable "dp_audit_image" {
-  description = "Container image for the data-pipeline self-monitoring audit jobs. Defaults to the MTDS image (UTL+UAC bundled) — but that image does NOT yet contain e2e-testing/scripts/audit/*. Override once an image bundling the audit scripts ships (see IMAGE GAP header + Wave-4b plan todo)."
+  description = "Container image for the data-pipeline self-monitoring audit jobs. Defaults to the e2e-audit runner image (UTL base + e2e-testing/scripts/audit/* bundled, built by e2e-testing/cloudbuild.yaml) — this CLOSES the IMAGE GAP described in the header. Override only to pin a specific digest/SHA over :latest."
   type        = string
-  default     = "" # empty = fall through to the MTDS-image default below
+  # IMAGE GAP CLOSED (2026-06-22): the e2e-audit image (e2e-testing/Dockerfile +
+  # cloudbuild.yaml) FROMs the UTL base AND `COPY . /app/e2e-testing`, so it contains
+  # /app/e2e-testing/scripts/audit/*.py that the jobs invoke. (region/project are
+  # hardcoded here because a terraform variable default cannot interpolate other vars;
+  # region=asia-northeast1, project=central-element-323112 are the only deploy target.)
+  default = "asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading-library/e2e-audit:latest" # IMAGE GAP CLOSED
 }
 
 locals {
-  # Image: prefer the explicit variable; fall back to the MTDS image (UTL+UAC
-  # included) — the same default cf-manifest-audit uses. See the IMAGE GAP header.
+  # Image: var.dp_audit_image (now defaults to the e2e-audit runner image that bundles
+  # the audit scripts — see the IMAGE GAP CLOSED header). The MTDS-image fallback is kept
+  # only as a defensive non-empty-guard; it is NOT reached with the new non-empty default.
   dp_audit_image_resolved = var.dp_audit_image != "" ? var.dp_audit_image : "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
 
   # Path to the audit scripts inside the image (once the image bundles e2e-testing).
