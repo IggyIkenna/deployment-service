@@ -38,6 +38,10 @@
 #   bash deployment-service/scripts/vm/launch-vm-zombie-watchdog.sh
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-a}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-4}"
@@ -124,6 +128,12 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# Durable-log streamer (deployment-service/scripts/vm/lib/launcher_common.sh):
+# continuous GCS run.log stream every 30s + heartbeat + terminal EXIT_STATUS
+# marker + guaranteed final upload + shutdown — self-delete-proof observability
+# so the /deployments surface + exit_code monitor see this VM.
+LOG_TRAP="$(lc_log_upload_trap_block "${VM_NAME}" "${PROJECT_ID}" "DEFI" "lending-rate-validation")"
+
 STARTUP_SCRIPT=$(cat <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
@@ -136,7 +146,7 @@ export CLOUD_MOCK_MODE=false
 export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 export WEB3_PROVIDER_URI="https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}"
 
-exec > >(tee /var/log/lending-rate-validation.log) 2>&1
+${LOG_TRAP}
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Correlation ID: ${CORRELATION_ID}"
@@ -211,13 +221,10 @@ echo ""
 echo "=== Validation complete: exit=\${EXIT_CODE} ==="
 date
 
-# Final log upload (always runs, even on validation FAILED gate)
-gsutil -q cp /var/log/lending-rate-validation.log \\
-  "gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log" 2>/dev/null || true
-
-echo "Auto-shutdown in 30s..."
-sleep 30
-shutdown -h now
+# run.log + EXIT_STATUS upload + shutdown handled by the lc_log_upload_trap_block
+# EXIT trap above (durable even on validation FAILED gate). Surface the workload
+# rc so the trap records it as the terminal EXIT_STATUS.
+exit \${EXIT_CODE}
 STARTUP_EOF
 )
 

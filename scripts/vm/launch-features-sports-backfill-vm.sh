@@ -128,7 +128,7 @@ VM_NAME="fs-backfill-${RUN_TS}"
 
 # Compose the in-VM command. features-backfill branch of setup-data-pipeline-vm.sh
 # substitutes `python ` → the per-tarball venv python.
-BACKFILL_CMD="python -m features_sports_service"
+BACKFILL_CMD="python -m features_service.sports"
 BACKFILL_CMD="${BACKFILL_CMD} --operation compute --mode batch --asset-group SPORTS"
 BACKFILL_CMD="${BACKFILL_CMD} --tables fixture_features"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
@@ -140,7 +140,7 @@ echo "Launching $VM_NAME: features-sports FIXTURE_FEATURES backfill ${START_DATE
 echo "  cmd: ${BACKFILL_CMD}"
 
 METADATA="VM_TASK=features-backfill"
-METADATA="${METADATA},VM_SERVICE=features_sports_service"
+METADATA="${METADATA},VM_SERVICE=features_service"
 METADATA="${METADATA},VM_OPERATION=compute"
 METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"

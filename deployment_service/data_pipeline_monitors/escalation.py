@@ -39,9 +39,47 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from unified_trading_library.events import log_event  # noqa: qg-deep-import
+from unified_trading_library import (  # noqa: qg-deep-import
+    PubSubEventSink,
+    UnifiedCloudConfig,
+    log_event,
+    setup_events,
+)
 
 logger = logging.getLogger(__name__)
+
+# DP_* events reach #data-pipeline-alerts ONLY when published to a PubSub topic the
+# alerting-service `alert_subscriber` consumes (`route_event()` is reached exclusively
+# from the subscriber loop — there is no HTTP ingest). A bare `log_event` with no
+# `setup_events` hits UTL's `raise RuntimeError("Event logging not initialized")`
+# branch → a real finding's alert is LOST (the monitors only ran clean because the
+# live fleet produced zero findings). Wire `log_event` to a live PubSubEventSink →
+# `lifecycle-events` (the subscriber subscribes `lifecycle-events-sub` → route_event
+# → _route_data_pipeline_event → #data-pipeline-alerts).
+# SSOT: plans/active/issues/dp_event_pubsub_delivery_gap_2026_06_22.md.
+_DP_EVENTS_TOPIC = "lifecycle-events"
+_events_ready = False
+
+
+def _ensure_live_events(service_name: str = "dp_fleet_monitor") -> None:
+    """Idempotently wire ``log_event`` to a live PubSubEventSink → ``lifecycle-events``.
+
+    Best-effort + no-op on failure: a finding's emit then degrades to a stdout log
+    rather than crashing the watcher sweep (this module never raises).
+    """
+    global _events_ready
+    if _events_ready:
+        return
+    _events_ready = True  # set first — a failed setup must not retry on every emit
+    try:
+        project_id = getattr(UnifiedCloudConfig(), "gcp_project_id", "") or ""
+        if not project_id:
+            return
+        sink = PubSubEventSink(project_id=project_id, topic=_DP_EVENTS_TOPIC, service_name=service_name)
+        setup_events(service_name=service_name, mode="live", sink=sink)
+    except Exception as exc:  # best-effort — never crash the watcher sweep
+        logger.warning("dp_fleet_monitor live-events setup failed (best-effort): %s", exc)
+
 
 # Default PM clone discovery. The cross-repo issue-file writer targets this path.
 _DEFAULT_PM_SIBLINGS = ("../unified-trading-pm", "../../unified-trading-pm")
@@ -229,6 +267,7 @@ def route_finding(
 
     if not dry_run:
         try:
+            _ensure_live_events()
             log_event(finding.event, severity=finding.severity, details=event_details)
             result["emitted"] = True
         except Exception as exc:  # never crash on an emit failure
