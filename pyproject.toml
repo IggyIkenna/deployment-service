@@ -147,6 +147,12 @@ markers = [
 [tool.coverage.run]
 source = ["deployment_service"]
 branch = true
+# pytest-cov + xdist: workers are separate processes; without parallel-combine the terminal
+# fail-under reads PARTIAL (controller-only) data and spuriously fails (2026-06-22: mtds saw
+# terminal 46.4% while coverage.xml correctly combined to 83.95%). parallel-combine fixes the gate.
+parallel = true
+concurrency = ["thread", "multiprocessing"]
+sigterm = true
 # Standalone loops / external-orchestration entry points are validated via
 # integration smoke tests rather than unit coverage. live_deployment.py is
 # a staging smoke harness and sports_trigger_scheduler.py is an infinite
