@@ -72,7 +72,7 @@ from datetime import UTC, datetime
 
 from google.cloud import compute_v1
 from requests.adapters import HTTPAdapter
-from unified_api_contracts import VmPrefixSpec
+from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
 from unified_trading_library import resolve_bucket_name
 from unified_trading_library import StorageClient, get_storage_client, upload_to_storage
@@ -406,7 +406,9 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # pre-Phase-8 pattern was `strategy-paper-{archetype-slug}-{ts}`). Prefix
     # match covers both patterns. Heartbeat-only — paper VMs write to event-archive
     # only (no per-VM manifest shards).
-    "strategy-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "strategy-paper-": VmPrefixSpec(
+        bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE, umbrella=DeploymentUmbrella.PAPER
+    ),
     # Greeks-service compute VMs (greeks-service repo; plan:
     # plans/active/pricing_ledger_carry_rates_mtds_2026_06_01.md Phase 3).
     # Two prefixes for the two runtime modes:
@@ -442,7 +444,9 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # to event-archive only (no per-VM manifest shards). LONG_LIVED_LIVE
     # lifecycle (runs 7+ days during paper-soak).
     # Registered 2026-05-19 (slot-8 Tab 8 greenfield ship).
-    "defi-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    "defi-paper-": VmPrefixSpec(
+        bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE, umbrella=DeploymentUmbrella.PAPER
+    ),
     # Funding/basis ensemble paper VM (launch-funding-ensemble-paper-cron-vm.sh; plan:
     # carry_staked_basis_funding_scan_experiment_2026_06_16.md). VM name pattern:
     # `funding-ensemble-paper-{ts}`. Heartbeat-only — runs funding_ensemble_engine.py
@@ -450,7 +454,9 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # the desired-state book to GCS, then self-deletes (VM_SHUTDOWN_ON_COMPLETION). Daily
     # recurrence = an external scheduler re-launching it. EPHEMERAL_EXPERIMENT lifecycle.
     # Registered 2026-06-19 (P2 funding ensemble paper path).
-    "funding-ensemble-paper-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_EXPERIMENT),
+    "funding-ensemble-paper-": VmPrefixSpec(
+        bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_EXPERIMENT, umbrella=DeploymentUmbrella.PAPER
+    ),
     # Strategy live-trade VMs (launch-strategy-live-vm.sh; plan:
     # promote_workflow_may23_cli_path_2026_05_10.md Phase 1). VM name pattern:
     # `strategy-live-{archetype-slug}-shard{N}-{ts}` (per-client-isolation Phase 8;
