@@ -30,11 +30,16 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 import yaml
+from unified_trading_library import get_bucket_name
 
 from .backends.base import JobStatus
 from .backends.cloud_run import CloudRunBackend
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
+from .sports_latency_observation import (
+    LatencyObservationRecorder,
+    build_observations_for_fire,
+)
 from .sports_trigger_periodic import PeriodicTierDispatcher
 from .sports_trigger_state import (
     FixtureInfo,
@@ -46,6 +51,11 @@ from .sports_trigger_state import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Match-end estimate offset from kickoff (90 min play + 15 min HT + ~stoppage).
+# Single source for both post-match trigger firing AND latency observation, so
+# the ``observed_publish_lag_s`` baseline matches the firing baseline.
+MATCH_END_OFFSET_MIN: int = 105
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +114,8 @@ class SportsTriggerScheduler:
         periodic_state: PeriodicTierState | None = None,
         state_bucket: str | None = None,
         cloud_run_config: dict[str, str] | None = None,
+        latency_recorder: LatencyObservationRecorder | None = None,
+        record_latency: bool = True,
     ) -> None:
         self._config_path = config_path
         self._poll_interval = poll_interval_seconds
@@ -118,6 +130,21 @@ class SportsTriggerScheduler:
         )
         self._cloud_run_config: dict[str, str] = cloud_run_config or {}
         self._cloud_run_backends: dict[str, CloudRunBackend] = {}
+        self._latency_recorder = (
+            latency_recorder if latency_recorder is not None else self._build_latency_recorder(enabled=record_latency)
+        )
+
+    def _build_latency_recorder(self, *, enabled: bool) -> LatencyObservationRecorder | None:
+        """GCS-backed lag recorder; None if the bucket can't resolve (creds-less ctx)."""
+        if not enabled:
+            return None
+        try:
+            bucket = get_bucket_name("instruments", "SPORTS")
+        except Exception as exc:  # pragma: no cover - creds-less context
+            logger.warning("Latency recorder: cannot resolve sports bucket (%s) — latency obs disabled", exc)
+            return None
+        run_tag = f"sports-scheduler-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+        return LatencyObservationRecorder(bucket=bucket, run_tag=run_tag, enabled=True)
 
     def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
         """Construct the GCS-backed periodic state. Returns None on failure.
@@ -266,7 +293,7 @@ class SportsTriggerScheduler:
                     continue
 
                 # Estimate match end: kickoff + 105 min (90 + 15 HT + stoppage)
-                match_end = kickoff + timedelta(minutes=105)
+                match_end = kickoff + timedelta(minutes=MATCH_END_OFFSET_MIN)
                 fire_at = match_end + timedelta(minutes=total_offset_minutes)
 
                 delta_minutes = abs((now - fire_at).total_seconds()) / 60
@@ -331,7 +358,7 @@ class SportsTriggerScheduler:
         except (TypeError, ValueError):
             fixture_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
-        self._dispatch_services(
+        dispatched = self._dispatch_services(
             services=list(event["services"]),
             start_date=fixture_date,
             end_date=fixture_date,
@@ -339,7 +366,32 @@ class SportsTriggerScheduler:
             dispatch_id=fixture_id,
         )
         self._state.mark_fired(trigger_name, fixture_id)
+        if dispatched > 0:
+            self._record_latency_observations(event)
         return True
+
+    def _record_latency_observations(self, event: TriggerEvent) -> None:
+        """Record first-attempt source-publish-lag observations on a post-match fire.
+
+        On the FIRST fire of a ``(trigger_name, fixture_id)`` (``mark_fired``
+        dedupes) the scheduler dispatches the fetch — so this fire IS the first
+        attempt. Delegates to the pure ``build_observations_for_fire``; records
+        the first-ATTEMPT lag (CEILING on the true publish lag). NEVER touches
+        ``available_at``. No-op if no recorder / no observable entity.
+        """
+        recorder = self._latency_recorder
+        if recorder is None:
+            return
+        observations = build_observations_for_fire(
+            services=[cast("dict[str, object]", s) for s in event["services"]],
+            fixture_id=event["fixture_id"],
+            league_id=event["league_id"],
+            trigger_name=event["trigger_name"],
+            kickoff_utc=event["kickoff_utc"],
+            match_end_offset_min=MATCH_END_OFFSET_MIN,
+        )
+        if observations:
+            recorder.record(observations)
 
     def _build_cli_cmd(
         self,
