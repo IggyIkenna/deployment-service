@@ -53,7 +53,7 @@ set -euo pipefail
 # fixed in instruments-service@505dcd9 (single index read). e2-standard-8
 # (32 GB) is the safe default for large full-range sports backfills.
 # SSOT: plans/active/sports_reference_backfill_oom_2026_06_22.md
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 
 FORCE=false
 ENTITY=""

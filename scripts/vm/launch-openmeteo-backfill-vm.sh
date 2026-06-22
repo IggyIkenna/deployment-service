@@ -121,6 +121,9 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+# 32GB default: the IS fixtures catalogue + per-fixture footprint OOM-kills
+# e2-standard-2 (8GB). Env-overridable. SSOT: plans/active/sports_reference_backfill_oom_2026_06_22.md
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="weather-backfill-${RUN_TS}"
@@ -154,7 +157,7 @@ else
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type="$MACHINE_TYPE" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
