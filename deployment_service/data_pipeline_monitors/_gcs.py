@@ -101,6 +101,44 @@ def heartbeat_blob_age_minutes(storage_client: StorageClient, bucket: str, vm_na
 #   ``2026-06-22 22:07:09,814 INFO ...``  (date + space + HH:MM:SS[,ms])
 _LOG_TS_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")
 
+# The VM-life PIPELINE_HEARTBEAT marker the data VM echoes into the tee'd run.log
+# every 60s (setup-data-pipeline-vm.sh `_launch_with_tee`). Carries the emit
+# instant as ``ts=<ISO8601 Z>``. This is the WORKER-life signal — decoupled from
+# the always-fresh infra ``vm-heartbeat`` sidecar blob, which ticks even when the
+# data worker is dead (the 2026-06-22 "zero alerts" blind spot: every VM read
+# ALIVE off the infra sidecar so a never-heartbeating worker never alerted).
+_PIPELINE_HB_MARKER_RE = re.compile(r"PIPELINE_HEARTBEAT\b.*?\bts=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})")
+
+
+def pipeline_heartbeat_age_minutes(storage_client: StorageClient, bucket: str, vm_name: str) -> float | None:
+    """Age in minutes since the VM's last ``PIPELINE_HEARTBEAT`` run.log marker.
+
+    Parses the FRESHEST ``PIPELINE_HEARTBEAT ... ts=<ISO>`` marker out of the
+    VM's tee'd ``run.log`` (the VM-life 60s emitter wired into the tee'd command).
+    This is the data-WORKER liveness signal: it is emitted only while the worker's
+    tee'd bash is alive, so it is DECOUPLED from the generic infra ``vm-heartbeat``
+    sidecar (which the platform writes every 60s regardless of worker health). A
+    running data VM whose worker process tree has died / was never launched stops
+    advancing this marker → the watcher's ``DP_VM_NO_HEARTBEAT`` verdict.
+
+    Returns ``None`` when the log is absent or carries no parseable marker (the
+    caller treats ``None`` as "no PIPELINE_HEARTBEAT seen yet" — within grace it
+    is benign, past grace it is the silent-VM alert).
+    """
+    log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
+    if not log:
+        return None
+    last: datetime | None = None
+    for match in _PIPELINE_HB_MARKER_RE.finditer(log):
+        try:
+            parsed = datetime.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        last = parsed.replace(tzinfo=UTC)
+    if last is None:
+        return None
+    return (datetime.now(UTC) - last).total_seconds() / 60.0
+
 
 def run_log_age_minutes(storage_client: StorageClient, bucket: str, vm_name: str) -> float | None:
     """Age in minutes since the VM's ``run.log`` last advanced, or ``None``.

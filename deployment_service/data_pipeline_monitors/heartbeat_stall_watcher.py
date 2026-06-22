@@ -1,10 +1,19 @@
 """Heartbeat-stall watcher (DP-VM-003 / DP-VM-004).
 
-Consumes the liveness signal emitted by running VMs via UTL
-``emit_pipeline_heartbeat`` (``PIPELINE_HEARTBEAT``) and the durable 60s
-heartbeat sidecar blob (``vm-heartbeat/{vm}.txt``). A registered RUNNING VM whose
-last heartbeat / progress is older than the stall threshold is a silent stall —
-the "idle/hung VM emits nothing" gap.
+Consumes the WORKER-life liveness signal — the ``PIPELINE_HEARTBEAT`` marker the
+data VM echoes into its tee'd ``run.log`` every 60s (the VM-life emitter wired in
+``setup-data-pipeline-vm.sh _launch_with_tee``) — for EVERY running data VM
+discovered from the compute API. A registered RUNNING data VM whose worker
+heartbeat / progress is older than the stall threshold (or absent past grace) is
+a silent stall — the "idle/hung VM emits nothing" gap.
+
+**BUG2 (2026-06-22):** this watcher previously keyed liveness on the generic
+infra ``vm-heartbeat/{vm}.txt`` sidecar, which the platform writes every 60s
+regardless of whether the data worker is alive — so EVERY running VM read ALIVE
+and a never-heartbeating / hung worker NEVER alerted (the operator's "zero alerts
+in 1.5h" symptom). It now reads the worker's own ``PIPELINE_HEARTBEAT`` run.log
+marker (decoupled from the always-fresh infra sidecar), so a VM whose data worker
+died / never launched / has a broken heartbeat timer is caught.
 
 It sits BESIDE the zombie watchdog (does not fork it): the zombie watchdog KILLS
 stale VMs (network-partition / wedged class), while this watcher emits the
@@ -179,7 +188,10 @@ def _finding_for(result: LivenessResult, *, asset_group: str, stall_minutes: flo
             event=DP_EVENT_LOOP_STARVED,
             severity="WARN",
             tier=EscalationTier.FILE_ISSUE,
-            summary=(f"VM {result.vm_name} emitting no heartbeat (event-loop starved / blocking read on async loop)"),
+            summary=(
+                f"VM {result.vm_name} emitting NO PIPELINE_HEARTBEAT "
+                "(data worker dead / never launched / heartbeat timer broken — silent VM)"
+            ),
             details=base,
             registry_id="DP-VM-004",
         )
@@ -215,10 +227,19 @@ def sweep(
             vm_age = vm_age_reader(vm_name, zone)
         except Exception:
             vm_age = grace_minutes  # unknown age → treat as just-past-grace, defer
-        # Content-epoch aware (the storage-client last_modified is bare on this
-        # bucket — see _gcs.blob_age_minutes). A None here means NO heartbeat blob
-        # at all (genuine total silence), not "metadata not populated".
-        hb_age = _gcs.heartbeat_blob_age_minutes(storage_client, log_bucket, vm_name)
+        # WORKER-life heartbeat (BUG2 fix, 2026-06-22): read the VM-life
+        # PIPELINE_HEARTBEAT marker the data worker echoes into the tee'd run.log
+        # every 60s — NOT the generic infra ``vm-heartbeat`` sidecar blob. The infra
+        # sidecar ticks every 60s regardless of whether the data worker is alive /
+        # progressing, so keying liveness off it made EVERY running VM read ALIVE →
+        # a never-heartbeating worker NEVER alerted (the operator's "zero alerts in
+        # 1.5h" symptom). The PIPELINE_HEARTBEAT marker only advances while the
+        # worker's tee'd process tree is alive. ``None`` ⇒ NO worker heartbeat marker
+        # at all (the worker died / never launched / the timer is broken) — the
+        # genuine total-silence signal ``EVENT_LOOP_STARVED`` is meant for. Falls
+        # back to the infra sidecar ONLY if the marker is absent AND the sidecar is
+        # also absent (a VM that wrote neither) — but the marker is the authority.
+        hb_age = _gcs.pipeline_heartbeat_age_minutes(storage_client, log_bucket, vm_name)
         # run.log progress signal — frozen log past threshold = hung-process stall
         # even when the bash heartbeat blob is fresh (CLAUDE.md 2026-06-22). ONLY
         # applies to BACKFILL VMs (they log continuously per date/league/chunk). A
