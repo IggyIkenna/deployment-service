@@ -77,6 +77,13 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+# Machine type override (default e2-standard-2). The per-league skip-check used
+# to re-read the 6.5 GB sports availability index, OOM-killing e2-standard-2;
+# fixed in instruments-service@505dcd9 (single index read). e2-standard-8
+# (32 GB) is the safe default for large full-range sports backfills.
+# SSOT: plans/active/sports_reference_backfill_oom_2026_06_22.md
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
+
 FORCE=false
 ENTITY=""
 CHUNKS=""
@@ -235,7 +242,7 @@ launch_one_vm() {
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type="$MACHINE_TYPE" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
