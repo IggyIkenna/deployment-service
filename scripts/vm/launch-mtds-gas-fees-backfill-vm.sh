@@ -58,13 +58,15 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
 CHUNKS=""
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run) DRY_RUN=true; shift ;;
-        --force) FORCE=true; shift ;;
-        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
-        --chunks) CHUNKS="$2"; shift 2 ;;
+        --dry-run)     DRY_RUN=true; shift ;;
+        --force)       FORCE=true; shift ;;
+        --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --chunks)      CHUNKS="$2"; shift 2 ;;
+        --preemptible) PREEMPTIBLE=true; shift ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -111,7 +113,7 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="50"
 
 # --- Singleton lock (sibling-aware when --chunks is used) ---
@@ -163,6 +165,11 @@ launch_one_vm() {
   metadata="${metadata},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   metadata="${metadata},VM_NAME=${vm_name}"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P1): reset the stall
+  # timer only on a real progress line. `sampled` = each per-block-batch gas sample (the 2026-06-19
+  # incident froze MID block-sampling on a degraded POLYGON RPC); `Wrote` = a per-chain-per-date
+  # parquet write. Markers verified against a live gas-fees run.log; =/space/comma-free (metadata-safe).
+  metadata="${metadata},STALL_PROGRESS_REGEX=sampled|Wrote"
 
   local labels="purpose=mtds-gas-fees-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
@@ -173,6 +180,8 @@ launch_one_vm() {
   fi
 
   echo "Launching $vm_name: gas-fees ${start_date}..${end_date} chunk=${chunk_id:-single}"
+  PREEMPTIBLE_ARG=""
+  $PREEMPTIBLE && PREEMPTIBLE_ARG="--preemptible"
   gcloud compute instances create "$vm_name" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -181,6 +190,8 @@ launch_one_vm() {
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
+      --no-restart-on-failure \
+      ${PREEMPTIBLE_ARG} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
       --labels="$labels"
 }

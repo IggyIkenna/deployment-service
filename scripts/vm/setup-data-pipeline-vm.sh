@@ -258,6 +258,14 @@ export DEPLOYMENT_ENV_SHORT
 # raise the threshold for asset_groups where empty-date gaps are expected.
 STALL_TIMEOUT_SEC=$(_meta STALL_TIMEOUT_SEC)
 [[ -n "$STALL_TIMEOUT_SEC" ]] && export STALL_TIMEOUT_SEC
+# Per-shard PROGRESS-marker watchdog (backfill_vm_silent_worker_stall_watchdog P1). When a
+# launcher sets STALL_PROGRESS_REGEX, vm-exec-with-gcs-tee.sh resets the stall timer ONLY on a
+# NEW line matching it (a real progress marker — a date advanced / a shard written), instead of
+# on any raw log growth. This catches a worker HUNG on a network call while the log still emits
+# noise (the silent-stall blind spot the blunt STALL_TIMEOUT_SEC override could not close: a
+# raised threshold lets a genuine hang idle for hours). Unset ⇒ size-based behavior (unchanged).
+STALL_PROGRESS_REGEX=$(_meta STALL_PROGRESS_REGEX)
+[[ -n "$STALL_PROGRESS_REGEX" ]] && export STALL_PROGRESS_REGEX
 # Manifest consolidated staleness threshold override. CeFi MTDS bucket has
 # 34M+ rows (mostly Deribit options) and 1700+ per-VM shards — loading all
 # shards at startup OOM-kills the VM on any machine size. Setting this to

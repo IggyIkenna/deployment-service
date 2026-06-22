@@ -38,12 +38,14 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run) DRY_RUN=true; shift ;;
-        --force) FORCE=true; shift ;;
-        --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --dry-run)     DRY_RUN=true; shift ;;
+        --force)       FORCE=true; shift ;;
+        --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --preemptible) PREEMPTIBLE=true; shift ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -80,7 +82,7 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="50"
 
 if ! $FORCE; then
@@ -124,6 +126,8 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  PREEMPTIBLE_ARG=""
+  $PREEMPTIBLE && PREEMPTIBLE_ARG="--preemptible"
   gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -132,6 +136,8 @@ else
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
+      --no-restart-on-failure \
+      ${PREEMPTIBLE_ARG} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
       --labels=purpose=pyth-lst-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi

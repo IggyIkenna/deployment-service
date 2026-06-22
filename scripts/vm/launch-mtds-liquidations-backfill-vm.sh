@@ -14,22 +14,24 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dry-run)  DRY_RUN=true; shift ;;
-    --project)  PROJECT_ID="$2"; shift 2 ;;
-    --zone)     ZONE="$2"; shift 2 ;;
-    --start)    START_DATE="$2"; shift 2 ;;
-    --end)      END_DATE="$2"; shift 2 ;;
-    --force)    FORCE=true; shift ;;
-    --env)      DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --dry-run)     DRY_RUN=true; shift ;;
+    --project)     PROJECT_ID="$2"; shift 2 ;;
+    --zone)        ZONE="$2"; shift 2 ;;
+    --start)       START_DATE="$2"; shift 2 ;;
+    --end)         END_DATE="$2"; shift 2 ;;
+    --force)       FORCE=true; shift ;;
+    --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --preemptible) PREEMPTIBLE=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -89,6 +91,11 @@ METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 
+PREEMPTIBLE_FLAGS=""
+if $PREEMPTIBLE; then
+  PREEMPTIBLE_FLAGS="--preemptible --no-restart-on-failure"
+fi
+
 echo "Creating VM ${VM_NAME}..."
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
@@ -96,6 +103,7 @@ gcloud compute instances create "${VM_NAME}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
   --no-restart-on-failure \
+  ${PREEMPTIBLE_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \

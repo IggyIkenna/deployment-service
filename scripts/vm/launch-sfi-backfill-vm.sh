@@ -77,6 +77,13 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+# Machine type override (default e2-standard-2). The per-league skip-check used
+# to re-read the 6.5 GB sports availability index, OOM-killing e2-standard-2;
+# fixed in instruments-service@505dcd9 (single index read). e2-standard-8
+# (32 GB) is the safe default for large full-range sports backfills.
+# SSOT: plans/active/sports_reference_backfill_oom_2026_06_22.md
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
+
 FORCE=false
 ENTITY=""
 CHUNKS=""
@@ -214,6 +221,13 @@ launch_one_vm() {
   $FORCE && metadata="${metadata},VM_FORCE=true"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+  # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P1): `league` appears in
+  # every per-date line ("league mapping cache hit for date=…" + "Fetched N leagues"), so the stall
+  # timer resets each date the worker advances — an empty-match date still resets it, but the
+  # 2026-06-19 hang (frozen mid-fetch, no new line) trips fast. Verified vs a live SFI run.log;
+  # =/space/comma-free (metadata-safe). SFI raises STALL_TIMEOUT_SEC for empty-date gaps; this lets
+  # that stay tight without false-killing.
+  metadata="${metadata},STALL_PROGRESS_REGEX=league"
 
   local labels="purpose=sfi-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
@@ -228,7 +242,7 @@ launch_one_vm() {
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type="$MACHINE_TYPE" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
