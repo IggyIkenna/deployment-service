@@ -105,12 +105,23 @@ resource "google_storage_bucket_iam_member" "expected_universe_v2_manifest_admin
   member   = "serviceAccount:${google_service_account.expected_universe_v2_enum.email}"
 }
 
-# Cloud Scheduler invokes Cloud Run Jobs via OAuth — the SA used in
-# oauth_token must have roles/run.invoker or every trigger returns 403.
-resource "google_project_iam_member" "expected_universe_v2_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.expected_universe_v2_enum.email}"
+# CRITICAL (added 2026-06-22): the Cloud Scheduler job authenticates as the enum SA
+# (oauth_token below) and POSTs the per-AG job's `:run` endpoint — so the enum SA
+# MUST hold `roles/run.invoker` ON EACH JOB, or the scheduler trigger is rejected
+# with `status code: 7 (PERMISSION_DENIED)` and the job NEVER executes. This was the
+# silent gap that left `expected_unattempted=0` fleet-wide (defi/cefi/tradfi/sports
+# never ran; only a hand-triggered prediction run existed) despite the scheduler +
+# jobs being ENABLED — diagnosed via `gcloud scheduler jobs describe … status.code`.
+# Provenance: plans/active/data_completion_to_100_all_ag_2026_06_21.md Progress Log
+# 2026-06-22 DEFI lane PHASE A.
+resource "google_cloud_run_v2_job_iam_member" "expected_universe_v2_run_invoker" {
+  for_each = local.expected_universe_v2_asset_groups
+
+  project  = var.project_id
+  location = var.region
+  name     = module.expected_universe_v2_job[each.key].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.expected_universe_v2_enum.email}"
 }
 
 module "expected_universe_v2_job" {
