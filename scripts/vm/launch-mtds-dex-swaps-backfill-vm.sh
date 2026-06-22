@@ -14,7 +14,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
@@ -22,6 +22,7 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-}"
 UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-}"
+PREEMPTIBLE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
     --mtds-sha)       MTDS_TARBALL_SHA="$2"; shift 2 ;;
     --utl-sha)        UTL_TARBALL_SHA="$2"; shift 2 ;;
+    --preemptible)    PREEMPTIBLE=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -100,6 +102,11 @@ if [[ -n "${UTL_TARBALL_SHA}" ]]; then
   METADATA="${METADATA},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
 fi
 
+PREEMPTIBLE_FLAGS=""
+if $PREEMPTIBLE; then
+  PREEMPTIBLE_FLAGS="--preemptible --no-restart-on-failure"
+fi
+
 echo "Creating VM ${VM_NAME}..."
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
@@ -107,6 +114,7 @@ gcloud compute instances create "${VM_NAME}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
   --no-restart-on-failure \
+  ${PREEMPTIBLE_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \
