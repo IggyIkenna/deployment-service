@@ -315,7 +315,7 @@ def launch(dispatch: Dispatch, env: str) -> bool:
 
 def _emit(event: str, message: str, **fields: object) -> None:
     try:
-        log_event(event, message=message, **fields)  # type: ignore[arg-type]
+        log_event(event, severity="INFO", details={"message": message, **fields})
     except Exception as exc:  # pragma: no cover - alerting best-effort
         logger.warning("event emit failed event=%s err=%s", event, exc)
 
@@ -412,7 +412,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        setup_events(service_name="tradfi_wave_launcher")
+        setup_events(service_name="tradfi_wave_launcher", mode="local")
     except Exception as exc:  # pragma: no cover - events best-effort
         logger.warning("setup_events failed (continuing): %s", exc)
 
