@@ -883,6 +883,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Registered 2026-05-14 per CLAUDE.md "VM Naming Convention" HARD RULE.
     # After updating this dict, relaunch the watchdog VM.
     "qg-snapshot-": None,
+    # Batch+live smoke matrix cron VM (batch_live_smoke_matrix_2026_06_19.md P2).
+    # Heartbeat-only; runs validate_batch_live_smoke_matrix.py --live-window 8 daily.
+    # Launcher: deployment-service/terraform/gcp/batch_live_smoke_matrix_scheduler.tf.
+    # Registered 2026-06-22 per CLAUDE.md "VM Naming Convention" HARD RULE.
+    "batch-live-smoke-matrix-": None,
     # Honest-coverage cron VM (B-018 Phase 8.A). Heartbeat-only; output is project-level JSON,
     # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
     # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
