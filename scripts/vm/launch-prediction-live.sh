@@ -172,7 +172,7 @@ echo "Launching ${VM_NAME}: Prediction live WS producer ${SHARD_SPEC} env=${DEPL
 # ------------------------------------------------------------------
 METADATA="VM_TASK=mtds-live"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
-METADATA="${METADATA},VM_OPERATION=websocket-streaming"
+METADATA="${METADATA},VM_OPERATION=live_websocket"
 METADATA="${METADATA},VM_MODE=live"
 METADATA="${METADATA},VM_ASSET_GROUP=PREDICTION"
 METADATA="${METADATA},VM_SHARD_SPEC=${SHARD_SPEC}"
