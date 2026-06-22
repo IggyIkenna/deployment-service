@@ -163,6 +163,11 @@ launch_one_vm() {
   metadata="${metadata},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   metadata="${metadata},VM_NAME=${vm_name}"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P1): reset the stall
+  # timer only on a real progress line. `sampled` = each per-block-batch gas sample (the 2026-06-19
+  # incident froze MID block-sampling on a degraded POLYGON RPC); `Wrote` = a per-chain-per-date
+  # parquet write. Markers verified against a live gas-fees run.log; =/space/comma-free (metadata-safe).
+  metadata="${metadata},STALL_PROGRESS_REGEX=sampled|Wrote"
 
   local labels="purpose=mtds-gas-fees-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
