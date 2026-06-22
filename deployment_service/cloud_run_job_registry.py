@@ -71,6 +71,20 @@ def _paper(name: str, *, service: str) -> DeploymentTarget:
     )
 
 
+def _live(name: str, *, service: str, asset_group: str = "") -> DeploymentTarget:
+    """Build a LIVE Cloud Run job target (a scheduler that boots a near-real-time
+    LIVE-capture VM — the cron itself is the classified scheduler-tf job stem)."""
+    return DeploymentTarget(
+        name=name,
+        kind=DeploymentKind.CLOUD_RUN_JOB,
+        umbrella=DeploymentUmbrella.LIVE,
+        cloud=DeploymentCloud.GCP,
+        service=service,
+        asset_group=asset_group,
+        lifecycle_class="",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-asset_group / per-service job families (for_each in terraform).
 # ---------------------------------------------------------------------------
@@ -152,6 +166,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("qg-snapshot-daily", service="unified-trading-pm"),
     # subgraph_health_probe_scheduler.tf
     _batch("subgraph-health-probe", service="market-tick-data-service"),
+    # defi_forward_poll_scheduler.tf — 3 */5 schedulers each boot an ephemeral
+    # defi-fwd-<op>-poll VM running the MTDS DeFi handler in LIVE mode (continuous
+    # near-real-time DeFi price capture). LIVE umbrella; the cron stem is defi-fwd-poll.
+    _live("defi-fwd-poll", service="market-tick-data-service", asset_group="defi"),
     # tarball_cleanup_scheduler.tf
     _batch("tarball-cleanup", service="deployment-service"),
     # vm_log_archival_scheduler.tf
