@@ -285,6 +285,18 @@ launch_year_shard() {
     # 7200s = 2h gives enough headroom for a full year's empty-season gap
     # without letting a truly stalled VM idle indefinitely.
     [[ "$cat" == "sports" ]] && md="${md},STALL_TIMEOUT_SEC=7200"
+    # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P2): with the blunt 2h
+    # threshold above, a GENUINE mid-date hang (a stalled provider socket) idles for up to 2h before
+    # the size-based watchdog trips. Reset the timer only on a real per-date PROGRESS line instead.
+    # `Processing` = "Processing candles for <date>" (per processed date, incl. empty-within-window)
+    # + "📦 Processing data_type: <dt>" (per data_type within a date); `Skipping` = "Skipping <date> -
+    # before earliest data availability" / "Skipping <date> — candles already exist" (per pre-skipped
+    # date). The per-date loop logs exactly one of these for EVERY date it touches
+    # (process_handler.py:517/540/582 — proven invariant), so the marker resets on every healthy date
+    # advance and only fails to reset during a genuine mid-date hang; it errs toward NOT killing.
+    # Category-agnostic shared-orchestration markers (verified against a live mdps-sports run.log);
+    # =/space/comma-free → metadata-safe.
+    [[ "$cat" == "sports" ]] && md="${md},STALL_PROGRESS_REGEX=Processing|Skipping"
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
