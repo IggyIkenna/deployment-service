@@ -28,12 +28,32 @@ steps:
     waitFor: ["-"]
 
   # Pull the UTL base explicitly so the Dockerfile FROM-line hits local cache (AR auth quirk).
+  #
+  # DIGEST-AWARE (FROM-digest ratchet, 2026-06-10): the Dockerfile pins
+  # `ARG BASE_IMAGE_DIGEST=sha256:<64-hex>` and builds `FROM ...@${BASE_IMAGE_DIGEST}`.
+  # A bare `:latest` pre-pull warms a DIFFERENT manifest, so the in-build FROM @<pinned>
+  # falls through to a daemon-side registry pull which is UNAUTHENTICATED → "denied"
+  # (live incident 2026-06-22). Pre-pull the PINNED manifest authenticated first; :latest
+  # is also pulled so unpinned/legacy Dockerfiles keep working. Mirrors mtds cloudbuild.yaml.
   - name: "gcr.io/cloud-builders/docker"
     id: "pull-base-image"
     waitFor: ["configure-docker"]
+    entrypoint: "bash"
     args:
-      - "pull"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library:latest"
+      - "-c"
+      - |
+        set -euo pipefail
+        # NOTE: double-dollar escapes shell vars from Cloud Build's OWN substitution pass
+        # (PROJECT_ID is deliberately single-dollar — it IS a Cloud Build substitution).
+        # The substitution validator scans this WHOLE block INCLUDING comment lines,
+        # so even prose may not contain dollar-PIN/dollar-BASE.
+        BASE="${_REGION}-docker.pkg.dev/$PROJECT_ID/unified-trading-library/unified-trading-library"
+        PIN=$$(sed -n 's/^ARG BASE_IMAGE_DIGEST=\(sha256:[0-9a-f]\{64\}\).*/\1/p' Dockerfile | head -1 || true)
+        if [ -n "$$PIN" ]; then
+          echo "pinned base digest: $$PIN — pre-pulling the PINNED manifest"
+          docker pull "$${BASE}@$${PIN}"
+        fi
+        docker pull "$${BASE}:latest" || true
 
   - name: "gcr.io/cloud-builders/docker"
     id: "build"

@@ -34,6 +34,10 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
@@ -88,19 +92,24 @@ if [[ "$STATUS_ONLY" == "true" ]]; then
   echo "Sports Features Backfill — VM Status"
   echo "============================================================"
 
-  LOG_FILES=$(gsutil ls "${GCS_STAGING}/logs/fss-backfill-vm-*.log" 2>/dev/null || true)
+  # Canonical durable-log path written by lc_log_upload_trap_block:
+  # gs://deployment-scripts-<pid>/vm-logs/<vm_name>/run.log (+ EXIT_STATUS).
+  LOG_BASE="gs://deployment-scripts-${PROJECT_ID}/vm-logs"
+  LOG_FILES=$(gsutil ls "${LOG_BASE}/fss-backfill-vm-*/run.log" 2>/dev/null || true)
   if [[ -z "$LOG_FILES" ]]; then
-    echo "No log files found in ${GCS_STAGING}/logs/"
+    echo "No log files found under ${LOG_BASE}/fss-backfill-vm-*/"
     echo "VMs may still be starting up. Check directly:"
     echo "  gcloud compute instances list --filter='name~fss-backfill-vm'"
     exit 0
   fi
 
   for FILE in $LOG_FILES; do
-    VM_NAME=$(basename "$FILE" .log)
+    # .../vm-logs/<vm_name>/run.log → <vm_name>
+    VM_NAME=$(basename "$(dirname "$FILE")")
+    EXIT_STATUS=$(gsutil cat "${LOG_BASE}/${VM_NAME}/EXIT_STATUS" 2>/dev/null || echo "running")
     echo ""
-    echo "--- ${VM_NAME} ---"
-    gsutil cat "$FILE" 2>/dev/null | rg "(Date |COMPLETE|FAILED|WARNING|FSS Features)" || true
+    echo "--- ${VM_NAME} (exit_status=${EXIT_STATUS}) ---"
+    gsutil cat "$FILE" 2>/dev/null | rg "(Date |COMPLETE|FAILED|WARNING|FSS Features|VM EXIT)" || true
   done
 
   echo ""
@@ -284,6 +293,15 @@ launch_vm() {
   local CHUNK_END=$3
   local VM_NAME="fss-backfill-vm-${VM_NUM}"
 
+  # Durable-log streamer (deployment-service/scripts/vm/lib/launcher_common.sh):
+  # continuous canonical-path run.log stream every 30s + heartbeat + terminal
+  # EXIT_STATUS marker + guaranteed final upload + shutdown — self-delete-proof
+  # observability so the /deployments surface + exit_code monitor see this VM.
+  # Replaces the old 60s loop that streamed to a NON-canonical staging path and
+  # never wrote the EXIT_STATUS marker the monitor reads.
+  local LOG_TRAP
+  LOG_TRAP="$(lc_log_upload_trap_block "${VM_NAME}" "${PROJECT_ID}" "SPORTS" "features-sports-parallel-backfill")"
+
   local STARTUP_FILE
   STARTUP_FILE=$(mktemp)
   cat > "$STARTUP_FILE" << STARTUP_EOF
@@ -293,22 +311,11 @@ export WORK_DIR=/tmp/fss_backfill
 export HOME=/root
 export PATH="/root/.local/bin:\$PATH"
 
-exec > >(tee /var/log/fss-backfill.log) 2>&1
-
 export GCP_PROJECT_ID="${PROJECT_ID}"
 export GOOGLE_CLOUD_PROJECT="${PROJECT_ID}"
 export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 
-# --- Streaming log upload (every 60s) ---
-LOG_GCS_PATH="${GCS_STAGING}/logs/${VM_NAME}.log"
-(
-  while true; do
-    sleep 60
-    gsutil -q cp /var/log/fss-backfill.log "\${LOG_GCS_PATH}" 2>/dev/null || true
-  done
-) &
-LOG_STREAMER_PID=\$!
-trap "kill \${LOG_STREAMER_PID} 2>/dev/null; gsutil -q cp /var/log/fss-backfill.log \${LOG_GCS_PATH}" EXIT
+${LOG_TRAP}
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Range: ${CHUNK_START} → ${CHUNK_END}"
@@ -346,9 +353,12 @@ bash \${WORK_DIR}/vm_fss_features.sh \\
   ${FORCE_FLAG} \\
   --work-dir \${WORK_DIR}
 
-echo "Backfill complete. Shutting down..."
+echo "Backfill complete."
 date
-shutdown -h now
+# run.log + EXIT_STATUS upload + shutdown handled by the lc_log_upload_trap_block
+# EXIT trap above (a backfill failure under set -e exits non-zero → the trap
+# records that rc as the terminal EXIT_STATUS).
+exit 0
 STARTUP_EOF
 
   echo "  Launching ${VM_NAME} (${CHUNK_START} → ${CHUNK_END})..."
@@ -407,8 +417,8 @@ echo "Monitor progress:"
 echo "  bash scripts/launch_parallel_backfill.sh --status"
 echo ""
 echo "Check individual VM logs:"
-echo "  gcloud compute ssh fss-backfill-vm-<N> --zone=${ZONE} -- tail -f /var/log/fss-backfill.log"
-echo "  gsutil cat ${GCS_STAGING}/logs/fss-backfill-vm-<N>.log | tail -20"
+echo "  gcloud compute ssh fss-backfill-vm-<N> --zone=${ZONE} -- tail -f /var/log/run.log"
+echo "  gsutil cat gs://deployment-scripts-${PROJECT_ID}/vm-logs/fss-backfill-vm-<N>/run.log | tail -20"
 echo ""
 echo "Stop all VMs:"
 echo "  for i in \$(seq 1 ${NUM_VMS}); do gcloud compute instances delete fss-backfill-vm-\$i --zone=${ZONE} --quiet; done"

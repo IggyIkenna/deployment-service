@@ -39,6 +39,9 @@ EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calcula
 EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py" --glob "!**/orchestrator.py")
 # GCP_PROJECT_ID: docstrings, template substitution strings, error messages, bash heredocs
 GCP_PROJECT_ID_EXCLUDE_GLOBS=("!**/cli/commands/calculation.py" "!**/smoke_test_framework.py" "!**/deployment_config.py" "!**/config_loader.py" "!**/cloud_client.py" "!**/backends/services/vm_config.py" "!**/dependencies.py" "!**/shard_builder.py" "!**/backends/services/vm_lifecycle.py")
+# escalation.py calls setup_events() as a best-effort module-level initializer (not
+# an entry-point main) — its callers own the run_lifecycle context; exclude from STEP 5.63.
+LIFECYCLE_EXCLUDE_GLOBS=("!**/data_pipeline_monitors/escalation.py")
 # Ratcheted 8→1 on 2026-06-11 (codex_violations_ratchet_to_five_2026_06_10 plan): census run
 # showed a single firing class (broad-except, documented in QUALITY_GATE_BYPASS_AUDIT.md).
 # Budgets only ratchet DOWN — a bump is review-blocking.

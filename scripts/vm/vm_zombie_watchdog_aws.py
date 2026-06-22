@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-import boto3
+import boto3  # noqa: TID251 — script-level AWS watchdog; boto3 is the mandatory dep for this AWS-only script
 from botocore.exceptions import ClientError
 from unified_api_contracts import VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass

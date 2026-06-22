@@ -193,6 +193,12 @@ if $CAPTURE; then
   fi
 fi
 
+# Durable-log streamer (deployment-service/scripts/vm/lib/launcher_common.sh):
+# continuous GCS run.log stream every 30s + heartbeat + terminal EXIT_STATUS
+# marker + guaranteed final upload + shutdown — self-delete-proof observability
+# so the /deployments surface + exit_code monitor see this VM.
+LOG_TRAP="$(lc_log_upload_trap_block "${VM_NAME}" "${PROJECT_ID}" "DEFI" "amm-golden-validation")"
+
 STARTUP_SCRIPT=$(cat <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
@@ -205,7 +211,7 @@ export CLOUD_MOCK_MODE=false
 export DEPLOYMENT_ENV="${DEPLOYMENT_ENV}"
 $( [[ -n "$ALCHEMY_KEY" ]] && echo "export WEB3_PROVIDER_URI=\"https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}\"" )
 
-exec > >(tee /var/log/amm-golden-validation.log) 2>&1
+${LOG_TRAP}
 
 echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Shape:          ${SHAPE}"
@@ -270,12 +276,9 @@ echo ""
 echo "=== Validation complete: shape=${SHAPE} exit=\${EXIT_CODE} ==="
 date
 
-gsutil -q cp /var/log/amm-golden-validation.log \
-  "gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log" 2>/dev/null || true
-
-echo "Auto-shutdown in 30s..."
-sleep 30
-shutdown -h now
+# run.log + EXIT_STATUS upload + shutdown handled by the lc_log_upload_trap_block
+# EXIT trap above. Surface the workload rc so the trap records it as EXIT_STATUS.
+exit \${EXIT_CODE}
 STARTUP_EOF
 )
 
