@@ -480,3 +480,52 @@ class TestC2MachineTypeSnapToValid:
         loader = ConfigLoader(str(config_dir_c2_scaling))
         config = loader.get_scaled_compute_config("c2-scale-test", "vm", max_workers=64)
         assert config["machine_type"] == "c2-standard-60"
+
+
+class TestScaleMachineType:
+    """Tests for ConfigLoader._scale_machine_type — the VM/Cloud-Run resource
+    scaling math (pure: no config files, no I/O). Covers both compute branches,
+    the c2 valid-vCPU snapping, Gi/Mi memory units, the non-matching passthrough,
+    and copy-not-mutate semantics."""
+
+    def _loader(self, tmp_path):
+        # __init__ does not read config files (only load_* does), so a bare dir is fine.
+        return ConfigLoader(str(tmp_path))
+
+    def test_vm_scaling_snaps_to_valid_c2_vcpus(self, tmp_path):
+        loader = self._loader(tmp_path)
+        cfg = {"machine_type": "c2-standard-16", "disk_size_gb": 150}
+        out = loader._scale_machine_type(cfg, 2.0, "vm")
+        # 16*2=32 requested -> nearest valid c2 size (4,8,16,30,60) is 30
+        assert out["machine_type"] == "c2-standard-30"
+        assert out["disk_size_gb"] == 300  # 150 * 2.0
+
+    def test_vm_scaling_caps_at_60_vcpus(self, tmp_path):
+        loader = self._loader(tmp_path)
+        out = loader._scale_machine_type({"machine_type": "c2-standard-30"}, 4.0, "vm")
+        # 30*4=120 requested, capped at 60 -> snaps to 60
+        assert out["machine_type"] == "c2-standard-60"
+
+    def test_vm_non_c2_machine_type_passthrough(self, tmp_path):
+        loader = self._loader(tmp_path)
+        out = loader._scale_machine_type({"machine_type": "n2-standard-8", "disk_size_gb": 100}, 2.0, "vm")
+        assert out["machine_type"] == "n2-standard-8"  # regex no-match -> unchanged
+        assert out["disk_size_gb"] == 200
+
+    def test_cloud_run_gi_memory_caps_at_128(self, tmp_path):
+        loader = self._loader(tmp_path)
+        out = loader._scale_machine_type({"memory": "64Gi", "cpu": "8"}, 2.0, "cloud_run")
+        assert out["memory"] == "128Gi"  # min(128, 64*2)
+        assert out["cpu"] == "8"  # min(8, 8*2)
+
+    def test_cloud_run_mi_memory_and_int_cpu(self, tmp_path):
+        loader = self._loader(tmp_path)
+        out = loader._scale_machine_type({"memory": "512Mi", "cpu": 2}, 2.0, "cloud_run")
+        assert out["memory"] == "1024Mi"
+        assert out["cpu"] == "4"  # min(8, 2*2)
+
+    def test_does_not_mutate_input(self, tmp_path):
+        loader = self._loader(tmp_path)
+        cfg = {"machine_type": "c2-standard-16", "disk_size_gb": 150}
+        loader._scale_machine_type(cfg, 2.0, "vm")
+        assert cfg == {"machine_type": "c2-standard-16", "disk_size_gb": 150}
