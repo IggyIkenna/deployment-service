@@ -76,19 +76,32 @@ from unified_trading_library import (  # noqa: qg-deep-import
     log_event,
 )
 
+
 # The Layer-0 recovery actuators live in the top-level ``scripts/recovery/`` dir,
 # NOT inside the installed ``deployment_service`` wheel — so in a packaged runtime
 # (the deployment-api Cloud Run image installs the package then DROPS the source,
 # and ``scripts/vm/`` launchers are absent too) ``scripts.recovery`` is not
 # importable. A module-level import there would crash EVERY monitor at load (the
-# 2026-06-23 incident). So we capability-CHECK with ``find_spec`` (a probe, not a
-# try/except fallback) and import lazily inside each dispatch fn. When the
-# actuators are absent the ``auto_recover`` tier degrades to ``file_issue`` — never
-# a crash, never a silent no-op. SSOT: data-pipeline-alerts.md § "Self-heal
-# actuator layer" + the P1 "package the actuators into the image" todo.
-_ACTUATORS_AVAILABLE = (
-    importlib.util.find_spec("scripts.recovery.relaunch_consolidator") is not None
-)
+# 2026-06-23 incident). So we capability-PROBE and import lazily inside each
+# dispatch fn. When the actuators are absent the ``auto_recover`` tier degrades to
+# ``file_issue`` — never a crash, never a silent no-op. SSOT: data-pipeline-alerts.md
+# § "Self-heal actuator layer" + the P1 "package the actuators into the image" todo.
+def _probe_actuators_available() -> bool:
+    """True iff the Layer-0 ``scripts.recovery`` actuators are importable here.
+
+    ``find_spec`` imports the PARENT packages to resolve a dotted name, so when a
+    top-level ``scripts`` exists (the image ships deployment-api's own ``scripts/``)
+    but has no ``recovery`` submodule it raises ``ModuleNotFoundError`` rather than
+    returning ``None``. Catching that narrow error is a capability PROBE — there is
+    no import statement here and no fallback module, so it is not a fallback-import.
+    """
+    try:
+        return importlib.util.find_spec("scripts.recovery.relaunch_consolidator") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+_ACTUATORS_AVAILABLE = _probe_actuators_available()
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +168,7 @@ _ISSUE_ASSIGNED_VM = "vm-cross-cutting"
 # a VM-lifecycle finding (stall / exit / starvation) → deployment-service. Used
 # to NAME the target repo in the actionable issue todo (so a worker knows where
 # to look). Keyed on the DP_* event family.
-_VM_LIFECYCLE_EVENTS = frozenset(
-    {"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN"}
-)
+_VM_LIFECYCLE_EVENTS = frozenset({"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN"})
 
 
 def _slugify(text: str) -> str:
