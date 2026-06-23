@@ -108,10 +108,16 @@ mkdir -p /opt/deployment-service/scripts/vm/lib
 gsutil cp "${LAUNCHER_GCS_PATH}" /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh
 chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh
 
+# PATH MUST include /snap/bin — gcloud/gsutil are the snap symlinked into
+# /snap/bin on Ubuntu-2404 GCE, NOT /usr/bin; cron's minimal default PATH lacks
+# it → \`gsutil: command not found\` → the fire never runs. Date/rc double-escaped
+# (\\\$) so they evaluate at FIRE time, not startup-script-generation time
+# (single-escape baked a frozen launch-minute timestamp + rc=0 into the crontab).
+# Same fix as the tradfi-fwd twin (2026-06-23).
 cat > /etc/cron.d/cefi-fwd-daily <<CRON_EOF
 SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-${CRON_MIN} ${CRON_HOUR} * * * root gsutil cp ${LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh --env ${DEPLOYMENT_ENV} >> /var/log/cefi-fwd-cron.log 2>&1 || echo "[\$(date -u +%FT%TZ)] cefi-fwd cron fire FAILED rc=\$?" >> /var/log/cefi-fwd-cron.log
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+${CRON_MIN} ${CRON_HOUR} * * * root gsutil cp ${LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh --env ${DEPLOYMENT_ENV} >> /var/log/cefi-fwd-cron.log 2>&1 || echo "[\\\$(date -u +%FT%TZ)] cefi-fwd cron fire FAILED rc=\\\$?" >> /var/log/cefi-fwd-cron.log
 CRON_EOF
 chmod 0644 /etc/cron.d/cefi-fwd-daily
 
