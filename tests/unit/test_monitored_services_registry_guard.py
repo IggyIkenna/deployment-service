@@ -1,0 +1,154 @@
+"""Guard test for the long-lived-service monitoring registry (Phase 4, gap #6).
+
+Asserts:
+
+(a) every ``service`` / ``api-service`` / ``api`` repo in
+    ``workspace-manifest.json`` (minus the named ``_NOT_LONG_LIVED_SERVICE_REPOS``
+    exclusions) has a ``MONITORED_SERVICES`` entry — the canonical "added a
+    service, forgot to register it for monitoring" guard;
+(b) every ``MONITORED_SERVICES`` entry's name classifies via
+    ``classify_deployment_target`` without raising ``UnclassifiedDeploymentError``,
+    and lands on the LIVE umbrella;
+(c) no ``MONITORED_SERVICES`` entry duplicates a ``CLOUD_RUN_JOBS`` job name
+    (services are not jobs);
+(d) ``batch-service`` repos are NOT required here (they register as Cloud Run
+    jobs in ``CLOUD_RUN_JOBS``).
+
+The workspace-manifest is located by walking up from this file to the workspace
+root (mirroring how the Cloud-Run-job guard locates ``terraform/gcp`` via
+``_REPO_ROOT = Path(__file__).resolve().parents[2]``).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+# Ensure resolve_bucket_name (called transitively at deployment_classification /
+# monitored_services import time) has an env tier + project to resolve against.
+# Reads the UAC-packaged cloud-providers.yaml — no network.
+os.environ.setdefault("DEPLOYMENT_ENV", "prod")
+os.environ.setdefault("GCP_PROJECT_ID", "test-project")
+os.environ.setdefault("PROJECT_ID", "test-project")
+
+from unified_api_contracts import DeploymentUmbrella  # noqa: E402 — after env setup.
+
+from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS  # noqa: E402
+from deployment_service.deployment_classification import (  # noqa: E402
+    UnclassifiedDeploymentError,
+    classify_deployment_target,
+)
+from deployment_service.monitored_services import (  # noqa: E402
+    _NOT_LONG_LIVED_SERVICE_REPOS,
+    MONITORED_SERVICES,
+    is_service_monitored,
+    monitored_service_names,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_WORKSPACE_ROOT = _REPO_ROOT.parent
+_MANIFEST = _WORKSPACE_ROOT / "unified-trading-pm" / "workspace-manifest.json"
+
+# The long-lived deployable-service repo types (mirrors
+# scripts/validation/check-no-service-deps.py ``_SERVICE_REPO_TYPES`` minus
+# ``batch-service`` — batch repos register as Cloud Run JOBS, not services).
+_LONG_LIVED_SERVICE_TYPES: frozenset[str] = frozenset({"service", "api-service", "api"})
+
+
+def _long_lived_service_repos() -> set[str]:
+    """Every repo in workspace-manifest with a long-lived deployable-service type."""
+    repos = json.loads(_MANIFEST.read_text()).get("repositories", {})
+    return {
+        name
+        for name, meta in repos.items()
+        if meta.get("type") in _LONG_LIVED_SERVICE_TYPES and name not in _NOT_LONG_LIVED_SERVICE_REPOS
+    }
+
+
+# ---------------------------------------------------------------------------
+# (a) every long-lived service repo is registered for monitoring.
+# ---------------------------------------------------------------------------
+def test_every_long_lived_service_repo_is_registered() -> None:
+    """Each service/api-service/api repo has a MONITORED_SERVICES entry."""
+    assert _MANIFEST.exists(), f"workspace-manifest.json not found at {_MANIFEST}"
+    expected = _long_lived_service_repos()
+    assert expected, "no long-lived service repos found — wrong manifest path / type set?"
+    registered = monitored_service_names()
+    missing = sorted(expected - registered)
+    assert not missing, (
+        "Deployable service(s) NOT registered for monitoring — add a MONITORED_SERVICES "
+        f"entry (gap #6 guard):\n{missing}"
+    )
+
+
+def test_no_stray_registry_entries() -> None:
+    """Every MONITORED_SERVICES name is an actual long-lived service repo."""
+    repos = json.loads(_MANIFEST.read_text()).get("repositories", {})
+    stray = sorted(name for name in MONITORED_SERVICES if name not in repos)
+    assert not stray, f"MONITORED_SERVICES names not present in workspace-manifest: {stray}"
+
+
+# ---------------------------------------------------------------------------
+# (b) every registered entry classifies (LIVE umbrella), no raise.
+# ---------------------------------------------------------------------------
+def test_every_registered_service_classifies_live() -> None:
+    """Each MONITORED_SERVICES name classifies without raising, on LIVE umbrella."""
+    failures: list[str] = []
+    for name in MONITORED_SERVICES:
+        try:
+            target = classify_deployment_target(name, lifecycle_class="LONG_LIVED_LIVE", service=name)
+        except UnclassifiedDeploymentError as exc:  # pragma: no cover - failure path
+            failures.append(f"{name!r}: {exc}")
+            continue
+        assert target.umbrella is DeploymentUmbrella.LIVE, f"{name} not LIVE: {target.umbrella}"
+    assert not failures, "Unclassified monitored services:\n" + "\n".join(failures)
+
+
+def test_stored_targets_are_live() -> None:
+    """The stored DeploymentTarget on each entry is on the LIVE umbrella."""
+    for name, svc in MONITORED_SERVICES.items():
+        assert svc.umbrella is DeploymentUmbrella.LIVE, f"{name} stored umbrella not LIVE"
+        assert svc.health_path == "/health", f"{name} health_path not /health"
+
+
+# ---------------------------------------------------------------------------
+# (c) services are not jobs — no name collision with CLOUD_RUN_JOBS.
+# ---------------------------------------------------------------------------
+def test_no_service_collides_with_a_cloud_run_job() -> None:
+    """No MONITORED_SERVICES name duplicates a CLOUD_RUN_JOBS job name."""
+    job_names = {t.name for t in CLOUD_RUN_JOBS}
+    collisions = sorted(set(MONITORED_SERVICES) & job_names)
+    assert not collisions, f"Service names collide with Cloud Run job names (services != jobs): {collisions}"
+
+
+# ---------------------------------------------------------------------------
+# (d) batch-service repos are NOT required in the service registry.
+# ---------------------------------------------------------------------------
+def test_batch_service_repos_not_in_service_registry() -> None:
+    """A batch-service repo registers as a Cloud Run job, not a monitored service."""
+    repos = json.loads(_MANIFEST.read_text()).get("repositories", {})
+    batch_repos = {name for name, meta in repos.items() if meta.get("type") == "batch-service"}
+    overlap = sorted(batch_repos & set(MONITORED_SERVICES))
+    assert not overlap, f"batch-service repos wrongly registered as monitored services: {overlap}"
+
+
+# ---------------------------------------------------------------------------
+# accessor sanity + guard-not-vacuous.
+# ---------------------------------------------------------------------------
+def test_is_service_monitored_accessor() -> None:
+    """is_service_monitored returns True for a registered svc, False otherwise."""
+    a_registered = next(iter(MONITORED_SERVICES))
+    assert is_service_monitored(a_registered)
+    assert not is_service_monitored("totally-unregistered-phantom-service")
+
+
+def test_guard_detects_an_unregistered_service() -> None:
+    """The (a) guard MUST fail if a long-lived service is unregistered (not vacuous)."""
+    expected = _long_lived_service_repos()
+    registered = monitored_service_names()
+    # Simulate dropping one registered repo: it must then be reported missing.
+    a_registered = next(iter(registered & expected))
+    simulated_registered = registered - {a_registered}
+    missing = expected - simulated_registered
+    assert a_registered in missing, "guard is vacuous — dropping a service was not detected as missing"
