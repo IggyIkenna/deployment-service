@@ -57,6 +57,7 @@ alert. The path-present case (a VM/slot with the PM clone) writes the file.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import re
@@ -75,9 +76,19 @@ from unified_trading_library import (  # noqa: qg-deep-import
     log_event,
 )
 
-from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm
-from scripts.recovery.relaunch_consolidator import RelaunchConsolidator
-from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm
+# The Layer-0 recovery actuators live in the top-level ``scripts/recovery/`` dir,
+# NOT inside the installed ``deployment_service`` wheel — so in a packaged runtime
+# (the deployment-api Cloud Run image installs the package then DROPS the source,
+# and ``scripts/vm/`` launchers are absent too) ``scripts.recovery`` is not
+# importable. A module-level import there would crash EVERY monitor at load (the
+# 2026-06-23 incident). So we capability-CHECK with ``find_spec`` (a probe, not a
+# try/except fallback) and import lazily inside each dispatch fn. When the
+# actuators are absent the ``auto_recover`` tier degrades to ``file_issue`` — never
+# a crash, never a silent no-op. SSOT: data-pipeline-alerts.md § "Self-heal
+# actuator layer" + the P1 "package the actuators into the image" todo.
+_ACTUATORS_AVAILABLE = (
+    importlib.util.find_spec("scripts.recovery.relaunch_consolidator") is not None
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +173,18 @@ def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     job is already in-flight). A FAILED/PAGE verdict → ``recovered=False`` so the
     caller falls through to file_issue.
     """
+    if not _ACTUATORS_AVAILABLE:
+        return {
+            "recovered": False,
+            "actuator": "relaunch_consolidator",
+            "result": {"status": "UNAVAILABLE", "reason": "actuators_not_in_runtime"},
+        }
+    # Dynamic import (NOT a function-level `import` statement) — load-safe
+    # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    _mod = importlib.import_module("scripts.recovery.relaunch_consolidator")
+
     asset_group = str(finding.details.get("asset_group", "")).strip()
-    actuator = RelaunchConsolidator()
+    actuator = _mod.RelaunchConsolidator()
     result = actuator.relaunch(asset_group, dry_run=dry_run)
     recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
     return {"recovered": recovered, "actuator": "relaunch_consolidator", "result": result}
@@ -191,7 +212,17 @@ def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str
             "actuator": "relaunch_backfill_vm",
             "result": {"status": "SKIPPED", "reason": "no_launcher_binding"},
         }
-    actuator = RelaunchBackfillVm()
+    if not _ACTUATORS_AVAILABLE:
+        return {
+            "recovered": False,
+            "actuator": "relaunch_backfill_vm",
+            "result": {"status": "UNAVAILABLE", "reason": "actuators_not_in_runtime"},
+        }
+    # Dynamic import (NOT a function-level `import` statement) — load-safe
+    # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    _mod = importlib.import_module("scripts.recovery.relaunch_backfill_vm")
+
+    actuator = _mod.RelaunchBackfillVm()
     result = actuator.relaunch(
         str(details.get("vm_name", "")),
         exit_code=exit_code,
@@ -213,7 +244,17 @@ def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str,
     """
     details = finding.details
     launcher = str(details.get("relaunch_launcher", "")).strip()
-    actuator = RelaunchStalledVm()
+    if not _ACTUATORS_AVAILABLE:
+        return {
+            "recovered": False,
+            "actuator": "relaunch_stalled_vm",
+            "result": {"status": "UNAVAILABLE", "reason": "actuators_not_in_runtime"},
+        }
+    # Dynamic import (NOT a function-level `import` statement) — load-safe
+    # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    _mod = importlib.import_module("scripts.recovery.relaunch_stalled_vm")
+
+    actuator = _mod.RelaunchStalledVm()
     result = actuator.relaunch(
         str(details.get("vm_name", "")),
         launcher=launcher,
