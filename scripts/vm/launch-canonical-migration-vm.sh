@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Phase 3.4 canonical-migration VM launcher — rewrite historical GCS data to
 # the canonical partition layout for each category. Each VM runs
 # migrate_{category}_canonical.py in dry-run OR full mode.

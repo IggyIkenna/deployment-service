@@ -1,5 +1,6 @@
 # Epic: observability_master
 # Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``refetch_feed`` — active self-healing for a stale data feed.
 
 Runbook: RB-CONN-001.

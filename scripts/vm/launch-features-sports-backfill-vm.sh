@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
 # For NEW single-cell features-sports backfills use the consolidated launcher:
 #   bash launch-features-vm.sh --feature-family sports --asset-group SPORTS \

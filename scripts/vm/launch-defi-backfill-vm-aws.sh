@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 equivalent of launch-defi-backfill-vm.sh.
 # Launches instruments-service DeFi-targeted backfill on EC2 (ap-northeast-1).
 #

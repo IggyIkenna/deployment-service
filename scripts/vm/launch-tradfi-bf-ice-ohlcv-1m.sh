@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch ICE OHLCV-1m backfill VMs (one per (root, year-shard)).
 #
 # ICE roots per OHLCV-only MVP plan (Phase 6): currently empty until the

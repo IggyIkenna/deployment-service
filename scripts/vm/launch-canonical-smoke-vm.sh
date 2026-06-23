@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Phase 2 canonical-write smoke test launcher — spawn an MTDS VM that writes
 # ONE day of data per category with IS_TEST_RUN=true so writes land in
 # `-test-{project_id}` buckets (market-data-tick-test-cefi-..., etc.) instead

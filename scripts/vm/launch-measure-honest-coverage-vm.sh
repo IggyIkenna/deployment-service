@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a same-region GCE VM that runs the cross-asset honest-coverage
 # measurement script (instruments-service/scripts/measure_honest_coverage.py)
 # and writes the result to gs://central-element-323112-honest-coverage/{date}/coverage.json.

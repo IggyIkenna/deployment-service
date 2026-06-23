@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # ============================================================================
 # archive-flat-buckets.sh — Phase 2.6 Step 5: set 30-day delete lifecycle
 # policy on flat (no-env-tier) buckets after delegate-flip is deployed.

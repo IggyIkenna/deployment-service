@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Provision manual-audit buckets across 3 envs × 2 clouds.
 #
 # Phase 0c — manual-audit bucket provisioning

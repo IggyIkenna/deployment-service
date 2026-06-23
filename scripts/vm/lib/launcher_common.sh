@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # VM launcher shared library — source this file from launch-*.sh scripts.
 #
 # Provides:

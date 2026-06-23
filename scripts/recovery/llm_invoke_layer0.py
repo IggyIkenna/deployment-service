@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-1.5 LLM wrapper around the 10 closed-set Layer-0 scripts.
 
 This is the **ONLY** entry point through which the LLM

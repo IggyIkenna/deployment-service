@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Build and deploy agent-orchestrator to Cloud Run (europe-west4).
 #
 # Mirrors deploy-ui.sh shape; right-sized for an API-only service:

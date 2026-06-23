@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Epic: predictions_master
 # Lifecycle: permanent
+# Delete-when: NA
 #
 # Launch a long-running GCE VM that runs MTDS in live mode, recording CLOB
 # book-snapshot ticks for perp-CLOB venues (Kalshi-perp + Polymarket-perp).

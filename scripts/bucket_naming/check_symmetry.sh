@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Bucket name symmetry checker — AWS ↔ GCP.
 #
 # Verifies cloud-providers.yaml: every kind present in both clouds must resolve

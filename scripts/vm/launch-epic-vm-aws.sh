@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch an epic VM from the orchestrator VM registry on AWS EC2.
 #
 # AWS equivalent of launch-epic-vm.sh — reads the same orchestrator_vm_registry.yaml,

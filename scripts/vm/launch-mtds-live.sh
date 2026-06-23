@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a long-running GCE VM that runs MTDS in live mode for a given asset_group.
 #
 # Purpose: subscribe to per-venue WebSocket feeds for the operator-expected

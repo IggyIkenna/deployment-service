@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # VM execution wrapper (Gate G1 — deployment observability).
 #
 # Responsibilities:

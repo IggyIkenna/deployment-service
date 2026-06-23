@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills Transfermarkt reference data (player values,
 # transfers, squads, leagues). Same code path as Cloud Run Tier-2 — dispatched
 # to a VM for multi-year historical runs without blocking a laptop.

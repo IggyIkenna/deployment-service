@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Refresh VM-deployment code tarballs from live-defi-rollout — SHA-skip + clean-by-construction.
 #
 # WHY: VM-deployment tarballs (gs://{code-bucket}/code/*-code.tar.gz) are the rapid-dev

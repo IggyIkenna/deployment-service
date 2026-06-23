@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Migrated 2026-06-22 (features_repo_consolidation finalisation): this launcher
 # now invokes the CONSOLIDATED entry-point
 # `features_service.sports.scripts.compute_sfi_progressive_only` (moved into the

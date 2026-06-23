@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that runs the per-instrument-grain v2 expected-
 # universe enumerator (`instruments-service/scripts/enumerate_expected_universe.py
 # --enumerator-version v2`) for a given asset_group.

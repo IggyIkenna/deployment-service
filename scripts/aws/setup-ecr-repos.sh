@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Provision the 8 missing ECR repositories needed for DeFi cutover.
 #
 # Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.md Phase 3.

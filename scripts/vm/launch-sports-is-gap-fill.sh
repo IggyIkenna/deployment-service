@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a targeted instruments-service sports gap-fill VM.
 #
 # Targets a single entity type (--entity) over a specific date range

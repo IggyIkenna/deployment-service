@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Phase 5 — AWS bucket rename: unified-trading-* → canonical symmetric names
 #
 # Context: coordinator data_pipeline_master_coordination_2026_05_20.md Phase 5.

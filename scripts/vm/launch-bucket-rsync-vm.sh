@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # gap-2.6.A — Bucket-rsync VM launcher (Phase 2.6 cutover Wave 2-5 worker).
 #
 # Launches a GCE VM that runs `gcloud storage rsync` from a FLAT source bucket

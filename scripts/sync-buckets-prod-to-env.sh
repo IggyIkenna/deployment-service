@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # ============================================================================
 # sync-buckets-prod-to-env.sh — prod → {staging,dev} bucket sync with a
 # truncated date window + same-region enforcement.

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a same-region GCE VM that runs the cross-asset manifest rescan +
 # class-A auto-flips (per `manifest_cross_asset_rescan_design_2026_05_08.md`
 # Phase 3.A + `manifest_schema_final_gate_2026_05_09.md` Phase 3.A).

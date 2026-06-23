@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Apply IAM bucket policies to unified-trading S3 buckets.
 # Reads the policy intent from configs/iam-bucket-policies.aws.yaml and generates
 # per-bucket IAM policy JSON, then applies via aws s3api put-bucket-policy.

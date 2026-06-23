@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs the Phase 3C Aave V3 lending rate validation harness.
 #
 # Validates that LendingRateImpactCalculator.post_trade_rate() matches real

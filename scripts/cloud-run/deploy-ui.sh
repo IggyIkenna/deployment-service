@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Build and deploy unified-trading-system-ui to Cloud Run (europe-west4).
 #
 # SSOT for the build+deploy contract: docs/core/DEPLOYMENT.md.

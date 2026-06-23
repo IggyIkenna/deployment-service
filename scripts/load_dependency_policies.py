@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Load + validate dependency_health_policies.yaml at startup.
 
 Fails loud on any missing required field or invalid DependencyClass value —

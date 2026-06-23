@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch sharded MDPS catch-up VMs (one VM per asset_group × year shard).
 #
 # Why: single-VM MDPS catch-up takes too long for the full historical window

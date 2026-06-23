@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # TradFi OHLCV session-stamp backfill VM launcher.
 #
 # Walks the TradFi raw-tick-data bucket, reads every OHLCV parquet missing

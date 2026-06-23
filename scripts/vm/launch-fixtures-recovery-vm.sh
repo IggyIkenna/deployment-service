@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs the Phase 2 fixtures recovery from the Phase 1 truth-set.
 #
 # Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md

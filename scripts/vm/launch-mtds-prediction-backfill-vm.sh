@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that downloads Polymarket prediction-market trades
 # via the unified MTDS download CLI — the canonical replacement for the Apr 14
 # one-off `mtds-prediction-backfill` VM (no launcher script existed at the time;

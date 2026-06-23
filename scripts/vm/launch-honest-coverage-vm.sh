@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs the daily honest-coverage measurement (B-018 Phase 8.A).
 #
 # Boots an e2-standard-2 VM in asia-northeast1-c, runs

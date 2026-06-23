@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills MARINADE-SOLANA LST rates (mSOL APY)
 # via the unified MTDS collect-lst-rates CLI.
 #

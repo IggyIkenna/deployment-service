@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs the api_football fixtures truth-set audit.
 #
 # Plan: unified-trading-pm/plans/active/sports_fixtures_truthset_recovery_2026_05_06.md

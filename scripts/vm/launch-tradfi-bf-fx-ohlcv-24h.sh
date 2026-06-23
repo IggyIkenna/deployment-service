@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Epic: tradfi_master
 # Lifecycle: permanent
+# Delete-when: NA
 # Launch FX spot-pair OHLCV-24h (daily) backfill VMs (one per year-shard).
 #
 # Universe: FX_SPOT_PAIRS from `unified_api_contracts.registry` — the MTDS

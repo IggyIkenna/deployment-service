@@ -1,4 +1,7 @@
 #!/bin/bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Credential probe — one-stop audit across every credential surface.
 #
 # Plan: api_keys_wallets_accounts_readiness_2026_05_10.md Phase 8.A.

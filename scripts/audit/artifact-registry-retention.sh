@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Configure GCP Artifact Registry cleanup policies for all unified-trading repos.
 #
 # Policy (per deployment_and_qg_strategy_implementation_2026_05_13.md Phase 5 P0):

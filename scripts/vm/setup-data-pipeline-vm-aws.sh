@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Setup an EC2 VM for data pipeline work (MTDS backfill, migrations, etc.)
 #
 # AWS EC2 equivalent of setup-data-pipeline-vm.sh (GCP).

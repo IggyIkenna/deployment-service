@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Canonical VM log backup — snapshot every running VM's logs to a durable archive.
 #
 # WHY: VMs stream stdout to gs://deployment-scripts-{pid}/vm-logs/<vm>/run.log

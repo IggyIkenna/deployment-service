@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a long-lived cron host VM that fires the daily CeFi forward-poll.
 #
 # Why this exists

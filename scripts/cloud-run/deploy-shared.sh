@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # deploy-shared-cloudrun.sh — Tier-3 shared Cloud Run deployment.
 #
 # Builds deployment-api (FastAPI + bundled deployment-ui SPA) via Cloud Build

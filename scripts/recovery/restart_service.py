@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``restart_service`` — Cloud Run revision flip OR GCE systemctl restart.
 
 Runbook: RB-INFRA-001.

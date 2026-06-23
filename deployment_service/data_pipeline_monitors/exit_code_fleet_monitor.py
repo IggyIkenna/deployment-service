@@ -118,7 +118,13 @@ def classify_terminated_vm(
     )
 
 
-def _finding_for(result: TerminationResult, *, asset_group: str, relaunch_launcher: str = "") -> PipelineFinding | None:
+def _finding_for(
+    result: TerminationResult,
+    *,
+    asset_group: str,
+    relaunch_launcher: str = "",
+    umbrella: str = "",
+) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
     An **OOM** exit (exit_code 137) routes to the ``auto_recover`` tier — the
@@ -135,6 +141,10 @@ def _finding_for(result: TerminationResult, *, asset_group: str, relaunch_launch
         "exit_code": result.exit_code,
         "captured_before": result.captured_before,
         "captured_after": result.captured_after,
+        # umbrella drives the alerting-service router channel split (LIVE →
+        # #uts-live-alerts, BATCH → #data-pipeline-alerts). "" → batch default.
+        "umbrella": umbrella,
+        "cloud": "GCP",
     }
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
@@ -215,6 +225,7 @@ def sweep(
     captured_reader: Callable[[str], int],
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
+    umbrella_for_vm: Callable[[str], str] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[TerminationResult]:
@@ -230,6 +241,10 @@ def sweep(
             supplied, an OOM (exit-137) finding carries a ``relaunch_launcher``
             binding so the ``relaunch_backfill_vm`` auto_recover actuator can
             re-launch it; absent it, the OOM finding falls through to file_issue.
+        umbrella_for_vm: optional ``vm_name -> umbrella`` resolver (LIVE/BATCH/...). When
+            supplied, the DP_VM_* finding carries the umbrella so the alerting-service
+            router splits LIVE → #uts-live-alerts vs BATCH → #data-pipeline-alerts;
+            absent it (or "" returned) the alert routes to the batch default.
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
@@ -266,7 +281,10 @@ def sweep(
         results.append(result)
 
         launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
-        finding = _finding_for(result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher)
+        umbrella = umbrella_for_vm(name) if umbrella_for_vm is not None else ""
+        finding = _finding_for(
+            result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher, umbrella=umbrella
+        )
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:

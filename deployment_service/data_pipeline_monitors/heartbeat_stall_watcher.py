@@ -184,7 +184,12 @@ def classify_vm_liveness(
 
 
 def _finding_for(
-    result: LivenessResult, *, asset_group: str, stall_minutes: float, relaunch_launcher: str = ""
+    result: LivenessResult,
+    *,
+    asset_group: str,
+    stall_minutes: float,
+    relaunch_launcher: str = "",
+    umbrella: str = "",
 ) -> PipelineFinding | None:
     base: dict[str, object] = {
         "vm_name": result.vm_name,
@@ -193,6 +198,10 @@ def _finding_for(
         "run_log_age_min": result.run_log_age_min,
         "captured_flat": result.captured_flat,
         "stall_threshold_min": stall_minutes,
+        # umbrella drives the alerting-service router channel split (LIVE →
+        # #uts-live-alerts, BATCH → #data-pipeline-alerts). "" → batch default.
+        "umbrella": umbrella,
+        "cloud": "GCP",
     }
     # The launcher binding lets the DP_VM_STALL auto_recover actuator
     # (relaunch_stalled_vm) re-launch the watchdog-killed VM. Absent → the finding
@@ -240,6 +249,7 @@ def sweep(
     captured_reader: Callable[[str], int],
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
+    umbrella_for_vm: Callable[[str], str] | None = None,
     prior_captured: dict[str, int] | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
@@ -313,8 +323,13 @@ def sweep(
         results.append(result)
 
         launcher = launcher_for_vm(vm_name) if launcher_for_vm is not None else ""
+        umbrella = umbrella_for_vm(vm_name) if umbrella_for_vm is not None else ""
         finding = _finding_for(
-            result, asset_group=asset_group_for_vm(vm_name), stall_minutes=stall_minutes, relaunch_launcher=launcher
+            result,
+            asset_group=asset_group_for_vm(vm_name),
+            stall_minutes=stall_minutes,
+            relaunch_launcher=launcher,
+            umbrella=umbrella,
         )
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)

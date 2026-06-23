@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Create per-service IAM roles for the unified-trading system on AWS.
 # Mirrors the GCP SA matrix (per-service-per-env service accounts) as IAM roles.
 #

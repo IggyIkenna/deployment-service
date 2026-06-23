@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``failover_feed`` — MTDS handler primary → backup feed flip.
 
 Runbook: RB-CONN-001.

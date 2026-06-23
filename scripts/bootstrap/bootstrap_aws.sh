@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Idempotent AWS bootstrap — creates S3 state bucket, applies UCI shared infra.
 #
 # Usage:

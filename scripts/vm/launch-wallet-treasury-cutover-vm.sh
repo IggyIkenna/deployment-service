@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a GCE VM running the wallet/treasury cutover-archetype demo client
 # dry-run — full lifecycle for Phase 9.A of
 # wallet_treasury_client_flow_2026_05_10.md.

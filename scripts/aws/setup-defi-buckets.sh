@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Provision the 10 DeFi-relevant S3 buckets needed for May-23 AWS cutover.
 #
 # Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.plan Phase 2.

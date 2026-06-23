@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Epic: predictions_master
 # Lifecycle: permanent
+# Delete-when: NA
 #
 # Launch a long-running GCE VM that runs MTDS in live WS mode for a single
 # Prediction (POLYMARKET|KALSHI) × data_type shard.  The runner resolves the

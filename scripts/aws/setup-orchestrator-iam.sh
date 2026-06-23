@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # setup-orchestrator-iam.sh — idempotent IAM setup for the orchestrator epic VM fleet.
 #
 # Creates (or verifies existing):
