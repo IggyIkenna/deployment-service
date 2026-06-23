@@ -50,15 +50,17 @@ locals {
   # (404 — the live bucket is the "pred" short key). The lifecycle roll-up reads/writes
   # the CANONICAL env-short buckets (where prod/catalog.parquet actually lives, verified
   # via gcloud storage ls 2026-06-11) per resolve_bucket_name / cloud-providers.yaml.
-  # `memory`/`cpu` are per-AG (default 4Gi/2). tradfi OOM'd at 4Gi (2026-06-19) AND
-  # at 8Gi (2026-06-23 catch-up) — "configured memory limit was reached" — because it
-  # has the largest universe (equities + CME/CBOE futures + EC* event contracts), so it
-  # is bumped to 16Gi (Cloud Run requires cpu>=4 at 16Gi). Bump any other AG here if its
-  # roll-up OOMs.
+  # `memory`/`cpu` are per-AG (default 4Gi/2). tradfi OOM'd at 4Gi (2026-06-19), 8Gi AND
+  # 16Gi (2026-06-23 catch-up, signal-9 after ~12 min) — "configured memory limit was
+  # reached" — because it has the largest universe (equities + CME/CBOE futures + EC*
+  # event contracts) AND the by-date roll-up loads the whole corpus in memory, so it is
+  # bumped to 32Gi/cpu8 (Cloud Run job ceiling). DURABLE FIX (P2): chunk the roll-up so it
+  # is not memory-bound — tracked in lifecycle_catalogue_tradfi_rollup_chunking issue.
+  # Bump any other AG here if its roll-up OOMs.
   lifecycle_catalogue_asset_groups = {
     cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
     defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
-    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "16Gi", cpu = "4" }
+    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "32Gi", cpu = "8" }
     sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"], memory = "4Gi", cpu = "2" }
     # prediction → flat "pred" short key per cloud-providers.yaml (instruments-store-prediction-… does not exist).
     prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
