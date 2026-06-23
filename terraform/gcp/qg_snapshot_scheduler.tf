@@ -95,6 +95,82 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_admin" 
   member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
+# Required for DeFi forward-poll VMs to read TheGraph API keys (pool of 9 keys for round-robin).
+# Keys 2-9 were inaccessible → only 1 key loaded → degraded subgraph throughput.
+# All 10 keys granted ad-hoc 2026-06-23 via gcloud secrets add-iam-policy-binding.
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_0" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_2" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-2"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_3" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-3"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_4" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-4"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_5" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-5"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_6" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-6"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_7" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-7"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_8" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-8"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_9" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-9"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi oracle-prices VM to read Alchemy API key (Chainlink price feeds on EVM chains).
+# Without this, oracle collection fails for EVM chains; Pyth/Solana still works via Hermes REST.
+# Granted ad-hoc 2026-06-23 via gcloud secrets add-iam-policy-binding.
+resource "google_secret_manager_secret_iam_member" "t1_batch_alchemy_key" {
+  project   = var.project_id
+  secret_id = "alchemy-api-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 locals {
   qg_snapshot_zone        = "asia-northeast1-c"
   qg_snapshot_startup_url = "gs://deployment-scripts-${var.project_id}/vm/setup-data-pipeline-vm.sh"
