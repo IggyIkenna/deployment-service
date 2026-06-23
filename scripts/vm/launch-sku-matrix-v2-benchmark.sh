@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch extended SKU-matrix v2 benchmark for the 3 slowest stages.
 #
 # Phase 5 of compute_optimization_mock_data_2026_05_13.md:

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a one-time OHLCV backfill VM for EXTENDED-STARKNET.
 #
 # Coverage window: 2024-07-26 → 2025-07-31

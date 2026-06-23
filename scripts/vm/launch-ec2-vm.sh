@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 VM launcher — master launcher for all UTS workloads.
 #
 # AWS twin of the GCP launch-*-vm.sh family.

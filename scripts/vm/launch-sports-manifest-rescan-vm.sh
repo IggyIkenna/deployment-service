@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch GCE VMs that rescan the SPORTS FIXTURES availability manifest with
 # canonical-league mapping.
 #

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # deploy-ecs-fargate.sh — Register ECS task definitions + create Fargate services + App Runner services
 # for the 7 DeFi-live services (Phase 6 of aws_migration_defi_first plan).
 #

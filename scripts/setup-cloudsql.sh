@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # setup-cloudsql.sh — PostgreSQL database setup for execution-service order state
 #

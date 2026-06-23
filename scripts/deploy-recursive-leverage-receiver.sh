@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 set -euo pipefail
 
 # Deploy RecursiveLeverageReceiver contract to a target chain.

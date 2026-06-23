@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Shared helpers for the per-venue tradfi OHLCV-1m backfill launchers
 # (`launch-tradfi-bf-{cme,ice,nasdaq,nyse}-ohlcv-1m.sh`).
 #

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # DEPRECATED 2026-05-08 (Phase 8A of features_repo_consolidation_2026_05_08).
 # Superseded by `launch-features-vm.sh --feature-family onchain --asset-group DEFI`.
 # This wrapper still works (delegates to the new launcher with onchain DEFI

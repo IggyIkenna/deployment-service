@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # pyright: reportAny=false
 """AWS↔GCP bucket-name symmetry checker.
 

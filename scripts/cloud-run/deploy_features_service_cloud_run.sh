@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Deploy features-service to Cloud Run (asia-northeast1).
 #
 # OPERATOR-SIDE ONLY — do NOT run this script from an agent.

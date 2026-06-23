@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 """Re-partition existing sports GCS parquets by league.
 
 Reads single-file parquets from GCS (old format: one file per date/venue),

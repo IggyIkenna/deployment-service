@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Migrate data from wrong-named "prod" DeFi buckets into correctly-named "prd" buckets.
 #
 # Context: Phase 2 of aws_migration_defi_first (2026-05-08) created 10 DeFi buckets using

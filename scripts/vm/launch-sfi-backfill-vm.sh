@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills SoccerFootball.info (SFI / SharpAPI) reference
 # data — leagues + progressive stats — for a multi-year historical range.
 # Sibling to `launch-sfi-forward-poll.sh` (which is T-1 / forward-poll only).

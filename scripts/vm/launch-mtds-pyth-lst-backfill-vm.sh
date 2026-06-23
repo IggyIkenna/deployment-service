@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills Pyth Hermes archive oracle_prices
 # for Solana LST feeds (JitoSOL/USD, mSOL/USD, bSOL/USD, INF/USD).
 #

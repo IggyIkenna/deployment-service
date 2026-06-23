@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills FootyStats data (fixtures, match stats, odds
 # snapshots, predictions, player performance). Sibling to
 # launch-footystats-forward-poll.sh but supports explicit historical ranges and

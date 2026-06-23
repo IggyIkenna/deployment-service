@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11.
 #
 # Launch a short-lived GCE VM that runs TWO manifest reconciliation scripts

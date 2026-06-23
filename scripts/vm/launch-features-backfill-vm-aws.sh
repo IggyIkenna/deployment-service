@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 features backfill launcher — consolidated features_service.
 #
 # GCP counterpart: launch-features-backfill-vm.sh (deprecated wrapper → launch-features-vm.sh)

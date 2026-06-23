@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``enter_safe_mode`` — strategy-service safe-mode entry.
 
 Runbook: RB-RISK-004.

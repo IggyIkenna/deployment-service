@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch an epic VM from the orchestrator VM registry.
 #
 # Reads unified-trading-pm/orchestrator_vm_registry.yaml to look up the VM spec

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Thin CLI entry point — delegates to ``deployment_service.vm.heartbeat_cli.main``.
 
 All logic lives in UTL (``unified_trading_library.lifecycle``) + the VM

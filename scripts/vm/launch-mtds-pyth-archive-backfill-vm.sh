@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills Pyth Hermes archive SOL/USD
 # (and other Solana feeds) for the pre-archive gap window 2022-11 -> 2023-10.
 #

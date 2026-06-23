@@ -1,4 +1,7 @@
 #!/bin/bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Setup GCS Lifecycle Policies for Cost Optimization
 #
 # Automatically transitions objects between storage classes:

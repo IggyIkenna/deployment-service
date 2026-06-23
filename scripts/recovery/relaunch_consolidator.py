@@ -1,5 +1,6 @@
 # Epic: observability_master
 # Lifecycle: permanent
+# Delete-when: NA
 """Self-healing actuator — re-execute a crashed manifest-consolidator Cloud Run Job.
 
 Runbook: RB-MANIFEST-001 (DP-MANIFEST-001 / ``CONSOLIDATOR_DOWN``).

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # CME futures expiry calendars (last-trading-date) — sourced by tradfi launchers.
 #
 # Symbol-id format: CME:FUTURE:<ROOT>-YYYYMMDD where YYYYMMDD = official CME

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Deploy the Deployment Dashboard to GCP Cloud Run
 #
 # This script sets up the infrastructure and triggers the first deployment.

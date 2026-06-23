@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``redeploy_known_good`` — flip Cloud Run traffic to a previous revision.
 
 Runbook: RB-DEPLOY-001.

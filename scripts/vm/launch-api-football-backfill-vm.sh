@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills sports FIXTURES from API-Football. Same code
 # path as the live adapter + Cloud Run T+1 recon — just dispatched to a VM so
 # multi-year runs don't block a laptop.

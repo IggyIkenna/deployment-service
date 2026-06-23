@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 """Validate league migration — compare old vs new row counts per date.
 
 Reads both old (non-league-partitioned) and new (league-partitioned) parquets

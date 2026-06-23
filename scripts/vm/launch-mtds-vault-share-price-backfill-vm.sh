@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills ERC-4626 vault share prices via
 # the unified MTDS collect-vault-share-price CLI.
 #

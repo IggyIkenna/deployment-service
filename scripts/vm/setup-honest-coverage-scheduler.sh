@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # One-time setup — honest-coverage-daily Cloud Scheduler trigger.
 #
 # Cloud Run Job was already created (2026-05-15 slot-2):

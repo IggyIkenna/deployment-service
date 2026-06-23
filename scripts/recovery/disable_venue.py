@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``disable_venue`` — circuit-breaker force-open for a venue.
 
 Runbook: RB-CONN-001. Existing positions are NOT touched — use

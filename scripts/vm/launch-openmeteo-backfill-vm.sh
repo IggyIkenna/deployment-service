@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills OpenMeteo weather (venue hourly) for sports
 # fixtures. No API key; weather endpoints tolerate concurrent reads.
 #

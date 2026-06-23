@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``cancel_open_orders`` — execution-service cancel-all-orders.
 
 NOT idempotent (orders disappear from venue once cancelled). Runbook: RB-RECON-002.

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Instruments Service — VM Historical Backfill Script
 #
 # Backfills instrument reference data from 2020 to present across all domains.

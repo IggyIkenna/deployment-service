@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that forward-polls SoccerFootball.info (SFI / SharpAPI).
 #
 # Purpose: ingest SFI reference data (sfi_leagues + progressive_stats) for a given

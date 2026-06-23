@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that forward-polls FootyStats for the next N days.
 #
 # Purpose: capture odds + predictions evolution over time. Each VM boot writes

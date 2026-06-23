@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a short-lived GCE VM that runs the blank-error_reason migration
 # (`instruments-service/scripts/reconcile_blank_error_reason_rows.py`) for a
 # given asset_group, in same-region (asia-northeast1-c) so the manifest

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Tier-0 instruments-service smoke launcher — spawn an instruments-service VM
 # that writes ONE day of reference data per category with IS_TEST_RUN=true
 # so writes land in `instruments-store-{cat}-test-{project_id}` buckets instead

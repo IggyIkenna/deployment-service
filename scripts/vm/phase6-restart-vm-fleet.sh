@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Phase 6 — Restart ALL writer VMs after GCS+AWS bucket migration (Phases 3-5 complete).
 #
 # Context: coordinator data_pipeline_master_coordination_2026_05_20.md Phase 6.

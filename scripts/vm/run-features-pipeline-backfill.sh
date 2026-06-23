@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Master orchestrator for the full features-pipeline backfill.
 #
 # Wiring:

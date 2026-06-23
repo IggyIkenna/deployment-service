@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Phase 0 calibration VM for the GCS migration bundle (per
 # `unified-trading-pm/plans/active/gcs_migration_bundle_pipeline_mode_2026_05_08.md`
 # Phase 0 + the runnable protocol in

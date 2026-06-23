@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills DeFi LST exchange-rates via the
 # unified MTDS collect-lst-rates CLI.
 #

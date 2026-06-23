@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a long-running GCE VM that runs MDPS + features-service (asset-scoped)
 # in live mode for a given asset_group. The two services are co-located in one
 # VM so MDPS→features handoff stays in-process / sub-ms.

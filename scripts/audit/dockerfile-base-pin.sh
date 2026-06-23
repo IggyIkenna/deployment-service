@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Audit all Dockerfiles in the workspace for unpinned base images.
 #
 # A "pinned" base image uses the digest form:

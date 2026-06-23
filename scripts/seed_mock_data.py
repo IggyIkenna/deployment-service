@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Generate mock deployment data for local dev / CI mock mode.
 
 Creates deterministic mock VM records, shard configs, deployment history,
