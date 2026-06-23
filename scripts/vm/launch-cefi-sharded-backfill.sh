@@ -6,7 +6,9 @@
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 #
-# Launch sharded CeFi + TradFi Tardis backfill VMs.
+# Launch sharded CeFi Tardis backfill VMs. (CeFi-ONLY — the former TradFi block was
+# REMOVED 2026-06-23; TradFi rides the canonical Databento launchers, see the wait
+# block's NOTE below.)
 #
 # Operator instrument filter (authoritative, 2026-04-19):
 #   CeFi:
@@ -14,11 +16,6 @@
 #     Selected x-coins (SOL XRP BNB DOGE ADA AVAX LINK) → spot + perps + futures
 #     (NO options on x-coins — saves Tardis cost)
 #     Options ONLY on DERIBIT.
-#   TradFi:
-#     CME ES (S&P 500 E-mini) futures + options
-#     CBOE VIX futures + options
-#     Combos (calendar spreads / iron condors / butterflies on ES/VIX)
-#     Nothing else — no equities, no rates, no commodities.
 #
 # Why this matters: without --instrument-ids, MTDS downloads the FULL symbol
 # universe per venue from Tardis. Binance-Futures alone has ~1000+ instruments;
@@ -44,11 +41,7 @@
 #   HYPERLIQUID       → perp-only, base symbol (BTC, ETH)
 #   UPBIT             → KRW-prefixed (KRW-BTC, KRW-ETH)
 #
-# TradFi via Tardis (CBOE + CME carried by Tardis):
-#   cme-futures       → ESM26, ESU26 quarterly contracts (we keep 2 quarters/yr)
-#   cme-options       → Tardis expands — pass base ES with prefix glob
-#   cboe-vix-futures  → VXM26, VXU26
-#   cboe-vix-options  → VX base
+# (TradFi removed 2026-06-23 — served by the canonical Databento launchers, not here.)
 #
 # Observability (MUST match):
 #   - startup-script-url=gs://deployment-scripts.../vm/setup-data-pipeline-vm.sh
@@ -170,8 +163,7 @@ EOF
 fi
 
 # ─── Singleton lock: shared Tardis account + project egress NAT ──────────────
-# This launcher fans out across CeFi venues (Tardis) AND TradFi (Tardis-carried
-# CME/CBOE futures+options). Tardis enforces per-account rate limits that bite
+# This launcher fans out across CeFi venues (Tardis). Tardis enforces per-account rate limits that bite
 # under concurrent-VM load — and the Databento path (NASDAQ/NYSE ETFs via
 # launch-tradfi-backfill-vm.sh) is the same shape: the 2026-05-05 silent-drop
 # incident was 7+ MTDS VMs hitting a shared provider account and exhausting
@@ -233,15 +225,6 @@ fi
 DATA_HEAVY="trades;book_snapshot_5"
 DATA_LIGHT_PERPS="derivative_ticker;liquidations;futures_chain"
 DATA_LIGHT_DERIBIT="derivative_ticker;options_chain;futures_chain"
-
-# TradFi symbols. ES = S&P 500 E-mini (CME). VIX futures ticker = VX (CFE).
-# Two quarterly contracts per year is plenty for backtest; skipping serials.
-SYMBOLS_CME_ES_2026="ESM26;ESU26;ESZ26"
-SYMBOLS_CME_ES_2025="ESM25;ESU25;ESZ25"
-SYMBOLS_CME_ES_2024="ESM24;ESU24;ESZ24"
-SYMBOLS_CBOE_VIX_2026="VXM26;VXU26;VXZ26;VX"
-SYMBOLS_CBOE_VIX_2025="VXM25;VXU25;VXZ25;VX"
-SYMBOLS_CBOE_VIX_2024="VXM24;VXU24;VXZ24;VX"
 
 # ─── Launcher ────────────────────────────────────────────────────────────────
 _launched=0
@@ -434,74 +417,6 @@ launch_cefi_shard() {
   _launched=$((_launched + 1))
 }
 
-launch_tradfi_shard() {
-  local instrument="$1"    # es | vix
-  local venue="$2"         # CME-FUTURES | CBOE-VIX-FUTURES (metadata tag)
-  local year="$3"
-  local group="$4"
-  local data_types="$5"
-  local symbols="$6"
-
-  local start_date end_date machine
-  if [[ "$year" == "2026" ]]; then
-    start_date="${year}-01-01"
-    end_date="2026-05-22"
-  else
-    start_date="${year}-01-01"
-    end_date="${year}-12-31"
-  fi
-  machine="${MACHINE_TYPE_TRADFI:-e2-standard-2}"  # TradFi is lighter than CeFi book flow
-
-  # ONLY filter — same shape as launch_cefi_shard (venue:year:group).
-  if [[ -n "${ONLY:-}" ]]; then
-    local key="${instrument}:${year}:${group}"
-    local matched=0
-    for tok in $ONLY; do
-      [[ "$tok" == "$key" ]] && matched=1 && break
-    done
-    [[ $matched -eq 0 ]] && return 0
-  fi
-
-  local vm_name="tradfi-${instrument}-${year}-${group}-${RUN_TS}"
-
-  local meta="startup-script-url=$STARTUP"
-  meta+=",VM_TASK=cefi-backfill"   # same routing branch — triggers MTDS CLI
-  meta+=",VM_SERVICE=market_tick_data_service"
-  meta+=",VM_OPERATION=download"
-  meta+=",VM_ASSET_GROUP=TRADFI"
-  meta+=",VM_VENUE=$venue"
-  meta+=",VM_START_DATE=$start_date"
-  meta+=",VM_END_DATE=$end_date"
-  meta+=",VM_DATA_TYPES=$data_types"
-  meta+=",VM_INSTRUMENT_IDS=$symbols"
-  meta+=",VM_FORCE=${VM_FORCE:-false}"
-  meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-  # 2026-05-01: opt-in auto-delete after task completion (read by
-  # vm-exec-with-gcs-tee.sh:253).
-  meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
-  # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
-  [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
-    echo "          data_types=$data_types"
-    echo "          symbols=$symbols"
-    echo "          metadata=$meta"
-  else
-    echo "Launching $vm_name ($venue $year $group)"
-    gcloud compute instances create "$vm_name" \
-      --zone="$ZONE" --machine-type="$machine" \
-      --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-      --boot-disk-size=50GB \
-      --scopes=cloud-platform --metadata="$meta" \
-      --labels=env="${DEPLOYMENT_ENV}" \
-      --project="$PROJECT" --async 2>&1 | tail -1 &
-    _stagger
-    _batch_guard
-  fi
-  _launched=$((_launched + 1))
-}
-
 # ─── CeFi sharding — year-per-shard × heavy/light group ──────────────────────
 # Universe is catalogue-mvp-driven (no symbols arg — see the universe block
 # above; MTDS resolves the perp-gated MVP universe from the IS by_date snapshot).
@@ -546,26 +461,16 @@ for venue in $VENUES; do
   done
 done
 
-# ─── TradFi — CME ES + CBOE VIX only ─────────────────────────────────────────
-# ES futures list goes back decades on Tardis but operator's signal window is
-# recent vol regimes → 2024-2026 is the meaningful window.
-# VIX futures same window.
-for year in 2024 2025 2026; do
-  case "$year" in
-    2026) es_syms="$SYMBOLS_CME_ES_2026"; vix_syms="$SYMBOLS_CBOE_VIX_2026" ;;
-    2025) es_syms="$SYMBOLS_CME_ES_2025"; vix_syms="$SYMBOLS_CBOE_VIX_2025" ;;
-    2024) es_syms="$SYMBOLS_CME_ES_2024"; vix_syms="$SYMBOLS_CBOE_VIX_2024" ;;
-  esac
-
-  # ES futures + options (combos inferred from same contracts — calendar
-  # spreads / butterflies reconstructed by features-delta-one, not fetched).
-  launch_tradfi_shard "es" "CME-FUTURES" "$year" "futures" "trades;book_snapshot_5" "$es_syms"
-  launch_tradfi_shard "es" "CME-OPTIONS" "$year" "options" "trades;options_chain" "$es_syms"
-
-  # VIX futures + options.
-  launch_tradfi_shard "vix" "CBOE-VIX-FUTURES" "$year" "futures" "trades;book_snapshot_5" "$vix_syms"
-  launch_tradfi_shard "vix" "CBOE-VIX-OPTIONS" "$year" "options" "trades;options_chain" "$vix_syms"
-done
+# NOTE (2026-06-23): the former TradFi block (CME ES + CBOE VIX via Tardis venues
+# CME-FUTURES / CBOE-VIX-FUTURES / CME-OPTIONS / CBOE-VIX-OPTIONS) was REMOVED.
+# Those venue tags are NOT canonical TRADFI venues — UAC VENUES_BY_ASSET_GROUP["tradfi"]
+# is {NASDAQ, NYSE, CME, ICE, CBOE} — so MTDS's _build_active_venues_for_date()
+# intersected the canonical set against the non-canonical --venues filter → empty →
+# "No active venues for TRADFI" every date → 0 rows captured at exit_code=0, and the
+# VMs self-deleted (VM_SHUTDOWN_ON_COMPLETION). TradFi market data is served by the
+# canonical Databento launchers (launch-tradfi-bf-*-ohlcv-*.sh, VM_TASK=mtds-backfill,
+# venue=CME/CBOE, --source databento) + launch-tradfi-backfill-vm.sh — NOT this CeFi
+# Tardis launcher. This script is now CeFi-only.
 
 wait
 if [[ "$DRY_RUN" == "1" ]]; then
