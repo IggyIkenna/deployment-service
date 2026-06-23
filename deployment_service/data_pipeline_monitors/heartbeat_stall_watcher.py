@@ -288,7 +288,13 @@ def sweep(
         # genuine total-silence signal ``EVENT_LOOP_STARVED`` is meant for. Falls
         # back to the infra sidecar ONLY if the marker is absent AND the sidecar is
         # also absent (a VM that wrote neither) — but the marker is the authority.
-        hb_age = _gcs.pipeline_heartbeat_age_minutes(storage_client, log_bucket, vm_name)
+        # Single run.log download per VM — extracts both the pipeline-heartbeat age
+        # and the run.log progress age in one read. Replaces the prior double-download
+        # (pipeline_heartbeat_age_minutes + run_log_age_minutes each called read_text
+        # independently) that OOM-killed the heartbeat watcher Cloud Run job on every
+        # tick (55 VMs x 2 downloads x multi-MB logs >> 2Gi; incident 2026-06-23).
+        _signals = _gcs.run_log_signals(storage_client, log_bucket, vm_name)
+        hb_age = _signals.pipeline_heartbeat_age_min
         # run.log progress signal — frozen log past threshold = hung-process stall
         # even when the bash heartbeat blob is fresh (CLAUDE.md 2026-06-22). ONLY
         # applies to BACKFILL VMs (they log continuously per date/league/chunk). A
@@ -302,7 +308,7 @@ def sweep(
         # live-sparse-logging exemption is enforced inside classify (the
         # ``is_backfill`` gate on the heartbeat-FRESH hung-process check only).
         is_backfill = _is_backfill_vm(vm_name)
-        run_log_age = _gcs.run_log_age_minutes(storage_client, log_bucket, vm_name)
+        run_log_age = _signals.run_log_age_min
         try:
             captured_now = captured_reader(vm_name)
         except Exception:
