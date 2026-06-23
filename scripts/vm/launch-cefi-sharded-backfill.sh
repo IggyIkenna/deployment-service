@@ -184,39 +184,19 @@ EOF
   fi
 fi
 
-# ─── Per-venue symbol universes ──────────────────────────────────────────────
-# Keep comma-separated (VM metadata format). Order: majors first, x-coins after.
-#
-# Operator's "selected x-coins": SOL XRP BNB DOGE ADA AVAX LINK
-#   (BTC + ETH already counted as majors)
-
-# BINANCE-SPOT: lowercase concatenated USDT pairs
-SYMBOLS_BINANCE_SPOT="btcusdt;ethusdt;solusdt;xrpusdt;bnbusdt;dogeusdt;adausdt;avaxusdt;linkusdt"
-
-# BINANCE-FUTURES: uppercase USDT-M perps (same base set)
-SYMBOLS_BINANCE_FUTURES="BTCUSDT;ETHUSDT;SOLUSDT;XRPUSDT;BNBUSDT;DOGEUSDT;ADAUSDT;AVAXUSDT;LINKUSDT"
-
-# BYBIT: uppercase linear perps
-SYMBOLS_BYBIT="BTCUSDT;ETHUSDT;SOLUSDT;XRPUSDT;BNBUSDT;DOGEUSDT;ADAUSDT;AVAXUSDT;LINKUSDT"
-
-# DERIBIT: options + perps. Majors only — BTC/ETH are all Deribit really trades.
-# Tardis supports chain globs server-side when passed the base currency.
-SYMBOLS_DERIBIT="BTC;ETH;BTC-PERPETUAL;ETH-PERPETUAL"
-
-# COINBASE-SPOT: dash USD pairs. BNB not listed on Coinbase → omitted.
-SYMBOLS_COINBASE_SPOT="BTC-USD;ETH-USD;SOL-USD;XRP-USD;DOGE-USD;ADA-USD;AVAX-USD;LINK-USD"
-
-# OKX-SPOT: dash USDT pairs
-SYMBOLS_OKX_SPOT="BTC-USDT;ETH-USDT;SOL-USDT;XRP-USDT;BNB-USDT;DOGE-USDT;ADA-USDT;AVAX-USDT;LINK-USDT"
-
-# OKX-SWAP: perps
-SYMBOLS_OKX_SWAP="BTC-USDT-SWAP;ETH-USDT-SWAP;SOL-USDT-SWAP;XRP-USDT-SWAP;BNB-USDT-SWAP;DOGE-USDT-SWAP;ADA-USDT-SWAP;AVAX-USDT-SWAP;LINK-USDT-SWAP"
-
-# HYPERLIQUID: perp-only
-SYMBOLS_HYPERLIQUID="BTC;ETH;SOL;XRP;BNB;DOGE;ADA;AVAX;LINK"
-
-# UPBIT: KRW-prefixed. BNB not on Upbit.
-SYMBOLS_UPBIT="KRW-BTC;KRW-ETH;KRW-SOL;KRW-XRP;KRW-DOGE;KRW-ADA;KRW-AVAX;KRW-LINK"
+# ─── Per-venue instrument universe = catalogue mvp (cefi_universe_capture_rule) ──
+# 2026-06-23: the hardcoded 9-coin SYMBOLS_<VENUE> lists (+ stale Upbit KRW) are
+# RETIRED. CeFi shards launch with NO VM_INSTRUMENT_IDS so MTDS
+# TardisAdapter._resolve_symbols resolves the per-venue universe from the IS
+# by_date instruments snapshot, MVP-GATED via the shared UAC predicate
+# `is_in_mvp_capture_universe` (the SAME SSOT as cefi_catalog_reader + the
+# onchain-perp ALL handler + the manifest mvp-denominator). So every venue
+# attempts its FULL perp-gated MVP capture universe per day (hundreds of
+# instruments — small-coin funding included), not a static 9. Cost is bounded by
+# the mvp gate (perp-gated subset), not the full Tardis exchange universe.
+# DERIBIT options/futures still ride the bulk OPTIONS.csv.gz / FUTURES.csv.gz
+# path (chain glob), unaffected. To restrict a surgical re-run to specific
+# symbols, set VM_INSTRUMENT_IDS in the env (passes through verbatim).
 
 # ─── Per-venue data-type splits ──────────────────────────────────────────────
 # Heavy = order flow (trades + book_snapshot_5). Memory/CPU bound.
@@ -260,7 +240,10 @@ launch_cefi_shard() {
   local year="$2"
   local group="$3"         # heavy | light
   local data_types="$4"
-  local symbols="$5"
+  # NOTE: no $5 symbols arg — CeFi universe is catalogue-mvp-driven (no
+  # VM_INSTRUMENT_IDS). VM_INSTRUMENT_IDS env-override is honoured for surgical
+  # re-runs (passed verbatim to --instrument-ids → bypasses the mvp GCS path).
+  local symbols="${VM_INSTRUMENT_IDS:-}"
 
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
@@ -355,7 +338,10 @@ launch_cefi_shard() {
   meta+=",VM_START_DATE=$start_date"
   meta+=",VM_END_DATE=$end_date"
   meta+=",VM_DATA_TYPES=$data_types"
-  meta+=",VM_INSTRUMENT_IDS=$symbols"
+  # No VM_INSTRUMENT_IDS by default → MTDS resolves the catalogue-mvp universe
+  # from the IS by_date snapshot (perp-gated). Only stamp it on a surgical
+  # VM_INSTRUMENT_IDS env-override re-run.
+  [[ -n "$symbols" ]] && meta+=",VM_INSTRUMENT_IDS=$symbols"
   meta+=",VM_FORCE=${VM_FORCE:-false}"
   meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
@@ -382,7 +368,7 @@ launch_cefi_shard() {
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
     echo "          data_types=$data_types"
-    echo "          symbols=$symbols"
+    echo "          symbols=${symbols:-<catalogue-mvp universe (no VM_INSTRUMENT_IDS)>}"
     echo "          metadata=$meta"
   else
     echo "Launching $vm_name ($venue $year $group)"
@@ -470,58 +456,47 @@ launch_tradfi_shard() {
 }
 
 # ─── CeFi sharding — year-per-shard × heavy/light group ──────────────────────
-# Binance (spot + futures) has the longest history; Deribit from 2020; others
-# varying. Years tuned to venue data availability (per UAC venue_start_dates).
+# Universe is catalogue-mvp-driven (no symbols arg — see the universe block
+# above; MTDS resolves the perp-gated MVP universe from the IS by_date snapshot).
+# Year ranges = per-venue genesis → 2026 (per Tardis availableSince).
+# HYPERLIQUID + ASTER are covered by the dedicated onchain-perp launcher
+# (launch-cefi-hl-aster-historical-backfill.sh) — NOT launched here.
+#
+# Scope overrides (smoke / first-wave):
+#   VENUES="BINANCE-FUTURES" YEARS="2024" bash launch-cefi-sharded-backfill.sh
+# VENUES (default = all Tardis CEX venues) selects the venue set; YEARS clamps
+# every venue's loop to the listed years.
+VENUES="${VENUES:-BINANCE-FUTURES BINANCE-SPOT BYBIT DERIBIT COINBASE-SPOT OKX-SPOT OKX-SWAP OKX-FUTURES KRAKEN-SPOT KRAKEN-FUTURES BITFINEX-SPOT BITFINEX-FUTURES BITGET-SPOT BITGET-FUTURES UPBIT}"
+YEARS_OVERRIDE="${YEARS:-}"
 
-# BINANCE-FUTURES: 2020-2026 heavy/light
-for year in 2020 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "BINANCE-FUTURES" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_BINANCE_FUTURES"
-  launch_cefi_shard "BINANCE-FUTURES" "$year" "light" "$DATA_LIGHT_PERPS" "$SYMBOLS_BINANCE_FUTURES"
-done
+# Per-venue genesis years (first full year with Tardis data).
+_venue_years() {
+  case "$1" in
+    BINANCE-FUTURES|BINANCE-SPOT|DERIBIT|COINBASE-SPOT) echo "2020 2021 2022 2023 2024 2025 2026" ;;
+    BITGET-SPOT|BITGET-FUTURES)                          echo "2023 2024 2025 2026" ;;
+    UPBIT)                                               echo "2022 2023 2024 2025 2026" ;;
+    *)                                                   echo "2021 2022 2023 2024 2025 2026" ;;
+  esac
+}
 
-# BINANCE-SPOT: 2020-2026 heavy only (spot has no derivative_ticker/liquidations)
-for year in 2020 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "BINANCE-SPOT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_BINANCE_SPOT"
-done
+# Derivatives venues carry the light (derivative_ticker/liquidations) group too.
+_venue_is_derivatives() {
+  case "$1" in
+    BINANCE-FUTURES|BYBIT|DERIBIT|OKX-SWAP|OKX-FUTURES|KRAKEN-FUTURES|BITFINEX-FUTURES|BITGET-FUTURES) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# BYBIT: 2021-2026 (older data thin on Tardis)
-for year in 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "BYBIT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_BYBIT"
-  launch_cefi_shard "BYBIT" "$year" "light" "$DATA_LIGHT_PERPS" "$SYMBOLS_BYBIT"
-done
-
-# DERIBIT: 2020-2026 — ONLY venue for options. futures+options+perps chain.
-for year in 2020 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "DERIBIT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_DERIBIT"
-  launch_cefi_shard "DERIBIT" "$year" "light" "$DATA_LIGHT_DERIBIT" "$SYMBOLS_DERIBIT"
-done
-
-# COINBASE-SPOT: 2020-2026 spot only
-for year in 2020 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "COINBASE-SPOT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_COINBASE_SPOT"
-done
-
-# OKX-SPOT: 2021-2026
-for year in 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "OKX-SPOT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_OKX_SPOT"
-done
-
-# OKX-SWAP: 2021-2026 — perps (OKX-FUTURES dated quarterly contracts skipped,
-# too many permutations for the operator's current scope)
-for year in 2021 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "OKX-SWAP" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_OKX_SWAP"
-  launch_cefi_shard "OKX-SWAP" "$year" "light" "$DATA_LIGHT_PERPS" "$SYMBOLS_OKX_SWAP"
-done
-
-# HYPERLIQUID: 2024-2026 (launched 2023, meaningful data from 2024)
-for year in 2024 2025 2026; do
-  launch_cefi_shard "HYPERLIQUID" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_HYPERLIQUID"
-  launch_cefi_shard "HYPERLIQUID" "$year" "light" "$DATA_LIGHT_PERPS" "$SYMBOLS_HYPERLIQUID"
-done
-
-# UPBIT: 2022-2026 (KRW market, spot only)
-for year in 2022 2023 2024 2025 2026; do
-  launch_cefi_shard "UPBIT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_UPBIT"
+for venue in $VENUES; do
+  years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
+  for year in $years; do
+    launch_cefi_shard "$venue" "$year" "heavy" "$DATA_HEAVY"
+    if [[ "$venue" == "DERIBIT" ]]; then
+      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_DERIBIT"
+    elif _venue_is_derivatives "$venue"; then
+      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_PERPS"
+    fi
+  done
 done
 
 # ─── TradFi — CME ES + CBOE VIX only ─────────────────────────────────────────
