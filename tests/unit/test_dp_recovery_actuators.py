@@ -245,7 +245,7 @@ def test_route_auto_recover_invokes_consolidator_actuator(tmp_path: Path, monkey
         )
 
     monkeypatch.setattr(
-        "deployment_service.data_pipeline_monitors.escalation.RelaunchConsolidator", fake_actuator_class
+        "scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class
     )
     finding = PipelineFinding(
         event="CONSOLIDATOR_DOWN",
@@ -291,7 +291,7 @@ def test_route_auto_recover_failed_actuator_falls_through(tmp_path: Path, monkey
 
         return RelaunchConsolidator(cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW, run_job=_boom)
 
-    monkeypatch.setattr("deployment_service.data_pipeline_monitors.escalation.RelaunchConsolidator", failing_class)
+    monkeypatch.setattr("scripts.recovery.relaunch_consolidator.RelaunchConsolidator", failing_class)
     finding = PipelineFinding(
         event="CONSOLIDATOR_DOWN",
         severity="CRITICAL",
@@ -306,6 +306,30 @@ def test_route_auto_recover_failed_actuator_falls_through(tmp_path: Path, monkey
     assert result["issue_path"] is not None
 
 
+def test_route_auto_recover_actuators_unavailable_falls_through(tmp_path: Path, monkeypatch):
+    """Incident 2026-06-23: in a packaged runtime (the deployment-api Cloud Run
+    image installs the wheel then drops ``scripts/``), the actuators are not
+    importable. The module must still LOAD and the auto_recover tier must degrade
+    to file_issue — NEVER crash the monitor at import or at dispatch."""
+    _patch_log_event(monkeypatch)
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", False)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    finding = PipelineFinding(
+        event="CONSOLIDATOR_DOWN",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="consolidator down (actuators absent from runtime)",
+        details={"asset_group": "defi"},
+        registry_id="DP-MANIFEST-001",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["recovery"]["recovered"] is False
+    assert result["recovery"]["result"]["status"] == "UNAVAILABLE"
+    assert result["effective_tier"] == "file_issue"  # degraded, not crashed
+    assert result["issue_path"] is not None
+
+
 def test_route_auto_recover_oom_relaunch_via_finding(tmp_path: Path, monkeypatch):
     _patch_log_event(monkeypatch)
     launched: list[str] = []
@@ -317,7 +341,7 @@ def test_route_auto_recover_oom_relaunch_via_finding(tmp_path: Path, monkeypatch
             run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
         )
 
-    monkeypatch.setattr("deployment_service.data_pipeline_monitors.escalation.RelaunchBackfillVm", launcher_class)
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchBackfillVm", launcher_class)
     finding = PipelineFinding(
         event="DP_VM_EXIT_NONZERO",
         severity="CRITICAL",
