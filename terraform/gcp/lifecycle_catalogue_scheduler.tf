@@ -50,13 +50,18 @@ locals {
   # (404 — the live bucket is the "pred" short key). The lifecycle roll-up reads/writes
   # the CANONICAL env-short buckets (where prod/catalog.parquet actually lives, verified
   # via gcloud storage ls 2026-06-11) per resolve_bucket_name / cloud-providers.yaml.
+  # `memory`/`cpu` are per-AG (default 4Gi/2). tradfi OOM'd at 4Gi (2026-06-19) AND
+  # at 8Gi (2026-06-23 catch-up) — "configured memory limit was reached" — because it
+  # has the largest universe (equities + CME/CBOE futures + EC* event contracts), so it
+  # is bumped to 16Gi (Cloud Run requires cpu>=4 at 16Gi). Bump any other AG here if its
+  # roll-up OOMs.
   lifecycle_catalogue_asset_groups = {
-    cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [] }
-    defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [] }
-    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [] }
-    sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"] }
+    cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
+    defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
+    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "16Gi", cpu = "4" }
+    sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"], memory = "4Gi", cpu = "2" }
     # prediction → flat "pred" short key per cloud-providers.yaml (instruments-store-prediction-… does not exist).
-    prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [] }
+    prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
   }
 }
 
@@ -74,6 +79,26 @@ resource "google_storage_bucket_iam_member" "lifecycle_catalogue_instruments_adm
   member   = "serviceAccount:${google_service_account.lifecycle_catalogue_regen.email}"
 }
 
+# CRITICAL (added 2026-06-23): the Cloud Scheduler job authenticates as the
+# lifecycle-catalogue-regen SA (oauth_token below) and POSTs the per-AG job's
+# `:run` endpoint — so the SA MUST hold `roles/run.invoker` ON EACH JOB, or the
+# scheduler trigger is rejected with `status code: 7 (PERMISSION_DENIED)` and the
+# job NEVER executes. This is the SAME silent gap that left expected_unattempted=0
+# fleet-wide (see expected_universe_v2_scheduler.tf) — the catalogue half had the
+# missing grant too, which (with the schedulers paused since 2026-06-14) left the
+# prediction (+ all AG) lifecycle catalog.parquet STALE → the v2 enumerator
+# cross-joined a stale could-exist universe → dishonest coverage denominators.
+# Provenance: prediction catalogue daily-aggregation un-pause 2026-06-23.
+resource "google_cloud_run_v2_job_iam_member" "lifecycle_catalogue_regen_run_invoker" {
+  for_each = local.lifecycle_catalogue_asset_groups
+
+  project  = var.project_id
+  location = var.region
+  name     = module.lifecycle_catalogue_regen_job[each.key].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.lifecycle_catalogue_regen.email}"
+}
+
 module "lifecycle_catalogue_regen_job" {
   source   = "../modules/container-job/gcp"
   for_each = local.lifecycle_catalogue_asset_groups
@@ -87,8 +112,8 @@ module "lifecycle_catalogue_regen_job" {
   # /app/instruments-service/scripts/ (Dockerfile WORKDIR=/app/instruments-service, COPY . .).
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
 
-  cpu             = "2"
-  memory          = "4Gi"
+  cpu             = each.value.cpu    # per-AG (default 2; tradfi 4 — Cloud Run requires cpu>=4 at 16Gi)
+  memory          = each.value.memory # per-AG (default 4Gi; tradfi 16Gi — OOM'd at 4Gi+8Gi)
   timeout_seconds = 1800 # 30 min — by-date snapshot read + lifecycle roll-up + catalog.parquet write
   max_retries     = 1
   parallelism     = 1
