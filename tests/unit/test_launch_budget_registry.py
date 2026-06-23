@@ -59,9 +59,14 @@ def test_api_football_ceiling_is_1200() -> None:
     assert SOURCE_RATE_LIMITS_RPM["api_football"] == 1200
 
 
-def test_api_football_daily_quota_is_450k() -> None:
-    """API-Football's per-DAY quota is 450,000 (resets 00:00 UTC, no rollover)."""
-    assert SOURCE_DAILY_QUOTA["api_football"] == 450_000
+def test_api_football_daily_quota_is_300k() -> None:
+    """API-Football's per-DAY quota fallback is 300,000 (Custom300; resets 00:00 UTC).
+
+    Corrected from the stale 450,000 (2026-06-23): the live ``/status`` self-reports
+    ``Custom300`` = 300,000/day. This constant is the FALLBACK default only — the
+    adapter's ``get_live_quota()`` reads the authoritative live figure.
+    """
+    assert SOURCE_DAILY_QUOTA["api_football"] == 300_000
 
 
 def test_api_football_worked_example_10_vms() -> None:
@@ -359,9 +364,9 @@ def test_memory_tier_reverse_lookup() -> None:
 # Part 1 (window) — per-VM daily-quota share for the adapter's UTC-day window.
 # ──────────────────────────────────────────────────────────────────────────
 def test_per_vm_daily_quota_is_full_share_for_daily_source() -> None:
-    """api_football has a 450k/day quota → per_vm_daily_quota = 450000 // n_vms."""
+    """api_football has a 300k/day quota → per_vm_daily_quota = 300000 // n_vms."""
     a = allocate_rate_budget("api_football", n_vms=10)
-    assert a.per_vm_daily_quota == 450_000 // 10
+    assert a.per_vm_daily_quota == 300_000 // 10
 
 
 def test_per_vm_daily_quota_none_for_no_daily_quota_source() -> None:
