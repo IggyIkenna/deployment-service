@@ -155,6 +155,106 @@ SOURCE_DAILY_QUOTA: dict[str, int | None] = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Per-IP sources — the rate ceiling is PER SOURCE-IP, NOT a shared fleet quota
+# (Part 3, operator 2026-06-23). Databento + Polymarket throttle by SOURCE IP,
+# so each VM (its own egress IP) gets the FULL per-IP ceiling — you scale
+# throughput by adding IPs/VMs, NOT by dividing one ceiling across the fleet.
+# A source listed here MUST NOT be allocated via ``allocate_rate_budget``
+# (which DIVIDES a fleet ceiling) — use ``per_ip_rate_for_source`` so the
+# allocator treats every VM independently.
+#
+# ``rpm`` = the measured per-IP requests-per-minute ceiling (with safety margin
+# already applied — typically ~80% of the empirical break point). ``calibrated``
+# is False where the number is a conservative pre-calibration placeholder (the
+# ramp-to-429 probe — scripts/calibrate_source_rate_limit.py — replaces it with
+# the measured value). ``None`` rpm = no per-IP throttle observed (cost-gated
+# only, e.g. Databento's usage billing).
+@dataclass(frozen=True)
+class PerIpLimit:
+    """A per-source-IP rate ceiling (each VM/IP gets the FULL value, not a share)."""
+
+    rpm: int | None
+    calibrated: bool
+    note: str
+
+
+SOURCE_PER_IP_LIMITS: dict[str, PerIpLimit] = {
+    # Databento — usage-BILLED (cost is the constraint, gated by the
+    # billing-allowlist), and any transport throttle is PER-IP not a shared
+    # fleet quota: each streaming/live VM respects its own per-IP connection +
+    # request budget, so adding VMs (each a distinct IP) scales linearly. No
+    # documented hard per-IP req/min cap surfaced yet; the ramp probe confirms
+    # the per-IP ceiling (or that billing is the only limit). Modelled per-IP so
+    # the allocator never divides one ceiling across the Databento fleet.
+    "databento": PerIpLimit(rpm=None, calibrated=False, note="usage-billed; per-IP transport, scale via more IPs"),
+    # Polymarket (CLOB + Gamma) — public endpoints, LIKELY per-IP throttled
+    # (operator: "probe it"). Conservative pre-calibration placeholder 600/min
+    # per IP (~10 req/sec politeness) until the ramp probe measures the real
+    # per-IP break point. Per-IP: each Polymarket VM uses the full ceiling.
+    "polymarket_clob": PerIpLimit(rpm=600, calibrated=False, note="likely per-IP; PLACEHOLDER until ramp probe"),
+    "polymarket_gamma_api": PerIpLimit(rpm=600, calibrated=False, note="likely per-IP; PLACEHOLDER until ramp probe"),
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Key-pool sources — capacity = per-key ceiling x pool size (Part 4). The Graph
+# is NOT a single per-IP/per-minute cap: it shards across a Secret-Manager pool
+# of API keys (round-robin), so the EFFECTIVE fleet ceiling is
+# ``per_key_rpm x pool_size``. The DeFi subgraph handlers already round-robin
+# the 9-key ``thegraph-api-key[-2..9]`` pool per request
+# (``thegraph_base_client.next_thegraph_key_from_pool`` / ``ThegraphKeyPoolRotator``);
+# this registry MODELS that capacity so a DeFi subgraph launch can size its VM
+# fan-out + per-VM shard against ``per_key_rpm x pool_size`` rather than a single
+# key's budget. A launcher distributes pool keys across VMs/shards (key_number =
+# shard_index % pool_size + 1) so no single key is over-driven.
+@dataclass(frozen=True)
+class KeyPoolLimit:
+    """A keyed source whose ceiling = ``per_key_rpm x pool_size`` (round-robin pool)."""
+
+    per_key_rpm: int
+    pool_size: int
+    calibrated: bool
+    note: str
+
+    @property
+    def effective_rpm(self) -> int:
+        """Pooled fleet ceiling = per-key ceiling x pool size."""
+        return self.per_key_rpm * self.pool_size
+
+
+SOURCE_KEY_POOL_LIMITS: dict[str, KeyPoolLimit] = {
+    # TheGraph gateway (DEX subgraphs) — the gateway's free-plan budget is
+    # ~per-key; the 9-key SM pool (thegraph-api-key, -2..-9) is round-robined so
+    # effective capacity ≈ 9 x per-key. The per-key rpm is a conservative
+    # placeholder pending a ramp probe per key; pool_size mirrors
+    # thegraph_base_client._THEGRAPH_NUM_API_KEYS (9). Handlers rotate keys per
+    # request; launchers shard keys across VMs.
+    "thegraph": KeyPoolLimit(
+        per_key_rpm=300,
+        pool_size=9,
+        calibrated=False,
+        note="9-key SM pool round-robin; per-key PLACEHOLDER pending ramp probe; effective=per_keyx9",
+    ),
+}
+
+
+def per_ip_rate_for_source(source: str) -> PerIpLimit | None:
+    """Return the per-IP limit for a per-IP source, or ``None`` if not per-IP.
+
+    A per-IP source is NOT fleet-divided: each VM/IP runs at the full ``rpm``.
+    """
+    return SOURCE_PER_IP_LIMITS.get(source)
+
+
+def key_pool_capacity_for_source(source: str) -> KeyPoolLimit | None:
+    """Return the key-pool capacity model for a keyed source, or ``None``.
+
+    Effective fleet ceiling = ``per_key_rpm x pool_size`` (round-robin pool).
+    """
+    return SOURCE_KEY_POOL_LIMITS.get(source)
+
+
 def _minutes_until_utc_midnight(now_utc: datetime) -> float:
     """Minutes from ``now_utc`` until the next 00:00 UTC (the daily-quota reset).
 
@@ -207,6 +307,14 @@ class RateBudgetAllocation:
     when the source has no daily quota / late in the day none is supplied, lower
     when the remaining daily budget can't sustain the full per-minute rate to
     00:00 UTC). ``minutes_to_reset`` is the UTC-midnight horizon used.
+
+    ``per_vm_daily_quota`` is this VM's share of the source's FULL per-day ceiling
+    (``SOURCE_DAILY_QUOTA[source] // n_vms``, ``None`` when the source has no daily
+    quota) — the adapter consumes it as its per-UTC-day fixed-window cap (resets at
+    00:00 UTC, matching the provider) via ``set_window_quota(per_day=...)``. This is
+    the FULL daily share for the adapter's own UTC-day counter, distinct from the
+    time-amortised ``effective_source_rpm`` the allocator uses to size the per-minute
+    fleet split late in the day.
     """
 
     source: str
@@ -214,6 +322,7 @@ class RateBudgetAllocation:
     effective_source_rpm: int
     n_vms: int
     per_vm_rpm: int
+    per_vm_daily_quota: int | None
     concurrency: int
     min_request_interval_s: float
     remaining_daily_quota: int | None
@@ -288,6 +397,12 @@ def allocate_rate_budget(
     """
     if n_vms < 1:
         raise ValueError(f"n_vms must be >= 1 (got {n_vms})")
+    if source in SOURCE_PER_IP_LIMITS:
+        raise ValueError(
+            f"source {source!r} is PER-IP (in SOURCE_PER_IP_LIMITS) — its ceiling is per-IP, "
+            "NOT a shared fleet quota to divide. Each VM/IP gets the full per-IP rate; use "
+            "per_ip_rate_for_source() and scale by adding IPs, never allocate_rate_budget()."
+        )
     source_rpm = SOURCE_RATE_LIMITS_RPM.get(source)
     if source_rpm is None:
         raise ValueError(
@@ -314,12 +429,15 @@ def allocate_rate_budget(
     if per_task_rpm < 1:
         raise ValueError(f"max_per_query_rate_rpm must be >= 1 (got {per_task_rpm})")
     concurrency = max(1, min(concurrency_cap, per_vm_rpm // per_task_rpm))
+    _daily_quota = SOURCE_DAILY_QUOTA.get(source)
+    per_vm_daily_quota = (_daily_quota // n_vms) if _daily_quota is not None else None
     return RateBudgetAllocation(
         source=source,
         source_rpm=source_rpm,
         effective_source_rpm=effective_rpm,
         n_vms=n_vms,
         per_vm_rpm=per_vm_rpm,
+        per_vm_daily_quota=per_vm_daily_quota,
         concurrency=concurrency,
         min_request_interval_s=round(60.0 / per_vm_rpm, 4),
         remaining_daily_quota=remaining_daily_quota,

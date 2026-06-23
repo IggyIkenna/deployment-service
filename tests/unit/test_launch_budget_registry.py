@@ -30,14 +30,18 @@ from deployment_service.data_pipeline_monitors.launch_budget_registry import (
     DEFAULT_MEMORY_TIER,
     MEMORY_TIER_LADDER,
     SOURCE_DAILY_QUOTA,
+    SOURCE_KEY_POOL_LIMITS,
+    SOURCE_PER_IP_LIMITS,
     SOURCE_RATE_LIMITS_RPM,
     FleetBudgetExceededError,
     allocate_rate_budget,
     assert_fleet_within_budget,
     gce_machine_ram_gb,
+    key_pool_capacity_for_source,
     machine_type_for,
     memory_tier_for_machine_type,
     next_memory_tier,
+    per_ip_rate_for_source,
     resolve_memory_tier,
 )
 
@@ -185,10 +189,15 @@ def test_unknown_source_raises() -> None:
 
 
 def test_uncapped_source_raises() -> None:
-    """A source whose ceiling is still TODO (None) cannot be rate-allocated."""
-    assert SOURCE_RATE_LIMITS_RPM["databento"] is None
+    """A source whose fleet ceiling is still TODO (None) AND is not per-IP cannot
+    be rate-allocated. ``thegraph`` is None in SOURCE_RATE_LIMITS_RPM (it is a
+    key-pool source, modelled separately) and not in SOURCE_PER_IP_LIMITS, so it
+    hits the generic no-ceiling guard. (databento is now PER-IP → a different,
+    more-specific raise — see test_per_ip_source_refuses_fleet_allocation.)"""
+    assert SOURCE_RATE_LIMITS_RPM["thegraph"] is None
+    assert "thegraph" not in SOURCE_PER_IP_LIMITS
     with pytest.raises(ValueError, match="no fleet rate ceiling"):
-        allocate_rate_budget("databento", n_vms=2)
+        allocate_rate_budget("thegraph", n_vms=2)
 
 
 def test_too_many_vms_raises() -> None:
@@ -344,3 +353,69 @@ def test_memory_tier_reverse_lookup() -> None:
     assert tier is not None
     assert tier.ram_gb == 128
     assert memory_tier_for_machine_type("e2-micro") is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Part 1 (window) — per-VM daily-quota share for the adapter's UTC-day window.
+# ──────────────────────────────────────────────────────────────────────────
+def test_per_vm_daily_quota_is_full_share_for_daily_source() -> None:
+    """api_football has a 450k/day quota → per_vm_daily_quota = 450000 // n_vms."""
+    a = allocate_rate_budget("api_football", n_vms=10)
+    assert a.per_vm_daily_quota == 450_000 // 10
+
+
+def test_per_vm_daily_quota_none_for_no_daily_quota_source() -> None:
+    """A source without a SOURCE_DAILY_QUOTA carries no per-VM daily share."""
+    a = allocate_rate_budget("footystats", n_vms=2)
+    assert a.per_vm_daily_quota is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Part 3 — per-IP sources (databento / polymarket). NOT fleet-divided.
+# ──────────────────────────────────────────────────────────────────────────
+def test_per_ip_sources_registered() -> None:
+    assert "databento" in SOURCE_PER_IP_LIMITS
+    assert "polymarket_clob" in SOURCE_PER_IP_LIMITS
+    assert "polymarket_gamma_api" in SOURCE_PER_IP_LIMITS
+
+
+def test_databento_per_ip_is_usage_billed_no_rpm() -> None:
+    lim = per_ip_rate_for_source("databento")
+    assert lim is not None
+    assert lim.rpm is None  # usage-billed, scale via more IPs
+
+
+def test_polymarket_per_ip_has_placeholder_pending_calibration() -> None:
+    lim = per_ip_rate_for_source("polymarket_clob")
+    assert lim is not None
+    assert lim.rpm == 600
+    assert lim.calibrated is False  # ramp probe replaces this
+
+
+def test_per_ip_source_refuses_fleet_allocation() -> None:
+    """A per-IP source MUST NOT be fleet-divided (each VM/IP gets the full rate)."""
+    with pytest.raises(ValueError, match="PER-IP"):
+        allocate_rate_budget("polymarket_clob", n_vms=4)
+
+
+def test_non_per_ip_source_has_no_per_ip_limit() -> None:
+    assert per_ip_rate_for_source("api_football") is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Part 4 — TheGraph key-pool capacity (per-key × pool size).
+# ──────────────────────────────────────────────────────────────────────────
+def test_thegraph_key_pool_registered() -> None:
+    assert "thegraph" in SOURCE_KEY_POOL_LIMITS
+
+
+def test_thegraph_effective_is_per_key_times_pool() -> None:
+    k = key_pool_capacity_for_source("thegraph")
+    assert k is not None
+    assert k.pool_size == 9  # mirrors thegraph_base_client._THEGRAPH_NUM_API_KEYS
+    assert k.effective_rpm == k.per_key_rpm * k.pool_size
+    assert k.calibrated is False  # per-key placeholder pending ramp probe
+
+
+def test_key_pool_unknown_source_returns_none() -> None:
+    assert key_pool_capacity_for_source("api_football") is None
