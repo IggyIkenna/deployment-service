@@ -252,6 +252,15 @@ IS_TEST_RUN=$(_meta IS_TEST_RUN)
 if [[ -n "$IS_TEST_RUN" ]]; then
   export IS_TEST_RUN
 fi
+# SHARD_INDEX (Part 4 — TheGraph key-pool sharding). The DeFi subgraph launchers
+# stamp SHARD_INDEX so each VM starts on a distinct key in the 9-key thegraph pool
+# (mtds market_interface config reads SHARD_INDEX via AliasChoices; key_number =
+# SHARD_INDEX % 9 + 1, then the handler round-robins the full pool per request).
+# Only export if non-empty (empty-string would break Pydantic int parsing).
+SHARD_INDEX=$(_meta SHARD_INDEX)
+if [[ -n "$SHARD_INDEX" ]]; then
+  export SHARD_INDEX
+fi
 # DEPLOYMENT_ENV (env-tier for bucket-resolution per bucket_name_ssot Phase 0f,
 # 2026-05-11). Every Phase-0f launcher propagates this via
 # --metadata=DEPLOYMENT_ENV=<prod|staging|dev>. Default prod when absent so
