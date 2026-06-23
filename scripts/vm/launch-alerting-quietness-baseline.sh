@@ -166,6 +166,7 @@ VM_TASK=alerting-quietness-baseline,\
 VM_NAME=${VM_NAME},\
 VM_DURATION_HOURS=${DURATION_HOURS},\
 VM_SHUTDOWN_ON_COMPLETION=true,\
+STALL_TIMEOUT_SEC=3600,\
 TELEGRAM_BOT_TOKEN_SECRET=alerting-telegram-bot-token,\
 TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-telegram-chat-id-staging" || echo "alerting-telegram-chat-id"),\
 DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\

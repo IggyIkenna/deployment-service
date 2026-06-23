@@ -31,7 +31,14 @@
 #     alerting-service router path is unavailable).
 
 locals {
-  data_pipeline_monitor_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
+  # The monitor entrypoint is `python -m deployment_service.data_pipeline_monitors.cli`
+  # — that package lives ONLY in the deployment-service image (the `api` Dockerfile
+  # target COPYs `deployment_service/`), NOT the MTDS image. The MTDS image bundles UTL
+  # (which is why the consolidator job — `-m unified_trading_library.manifest_consolidator`
+  # — reuses it), but `deployment_service.*` is absent there → ModuleNotFoundError.
+  # So the monitors run on the deployment-service `deployment-api` image.
+  # (Fixed 2026-06-22: the original MTDS-image pick crashed every cron with exit 1.)
+  data_pipeline_monitor_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/deployment-api:latest"
 }
 
 # --- SA accessor: DATA_PIPELINE_ALERTS_SLACK_WEBHOOK ---

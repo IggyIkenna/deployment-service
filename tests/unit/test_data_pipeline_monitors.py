@@ -232,9 +232,21 @@ def test_classify_liveness_too_young_skips():
     assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.TOO_YOUNG
 
 
+def _pipeline_hb_runlog(vm: str, *, marker_age_min: float) -> bytes:
+    """A run.log whose freshest PIPELINE_HEARTBEAT marker is ``marker_age_min`` old."""
+    ts = (datetime.now(UTC) - timedelta(minutes=marker_age_min)).strftime("%Y-%m-%dT%H:%M:%S")
+    return (
+        f"2026-06-22T00:00:00 INFO start\n"
+        f"PIPELINE_HEARTBEAT vm={vm} ag=defi task=mtds-backfill source=vm-life-emitter ts={ts}\n"
+    ).encode()
+
+
 def test_heartbeat_sweep_emits_stall(monkeypatch):
+    # A LIVE VM (no run.log progress signal) whose PIPELINE_HEARTBEAT marker is
+    # stale → STALL. The worker-heartbeat marker (run.log), NOT the infra sidecar,
+    # is the liveness signal now (BUG2 fix).
     vm = "mtds-live-defi-2025"
-    storage = FakeStorage({(LOG_BUCKET, _heartbeat_blob(vm)): (b"123\n456\nrunning", 40.0)})
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=40.0), None)})
     emitted: list[tuple[str, str]] = []
     monkeypatch.setattr(
         "deployment_service.data_pipeline_monitors.escalation.log_event",
@@ -251,6 +263,286 @@ def test_heartbeat_sweep_emits_stall(monkeypatch):
     )
     assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
     assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
+
+
+def test_stall_finding_carries_relaunch_launcher(monkeypatch):
+    """When launcher_for_vm is wired, the DP_VM_STALL finding carries relaunch_launcher.
+
+    That binding is what lets the relaunch_stalled_vm auto_recover actuator
+    re-launch the watchdog-killed VM (instead of falling through to file_issue).
+    """
+    vm = "tradfi-bf-cme-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=40.0), None)})
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    # mute the best-effort dispatch + the file_issue PM-clone write so the test is hermetic
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        launcher_for_vm=lambda _vm: "launch-tradfi-bf-cme.sh",
+        stall_minutes=15,
+    )
+    stall_details = [d for d in captured_details if d.get("relaunch_launcher")]
+    assert stall_details, "DP_VM_STALL finding should carry the relaunch_launcher binding"
+    assert stall_details[0]["relaunch_launcher"] == "launch-tradfi-bf-cme.sh"
+
+
+def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
+    """THE BUG2 KEYSTONE regression (operator's 'zero alerts in 1.5h' symptom).
+
+    A running data VM with a FRESH generic infra ``vm-heartbeat`` sidecar blob but
+    NO PIPELINE_HEARTBEAT worker marker (the data worker died / never launched /
+    its heartbeat timer is broken) MUST still ALERT — the watcher must NOT be
+    fooled into ALIVE by the always-fresh infra sidecar. Here the run.log is
+    FROZEN (boot line ~stale, no marker) → the heartbeat-absent fallback (2026-06-23)
+    classifies it ``STALL`` (dead worker, frozen log) rather than
+    ``EVENT_LOOP_STARVED`` (reserved for TOTAL silence — no run.log at all). Both
+    alert to Slack; the keystone property is "still alerts, not fooled".
+    """
+    vm = "mtds-live-sports-odds-api-trades-2026"
+    fresh_epoch = int(datetime.now(UTC).timestamp()) - 30  # infra sidecar wrote 30s ago
+    storage = FakeStorage(
+        {
+            # Fresh INFRA sidecar — the old, wrong liveness signal.
+            (LOG_BUCKET, _heartbeat_blob(vm)): (f"{fresh_epoch}\n-1\nstarting".encode(), None),
+            # run.log exists but carries NO PIPELINE_HEARTBEAT worker marker, and
+            # its last embedded timestamp is FROZEN well past the run-log stall
+            # bound (a stale 2020 boot line) → heartbeat-absent + frozen-log = STALL.
+            (LOG_BUCKET, _run_log_blob(vm)): (b"2020-01-01T00:00:00 INFO boot\n", None),
+        }
+    )
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,  # well past grace
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "sports",
+        stall_minutes=15,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+    assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
+
+
+def test_no_marker_but_fresh_run_log_reads_alive(monkeypatch):
+    """Transition-safety fallback (2026-06-23): a healthy PRE-heartbeat-tarball VM.
+
+    ~30 of 41 live VMs predate the PIPELINE_HEARTBEAT tarball and emit NO worker
+    marker though their worker is alive and writing. Keying solely on the marker
+    flagged all of them EVENT_LOOP_STARVED (29 false alerts). With the run.log
+    PROGRESS fallback, a missing marker + a FRESH/advancing run.log reads ALIVE —
+    no false alert — while a frozen log still STALLs (see the keystone test above).
+    """
+    vm = "mtds-live-cefi-deribit-trades-2026"
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    storage = FakeStorage(
+        {
+            # No PIPELINE_HEARTBEAT marker, but the run.log advanced seconds ago.
+            (LOG_BUCKET, _run_log_blob(vm)): (f"{fresh_ts} INFO captured shard\n".encode(), None),
+        }
+    )
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+        stall_minutes=15,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert emitted == []  # no false alert for a healthy old-tarball VM
+
+
+def test_healthy_vm_with_fresh_pipeline_marker_reads_alive(monkeypatch):
+    """A VM emitting a FRESH PIPELINE_HEARTBEAT marker reads ALIVE (no false alert)."""
+    vm = "mtds-live-sports-odds-api-trades-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=0.5), None)})
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "sports",
+        stall_minutes=15,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert not emitted
+
+
+# ── _gcs.pipeline_heartbeat_age_minutes (BUG2: worker marker, not infra sidecar) ─
+def test_pipeline_heartbeat_age_from_marker_tail():
+    vm = "tm-backfill-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=0.4), None)})
+    age = _gcs.pipeline_heartbeat_age_minutes(storage, LOG_BUCKET, vm)
+    assert age is not None and 0.0 <= age < 2.0
+
+
+def test_pipeline_heartbeat_age_none_when_no_marker():
+    """run.log present but NO PIPELINE_HEARTBEAT marker ⇒ None (silent worker)."""
+    vm = "tm-backfill-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (b"2026-06-22T00:00:00 INFO only-boot-line\n", None)})
+    assert _gcs.pipeline_heartbeat_age_minutes(storage, LOG_BUCKET, vm) is None
+
+
+def test_pipeline_heartbeat_age_none_when_log_absent():
+    assert _gcs.pipeline_heartbeat_age_minutes(FakeStorage({}), LOG_BUCKET, "vm-x") is None
+
+
+# ── _gcs content-epoch heartbeat age (BUG2: last_modified is bare on the bucket) ─
+def test_heartbeat_blob_age_uses_content_epoch_when_metadata_bare():
+    """The real bug: get_blob_metadata().last_modified is None for every blob, so
+    age MUST come from the heartbeat blob's first-line Unix epoch (the sidecar
+    writes `<epoch>\\n<rc>\\n<status>`). A FRESH epoch ⇒ a small (non-None) age."""
+    vm = "tm-backfill-2026"
+    fresh_epoch = int(datetime.now(UTC).timestamp()) - 30  # 30s ago
+    # age_min=None ⇒ FakeStorage returns _FakeBlobMeta(None) (bare metadata).
+    storage = FakeStorage({(LOG_BUCKET, _heartbeat_blob(vm)): (f"{fresh_epoch}\n-1\nrunning".encode(), None)})
+    age = _gcs.heartbeat_blob_age_minutes(storage, LOG_BUCKET, vm)
+    assert age is not None and 0.0 <= age < 2.0  # ~0.5 min, NOT None → no false starve
+
+
+def test_heartbeat_blob_age_none_when_blob_absent():
+    """No heartbeat blob at all ⇒ None (genuine total silence — EVENT_LOOP_STARVED)."""
+    assert _gcs.heartbeat_blob_age_minutes(FakeStorage({}), LOG_BUCKET, "vm-x") is None
+
+
+def test_run_log_age_from_embedded_timestamp_tail():
+    """run.log freshness derives from the LAST embedded `YYYY-MM-DD HH:MM:SS` line
+    (last_modified is bare), so a frozen log reads as STALE-by-content."""
+    vm = "tradfi-bf-cme-2025"
+    old = (datetime.now(UTC) - timedelta(minutes=90)).strftime("%Y-%m-%d %H:%M:%S")
+    log = f"2026-06-22 10:00:00,000 INFO start\n{old},123 INFO last line\n".encode()
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, None)})
+    age = _gcs.run_log_age_minutes(storage, LOG_BUCKET, vm)
+    assert age is not None and age > 60.0  # ~90 min frozen
+
+
+# ── classifier: run.log hang signal + corroborated-flat + live-vs-backfill ──────
+def test_classify_stall_on_frozen_runlog_even_when_heartbeat_fresh():
+    """Hung-process class: heartbeat fresh but run.log frozen past the generous
+    threshold ⇒ STALL (the bash heartbeat ticks but the worker made no progress)."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=False,
+        run_log_age_min=60.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
+def test_classify_alive_when_heartbeat_fresh_and_runlog_recent():
+    """Fresh heartbeat + recently-advancing run.log ⇒ ALIVE (no false stall)."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=False,
+        run_log_age_min=3.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_captured_flat_alone_does_not_stall():
+    """A live-capture VM's per-VM shard count legitimately holds flat between
+    ticks — captured_flat alone (no corroborating stale log) must NOT stall."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "mtds-live-cefi-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=None,  # live VMs pass None (run.log signal not applied)
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_captured_flat_with_stale_log_does_stall():
+    """Captured flat AND run.log also stopped advancing ⇒ corroborated stall."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=20.0,
+        stall_minutes=10.0,
+        run_log_stall_minutes=45.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
+def test_is_backfill_vm_classification():
+    assert heartbeat_stall_watcher._is_backfill_vm("tm-backfill-20260622-211407")
+    assert heartbeat_stall_watcher._is_backfill_vm("tradfi-bf-cme-ohlcv-1m-rb-2025")
+    assert heartbeat_stall_watcher._is_backfill_vm("fs-backfill-20260622")
+    # live-capture VMs are NOT backfill (run.log signal must not apply to them).
+    assert not heartbeat_stall_watcher._is_backfill_vm("mtds-live-cefi-okx-trades-2026")
+    assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
+
+
+def test_live_vm_with_quiet_runlog_reads_alive_in_sweep(monkeypatch):
+    """End-to-end of the false-positive fix: a LIVE VM with a FRESH PIPELINE_HEARTBEAT
+    marker but a long-quiet DATA run.log line (296 min, like the real mtds-live-deribit)
+    must read ALIVE. The run.log progress signal is NOT applied to live-capture VMs, and
+    the worker-heartbeat marker (emitted by the VM-life emitter) is fresh → ALIVE."""
+    vm = "mtds-live-cefi-deribit-trades-2026"
+    fresh_marker_ts = (datetime.now(UTC) - timedelta(seconds=45)).strftime("%Y-%m-%dT%H:%M:%S")
+    old_log_line = (datetime.now(UTC) - timedelta(minutes=296)).strftime("%Y-%m-%d %H:%M:%S")
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, _run_log_blob(vm)): (
+                (
+                    f"{old_log_line},000 INFO connected\n"
+                    f"PIPELINE_HEARTBEAT vm={vm} ag=cefi source=vm-life-emitter ts={fresh_marker_ts}\n"
+                ).encode(),
+                None,
+            ),
+        }
+    )
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 300.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert not emitted  # no false DP_VM_STALL / DP_EVENT_LOOP_STARVED
 
 
 # ── escalation hop ───────────────────────────────────────────────────────────
@@ -334,6 +626,159 @@ def test_route_file_issue_no_pm_clone_defers(monkeypatch):
     result = escalation.route_finding(finding, pm_repo_path="/nonexistent/pm")
     assert result["emitted"] is True
     assert details_seen[0].get("file_issue_deferred") == "no_pm_clone_on_disk"
+
+
+# ── DP_VM_STALL self-heal actuator (Fix 1) ──────────────────────────────────
+def _silence_dispatch_and_emit(monkeypatch):
+    """Mute log_event + the best-effort GH dispatch so the escalation tests are hermetic."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+
+
+def test_route_stall_invokes_relaunch_actuator(monkeypatch):
+    """DP_VM_STALL auto_recover → relaunch_stalled_vm actuator is wired + invoked."""
+    _silence_dispatch_and_emit(monkeypatch)
+    # the DP_VM_STALL event has a wired actuator (was missing → fell through to file_issue)
+    actuator = escalation._DP_RECOVERY_ACTIONS.get("DP_VM_STALL")
+    assert actuator is not None
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM tradfi-bf-cme stalled — heartbeat 12m stale",
+        details={"vm_name": "tradfi-bf-cme-20260623", "relaunch_launcher": "launch-tradfi-bf-cme.sh"},
+        registry_id="DP-VM-003",
+    )
+    # the actuator routes to relaunch_stalled_vm; DRY_RUN proves the relaunch plan
+    outcome = actuator(finding, dry_run=True)
+    assert outcome["actuator"] == "relaunch_stalled_vm"
+    assert outcome["recovered"] is True  # DRY_RUN counts as recovered
+    assert outcome["result"]["status"] == "DRY_RUN"
+    # routed end-to-end (dry_run) — stays auto_recover, no fall-through to file_issue
+    result = escalation.route_finding(finding, dry_run=True)
+    assert result["effective_tier"] == "auto_recover"
+
+
+def test_stall_no_launcher_falls_through_to_file_issue(monkeypatch, tmp_path):
+    """A DP_VM_STALL with no relaunch_launcher → actuator not recovered → file_issue."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM mystery-vm stalled — heartbeat 30m stale",
+        details={"vm_name": "mystery-vm"},  # no relaunch_launcher binding
+        registry_id="DP-VM-003",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["effective_tier"] == "file_issue"
+    assert result["issue_path"] is not None
+
+
+# ── actionable issue doc (Fix 2) ────────────────────────────────────────────
+def test_filed_issue_is_actionable(monkeypatch, tmp_path):
+    """The filed issue carries a `- [ ]` todo + assigned_vm + names the right repo."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    # a VM-lifecycle finding → deployment-service
+    finding = PipelineFinding(
+        event="DP_EVENT_LOOP_STARVED",
+        severity="WARN",
+        tier=EscalationTier.FILE_ISSUE,
+        summary="VM silent-vm emitting NO PIPELINE_HEARTBEAT",
+        details={"vm_name": "silent-vm"},
+        registry_id="DP-VM-004",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    assert "assigned_vm: vm-cross-cutting" in body
+    assert "parent_epic: observability_master" in body
+    assert "- [ ] [CODE] P1." in body
+    assert "deployment-service" in body  # VM-lifecycle → deployment-service
+    assert "SUB_AGENT_MANDATORY_RULES.md" in body
+
+
+def test_filed_issue_routes_data_finding_to_mtds(monkeypatch, tmp_path):
+    """A data-correctness finding (not VM-lifecycle) → market-tick-data-service."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    finding = PipelineFinding(
+        event="DP_DIVERGENT_EMPTY",
+        severity="WARN",
+        tier=EscalationTier.FILE_ISSUE,
+        summary="5 defi cells oracle-expects-but-empty",
+        details={"asset_group": "defi"},
+        registry_id="DP-MANIFEST-002",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    assert "market-tick-data-service" in body
+    assert "- [ ] [CODE] P1." in body
+
+
+# ── fast CI-parity dispatch (Fix 3) ─────────────────────────────────────────
+def test_critical_attempts_dispatch(monkeypatch):
+    """A CRITICAL (page_operator) finding ALSO fires the best-effort repository_dispatch."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    seen: list[str] = []
+    monkeypatch.setattr(
+        escalation,
+        "_dispatch_to_orchestrator",
+        lambda _f, _p: (seen.append("called"), {"dispatched": True, "reason": "http_204"})[1],
+    )
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm crashed",
+        details={"vm_name": "x"},
+        registry_id="DP-VM-001",
+    )
+    result = escalation.route_finding(finding)
+    assert seen == ["called"]
+    assert result["dispatch"]["dispatched"] is True
+
+
+def test_dispatch_is_non_raising_without_gh_token(monkeypatch):
+    """The REAL _dispatch_to_orchestrator never raises — no GH token → graceful skip."""
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+
+    # get_secret_client raising (no SM access / token-less Cloud Run Job) must be
+    # swallowed → {dispatched: False, reason: no_gh_token}, NOT a crash.
+    def _no_secret_client():
+        raise RuntimeError("no SM access")
+
+    monkeypatch.setattr(escalation, "get_secret_client", _no_secret_client)
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm crashed",
+        details={"vm_name": "x"},
+    )
+    out = escalation._dispatch_to_orchestrator(finding, None)
+    assert out["dispatched"] is False
+    assert out["reason"] == "no_gh_token"
+    # and route_finding completes + emits despite the dispatch skip
+    res = escalation.route_finding(finding)
+    assert res["emitted"] is True
+    assert "DP_VM_EXIT_NONZERO" in emitted
 
 
 # ── meta_watchers freshness probe ───────────────────────────────────────────

@@ -115,6 +115,10 @@ def test_main_constructs_daemon_with_deployment_events() -> None:
     assert call_kwargs["started_event"] == DEPLOYMENT_STARTED
     assert call_kwargs["completed_event"] == DEPLOYMENT_COMPLETED
     assert call_kwargs["failed_event"] == DEPLOYMENT_FAILED
+    # Freshness-ceiling wiring (data_pipeline_hardening_self_monitoring 2026-06-22):
+    # the GCS run.log staleness ceiling MUST be forwarded to the daemon so a
+    # slow-but-live log can't freeze its GCS copy. Regression guard for the freeze.
+    assert call_kwargs["upload_max_staleness_sec"] == 90
 
 
 def test_run_lifecycle_is_entered() -> None:

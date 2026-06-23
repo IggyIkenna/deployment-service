@@ -24,7 +24,7 @@ source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 DRY_RUN=false
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
@@ -102,6 +102,8 @@ METADATA="${METADATA},VM_SERVICE=instruments_service"
 # § 6G.
 METADATA="${METADATA},VM_ASSET_GROUP=defi"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+# Daily catalog → 120s consolidated-staleness default is too short; use 24h to avoid fallback to per-VM shards
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
@@ -117,6 +119,7 @@ gcloud compute instances create "${VM_NAME}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
   --no-restart-on-failure \
+  --preemptible \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \

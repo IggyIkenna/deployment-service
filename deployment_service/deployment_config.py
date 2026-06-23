@@ -125,9 +125,27 @@ class DeploymentConfig(UnifiedCloudConfig):
     )
 
     upload_interval_sec: int = Field(
-        default=120,
+        default=60,
         validation_alias=AliasChoices("UPLOAD_INTERVAL_SEC"),
-        description="Default seconds between VM run.log re-uploads (anti-churn)",
+        description=(
+            "Stat-check cadence for VM run.log re-upload. Was 120s; lowered to 60s "
+            "(2026-06-22) so the upload_max_staleness_sec freshness ceiling can fire "
+            "on time. Byte-volume churn stays bounded by the LogUploader "
+            "min_growth_bytes threshold (an idle log still skips), so a tighter "
+            "cadence costs only stat() calls, not GCS writes."
+        ),
+    )
+
+    upload_max_staleness_sec: int = Field(
+        default=90,
+        validation_alias=AliasChoices("UPLOAD_MAX_STALENESS_SEC"),
+        description=(
+            "Freshness ceiling: a CHANGED-but-slow VM run.log is force-re-uploaded "
+            "to GCS once this many seconds elapse since the last upload, even below "
+            "the min_growth_bytes anti-churn threshold — so a low-volume scraper's "
+            "GCS run.log never freezes for hours behind the on-VM log "
+            "(data_pipeline_hardening_self_monitoring 2026-06-22)."
+        ),
     )
 
     # =========================================================================
