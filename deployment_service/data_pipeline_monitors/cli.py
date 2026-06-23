@@ -305,6 +305,14 @@ def main(argv: list[str] | None = None) -> int:
                 len(non_clean),
                 ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
             )
+            if not dry_run:
+                _gcs.write_monitor_last_run(
+                    storage_client,
+                    log_bucket,
+                    "exit-code",
+                    ok=True,
+                    counts={"terminated": len(results), "non_clean": len(non_clean)},
+                )
         elif mode == "heartbeat":
             running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
@@ -341,6 +349,13 @@ def main(argv: list[str] | None = None) -> int:
                 running_names = {name for name, _ in running}
                 pruned = {vm: ts for vm, ts in updated_first_seen.items() if vm in running_names}
                 _write_first_seen(storage_client, log_bucket, pruned)
+                _gcs.write_monitor_last_run(
+                    storage_client,
+                    log_bucket,
+                    "heartbeat",
+                    ok=True,
+                    counts={"running": len(results), "stalled": len(stalled)},
+                )
         else:  # meta
             meta_watchers.check_catalogue_freshness(
                 storage_client=storage_client,
@@ -377,7 +392,20 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
+            # Cron-watches-cron (in-band): probe the fleet-monitor / meta-watcher
+            # sweep sentinels themselves. A stopped exit-code/heartbeat/meta cron
+            # leaves its vm-census/<mode>-last-run.json stale → DP_CRON_DID_NOT_FIRE
+            # (DP-WATCHER-002, page). The meta sweep can't catch its OWN death this
+            # way — Layer-2's out-of-band deadman owns that.
+            meta_watchers.check_monitor_crons_fired(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
             logger.info("meta sweep complete")
+            if not dry_run:
+                _gcs.write_monitor_last_run(storage_client, log_bucket, "meta", ok=True)
 
     return 0
 

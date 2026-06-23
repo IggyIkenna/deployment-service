@@ -27,6 +27,17 @@ Modules
     Closes DP-CATALOG-001 / DP-WATCHER-001/002 — freshness probes for the
     instrument-catalogue refresh, the zombie-VM watchdog itself, and scheduled
     audit/consolidator/digest crons (the "is the checker itself alive" gap).
+    ``check_monitor_crons_fired`` is the Layer-1 cron-watches-cron probe: each
+    fleet-monitor sweep writes a ``vm-census/<mode>-last-run.json`` sentinel
+    (``_gcs.write_monitor_last_run``) and the meta sweep alerts on a stale one.
+
+``deadman_poster``
+    Layer-2 out-of-band dead-man's-switch (the top-of-chain watcher). Reads every
+    monitor sentinel + the ``lifecycle-events-sub`` oldest_unacked backlog and, on
+    any staleness, posts DIRECTLY to a SEPARATE Slack webhook
+    (``MONITORING_DEADMAN_SLACK_WEBHOOK``) — DELIBERATELY independent of PubSub /
+    the alerting-service / the ``#data-pipeline-alerts`` webhook so the same
+    failure can't swallow its own death-alert.
 
 ``escalation``
     The escalation hop mirroring ``ci_failure_watcher.py``'s
