@@ -21,7 +21,7 @@ emit on stale/missing. The GCS read is injected for credential-free testing.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from unified_trading_library import StorageClient
@@ -66,6 +66,20 @@ class FreshnessTarget:
     blob_path: str
     max_age_min: float
     label: str  # human label (asset_group / cron name) for the alert
+    # Cloud Scheduler job name backing this cron (e.g.
+    # ``manifest-consolidator-market-data-sports``). When set + the injected
+    # ``scheduler_state_reader`` reports it ``PAUSED``, ``check_cron_fired`` SKIPS
+    # the stale-artifact alert (paused-by-design during the manual-backfill
+    # campaign — KEY #2). "" → no pause check (always alert on stale, as before).
+    scheduler_job: str = ""
+
+
+# A scheduler-state reader: ``job_name -> "ENABLED" | "PAUSED" | "DISABLED" | None``.
+# ``None`` ⇒ the job state is UNKNOWN (job not found / API error) → the caller does
+# NOT suppress (fail toward alerting on an unknown state — a missing job is itself
+# worth an alert, never a silent skip). Injected so the watcher stays pure +
+# credential-free; the cli wires the real Cloud Scheduler query.
+SchedulerStateReader = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -109,21 +123,34 @@ def check_catalogue_freshness(
         result = probe_freshness(storage_client, target)
         results.append(result)
         if result.stale:
+            # KEY #3 (operator 2026-06-23): the alert MUST SHOW WHAT IT PROBED —
+            # the exact gs://bucket/path, the age it read (or "artifact ABSENT"),
+            # and the freshness budget — so "(missing)" becomes a diagnosable
+            # "probed gs://<bucket>/<path>, artifact ABSENT, budget=<N>h".
+            budget_h = target.max_age_min / 60.0
+            probed = f"gs://{target.bucket}/{target.blob_path}"  # noqa: gs-uri — human alert label (the probed path the operator clicks), not a storage lookup
+            if result.age_min is None:
+                state = "artifact ABSENT"
+            else:
+                state = f"age {result.age_min:.0f}m (={result.age_min / 60.0:.1f}h) > budget"
+            summary = (
+                f"instrument catalogue for {target.label} is stale — probed {probed}, {state}, budget={budget_h:.0f}h"
+            )
             _emit(
                 PipelineFinding(
                     event=DP_CATALOG_NOT_RUNNING,
                     severity="CRITICAL",
                     tier=EscalationTier.PAGE_OPERATOR,
-                    summary=(
-                        f"instrument catalogue for {target.label} not refreshed in "
-                        + (f"{result.age_min:.0f}m" if result.age_min is not None else ">budget (missing)")
-                    ),
+                    summary=summary,
                     details={
                         "asset_group": target.label,
                         "bucket": target.bucket,
                         "blob_path": target.blob_path,
+                        "probed_path": probed,
+                        "artifact_present": result.age_min is not None,
                         "age_min": result.age_min,
                         "max_age_min": target.max_age_min,
+                        "budget_hours": budget_h,
                     },
                     registry_id="DP-CATALOG-001",
                 ),
@@ -202,6 +229,7 @@ def check_monitor_crons_fired(
     *,
     storage_client: StorageClient,
     log_bucket: str,
+    scheduler_state_reader: SchedulerStateReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[FreshnessResult]:
@@ -212,10 +240,16 @@ def check_monitor_crons_fired(
     leaves its ``vm-census/<mode>-last-run.json`` sentinel stale → emits
     ``DP_CRON_DID_NOT_FIRE`` (cron-did-not-fire, CRITICAL/page). NOTE: the meta
     sweep cannot catch its OWN death in-band — Layer-2's out-of-band deadman does.
+
+    Pause-aware via ``scheduler_state_reader`` (KEY #2) — though the monitor-sweep
+    schedulers (``dp-exit-code-monitor`` / ``dp-heartbeat-monitor`` /
+    ``dp-meta-monitor``) are NOT paused during the campaign, so this is wired for
+    parity; a paused monitor cron would (correctly) suppress.
     """
     return check_cron_fired(
         storage_client=storage_client,
         targets=monitor_cron_targets(log_bucket),
+        scheduler_state_reader=scheduler_state_reader,
         pm_repo_path=pm_repo_path,
         dry_run=dry_run,
     )
@@ -225,6 +259,7 @@ def check_cron_fired(
     *,
     storage_client: StorageClient,
     targets: Iterable[FreshnessTarget],
+    scheduler_state_reader: SchedulerStateReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[FreshnessResult]:
@@ -233,11 +268,35 @@ def check_cron_fired(
     Each ``FreshnessTarget`` names a cron's durable output/heartbeat artifact +
     its expected cadence budget (e.g. a daily digest's report blob with a 25h
     budget). A stale artifact = the cron did not fire on schedule.
+
+    **PAUSE-AWARE (KEY #2, operator 2026-06-23).** When a target names a
+    ``scheduler_job`` AND the injected ``scheduler_state_reader`` reports it
+    ``PAUSED``, the stale-artifact alert is SUPPRESSED — the scheduler is paused
+    BY DESIGN during the manual-backfill campaign, so its stale output is expected,
+    not a failure. An ``ENABLED`` job that missed its window (or any UNKNOWN/None
+    state — fail toward alerting) STILL fires the CRITICAL alert. No
+    ``scheduler_job`` / no reader ⇒ no pause check (always alert on stale, the
+    prior behaviour).
     """
     results: list[FreshnessResult] = []
     for target in targets:
         result = probe_freshness(storage_client, target)
         results.append(result)
+        if not result.stale:
+            continue
+        # Pause-aware skip: a PAUSED-by-design scheduler's stale artifact is
+        # EXPECTED — suppress (no actuator, no page). Only an explicit PAUSED
+        # suppresses; ENABLED / DISABLED / None (unknown) all fall through to alert.
+        if target.scheduler_job and scheduler_state_reader is not None:
+            state = scheduler_state_reader(target.scheduler_job)
+            if state == "PAUSED":
+                logger.info(
+                    "meta_watchers: DP_CRON_DID_NOT_FIRE suppressed for '%s' — scheduler job "
+                    "'%s' is PAUSED (paused-by-design during the manual-backfill campaign)",
+                    target.label,
+                    target.scheduler_job,
+                )
+                continue
         if result.stale:
             _emit(
                 PipelineFinding(

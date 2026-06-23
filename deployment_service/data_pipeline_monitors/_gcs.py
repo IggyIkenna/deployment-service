@@ -13,6 +13,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import cast
 
 from unified_trading_library import StorageClient
@@ -404,3 +405,90 @@ def run_log_shows_stall(storage_client: StorageClient, bucket: str, vm_name: str
     if not log:
         return False
     return bool(_STALL_RE.search(log))
+
+
+# ── no-capture-reason classification (DP-VM-002 false-positive killer) ────────
+#
+# A terminated VM with a FLAT consolidated/per-VM captured count is NOT
+# necessarily a silent failure. The run.log distinguishes three benign cases
+# from a genuine silent-zero (the 2026-06-23 false-positive flood diagnosis):
+#
+#   (a) PROGRESS    — the run actually WROTE rows ("Wrote N rows …" / record_captured /
+#       "captured" climbing). The consolidated count can lag the writer's own
+#       shard, so a flat consolidated count + a "wrote rows" run.log = benign.
+#   (b) HONEST_ABSENCE — the source legitimately returned nothing (settled market →
+#       "0 trades", off-season, "all venues already covered", record_empty,
+#       enrichment-only "all entities already captured / fetching []"). The writer
+#       recorded honest absence, which is correct behaviour, NOT a failure.
+#   (c) RATE_LIMITED — an API-Football / HTTP-429 throttle wrote a partial result
+#       (exit 0 but "Too many requests" / "HTTP 429" / DP_SOURCE_RATE_LIMITED).
+#       This is real-transient → backoff-retry, NOT a silent-zero.
+#
+# Anything else (no progress + no honest-absence + no rate-limit signal) is a
+# GENUINE silent zero (auth fail / 0-universe / unexpected empty) → still alerts.
+class NoCaptureReason(StrEnum):
+    """Why a terminated VM's captured count stayed flat (run.log-derived)."""
+
+    PROGRESS = "progress"  # run.log shows rows were written → benign (consolidated lag)
+    HONEST_ABSENCE = "honest_absence"  # source legitimately empty / already-complete → benign
+    RATE_LIMITED = "rate_limited"  # HTTP-429 / API-Football throttle → backoff-retry, not silent
+    SILENT = "silent"  # no benign signal → genuine silent-zero → ALERT
+
+
+# Rows were genuinely written this run — the writer's own shard climbed even if the
+# CONSOLIDATED index hasn't merged yet. Matches the MTDS/IS handler write logs
+# ("Wrote N rows to gs://…", "record_captured", "N captured").
+_PROGRESS_RE = re.compile(
+    r"\bWrote\s+\d+\s+\w*\s*rows?\b|\brecord_captured\b|\bCATALOGUE_PROMOTED\b|\bcaptured=(?!0\b)\d+",
+    re.IGNORECASE,
+)
+# The source legitimately had nothing / the shard was already complete. Matches
+# honest-absence + enrichment-only "nothing to capture" run.log shapes (settled
+# market, off-season, all-already-captured, record_empty).
+_HONEST_ABSENCE_RE = re.compile(
+    r"honest.?absence|record_empty|all (entities|expected sentinels|venues) already (captured|covered)"
+    r"|already captured\b|0 trades\b|off.?season|EXPECTED_PAUSED_LEAGUE|EXPECTED_NO_PROVIDER_COVERAGE"
+    r"|fetching \[\]|Nothing to do\b|Skipping .* already captured|no fixtures",
+    re.IGNORECASE,
+)
+# A rate-limit throttle (real-transient → backoff-retry tier, NOT silent-zero).
+# Matches API-Football / HTTP-429 / DP_SOURCE_RATE_LIMITED run.log shapes.
+_RATE_LIMIT_RE = re.compile(
+    r"Too many requests|HTTP 429\b|\b429\b.*(rate|limit)|rate.?limit(ed)?|DP_SOURCE_RATE_LIMITED"
+    r"|requests per (minute|day)|quota exceeded",
+    re.IGNORECASE,
+)
+
+
+def classify_no_capture_reason(log: str | None) -> NoCaptureReason:
+    """Classify WHY a flat-captured run is flat, from its run.log text. Pure.
+
+    Precedence (most-actionable first):
+      RATE_LIMITED  — a throttle wrote partial (backoff-retry, not silent) wins, so a
+                      rate-limited run is never mistaken for benign honest-absence.
+      PROGRESS      — rows were written (consolidated count merely lags).
+      HONEST_ABSENCE — source legitimately empty / shard already complete.
+      SILENT        — none of the above → genuine silent-zero → the caller ALERTS.
+
+    ``None`` / empty log ⇒ SILENT (no benign evidence → fail toward alerting, the
+    safe direction; a self-deleted VM that never wrote a run.log is suspect).
+    """
+    if not log:
+        return NoCaptureReason.SILENT
+    if _RATE_LIMIT_RE.search(log):
+        return NoCaptureReason.RATE_LIMITED
+    if _PROGRESS_RE.search(log):
+        return NoCaptureReason.PROGRESS
+    if _HONEST_ABSENCE_RE.search(log):
+        return NoCaptureReason.HONEST_ABSENCE
+    return NoCaptureReason.SILENT
+
+
+def no_capture_reason_from_run_log(storage_client: StorageClient, bucket: str, vm_name: str) -> NoCaptureReason:
+    """Read a terminated VM's durable run.log + classify why captured stayed flat.
+
+    The GCS-tee'd run.log survives the VM's ``VM_SHUTDOWN_ON_COMPLETION`` self-delete,
+    so this works even for an already-gone backfill VM. ``None`` log ⇒ SILENT.
+    """
+    log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
+    return classify_no_capture_reason(log)
