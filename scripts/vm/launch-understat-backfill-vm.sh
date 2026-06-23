@@ -171,7 +171,7 @@ else
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-2 \
+    --machine-type=e2-standard-4 \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
