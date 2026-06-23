@@ -115,8 +115,13 @@ module "data_pipeline_heartbeat_watcher_job" {
 
   image = local.data_pipeline_monitor_image
 
-  cpu             = "1"
-  memory          = "2Gi"
+  # 8Gi/cpu2 (bumped from 2Gi/cpu1 2026-06-23) — the heartbeat sweep reads the full VM
+  # census + per-VM shard rows for the whole RUNNING fleet, so it OOM'd at 2Gi AND 4Gi on
+  # every */5 run ("configured memory limit was reached") → its last-run sentinel was never
+  # written → DP_CRON_DID_NOT_FIRE (heartbeat). Cloud Run requires cpu>=2 at 8Gi.
+  # exit-code/meta stay at 2Gi/cpu1 (lighter sweeps, green).
+  cpu             = "2"
+  memory          = "8Gi"
   timeout_seconds = 300
   max_retries     = 0
   parallelism     = 1

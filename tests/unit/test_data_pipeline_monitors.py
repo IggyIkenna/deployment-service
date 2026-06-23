@@ -859,3 +859,273 @@ def test_zombie_watchdog_alive_when_fresh(monkeypatch):
     result = meta_watchers.check_zombie_watchdog_alive(storage_client=storage, log_bucket=LOG_BUCKET)
     assert result.stale is False
     assert emitted == []
+
+
+# ── KEY #1: DP_VM_GONE_NO_CAPTURE is now run.log-reason-aware ─────────────────
+def test_no_capture_reason_progress_when_rows_written():
+    # "Wrote N rows" → the writer's own shard climbed; consolidated merely lags.
+    log = "2026-06-23 12:00:01 INFO Wrote 1392841 rows to gs://market-data-tick-cefi-prd/.../x.parquet"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.PROGRESS
+
+
+def test_no_capture_reason_honest_absence_settled_market():
+    log = "2026-06-23 12:00:01 INFO kalshi-bulk 2025-09-01: 0 trades in corpus (settled)"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_honest_absence_enrichment_already_complete():
+    log = "2026-06-23 INFO Skipping LST rates for 2025-09-01 — all expected sentinels already captured"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_rate_limited_beats_absence():
+    # A 429 throttle wins precedence so it's never mistaken for benign absence.
+    log = "2026-06-23 WARNING HTTP 429 = Rate limited. Wait and retry.\n0 trades returned"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.RATE_LIMITED
+
+
+def test_no_capture_reason_silent_when_no_signal_or_empty():
+    assert _gcs.classify_no_capture_reason("2026-06-23 INFO connecting...\ndone") is _gcs.NoCaptureReason.SILENT
+    assert _gcs.classify_no_capture_reason(None) is _gcs.NoCaptureReason.SILENT
+    assert _gcs.classify_no_capture_reason("") is _gcs.NoCaptureReason.SILENT
+
+
+def test_classify_flat_with_progress_is_expected_no_capture():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "vm",
+        exit_code=0,
+        captured_before=50,
+        captured_after=50,
+        no_capture_reason=_gcs.NoCaptureReason.PROGRESS,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+
+
+def test_classify_flat_with_honest_absence_is_expected_no_capture():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "vm",
+        exit_code=0,
+        captured_before=0,
+        captured_after=0,
+        no_capture_reason=_gcs.NoCaptureReason.HONEST_ABSENCE,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+
+
+def test_classify_flat_with_rate_limit_is_rate_limited():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "vm",
+        exit_code=0,
+        captured_before=10,
+        captured_after=10,
+        no_capture_reason=_gcs.NoCaptureReason.RATE_LIMITED,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.RATE_LIMITED
+
+
+def test_classify_flat_silent_still_gone_no_capture():
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "vm",
+        exit_code=0,
+        captured_before=5,
+        captured_after=5,
+        no_capture_reason=_gcs.NoCaptureReason.SILENT,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+
+
+def test_sweep_shard_wrote_rows_suppresses_gone_no_capture(monkeypatch):
+    # cefi-hyperliquid wrote 1.39M rows to its shard yet consolidated read flat
+    # 6391→6391 — the run.log "Wrote N rows" reclassifies it as benign (no alert).
+    vm = "cefi-hyperliquid-2025"
+    census = json.dumps({"vms": {vm: 6391}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),
+            (LOG_BUCKET, _run_log_blob(vm)): (b"2026-06-23 INFO Wrote 1392841 rows to gs://...\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 6391,  # FLAT consolidated count
+        asset_group_for_vm=lambda _vm: "cefi",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted)
+
+
+def test_sweep_rate_limit_emits_source_rate_limited_warn(monkeypatch):
+    vm = "sports-injuries-2025"
+    census = json.dumps({"vms": {vm: 290}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),
+            (LOG_BUCKET, _run_log_blob(vm)): (b"2026-06-23 WARNING api_football Too many requests\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 290,  # FLAT
+        asset_group_for_vm=lambda _vm: "sports",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.RATE_LIMITED
+    assert any(e[0] == "DP_SOURCE_RATE_LIMITED" and e[1] == "WARN" for e in emitted)
+    # NOT escalated as a CRITICAL silent-zero.
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted)
+
+
+# ── KEY #2: DP_CRON_DID_NOT_FIRE is pause-aware ──────────────────────────────
+def _consolidator_target() -> meta_watchers.FreshnessTarget:
+    return meta_watchers.FreshnessTarget(
+        bucket="market-data-tick-sports-prd-x",
+        blob_path="_index/availability_index.parquet",
+        max_age_min=180.0,
+        label="manifest-consolidator-sports",
+        scheduler_job="uts-prd-manifest-consolidator-market-data-sports-cron",
+    )
+
+
+def test_cron_paused_scheduler_suppresses_alert(monkeypatch):
+    # Stale artifact (240m > 180m budget) BUT the scheduler is PAUSED-by-design.
+    storage = FakeStorage({("market-data-tick-sports-prd-x", "_index/availability_index.parquet"): (b"x", 240.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    results = meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_consolidator_target()],
+        scheduler_state_reader=lambda _job: "PAUSED",
+    )
+    assert results[0].stale is True  # still STALE...
+    assert "DP_CRON_DID_NOT_FIRE" not in emitted  # ...but SUPPRESSED (paused by design)
+
+
+def test_cron_enabled_but_stale_still_alerts(monkeypatch):
+    storage = FakeStorage({("market-data-tick-sports-prd-x", "_index/availability_index.parquet"): (b"x", 240.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_consolidator_target()],
+        scheduler_state_reader=lambda _job: "ENABLED",
+    )
+    assert "DP_CRON_DID_NOT_FIRE" in emitted  # an ENABLED-but-stale cron is a real failure
+
+
+def test_cron_unknown_state_fails_safe_on(monkeypatch):
+    # None (job not found / API error) ⇒ do NOT suppress (a missing scheduler alerts).
+    storage = FakeStorage({("market-data-tick-sports-prd-x", "_index/availability_index.parquet"): (b"x", 240.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_consolidator_target()],
+        scheduler_state_reader=lambda _job: None,
+    )
+    assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+# ── KEY #3: DP_CATALOG_NOT_RUNNING env-short read + probed-path alert ─────────
+def test_catalogue_targets_use_env_short_bucket_and_prod_prefix(monkeypatch):
+    from deployment_service.data_pipeline_monitors import cli
+
+    monkeypatch.setattr(cli, "get_environment", lambda: "prod")
+    monkeypatch.setattr(
+        cli,
+        "resolve_bucket_name",
+        lambda *, cloud, kind, asset_group=None: (
+            f"{kind}-pred-prd-pid" if "prediction" in kind else f"{kind}-{asset_group}-prd-pid"
+        ),
+    )
+    targets = cli._catalogue_targets()
+    by_label = {t.label: t for t in targets}
+    # blob prefix is the LONG env (prod/), filename catalog.parquet — matches the writer.
+    assert by_label["sports"].blob_path == "prod/catalog.parquet"
+    assert by_label["sports"].bucket == "instruments-store-sports-prd-pid"
+    # prediction resolves via its FLAT key (no asset_group dict entry).
+    assert by_label["prediction"].bucket == "instruments-store-prediction-pred-prd-pid"
+
+
+def test_catalogue_absent_alert_shows_probed_path(monkeypatch):
+    target = meta_watchers.FreshnessTarget(
+        bucket="instruments-store-sports-prd-pid",
+        blob_path="prod/catalog.parquet",
+        max_age_min=24 * 60.0,
+        label="sports",
+    )
+    storage = FakeStorage({})  # artifact ABSENT
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    meta_watchers.check_catalogue_freshness(storage_client=storage, targets=[target])
+    cat = next(e for e in emitted if e[0] == "DP_CATALOG_NOT_RUNNING")
+    msg = str(cat[2].get("message", ""))
+    assert "gs://instruments-store-sports-prd-pid/prod/catalog.parquet" in msg
+    assert "ABSENT" in msg and "budget=24h" in msg
+    assert cat[2]["artifact_present"] is False
+    assert cat[2]["probed_path"] == "gs://instruments-store-sports-prd-pid/prod/catalog.parquet"
+
+
+# ── KEY #4: OOM relaunch escalates to a bigger machine ───────────────────────
+def test_escalated_machine_type_ladders_up():
+    assert escalation._escalated_machine_type("e2-standard-4") == "e2-standard-8"
+    assert escalation._escalated_machine_type("n2-standard-8") == "n2-highmem-16"
+    # unknown family → high-mem fallback (never the same type — would re-OOM).
+    assert escalation._escalated_machine_type("c3-highcpu-176") == escalation._OOM_FALLBACK_MACHINE
+    assert escalation._escalated_machine_type("") == escalation._OOM_FALLBACK_MACHINE
+
+
+def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _FakeActuator:
+        def relaunch(self, vm_name, *, exit_code, launcher, asset_group="", launcher_env=None, dry_run=False):
+            captured["launcher_env"] = launcher_env
+            return {"status": "SUCCEEDED"}
+
+    fake_mod = type("M", (), {"RelaunchBackfillVm": _FakeActuator})
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", lambda _name: fake_mod)
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="OOM",
+        details={
+            "vm_name": "mtds-backfill-sports-x",
+            "exit_code": 137,
+            "relaunch_launcher": "launch-mtds-backfill-vm.sh",
+            "machine_type": "e2-standard-8",
+            "bigger_machine": True,
+        },
+    )
+    out = escalation._recover_backfill_vm(finding, dry_run=False)
+    assert out["recovered"] is True
+    assert captured["launcher_env"] == {"MACHINE_TYPE": "e2-standard-16"}
+    assert out["escalated_machine_type"] == "e2-standard-16"

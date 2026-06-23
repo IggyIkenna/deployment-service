@@ -41,6 +41,7 @@ from unified_trading_library import (
     setup_events,
 )
 from unified_trading_library.cloud_interface import get_compute_engine_client  # noqa: qg-deep-import
+from unified_trading_library.cloud_interface.constants import get_environment  # noqa: qg-deep-import
 
 from deployment_service.data_pipeline_monitors import (
     _gcs,
@@ -229,24 +230,58 @@ def _make_captured_reader(storage_client: StorageClient):
     return _read
 
 
+# The catalogue regen (build_instrument_catalogue.py) writes the canonical
+# artifact to ``gs://{instruments-store-{ag}-{env-short}-{pid}}/{DEPLOYMENT_ENV}/catalog.parquet``
+# — bucket is env-SHORT (``-prd-``), the blob PREFIX is the LONG env name (default
+# ``prod``). The monitor MUST mirror BOTH or it probes a non-existent object →
+# age=None → false "missing" (KEY #3, the documented env-less-vs-env-short reader
+# bug class). SSOT: instruments-service/scripts/build_instrument_catalogue.py
+# (``_catalogue_object_paths`` + ``_instruments_store_bucket_for``).
+_CATALOGUE_FILENAME = "catalog.parquet"
+# prediction uses a dedicated FLAT bucket key (no PREDICTION entry in the per-AG
+# ``instruments-store`` dict), mirroring build_instrument_catalogue's resolver.
+_INSTRUMENTS_STORE_KIND_OVERRIDE: dict[str, str] = {"prediction": "instruments-store-prediction"}
+
+
+def _deployment_env_long() -> str:
+    """The LONG env name used as the catalogue blob prefix (default ``prod``).
+
+    Mirrors build_instrument_catalogue.py ``get_config("DEPLOYMENT_ENV", "prod")``
+    — this is the path PREFIX (``prod/`` / ``staging/`` / ``dev/``), NOT the
+    env-SHORT (``-prd-``) the bucket NAME carries. Resolved via the UTL
+    ``get_environment()`` config-bootstrap function (same DEPLOYMENT_ENV →
+    ENVIRONMENT → "prod" probe order the writer uses).
+    """
+    return get_environment().strip().lower() or "prod"
+
+
 def _catalogue_targets() -> list[meta_watchers.FreshnessTarget]:
     """Per-AG instrument-catalogue freshness targets (24h budget).
 
-    The catalogue regen (instrument_catalogue_scheduler.tf) writes the matrix to
-    the strategy-store bucket; per AG we probe the per-AG catalogue artifact.
-    Path is the canonical catalogue output prefix; a missing/stale blob fires
-    DP-CATALOG-001.
+    The catalogue regen (build_instrument_catalogue.py) writes the per-AG
+    artifact to ``{env}/catalog.parquet`` in the env-SHORT instruments-store
+    bucket. Both the bucket (env-SHORT ``-prd-`` via ``resolve_bucket_name``) AND
+    the blob prefix (LONG ``DEPLOYMENT_ENV``, default ``prod``) must match the
+    writer or the probe reads age=None → a false DP-CATALOG-001 (KEY #3). A
+    genuinely missing/stale blob still fires (with the probed path in the alert).
     """
+    env_long = _deployment_env_long()
+    blob_path = f"{env_long}/{_CATALOGUE_FILENAME}"
     targets: list[meta_watchers.FreshnessTarget] = []
     for ag in ASSET_GROUPS:
+        kind = _INSTRUMENTS_STORE_KIND_OVERRIDE.get(ag, "instruments-store")
         try:
-            bucket = resolve_bucket_name(cloud="gcp", kind="instruments-store", asset_group=ag)
+            # prediction's flat key takes no asset_group arg (matches the writer).
+            if ag in _INSTRUMENTS_STORE_KIND_OVERRIDE:
+                bucket = resolve_bucket_name(cloud="gcp", kind=kind)
+            else:
+                bucket = resolve_bucket_name(cloud="gcp", kind=kind, asset_group=ag)
         except Exception:
             continue
         targets.append(
             meta_watchers.FreshnessTarget(
                 bucket=bucket,
-                blob_path="_catalogue/instrument_catalogue.parquet",
+                blob_path=blob_path,
                 max_age_min=meta_watchers.DEFAULT_CATALOGUE_MAX_AGE_MIN,
                 label=ag,
             )
@@ -285,6 +320,86 @@ def _umbrella_for_vm(vm_name: str) -> str:
         return umbrella_for_vm_name(vm_name, registry).value
     except UnclassifiedDeploymentError:
         return ""
+
+
+# Cloud Scheduler state strings (mirror the google.cloud.scheduler_v1 Job.State enum).
+_SCHEDULER_PAUSED = "PAUSED"
+_SCHEDULER_ENABLED = "ENABLED"
+# Long → 3-char env-short (mirrors UTL bucket_naming._DEPLOYMENT_ENV_SHORT_FORM, the
+# same map ``resolve_bucket_name`` uses for the ``-prd-`` segment). Kept inline (a
+# tiny constant) rather than importing the UTL private to avoid an in-function /
+# deep private import; the public ``get_environment()`` (imported at top) gives the
+# long name. Default → prd (the fleet default).
+_ENV_SHORT_FORM: dict[str, str] = {
+    "dev": "dev",
+    "development": "dev",
+    "staging": "stg",
+    "stg": "stg",
+    "prod": "prd",
+    "prd": "prd",
+    "production": "prd",
+}
+
+
+def _scheduler_env_prefix() -> str:
+    """The TF ``env_prefix`` segment in scheduler/job names: ``uts-{env-short}``.
+
+    The consolidator scheduler jobs are ``{env_prefix}-manifest-consolidator-{key}-cron``
+    (manifest_consolidator_scheduler.tf). ``env_prefix`` = ``uts-{deployment_env_short}``
+    in the fleet TF — the env-short derived from ``get_environment()`` the same way
+    ``resolve_bucket_name`` derives the bucket's ``-prd-`` segment.
+    """
+    short = _ENV_SHORT_FORM.get(_deployment_env_long(), "prd")
+    return f"uts-{short}"
+
+
+def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
+    """Return ``job_name -> "ENABLED"|"PAUSED"|... | None`` via Cloud Scheduler.
+
+    PAUSE-AWARE meta-watcher input (KEY #2): a scheduler PAUSED-by-design during
+    the manual-backfill campaign should NOT fire DP_CRON_DID_NOT_FIRE. The
+    google.cloud.scheduler_v1 client is deferred-imported here (the credential-bound
+    surface) — NOT at module top — mirroring the ``vm_zombie_watchdog`` deferral, so
+    the watcher modules stay import-safe + credential-free. A lookup error / missing
+    client returns ``None`` (UNKNOWN → the watcher does NOT suppress, the fail-safe
+    direction). The job's short name is resolved to the fully-qualified
+    ``projects/{p}/locations/{loc}/jobs/{name}`` path.
+    """
+    project = _project_id()
+    location = "asia-northeast1"  # the fleet's canonical region (all schedulers + GCS)
+    try:
+        scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions — credential-bound SDK, deferred
+        client = scheduler_mod.CloudSchedulerClient()
+    except Exception as exc:
+        logger.info("scheduler-state reader unavailable (pause-awareness off, alerts fail-safe-on): %s", exc)
+        return lambda _job: None
+
+    def _read(job_name: str) -> str | None:
+        if not project or not job_name:
+            return None
+        qualified = f"projects/{project}/locations/{location}/jobs/{job_name}"
+        try:
+            job = client.get_job(name=qualified)
+            # Job.state is an enum; .name gives "ENABLED"/"PAUSED"/"DISABLED"/...
+            return str(getattr(job.state, "name", "") or "") or None
+        except Exception as exc:
+            # NotFound / permission / transient → UNKNOWN; the watcher does not
+            # suppress on None (a genuinely-missing scheduler still alerts).
+            logger.info("scheduler-state lookup for %s → unknown: %s", job_name, exc)
+            return None
+
+    return _read
+
+
+def _consolidator_scheduler_job(ag: str) -> str:
+    """The Cloud Scheduler job name backing the per-AG market-data consolidator.
+
+    Matches manifest_consolidator_scheduler.tf:
+    ``{env_prefix}-manifest-consolidator-market-data-{ag}-cron``. Used so a
+    PAUSED consolidator scheduler suppresses its stale-_index DP_CRON_DID_NOT_FIRE
+    (KEY #2) while an ENABLED-but-stale one still alerts.
+    """
+    return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}-cron"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -328,7 +443,11 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
-            non_clean = [r for r in results if r.verdict.value not in ("clean",)]
+            # "clean" + "expected_no_capture" are both benign (the latter = rows
+            # written but consolidated lags / honest-absence / shard already
+            # complete — the 2026-06-23 false-positive killer). "rate_limited" is a
+            # real-transient finding, so it counts as non_clean (it alerts WARN).
+            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture")]
             logger.info(
                 "exit-code sweep: %d terminated, %d non-clean (%s)",
                 len(results),
@@ -400,9 +519,14 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
+            # Pause-aware scheduler-state reader (KEY #2): a consolidator scheduler
+            # PAUSED-by-design during the manual-backfill campaign suppresses its
+            # stale-_index DP_CRON_DID_NOT_FIRE; an ENABLED-but-stale one still alerts.
+            scheduler_state_reader = _make_scheduler_state_reader()
             # Cron freshness: the orphan-ping / consolidator / digest crons leave a
             # durable artifact. Probe the consolidator heartbeat (per-AG market-data
-            # _index) + the data-pipeline daily digest output (when present).
+            # _index) + the data-pipeline daily digest output (when present). Each
+            # target names its backing Cloud Scheduler job so a PAUSED scheduler skips.
             cron_targets: list[meta_watchers.FreshnessTarget] = []
             for ag in ASSET_GROUPS:
                 try:
@@ -415,11 +539,13 @@ def main(argv: list[str] | None = None) -> int:
                         blob_path="_index/availability_index.parquet",
                         max_age_min=180.0,  # consolidator should touch every cycle
                         label=f"manifest-consolidator-{ag}",
+                        scheduler_job=_consolidator_scheduler_job(ag),
                     )
                 )
             meta_watchers.check_cron_fired(
                 storage_client=storage_client,
                 targets=cron_targets,
+                scheduler_state_reader=scheduler_state_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -431,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
             meta_watchers.check_monitor_crons_fired(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
+                scheduler_state_reader=scheduler_state_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
