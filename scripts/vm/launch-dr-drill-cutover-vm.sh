@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM to run the per-archetype cutover DR drill (Phase 9.A).
 #
 # Plan: disaster_recovery_circuit_breakers_2026_05_10.md Phase 9.A.

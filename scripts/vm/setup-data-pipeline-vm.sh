@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Setup a GCE VM for data pipeline work (MTDS backfill, migrations, etc.)
 #
 # This script is the SSOT for VM setup. It handles:

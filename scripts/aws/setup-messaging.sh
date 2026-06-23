@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # setup-messaging.sh — Provision AWS SQS queues mirroring GCP Pub/Sub topics.
 #
 # Creates standard SQS queues for:

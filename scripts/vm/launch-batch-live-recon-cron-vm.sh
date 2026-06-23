@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a nightly T+1 batch-live reconciliation VM.
 #
 # This runs batch-live-reconciliation-service for yesterday's date (T-1),

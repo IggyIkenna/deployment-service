@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Phase 5b.3 MDPS backfill VM launcher — re-aggregate tick data into canonical
 # processed_candles/ for each category using the strict-mode writer landed in
 # MDPS commit c1cb73c (canonical_writer.py wrapping StreamingParquetWriter +

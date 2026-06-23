@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Create and upload code tarballs for tarball-based VM deployments.
 #
 # This packages the core repos (UAC, UTL, MTDS) plus category-specific service

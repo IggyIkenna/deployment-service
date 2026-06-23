@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Configure GCS Object Versioning on the audit-records bucket.
 #
 # Phase 3.A (wallet_treasury_post_cutover_custody_signing_2026_06_01.md Phase 3)

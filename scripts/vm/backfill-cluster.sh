@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Per-cluster VM backfill template
 #
 # Invokes the full pipeline DAG (instruments → MTDS → MDPS → features → ML)

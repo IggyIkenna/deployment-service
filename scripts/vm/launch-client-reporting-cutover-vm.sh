@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a GCE VM running the client-reporting PnL attribution cutover demo.
 # Phase 8.A of client_reporting_pnl_attribution_mvp_2026_05_10.md.
 #

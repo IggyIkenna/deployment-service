@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # signal-broadcast-live-smoke.sh — Live-staging smoke for Signal Leasing
 # broadcast (Plan B Phase 4, operator step).

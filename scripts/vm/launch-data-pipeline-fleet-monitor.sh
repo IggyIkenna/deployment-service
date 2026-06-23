@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Epic: observability_master
 # Lifecycle: permanent
+# Delete-when: NA
 #
 # Ad-hoc fire / smoke the data-pipeline fleet monitors (Wave 4a of
 # data_pipeline_hardening_self_monitoring_2026_06_22).

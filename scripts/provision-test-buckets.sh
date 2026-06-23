@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Idempotent provisioner for `-test-` GCS buckets used by the institutional
 # smoke matrix (plans/active/institutional_smoke_matrix_2026_04_20.md).
 #

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch NYSE OHLCV-1m backfill VMs (one per year-shard).
 #
 # Universe: SP500_TICKERS + ETF_TICKERS from

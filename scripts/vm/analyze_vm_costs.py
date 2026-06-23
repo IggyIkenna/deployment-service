@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Analyze GCE VM costs from vm-logs directory in GCS.
 
 Uses two fast GCS operations:

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # smoke-signal-broadcast.sh — Dry-run smoke test for the signal-broadcast
 # deployment wiring (Plan B Phase 4).

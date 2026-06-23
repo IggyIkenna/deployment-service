@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Validate VM_PREFIX_TO_BUCKET dict against GCS: check bucket existence for non-None entries.
 
 Walks VM_PREFIX_TO_BUCKET from vm_zombie_watchdog.py and for every entry

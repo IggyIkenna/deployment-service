@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch one (or all) GCE VMs for Phase 2 AMM golden-swap fixture validation.
 #
 # Each VM validates a single pool shape's fixture corpus via

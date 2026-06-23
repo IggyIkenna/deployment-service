@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 equivalent of launch-cefi-sharded-backfill.sh.
 # Launches sharded CeFi + TradFi Tardis backfill fleet on EC2 (ap-northeast-1).
 #

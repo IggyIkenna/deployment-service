@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``enter_readonly_recon_mode`` — service reads but rejects writes.
 
 Used when a service has degraded persistence / reconciliation state and must

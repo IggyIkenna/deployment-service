@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch per-archetype scenario regression matrix VMs (Phase 9).
 #
 # Each VM runs `python -m unified_trading_library.scenario.run_matrix`

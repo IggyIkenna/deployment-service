@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Daily VM log archival cron job.
 
 Copies live VM logs from the 14-day TTL prefix (vm-logs/) to a durable

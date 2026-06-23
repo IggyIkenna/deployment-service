@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Push market-tick-data-service:latest to ECR and spot-check manifest consolidation.
 #
 # Prerequisites (run from a machine with these):

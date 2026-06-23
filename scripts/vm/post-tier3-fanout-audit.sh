@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Post-Tier-3-fanout audit: poll for VM fleet completion, then run reclassifier,
 # phantom audit, and per-venue capture summary on the CeFi manifest.
 #

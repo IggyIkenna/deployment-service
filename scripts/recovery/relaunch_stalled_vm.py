@@ -1,5 +1,6 @@
 # Epic: observability_master
 # Lifecycle: permanent
+# Delete-when: NA
 """Self-healing actuator — re-launch a watchdog-KILLED stalled backfill VM.
 
 Runbook: RB-INFRA-002 (DP-VM-003 / ``DP_VM_STALL``).

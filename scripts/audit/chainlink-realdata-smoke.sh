@@ -1,4 +1,7 @@
 #!/bin/bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Chainlink-on-EVM real-data smoke runbook (per chain).
 #
 # Plan: api_keys_wallets_accounts_readiness_2026_05_10.md Phase 4.F.

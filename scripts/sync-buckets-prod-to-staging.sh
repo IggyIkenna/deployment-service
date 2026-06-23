@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Convenience wrapper: sync prod → staging buckets with a 2-year truncated window.
 # Thin delegate to sync-buckets-prod-to-env.sh (the implementation + full docs).
 #

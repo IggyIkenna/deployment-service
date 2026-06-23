@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM to run the parallel execution-alpha measurement harness.
 #
 # Runs execution-service/scripts/run_execution_alpha_parallel.py on a

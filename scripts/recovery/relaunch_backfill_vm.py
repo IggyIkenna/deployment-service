@@ -1,5 +1,6 @@
 # Epic: observability_master
 # Lifecycle: permanent
+# Delete-when: NA
 """Self-healing actuator — re-launch an OOM-killed (exit-137) backfill VM.
 
 Runbook: RB-INFRA-001 (DP-VM-001 / ``DP_VM_EXIT_NONZERO`` with ``exit_code=137``).

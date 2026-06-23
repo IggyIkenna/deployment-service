@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # allocate-orchestrator-eips.sh — Phase 11
 #
 # Allocates an Elastic IP per epic VM in the AWS fleet, tags it, and associates

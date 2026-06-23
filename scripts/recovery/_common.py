@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Shared scaffolding for the 10 Layer-0 deterministic recovery scripts.
 
 Every script subclasses ``Layer0Script`` and implements only:

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Setup BigQuery External Tables + Materialized Views for Features
 # Can test with existing 155 days of real GCS data
 

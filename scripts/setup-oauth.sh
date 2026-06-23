@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # setup-oauth.sh — Set up Google OAuth 2.0 client for Unified Trading System
 #

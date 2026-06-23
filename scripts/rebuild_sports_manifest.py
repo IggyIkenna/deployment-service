@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 """Rebuild sports manifest entries with league_id from league-partitioned GCS data.
 
 Scans league-partitioned parquets in GCS and builds manifest entries with
