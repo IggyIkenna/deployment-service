@@ -665,6 +665,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_INSTR_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    "tm-forward-poll-": VmPrefixSpec(
+        bucket=_INSTR_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     "sfi-backfill-": VmPrefixSpec(
         bucket=_INSTR_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
