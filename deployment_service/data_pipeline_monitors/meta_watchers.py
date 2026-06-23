@@ -45,6 +45,18 @@ WATCHDOG_CENSUS_BLOB = "vm-census/watchdog-census.json"
 DEFAULT_CATALOGUE_MAX_AGE_MIN = 24 * 60.0
 DEFAULT_WATCHDOG_MAX_AGE_MIN = 30.0  # the watchdog ticks every 5 min
 
+# The fleet-monitor / meta-watcher sweeps + their cadence (minutes). Each writes a
+# ``vm-census/<mode>-last-run.json`` sentinel at end-of-sweep; the budget is 2x the
+# cadence (a single missed tick is benign jitter; two missed = the cron stopped).
+# The meta sweep CANNOT detect its OWN death in-band (it would have to be running to
+# probe its own sentinel) — that is Layer-2's (the out-of-band deadman) job; it is
+# still listed so the deadman reads it from the same builder.
+MONITOR_CRON_CADENCE_MIN: dict[str, float] = {
+    "exit-code": 5.0,  # */5 (data_pipeline_fleet_monitor_scheduler.tf)
+    "heartbeat": 5.0,  # */5
+    "meta": 15.0,  # */15
+}
+
 
 @dataclass(frozen=True)
 class FreshnessTarget:
@@ -159,6 +171,54 @@ def check_zombie_watchdog_alive(
             dry_run=dry_run,
         )
     return result
+
+
+def monitor_cron_targets(log_bucket: str) -> list[FreshnessTarget]:
+    """Build a FreshnessTarget per fleet-monitor / meta-watcher sweep sentinel.
+
+    Each sweep writes ``vm-census/<mode>-last-run.json`` (see ``_gcs`` /
+    ``write_monitor_last_run``); a stale/absent sentinel = that monitor cron
+    stopped firing → ``check_cron_fired`` emits ``DP_CRON_DID_NOT_FIRE``
+    (DP-WATCHER-002, CRITICAL/page). The budget is 2x the cron's cadence
+    (``MONITOR_CRON_CADENCE_MIN``) — one missed tick is benign jitter, two is the
+    cron being down. This is the cron-watches-cron (in-band) layer; the meta sweep
+    cannot detect its OWN death this way (Layer-2 / the out-of-band deadman owns
+    that), but its sentinel is still listed so the deadman reads it from here too.
+    """
+    targets: list[FreshnessTarget] = []
+    for mode, cadence_min in sorted(MONITOR_CRON_CADENCE_MIN.items()):
+        targets.append(
+            FreshnessTarget(
+                bucket=log_bucket,
+                blob_path=_gcs.MONITOR_LAST_RUN_BLOB.format(mode=mode),
+                max_age_min=2.0 * cadence_min,
+                label=f"dp-{mode}-monitor",
+            )
+        )
+    return targets
+
+
+def check_monitor_crons_fired(
+    *,
+    storage_client: StorageClient,
+    log_bucket: str,
+    pm_repo_path: str | None = None,
+    dry_run: bool = False,
+) -> list[FreshnessResult]:
+    """DP-WATCHER-002 — the fleet-monitor / meta-watcher crons fired on schedule.
+
+    Convenience wrapper over :func:`check_cron_fired` for the monitor-sweep
+    sentinels (built by :func:`monitor_cron_targets`). A stopped monitor cron
+    leaves its ``vm-census/<mode>-last-run.json`` sentinel stale → emits
+    ``DP_CRON_DID_NOT_FIRE`` (cron-did-not-fire, CRITICAL/page). NOTE: the meta
+    sweep cannot catch its OWN death in-band — Layer-2's out-of-band deadman does.
+    """
+    return check_cron_fired(
+        storage_client=storage_client,
+        targets=monitor_cron_targets(log_bucket),
+        pm_repo_path=pm_repo_path,
+        dry_run=dry_run,
+    )
 
 
 def check_cron_fired(

@@ -152,6 +152,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("dp-exit-code-monitor", service="deployment-service"),
     _batch("dp-heartbeat-watcher", service="deployment-service"),
     _batch("dp-meta-watchers", service="deployment-service"),
+    # monitoring_deadman_scheduler.tf — out-of-band dead-man's-switch (the top-of-chain
+    # watcher; reads every dp-monitor sentinel + lifecycle-events-sub backlog, posts
+    # DIRECTLY to the monitoring-deadman Slack webhook independent of the alerting path).
+    _batch("monitoring-deadman", service="deployment-service"),
     # data_status_rollup_scheduler.tf (cron hits the data-status-rollup-svc /rollup-run endpoint)
     _batch("data-status-rollup", service="deployment-api"),
     # honest_coverage_scheduler.tf
