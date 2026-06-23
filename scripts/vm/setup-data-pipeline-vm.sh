@@ -146,6 +146,18 @@ VM_OPERATION=$(_meta VM_OPERATION download)
 VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
 VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
 VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
+# Registry-driven rate-budget (operator design 2026-06-23): the launcher splits
+# the source's fleet req/min ceiling across N concurrent VMs
+# (deployment-service launch_budget_registry.allocate_rate_budget →
+# per_vm_rpm = source_rpm // N) and stamps the allocated share + matched
+# concurrency here. Exported as SPORTS_ADAPTER_RATE_RPM / SPORTS_ADAPTER_CONCURRENCY
+# so the typed InstrumentsServiceConfig (pydantic-settings, never os.getenv) reads
+# them → the sports adapter runs its self-enforced token-bucket throttle at exactly
+# this rate as the PRIMARY control (the 429 backoff stays only as the safety net).
+VM_SPORTS_ADAPTER_RATE_RPM=$(_meta SPORTS_ADAPTER_RATE_RPM)
+[[ -n "$VM_SPORTS_ADAPTER_RATE_RPM" ]] && export SPORTS_ADAPTER_RATE_RPM="$VM_SPORTS_ADAPTER_RATE_RPM"
+VM_SPORTS_ADAPTER_CONCURRENCY=$(_meta SPORTS_ADAPTER_CONCURRENCY)
+[[ -n "$VM_SPORTS_ADAPTER_CONCURRENCY" ]] && export SPORTS_ADAPTER_CONCURRENCY="$VM_SPORTS_ADAPTER_CONCURRENCY"
 # Rolling forward-poll flags (instruments-service CLI). When present, the VM
 # resolves [today-N, today+M] at boot time (UTC) rather than freezing dates at
 # launcher-invocation time. SSOT: codex/02-data/sports-scheduling-and-sharding.md §4.
