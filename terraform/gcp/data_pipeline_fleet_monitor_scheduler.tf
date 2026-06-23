@@ -78,8 +78,12 @@ module "data_pipeline_exit_code_monitor_job" {
 
   image = local.data_pipeline_monitor_image
 
-  cpu             = "1"
-  memory          = "2Gi"
+  # 8Gi/cpu2 (bumped from 2Gi/cpu1 2026-06-23) — the exit-code sweep reads per-VM shards for
+  # the whole RUNNING fleet (same heavy load as heartbeat), so it OOM'd at 2Gi AND 4Gi on every
+  # */5 run (signal 9) → its last-run sentinel was never written → the out-of-band deadman paged
+  # it stale ("dp-exit-code-monitor — sentinel stale: never ran"). Cloud Run requires cpu>=2 at 8Gi.
+  cpu             = "2"
+  memory          = "8Gi"
   timeout_seconds = 300
   max_retries     = 0 # exit-0-always; the next cron cycle re-checks
   parallelism     = 1
@@ -119,7 +123,8 @@ module "data_pipeline_heartbeat_watcher_job" {
   # census + per-VM shard rows for the whole RUNNING fleet, so it OOM'd at 2Gi AND 4Gi on
   # every */5 run ("configured memory limit was reached") → its last-run sentinel was never
   # written → DP_CRON_DID_NOT_FIRE (heartbeat). Cloud Run requires cpu>=2 at 8Gi.
-  # exit-code/meta stay at 2Gi/cpu1 (lighter sweeps, green).
+  # exit-code + meta ALSO need 8Gi/cpu2 (bumped 2026-06-23) — they OOM'd at 2Gi AND 4Gi too
+  # (signal 9 on every run) → stale sentinels → deadman pages all 3 "never ran".
   cpu             = "2"
   memory          = "8Gi"
   timeout_seconds = 300
@@ -157,8 +162,11 @@ module "data_pipeline_meta_watchers_job" {
 
   image = local.data_pipeline_monitor_image
 
-  cpu             = "1"
-  memory          = "2Gi"
+  # 8Gi/cpu2 (bumped from 2Gi/cpu1 2026-06-23) — the meta sweep OOM'd at 2Gi AND 4Gi (signal 9)
+  # on the UTL import baseline + the execution-history cross-check + catalogue/census reads →
+  # its sentinel was never written → deadman paged "dp-meta-monitor stale: never ran".
+  cpu             = "2"
+  memory          = "8Gi"
   timeout_seconds = 300
   max_retries     = 0
   parallelism     = 1

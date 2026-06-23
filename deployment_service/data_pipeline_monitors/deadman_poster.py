@@ -115,6 +115,42 @@ def check_monitor_sentinels(
     return findings
 
 
+# Other critical monitors the deadman ALSO verifies OUT-OF-BAND (operator 2026-06-23):
+# the in-band meta sweep already checks the vm-zombie-watchdog census + the per-AG
+# manifest consolidator, but if the meta sweep ITSELF is down (it OOM'd 2026-06-23), those
+# in-band checks don't run and a dead watchdog/consolidator goes unverified. So the deadman
+# probes the watchdog's own census blob DIRECTLY — same read-only GCS pattern as the
+# sentinel check, no in-band/PubSub dependency (the consolidator keeps its own
+# consolidator-liveness-watchdog; tracked to fold its index-freshness in here too).
+_WATCHDOG_CENSUS_BLOB = "vm-census/watchdog-census.json"
+_WATCHDOG_MAX_AGE_MIN = 30.0  # the zombie watchdog ticks every ~5 min
+
+
+def check_critical_infra(
+    storage_client: StorageClient,
+    log_bucket: str,
+) -> list[DeadmanStaleness]:
+    """Out-of-band freshness probe of the vm-zombie-watchdog's own census blob — the
+    watchdog is a critical monitor whose death is otherwise only caught in-band (which
+    is itself unreliable when the meta sweep is down). Same pattern as
+    :func:`check_monitor_sentinels`; a missing/stale census = the watchdog is down."""
+    target = meta_watchers.FreshnessTarget(
+        bucket=log_bucket,
+        blob_path=_WATCHDOG_CENSUS_BLOB,
+        max_age_min=_WATCHDOG_MAX_AGE_MIN,
+        label="vm-zombie-watchdog",
+    )
+    result = meta_watchers.probe_freshness(storage_client, target)
+    if not result.stale:
+        return []
+    age = (
+        f"{result.age_min:.0f}m (budget {target.max_age_min:.0f}m)"
+        if result.age_min is not None
+        else "missing (never ran)"
+    )
+    return [DeadmanStaleness(name=target.label, detail=f"census stale: {age}")]
+
+
 def _default_monitoring_reader(project_id: str, subscription: str) -> float | None:
     """Read ``oldest_unacked_message_age`` (seconds) for a pull subscription, or ``None``.
 
@@ -298,6 +334,7 @@ def run_deadman(
     findings: list[DeadmanStaleness] = []
     if log_bucket:
         findings.extend(check_monitor_sentinels(storage_client, log_bucket))
+        findings.extend(check_critical_infra(storage_client, log_bucket))
     backlog = check_subscriber_backlog(project_id, monitoring_reader=monitoring_reader, threshold_sec=threshold_sec)
     if backlog is not None:
         findings.append(backlog)
