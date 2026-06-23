@@ -445,6 +445,37 @@ def test_run_log_age_from_embedded_timestamp_tail():
     assert age is not None and age > 60.0  # ~90 min frozen
 
 
+# ── _gcs.run_log_signals (OOM fix: single download for both ages) ─────────────
+def test_run_log_signals_both_ages_from_single_read():
+    """run_log_signals extracts both pipeline-heartbeat age and log-mtime age from
+    ONE run.log download — the OOM-fix that prevents double-download per VM sweep."""
+    vm = "tm-backfill-2026"
+    old = (datetime.now(UTC) - timedelta(minutes=50)).strftime("%Y-%m-%d %H:%M:%S")
+    log = _pipeline_hb_runlog(vm, marker_age_min=0.4) + f"\n{old},000 INFO progress\n".encode()
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, None)})
+    sig = _gcs.run_log_signals(storage, LOG_BUCKET, vm)
+    assert sig.pipeline_heartbeat_age_min is not None and sig.pipeline_heartbeat_age_min < 2.0
+    assert sig.run_log_age_min is not None and sig.run_log_age_min > 40.0
+
+
+def test_run_log_signals_absent_log_returns_none_pair():
+    """Missing run.log ⇒ both ages are None (no false-fresh verdict)."""
+    sig = _gcs.run_log_signals(FakeStorage({}), LOG_BUCKET, "vm-x")
+    assert sig.pipeline_heartbeat_age_min is None
+    assert sig.run_log_age_min is None
+
+
+def test_run_log_signals_no_marker_but_has_timestamp():
+    """Log with no PIPELINE_HEARTBEAT marker ⇒ hb_age=None, log_age reflects last ts."""
+    vm = "tradfi-bf-cme-2025"
+    old = (datetime.now(UTC) - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    log = f"{old},000 INFO only-progress\n".encode()
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, None)})
+    sig = _gcs.run_log_signals(storage, LOG_BUCKET, vm)
+    assert sig.pipeline_heartbeat_age_min is None
+    assert sig.run_log_age_min is not None and 20.0 <= sig.run_log_age_min < 40.0
+
+
 # ── classifier: run.log hang signal + corroborated-flat + live-vs-backfill ──────
 def test_classify_stall_on_frozen_runlog_even_when_heartbeat_fresh():
     """Hung-process class: heartbeat fresh but run.log frozen past the generous
@@ -698,7 +729,9 @@ def test_filed_issue_is_actionable(monkeypatch, tmp_path):
         registry_id="DP-VM-004",
     )
     result = escalation.route_finding(finding, pm_repo_path=str(pm))
-    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    body = (
+        tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]
+    ).read_text()
     assert "assigned_vm: vm-cross-cutting" in body
     assert "parent_epic: observability_master" in body
     assert "- [ ] [CODE] P1." in body
@@ -720,7 +753,9 @@ def test_filed_issue_routes_data_finding_to_mtds(monkeypatch, tmp_path):
         registry_id="DP-MANIFEST-002",
     )
     result = escalation.route_finding(finding, pm_repo_path=str(pm))
-    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    body = (
+        tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]
+    ).read_text()
     assert "market-tick-data-service" in body
     assert "- [ ] [CODE] P1." in body
 
