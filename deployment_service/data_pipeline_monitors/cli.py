@@ -45,6 +45,7 @@ from deployment_service.data_pipeline_monitors import (
     heartbeat_stall_watcher,
     meta_watchers,
 )
+from deployment_service.data_pipeline_monitors.launcher_registry import resolve_launcher_for_vm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -246,6 +247,17 @@ def _catalogue_targets() -> list[meta_watchers.FreshnessTarget]:
     return targets
 
 
+def _launcher_for_vm(vm_name: str) -> str:
+    """``vm_name -> launcher-script-name`` for the relaunch actuators ("" when none).
+
+    Wraps ``launcher_registry.resolve_launcher_for_vm`` (which returns ``str | None``)
+    to the sweep's ``Callable[[str], str]`` contract: a non-relaunchable prefix maps
+    to ``""``, which the sweep treats as "no launcher binding" → the finding falls
+    through to file_issue (never a wrong relaunch).
+    """
+    return resolve_launcher_for_vm(vm_name) or ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Data-pipeline fleet monitors")
     parser.add_argument("--mode", required=True, choices=["exit-code", "heartbeat", "meta"])
@@ -282,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
                 running_vms=running,
                 captured_reader=captured_reader,
                 asset_group_for_vm=_asset_group_for_vm,
+                launcher_for_vm=_launcher_for_vm,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -315,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
                 vm_age_reader=_age_reader,
                 captured_reader=captured_reader,
                 asset_group_for_vm=_asset_group_for_vm,
+                launcher_for_vm=_launcher_for_vm,
                 prior_captured=prior,
                 stall_minutes=stall_minutes,
                 pm_repo_path=pm_repo_path,
