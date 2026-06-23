@@ -439,9 +439,29 @@ def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None)
     if not token:
         return {"dispatched": False, "reason": "no_gh_token"}
 
+    # Structured relaunch binding — so the worker relaunches DETERMINISTICALLY
+    # from the registries (DeploymentsRegistry row + launcher_registry), never by
+    # parsing the context text. A relaunch hand-off = a VM-lifecycle finding whose
+    # in-image auto_recover could not actuate (actuators/launchers absent from the
+    # Cloud Run monitor image — the 2026-06-23 decision: relaunch via a planning-VM
+    # worker, not by packaging scripts into the image).
+    details = finding.details
+    vm_name = str(details.get("vm_name", "")).strip()
+    relaunch_launcher = str(details.get("relaunch_launcher", "")).strip()
+    deployment_id = str(details.get("deployment_id", "")).strip()
+    asset_group = str(details.get("asset_group", "")).strip()
+    is_relaunch = finding.event in _VM_LIFECYCLE_EVENTS
+    relaunch_ctx = (
+        f" RELAUNCH vm={vm_name or '?'} launcher={relaunch_launcher or '(resolve via launcher_registry)'} "
+        f"deployment_id={deployment_id or '?'} asset_group={asset_group or '?'}. "
+        "Runbook: codex/15-runbooks/incidents/rb_infra_relaunch.md."
+        if is_relaunch
+        else ""
+    )
     context = (
         f"{finding.severity} {finding.event} ({finding.registry_id or 'n/a'}) — {finding.summary}. "
-        f"Filed issue: {issue_path.name if issue_path else '(none — alert carries the details)'}. "
+        f"Filed issue: {issue_path.name if issue_path else '(none — alert carries the details)'}."
+        f"{relaunch_ctx} "
         "Read SUB_AGENT_MANDATORY_RULES.md + codex/05-infrastructure/data-pipeline-alerts.md + the filed issue."
     )
     payload = {
@@ -453,6 +473,13 @@ def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None)
             "context": context,
             "authoring_slot": "dp-fleet-monitor",
             "model": "sonnet",
+            # Structured relaunch binding (empty strings when N/A) — the worker
+            # reads these + the DeploymentsRegistry row, not the context text.
+            "action": "relaunch_vm" if is_relaunch else "investigate",
+            "vm_name": vm_name,
+            "relaunch_launcher": relaunch_launcher,
+            "deployment_id": deployment_id,
+            "asset_group": asset_group,
         },
     }
     request = urllib.request.Request(
@@ -577,8 +604,22 @@ def route_finding(
     # repository_dispatch fast path CI failures use → AutoSpawn a worker. A
     # dispatch failure NEVER breaks the finding (no GH token on a Cloud Run Job →
     # SKIP gracefully; the file_issue + PlanRegenLoop path covers it).
-    should_dispatch = effective_tier is EscalationTier.PAGE_OPERATOR or (
-        effective_tier is EscalationTier.FILE_ISSUE and filed_issue_path is not None
+    # A WIRED auto_recover actuator that could NOT recover (UNAVAILABLE in the
+    # Cloud Run monitor image / FAILED / budget-paged) MUST hand off to a worker
+    # — the relaunch happens on a planning-VM slot (which has scripts/vm + gcloud
+    # + the registries), NOT in the monitor image. This dispatch fires even with
+    # NO PM clone on disk (the Cloud Run case where filed_issue_path is None), so
+    # the relaunch is never stranded. The "no wired actuator" fall-through (e.g. a
+    # rate-limit backoff the runtime owns) does NOT dispatch a worker.
+    actuator_needs_worker = (
+        finding.tier is EscalationTier.AUTO_RECOVER
+        and effective_tier is EscalationTier.FILE_ISSUE
+        and event_details.get("auto_recover_fell_through") == "actuator_not_recovered"
+    )
+    should_dispatch = (
+        effective_tier is EscalationTier.PAGE_OPERATOR
+        or (effective_tier is EscalationTier.FILE_ISSUE and filed_issue_path is not None)
+        or actuator_needs_worker
     )
     if should_dispatch and not dry_run:
         dispatch = _dispatch_to_orchestrator(finding, filed_issue_path)

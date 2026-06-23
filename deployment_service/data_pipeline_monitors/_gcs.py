@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
@@ -240,6 +241,57 @@ def run_log_age_minutes(storage_client: StorageClient, bucket: str, vm_name: str
     if last is None:
         return None
     return (datetime.now(UTC) - last).total_seconds() / 60.0
+
+
+@dataclass(frozen=True)
+class RunLogSignals:
+    """Both time-based signals derived from a single run.log download.
+
+    Avoids the double-download OOM (incident 2026-06-23): the old sweep called
+    ``pipeline_heartbeat_age_minutes()`` AND ``run_log_age_minutes()`` for each VM,
+    each downloading the FULL ``run.log`` independently.  With 55 running VMs that
+    was 110 full run.log downloads per 5-min tick; long-running backfill VMs
+    accumulate many-MB logs → total memory easily exceeded the 2Gi Cloud Run job
+    limit → ``Container terminated on signal 9`` (OOM) on every sweep execution.
+    """
+
+    pipeline_heartbeat_age_min: float | None
+    run_log_age_min: float | None
+
+
+def run_log_signals(storage_client: StorageClient, bucket: str, vm_name: str) -> RunLogSignals:
+    """Download ``run.log`` ONCE and extract both the pipeline-heartbeat and log-mtime ages.
+
+    Replaces separate ``pipeline_heartbeat_age_minutes()`` + ``run_log_age_minutes()``
+    calls in the sweep loop — halving the run.log downloads per tick from 2xN to N.
+    """
+    log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
+    if not log:
+        return RunLogSignals(pipeline_heartbeat_age_min=None, run_log_age_min=None)
+
+    now = datetime.now(UTC)
+
+    # pipeline heartbeat age — last PIPELINE_HEARTBEAT ts= marker
+    hb_last: datetime | None = None
+    for match in _PIPELINE_HB_MARKER_RE.finditer(log):
+        try:
+            parsed = datetime.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        hb_last = parsed.replace(tzinfo=UTC)
+    hb_age: float | None = (now - hb_last).total_seconds() / 60.0 if hb_last is not None else None
+
+    # run.log progress age — last embedded YYYY-MM-DD HH:MM:SS timestamp
+    log_last: datetime | None = None
+    for match in _LOG_TS_RE.finditer(log):
+        try:
+            parsed = datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}")
+        except ValueError:
+            continue
+        log_last = parsed.replace(tzinfo=UTC)
+    log_age: float | None = (now - log_last).total_seconds() / 60.0 if log_last is not None else None
+
+    return RunLogSignals(pipeline_heartbeat_age_min=hb_age, run_log_age_min=log_age)
 
 
 def read_text(storage_client: StorageClient, bucket: str, blob_path: str) -> str | None:
