@@ -43,6 +43,18 @@ locals {
       extra_status = 403 # auth-gated: a 403 means ALIVE-but-protected (down = timeout/5xx)
       label        = "alerting-service (SPOF for ALL DP_* + DEPLOYMENT_* alerts)"
     }
+    "deployment-dashboard" = {
+      host         = "deployment-dashboard-cldtjniqvq-an.a.run.app"
+      path         = "/health" # added to deployment-ui/nginx.conf 2026-06-23 (was 404/timeout)
+      extra_status = 0
+      label        = "deployment-dashboard (deployment-ui devops + deploy pane)"
+    }
+    "trading-ui" = {
+      host         = "odum-research.com" # unified-trading-system-ui via Firebase Hosting (app/health → 200)
+      path         = "/health"
+      extra_status = 0
+      label        = "unified-trading-system-ui (company-facing trading/client site)"
+    }
   }
 }
 
