@@ -39,9 +39,14 @@ from enum import StrEnum
 from typing import cast
 
 from unified_trading_library import StorageClient
-from unified_trading_library.events import DP_VM_EXIT_NONZERO, DP_VM_GONE_NO_CAPTURE  # noqa: qg-deep-import
+from unified_trading_library.events import (  # noqa: qg-deep-import
+    DP_SOURCE_RATE_LIMITED,
+    DP_VM_EXIT_NONZERO,
+    DP_VM_GONE_NO_CAPTURE,
+)
 
 from deployment_service.data_pipeline_monitors import _gcs
+from deployment_service.data_pipeline_monitors._gcs import NoCaptureReason
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
@@ -58,7 +63,9 @@ class TerminationVerdict(StrEnum):
     """Per terminated-VM classification outcome."""
 
     EXIT_NONZERO = "exit_nonzero"  # DP-VM-001
-    GONE_NO_CAPTURE = "gone_no_capture"  # DP-VM-002
+    GONE_NO_CAPTURE = "gone_no_capture"  # DP-VM-002 — genuine silent zero → ALERT
+    RATE_LIMITED = "rate_limited"  # flat captured but run.log shows a 429/throttle → backoff-retry
+    EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
     CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
 
@@ -72,6 +79,10 @@ class TerminationResult:
     exit_code: int | None
     captured_before: int
     captured_after: int
+    # WHY a flat-captured run was flat (run.log-derived) — drives the
+    # GONE_NO_CAPTURE-vs-EXPECTED_NO_CAPTURE-vs-RATE_LIMITED split. SILENT for a
+    # genuine silent-zero (the only flat-captured case that still alerts).
+    no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT
 
     @property
     def captured_climbed(self) -> bool:
@@ -84,37 +95,51 @@ def classify_terminated_vm(
     exit_code: int | None,
     captured_before: int,
     captured_after: int,
+    no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
-      - ``exit_code != 0`` (incl. 137 OOM)         → EXIT_NONZERO  (DP-VM-001)
-      - ``exit_code == 0`` but captured did NOT climb → GONE_NO_CAPTURE (DP-VM-002)
-      - ``exit_code == 0`` AND captured climbed     → CLEAN
-      - ``exit_code is None`` AND captured did NOT climb → GONE_NO_CAPTURE
-        (no durable success proof + no work done = treat as silent failure, the
-        fail-safe direction — never infer success from "the VM is gone")
-      - ``exit_code is None`` but captured climbed  → CLEAN (work landed; the
-        durable code blob was just never written)
+      - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
+      - captured CLIMBED                              → CLEAN (work landed)
+      - captured FLAT — split on the run.log reason (the 2026-06-23
+        false-positive killer; a flat consolidated/shard count is NOT inherently
+        a failure):
+          * ``no_capture_reason == RATE_LIMITED``     → RATE_LIMITED
+            (a 429/throttle wrote partial → backoff-retry tier, NOT a silent zero)
+          * ``no_capture_reason == PROGRESS``         → EXPECTED_NO_CAPTURE
+            (the writer's own shard wrote rows; the CONSOLIDATED count merely lags)
+          * ``no_capture_reason == HONEST_ABSENCE``   → EXPECTED_NO_CAPTURE
+            (source legitimately empty / shard already complete / off-season)
+          * ``no_capture_reason == SILENT`` (default) → GONE_NO_CAPTURE
+            (no benign signal → genuine silent zero: auth fail / 0-universe /
+            unexpected empty — STILL ALERTS, the operator guardrail)
+
+    Both ``exit_code == 0`` and ``exit_code is None`` follow the captured/reason
+    split: a None exit code is no longer a blanket fail-safe to GONE_NO_CAPTURE —
+    a benign run.log reason (PROGRESS / HONEST_ABSENCE / RATE_LIMITED) overrides
+    it, so a self-deleting VM that honestly recorded absence no longer false-fires.
+    A None exit code with a SILENT reason still alerts (never infer success from
+    "the VM is gone" + no evidence of work).
     """
     climbed = captured_after > captured_before
     if exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
     elif climbed:
         verdict = TerminationVerdict.CLEAN
-    elif exit_code == 0:
+    elif no_capture_reason is NoCaptureReason.RATE_LIMITED:
+        verdict = TerminationVerdict.RATE_LIMITED
+    elif no_capture_reason in (NoCaptureReason.PROGRESS, NoCaptureReason.HONEST_ABSENCE):
+        verdict = TerminationVerdict.EXPECTED_NO_CAPTURE
+    else:  # NoCaptureReason.SILENT — genuine silent zero (incl. exit_code is None)
         verdict = TerminationVerdict.GONE_NO_CAPTURE
-    elif exit_code is None:
-        # No durable exit code AND no captured climb → fail-safe to GONE_NO_CAPTURE.
-        verdict = TerminationVerdict.GONE_NO_CAPTURE
-    else:  # pragma: no cover - exhaustive guard
-        verdict = TerminationVerdict.UNKNOWN
     return TerminationResult(
         vm_name=vm_name,
         verdict=verdict,
         exit_code=exit_code,
         captured_before=captured_before,
         captured_after=captured_after,
+        no_capture_reason=no_capture_reason,
     )
 
 
@@ -155,6 +180,13 @@ def _finding_for(
         oom_details: dict[str, object] = {**base_details, "oom": oom}
         if oom and relaunch_launcher:
             oom_details["relaunch_launcher"] = relaunch_launcher
+            # OOM (exit-137) means the machine was too small — a same-machine
+            # relaunch re-OOMs. Carry a bigger_machine hint the auto_recover
+            # actuator honors (escalation._recover_backfill_vm maps it to a
+            # MACHINE_TYPE env the launcher reads), so the relaunch lands on a
+            # higher-memory tier. KEY #4 (operator 2026-06-23): match the
+            # actuator to the failure MODE — OOM → relaunch BIGGER, not same.
+            oom_details["bigger_machine"] = True
         return PipelineFinding(
             event=DP_VM_EXIT_NONZERO,
             severity="CRITICAL",
@@ -170,12 +202,34 @@ def _finding_for(
             tier=EscalationTier.PAGE_OPERATOR,
             summary=(
                 f"VM {result.vm_name} drained but manifest captured did not climb "
-                f"({result.captured_before} → {result.captured_after}) — self-delete "
-                "masked a zero-row run"
+                f"({result.captured_before} → {result.captured_after}) AND its run.log "
+                "shows no rows-written / honest-absence / rate-limit signal — a genuine "
+                "silent zero (auth fail / 0-universe / unexpected empty)"
             ),
-            details=base_details,
+            details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
             registry_id="DP-VM-002",
         )
+    if result.verdict is TerminationVerdict.RATE_LIMITED:
+        # A 429/throttle wrote a partial result (exit 0, flat captured). Route to
+        # the backoff-retry tier — NOT a relaunch (relaunch re-hits the limit). The
+        # DP_SOURCE_RATE_LIMITED event has no wired relaunch actuator, so the
+        # escalation hop falls it through to file_issue (the backoff the runtime
+        # owns) rather than re-launching the VM. WARN, not CRITICAL — transient.
+        return PipelineFinding(
+            event=DP_SOURCE_RATE_LIMITED,
+            severity="WARN",
+            tier=EscalationTier.AUTO_RECOVER,
+            summary=(
+                f"VM {result.vm_name} drained with a flat captured count "
+                f"({result.captured_before} → {result.captured_after}) because its "
+                "run.log shows an HTTP-429 / rate-limit throttle — back off + retry "
+                "(do NOT relaunch immediately, it re-hits the limit)"
+            ),
+            details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
+            registry_id="DP-VM-002",
+        )
+    # EXPECTED_NO_CAPTURE (rows written but consolidated lags / honest-absence /
+    # shard already complete) + CLEAN + UNKNOWN → no finding (benign / not a failure).
     return None
 
 
@@ -272,11 +326,23 @@ def sweep(
             captured_after = max(captured_reader(name), captured_before)
         except Exception:
             captured_after = captured_before
+        # Only resolve the run.log no-capture reason when the verdict would
+        # otherwise be flat-captured-and-clean-exit (the GONE_NO_CAPTURE candidate
+        # path) — a non-zero exit or a climbing capture never needs it, so we don't
+        # download the run.log for those (keeps the per-tick download count low,
+        # mirrors the OOM-fix double-download discipline).
+        needs_reason = (exit_code is None or exit_code == 0) and captured_after <= captured_before
+        no_capture_reason = (
+            _gcs.no_capture_reason_from_run_log(storage_client, log_bucket, name)
+            if needs_reason
+            else NoCaptureReason.SILENT
+        )
         result = classify_terminated_vm(
             name,
             exit_code=exit_code,
             captured_before=captured_before,
             captured_after=captured_after,
+            no_capture_reason=no_capture_reason,
         )
         results.append(result)
 

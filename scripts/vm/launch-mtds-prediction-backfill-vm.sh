@@ -60,6 +60,12 @@ DRY_RUN=false
 # endpoints are PUBLIC — no auth/RSA-PSS needed, that's trading-only). Both run the
 # generic MTDS `download --asset-group PREDICTION --venues <V> --data-types trades`.
 VENUE="${VENUE:-POLYMARKET}"
+# Data types to backfill (comma-separated). Default `trades` (historical default).
+# `book_snapshot_5` rides the Polymarket BATCH CLOB /book REST path
+# (polymarket_adapter.get_prices → clob.polymarket.com/book?token_id → top-5 →
+# canonical book_snapshot_5; design item 83). Both run the generic MTDS
+# `download --asset-group PREDICTION --venues <V> --data-types <DT>`.
+DATA_TYPES="${DATA_TYPES:-trades}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -68,6 +74,7 @@ while [[ $# -gt 0 ]]; do
         --vm-force) VM_FORCE=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --venue) VENUE="$2"; shift 2 ;;
+        --data-types) DATA_TYPES="$2"; shift 2 ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -94,12 +101,14 @@ elif [[ ${#POSITIONAL[@]} -eq 0 ]]; then
     END_DATE="$START_DATE"
 else
     cat >&2 <<EOF
-Usage: $0 [--force] [--vm-force] [--env prod|staging|dev] [START_DATE END_DATE]
+Usage: $0 [--force] [--vm-force] [--env prod|staging|dev] [--venue POLYMARKET|KALSHI] [--data-types trades|book_snapshot_5|trades,book_snapshot_5] [START_DATE END_DATE]
 
 Defaults to yesterday (T-1). Pass two YYYY-MM-DD dates for an explicit window.
 Pass --force to bypass the singleton lock.
 Pass --vm-force to set VM_FORCE=true (adds --force to the MTDS CLI; bypasses pre-flight manifest check).
 Pass --env to override the env tier (default: \$DEPLOYMENT_ENV or 'prod').
+Pass --venue to select POLYMARKET (default) or KALSHI.
+Pass --data-types to select trades (default), book_snapshot_5 (CLOB /book REST top-5), or both comma-separated.
 EOF
     exit 1
 fi
@@ -135,7 +144,7 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="mtds-prediction-$(echo "$VENUE" | tr '[:upper:]' '[:lower:]')-${RUN_TS}"
 
-echo "Launching $VM_NAME: ${VENUE} trades ${START_DATE}..${END_DATE}"
+echo "Launching $VM_NAME: ${VENUE} ${DATA_TYPES} ${START_DATE}..${END_DATE}"
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly (the task
@@ -145,7 +154,7 @@ METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=PREDICTION"
 METADATA="${METADATA},VM_VENUE=${VENUE}"
-METADATA="${METADATA},VM_DATA_TYPES=trades"
+METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
