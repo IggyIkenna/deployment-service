@@ -81,6 +81,20 @@ FORCE_WINDOW=false
 RECOVERY_FIXTURE_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 DRY_RUN=false
+# Registry-driven rate-budget (operator 2026-06-23): N = how many VMs will run
+# concurrently against the SHARED api_football source quota (Custom plan =
+# 1200 req/min AND 450,000 req/DAY resetting 00:00 UTC — ONE quota across ALL
+# endpoints). The launcher splits the EFFECTIVE ceiling/N → per-VM req/min +
+# matched concurrency, stamps them into VM metadata, and the adapter runs its
+# self-enforced throttle at that rate. The effective ceiling is daily-aware:
+# when REMAINING_DAILY_QUOTA is exported it = min(1200, remaining / minutes to
+# 00:00 UTC), so a fleet launched late in the day self-throttles below 1200.
+# Default 1 (this is the only VM). The singleton lock below already prevents
+# accidental over-subscription, but set --fleet-vms N when you DELIBERATELY fan
+# out N api-football VMs (--force). REMAINING_DAILY_QUOTA is optional (omit ⇒ the
+# per-minute cap is the only constraint, fine when the day is fresh).
+FLEET_VMS="${FLEET_VMS:-1}"
+REMAINING_DAILY_QUOTA="${REMAINING_DAILY_QUOTA:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -91,10 +105,16 @@ while [[ $# -gt 0 ]]; do
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
+    --fleet-vms) FLEET_VMS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     *) break ;;
   esac
 done
+
+if ! [[ "$FLEET_VMS" =~ ^[0-9]+$ ]] || [[ "$FLEET_VMS" -lt 1 ]]; then
+  echo "ERROR: --fleet-vms must be a positive integer (got: $FLEET_VMS)" >&2
+  exit 1
+fi
 
 case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
@@ -195,6 +215,45 @@ ENTITY_DESC="all entities"
 [[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY only"
 echo "Launching $VM_NAME: API_FOOTBALL backfill ${RANGE_DESC} ($ENTITY_DESC)"
 
+# ── Registry-driven rate-budget allocation (Part 1) ──
+# Deterministically split the api_football EFFECTIVE fleet ceiling (Custom plan
+# 1200 req/min, daily-aware: min(1200, REMAINING_DAILY_QUOTA / minutes to 00:00
+# UTC) — ONE quota shared across ALL endpoints) across FLEET_VMS concurrent VMs
+# and derive this VM's per-minute share + matched concurrency. The registry
+# asserts the fail-closed hard rule on BOTH axes (sum(per_vm × N) ≤ per-minute
+# ceiling AND fleet_rpm × minutes_to_reset ≤ remaining daily quota). Resolved by
+# the repo venv so the same SSOT math runs here as the actuator consumes.
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${REPO_ROOT}/.venv/bin/python"
+[[ -x "$PY" ]] || PY="python3"
+BUDGET_LINE="$(
+  PYTHONPATH="${REPO_ROOT}" "$PY" - "$FLEET_VMS" "$REMAINING_DAILY_QUOTA" <<'PYEOF' 2>/dev/null || true
+import sys
+from deployment_service.data_pipeline_monitors.launch_budget_registry import (
+    allocate_rate_budget,
+    assert_fleet_within_budget,
+)
+
+n = int(sys.argv[1])
+remaining = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+# max_per_query_rate_rpm=12 mirrors the operator's "each slot ~12 req/min"
+# framing → concurrency = per_vm_rpm // 12. now_utc defaults to the UTC clock,
+# so REMAINING_DAILY_QUOTA alone makes the allocation daily-aware (the effective
+# ceiling drops below 1200 late in the day).
+a = allocate_rate_budget("api_football", n_vms=n, max_per_query_rate_rpm=12, remaining_daily_quota=remaining)
+assert_fleet_within_budget("api_football", n_vms=n, per_vm_rpm=a.per_vm_rpm, remaining_daily_quota=remaining)
+print(f"{a.per_vm_rpm} {a.concurrency} {a.min_request_interval_s} {a.effective_source_rpm}")
+PYEOF
+)"
+if [[ -n "$BUDGET_LINE" ]]; then
+  read -r PER_VM_RPM ADAPTER_CONCURRENCY MIN_INTERVAL EFFECTIVE_RPM <<<"$BUDGET_LINE"
+  echo "Rate-budget: api_football effective ${EFFECTIVE_RPM} req/min (Custom cap 1200/min, 450k/day) ÷ ${FLEET_VMS} VMs → ${PER_VM_RPM} req/min/VM, concurrency=${ADAPTER_CONCURRENCY}, interval=${MIN_INTERVAL}s (PRIMARY throttle)"
+else
+  PER_VM_RPM=""
+  ADAPTER_CONCURRENCY=""
+  echo "WARNING: rate-budget registry unavailable — VM keeps the adapter's class-default throttle (429 backoff still the safety net)." >&2
+fi
+
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
@@ -213,11 +272,23 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# Stamp the allocated rate-budget so the VM's adapter throttles at exactly its
+# fleet share (setup-data-pipeline-vm.sh exports → typed config → adapter).
+[[ -n "$PER_VM_RPM" ]] && METADATA="${METADATA},SPORTS_ADAPTER_RATE_RPM=${PER_VM_RPM}"
+[[ -n "$ADAPTER_CONCURRENCY" ]] && METADATA="${METADATA},SPORTS_ADAPTER_CONCURRENCY=${ADAPTER_CONCURRENCY}"
 
-# Machine type override via env (default e2-standard-4 — bumped from -2 after
-# 2026-05-06 OOM during per-VM shard merge: 51 shards × pandas concat blew
-# past 8GB on e2-standard-2). Operator can override with MACHINE_TYPE=e2-...
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# Machine type from the registry-driven machine-sizing map (Part 2): a
+# sports-backfill:api_football VM launches correctly-sized on the FIRST try
+# (registry SSOT, not repeated OOM-escalation). Operator can still override with
+# MACHINE_TYPE=...; the OOM-escalation actuator steps UP the same ladder on a 137.
+DEFAULT_MACHINE_TYPE="$(
+  PYTHONPATH="${REPO_ROOT}" "$PY" - <<'PYEOF' 2>/dev/null || true
+from deployment_service.data_pipeline_monitors.launch_budget_registry import machine_type_for
+print(machine_type_for(task="sports-backfill", venue="api_football"))
+PYEOF
+)"
+[[ -n "$DEFAULT_MACHINE_TYPE" ]] || DEFAULT_MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="${MACHINE_TYPE:-$DEFAULT_MACHINE_TYPE}"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""

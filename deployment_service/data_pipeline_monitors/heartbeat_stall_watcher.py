@@ -202,6 +202,38 @@ def classify_vm_liveness(
     )
 
 
+def is_vm_progressing(result: LivenessResult, *, kill_minutes: float = DEFAULT_KILL_MINUTES) -> bool:
+    """EXPLICIT progress-guard (operator 2026-06-23) — True iff the VM shows a
+    POSITIVE, RECENT progress signal, so it must NEVER be reaped.
+
+    "Progress vs SLA, not live-status" (the operator rule): a VM doing real work
+    has at least one of —
+      - a FRESH worker heartbeat (``PIPELINE_HEARTBEAT`` echoed < ``kill_minutes``
+        ago — the bash 60s timer ticks only while the worker process-tree is alive);
+      - a RECENTLY-ADVANCING run.log (a per-date/league/chunk line written
+        < ``kill_minutes`` ago — measured forward progress, the SLA throughput
+        signal).
+    Either signal within the kill window = "doing real work within its SLA" → the
+    reaper must back off. This is DEFENCE-IN-DEPTH over the verdict precedence in
+    ``classify_vm_liveness`` (a fresh heartbeat or advancing log already yields
+    ALIVE, never STALL): it makes the "progressing VM is NEVER reaped" invariant a
+    standalone, independently-testable guard rather than an emergent property of
+    the classify ordering — so a future classify change can't silently regress it.
+    The ``zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23`` incident is
+    exactly the failure this prevents.
+
+    A ``None`` age = NO measured signal (not "fresh") — fail toward NOT-progressing
+    so a genuinely silent/hung VM is still reapable (the kill is gated by the STALL
+    verdict + ``should_auto_kill``'s own age check; this guard only ever BLOCKS a
+    kill, never forces one).
+    """
+    hb = result.heartbeat_age_min
+    if hb is not None and hb < kill_minutes:
+        return True
+    rl = result.run_log_age_min
+    return rl is not None and rl < kill_minutes
+
+
 def should_auto_kill(
     result: LivenessResult,
     *,
@@ -214,6 +246,12 @@ def should_auto_kill(
     Guards (ALL must hold — fail-safe toward NOT killing):
       - verdict is ``STALL`` (a positively-measured stall, never EVENT_LOOP_STARVED
         — total silence is a code bug for a human to read, not a reap case);
+      - **the VM is NOT progressing** (``is_vm_progressing`` False — the EXPLICIT
+        progress-guard, operator 2026-06-23): a FRESH heartbeat OR a recently-
+        advancing run.log within the kill window means real work within SLA → never
+        reap. Defence-in-depth over the verdict (a progressing VM is already ALIVE,
+        not STALL) so the "progressing VM is NEVER reaped" invariant holds even if
+        the classify precedence later changes;
       - the VM is a self-deleting BACKFILL VM (``is_backfill``) — a live-capture
         producer is never reaped (it logs sparsely; killing it drops live data);
       - the umbrella is NOT ``live`` (defence-in-depth over ``is_backfill`` — a
@@ -225,9 +263,16 @@ def should_auto_kill(
 
     A killed VM frees its wave-launcher cap-20 slot; the relaunch actuator then
     re-runs the backfill (now that "the watchdog already KILLED it" is actually
-    true). SSOT: tradfi_databento_backfill_hang_remediation_2026_06_23.md.
+    true). SSOT: tradfi_databento_backfill_hang_remediation_2026_06_23.md +
+    zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md (the progress-guard).
     """
     if result.verdict is not LivenessVerdict.STALL:
+        return False
+    # EXPLICIT progress-guard FIRST (operator 2026-06-23): a progressing VM is
+    # never reaped, full stop — keyed on measured progress vs the SLA window, not
+    # on live-status. Redundant with the STALL verdict by construction, kept as an
+    # independent fail-safe against a future classify regression.
+    if is_vm_progressing(result, kill_minutes=kill_minutes):
         return False
     if not is_backfill or umbrella == _LIVE_UMBRELLA:
         return False

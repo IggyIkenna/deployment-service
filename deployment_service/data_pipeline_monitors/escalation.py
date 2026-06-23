@@ -201,38 +201,65 @@ def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     return {"recovered": recovered, "actuator": "relaunch_consolidator", "result": result}
 
 
-# Machine-type escalation map for an OOM relaunch (KEY #4, operator 2026-06-23):
+# Machine-type escalation for an OOM relaunch (KEY #4, operator 2026-06-23):
 # an exit-137 OOM means the machine was too small — a SAME-machine relaunch
-# re-OOMs, so the relaunch must land on a HIGHER-memory tier. The DP backfill
-# launchers default to a GCP ``e2-standard-N`` / ``n2-standard-N`` family + honor
-# a ``MACHINE_TYPE`` env override (see ``scripts/vm/launch-*-vm.sh``). This map is
-# the "next size up" ladder; an unknown current type (or no detectable family)
-# falls back to ``_OOM_FALLBACK_MACHINE`` (a generous high-mem default). The
-# launcher reads ``MACHINE_TYPE`` from ``launcher_env``.
-_OOM_MACHINE_LADDER: dict[str, str] = {
-    "e2-standard-2": "e2-standard-4",
-    "e2-standard-4": "e2-standard-8",
-    "e2-standard-8": "e2-standard-16",
-    "e2-standard-16": "e2-highmem-16",
-    "n2-standard-2": "n2-standard-4",
-    "n2-standard-4": "n2-standard-8",
-    "n2-standard-8": "n2-highmem-16",
-    "n2-highmem-16": "n2-highmem-32",
-}
-# When the current machine type isn't known, escalate to a generous high-mem tier
-# (128 GB) — better to over-provision a relaunch than re-OOM a second time.
+# re-OOMs, so the relaunch MUST land on a HIGHER-memory tier. The "next size up"
+# is NO LONGER a hardcoded dict here — it CONSUMES the canonical memory-tier
+# ladder (``MEMORY_TIER_LADDER`` / ``next_memory_tier`` / ``gce_machine_ram_gb``)
+# owned by ``launch_budget_registry`` (import-only; a SEPARATE autonomy agent
+# owns that registry). One ladder = the launcher sizes a backfill correctly on
+# the FIRST try AND the OOM actuator climbs the SAME rungs on a 137, so the two
+# can never drift. The ladder tops out at ``n2-highmem-32`` (256 GB) — so a
+# Coinbase-class OOM escalates 128 GB → 256 GB before page_operator (the prior
+# hardcoded dict topped at ``n2-highmem-32`` only when the current machine was
+# exactly ``n2-highmem-16``; the registry ladder makes 256 GB the canonical top
+# rung for every family). The launcher reads ``MACHINE_TYPE`` from ``launcher_env``.
+from deployment_service.data_pipeline_monitors.launch_budget_registry import (  # noqa: qg-deep-import
+    MEMORY_TIER_LADDER,
+    gce_machine_ram_gb,
+    memory_tier_for_machine_type,
+    next_memory_tier,
+)
+
+# When the current machine type isn't known AND has no resolvable RAM, escalate
+# to a generous high-mem tier — better to over-provision a relaunch than re-OOM.
+# Sourced from the canonical ladder (the 128 GB rung) so it tracks the registry.
 _OOM_FALLBACK_MACHINE = "n2-highmem-16"
+# The canonical TOP rung (256 GB) — the ceiling an OOM relaunch escalates to
+# before page_operator. Derived from the ladder so it can never drift from the
+# registry SSOT (extend the ladder there → this follows automatically).
+_OOM_TOP_MACHINE = MEMORY_TIER_LADDER[-1].machine_type
 
 
 def _escalated_machine_type(current: str) -> str:
-    """Next-bigger machine type for an OOM relaunch (KEY #4).
+    """Next-bigger machine type for an OOM relaunch (KEY #4) — consumes the
+    canonical ``launch_budget_registry`` memory-tier ladder.
 
-    Returns the ladder's next size up for a known family, else the high-mem
-    fallback — never the SAME type (a same-machine relaunch re-OOMs).
+    Resolution (never returns the SAME type — a same-machine relaunch re-OOMs):
+      1. ``current`` is a ladder rung → ``next_memory_tier`` (the registry's
+         next size up); already at the top (``n2-highmem-32`` / 256 GB) → stay
+         at the top rung (the actuator's budget then pages rather than loop).
+      2. ``current`` is OFF-ladder but its RAM resolves (``gce_machine_ram_gb``)
+         → the SMALLEST ladder rung with strictly MORE RAM (so an off-ladder
+         ``n2-standard-8`` = 32 GB escalates to the 64 GB rung, etc.). If it is
+         already ≥ the top rung's RAM, stay at the top.
+      3. RAM unknown (a never-seen family) → the high-mem fallback (128 GB).
     """
     stripped = current.strip()
-    if stripped in _OOM_MACHINE_LADDER:
-        return _OOM_MACHINE_LADDER[stripped]
+    on_ladder = memory_tier_for_machine_type(stripped)
+    if on_ladder is not None:
+        nxt = next_memory_tier(on_ladder.name)
+        # Already at the top rung → escalate to the top (can't go higher; the
+        # actuator's relaunch budget pages once spent rather than loop forever).
+        return nxt.machine_type if nxt is not None else _OOM_TOP_MACHINE
+    current_ram = gce_machine_ram_gb(stripped)
+    if current_ram > 0:
+        for tier in MEMORY_TIER_LADDER:
+            if tier.ram_gb > current_ram:
+                return tier.machine_type
+        # Off-ladder but already ≥ the top rung's RAM → the top rung is the
+        # ceiling (e.g. a 256 GB off-ladder type → stay at n2-highmem-32).
+        return _OOM_TOP_MACHINE
     return _OOM_FALLBACK_MACHINE
 
 
