@@ -33,6 +33,11 @@ per-action cooldown / budget). Today wired:
   - ``DP_VM_EXIT_NONZERO`` with ``oom``/``exit_code==137`` →
     ``relaunch_backfill_vm`` (re-launch the OOM'd backfill via its launcher;
     ≤2 relaunches per (vm-prefix, day) then page_operator).
+  - ``DP_VM_STALL`` → ``relaunch_stalled_vm`` (the heartbeat-stall watcher KILLS
+    the hung VM; this RE-LAUNCHES it via its launcher — ≤2 per (vm-prefix, day)
+    then page_operator; the relaunch is unconditional on exit code, the stall
+    verdict is the trigger). A finding carrying no ``relaunch_launcher`` binding
+    falls through to ``file_issue``.
 
 An ``auto_recover`` event with **no** wired actuator (e.g.
 ``DP_SOURCE_RATE_LIMITED`` — a backoff the runtime owns) does NOT silently
@@ -52,20 +57,27 @@ alert. The path-present case (a VM/slot with the PM clone) writes the file.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import cast
 
 from unified_trading_library import (  # noqa: qg-deep-import
+    get_secret_client,
     log_event,
 )
 
 from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm
 from scripts.recovery.relaunch_consolidator import RelaunchConsolidator
+from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +120,33 @@ class PipelineFinding:
 # event is NOT here falls through to file_issue (never a silent no-op).
 _EVENT_CONSOLIDATOR_DOWN = "CONSOLIDATOR_DOWN"
 _EVENT_VM_EXIT_NONZERO = "DP_VM_EXIT_NONZERO"
+_EVENT_VM_STALL = "DP_VM_STALL"
+
+# The PM repo + repository_dispatch event-type that fast-spawns an autonomous
+# worker for a data-pipeline wall (the same fast path CI failures use). The
+# dispatch is BEST-EFFORT — a missing GH token / network failure must NEVER
+# break route_finding; the file_issue + PlanRegenLoop path still picks the
+# finding up.
+_DISPATCH_PM_REPO = "IggyIkenna/unified-trading-pm"
+_DISPATCH_EVENT_TYPE = "escalate-to-orchestrator"
+_DISPATCH_WALL_TYPE = "data_pipeline_failure"
+# Secret-Manager name of the workflow-capable GitHub PAT (carries repo + workflow
+# scope). Absent on a token-less Cloud Run Job → dispatch SKIPPED gracefully.
+_GH_PAT_SECRET = "GH_PAT"
+
+# Where a filed issue routes a worker. The data-pipeline observability epic owns
+# this VM; PlanRegenLoop only ingests an issues/ doc that declares an explicit
+# assigned_vm, so this MUST be present for AutoSpawn to pick the finding up.
+_ISSUE_PARENT_EPIC = "observability_master"
+_ISSUE_ASSIGNED_VM = "vm-cross-cutting"
+
+# A misclassified-empty / not-v9 / divergence finding → the per-AG MTDS/IS repo;
+# a VM-lifecycle finding (stall / exit / starvation) → deployment-service. Used
+# to NAME the target repo in the actionable issue todo (so a worker knows where
+# to look). Keyed on the DP_* event family.
+_VM_LIFECYCLE_EVENTS = frozenset(
+    {"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN"}
+)
 
 
 def _slugify(text: str) -> str:
@@ -164,12 +203,51 @@ def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str
     return {"recovered": recovered, "actuator": "relaunch_backfill_vm", "result": result}
 
 
+def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover ``DP_VM_STALL`` → re-launch the watchdog-killed stalled VM.
+
+    The heartbeat-stall watcher already KILLED the hung VM; this re-launches it
+    via its launcher (bounded ≤2/(vm-prefix, day) then page). Unconditional on
+    exit code — the stall verdict is the trigger. A finding with no
+    ``relaunch_launcher`` binding returns ``recovered=False`` → file_issue.
+    """
+    details = finding.details
+    launcher = str(details.get("relaunch_launcher", "")).strip()
+    actuator = RelaunchStalledVm()
+    result = actuator.relaunch(
+        str(details.get("vm_name", "")),
+        launcher=launcher,
+        asset_group=str(details.get("asset_group", "")),
+        dry_run=dry_run,
+    )
+    recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+    return {"recovered": recovered, "actuator": "relaunch_stalled_vm", "result": result}
+
+
 # event-name → actuator dispatch (the auto_recover tier). An auto_recover finding
 # whose event is absent here falls through to file_issue (never a silent no-op).
+# DP_EVENT_LOOP_STARVED is DELIBERATELY absent — a VM that never emits ANY
+# heartbeat is a code bug (a blocking GCS read on the async loop), not a relaunch
+# case, so it stays file_issue (its finding is tagged FILE_ISSUE at source).
 _DP_RECOVERY_ACTIONS: dict[str, Callable[..., dict[str, object]]] = {
     _EVENT_CONSOLIDATOR_DOWN: _recover_consolidator,
     _EVENT_VM_EXIT_NONZERO: _recover_backfill_vm,
+    _EVENT_VM_STALL: _recover_stalled_vm,
 }
+
+
+def _target_repo_for(finding: PipelineFinding) -> str:
+    """Name the repo a worker should fix the finding in (for the actionable todo).
+
+    A VM-lifecycle finding (stall / exit / starvation / consolidator) → the
+    launcher/monitor home ``deployment-service``. A data-correctness finding
+    (misclassified-empty / not-v9 / divergence) → the per-asset_group pipeline
+    repo (MTDS owns the capture; the asset_group is in the finding details). When
+    the asset_group isn't known, fall back to the generic MTDS repo.
+    """
+    if finding.event in _VM_LIFECYCLE_EVENTS:
+        return "deployment-service"
+    return "market-tick-data-service"
 
 
 def _resolve_pm_path(pm_repo_path: str | None) -> Path | None:
@@ -197,11 +275,21 @@ def _write_issue_doc(pm_root: Path, finding: PipelineFinding) -> Path | None:
         path = issues_dir / f"{slug}_{today}.md"
         if path.exists():
             return path  # idempotent — the daily run already filed this candidate
+        target_repo = _target_repo_for(finding)
+        root_cause = (
+            "the stalled VM's hung-process root cause (almost always an outbound HTTP/scrape call "
+            "lacking a `timeout=` per the CLAUDE.md hung-process rule)"
+            if finding.event in _VM_LIFECYCLE_EVENTS
+            else "the manifest/capture root cause (misclassified-empty vs real gap, not-v9 schema row, "
+            "or oracle-expects-but-empty divergence)"
+        )
         lines = [
             "---",
             f'title: "{finding.summary}"',
             f"created: {datetime.now(UTC).strftime('%Y-%m-%d')}",
             "author: data-pipeline-fleet-monitor",
+            f"parent_epic: {_ISSUE_PARENT_EPIC}",
+            f"assigned_vm: {_ISSUE_ASSIGNED_VM}",
             "source:",
             f"  - {finding.registry_id or finding.event}",
             "locked_by: live-defi-rollout",
@@ -226,8 +314,18 @@ def _write_issue_doc(pm_root: Path, finding: PipelineFinding) -> Path | None:
             "",
             "## Recommended decision",
             "",
-            "A planning-VM slot triages: confirm vs false-positive, fix the root "
-            "cause (or re-baseline the guard), then close this issue.",
+            "A worker diagnoses + fixes the root cause (or re-baselines the guard if "
+            "it is a confirmed false-positive), then closes this issue. Cold-start "
+            "context: read `unified-trading-pm/cursor-configs/SUB_AGENT_MANDATORY_RULES.md` "
+            "in full + `codex/05-infrastructure/data-pipeline-alerts.md` + the finding "
+            "`details` JSON above before acting.",
+            "",
+            "## Todos",
+            "",
+            f"- [ ] [CODE] P1. {finding.summary} — diagnose + fix {root_cause} in "
+            f"`{target_repo}`. Read `SUB_AGENT_MANDATORY_RULES.md` + the data-pipeline "
+            f"codex SSOT + the finding `details` above first (event `{finding.event}`, "
+            f"registry `{finding.registry_id or 'n/a'}`).",
             "",
         ]
         path.write_text("\n".join(lines), encoding="utf-8")
@@ -263,6 +361,74 @@ def _ping_orchestrator_inbox(pm_root: Path, finding: PipelineFinding, issue_path
     except Exception as exc:
         logger.warning("file_issue: failed to ping orchestrator inbox: %s", exc)
         return False
+
+
+def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None) -> dict[str, object]:
+    """Best-effort `repository_dispatch` → `escalate-to-orchestrator` (the CI fast path).
+
+    Fires the SAME fast-spawn path CI failures use: a `repository_dispatch` to the
+    PM repo with `client_payload[wall_type]=data_pipeline_failure`, which the
+    `escalate-to-orchestrator.yml` workflow routes to AutoSpawn → an autonomous
+    worker. Auths with the workflow-capable `GH_PAT` from Secret-Manager.
+
+    BEST-EFFORT — every failure mode (no GH token on the Cloud Run Job, SM access
+    denied, network error, non-2xx) returns a structured `{dispatched: False,
+    reason: ...}` and NEVER raises: a dispatch failure must not break the finding
+    (mirrors the alerting-service soft-gates). When the token is genuinely absent
+    the finding still reaches a worker via the file_issue + PlanRegenLoop path.
+    """
+    try:
+        token = get_secret_client().get_secret(_GH_PAT_SECRET)
+    except Exception as exc:
+        # No GH token (token-less Cloud Run Job) or SM access denied → SKIP
+        # gracefully; the PlanRegenLoop path (Fix 2) still picks the finding up.
+        logger.info("dispatch: GH token unavailable, skipping fast-spawn (PlanRegenLoop path covers it): %s", exc)
+        return {"dispatched": False, "reason": "no_gh_token"}
+    if not token:
+        return {"dispatched": False, "reason": "no_gh_token"}
+
+    context = (
+        f"{finding.severity} {finding.event} ({finding.registry_id or 'n/a'}) — {finding.summary}. "
+        f"Filed issue: {issue_path.name if issue_path else '(none — alert carries the details)'}. "
+        "Read SUB_AGENT_MANDATORY_RULES.md + codex/05-infrastructure/data-pipeline-alerts.md + the filed issue."
+    )
+    payload = {
+        "event_type": _DISPATCH_EVENT_TYPE,
+        "client_payload": {
+            "repo": _target_repo_for(finding),
+            "pr_number": "0",
+            "wall_type": _DISPATCH_WALL_TYPE,
+            "context": context,
+            "authoring_slot": "dp-fleet-monitor",
+            "model": "sonnet",
+        },
+    }
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{_DISPATCH_PM_REPO}/dispatches",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "dp-fleet-monitor",
+        },
+    )
+    try:
+        # nosec B310: the URL host is the fixed GitHub API (https://api.github.com),
+        # never a user-controlled / file:/ scheme — the repo path is a module constant.
+        resp = cast("HTTPResponse", urllib.request.urlopen(request, timeout=15))  # nosec B310
+        try:
+            status: int = resp.status
+        finally:
+            resp.close()
+        return {"dispatched": 200 <= status < 300, "reason": f"http_{status}", "http_status": status}
+    except urllib.error.HTTPError as exc:
+        logger.warning("dispatch: repository_dispatch HTTP %s (best-effort): %s", exc.code, exc)
+        return {"dispatched": False, "reason": f"http_{exc.code}", "http_status": exc.code}
+    except Exception as exc:  # network / timeout — never break the finding
+        logger.warning("dispatch: repository_dispatch failed (best-effort): %s", exc)
+        return {"dispatched": False, "reason": f"error: {exc!r}"[:200]}
 
 
 def route_finding(
@@ -340,18 +506,34 @@ def route_finding(
                 effective_tier = EscalationTier.FILE_ISSUE
     result["effective_tier"] = str(effective_tier)
 
+    filed_issue_path: Path | None = None
     if effective_tier is EscalationTier.FILE_ISSUE and not dry_run:
         pm_root = _resolve_pm_path(pm_repo_path)
         if pm_root is not None:
-            issue_path = _write_issue_doc(pm_root, finding)
-            if issue_path is not None:
-                result["issue_path"] = str(issue_path)
-                event_details["filed_issue"] = issue_path.name
-                result["inbox_pinged"] = _ping_orchestrator_inbox(pm_root, finding, issue_path)
+            filed_issue_path = _write_issue_doc(pm_root, finding)
+            if filed_issue_path is not None:
+                result["issue_path"] = str(filed_issue_path)
+                event_details["filed_issue"] = filed_issue_path.name
+                result["inbox_pinged"] = _ping_orchestrator_inbox(pm_root, finding, filed_issue_path)
         else:
             # Cloud Run Job case — no PM clone. The event carries the candidate
             # list; a planning-VM slot files the doc from the alert.
             event_details["file_issue_deferred"] = "no_pm_clone_on_disk"
+
+    # Fast CI-parity auto-spawn (Fix 3, best-effort): for a page_operator-tier
+    # (CRITICAL) finding OR a confirmed file_issue, ALSO fire the SAME
+    # repository_dispatch fast path CI failures use → AutoSpawn a worker. A
+    # dispatch failure NEVER breaks the finding (no GH token on a Cloud Run Job →
+    # SKIP gracefully; the file_issue + PlanRegenLoop path covers it).
+    should_dispatch = effective_tier is EscalationTier.PAGE_OPERATOR or (
+        effective_tier is EscalationTier.FILE_ISSUE and filed_issue_path is not None
+    )
+    if should_dispatch and not dry_run:
+        dispatch = _dispatch_to_orchestrator(finding, filed_issue_path)
+        result["dispatch"] = dispatch
+        event_details["fast_spawn_dispatched"] = bool(dispatch.get("dispatched"))
+        if not dispatch.get("dispatched"):
+            event_details["fast_spawn_skipped"] = str(dispatch.get("reason", "unknown"))
 
     if not dry_run:
         try:

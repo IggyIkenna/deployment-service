@@ -183,7 +183,9 @@ def classify_vm_liveness(
     )
 
 
-def _finding_for(result: LivenessResult, *, asset_group: str, stall_minutes: float) -> PipelineFinding | None:
+def _finding_for(
+    result: LivenessResult, *, asset_group: str, stall_minutes: float, relaunch_launcher: str = ""
+) -> PipelineFinding | None:
     base: dict[str, object] = {
         "vm_name": result.vm_name,
         "asset_group": asset_group,
@@ -192,6 +194,11 @@ def _finding_for(result: LivenessResult, *, asset_group: str, stall_minutes: flo
         "captured_flat": result.captured_flat,
         "stall_threshold_min": stall_minutes,
     }
+    # The launcher binding lets the DP_VM_STALL auto_recover actuator
+    # (relaunch_stalled_vm) re-launch the watchdog-killed VM. Absent → the finding
+    # falls through to file_issue (can't relaunch deterministically).
+    if relaunch_launcher:
+        base["relaunch_launcher"] = relaunch_launcher
     if result.verdict is LivenessVerdict.STALL:
         if result.heartbeat_age_min is not None:
             reason = f"heartbeat {result.heartbeat_age_min:.0f}m stale"
@@ -232,6 +239,7 @@ def sweep(
     vm_age_reader: Callable[[str, str], float],
     captured_reader: Callable[[str], int],
     asset_group_for_vm: Callable[[str], str],
+    launcher_for_vm: Callable[[str], str] | None = None,
     prior_captured: dict[str, int] | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
@@ -245,6 +253,11 @@ def sweep(
     detect a FLAT captured count across ticks (alive-but-not-working). Callers
     persist + re-pass it; when omitted, captured-flat is not used (heartbeat age
     is the sole signal).
+
+    ``launcher_for_vm`` (optional ``vm_name -> launcher-script-name`` resolver):
+    when supplied, a ``DP_VM_STALL`` finding carries a ``relaunch_launcher``
+    binding so the ``relaunch_stalled_vm`` auto_recover actuator can re-launch the
+    watchdog-killed VM; absent it, the stall finding falls through to file_issue.
     """
     prior_captured = prior_captured or {}
     results: list[LivenessResult] = []
@@ -299,7 +312,10 @@ def sweep(
         )
         results.append(result)
 
-        finding = _finding_for(result, asset_group=asset_group_for_vm(vm_name), stall_minutes=stall_minutes)
+        launcher = launcher_for_vm(vm_name) if launcher_for_vm is not None else ""
+        finding = _finding_for(
+            result, asset_group=asset_group_for_vm(vm_name), stall_minutes=stall_minutes, relaunch_launcher=launcher
+        )
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:

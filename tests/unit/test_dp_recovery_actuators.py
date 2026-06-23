@@ -26,6 +26,7 @@ from deployment_service.data_pipeline_monitors.escalation import (
 )
 from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm, vm_prefix
 from scripts.recovery.relaunch_consolidator import RelaunchConsolidator
+from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm
 
 _FIXED_NOW = datetime(2026, 6, 22, 12, 0, 0, tzinfo=UTC)
 
@@ -36,11 +37,17 @@ def _patch_log_event(monkeypatch) -> list[tuple[str, str, dict]]:
         "deployment_service.data_pipeline_monitors.escalation.log_event",
         "scripts.recovery.relaunch_consolidator.log_event",
         "scripts.recovery.relaunch_backfill_vm.log_event",
+        "scripts.recovery.relaunch_stalled_vm.log_event",
     ):
         monkeypatch.setattr(
             module,
             lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
         )
+    # Mute the best-effort fast-spawn dispatch (Fix 3) so the wiring tests are
+    # hermetic + block-network safe — its real non-raising behaviour has its own test.
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
     return emitted
 
 
@@ -141,6 +148,66 @@ def test_backfill_relaunch_third_oom_pages(tmp_path: Path, monkeypatch):
     assert any(
         e[0] == "DP_VM_EXIT_NONZERO" and e[1] == "CRITICAL" and e[2].get("relaunch_budget_exceeded") for e in emitted
     )
+
+
+# ── relaunch_stalled_vm (DP_VM_STALL self-heal, Fix 1) ──────────────────────
+
+
+def test_stalled_relaunch_re_launches_within_budget(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    launched: list[str] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append(name)
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchStalledVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    # the stall relaunch is UNCONDITIONAL on exit code (the watchdog killed it)
+    r1 = actuator.relaunch("tradfi-bf-1", launcher="launch-tradfi-bf-cme.sh", asset_group="tradfi")
+    r2 = actuator.relaunch("tradfi-bf-2", launcher="launch-tradfi-bf-cme.sh", asset_group="tradfi")
+    assert r1["status"] == "SUCCEEDED"
+    assert r2["status"] == "SUCCEEDED"
+    assert launched == ["launch-tradfi-bf-cme.sh", "launch-tradfi-bf-cme.sh"]  # same vm-prefix → shared budget
+    assert r2["relaunches_today"] == 2
+
+
+def test_stalled_relaunch_third_pages(tmp_path: Path, monkeypatch):
+    emitted = _patch_log_event(monkeypatch)
+    actuator = RelaunchStalledVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=_ok_launcher)
+    actuator.relaunch("tradfi-a", launcher="l.sh")
+    actuator.relaunch("tradfi-b", launcher="l.sh")
+    third = actuator.relaunch("tradfi-c", launcher="l.sh")  # budget spent
+    assert third["status"] == "PAGE"
+    assert third["reason"] == "budget_exceeded"
+    # The page emits a CRITICAL DP_VM_STALL with the budget flag.
+    assert any(e[0] == "DP_VM_STALL" and e[1] == "CRITICAL" and e[2].get("relaunch_budget_exceeded") for e in emitted)
+
+
+def test_stalled_relaunch_no_launcher_skipped(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchStalledVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch("mystery-vm", launcher="")  # no launcher binding
+    assert result["status"] == "SKIPPED"
+    assert result["reason"] == "no_launcher_binding"
+    assert launched == []  # nothing relaunched — caller falls through to file_issue
+
+
+def test_stalled_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchStalledVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch("tradfi-bf", launcher="l.sh", dry_run=True)
+    assert result["status"] == "DRY_RUN"
+    assert launched == []
 
 
 def test_backfill_relaunch_non_oom_skipped(tmp_path: Path, monkeypatch):

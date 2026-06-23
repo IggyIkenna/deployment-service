@@ -265,6 +265,39 @@ def test_heartbeat_sweep_emits_stall(monkeypatch):
     assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
 
 
+def test_stall_finding_carries_relaunch_launcher(monkeypatch):
+    """When launcher_for_vm is wired, the DP_VM_STALL finding carries relaunch_launcher.
+
+    That binding is what lets the relaunch_stalled_vm auto_recover actuator
+    re-launch the watchdog-killed VM (instead of falling through to file_issue).
+    """
+    vm = "tradfi-bf-cme-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=40.0), None)})
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    # mute the best-effort dispatch + the file_issue PM-clone write so the test is hermetic
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        launcher_for_vm=lambda _vm: "launch-tradfi-bf-cme.sh",
+        stall_minutes=15,
+    )
+    stall_details = [d for d in captured_details if d.get("relaunch_launcher")]
+    assert stall_details, "DP_VM_STALL finding should carry the relaunch_launcher binding"
+    assert stall_details[0]["relaunch_launcher"] == "launch-tradfi-bf-cme.sh"
+
+
 def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
     """THE BUG2 KEYSTONE regression (operator's 'zero alerts in 1.5h' symptom).
 
@@ -593,6 +626,159 @@ def test_route_file_issue_no_pm_clone_defers(monkeypatch):
     result = escalation.route_finding(finding, pm_repo_path="/nonexistent/pm")
     assert result["emitted"] is True
     assert details_seen[0].get("file_issue_deferred") == "no_pm_clone_on_disk"
+
+
+# ── DP_VM_STALL self-heal actuator (Fix 1) ──────────────────────────────────
+def _silence_dispatch_and_emit(monkeypatch):
+    """Mute log_event + the best-effort GH dispatch so the escalation tests are hermetic."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+
+
+def test_route_stall_invokes_relaunch_actuator(monkeypatch):
+    """DP_VM_STALL auto_recover → relaunch_stalled_vm actuator is wired + invoked."""
+    _silence_dispatch_and_emit(monkeypatch)
+    # the DP_VM_STALL event has a wired actuator (was missing → fell through to file_issue)
+    actuator = escalation._DP_RECOVERY_ACTIONS.get("DP_VM_STALL")
+    assert actuator is not None
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM tradfi-bf-cme stalled — heartbeat 12m stale",
+        details={"vm_name": "tradfi-bf-cme-20260623", "relaunch_launcher": "launch-tradfi-bf-cme.sh"},
+        registry_id="DP-VM-003",
+    )
+    # the actuator routes to relaunch_stalled_vm; DRY_RUN proves the relaunch plan
+    outcome = actuator(finding, dry_run=True)
+    assert outcome["actuator"] == "relaunch_stalled_vm"
+    assert outcome["recovered"] is True  # DRY_RUN counts as recovered
+    assert outcome["result"]["status"] == "DRY_RUN"
+    # routed end-to-end (dry_run) — stays auto_recover, no fall-through to file_issue
+    result = escalation.route_finding(finding, dry_run=True)
+    assert result["effective_tier"] == "auto_recover"
+
+
+def test_stall_no_launcher_falls_through_to_file_issue(monkeypatch, tmp_path):
+    """A DP_VM_STALL with no relaunch_launcher → actuator not recovered → file_issue."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM mystery-vm stalled — heartbeat 30m stale",
+        details={"vm_name": "mystery-vm"},  # no relaunch_launcher binding
+        registry_id="DP-VM-003",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["effective_tier"] == "file_issue"
+    assert result["issue_path"] is not None
+
+
+# ── actionable issue doc (Fix 2) ────────────────────────────────────────────
+def test_filed_issue_is_actionable(monkeypatch, tmp_path):
+    """The filed issue carries a `- [ ]` todo + assigned_vm + names the right repo."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    # a VM-lifecycle finding → deployment-service
+    finding = PipelineFinding(
+        event="DP_EVENT_LOOP_STARVED",
+        severity="WARN",
+        tier=EscalationTier.FILE_ISSUE,
+        summary="VM silent-vm emitting NO PIPELINE_HEARTBEAT",
+        details={"vm_name": "silent-vm"},
+        registry_id="DP-VM-004",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    assert "assigned_vm: vm-cross-cutting" in body
+    assert "parent_epic: observability_master" in body
+    assert "- [ ] [CODE] P1." in body
+    assert "deployment-service" in body  # VM-lifecycle → deployment-service
+    assert "SUB_AGENT_MANDATORY_RULES.md" in body
+
+
+def test_filed_issue_routes_data_finding_to_mtds(monkeypatch, tmp_path):
+    """A data-correctness finding (not VM-lifecycle) → market-tick-data-service."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+    finding = PipelineFinding(
+        event="DP_DIVERGENT_EMPTY",
+        severity="WARN",
+        tier=EscalationTier.FILE_ISSUE,
+        summary="5 defi cells oracle-expects-but-empty",
+        details={"asset_group": "defi"},
+        registry_id="DP-MANIFEST-002",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    body = (tmp_path / "unified-trading-pm" / "plans" / "active" / "issues" / str(result["issue_path"]).split("/")[-1]).read_text()
+    assert "market-tick-data-service" in body
+    assert "- [ ] [CODE] P1." in body
+
+
+# ── fast CI-parity dispatch (Fix 3) ─────────────────────────────────────────
+def test_critical_attempts_dispatch(monkeypatch):
+    """A CRITICAL (page_operator) finding ALSO fires the best-effort repository_dispatch."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    seen: list[str] = []
+    monkeypatch.setattr(
+        escalation,
+        "_dispatch_to_orchestrator",
+        lambda _f, _p: (seen.append("called"), {"dispatched": True, "reason": "http_204"})[1],
+    )
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm crashed",
+        details={"vm_name": "x"},
+        registry_id="DP-VM-001",
+    )
+    result = escalation.route_finding(finding)
+    assert seen == ["called"]
+    assert result["dispatch"]["dispatched"] is True
+
+
+def test_dispatch_is_non_raising_without_gh_token(monkeypatch):
+    """The REAL _dispatch_to_orchestrator never raises — no GH token → graceful skip."""
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+
+    # get_secret_client raising (no SM access / token-less Cloud Run Job) must be
+    # swallowed → {dispatched: False, reason: no_gh_token}, NOT a crash.
+    def _no_secret_client():
+        raise RuntimeError("no SM access")
+
+    monkeypatch.setattr(escalation, "get_secret_client", _no_secret_client)
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm crashed",
+        details={"vm_name": "x"},
+    )
+    out = escalation._dispatch_to_orchestrator(finding, None)
+    assert out["dispatched"] is False
+    assert out["reason"] == "no_gh_token"
+    # and route_finding completes + emits despite the dispatch skip
+    res = escalation.route_finding(finding)
+    assert res["emitted"] is True
+    assert "DP_VM_EXIT_NONZERO" in emitted
 
 
 # ── meta_watchers freshness probe ───────────────────────────────────────────
