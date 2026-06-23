@@ -46,6 +46,37 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader"
   member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
+# Required for the batch SA (as the GCE VM's runtime SA) to write GCS-tee run.log to
+# deployment-scripts-{project_id}/vm-logs/<vm-name>/run.log.
+# Without this, vm-exec-with-gcs-tee.sh silently fails to write logs (gsutil cp exits non-0 but
+# is not fatal). Granted ad-hoc 2026-06-23 via gsutil iam ch.
+resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_writer" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectCreator"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) in live mode, which
+# publishes to market-tick-data-service-events via PubSubEventSink. Without this the
+# VM process crashes with PERMISSION_DENIED at startup before any data collection.
+# Granted ad-hoc 2026-06-23 via gcloud pubsub topics add-iam-policy-binding.
+resource "google_pubsub_topic_iam_member" "t1_batch_market_tick_events_publisher" {
+  project = var.project_id
+  topic   = "market-tick-data-service-events"
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) — secondary topic
+# referenced in the PubSubEventSink initialisation. Same root cause as above.
+# Granted ad-hoc 2026-06-23 via gcloud pubsub topics add-iam-policy-binding.
+resource "google_pubsub_topic_iam_member" "t1_batch_deployment_events_publisher" {
+  project = var.project_id
+  topic   = "deployment-events"
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 locals {
   qg_snapshot_zone        = "asia-northeast1-c"
   qg_snapshot_startup_url = "gs://deployment-scripts-${var.project_id}/vm/setup-data-pipeline-vm.sh"
