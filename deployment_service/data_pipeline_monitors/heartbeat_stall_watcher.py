@@ -119,6 +119,11 @@ class LivenessResult:
     heartbeat_age_min: float | None
     captured_flat: bool
     run_log_age_min: float | None = None
+    # Age (min) of the per-VM manifest shard (_index/per_vm/{vm}.parquet) — the
+    # AUTHORITATIVE low-lag progress signal (the worker writes it DIRECTLY to GCS
+    # as it captures, vs the heartbeat marker which is read from the lagging
+    # GCS-tee'd run.log). None ⇒ no shard / read miss.
+    progress_age_min: float | None = None
 
 
 def classify_vm_liveness(
@@ -132,6 +137,7 @@ def classify_vm_liveness(
     stall_minutes: float = DEFAULT_STALL_MINUTES,
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
+    progress_age_min: float | None = None,
 ) -> LivenessResult:
     """Pure liveness classification. No I/O.
 
@@ -159,6 +165,18 @@ def classify_vm_liveness(
     """
     if vm_age_min < grace_minutes:
         verdict = LivenessVerdict.TOO_YOUNG
+    elif progress_age_min is not None and progress_age_min < stall_minutes:
+        # AUTHORITATIVE low-lag progress signal (operator 2026-06-23): the per-VM
+        # manifest shard (``_index/per_vm/{vm}.parquet``) was written within the
+        # stall window. The worker writes that shard DIRECTLY to GCS as it captures,
+        # so a fresh mtime PROVES the worker is alive AND making capture progress
+        # right now — it OVERRIDES a stale ``PIPELINE_HEARTBEAT`` marker, which is
+        # read from the GCS-TEE'd run.log that can lag the on-VM log by tens of
+        # minutes (incident 2026-06-23: a tradfi-bf VM capturing 114k rows +
+        # heartbeating on-box every 60s false-STALLed because its tee'd run.log was
+        # 42m behind). Fail-safe: ``None`` ⇒ no shard / read miss ⇒ NO override, so
+        # the heartbeat + run.log signals still catch a VM that never writes a shard.
+        verdict = LivenessVerdict.ALIVE
     elif heartbeat_age_min is None:
         # No worker PIPELINE_HEARTBEAT marker. Two distinct causes that the marker
         # alone cannot tell apart: (a) the worker died / never launched (genuine
@@ -199,6 +217,7 @@ def classify_vm_liveness(
         heartbeat_age_min=heartbeat_age_min,
         captured_flat=captured_flat,
         run_log_age_min=run_log_age_min,
+        progress_age_min=progress_age_min,
     )
 
 
@@ -227,6 +246,12 @@ def is_vm_progressing(result: LivenessResult, *, kill_minutes: float = DEFAULT_K
     verdict + ``should_auto_kill``'s own age check; this guard only ever BLOCKS a
     kill, never forces one).
     """
+    # AUTHORITATIVE low-lag progress signal first: a fresh per-VM manifest shard
+    # mtime PROVES the worker is capturing right now → never reap (defence-in-depth
+    # over the verdict, which is already ALIVE when progress is fresh).
+    pa = result.progress_age_min
+    if pa is not None and pa < kill_minutes:
+        return True
     hb = result.heartbeat_age_min
     if hb is not None and hb < kill_minutes:
         return True
@@ -299,6 +324,7 @@ def _finding_for(
         "asset_group": asset_group,
         "heartbeat_age_min": result.heartbeat_age_min,
         "run_log_age_min": result.run_log_age_min,
+        "progress_age_min": result.progress_age_min,
         "captured_flat": result.captured_flat,
         "stall_threshold_min": stall_minutes,
         # umbrella drives the alerting-service router channel split (LIVE →
@@ -350,6 +376,7 @@ def sweep(
     running_vms: Iterable[tuple[str, str]],
     vm_age_reader: Callable[[str, str], float],
     captured_reader: Callable[[str], int],
+    shard_mtime_reader: Callable[[str], float | None] | None = None,
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
@@ -428,6 +455,13 @@ def sweep(
         except Exception:
             captured_now = prior_captured.get(vm_name, 0)
         captured_flat = vm_name in prior_captured and captured_now <= prior_captured[vm_name]
+        # AUTHORITATIVE low-lag progress signal: age of the per-VM manifest shard
+        # (written DIRECTLY to GCS as the worker captures). A fresh mtime overrides a
+        # stale PIPELINE_HEARTBEAT read from the lagging GCS-tee'd run.log.
+        try:
+            progress_age = shard_mtime_reader(vm_name) if shard_mtime_reader is not None else None
+        except Exception:
+            progress_age = None
 
         result = classify_vm_liveness(
             vm_name,
@@ -435,6 +469,7 @@ def sweep(
             heartbeat_age_min=hb_age,
             captured_flat=captured_flat,
             run_log_age_min=run_log_age,
+            progress_age_min=progress_age,
             is_backfill=is_backfill,
             stall_minutes=stall_minutes,
             run_log_stall_minutes=run_log_stall_minutes,
