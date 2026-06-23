@@ -8,10 +8,15 @@ unit-testable with a mock storage client (QG runs credential-free + block-networ
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 from datetime import UTC, datetime
+from typing import cast
 
 from unified_trading_library import StorageClient
+
+logger = logging.getLogger(__name__)
 
 # Canonical VM live-log paths (mirror deployment_service.deployments_registry):
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/run.log
@@ -19,6 +24,71 @@ from unified_trading_library import StorageClient
 RUN_LOG_BLOB = "vm-logs/{vm}/run.log"
 EXIT_STATUS_BLOB = "vm-logs/{vm}/EXIT_STATUS"
 HEARTBEAT_BLOB = "vm-heartbeat/{vm}.txt"
+
+# Per-monitor-sweep "last-run" sentinel (the cron-watches-cron + deadman signal).
+# Each fleet-monitor / meta-watcher sweep writes ``vm-census/<mode>-last-run.json``
+# at the END of a successful sweep. Layer-1 (``check_cron_fired``) reads its
+# freshness in-band; Layer-2 (the out-of-band deadman poster) reads it too. The
+# bucket is the durable log bucket (``deployment-scripts-<project>``) — same place
+# as CENSUS_BLOB / _FIRST_SEEN_BLOB.
+MONITOR_LAST_RUN_BLOB = "vm-census/{mode}-last-run.json"
+
+
+def write_monitor_last_run(
+    storage_client: StorageClient,
+    log_bucket: str,
+    mode: str,
+    *,
+    ok: bool,
+    counts: dict[str, int] | None = None,
+) -> None:
+    """Write the ``vm-census/<mode>-last-run.json`` sentinel for a monitor sweep.
+
+    Records the UTC timestamp + ok/fail + per-sweep counts so a downstream watcher
+    (Layer-1 ``check_cron_fired`` in-band; Layer-2 deadman out-of-band) can detect a
+    monitor cron that STOPPED FIRING (a stale/absent sentinel). Best-effort — a
+    persist failure must never crash the sweep (the sweep already did its real work).
+    """
+    payload = {
+        "mode": mode,
+        "ts": datetime.now(UTC).isoformat(),
+        "ok": bool(ok),
+        "counts": counts or {},
+    }
+    blob_path = MONITOR_LAST_RUN_BLOB.format(mode=mode)
+    try:
+        storage_client.upload_bytes(
+            log_bucket,
+            blob_path,
+            json.dumps(payload, sort_keys=True).encode("utf-8"),
+            content_type="application/json",
+        )
+    except Exception as exc:
+        logger.warning("write_monitor_last_run(%s) failed: %s", mode, exc)
+
+
+def read_monitor_last_run(
+    storage_client: StorageClient,
+    log_bucket: str,
+    mode: str,
+) -> dict[str, object] | None:
+    """Read + parse the ``vm-census/<mode>-last-run.json`` sentinel, or ``None``.
+
+    ``None`` ⇒ the sentinel is absent (the monitor never wrote it / has never run)
+    or unparseable. A caller treats ``None`` as the fail-safe "stale" verdict.
+    """
+    raw = read_text(storage_client, log_bucket, MONITOR_LAST_RUN_BLOB.format(mode=mode))
+    if not raw:
+        return None
+    try:
+        loaded = cast("object", json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    data = cast("dict[str, object]", loaded)
+    return {str(k): v for k, v in data.items()}
+
 
 # vm-exec-with-gcs-tee.sh emits a final ``[vm-exec] command exited rc=<n>`` line
 # into run.log, and writes the integer rc to the EXIT_STATUS blob. Either is the

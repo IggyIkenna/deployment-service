@@ -23,6 +23,11 @@
 #   meta                  : */15 (catalogue 24h / watchdog 30m / cron budgets are
 #                                 coarse — 15 min is ample, keeps Actions/run cost low).
 #
+# Retry (P1, 2026-06-23 watch-the-watchers)
+#   The scheduler jobs carry retry_count=2 so a transient Cloud Run invocation
+#   failure does not silently drop a monitor tick (the JOB itself stays
+#   max_retries=0 / exit-0-always — the retry is on the SCHEDULER→Run invocation).
+#
 # Service account
 #   * Scheduler invoker: t1_batch_sa (roles/run.invoker).
 #   * Container runtime: unified_trading_sa (storage read on the log + manifest
@@ -192,7 +197,7 @@ resource "google_cloud_scheduler_job" "dp_exit_code_monitor_cron" {
   }
 
   retry_config {
-    retry_count          = 0
+    retry_count          = 2
     min_backoff_duration = "5s"
     max_backoff_duration = "60s"
     max_doublings        = 1
@@ -216,7 +221,7 @@ resource "google_cloud_scheduler_job" "dp_heartbeat_watcher_cron" {
   }
 
   retry_config {
-    retry_count          = 0
+    retry_count          = 2
     min_backoff_duration = "5s"
     max_backoff_duration = "60s"
     max_doublings        = 1
@@ -240,7 +245,7 @@ resource "google_cloud_scheduler_job" "dp_meta_watchers_cron" {
   }
 
   retry_config {
-    retry_count          = 0
+    retry_count          = 2
     min_backoff_duration = "5s"
     max_backoff_duration = "60s"
     max_doublings        = 1
