@@ -627,6 +627,7 @@ def main(argv: list[str] | None = None) -> int:
                     counts={"running": len(results), "stalled": len(stalled)},
                 )
         else:  # meta
+            meta_watchers.reset_emitted_tracker()
             meta_watchers.check_catalogue_freshness(
                 storage_client=storage_client,
                 targets=_catalogue_targets(),
@@ -685,6 +686,12 @@ def main(argv: list[str] | None = None) -> int:
                 execution_history_reader=execution_history_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
+            )
+            # RESOLVED bookend (alert-lifecycle hardening): emit ✅ for any meta-watcher
+            # alert that cleared since the last sweep, so #data-pipeline-alerts reflects
+            # closure instead of a permanent RED on a transient stale-then-fresh artifact.
+            meta_watchers.reconcile_resolved(
+                storage_client=storage_client, log_bucket=log_bucket, dry_run=dry_run
             )
             logger.info("meta sweep complete")
             if not dry_run:
