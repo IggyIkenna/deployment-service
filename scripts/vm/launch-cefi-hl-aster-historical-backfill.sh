@@ -21,15 +21,22 @@
 #   HYPERLIQUID: 2023-01-01 → 2026-06-20 (30,835 cells)
 #   ASTER:       2024-01-01 → 2026-06-20 (17,675 cells)
 #
-# Data types: trades, book_snapshot_5, derivative_ticker
-#   NOTE: liquidations are NOT included — HL does not publish liquidations publicly.
+# Data types: trades, derivative_ticker (+ book_snapshot_5 for HL only — the
+#   handler EXCLUDES per-venue live-only/dropped data_types automatically):
+#   - ASTER book_snapshot_5 + liquidations: LIVE-ONLY (Binance-compat WS captures
+#     them going forward) → excluded from the batch universe by the handler.
+#   - HYPERLIQUID liquidations: DROPPED entirely (HL publishes no liq feed anywhere).
+#   SSOT: cefi_hl_aster_batch_data_gaps_2026_06_22.md BUG #4.
 #
 # VM prefixes (already registered in vm_zombie_watchdog.py VM_PREFIX_TO_BUCKET):
 #   cefi-hyperliquid-  → EPHEMERAL_BATCH → tick-cefi bucket
 #   cefi-aster-        → EPHEMERAL_BATCH → tick-cefi bucket
 #
-# Symbol lists (perp-only, base symbol — HL/ASTER native convention):
-#   BTC, ETH, SOL, XRP, BNB, DOGE, ADA, AVAX, LINK
+# Instrument universe (BUG #4): SYMBOLS=ALL → the OnchainPerpBatchHandler enumerates
+#   the FULL active perp universe per venue from the IS catalogue
+#   (instruments-store-cefi-prd/prod/catalog.parquet) — ~100+ ASTER / ~150+ HL — so
+#   funding rates for every (incl. small/illiquid) instrument are attempted, not 9.
+#   Override SYMBOLS="BTC;ETH;..." for a surgical re-run of named symbols.
 #
 # Dry-run: DRY_RUN=1 bash scripts/vm/launch-cefi-hl-aster-historical-backfill.sh
 set -e
@@ -45,16 +52,18 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # ── Instrument universe ───────────────────────────────────────────────────────
-# Perp-only base symbols (no spot — HL/ASTER are perp CLOBs).
-# HL native convention: bare uppercase ticker (BTC not BTC-PERP)
-# ASTER native convention: same (Binance Futures-compatible)
-SYMBOLS="BTC;ETH;SOL;XRP;BNB;DOGE;ADA;AVAX;LINK"
+# BUG #4 (2026-06-22): catalogue-driven universe. The ALL sentinel makes the
+# OnchainPerpBatchHandler enumerate the FULL active perp universe per venue from
+# the IS catalogue (prod/catalog.parquet) — ~100+ ASTER / ~150+ HL — so funding
+# rates for every (incl. small/illiquid) instrument are attempted, not the static 9.
+# Override SYMBOLS="BTC;ETH;..." for a surgical re-run of named symbols.
+SYMBOLS="${SYMBOLS:-ALL}"
 
 # data_types: trades, book_snapshot_5, derivative_ticker (env-overridable).
-# liquidations excluded from the DEFAULT — HL/ASTER publish no historical liquidations feed.
-# A targeted re-run CAN pass DATA_TYPES="liquidations" to flip the already-failed
-# liquidations cells to empty_confirmed(EXPECTED_SOURCE_DOES_NOT_OFFER_DATA_TYPE) via the
-# OnchainPerpBatchHandler structural-unsupported path (cefi_hl_aster_batch_data_gaps_2026_06_22 BUG #3 residual).
+# The handler EXCLUDES per-venue live-only (ASTER book/liq) + dropped (HL liq) data_types
+# automatically, so a uniform list is safe across venues. liquidations is NOT in the
+# default — ASTER liq is live-only (WS) + HL liq is dropped (no feed); never batch-attempted.
+# SSOT: cefi_hl_aster_batch_data_gaps_2026_06_22.md BUG #4.
 DATA_TYPES="${DATA_TYPES:-trades;book_snapshot_5;derivative_ticker}"
 
 # ── Year shards ───────────────────────────────────────────────────────────────
