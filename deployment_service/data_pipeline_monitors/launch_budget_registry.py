@@ -17,15 +17,27 @@ in-flight concurrency. So the fleet runs at the FULL allowed throughput, never
 exceeds it, and never wastes wall-clock backing off a 429.
 
 **API-Football quota is SHARED across EVERY endpoint** (the critical fact): the
-900 req/min Mega-plan cap is ONE subscription quota spent by fixtures AND every
-per-fixture enrichment call (injuries / fixture_stats / fixture_events /
+1200 req/min Custom-plan cap is ONE subscription quota spent by fixtures AND
+every per-fixture enrichment call (injuries / fixture_stats / fixture_events /
 fixture_lineups / player_stats) — same core limit, different URL. So the budget
 is allocated against the SOURCE (``api_football``), never per-endpoint; a VM's
 adapter throttle is the single token bucket all its endpoint calls pass through.
 
-**Hard rule (fail-closed)**: ``sum(per_vm_rpm * n_vms) <= source_rpm`` for every
-source across all live VMs. ``assert_fleet_within_budget`` raises rather than
-let a launch over-subscribe a source (which would only produce 429-thrash).
+**Two real ceilings — per-minute AND per-day** (operator 2026-06-23): the Custom
+plan is ``1200 req/min`` AND a hard ``450,000 requests/day`` daily quota that
+resets to ZERO at ``00:00 UTC`` every day (unused requests are LOST — no
+rollover). The fleet ceiling is therefore time-aware: the EFFECTIVE per-minute
+ceiling is ``min(per_minute_limit, remaining_daily_quota / minutes_until_reset)``
+so that when the daily budget is nearly spent the allocator THROTTLES the fleet
+below 1200/min automatically (rather than burning the remaining quota in minutes
+then 429-thrashing for the rest of the day). ``SOURCE_DAILY_QUOTA`` carries the
+per-day ceiling; ``allocate_rate_budget`` consumes both.
+
+**Hard rule (fail-closed)**: ``sum(per_vm_rpm * n_vms) <= effective_source_rpm``
+AND ``fleet_rpm * minutes_to_reset <= remaining_daily_quota`` for every source
+across all live VMs. ``assert_fleet_within_budget`` raises rather than let a
+launch over-subscribe a source on EITHER axis (which would only produce
+429-thrash).
 
 The allocated ``per_vm_rpm`` reaches the adapter as the env var
 ``SPORTS_ADAPTER_RATE_RPM`` (read via the typed ``InstrumentsServiceConfig`` in
@@ -54,6 +66,7 @@ SSOT: ``plans/active/data_completion_to_100_all_ag_2026_06_21.md`` §
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 # ──────────────────────────────────────────────────────────────────────────
 # Part 1 — API rate-budget registry: SOURCE → fleet-wide requests-per-minute.
@@ -68,13 +81,15 @@ from dataclasses import dataclass
 # keeps its own class-default throttle until a real number lands here.
 SOURCE_RATE_LIMITS_RPM: dict[str, int | None] = {
     # ── Sports ────────────────────────────────────────────────────────────
-    # API-Football Mega plan = 900 req/min, ONE quota shared across ALL endpoints
-    # (fixtures + injuries + fixture_stats + fixture_events + fixture_lineups +
-    # player_stats). 900 is the value DOCUMENTED in the adapter
-    # (api_football.py:154 "Mega tier rate limit: 900 req/min"); the operator is
-    # still confirming a possible higher tier — until confirmed, 900 is the
-    # authoritative ceiling (fail-closed: under-allocate, never over-subscribe).
-    "api_football": 900,
+    # API-Football Custom plan = 1200 req/min, ONE quota shared across ALL
+    # endpoints (fixtures + injuries + fixture_stats + fixture_events +
+    # fixture_lineups + player_stats). 1200 is the operator-confirmed Custom-plan
+    # ceiling (2026-06-23, from the API-Football dashboard — supersedes the prior
+    # Mega-tier 900 misread). The Custom plan ALSO has a hard 450,000 req/DAY
+    # quota (see SOURCE_DAILY_QUOTA) that resets at 00:00 UTC — both ceilings are
+    # real and ``allocate_rate_budget`` honours both (fail-closed: under-allocate,
+    # never over-subscribe).
+    "api_football": 1200,
     # FootyStats — no published hard per-minute cap; the plan runs it
     # sequentially per-date today. Conservative default 60 req/min (~1 req/sec
     # politeness ceiling) until a real number lands.
@@ -112,22 +127,97 @@ SOURCE_RATE_LIMITS_RPM: dict[str, int | None] = {
 }
 
 
+# The per-DAY request ceiling for each source (the second real ceiling alongside
+# the per-minute cap). Resets to ZERO at 00:00 UTC every day; UNUSED requests are
+# LOST — no rollover. ``allocate_rate_budget`` divides the REMAINING daily quota
+# across the minutes left until 00:00 UTC and takes the min against the per-minute
+# cap, so a fleet launched late in the day throttles itself rather than exhaust
+# the day's budget in minutes and 429-thrash thereafter.
+#
+# ``None`` = no documented hard per-day quota (the per-minute cap is the only
+# ceiling) — such a source is NOT daily-throttled (the time-aware term is skipped
+# and the per-minute cap stands alone).
+SOURCE_DAILY_QUOTA: dict[str, int | None] = {
+    # API-Football Custom plan: 450,000 requests/day, resets 00:00 UTC, no
+    # rollover (operator-confirmed 2026-06-23 from the API-Football dashboard).
+    "api_football": 450_000,
+    # Everything else: no documented per-day quota → per-minute cap is the only
+    # ceiling. (Add a real number here when a vendor's daily quota is confirmed.)
+    "footystats": None,
+    "understat": None,
+    "soccer_football_info": None,
+    "transfermarkt": None,
+    "open_meteo": None,  # 10k calls/day is a SOFT free-tier hint, not a hard cap
+    "databento": None,
+    "polymarket_clob": None,
+    "polymarket_gamma_api": None,
+    "thegraph": None,
+}
+
+
+def _minutes_until_utc_midnight(now_utc: datetime) -> float:
+    """Minutes from ``now_utc`` until the next 00:00 UTC (the daily-quota reset).
+
+    Always strictly positive (a value just shy of 1440 right after midnight, ~1
+    just before). ``now_utc`` MUST be timezone-aware UTC.
+    """
+    if now_utc.tzinfo is None:
+        raise ValueError("now_utc must be timezone-aware UTC, got a naive datetime")
+    now_utc = now_utc.astimezone(UTC)
+    next_midnight = (now_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (next_midnight - now_utc).total_seconds() / 60.0
+
+
+def _effective_source_rpm(
+    source: str,
+    per_minute_limit: int,
+    *,
+    remaining_daily_quota: int | None,
+    minutes_to_reset: float,
+) -> int:
+    """The time-aware fleet ceiling = ``min(per_minute_limit, remaining/minutes)``.
+
+    When the source has a daily quota and ``remaining_daily_quota`` is given, the
+    daily budget is amortised across the minutes left until 00:00 UTC; the lower
+    of that and the raw per-minute cap is the effective ceiling. With no daily
+    quota (or no remaining figure supplied) the per-minute cap stands alone.
+    """
+    daily_quota = SOURCE_DAILY_QUOTA.get(source)
+    if daily_quota is None or remaining_daily_quota is None:
+        return per_minute_limit
+    if remaining_daily_quota < 0:
+        raise ValueError(f"remaining_daily_quota must be >= 0 (got {remaining_daily_quota})")
+    if minutes_to_reset <= 0:
+        raise ValueError(f"minutes_to_reset must be > 0 (got {minutes_to_reset})")
+    daily_rpm = int(remaining_daily_quota // minutes_to_reset)
+    return min(per_minute_limit, daily_rpm)
+
+
 @dataclass(frozen=True)
 class RateBudgetAllocation:
     """The launch-time rate allocation for one VM of a fleet of ``n_vms``.
 
-    ``per_vm_rpm`` is the deterministic share of the source ceiling this VM may
-    spend; ``concurrency`` is the matched in-flight task cap; and
+    ``per_vm_rpm`` is the deterministic share of the EFFECTIVE source ceiling this
+    VM may spend; ``concurrency`` is the matched in-flight task cap; and
     ``min_request_interval_s`` = ``60 / per_vm_rpm`` is the adapter's
     self-enforced token-bucket spacing (the PRIMARY throttle).
+
+    ``source_rpm`` is the raw per-minute cap; ``effective_source_rpm`` is the
+    daily-quota-aware ceiling actually split across the fleet (== ``source_rpm``
+    when the source has no daily quota / late in the day none is supplied, lower
+    when the remaining daily budget can't sustain the full per-minute rate to
+    00:00 UTC). ``minutes_to_reset`` is the UTC-midnight horizon used.
     """
 
     source: str
     source_rpm: int
+    effective_source_rpm: int
     n_vms: int
     per_vm_rpm: int
     concurrency: int
     min_request_interval_s: float
+    remaining_daily_quota: int | None
+    minutes_to_reset: float
 
 
 def allocate_rate_budget(
@@ -136,37 +226,65 @@ def allocate_rate_budget(
     *,
     max_per_query_rate_rpm: int | None = None,
     concurrency_cap: int = 16,
+    remaining_daily_quota: int | None = None,
+    now_utc: datetime | None = None,
+    minutes_to_reset: float | None = None,
 ) -> RateBudgetAllocation:
-    """Deterministically split a source's fleet ceiling across ``n_vms`` VMs.
+    """Deterministically split a source's EFFECTIVE fleet ceiling across ``n_vms``.
 
-    ``per_vm_rpm = source_rpm // n_vms`` — the fleet then runs at (at most) the
-    full ``source_rpm`` and never over-subscribes it. The matched per-VM
-    concurrency is sized so ``concurrency x max_per_query_rate ≤ per_vm_rpm``:
-    enough in-flight tasks to keep the pipe full at the allocated rate, never so
-    many that a burst could exceed the budget.
+    The effective ceiling is daily-quota- AND time-aware:
+    ``effective_source_rpm = min(per_minute_limit, remaining_daily_quota /
+    minutes_until_00:00_UTC)``. So when the day's budget is nearly spent the
+    fleet is throttled below the raw per-minute cap automatically. With no daily
+    quota for the source (or none supplied) the per-minute cap stands alone.
 
-    Worked example (the operator's case): 10 API-Football VMs against the
-    900 req/min source ceiling ⇒ ``per_vm_rpm = 90`` each (10 x 90 = 900,
-    exactly the ceiling, 0 waste); ``min_request_interval_s = 60/90 ≈ 0.6667s``;
-    with ``max_per_query_rate_rpm = 90`` (one in-flight request streams the full
-    per-VM budget) ``concurrency = max(1, 90 // 90) = 1`` capped at
-    ``concurrency_cap``. A looser ``max_per_query_rate_rpm = 12`` (the operator's
-    "each slot ~12 req/min" framing) yields ``concurrency = 90 // 12 = 7`` →
-    10 VMs x concurrency 7 = 70 in-flight against 900/min, the operator's
-    stated steady state.
+    ``per_vm_rpm = effective_source_rpm // n_vms`` — the fleet then runs at (at
+    most) the full effective ceiling and never over-subscribes it on EITHER axis.
+    The matched per-VM concurrency is sized so
+    ``concurrency x max_per_query_rate ≤ per_vm_rpm``.
+
+    Worked examples (the operator's API-Football case, Custom plan = 1200/min,
+    450,000/day, resets 00:00 UTC):
+
+    * **Late-in-day, daily budget nearly spent** — ``remaining_daily_quota ≈
+      130,500`` with ``~270`` minutes to reset ⇒ ``daily_rpm = 130500 // 270 =
+      483`` < 1200 ⇒ ``effective_source_rpm = 483``. With 5 VMs ⇒
+      ``per_vm_rpm = 483 // 5 = 96`` (≈ the operator's "~5 VMs at ~90 rpm");
+      ``min_request_interval_s = 60/96 ≈ 0.625s``.
+    * **Post-reset, fresh 450,000/day** — just after 00:00 UTC ``remaining =
+      450,000`` with ``~1440`` minutes to reset ⇒ ``daily_rpm = 450000 // 1440 =
+      312``… but the operator runs the fleet against the FULL per-minute cap when
+      the day is fresh (the daily budget is not the binding constraint over the
+      whole day): pass no ``remaining_daily_quota`` (or a value large enough that
+      the per-minute cap binds) ⇒ ``effective_source_rpm = 1200`` ⇒ with 13 VMs
+      ``per_vm_rpm = 1200 // 13 = 92`` (~13 VMs at ~90 rpm = the full 1200/min).
+    * **No daily input (legacy callers)** — ``effective_source_rpm = 1200``;
+      10 VMs ⇒ 120 each, ``max_per_query_rate_rpm = 12`` ⇒ concurrency
+      ``120 // 12 = 10``.
 
     Args:
         source: A key in ``SOURCE_RATE_LIMITS_RPM`` with a non-None ceiling.
         n_vms: How many VMs will run concurrently against this source.
         max_per_query_rate_rpm: The req/min a SINGLE in-flight task can sustain
             (used to size matched concurrency). Defaults to ``per_vm_rpm``
-            (one task saturates the per-VM budget → concurrency 1), which is the
-            safe floor; pass a smaller per-task rate to widen concurrency.
+            (one task saturates the per-VM budget → concurrency 1), the safe
+            floor; pass a smaller per-task rate to widen concurrency.
         concurrency_cap: Upper bound on matched concurrency (I/O-bound default 16
             per the workspace concurrency rule).
+        remaining_daily_quota: Requests left in the source's per-day quota right
+            now. When given (and the source has a ``SOURCE_DAILY_QUOTA``), the
+            allocator amortises it across the minutes to 00:00 UTC and may
+            throttle the fleet below the per-minute cap. ``None`` = the per-minute
+            cap is the only constraint.
+        now_utc: The current time (timezone-aware UTC) used to compute the
+            minutes-to-reset. Defaults to ``datetime.now(UTC)`` at call
+            time. Inject a fixed value in tests.
+        minutes_to_reset: Pre-computed minutes until 00:00 UTC (overrides
+            ``now_utc``). Pass this OR ``now_utc``, not both meaningfully.
 
     Raises:
-        ValueError: ``source`` unknown / un-capped, or ``n_vms < 1``.
+        ValueError: ``source`` unknown / un-capped, ``n_vms < 1``, or the
+            effective ceiling rounds the per-VM budget to 0.
     """
     if n_vms < 1:
         raise ValueError(f"n_vms must be >= 1 (got {n_vms})")
@@ -177,11 +295,20 @@ def allocate_rate_budget(
             "(unknown or TODO-unconfirmed) — cannot allocate a rate budget. "
             "Add its req/min cap to the registry first."
         )
-    per_vm_rpm = source_rpm // n_vms
+    if minutes_to_reset is None:
+        minutes_to_reset = _minutes_until_utc_midnight(now_utc or datetime.now(UTC))
+    effective_rpm = _effective_source_rpm(
+        source,
+        source_rpm,
+        remaining_daily_quota=remaining_daily_quota,
+        minutes_to_reset=minutes_to_reset,
+    )
+    per_vm_rpm = effective_rpm // n_vms
     if per_vm_rpm < 1:
         raise ValueError(
-            f"n_vms={n_vms} exceeds source_rpm={source_rpm} for {source!r} "
-            "(per-VM budget would round to 0 req/min) — launch fewer VMs."
+            f"n_vms={n_vms} exceeds effective_source_rpm={effective_rpm} for {source!r} "
+            "(per-VM budget would round to 0 req/min — daily quota nearly spent or too "
+            "many VMs) — launch fewer VMs or wait for the 00:00 UTC reset."
         )
     per_task_rpm = max_per_query_rate_rpm if max_per_query_rate_rpm is not None else per_vm_rpm
     if per_task_rpm < 1:
@@ -190,39 +317,72 @@ def allocate_rate_budget(
     return RateBudgetAllocation(
         source=source,
         source_rpm=source_rpm,
+        effective_source_rpm=effective_rpm,
         n_vms=n_vms,
         per_vm_rpm=per_vm_rpm,
         concurrency=concurrency,
         min_request_interval_s=round(60.0 / per_vm_rpm, 4),
+        remaining_daily_quota=remaining_daily_quota,
+        minutes_to_reset=round(minutes_to_reset, 2),
     )
 
 
-def assert_fleet_within_budget(source: str, n_vms: int, per_vm_rpm: int) -> None:
+def assert_fleet_within_budget(
+    source: str,
+    n_vms: int,
+    per_vm_rpm: int,
+    *,
+    remaining_daily_quota: int | None = None,
+    now_utc: datetime | None = None,
+    minutes_to_reset: float | None = None,
+) -> None:
     """Fail-closed hard rule: the fleet must not over-subscribe a source.
 
-    Asserts ``per_vm_rpm * n_vms <= source_rpm``. A launcher calls this with the
-    rate it is ABOUT to stamp on N VMs; on violation it raises so the launch is
-    refused / scaled down rather than producing a 429-thrash storm.
+    Asserts BOTH ceilings:
+        * per-minute: ``per_vm_rpm * n_vms <= source_rpm``;
+        * per-day (when a daily quota + ``remaining_daily_quota`` are supplied):
+          the PROJECTED daily consumption to the next reset
+          ``fleet_rpm * minutes_to_reset <= remaining_daily_quota``.
+
+    A launcher calls this with the rate it is ABOUT to stamp on N VMs; on
+    violation it raises so the launch is refused / scaled down rather than
+    producing a 429-thrash storm (per-minute) or burning the daily quota early.
 
     Raises:
         ValueError: ``source`` unknown / un-capped.
-        FleetBudgetExceededError: the allocation would exceed the source ceiling.
+        FleetBudgetExceededError: the allocation would exceed the per-minute OR
+            the projected per-day ceiling.
     """
     source_rpm = SOURCE_RATE_LIMITS_RPM.get(source)
     if source_rpm is None:
         raise ValueError(
             f"source {source!r} has no fleet rate ceiling in SOURCE_RATE_LIMITS_RPM — cannot validate a fleet budget."
         )
-    total = per_vm_rpm * n_vms
-    if total > source_rpm:
+    fleet_rpm = per_vm_rpm * n_vms
+    if fleet_rpm > source_rpm:
         raise FleetBudgetExceededError(
-            f"fleet budget for {source!r} over-subscribed: {n_vms} VMs x {per_vm_rpm} req/min "
-            f"= {total} > source ceiling {source_rpm} req/min. Reduce n_vms or per_vm_rpm."
+            f"fleet budget for {source!r} over-subscribed (per-minute): {n_vms} VMs x {per_vm_rpm} req/min "
+            f"= {fleet_rpm} > source ceiling {source_rpm} req/min. Reduce n_vms or per_vm_rpm."
         )
+    daily_quota = SOURCE_DAILY_QUOTA.get(source)
+    if daily_quota is not None and remaining_daily_quota is not None:
+        if minutes_to_reset is None:
+            minutes_to_reset = _minutes_until_utc_midnight(now_utc or datetime.now(UTC))
+        projected = fleet_rpm * minutes_to_reset
+        if projected > remaining_daily_quota:
+            raise FleetBudgetExceededError(
+                f"fleet budget for {source!r} over-subscribed (daily): {n_vms} VMs x {per_vm_rpm} req/min "
+                f"= {fleet_rpm} req/min projected over {minutes_to_reset:.1f} min to 00:00 UTC reset "
+                f"= {projected:.0f} req > remaining daily quota {remaining_daily_quota} "
+                f"(of {daily_quota}/day). Reduce n_vms or per_vm_rpm, or wait for the reset."
+            )
 
 
 class FleetBudgetExceededError(RuntimeError):
-    """A launch would push a source's aggregate req/min over its fleet ceiling."""
+    """A launch would push a source's aggregate req/min over its fleet ceiling.
+
+    Raised on EITHER axis: the per-minute cap or the projected per-day quota.
+    """
 
 
 # ──────────────────────────────────────────────────────────────────────────
