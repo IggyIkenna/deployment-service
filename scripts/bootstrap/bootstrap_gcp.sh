@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Idempotent GCP bootstrap — enables APIs, creates Terraform state bucket, applies shared infra.
 #
 # Usage:

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Provision env-tiered AWS S3 buckets for all three deployment environments.
 #
 # Scope: bucket_name_ssot_canonicalisation Phase 0c (AWS leg) + aws_migration_defi_first Phase 2.

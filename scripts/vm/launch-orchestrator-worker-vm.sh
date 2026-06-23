@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # launch-orchestrator-worker-vm.sh — launch a LONG-RUNNING agent-orchestrator
 # worker VM from a bare Ubuntu 24.04 AMI, fully automated (2026-06-12).
 #

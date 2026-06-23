@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # ============================================================================
 # migrate-flat-to-env-tiered.sh — Phase 2.6 Step 2.6.2
 #

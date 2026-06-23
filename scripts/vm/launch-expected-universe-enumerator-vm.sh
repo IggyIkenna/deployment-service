@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that runs the per-asset-group expected-universe
 # enumerator (`instruments-service/scripts/enumerate_expected_universe.py`)
 # for a given asset_group, in same-region (asia-northeast1-c) so the manifest

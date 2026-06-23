@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a long-lived GCE VM that runs the sports fixture-aware trigger
 # scheduler as a daemon (polling loop).
 #

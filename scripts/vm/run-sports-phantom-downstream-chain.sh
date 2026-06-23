@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Sequential downstream entity backfill chain for sports phantom recovery.
 #
 # After the FIXTURES backfill VM (af-backfill-{ts}) auto-shuts on completion,

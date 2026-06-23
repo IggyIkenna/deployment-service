@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Epic: tradfi_master
 # Lifecycle: permanent
+# Delete-when: NA
 """Autonomous TradFi OHLCV backfill wave-launcher.
 
 Drives the TradFi OHLCV backfill to 100% capture by reading the availability

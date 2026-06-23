@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 equivalent of launch-mdps-backfill-vm.sh.
 # Launches MDPS (candle re-aggregation) backfill on EC2 (ap-northeast-1).
 #

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs the daily QG snapshot (B-018 Phase 4.A).
 #
 # Boots an e2-small VM in asia-northeast1-c, clones the workspace repos that

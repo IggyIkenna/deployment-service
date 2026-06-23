@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # canary-deploy.sh — Cloud Run canary deployment with traffic splitting and auto-rollback.
 #
 # Implements safe canary rollout:

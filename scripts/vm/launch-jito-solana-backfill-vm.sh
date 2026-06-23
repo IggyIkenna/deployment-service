@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a short-lived GCE VM that backfills JITO-SOLANA LST rates (jitoSOL APY)
 # via the unified MTDS collect-lst-rates CLI.
 #

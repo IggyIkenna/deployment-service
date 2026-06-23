@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch the CENTRAL / PLANNING ("ikenna-brain") VM on AWS EC2 — canonical from-scratch
 # relaunch of the one always-on orchestrator box.
 #

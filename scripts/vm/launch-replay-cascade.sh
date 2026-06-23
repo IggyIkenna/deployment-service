@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch the SINGLETON replay-cascade VM that bridges historical batch sources
 # → Redis Streams the live pipeline consumes, providing smooth handoff to live
 # producers on mid-day restart.

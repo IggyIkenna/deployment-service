@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Periodic serial console capture for LONG_LIVED_LIVE and SCHEDULED_RECURRING VMs.
 
 Runs on a schedule (every 6 hours) to capture the GCE serial console before

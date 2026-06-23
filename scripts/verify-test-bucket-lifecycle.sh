@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Force bash execution (mapfile is bash-only). The shebang above ensures bash
 # even if invoked via `sh script.sh`.
 # Verify that every `-test-` GCS bucket has the 7-day delete lifecycle policy

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """External liveness watchdog for backfill VMs.
 
 Polls every backfill-class VM and kills any that match a zombie signature:

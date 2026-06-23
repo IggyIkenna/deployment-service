@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Replicate GCP Secret Manager secrets to AWS Secrets Manager.
 #
 # Plan: api_keys_wallets_accounts_readiness_2026_05_10.md Phase 1.E.

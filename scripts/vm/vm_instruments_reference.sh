@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Instruments Service — VM Sports Reference Data Backfill
 #
 # Runs instruments-service --operation instruments --mode batch --asset-group SPORTS

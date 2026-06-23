@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Refresh the tarball bundle for ONE asset_group's pipeline.
 #
 # Phase 1 of plans/active/deploy_missing_auto_launch_2026_05_07.md.

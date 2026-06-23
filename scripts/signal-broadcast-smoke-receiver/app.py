@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Minimal signal-broadcast smoke receiver.
 
 Accepts POSTs at `/cp/{cp_id}` and logs the signed payload so the live-staging

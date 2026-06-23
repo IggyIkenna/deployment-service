@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Sharded legacy→canonical tick-bucket migration launcher.
 #
 # Plan: unified-trading-pm/plans/active/bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md (Phase 5).

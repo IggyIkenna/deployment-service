@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 """Phase 5A — AWS object migration: sync objects from current bucket names to symmetric target names.
 
 Reads plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20.csv (Phase 1 audit output),

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM for the orchestrator planning VM.
 #
 # The planning VM hosts 2 interactive agent slots (Ikenna + Harsh) plus nightly

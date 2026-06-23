@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``restart_container`` — Cloud Run revision restart OR Docker restart.
 
 Runbook: RB-INFRA-001.

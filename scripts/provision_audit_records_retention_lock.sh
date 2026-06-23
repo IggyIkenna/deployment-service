@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Provision audit-records buckets with immutable Object Retention Lock.
 #
 # PB-2 (audit_records_pb_1_2_3_pre_cutover_2026_05_13.md Phase 3)

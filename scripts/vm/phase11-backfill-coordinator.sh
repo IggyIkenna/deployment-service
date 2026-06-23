@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Phase 11 — Post-migration backfill coordinator
 #
 # Sequences per-asset-group backfill VM launchers in dependency order:

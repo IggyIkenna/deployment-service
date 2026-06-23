@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """
 Verify league classification configuration against the reference document.
 

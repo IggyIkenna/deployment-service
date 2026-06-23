@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """
 VM-side deployment heartbeat + lifecycle event helper.
 
@@ -47,6 +50,10 @@ from unified_trading_library import (
 # deployment-service is installed in the VM's tarball venv — importing here
 # gives us the registry + GCS adapter for free.
 from deployment_service.bom import resolve_deployment_bom
+from deployment_service.deployment_classification import (
+    UnclassifiedDeploymentError,
+    umbrella_for_vm_name,
+)
 from deployment_service.deployments_registry import (
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
@@ -54,6 +61,37 @@ from deployment_service.deployments_registry import (
 )
 
 logger = logging.getLogger("deployment_heartbeat")
+
+
+def _resolve_umbrella(vm_name: str) -> str:
+    """Resolve a VM name's deployment umbrella (LIVE/BATCH/PAPER/EXPERIMENT) string.
+
+    Reads ``vm_zombie_watchdog.VM_PREFIX_TO_BUCKET`` (co-located in scripts/vm/) and
+    dispatches through the classification SSOT ``umbrella_for_vm_name`` so the
+    DEPLOYMENT_* event carries the umbrella the alerting-service router splits on
+    (LIVE → #uts-live-alerts, BATCH → #data-pipeline-alerts). Returns "" when the
+    prefix is unregistered (the alert still routes to the batch default — never a crash
+    on the heartbeat path; the unregistered-prefix gap is caught by the watchdog guard
+    test, not by silently dropping the lifecycle event).
+    """
+    # Local imports: this resolver is only on the heartbeat path, and the
+    # vm_zombie_watchdog script is VM-side / not import-safe at module load.
+    import importlib
+    import importlib.util
+    from typing import cast
+
+    from unified_api_contracts import VmPrefixSpec
+
+    if importlib.util.find_spec("vm_zombie_watchdog") is None:
+        logger.warning("vm_zombie_watchdog not on path; DEPLOYMENT_* event will carry no umbrella")
+        return ""
+    watchdog = importlib.import_module("vm_zombie_watchdog")
+    registry = cast("dict[str, VmPrefixSpec | None]", watchdog.VM_PREFIX_TO_BUCKET)
+    try:
+        return umbrella_for_vm_name(vm_name, registry).value
+    except UnclassifiedDeploymentError as _exc:
+        logger.warning("umbrella unresolved for vm_name=%s: %s", vm_name, _exc)
+        return ""
 
 
 def _utcnow_iso() -> str:
@@ -99,6 +137,10 @@ def _emit(
         "deployment_id": entry.deployment_id,
         "vm_name": entry.vm_name,
         "asset_group": entry.asset_group,
+        # umbrella + cloud drive the alerting-service router channel split (LIVE →
+        # #uts-live-alerts, BATCH → #data-pipeline-alerts). umbrella="" → batch default.
+        "umbrella": _resolve_umbrella(entry.vm_name),
+        "cloud": "GCP",
         "task": entry.task,
         "mode": entry.mode,
         "start_date": entry.start_date,

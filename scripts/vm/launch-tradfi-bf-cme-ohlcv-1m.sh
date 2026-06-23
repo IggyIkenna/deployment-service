@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch CME OHLCV-1m backfill VMs (one per (root, year-shard)).
 #
 # Roots per OHLCV-only MVP plan (tradfi_ohlcv_only_mvp_backfill_2026_05_15.md

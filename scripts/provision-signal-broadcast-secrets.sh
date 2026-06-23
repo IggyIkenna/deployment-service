@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # provision-signal-broadcast-secrets.sh — Provision per-counterparty HMAC
 # signing secrets for the signal-leasing broadcast channel (Plan B Phase 4).

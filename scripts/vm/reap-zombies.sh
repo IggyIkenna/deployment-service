@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Reap zombie VMs — instances whose run.log has a terminal rc=NNN line but
 # whose GCE instance is still RUNNING (or whose run.log has gone silent for
 # longer than a heartbeat window).

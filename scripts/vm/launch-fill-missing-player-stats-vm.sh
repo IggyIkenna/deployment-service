@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that runs ``instruments-service/scripts/fill_missing_player_stats.py``
 # in asia-northeast1-c (close to api_football, close to GCS sports buckets).
 #

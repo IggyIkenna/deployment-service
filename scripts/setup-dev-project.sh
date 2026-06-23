@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # setup-dev-project.sh — Create or validate a GCP dev project for Unified Trading System
 #

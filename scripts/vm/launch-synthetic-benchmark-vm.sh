@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch GCE VM(s) that run the synthetic-data pipeline benchmark for a cutover archetype.
 #
 # Phase 5.A of `unified-trading-pm/plans/active/mock_data_pipeline_benchmarking_2026_05_10.md`.

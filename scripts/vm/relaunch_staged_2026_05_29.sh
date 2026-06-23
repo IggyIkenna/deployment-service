@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Relaunch-staging artifact — codified 2026-05-29
 #
 # This script began life as a /tmp/ Phase A kill list on 2026-05-27 (operator-

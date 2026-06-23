@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # MDPS sports bucket-pass VM launcher (Pass K of sports_predictions_e2e_2026_05_05).
 #
 # Runs reprocess_sports_odds.py over a date slice on a same-region GCE VM,

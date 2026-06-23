@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Repo-specific settings only. Body: unified-trading-pm/scripts/quality-gates-base/base-service.sh
 # SSOT: unified-trading-pm/codex/06-coding-standards/quality-gates-service-template.sh
 #

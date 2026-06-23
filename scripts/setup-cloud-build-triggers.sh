@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Phase 4: Artifact Registry Triggers – CLI setup
 # Creates Cloud Build triggers for all libraries and services via gcloud.
 # Run from deployment-service or workspace root.

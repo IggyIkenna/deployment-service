@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # AWS EC2 equivalent of launch-mtds-backfill-vm.sh.
 # Launches MTDS category backfill on EC2 (ap-northeast-1) using lib/aws_ec2_launch_lib.sh.
 #

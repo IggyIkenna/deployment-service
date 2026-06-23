@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM to run the DeFi recursive-borrow live trading strategy for
 # one variant (Family 1 lending-only OR Family 2 perp-hedged).
 #

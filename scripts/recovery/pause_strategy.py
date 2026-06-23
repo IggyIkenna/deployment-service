@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``pause_strategy`` — strategy-service pause endpoint.
 
 Idempotent: pausing an already-paused strategy is a safe no-op.

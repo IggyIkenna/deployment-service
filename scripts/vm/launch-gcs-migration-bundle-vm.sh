@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: oneoff
+# Delete-when: after prod-run verified + GCS orphan-sweep=0
 # Launch a GCE VM running gcs_migration_bundle_2026_05_08.py --apply for one
 # year-slice of one asset_group bucket. One VM per (asset_group, year) —
 # no two VMs ever touch the same parquet (prefix-slice isolation).

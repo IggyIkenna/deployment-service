@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch a GCE VM that backfills Understat xG / shot data. Six leagues only
 # (EPL, La Liga, Bundesliga, Serie A, Ligue 1, RFPL); see codex §2.6.
 #

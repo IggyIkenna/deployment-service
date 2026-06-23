@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 #
 # Run uv lock in all Python repos.
 # Use for initial setup or when you want to refresh all lock files at once.

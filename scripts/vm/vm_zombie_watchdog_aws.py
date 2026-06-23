@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """AWS EC2 liveness watchdog — AWS twin of vm_zombie_watchdog.py.
 
 Polls every backfill-class EC2 instance in ap-northeast-1 and terminates any

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 # Launch the SINGLETON features-cross-cutting VM that subscribes to every
 # asset_group's `streaming.{ag}.features_computed` Redis Stream + emits
 # cross-instrument features (e.g. `cross_instrument.lst_yield_vs_eth_spot` for

@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Deploy a Solidity contract (FlashLoanReceiver / RecursiveLeverageReceiver) to a target chain.
 
 Compiles the Solidity source with py-solc-x and deploys via Web3.

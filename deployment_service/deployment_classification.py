@@ -21,6 +21,8 @@ Phase 0.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from unified_api_contracts import (
     UMBRELLA_FOR_LIFECYCLE_CLASS,
     DeploymentCloud,
@@ -166,3 +168,52 @@ def classify_deployment_target(
         asset_group=resolved_ag,
         lifecycle_class=(lifecycle_class if lifecycle_class is not None else umbrella.value),
     )
+
+
+def umbrella_for_vm_name(
+    vm_name: str,
+    prefix_registry: Mapping[str, object | None],
+) -> DeploymentUmbrella:
+    """Resolve a VM name's deployment umbrella via longest-prefix-match on the registry.
+
+    The single resolver the deployment **emitters** (the VM-side
+    ``deployment_heartbeat`` DEPLOYMENT_* events + the exit-code fleet monitor's
+    DP_VM_* findings) call to STAMP the umbrella on each alert payload, so the
+    alerting-service router can split LIVE → ``#uts-live-alerts`` vs BATCH →
+    ``#data-pipeline-alerts`` (operator 2026-06-23 routing contract).
+
+    Resolution: longest-prefix-match `vm_name` against ``prefix_registry`` (typically
+    ``vm_zombie_watchdog.VM_PREFIX_TO_BUCKET``), then dispatch through
+    ``classify_deployment_target`` so the PAPER override + the lifecycle→umbrella map
+    are applied identically to every other surface (no re-derivation). The spec's own
+    ``umbrella`` override (paper prefixes) wins when present.
+
+    Raises ``UnclassifiedDeploymentError`` when no prefix matches OR the matched spec's
+    lifecycle_class is unknown — never a silent default (the same "register the prefix"
+    guard every other classification surface enforces).
+    """
+    if not vm_name:
+        raise UnclassifiedDeploymentError(vm_name, reason="empty vm_name")
+    best_match: str | None = None
+    for prefix in prefix_registry:
+        if vm_name.startswith(prefix) and (best_match is None or len(prefix) > len(best_match)):
+            best_match = prefix
+    if best_match is None:
+        raise UnclassifiedDeploymentError(
+            vm_name, reason="no registered prefix; add a VmPrefixSpec to VM_PREFIX_TO_BUCKET"
+        )
+    spec = prefix_registry[best_match]
+    if spec is None:
+        raise UnclassifiedDeploymentError(vm_name, reason=f"prefix {best_match!r} maps to None (no spec)")
+    # An explicit per-spec umbrella override (the paper prefixes) wins outright.
+    spec_umbrella: object = getattr(spec, "umbrella", None)
+    if isinstance(spec_umbrella, DeploymentUmbrella):
+        return spec_umbrella
+    lifecycle: object = getattr(spec, "lifecycle_class", None)
+    lifecycle_str: str | None = None
+    if isinstance(lifecycle, str):
+        # LifecycleClass is a StrEnum → str(value) is the canonical key.
+        lifecycle_str = str(lifecycle)
+    elif lifecycle is not None:
+        lifecycle_str = str(lifecycle)
+    return classify_deployment_target(vm_name, lifecycle_class=lifecycle_str).umbrella

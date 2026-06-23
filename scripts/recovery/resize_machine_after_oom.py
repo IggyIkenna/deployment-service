@@ -1,3 +1,6 @@
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Layer-0 ``resize_machine_after_oom`` — GCE instance machine-type resize.
 
 Runbook: RB-INFRA-001.
