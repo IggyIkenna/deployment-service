@@ -50,7 +50,6 @@ from unified_trading_library import (  # noqa: qg-deep-import
     UnifiedCloudConfig,
     get_secret_client,
     get_storage_client,
-    run_lifecycle,
 )
 
 from deployment_service.data_pipeline_monitors import meta_watchers
@@ -340,7 +339,16 @@ def main(argv: list[str] | None = None) -> int:
     dry_run: bool = bool(cast("object", args.dry_run))
     threshold_sec: float = float(cast("str | float", args.threshold_sec))
 
-    with run_lifecycle(service_name="monitoring-deadman"):
+    # The deadman is the out-of-band, top-of-chain watcher: it MUST NOT use
+    # log_event / run_lifecycle (those route through the very PubSub + alerting
+    # path whose health it monitors — see module docstring). Its own liveness is
+    # covered by the GCP-native execution-absence alert policy, so it emits NO
+    # lifecycle events. A poster-side failure must never crash the cron: it logs
+    # loudly and exits 0 (the GCP-native execution-absence policy is the bedrock
+    # above it). NOTE: an earlier `with run_lifecycle("monitoring-deadman")` here
+    # crashed every run — run_lifecycle calls log_event without setup_events, and
+    # using log_event at all violates this path's out-of-band contract.
+    try:
         project_id = _project_id()
         storage_client = get_storage_client()
 
@@ -359,6 +367,11 @@ def main(argv: list[str] | None = None) -> int:
             project_id=project_id,
             threshold_sec=threshold_sec,
             dry_run=dry_run,
+        )
+    except Exception:
+        logger.exception(
+            "deadman: poster-side failure (non-fatal — exits 0; GCP-native "
+            "execution-absence policy is the bedrock above this watcher)"
         )
 
     return 0
