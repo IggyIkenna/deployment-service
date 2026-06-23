@@ -57,6 +57,16 @@ MONITOR_CRON_CADENCE_MIN: dict[str, float] = {
     "meta": 15.0,  # */15
 }
 
+# monitor mode → Cloud Run **Job** name STEM (env-prefix-agnostic; the real job
+# carries a ``${env_prefix}-`` prefix). The execution-history cross-check (KEY #4)
+# queries this job's last SUCCEEDED execution to suppress a false stale-sentinel
+# DP_CRON_DID_NOT_FIRE. SSOT for the stems: cloud_run_job_registry.CLOUD_RUN_JOBS.
+MONITOR_CRON_CLOUD_RUN_JOB: dict[str, str] = {
+    "exit-code": "dp-exit-code-monitor",
+    "heartbeat": "dp-heartbeat-watcher",
+    "meta": "dp-meta-watchers",
+}
+
 
 @dataclass(frozen=True)
 class FreshnessTarget:
@@ -72,6 +82,17 @@ class FreshnessTarget:
     # the stale-artifact alert (paused-by-design during the manual-backfill
     # campaign — KEY #2). "" → no pause check (always alert on stale, as before).
     scheduler_job: str = ""
+    # Cloud Run **Job** name backing this cron (e.g. ``dp-exit-code-monitor``).
+    # When set + the injected ``execution_history_reader`` reports the job's last
+    # SUCCESSFUL execution within the budget, ``check_cron_fired`` SUPPRESSES the
+    # stale-SENTINEL alert — the job DID fire (its run.log sentinel write is a
+    # lagging/secondary signal that can silently miss while the execution itself
+    # Completes), so a stale sentinel + a recent successful execution is a
+    # FALSE-POSITIVE, not a dead cron (KEY #4, operator 2026-06-23:
+    # dp-exit-code-monitor false-fired DP_CRON_DID_NOT_FIRE while its executions
+    # Completed every 5 min). "" → no execution-history cross-check (sentinel is the
+    # sole signal, the prior behaviour).
+    cloud_run_job: str = ""
 
 
 # A scheduler-state reader: ``job_name -> "ENABLED" | "PAUSED" | "DISABLED" | None``.
@@ -80,6 +101,16 @@ class FreshnessTarget:
 # worth an alert, never a silent skip). Injected so the watcher stays pure +
 # credential-free; the cli wires the real Cloud Scheduler query.
 SchedulerStateReader = Callable[[str], str | None]
+
+# A Cloud Run **Job** last-success-age reader: ``job_name -> minutes since the
+# job's most recent SUCCEEDED execution`` (``None`` ⇒ no successful execution found
+# / job not found / API error → the caller does NOT suppress, fail toward
+# alerting). Lets ``check_cron_fired`` cross-check the REAL execution history
+# (``gcloud run jobs executions list``) against a stale SENTINEL: a job firing on
+# schedule but whose run.log sentinel write lagged/missed is a false positive, so a
+# recent successful execution suppresses the stale-sentinel alert (KEY #4). Injected
+# so the watcher stays pure + credential-free; the cli wires the real query.
+ExecutionHistoryReader = Callable[[str], float | None]
 
 
 @dataclass(frozen=True)
@@ -220,6 +251,9 @@ def monitor_cron_targets(log_bucket: str) -> list[FreshnessTarget]:
                 blob_path=_gcs.MONITOR_LAST_RUN_BLOB.format(mode=mode),
                 max_age_min=2.0 * cadence_min,
                 label=f"dp-{mode}-monitor",
+                # KEY #4 cross-check: a stale sentinel is suppressed when this Cloud
+                # Run job's real execution history shows a recent SUCCEEDED run.
+                cloud_run_job=MONITOR_CRON_CLOUD_RUN_JOB.get(mode, ""),
             )
         )
     return targets
@@ -230,6 +264,7 @@ def check_monitor_crons_fired(
     storage_client: StorageClient,
     log_bucket: str,
     scheduler_state_reader: SchedulerStateReader | None = None,
+    execution_history_reader: ExecutionHistoryReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[FreshnessResult]:
@@ -250,6 +285,7 @@ def check_monitor_crons_fired(
         storage_client=storage_client,
         targets=monitor_cron_targets(log_bucket),
         scheduler_state_reader=scheduler_state_reader,
+        execution_history_reader=execution_history_reader,
         pm_repo_path=pm_repo_path,
         dry_run=dry_run,
     )
@@ -260,6 +296,7 @@ def check_cron_fired(
     storage_client: StorageClient,
     targets: Iterable[FreshnessTarget],
     scheduler_state_reader: SchedulerStateReader | None = None,
+    execution_history_reader: ExecutionHistoryReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[FreshnessResult]:
@@ -277,6 +314,19 @@ def check_cron_fired(
     state — fail toward alerting) STILL fires the CRITICAL alert. No
     ``scheduler_job`` / no reader ⇒ no pause check (always alert on stale, the
     prior behaviour).
+
+    **EXECUTION-HISTORY CROSS-CHECK (KEY #4, operator 2026-06-23).** The SENTINEL
+    artifact is a SECONDARY signal — a Cloud Run **Job** can fire on schedule + its
+    execution ``Completes`` while its run.log sentinel write lags or silently misses
+    (the ``dp-exit-code-monitor`` false-positive: executions Completed every 5 min
+    yet DP_CRON_DID_NOT_FIRE fired CRITICAL on the stale sentinel). So when a target
+    names a ``cloud_run_job`` AND the injected ``execution_history_reader`` reports
+    the job's last SUCCESSFUL execution within the freshness budget, the
+    stale-sentinel alert is SUPPRESSED — the cron DID fire. The execution history is
+    the AUTHORITATIVE signal; the sentinel only catches a job that genuinely stopped
+    executing. A ``None`` last-success age (no successful execution / job absent /
+    API error) does NOT suppress (fail toward alerting). No ``cloud_run_job`` / no
+    reader ⇒ no cross-check (sentinel is the sole signal, the prior behaviour).
     """
     results: list[FreshnessResult] = []
     for target in targets:
@@ -295,6 +345,23 @@ def check_cron_fired(
                     "'%s' is PAUSED (paused-by-design during the manual-backfill campaign)",
                     target.label,
                     target.scheduler_job,
+                )
+                continue
+        # Execution-history cross-check (KEY #4): the AUTHORITATIVE signal is the
+        # Cloud Run Job's real execution history, NOT the lagging sentinel. A recent
+        # SUCCEEDED execution within budget ⇒ the cron fired ⇒ suppress the false
+        # stale-sentinel alert. None (no success / job absent / API error) → alert.
+        if target.cloud_run_job and execution_history_reader is not None:
+            last_success_age = execution_history_reader(target.cloud_run_job)
+            if last_success_age is not None and last_success_age <= target.max_age_min:
+                logger.info(
+                    "meta_watchers: DP_CRON_DID_NOT_FIRE suppressed for '%s' — Cloud Run job "
+                    "'%s' last SUCCEEDED execution %.0fm ago (<= budget %.0fm); the sentinel is "
+                    "stale but the job IS firing (false positive)",
+                    target.label,
+                    target.cloud_run_job,
+                    last_success_age,
+                    target.max_age_min,
                 )
                 continue
         if result.stale:

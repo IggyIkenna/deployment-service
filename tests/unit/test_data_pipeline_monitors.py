@@ -298,6 +298,139 @@ def test_stall_finding_carries_relaunch_launcher(monkeypatch):
     assert stall_details[0]["relaunch_launcher"] == "launch-tradfi-bf-cme.sh"
 
 
+def _stall_result(vm: str, *, hb_age: float | None, run_log_age: float | None = None):
+    return heartbeat_stall_watcher.LivenessResult(
+        vm_name=vm,
+        verdict=heartbeat_stall_watcher.LivenessVerdict.STALL,
+        heartbeat_age_min=hb_age,
+        captured_flat=False,
+        run_log_age_min=run_log_age,
+    )
+
+
+def test_should_auto_kill_backfill_stale_past_threshold():
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=50.0)
+    assert heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="batch", kill_minutes=45.0)
+
+
+def test_should_auto_kill_false_when_stall_fresh():
+    # Stalled but only 20m — under the 45m kill bound → alert/relaunch window, no kill.
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=20.0)
+    assert not heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="batch", kill_minutes=45.0)
+
+
+def test_should_auto_kill_false_for_live_vm():
+    # A LONG_LIVED_LIVE producer is NEVER reaped, even past the threshold.
+    res = _stall_result("mtds-live-defi-2026", hb_age=999.0)
+    assert not heartbeat_stall_watcher.should_auto_kill(res, is_backfill=False, umbrella="live", kill_minutes=45.0)
+    # defence-in-depth: even if the backfill heuristic mis-fires, umbrella=live blocks the kill
+    assert not heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="live", kill_minutes=45.0)
+
+
+def test_should_auto_kill_false_when_not_stall():
+    alive = heartbeat_stall_watcher.LivenessResult(
+        vm_name="tradfi-bf-cme-2026",
+        verdict=heartbeat_stall_watcher.LivenessVerdict.ALIVE,
+        heartbeat_age_min=2.0,
+        captured_flat=False,
+    )
+    assert not heartbeat_stall_watcher.should_auto_kill(alive, is_backfill=True, umbrella="batch")
+
+
+def test_sweep_auto_kills_stalled_backfill_vm(monkeypatch):
+    """A stalled backfill VM past kill_minutes is DELETED so the wave-launcher reclaims its slot."""
+    vm = "tradfi-bf-cme-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    killed: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.heartbeat_stall_watcher.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False})
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+
+    def _killer(name: str, zone: str) -> bool:
+        killed.append((name, zone))
+        return True
+
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        umbrella_for_vm=lambda _vm: "batch",
+        vm_killer=_killer,
+        stall_minutes=15,
+        kill_minutes=45.0,
+    )
+    assert killed == [(vm, "asia-northeast1-c")], "stalled backfill VM past kill_minutes should be auto-killed"
+
+
+def test_sweep_does_not_kill_live_vm(monkeypatch):
+    """A LONG_LIVED_LIVE producer is never auto-killed even when its heartbeat is stale."""
+    vm = "mtds-live-defi-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=300.0), None)})
+    killed: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False})
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "defi",
+        umbrella_for_vm=lambda _vm: "live",
+        vm_killer=lambda name, _z: killed.append(name) or True,
+        stall_minutes=15,
+        kill_minutes=45.0,
+    )
+    assert killed == [], "a live producer must never be auto-killed"
+
+
+def test_sweep_kill_cap_blocks_runaway(monkeypatch):
+    """Per-sweep kill cap prevents a runaway from reaping the whole fleet."""
+    vms = [(f"tradfi-bf-cme-{i}", "asia-northeast1-c") for i in range(4)]
+    storage = FakeStorage(
+        {(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None) for vm, _ in vms}
+    )
+    killed: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.heartbeat_stall_watcher.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False})
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=vms,
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        umbrella_for_vm=lambda _vm: "batch",
+        vm_killer=lambda name, _z: killed.append(name) or True,
+        stall_minutes=15,
+        kill_minutes=45.0,
+        kill_cap_per_sweep=2,
+    )
+    assert len(killed) == 2, "kill cap should bound deletions per sweep (runaway-guard)"
+
+
 def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
     """THE BUG2 KEYSTONE regression (operator's 'zero alerts in 1.5h' symptom).
 
@@ -1047,6 +1180,75 @@ def test_cron_unknown_state_fails_safe_on(monkeypatch):
         scheduler_state_reader=lambda _job: None,
     )
     assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+# ── KEY #4: DP_CRON_DID_NOT_FIRE cross-checks the REAL Cloud Run execution history ──
+def _monitor_target() -> meta_watchers.FreshnessTarget:
+    # A stale monitor sentinel (40m > 10m budget) backed by a Cloud Run Job stem.
+    return meta_watchers.FreshnessTarget(
+        bucket="deployment-scripts-prd",
+        blob_path="vm-census/exit-code-last-run.json",
+        max_age_min=10.0,
+        label="dp-exit-code-monitor",
+        cloud_run_job="dp-exit-code-monitor",
+    )
+
+
+def test_cron_stale_sentinel_suppressed_when_execution_recent(monkeypatch):
+    """The dp-exit-code-monitor false positive: stale sentinel + recent SUCCEEDED execution → no alert."""
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    results = meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_monitor_target()],
+        # Job last SUCCEEDED 3m ago — well within the 10m budget → the cron IS firing.
+        execution_history_reader=lambda _job: 3.0,
+    )
+    assert results[0].stale is True  # the sentinel is still stale...
+    assert "DP_CRON_DID_NOT_FIRE" not in emitted  # ...but the REAL execution history suppresses the false alert
+
+
+def test_cron_stale_sentinel_alerts_when_execution_also_stale(monkeypatch):
+    """A genuinely-dead job (no recent SUCCEEDED execution) still alerts."""
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_monitor_target()],
+        execution_history_reader=lambda _job: 90.0,  # last success 90m ago (> 10m budget) — genuinely stopped
+    )
+    assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+def test_cron_stale_sentinel_alerts_when_execution_unknown(monkeypatch):
+    """None last-success (no success / job absent / API error) does NOT suppress (fail-safe-on)."""
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[_monitor_target()],
+        execution_history_reader=lambda _job: None,
+    )
+    assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+def test_monitor_cron_targets_carry_cloud_run_job_stems():
+    targets = {t.label: t for t in meta_watchers.monitor_cron_targets("deployment-scripts-prd")}
+    assert targets["dp-exit-code-monitor"].cloud_run_job == "dp-exit-code-monitor"
+    assert targets["dp-heartbeat-monitor"].cloud_run_job == "dp-heartbeat-watcher"
+    assert targets["dp-meta-monitor"].cloud_run_job == "dp-meta-watchers"
 
 
 # ── KEY #3: DP_CATALOG_NOT_RUNNING env-short read + probed-path alert ─────────
