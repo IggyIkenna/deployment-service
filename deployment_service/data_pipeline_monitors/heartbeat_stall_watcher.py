@@ -99,6 +99,7 @@ class LivenessResult:
     verdict: LivenessVerdict
     heartbeat_age_min: float | None
     captured_flat: bool
+    run_log_age_min: float | None = None
 
 
 def classify_vm_liveness(
@@ -108,6 +109,7 @@ def classify_vm_liveness(
     heartbeat_age_min: float | None,
     captured_flat: bool,
     run_log_age_min: float | None = None,
+    is_backfill: bool = True,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
@@ -139,11 +141,32 @@ def classify_vm_liveness(
     if vm_age_min < grace_minutes:
         verdict = LivenessVerdict.TOO_YOUNG
     elif heartbeat_age_min is None:
-        verdict = LivenessVerdict.EVENT_LOOP_STARVED
+        # No worker PIPELINE_HEARTBEAT marker. Two distinct causes that the marker
+        # alone cannot tell apart: (a) the worker died / never launched (genuine
+        # silence), or (b) the VM runs a PRE-heartbeat-tarball image whose worker
+        # is alive but never emits the marker (the transition window — ~30 of 41
+        # live VMs on 2026-06-22). Disambiguate via the run.log PROGRESS signal:
+        #   - no log at all                         → total silence → EVENT_LOOP_STARVED
+        #   - log frozen past run_log_stall_minutes → genuinely stalled → STALL
+        #   - log still advancing                   → alive (old-tarball) → ALIVE
+        # Without this fallback the watcher false-flags every healthy
+        # pre-heartbeat-tarball VM as starved (29 false alerts) while the run.log
+        # freshness correctly catches the genuinely-frozen ones (the 6.8h-dead
+        # deribit/hyperliquid live VMs). Applied to ALL VMs (incl. live) in this
+        # heartbeat-ABSENT branch — the live-sparse-logging exemption below only
+        # guards the heartbeat-FRESH hung-process check.
+        if run_log_age_min is None:
+            verdict = LivenessVerdict.EVENT_LOOP_STARVED
+        elif run_log_age_min > run_log_stall_minutes:
+            verdict = LivenessVerdict.STALL
+        else:
+            verdict = LivenessVerdict.ALIVE
     elif heartbeat_age_min > stall_minutes:
         verdict = LivenessVerdict.STALL
-    elif run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
+    elif is_backfill and run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
         # Heartbeat fresh but the worker's own log froze → hung-process stall.
+        # Backfill-only: a live-capture WS VM logs sparsely, so a quiet log with a
+        # fresh heartbeat is normal (heartbeat freshness IS its liveness signal).
         verdict = LivenessVerdict.STALL
     elif captured_flat and run_log_age_min is not None and run_log_age_min > stall_minutes:
         # Captured flat AND the log has also stopped advancing past the heartbeat
@@ -156,6 +179,7 @@ def classify_vm_liveness(
         verdict=verdict,
         heartbeat_age_min=heartbeat_age_min,
         captured_flat=captured_flat,
+        run_log_age_min=run_log_age_min,
     )
 
 
@@ -164,22 +188,24 @@ def _finding_for(result: LivenessResult, *, asset_group: str, stall_minutes: flo
         "vm_name": result.vm_name,
         "asset_group": asset_group,
         "heartbeat_age_min": result.heartbeat_age_min,
+        "run_log_age_min": result.run_log_age_min,
         "captured_flat": result.captured_flat,
         "stall_threshold_min": stall_minutes,
     }
     if result.verdict is LivenessVerdict.STALL:
+        if result.heartbeat_age_min is not None:
+            reason = f"heartbeat {result.heartbeat_age_min:.0f}m stale"
+        elif result.run_log_age_min is not None:
+            # heartbeat-absent + frozen run.log → genuinely-hung worker on a
+            # pre-heartbeat-tarball VM (the 6.8h-dead live-capture class).
+            reason = f"no heartbeat + run.log frozen {result.run_log_age_min:.0f}m"
+        else:
+            reason = "captured flat"
         return PipelineFinding(
             event=DP_VM_STALL,
             severity="WARN",
             tier=EscalationTier.AUTO_RECOVER,  # auto-kill+respawn then file issue
-            summary=(
-                f"VM {result.vm_name} stalled — "
-                + (
-                    f"heartbeat {result.heartbeat_age_min:.0f}m stale"
-                    if result.heartbeat_age_min is not None
-                    else "captured flat"
-                )
-            ),
+            summary=f"VM {result.vm_name} stalled — {reason}",
             details=base,
             registry_id="DP-VM-003",
         )
@@ -247,9 +273,13 @@ def sweep(
         # hours while the stream is healthy (captured climbs, heartbeat fresh) — so
         # the run.log-freshness signal would false-flag it. For live VMs the
         # heartbeat-blob freshness (the 60s timer) IS the liveness signal.
-        run_log_age = (
-            _gcs.run_log_age_minutes(storage_client, log_bucket, vm_name) if _is_backfill_vm(vm_name) else None
-        )
+        # Compute run.log freshness for EVERY VM (not just backfill): it is the
+        # fallback liveness signal in the heartbeat-ABSENT branch, so a frozen
+        # live-capture VM running a pre-heartbeat tarball is still caught. The
+        # live-sparse-logging exemption is enforced inside classify (the
+        # ``is_backfill`` gate on the heartbeat-FRESH hung-process check only).
+        is_backfill = _is_backfill_vm(vm_name)
+        run_log_age = _gcs.run_log_age_minutes(storage_client, log_bucket, vm_name)
         try:
             captured_now = captured_reader(vm_name)
         except Exception:
@@ -262,6 +292,7 @@ def sweep(
             heartbeat_age_min=hb_age,
             captured_flat=captured_flat,
             run_log_age_min=run_log_age,
+            is_backfill=is_backfill,
             stall_minutes=stall_minutes,
             run_log_stall_minutes=run_log_stall_minutes,
             grace_minutes=grace_minutes,

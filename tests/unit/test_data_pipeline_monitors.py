@@ -270,8 +270,12 @@ def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
 
     A running data VM with a FRESH generic infra ``vm-heartbeat`` sidecar blob but
     NO PIPELINE_HEARTBEAT worker marker (the data worker died / never launched /
-    its heartbeat timer is broken) MUST alert ``DP_EVENT_LOOP_STARVED`` — the
-    watcher must NOT be fooled into ALIVE by the always-fresh infra sidecar.
+    its heartbeat timer is broken) MUST still ALERT — the watcher must NOT be
+    fooled into ALIVE by the always-fresh infra sidecar. Here the run.log is
+    FROZEN (boot line ~stale, no marker) → the heartbeat-absent fallback (2026-06-23)
+    classifies it ``STALL`` (dead worker, frozen log) rather than
+    ``EVENT_LOOP_STARVED`` (reserved for TOTAL silence — no run.log at all). Both
+    alert to Slack; the keystone property is "still alerts, not fooled".
     """
     vm = "mtds-live-sports-odds-api-trades-2026"
     fresh_epoch = int(datetime.now(UTC).timestamp()) - 30  # infra sidecar wrote 30s ago
@@ -279,8 +283,10 @@ def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
         {
             # Fresh INFRA sidecar — the old, wrong liveness signal.
             (LOG_BUCKET, _heartbeat_blob(vm)): (f"{fresh_epoch}\n-1\nstarting".encode(), None),
-            # run.log exists but carries NO PIPELINE_HEARTBEAT worker marker.
-            (LOG_BUCKET, _run_log_blob(vm)): (b"2026-06-22T00:00:00 INFO boot\n", None),
+            # run.log exists but carries NO PIPELINE_HEARTBEAT worker marker, and
+            # its last embedded timestamp is FROZEN well past the run-log stall
+            # bound (a stale 2020 boot line) → heartbeat-absent + frozen-log = STALL.
+            (LOG_BUCKET, _run_log_blob(vm)): (b"2020-01-01T00:00:00 INFO boot\n", None),
         }
     )
     emitted: list[tuple[str, str]] = []
@@ -297,8 +303,43 @@ def test_silent_vm_with_fresh_infra_sidecar_still_alerts(monkeypatch):
         asset_group_for_vm=lambda _vm: "sports",
         stall_minutes=15,
     )
-    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.EVENT_LOOP_STARVED
-    assert any(e[0] == "DP_EVENT_LOOP_STARVED" and e[1] == "WARN" for e in emitted)
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+    assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
+
+
+def test_no_marker_but_fresh_run_log_reads_alive(monkeypatch):
+    """Transition-safety fallback (2026-06-23): a healthy PRE-heartbeat-tarball VM.
+
+    ~30 of 41 live VMs predate the PIPELINE_HEARTBEAT tarball and emit NO worker
+    marker though their worker is alive and writing. Keying solely on the marker
+    flagged all of them EVENT_LOOP_STARVED (29 false alerts). With the run.log
+    PROGRESS fallback, a missing marker + a FRESH/advancing run.log reads ALIVE —
+    no false alert — while a frozen log still STALLs (see the keystone test above).
+    """
+    vm = "mtds-live-cefi-deribit-trades-2026"
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    storage = FakeStorage(
+        {
+            # No PIPELINE_HEARTBEAT marker, but the run.log advanced seconds ago.
+            (LOG_BUCKET, _run_log_blob(vm)): (f"{fresh_ts} INFO captured shard\n".encode(), None),
+        }
+    )
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "cefi",
+        stall_minutes=15,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert emitted == []  # no false alert for a healthy old-tarball VM
 
 
 def test_healthy_vm_with_fresh_pipeline_marker_reads_alive(monkeypatch):
