@@ -73,6 +73,34 @@ FORCE="${FORCE:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+
+# Registry-driven machine-sizing (operator 2026-06-23): a memory-heavy venue
+# launches correctly-sized on the FIRST try, NOT via repeated OOM-escalation.
+# The per-venue floor lives in deployment_service launch_budget_registry
+# (VENUE_TASK_MEMORY_TIER) — e.g. Coinbase cefi → highmem-128gb (256 for the
+# heaviest ranges). registry_machine_floor <venue> echoes the registry's GCE
+# machine-type for cefi-backfill:<venue>, or empty if unavailable.
+_REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+_PY="${_REPO_ROOT}/.venv/bin/python"
+[[ -x "$_PY" ]] || _PY="python3"
+registry_machine_floor() {
+  local venue_lc
+  venue_lc="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  PYTHONPATH="${_REPO_ROOT}" "$_PY" - "$venue_lc" <<'PYEOF' 2>/dev/null || true
+import sys
+from deployment_service.data_pipeline_monitors.launch_budget_registry import machine_type_for
+print(machine_type_for(task="cefi-backfill", venue=sys.argv[1]))
+PYEOF
+}
+# machine_ram_gb <machine-type> echoes the RAM (GiB) for a GCE machine type,
+# ladder OR off-ladder (e.g. e2-highmem-16=128); 0 if unknown.
+machine_ram_gb() {
+  PYTHONPATH="${_REPO_ROOT}" "$_PY" - "$1" <<'PYEOF' 2>/dev/null || echo 0
+import sys
+from deployment_service.data_pipeline_monitors.launch_budget_registry import gce_machine_ram_gb
+print(gce_machine_ram_gb(sys.argv[1]))
+PYEOF
+}
 # TARDIS_KEY_CHECK: set to 0 to skip the key-validity probe (e.g. if Secret Manager
 # is inaccessible). Default 1 — always probe so an expired key aborts early.
 TARDIS_KEY_CHECK="${TARDIS_KEY_CHECK:-1}"
@@ -306,6 +334,25 @@ launch_cefi_shard() {
     machine="${MACHINE_TYPE_HEAVY:-e2-highmem-16}"
   else
     machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
+  fi
+  # Registry-driven floor (operator 2026-06-23): if launch_budget_registry has a
+  # per-venue tier LARGER than the group default (e.g. a venue registered at
+  # highmem-256gb), start there — correctly-sized on the FIRST try, not via
+  # repeated OOM-escalation. An explicit MACHINE_TYPE_HEAVY/_LIGHT override still
+  # wins (operator intent), so only raise when no override was given.
+  if { [[ "$group" == "heavy" && -z "${MACHINE_TYPE_HEAVY:-}" ]]; } ||
+     { [[ "$group" != "heavy" && -z "${MACHINE_TYPE_LIGHT:-}" ]]; }; then
+    local registry_machine
+    registry_machine="$(registry_machine_floor "$venue")"
+    if [[ -n "$registry_machine" && "$registry_machine" != "$machine" ]]; then
+      local cur_ram reg_ram
+      cur_ram="$(machine_ram_gb "$machine")"
+      reg_ram="$(machine_ram_gb "$registry_machine")"
+      if [[ "$reg_ram" -gt "$cur_ram" ]]; then
+        echo "  [machine-sizing] $venue: registry floor ${registry_machine} (${reg_ram}GB) > default ${machine} (${cur_ram}GB) → using ${registry_machine}"
+        machine="$registry_machine"
+      fi
+    fi
   fi
 
   # ONLY="venue1:year1:group1 venue2:year2:group2 ..." filters to specific
