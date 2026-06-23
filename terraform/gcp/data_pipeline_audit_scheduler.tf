@@ -27,39 +27,37 @@
 # it so each job covers the whole fleet in one run).
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# ⚠️ IMAGE GAP — these scripts are NOT in any existing container image yet.
+# ✅ IMAGE GAP CLOSED (2026-06-22) — dedicated `e2e-audit:latest` runner image.
 #
 #   The e2e audit scripts live in `e2e-testing/scripts/audit/*.py` (plain python
 #   files invoked by PATH, alongside their `_dp_common.py` shared module). They
-#   are deployed to VMs today via the GCS code-tarball (`create-code-tarballs.sh`
-#   bundles `e2e-testing` in CORE_REPOS) — NOT as a Cloud Run image. `e2e-testing`
-#   has no Dockerfile, and the MTDS image's `COPY . .` copies ONLY the MTDS repo,
-#   so the cf-audit's `market-tick-data-service:latest` image does NOT contain
-#   `/app/e2e-testing/...`.
+#   import UTL (`StorageClient`/`log_event`/`DP_*` events) + UAC + pandas — all
+#   present in the unified-trading-library base image.
 #
-#   So `var.dp_audit_image` below DEFAULTS to the MTDS image (UTL+UAC bundled, the
-#   `resolve_bucket_name`/`StorageClient`/`log_event` deps these scripts import are
-#   present) but that image is MISSING the `e2e-testing/scripts/audit/` files — the
-#   jobs will fail to find the script PATH until the image is built to include them.
-#   The image-build change is tracked as a Wave-4b todo in the plan (see report).
-#   Override `var.dp_audit_image` once a `:latest` image that bundles the audit
-#   scripts is published. The terraform (Jobs + Schedulers + SA wiring) is correct
-#   and complete; only the image content is the open hop.
+#   A dedicated runner image now bundles them: `e2e-testing/Dockerfile` FROMs the
+#   UTL base and `COPY . /app/e2e-testing`, and `e2e-testing/cloudbuild-e2e-audit.yaml`
+#   builds → smokes each script (`--smoke`) → pushes
+#   `…/unified-trading-library/e2e-audit:latest`. So `var.dp_audit_image` below
+#   DEFAULTS to that image, which DOES contain `/app/e2e-testing/scripts/audit/*`.
+#   (The MTDS image's `COPY . .` only copied the MTDS repo, so its
+#   `market-tick-data-service:latest` was missing these scripts — the old GAP.)
+#   The terraform (Jobs + Schedulers + SA wiring) was always correct; this closes
+#   the image-content hop. SSOT: data_pipeline_hardening_self_monitoring_2026_06_22.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
 variable "dp_audit_image" {
-  description = "Container image for the data-pipeline self-monitoring audit jobs. Defaults to the MTDS image (UTL+UAC bundled) — but that image does NOT yet contain e2e-testing/scripts/audit/*. Override once an image bundling the audit scripts ships (see IMAGE GAP header + Wave-4b plan todo)."
+  description = "Container image for the data-pipeline self-monitoring audit jobs. Defaults to the dedicated e2e-audit:latest runner (UTL+UAC+pandas base + bundled e2e-testing/scripts/audit/*, built by e2e-testing/cloudbuild-e2e-audit.yaml). Override only to pin a specific build-id tag."
   type        = string
-  default     = "" # empty = fall through to the MTDS-image default below
+  default     = "" # empty = fall through to the e2e-audit:latest default below
 }
 
 locals {
-  # Image: prefer the explicit variable; fall back to the MTDS image (UTL+UAC
-  # included) — the same default cf-manifest-audit uses. See the IMAGE GAP header.
-  dp_audit_image_resolved = var.dp_audit_image != "" ? var.dp_audit_image : "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
+  # Image: prefer the explicit variable; fall back to the dedicated e2e-audit runner
+  # image (UTL+UAC base + bundled e2e-testing/scripts/audit/*). See the IMAGE GAP header.
+  dp_audit_image_resolved = var.dp_audit_image != "" ? var.dp_audit_image : "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-library/e2e-audit:latest"
 
-  # Path to the audit scripts inside the image (once the image bundles e2e-testing).
-  # The MTDS image WORKDIRs at /app/market-tick-data-service; the repo root is /app.
+  # Path to the audit scripts inside the image — the e2e-audit Dockerfile lands the
+  # repo root at /app/e2e-testing so scripts resolve at /app/e2e-testing/scripts/audit/.
   dp_audit_script_dir = "/app/e2e-testing/scripts/audit"
 
   # Shared runtime env — identical to cf-manifest-audit. The scripts resolve buckets
@@ -276,7 +274,11 @@ module "dp_reprobe_empty_job" {
 
   command = ["python3", "${local.dp_audit_script_dir}/reprobe_new_empty_confirmed.py"]
   # No --day → defaults to today; no --asset-group → all 5 AGs.
-  args = []
+  # --reclassify-apply: after detect+emit, AUTO-FLIP the cells a live re-fetch PROVED
+  # were misclassified (verdict REPROBE_RETURNED_ROWS) empty_confirmed → attempted_failed
+  # so the orchestrator re-captures them. Oracle-only / ambiguous verdicts are NEVER
+  # flipped (proof-gated). Closes the detect→prove→flip→re-capture self-healing loop.
+  args = ["--reclassify-apply"]
 
   environment_variables = local.dp_audit_env
 

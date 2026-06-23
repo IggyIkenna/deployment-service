@@ -118,8 +118,17 @@ def classify_terminated_vm(
     )
 
 
-def _finding_for(result: TerminationResult, *, asset_group: str) -> PipelineFinding | None:
-    """Build the escalation finding for a non-clean termination (None when clean)."""
+def _finding_for(result: TerminationResult, *, asset_group: str, relaunch_launcher: str = "") -> PipelineFinding | None:
+    """Build the escalation finding for a non-clean termination (None when clean).
+
+    An **OOM** exit (exit_code 137) routes to the ``auto_recover`` tier — the
+    ``relaunch_backfill_vm`` actuator re-launches it (≤2/day per vm-prefix then
+    page). The binding is the ``relaunch_launcher`` script name (resolved by the
+    sweep's ``launcher_for_vm``); when no launcher binding is available the
+    actuator skips and the finding falls through to ``file_issue`` (the
+    escalation hop guarantees no auto_recover finding is lost). A non-OOM
+    non-zero exit stays ``page_operator``.
+    """
     base_details: dict[str, object] = {
         "vm_name": result.vm_name,
         "asset_group": asset_group,
@@ -133,12 +142,15 @@ def _finding_for(result: TerminationResult, *, asset_group: str) -> PipelineFind
             f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
             f"{' (OOM)' if oom else ''} — captured did not complete cleanly"
         )
+        oom_details: dict[str, object] = {**base_details, "oom": oom}
+        if oom and relaunch_launcher:
+            oom_details["relaunch_launcher"] = relaunch_launcher
         return PipelineFinding(
             event=DP_VM_EXIT_NONZERO,
             severity="CRITICAL",
-            tier=EscalationTier.PAGE_OPERATOR,
+            tier=EscalationTier.AUTO_RECOVER if oom else EscalationTier.PAGE_OPERATOR,
             summary=summary,
-            details={**base_details, "oom": oom},
+            details=oom_details,
             registry_id="DP-VM-001",
         )
     if result.verdict is TerminationVerdict.GONE_NO_CAPTURE:
@@ -202,6 +214,7 @@ def sweep(
     running_vms: Iterable[tuple[str, str]],
     captured_reader: Callable[[str], int],
     asset_group_for_vm: Callable[[str], str],
+    launcher_for_vm: Callable[[str], str] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[TerminationResult]:
@@ -213,6 +226,10 @@ def sweep(
         running_vms: iterable of ``(vm_name, zone)`` for currently-RUNNING VMs.
         captured_reader: ``vm_name -> captured_cum`` (per-VM manifest shard count).
         asset_group_for_vm: ``vm_name -> asset_group`` for the alert detail.
+        launcher_for_vm: optional ``vm_name -> launcher-script-name`` resolver. When
+            supplied, an OOM (exit-137) finding carries a ``relaunch_launcher``
+            binding so the ``relaunch_backfill_vm`` auto_recover actuator can
+            re-launch it; absent it, the OOM finding falls through to file_issue.
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
@@ -248,7 +265,8 @@ def sweep(
         )
         results.append(result)
 
-        finding = _finding_for(result, asset_group=asset_group_for_vm(name))
+        launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
+        finding = _finding_for(result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher)
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:

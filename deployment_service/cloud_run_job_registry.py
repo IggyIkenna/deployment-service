@@ -71,6 +71,20 @@ def _paper(name: str, *, service: str) -> DeploymentTarget:
     )
 
 
+def _live(name: str, *, service: str, asset_group: str = "") -> DeploymentTarget:
+    """Build a LIVE Cloud Run job target (a scheduler that boots a near-real-time
+    LIVE-capture VM — the cron itself is the classified scheduler-tf job stem)."""
+    return DeploymentTarget(
+        name=name,
+        kind=DeploymentKind.CLOUD_RUN_JOB,
+        umbrella=DeploymentUmbrella.LIVE,
+        cloud=DeploymentCloud.GCP,
+        service=service,
+        asset_group=asset_group,
+        lifecycle_class="",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-asset_group / per-service job families (for_each in terraform).
 # ---------------------------------------------------------------------------
@@ -152,16 +166,26 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("qg-snapshot-daily", service="unified-trading-pm"),
     # subgraph_health_probe_scheduler.tf
     _batch("subgraph-health-probe", service="market-tick-data-service"),
+    # defi_forward_poll_scheduler.tf — 3 */5 schedulers each boot an ephemeral
+    # defi-fwd-<op>-poll VM running the MTDS DeFi handler in LIVE mode (continuous
+    # near-real-time DeFi price capture). LIVE umbrella; the cron stem is defi-fwd-poll.
+    _live("defi-fwd-poll", service="market-tick-data-service", asset_group="defi"),
     # tarball_cleanup_scheduler.tf
     _batch("tarball-cleanup", service="deployment-service"),
     # vm_log_archival_scheduler.tf
     _batch("vm-log-archival", service="deployment-service"),
     # vm_serial_capture_scheduler.tf
     _batch("vm-serial-capture", service="deployment-service"),
+    # wave_launcher_scheduler.tf — BATCH tradfi OHLCV wave-launcher (autonomous
+    # backfill driver: launches/clamps tradfi-bf-* VMs wave-by-wave). Registry
+    # entry required by the cloud_run_job_registry guard for every scheduler tf.
+    _batch("tradfi-wave-launcher", service="deployment-service"),
     # paper_week_determinism_scheduler.tf — PAPER umbrella (paper-week determinism + paper engine)
     _paper("paper-engine-run", service="strategy-service"),
     _paper("blrs-daily-determinism", service="batch-live-reconciliation-service"),
     _paper("daily-ledger-digest", service="batch-live-reconciliation-service"),
+    # paper_stream_scheduler.tf — PAPER umbrella (B2 continuous-live paper-stream loop)
+    _paper("paper-stream", service="strategy-service"),
 )
 
 

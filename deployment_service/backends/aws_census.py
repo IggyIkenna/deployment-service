@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
-    import boto3 as _boto3_module
+    import boto3 as _boto3_module  # noqa: TID251,RUF100 — TYPE_CHECKING-only guard; boto3 optional dep never imported at runtime
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def _ensure_boto3() -> types.ModuleType:
         raise ImportError(
             "boto3 is required for the AWS census. Install with: uv pip install 'deployment-service[aws]'"
         )
-    import boto3  # noqa: imports-inside-functions — deferred: boto3 optional dep, guarded by importlib.util.find_spec above
+    import boto3  # noqa: imports-inside-functions,TID251,RUF100 — intentional lazy load, boto3 optional dep
 
     return boto3
 

@@ -4,8 +4,23 @@
 # Responsibilities:
 #   1. Tee stdout + stderr to a local log.
 #   2. Launch the Python heartbeat daemon (scripts/vm/heartbeat_daemon.py),
-#      which OWNS both the 60s Pub/Sub heartbeat loop and the 30s GCS log
-#      uploader loop inside a single long-lived Python process.
+#      which OWNS both the Pub/Sub heartbeat loop and the GCS log uploader
+#      loop inside a single long-lived Python process. The uploader does NOT
+#      die early — it is a daemon thread inside the long-lived daemon process
+#      that lives for the VM's ENTIRE lifetime (started in HeartbeatDaemon.run,
+#      stopped only on SIGTERM). A transient gsutil/upload error is caught +
+#      logged + the loop continues (shard-level isolation, uploader.py _loop).
+#
+#   GCS run.log FRESHNESS (data_pipeline_hardening_self_monitoring 2026-06-22):
+#      the previous "only re-upload after +256 KiB growth" anti-churn gate had
+#      NO time ceiling, so a SLOW-but-live log (a low-volume scraper) froze its
+#      GCS copy for HOURS while the on-VM /tmp/vm-exec-*.log advanced — blinding
+#      every GCS-log-based watcher (dp-heartbeat-watcher / dp-exit-code-monitor /
+#      stall-mtime). FIXED in UTL uploader.py: a CHANGED log (grew or mtime moved)
+#      is force-re-uploaded once UPLOAD_MAX_STALENESS_SEC (default 90s) elapses,
+#      even below the growth threshold; an idle log still skips (no churn). The
+#      uploader cadence is UPLOAD_INTERVAL_SEC (default 60s). Net: the GCS run.log
+#      stays within ~1-2 min of the on-VM log for the VM's whole lifetime.
 #   3. Local-log activity watchdog (still shell-side — SIGKILLs a stuck
 #      Python process, doesn't need UTL).
 #   4. On CMD_PID exit: write the final exit status into a file the daemon
@@ -40,8 +55,9 @@
 #   VM_START_DATE = today (UTC)
 #   VM_END_DATE   = today (UTC)
 #   PYTHON_BIN    = python (override to point at the tarball's venv)
-#   HEARTBEAT_INTERVAL_SEC = 60 (forwarded to daemon)
-#   UPLOAD_INTERVAL_SEC    = 30 (forwarded to daemon)
+#   HEARTBEAT_INTERVAL_SEC   = 60 (forwarded to daemon)
+#   UPLOAD_INTERVAL_SEC      = 60 (forwarded to daemon; stat-check cadence)
+#   UPLOAD_MAX_STALENESS_SEC = 90 (forwarded to daemon; GCS run.log freshness ceiling)
 set -uo pipefail
 
 # Detach from any inherited process group / session immediately, AND

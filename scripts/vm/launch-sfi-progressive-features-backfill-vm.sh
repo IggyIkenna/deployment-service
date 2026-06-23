@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# DEPRECATION NOTE (2026-05-08, Phase 8A of features_repo_consolidation_2026_05_08):
-# This launcher invokes a specialty entry-point
-# (`features_sports_service.scripts.compute_sfi_progressive_only`) NOT covered
-# by the standardised consolidated launcher. It is preserved as-is until
-# Phase 7 archives the source repo + the specialty script is migrated into
-# `features_service.sports.scripts.compute_sfi_progressive_only`. New callers
-# should still invoke this launcher for sfi_progressive halftime backfills
-# until the specialty script migration lands.
+# Migrated 2026-06-22 (features_repo_consolidation finalisation): this launcher
+# now invokes the CONSOLIDATED entry-point
+# `features_service.sports.scripts.compute_sfi_progressive_only` (moved into the
+# `features_service` package so it is `-m`-runnable against the installed wheel —
+# the top-level repo `scripts/` dir is NOT shipped in hatch's wheel). The prior
+# `features_sports_service.scripts.compute_sfi_progressive_only` module path
+# pulled the STALE `features-sports-service-code` tarball (archived repo, predates
+# the feature_family=sports fix) → MissingFeatureFamilyError. VM_SERVICE is now
+# `features_service` so the FRESH `features-service-code` tarball is installed.
 #
 # Launch a single GCE VM that backfills sfi_progressive halftime features
 # for the entire SFI coverage window via features-sports-service.
@@ -23,7 +24,7 @@
 # Invocation inside the VM (VM_BACKFILL_CMD metadata; setup-data-pipeline-vm.sh
 # features-backfill branch substitutes `python ` → venv python):
 #
-#   python -m features_sports_service.scripts.compute_sfi_progressive_only \
+#   python -m features_service.sports.scripts.compute_sfi_progressive_only \
 #     --start-date $START_DATE --end-date $END_DATE \
 #     --bucket $BUCKET
 #
@@ -137,7 +138,7 @@ VM_NAME="features-sfi-progressive-${RUN_TS}"
 # the operator wants to overwrite prior captured manifest rows after a
 # calculator fix. Default off so the script's read-once + TTL skip-cache
 # works for safe resumes after crash.
-BACKFILL_CMD="python -m features_sports_service.scripts.compute_sfi_progressive_only"
+BACKFILL_CMD="python -m features_service.sports.scripts.compute_sfi_progressive_only"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
 BACKFILL_CMD="${BACKFILL_CMD} --bucket ${BUCKET}"
 if [[ "${RECOMPUTE_FORCE:-false}" == "true" ]]; then
@@ -149,7 +150,7 @@ echo "  bucket: ${BUCKET}"
 echo "  cmd:    ${BACKFILL_CMD}"
 
 METADATA="VM_TASK=features-backfill"
-METADATA="${METADATA},VM_SERVICE=features_sports_service"
+METADATA="${METADATA},VM_SERVICE=features_service"
 METADATA="${METADATA},VM_OPERATION=compute"
 METADATA="${METADATA},VM_ASSET_GROUP=SPORTS"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
