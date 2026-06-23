@@ -26,6 +26,12 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-}"
 UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-}"
 PREEMPTIBLE=false
+# TheGraph key-pool sharding (Part 4): SHARD_INDEX selects this VM's starting key
+# (key_number = SHARD_INDEX % pool_size + 1) so a multi-VM DeFi subgraph fan-out
+# spreads load across the 9-key thegraph-api-key[-2..9] SM pool — each VM begins
+# on a distinct key, and the handler round-robins the full pool per request.
+SHARD_INDEX="${SHARD_INDEX:-0}"
+FLEET_VMS="${FLEET_VMS:-1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +45,8 @@ while [[ $# -gt 0 ]]; do
     --mtds-sha)       MTDS_TARBALL_SHA="$2"; shift 2 ;;
     --utl-sha)        UTL_TARBALL_SHA="$2"; shift 2 ;;
     --preemptible)    PREEMPTIBLE=true; shift ;;
+    --shard-index)    SHARD_INDEX="$2"; shift 2 ;;
+    --fleet-vms)      FLEET_VMS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -64,6 +72,29 @@ echo "  Range:     ${START_DATE} → ${END_DATE}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
 echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "  Bucket:    market-data-tick-defi-prd-${PROJECT_ID}  (resolved by resolve_bucket_name)"
+
+# ── TheGraph key-pool capacity model (Part 4) ──
+# Resolve the pooled ceiling (per_key_rpm × pool_size) from the registry SSOT so
+# the launch sizes its fan-out against the 9-key pool rather than a single key.
+# SHARD_INDEX picks this VM's starting key (handler round-robins the rest).
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${REPO_ROOT}/.venv/bin/python"
+[[ -x "$PY" ]] || PY="python3"
+POOL_LINE="$(
+  PYTHONPATH="${REPO_ROOT}" "$PY" - <<'PYEOF' 2>/dev/null || true
+from deployment_service.data_pipeline_monitors.launch_budget_registry import key_pool_capacity_for_source
+k = key_pool_capacity_for_source("thegraph")
+if k is not None:
+    print(f"{k.per_key_rpm} {k.pool_size} {k.effective_rpm}")
+PYEOF
+)"
+THEGRAPH_POOL_SIZE=9
+if [[ -n "$POOL_LINE" ]]; then
+  read -r _PER_KEY_RPM THEGRAPH_POOL_SIZE _EFFECTIVE_RPM <<<"$POOL_LINE"
+  echo "  Key-pool:  TheGraph ${THEGRAPH_POOL_SIZE}-key pool, per-key ${_PER_KEY_RPM} req/min → effective ${_EFFECTIVE_RPM} req/min; this VM starts on key $(( (SHARD_INDEX % THEGRAPH_POOL_SIZE) + 1 )) (SHARD_INDEX=${SHARD_INDEX}, fleet=${FLEET_VMS})"
+else
+  echo "  Key-pool:  TheGraph registry unavailable — handler round-robins the 9-key pool; SHARD_INDEX=${SHARD_INDEX} start key $(( (SHARD_INDEX % 9) + 1 ))" >&2
+fi
 echo "============================================================"
 
 if ! $FORCE; then
@@ -95,6 +126,9 @@ METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# Part 4: SHARD_INDEX selects this VM's starting TheGraph key (key_number =
+# SHARD_INDEX % 9 + 1); the handler round-robins the full 9-key pool per request.
+METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
