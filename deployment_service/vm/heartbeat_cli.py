@@ -240,6 +240,15 @@ def _build_parser(config: DeploymentConfig) -> argparse.ArgumentParser:
         default=config.upload_interval_sec,
     )
     p.add_argument(
+        "--upload-max-staleness-sec",
+        type=int,
+        # Freshness ceiling (data_pipeline_hardening_self_monitoring, 2026-06-22): a
+        # CHANGED-but-slow log is force-re-uploaded once this elapses since the last
+        # upload, even below min_growth_bytes — so a low-volume scraper's GCS run.log
+        # never freezes for hours behind the on-VM log. See UTL uploader.py docstring.
+        default=config.upload_max_staleness_sec,
+    )
+    p.add_argument(
         "--bucket",
         default=DEFAULT_BUCKET,
         help="Registry bucket (default: %(default)s)",
@@ -285,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     watchdog_str = _s("watchdog_file")
     heartbeat_interval = _i("heartbeat_interval_sec")
     upload_interval = _i("upload_interval_sec")
+    upload_max_staleness = _i("upload_max_staleness_sec")
     bucket = _s("bucket")
 
     _init_events(config)
@@ -346,6 +356,7 @@ def main(argv: list[str] | None = None) -> int:
             failed_event=DEPLOYMENT_FAILED,
             heartbeat_interval_sec=heartbeat_interval,
             upload_interval_sec=upload_interval,
+            upload_max_staleness_sec=upload_max_staleness,
             payload_builder=_vm_payload,
         )
         return daemon.run()

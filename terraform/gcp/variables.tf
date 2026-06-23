@@ -35,6 +35,12 @@ variable "enable_secret_rotation" {
   default     = false
 }
 
+variable "enable_defi_forward_poll" {
+  description = "Enable the high-frequency (*/5) DeFi live forward-poll Cloud Scheduler jobs (dex-swaps / dex-pools / oracle-prices) that launch defi-fwd-* VMs with --mode live for the price-sensitive live arb/paper engine. ON by default (the price-sensitive DeFi market-data feed). Set false to pause without destroying the jobs' siblings."
+  type        = bool
+  default     = true
+}
+
 # ---------------------------------------------------------------------------
 # PROTOCOL_* service environment variables
 # These are injected into Cloud Run service definitions at deploy time.

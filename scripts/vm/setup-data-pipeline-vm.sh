@@ -742,6 +742,25 @@ _launch_with_tee() {
   export VM_START_DATE="${VM_START_DATE:-}"
   export VM_END_DATE="${VM_END_DATE:-}"
   export PYTHON_BIN="$VENV/bin/python"
+  # VM-life PIPELINE_HEARTBEAT marker (BUG1b, 2026-06-22). The in-process UTL
+  # PipelineHeartbeatTimer publishes a PIPELINE_HEARTBEAT *event* to PubSub, but
+  # (a) a chunked backfill re-execs python ONCE PER CHUNK so the timer is born+dies
+  # per chunk (a sub-60s chunk emitted nothing), and (b) the published event never
+  # reaches the GCS-tee'd run.log the fleet watcher reads. This single, centralized
+  # 60s emitter (covers EVERY data task — chunked backfill AND single-process live)
+  # echoes a parseable PIPELINE_HEARTBEAT marker INSIDE the tee'd command so it
+  # flows to stdout → run.log → GCS for the VM's whole life, giving the
+  # heartbeat-stall watcher a worker-heartbeat signal DECOUPLED from the always-fresh
+  # infra ``vm-heartbeat`` sidecar (which ticked even when the data worker was dead →
+  # the "zero alerts" blind spot). The backgrounded loop is a child of the tee'd
+  # bash, so it dies when the task ends / VM self-deletes. Skip infra VMs
+  # (asset_group UNKNOWN) — they run no data worker, so must not look like one.
+  local _hb_prefix=""
+  if [[ "${VM_ASSET_GROUP:-UNKNOWN}" != "UNKNOWN" ]]; then
+    _hb_prefix="( while true; do echo \"PIPELINE_HEARTBEAT vm=${VM_NAME_SELF} ag=${VM_ASSET_GROUP} task=${VM_TASK:-} source=vm-life-emitter ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ)\"; sleep 60; done ) & __DP_HB_PID=\$!; trap 'kill \"\$__DP_HB_PID\" 2>/dev/null || true' EXIT; "
+    cmd="${_hb_prefix}${cmd}"
+    log "VM-life PIPELINE_HEARTBEAT marker emitter wired into tee'd command (60s, → run.log)"
+  fi
   if [[ -n "$TEE_WRAPPER" ]]; then
     log "Launching with GCS tee: $cmd"
     log "  VM_NAME=$VM_NAME VM_ASSET_GROUP=$VM_ASSET_GROUP VM_TASK=$VM_TASK VM_MODE=$VM_MODE"
