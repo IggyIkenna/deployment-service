@@ -31,18 +31,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
-# FX = Yahoo daily. The shared lib defaults TRADFI_OHLCV_DATA_TYPES to
-# "ohlcv_1m;ohlcv_1s" (the Databento OHLCV path); FX is daily-only, so pin
-# ohlcv_24h here. The Yahoo FX adapter ignores any other requested data_type.
-export OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_24h}"
-# FX is venue-routed to Yahoo — NOT a --source=databento|massive run. Leaving
-# OHLCV_SOURCE unset would default the lib to "databento" and mis-stamp the
-# row provenance; the FX venue branch in umi_tick_provider never consults
-# --source, but we must not pass a misleading databento source string. The
-# MTDS CLI only accepts databento|massive for --source, so pass NEITHER: blank
-# the lib's source so VM_SOURCE is empty and setup-data-pipeline-vm.sh omits
-# the --source flag (FX run needs no source selector).
-export OHLCV_SOURCE=""
+# FX = Yahoo daily. The shared lib FREEZES TRADFI_OHLCV_DATA_TYPES /
+# TRADFI_OHLCV_SOURCE at SOURCE time (from OHLCV_DATA_TYPES / OHLCV_SOURCE),
+# so an `export OHLCV_*` AFTER the `source` line above is a NO-OP — the lib has
+# already captured the defaults (ohlcv_1m;ohlcv_1s / databento). Override the
+# FROZEN lib vars DIRECTLY (these are what ohlcv_create_vm reads into
+# VM_DATA_TYPES / VM_SOURCE metadata). Incident 2026-06-23: the post-source
+# export left FX VMs running --data-types ohlcv_1m ohlcv_1s --source databento
+# (pre-flight then drops the unsupported 1m/1s + the Yahoo branch ignores
+# --source, but the manifest stamps a misleading databento provenance and the
+# CLI is mis-shaped). FX is daily-only (ohlcv_24h), venue-routed to Yahoo, and
+# needs NO --source selector (blank → setup-data-pipeline-vm.sh omits --source).
+TRADFI_OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_24h}"
+TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-}"
 
 ohlcv_parse_common_args "$@"
 
