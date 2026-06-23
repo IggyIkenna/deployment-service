@@ -46,16 +46,6 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader"
   member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
-# Required for the batch SA (as the GCE VM's runtime SA) to write GCS-tee run.log to
-# deployment-scripts-{project_id}/vm-logs/<vm-name>/run.log.
-# Without this, vm-exec-with-gcs-tee.sh silently fails to write logs (gsutil cp exits non-0 but
-# is not fatal). Granted ad-hoc 2026-06-23 via gsutil iam ch.
-resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_writer" {
-  bucket = "deployment-scripts-${var.project_id}"
-  role   = "roles/storage.objectCreator"
-  member = "serviceAccount:${google_service_account.t1_batch.email}"
-}
-
 # Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) in live mode, which
 # publishes to market-tick-data-service-events via PubSubEventSink. Without this the
 # VM process crashes with PERMISSION_DENIED at startup before any data collection.
@@ -75,6 +65,34 @@ resource "google_pubsub_topic_iam_member" "t1_batch_deployment_events_publisher"
   topic   = "deployment-events"
   role    = "roles/pubsub.publisher"
   member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi forward-poll VMs (dex-swaps/dex-pools/oracle-prices) to write parquet output
+# and update per-VM manifest shards. Without this, all parquet writes → 403 storage.objects.create.
+# Granted ad-hoc 2026-06-23 via gsutil iam ch.
+resource "google_storage_bucket_iam_member" "t1_batch_defi_raw_tick_writer" {
+  bucket = "market-data-tick-defi-prd-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi forward-poll VMs to read IS instrument availability parquets.
+# Without this, all IS preflight reads fall back to subgraph-only discovery (degraded mode).
+# Granted ad-hoc 2026-06-23 via gsutil iam ch.
+resource "google_storage_bucket_iam_member" "t1_batch_instruments_defi_reader" {
+  bucket = "instruments-store-defi-prd-${var.project_id}"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Upgrade deployment-scripts from objectCreator → objectAdmin so heartbeat_daemon.py can
+# overwrite the existing run.log object (overwrite requires storage.objects.delete in GCS).
+# Without objectAdmin, heartbeat log uploads silently fail every 60s.
+# Granted ad-hoc 2026-06-23 via gsutil iam ch; supersedes the objectCreator grant above.
+resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_admin" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
 locals {
