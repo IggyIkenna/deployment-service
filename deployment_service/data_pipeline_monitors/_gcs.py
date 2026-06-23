@@ -337,6 +337,67 @@ def read_terminal_exit_code(storage_client: StorageClient, bucket: str, vm_name:
     return last
 
 
+# A run.log line is "interesting" for an alert snippet when it carries an
+# error/warn/traceback/OOM/rc-failure marker. Case-insensitive; matches the
+# common shapes the VM wrappers + UTL classify-and-emit produce.
+_ERROR_LINE_RE = re.compile(
+    r"(error|exception|traceback|fail|fatal|critical|killed|oom|out of memory|rc=(?!0\b)\d+|exit_code=(?!0\b)\d+|warn)",
+    re.IGNORECASE,
+)
+
+
+def error_snippet_from_run_log(
+    storage_client: StorageClient,
+    bucket: str,
+    vm_name: str,
+    *,
+    max_error_lines: int = 12,
+    tail_lines: int = 25,
+    max_chars: int = 2400,
+) -> str | None:
+    """Extract an actionable error/warn snippet from a VM's durable run.log.
+
+    Returns a compact text block built from (a) the LAST ``max_error_lines``
+    lines matching ``_ERROR_LINE_RE`` (error/exception/traceback/OOM/non-zero
+    rc/warn), and (b) the final ``tail_lines`` lines of the log (so the operator
+    always sees how the run ended even when no line matched the error regex).
+    ``None`` when the run.log is missing/empty (a self-deleted VM that never
+    wrote one) — the caller omits the snippet rather than attaching an empty
+    block. Capped at ``max_chars`` (the Slack code-block + the formatter's own
+    3000-char ceiling). Never raises — a read failure reads as ``None``.
+
+    The blob (``vm-logs/{vm}/run.log``) is the GCS-tee'd copy that survives the
+    VM's ``VM_SHUTDOWN_ON_COMPLETION`` self-delete, so this works even for a
+    backfill VM that is already gone by the time the exit-code sweep classifies it.
+    """
+    log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
+    if not log:
+        return None
+    lines = log.splitlines()
+    error_lines = [ln for ln in lines if _ERROR_LINE_RE.search(ln)][-max_error_lines:]
+    tail = lines[-tail_lines:]
+    parts: list[str] = []
+    if error_lines:
+        parts.append("── error/warn lines ──\n" + "\n".join(error_lines))
+    if tail:
+        parts.append("── run.log tail ──\n" + "\n".join(tail))
+    snippet = "\n".join(parts).strip()
+    if not snippet:
+        return None
+    if len(snippet) > max_chars:
+        snippet = snippet[-max_chars:]
+    return snippet
+
+
+def run_log_console_url(bucket: str, vm_name: str) -> str:
+    """Return the GCS-console deep-link to a VM's durable run.log object.
+
+    Lets an alert carry a one-click link to the FULL log (the snippet is only the
+    error/warn lines + tail). Pure string-builder — no I/O.
+    """
+    return f"https://console.cloud.google.com/storage/browser/_details/{bucket}/{RUN_LOG_BLOB.format(vm=vm_name)}"
+
+
 def run_log_shows_stall(storage_client: StorageClient, bucket: str, vm_name: str) -> bool:
     """True when the durable run.log records a WORKER_STALLED kill (rc=124 class)."""
     log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))

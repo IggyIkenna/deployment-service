@@ -555,6 +555,15 @@ def route_finding(
     event_details["escalation_tier"] = str(finding.tier)
     if finding.registry_id:
         event_details["registry_id"] = finding.registry_id
+    # The human-readable one-liner. The alerting-service router builds its Slack
+    # summary as ``[<event>] <details.message>`` — without this, every DP_* alert
+    # summarised to the bare event name (the generic-alert symptom). Carrying the
+    # finding's ``summary`` here makes the delivered alert read e.g. "VM
+    # instr-backfill-sports-… terminated with exit_code=137 (OOM) …". Only set
+    # when the finding actually has a summary AND the emitter didn't already put
+    # a ``message`` in details (the explicit payload wins).
+    if finding.summary and "message" not in event_details:
+        event_details["message"] = finding.summary
 
     # The effective tier — an auto_recover finding whose actuator does NOT
     # recover (no wired actuator, FAILED, or budget-paged) falls through to
