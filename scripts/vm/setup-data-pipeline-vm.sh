@@ -248,6 +248,8 @@ fi
 # fires (bucket-resolution, manifest writes, GCS-tee, heartbeat).
 DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
 export DEPLOYMENT_ENV
+# UTL service_runtime.py reads ENVIRONMENT (not DEPLOYMENT_ENV); keep in sync.
+export ENVIRONMENT="$DEPLOYMENT_ENV"
 case "$DEPLOYMENT_ENV" in
   prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
   staging) DEPLOYMENT_ENV_SHORT="stg" ;;
