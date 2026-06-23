@@ -118,10 +118,19 @@ chmod +x /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh
 # Cron job: refresh launcher then fire forward-poll for yesterday (T-1).
 # Log to /var/log/tradfi-fwd-cron.log and tee into the host's run.log so the
 # EXIT-trap final upload captures the per-fire output.
+# PATH MUST include /snap/bin — on Ubuntu-2404 GCE images gcloud/gsutil are the
+# snap package symlinked into /snap/bin, NOT /usr/bin. Cron's default minimal
+# PATH (/usr/local/sbin:…:/bin) lacks /snap/bin → \`gsutil: command not found\`
+# → the && chain fails → the fire NEVER runs (root cause of "cron fire FAILED
+# rc=0", 2026-06-23: the 06:00 CRON CMD executed but gsutil wasn't resolvable).
+# The failure echo's date/rc are double-escaped (\\\$) so they evaluate at
+# FIRE time inside the cron command, not at startup-script-generation time
+# (the prior single-escape baked the launch-minute timestamp + rc=0 into the
+# crontab, so the log lied — frozen timestamp, always rc=0).
 cat > /etc/cron.d/tradfi-fwd-daily <<CRON_EOF
 SHELL=/bin/bash
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-${CRON_MIN} ${CRON_HOUR} * * * root gsutil cp ${LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh && chmod +x /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh --env ${DEPLOYMENT_ENV} >> /var/log/tradfi-fwd-cron.log 2>&1 || echo "[\$(date -u +%FT%TZ)] tradfi-fwd cron fire FAILED rc=\$?" >> /var/log/tradfi-fwd-cron.log
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+${CRON_MIN} ${CRON_HOUR} * * * root gsutil cp ${LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh && chmod +x /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-tradfi-forward-poll.sh --env ${DEPLOYMENT_ENV} >> /var/log/tradfi-fwd-cron.log 2>&1 || echo "[\\\$(date -u +%FT%TZ)] tradfi-fwd cron fire FAILED rc=\\\$?" >> /var/log/tradfi-fwd-cron.log
 CRON_EOF
 chmod 0644 /etc/cron.d/tradfi-fwd-daily
 
