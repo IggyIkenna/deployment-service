@@ -83,7 +83,7 @@ echo "  Filter:   ${ASSET_GROUP_FILTER:-all}"
 echo "  Force:    ${FORCE}"
 echo "  Chunk:    ${CHUNK_DAYS} days"
 echo "  Env:      ${DEPLOYMENT_ENV}"
-echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-code.tar.gz"
+echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-service-code.tar.gz"
 echo "============================================================"
 
 launch_vm() {

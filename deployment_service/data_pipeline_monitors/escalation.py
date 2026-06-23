@@ -201,12 +201,54 @@ def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     return {"recovered": recovered, "actuator": "relaunch_consolidator", "result": result}
 
 
+# Machine-type escalation map for an OOM relaunch (KEY #4, operator 2026-06-23):
+# an exit-137 OOM means the machine was too small — a SAME-machine relaunch
+# re-OOMs, so the relaunch must land on a HIGHER-memory tier. The DP backfill
+# launchers default to a GCP ``e2-standard-N`` / ``n2-standard-N`` family + honor
+# a ``MACHINE_TYPE`` env override (see ``scripts/vm/launch-*-vm.sh``). This map is
+# the "next size up" ladder; an unknown current type (or no detectable family)
+# falls back to ``_OOM_FALLBACK_MACHINE`` (a generous high-mem default). The
+# launcher reads ``MACHINE_TYPE`` from ``launcher_env``.
+_OOM_MACHINE_LADDER: dict[str, str] = {
+    "e2-standard-2": "e2-standard-4",
+    "e2-standard-4": "e2-standard-8",
+    "e2-standard-8": "e2-standard-16",
+    "e2-standard-16": "e2-highmem-16",
+    "n2-standard-2": "n2-standard-4",
+    "n2-standard-4": "n2-standard-8",
+    "n2-standard-8": "n2-highmem-16",
+    "n2-highmem-16": "n2-highmem-32",
+}
+# When the current machine type isn't known, escalate to a generous high-mem tier
+# (128 GB) — better to over-provision a relaunch than re-OOM a second time.
+_OOM_FALLBACK_MACHINE = "n2-highmem-16"
+
+
+def _escalated_machine_type(current: str) -> str:
+    """Next-bigger machine type for an OOM relaunch (KEY #4).
+
+    Returns the ladder's next size up for a known family, else the high-mem
+    fallback — never the SAME type (a same-machine relaunch re-OOMs).
+    """
+    stripped = current.strip()
+    if stripped in _OOM_MACHINE_LADDER:
+        return _OOM_MACHINE_LADDER[stripped]
+    return _OOM_FALLBACK_MACHINE
+
+
 def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
     """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM only) → re-launch the backfill VM.
 
     Only the OOM subcase (``oom`` true / ``exit_code==137``) is recoverable here;
     a non-OOM crash returns ``recovered=False`` → file_issue. A budget-exceeded
     relaunch returns ``recovered=False`` too (the actuator already paged).
+
+    **KEY #4 (operator 2026-06-23) — match the actuator to the failure MODE.** An
+    OOM relaunch escalates to a HIGHER-memory machine: when the finding carries a
+    ``bigger_machine`` hint, this passes a ``MACHINE_TYPE`` env (the next-bigger
+    tier, or a high-mem fallback) through ``launcher_env`` so the relaunched VM has
+    more memory — a same-machine relaunch would just re-OOM. The launcher reads
+    ``MACHINE_TYPE`` (env-overridable in every ``launch-*-vm.sh``).
     """
     details = finding.details
     exit_code_raw = details.get("exit_code")
@@ -233,16 +275,30 @@ def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str
     # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
     _mod = importlib.import_module("scripts.recovery.relaunch_backfill_vm")
 
+    # OOM → escalate the machine type. The current type (when the finding carries
+    # it) ladders up; otherwise the high-mem fallback. Only on the OOM path —
+    # a non-OOM crash never reaches the actuator's relaunch branch anyway.
+    launcher_env: dict[str, str] = {}
+    if bool(details.get("bigger_machine")) and exit_code == 137:
+        current_machine = str(details.get("machine_type", "")).strip()
+        launcher_env["MACHINE_TYPE"] = _escalated_machine_type(current_machine)
+
     actuator = _mod.RelaunchBackfillVm()
     result = actuator.relaunch(
         str(details.get("vm_name", "")),
         exit_code=exit_code,
         launcher=launcher,
         asset_group=str(details.get("asset_group", "")),
+        launcher_env=launcher_env or None,
         dry_run=dry_run,
     )
     recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
-    return {"recovered": recovered, "actuator": "relaunch_backfill_vm", "result": result}
+    return {
+        "recovered": recovered,
+        "actuator": "relaunch_backfill_vm",
+        "result": result,
+        "escalated_machine_type": launcher_env.get("MACHINE_TYPE", ""),
+    }
 
 
 def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
