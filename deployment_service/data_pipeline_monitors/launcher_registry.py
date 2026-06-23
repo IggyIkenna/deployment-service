@@ -186,6 +186,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "tm-forward-poll-": "launch-transfermarkt-forward-poll.sh",
     "sfi-backfill-": "launch-sfi-backfill-vm.sh",
     "us-backfill-": "launch-understat-backfill-vm.sh",
+    "us-forward-poll-": "launch-understat-forward-poll.sh",
     "weather-backfill-": "launch-openmeteo-backfill-vm.sh",  # VM_NAME=weather-backfill-${RUN_TS}
     "fill-missing-player-stats-": "launch-fill-missing-player-stats-vm.sh",
     # ── Features pipeline VMs (family-dashed, bucket varies) ──────────────

@@ -46,16 +46,6 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader"
   member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
-# Required for the batch SA (as the GCE VM's runtime SA) to write GCS-tee run.log to
-# deployment-scripts-{project_id}/vm-logs/<vm-name>/run.log.
-# Without this, vm-exec-with-gcs-tee.sh silently fails to write logs (gsutil cp exits non-0 but
-# is not fatal). Granted ad-hoc 2026-06-23 via gsutil iam ch.
-resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_writer" {
-  bucket = "deployment-scripts-${var.project_id}"
-  role   = "roles/storage.objectCreator"
-  member = "serviceAccount:${google_service_account.t1_batch.email}"
-}
-
 # Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) in live mode, which
 # publishes to market-tick-data-service-events via PubSubEventSink. Without this the
 # VM process crashes with PERMISSION_DENIED at startup before any data collection.
@@ -75,6 +65,110 @@ resource "google_pubsub_topic_iam_member" "t1_batch_deployment_events_publisher"
   topic   = "deployment-events"
   role    = "roles/pubsub.publisher"
   member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi forward-poll VMs (dex-swaps/dex-pools/oracle-prices) to write parquet output
+# and update per-VM manifest shards. Without this, all parquet writes → 403 storage.objects.create.
+# Granted ad-hoc 2026-06-23 via gsutil iam ch.
+resource "google_storage_bucket_iam_member" "t1_batch_defi_raw_tick_writer" {
+  bucket = "market-data-tick-defi-prd-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi forward-poll VMs to read IS instrument availability parquets.
+# Without this, all IS preflight reads fall back to subgraph-only discovery (degraded mode).
+# Granted ad-hoc 2026-06-23 via gsutil iam ch.
+resource "google_storage_bucket_iam_member" "t1_batch_instruments_defi_reader" {
+  bucket = "instruments-store-defi-prd-${var.project_id}"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Upgrade deployment-scripts from objectCreator → objectAdmin so heartbeat_daemon.py can
+# overwrite the existing run.log object (overwrite requires storage.objects.delete in GCS).
+# Without objectAdmin, heartbeat log uploads silently fail every 60s.
+# Granted ad-hoc 2026-06-23 via gsutil iam ch; supersedes the objectCreator grant above.
+resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_admin" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi forward-poll VMs to read TheGraph API keys (pool of 9 keys for round-robin).
+# Keys 2-9 were inaccessible → only 1 key loaded → degraded subgraph throughput.
+# All 10 keys granted ad-hoc 2026-06-23 via gcloud secrets add-iam-policy-binding.
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_0" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_2" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-2"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_3" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-3"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_4" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-4"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_5" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-5"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_6" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-6"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_7" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-7"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_8" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-8"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "t1_batch_thegraph_key_9" {
+  project   = var.project_id
+  secret_id = "thegraph-api-key-9"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for DeFi oracle-prices VM to read Alchemy API key (Chainlink price feeds on EVM chains).
+# Without this, oracle collection fails for EVM chains; Pyth/Solana still works via Hermes REST.
+# Granted ad-hoc 2026-06-23 via gcloud secrets add-iam-policy-binding.
+resource "google_secret_manager_secret_iam_member" "t1_batch_alchemy_key" {
+  project   = var.project_id
+  secret_id = "alchemy-api-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
 locals {
