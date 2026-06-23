@@ -100,7 +100,7 @@ def _fresh_sentinels() -> dict:
     return {
         (LOG_BUCKET, _gcs.MONITOR_LAST_RUN_BLOB.format(mode=m)): (b"{}", 1.0)
         for m in ("exit-code", "heartbeat", "meta")
-    }
+    } | {(LOG_BUCKET, deadman_poster._WATCHDOG_CENSUS_BLOB): (b"{}", 1.0)}
 
 
 def test_deadman_healthy_no_post(monkeypatch):
@@ -130,12 +130,27 @@ def test_deadman_stale_sentinel_posts(monkeypatch):
         webhook_poster=lambda url, text: posts.append((url, text)) or True,
         project_id="test-project",
     )
-    assert len(findings) == 3  # one per stale monitor sentinel
+    assert len(findings) == 4  # 3 stale monitor sentinels + the vm-zombie-watchdog census (also missing)
     assert len(posts) == 1
     url, text = posts[0]
     assert url == "https://hooks.slack.test/deadman"
     assert "MONITORING DEADMAN" in text
     assert "dp-exit-code-monitor" in text
+
+
+def test_check_critical_infra_flags_stale_watchdog_census():
+    # No census blob → the vm-zombie-watchdog never ran → the deadman flags it out-of-band
+    # (operator 2026-06-23: the watchdog must be verified independently of the in-band meta sweep).
+    findings = deadman_poster.check_critical_infra(FakeStorage({}), LOG_BUCKET)
+    assert len(findings) == 1
+    assert findings[0].name == "vm-zombie-watchdog"
+    assert "census stale" in findings[0].detail
+
+
+def test_check_critical_infra_healthy_when_census_fresh():
+    # Fresh census (1m < 30m budget) → watchdog alive → no out-of-band finding.
+    storage = FakeStorage({(LOG_BUCKET, deadman_poster._WATCHDOG_CENSUS_BLOB): (b"{}", 1.0)})
+    assert deadman_poster.check_critical_infra(storage, LOG_BUCKET) == []
 
 
 def test_deadman_pubsub_backlog_posts(monkeypatch):
