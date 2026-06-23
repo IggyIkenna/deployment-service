@@ -285,6 +285,17 @@ def sweep(
         finding = _finding_for(
             result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher, umbrella=umbrella
         )
+        if finding is not None:
+            # Make the alert ACTIONABLE: attach the durable run.log error/warn
+            # snippet + a click-through console link. The GCS-tee'd run.log
+            # survives the VM's self-delete, so this works even though the VM is
+            # already gone. The alerting-service formatter renders ``run_log_tail``
+            # as an inline fenced-code trace block + ``log_url`` as a deep-link
+            # action. Best-effort — a missing/unreadable log just omits the snippet.
+            snippet = _gcs.error_snippet_from_run_log(storage_client, log_bucket, name)
+            if snippet:
+                finding.details["run_log_tail"] = snippet
+            finding.details["log_url"] = _gcs.run_log_console_url(log_bucket, name)
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:
