@@ -41,7 +41,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from unified_trading_library import StorageClient
+from unified_trading_library import StorageClient, log_event
 from unified_trading_library.events import DP_EVENT_LOOP_STARVED, DP_VM_STALL  # noqa: qg-deep-import
 
 from deployment_service.data_pipeline_monitors import _gcs
@@ -62,6 +62,25 @@ logger = logging.getLogger(__name__)
 # healthy 60s heartbeat). Was 15.0 (coarse, sized for the old per-chunk-only cadence).
 DEFAULT_STALL_MINUTES = 10.0
 DEFAULT_GRACE_MINUTES = 10.0  # don't flag a VM in its first N minutes (boot/warmup)
+# Auto-KILL threshold (DP-VM-005): a stalled backfill VM is DELETED once its
+# stall is this old so the wave-launcher reclaims its cap-20 slot (a hung VM that
+# only ALERTS keeps clogging a slot → throughput collapses; the P2 defense for the
+# databento-chunk-hang class). Strictly ≥ DEFAULT_STALL_MINUTES — a fresh stall
+# alerts (auto_recover relaunch) for a window before the heavier kill fires, so a
+# transiently-slow-but-recovering VM is never reaped. Env-tunable via
+# MTDS_DP_VM_KILL_MINUTES. The zombie watchdog kills on its OWN (partition/wedged)
+# criteria, NOT heartbeat-stall, so without this a heartbeat-stalled-but-RUNNING VM
+# is never reclaimed (the gap behind the relaunch actuator's "already KILLED"
+# assumption). SSOT: tradfi_databento_backfill_hang_remediation_2026_06_23.md.
+DEFAULT_KILL_MINUTES = 45.0
+# Fleet-wide cap on auto-kills per sweep (a runaway kill loop must never delete the
+# whole fleet — if >N VMs read stalled in one tick that is a watcher bug / fleet
+# incident a human must see, not auto-reap). Env-tunable via MTDS_DP_VM_KILL_CAP.
+DEFAULT_KILL_CAP_PER_SWEEP = 5
+# Umbrella value for a LONG_LIVED_LIVE producer — NEVER auto-killed (a live-capture
+# WS VM logs sparsely + must not be reaped for a quiet run.log). Mirrors
+# deployment_classification.DeploymentUmbrella.LIVE.value.
+_LIVE_UMBRELLA = "live"
 # The run.log PROGRESS signal uses a SEPARATE, generous threshold (CLAUDE.md
 # 2026-06-22): the GCS-tee'd run.log LAGS the on-VM log by minutes, and a healthy
 # worker can legitimately go several minutes between log lines on a slow upstream
@@ -183,6 +202,45 @@ def classify_vm_liveness(
     )
 
 
+def should_auto_kill(
+    result: LivenessResult,
+    *,
+    is_backfill: bool,
+    umbrella: str,
+    kill_minutes: float = DEFAULT_KILL_MINUTES,
+) -> bool:
+    """Pure predicate: should this STALLED VM be auto-DELETED to reclaim its slot?
+
+    Guards (ALL must hold — fail-safe toward NOT killing):
+      - verdict is ``STALL`` (a positively-measured stall, never EVENT_LOOP_STARVED
+        — total silence is a code bug for a human to read, not a reap case);
+      - the VM is a self-deleting BACKFILL VM (``is_backfill``) — a live-capture
+        producer is never reaped (it logs sparsely; killing it drops live data);
+      - the umbrella is NOT ``live`` (defence-in-depth over ``is_backfill`` — a
+        LONG_LIVED_LIVE producer must never be auto-killed even if its name slips
+        the backfill heuristic);
+      - the stall age (heartbeat age, else frozen-run.log age) is past the heavier
+        ``kill_minutes`` threshold — so a fresh stall gets the lighter alert/relaunch
+        window first and a transiently-slow VM is never reaped.
+
+    A killed VM frees its wave-launcher cap-20 slot; the relaunch actuator then
+    re-runs the backfill (now that "the watchdog already KILLED it" is actually
+    true). SSOT: tradfi_databento_backfill_hang_remediation_2026_06_23.md.
+    """
+    if result.verdict is not LivenessVerdict.STALL:
+        return False
+    if not is_backfill or umbrella == _LIVE_UMBRELLA:
+        return False
+    # The stall AGE is the heartbeat age when present, else the frozen-run.log age
+    # (the heartbeat-absent + frozen-log hung-process case). One must be set for a
+    # STALL verdict; if neither is (captured-flat-only stall), do NOT kill — that is
+    # the soft signal, not a hung process.
+    stall_age = result.heartbeat_age_min if result.heartbeat_age_min is not None else result.run_log_age_min
+    if stall_age is None:
+        return False
+    return stall_age >= kill_minutes
+
+
 def _finding_for(
     result: LivenessResult,
     *,
@@ -250,10 +308,13 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    vm_killer: Callable[[str, str], bool] | None = None,
     prior_captured: dict[str, int] | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
+    kill_minutes: float = DEFAULT_KILL_MINUTES,
+    kill_cap_per_sweep: int = DEFAULT_KILL_CAP_PER_SWEEP,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[LivenessResult]:
@@ -268,9 +329,17 @@ def sweep(
     when supplied, a ``DP_VM_STALL`` finding carries a ``relaunch_launcher``
     binding so the ``relaunch_stalled_vm`` auto_recover actuator can re-launch the
     watchdog-killed VM; absent it, the stall finding falls through to file_issue.
+
+    ``vm_killer`` (optional ``(vm_name, zone) -> bool`` deleter): when supplied, a
+    STALL that passes :func:`should_auto_kill` (backfill, NOT live, stale past
+    ``kill_minutes``) is DELETED so the wave-launcher reclaims its slot — at most
+    ``kill_cap_per_sweep`` deletions per sweep (a runaway must page a human, not
+    reap the fleet). Injected so the sweep stays credential-free + block-network in
+    tests. ``dry_run`` short-circuits the actual delete (counts what it WOULD kill).
     """
     prior_captured = prior_captured or {}
     results: list[LivenessResult] = []
+    kills_this_sweep = 0
     for vm_name, zone in running_vms:
         try:
             vm_age = vm_age_reader(vm_name, zone)
@@ -341,5 +410,58 @@ def sweep(
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:
             logger.warning("heartbeat_stall_watcher: %s verdict=%s hb_age=%s", vm_name, result.verdict, hb_age)
+
+        # P2 DEFENSE (DP-VM-005): auto-DELETE a stalled backfill VM so the
+        # wave-launcher reclaims its cap-20 slot. Guarded by should_auto_kill
+        # (backfill-only, NOT live, stale past kill_minutes) + a per-sweep cap (a
+        # runaway must page a human, never reap the whole fleet). dry_run logs the
+        # WOULD-kill without deleting.
+        if vm_killer is not None and should_auto_kill(
+            result, is_backfill=is_backfill, umbrella=umbrella, kill_minutes=kill_minutes
+        ):
+            if kills_this_sweep >= kill_cap_per_sweep:
+                logger.warning(
+                    "heartbeat_stall_watcher: kill cap %d reached this sweep — NOT killing %s "
+                    "(fleet-wide stall? a human must inspect)",
+                    kill_cap_per_sweep,
+                    vm_name,
+                )
+            else:
+                stall_age = result.heartbeat_age_min if result.heartbeat_age_min is not None else result.run_log_age_min
+                kills_this_sweep += 1
+                if dry_run:
+                    logger.warning(
+                        "heartbeat_stall_watcher: DRY_RUN would auto-kill stalled backfill VM %s "
+                        "(stall_age=%.0fm >= kill_minutes=%.0f) to reclaim its slot",
+                        vm_name,
+                        stall_age or 0.0,
+                        kill_minutes,
+                    )
+                    killed = False
+                else:
+                    killed = bool(vm_killer(vm_name, zone))
+                    logger.warning(
+                        "heartbeat_stall_watcher: auto-killed stalled backfill VM %s (stall_age=%.0fm) result=%s",
+                        vm_name,
+                        stall_age or 0.0,
+                        killed,
+                    )
+                if not dry_run:
+                    log_event(
+                        DP_VM_STALL,
+                        severity="WARN",
+                        details={
+                            "vm_name": vm_name,
+                            "zone": zone,
+                            "asset_group": asset_group_for_vm(vm_name),
+                            "umbrella": umbrella,
+                            "recovery_action": "auto_kill_stalled_vm",
+                            "stall_age_min": stall_age,
+                            "kill_minutes": kill_minutes,
+                            "killed": killed,
+                            "registry_id": "DP-VM-005",
+                            "cloud": "GCP",
+                        },
+                    )
 
     return results

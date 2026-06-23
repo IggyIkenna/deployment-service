@@ -322,6 +322,30 @@ def _umbrella_for_vm(vm_name: str) -> str:
         return ""
 
 
+def _kill_stalled_vm(vm_name: str, zone: str) -> bool:
+    """``(vm_name, zone) -> killed`` deleter for the heartbeat sweep's auto-kill.
+
+    Reuses the zombie watchdog's ``_kill_vm`` (which archives run.log + serial
+    console for forensics before deleting via the compute API), so the kill path is
+    identical to the watchdog's. ``vm_zombie_watchdog`` is a VM-side launcher script
+    that imports ``google.cloud.compute_v1`` at module load, so it is pulled in HERE
+    (deferred) rather than at this package's module top — the sweep itself never
+    touches a cloud SDK (it receives this resolver injected, keeping the pure sweep
+    credential-free + block-network in tests). Returns False if the watchdog module
+    is unavailable in the runtime (the sweep then only alerts, never crashes).
+    """
+    if importlib.util.find_spec("vm_zombie_watchdog") is None:
+        logger.warning("auto-kill: vm_zombie_watchdog unavailable in runtime — cannot kill %s", vm_name)
+        return False
+    watchdog = importlib.import_module("vm_zombie_watchdog")  # noqa: imports-inside-functions — VM-side script, cloud-SDK-laden
+    try:
+        compute_client = watchdog.compute_v1.InstancesClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
+        return bool(watchdog._kill_vm(compute_client, vm_name, zone))  # pyright: ignore[reportAny] — dynamic VM-side helper
+    except Exception as exc:
+        logger.warning("auto-kill: failed to delete stalled VM %s in %s: %s", vm_name, zone, exc)
+        return False
+
+
 # Cloud Scheduler state strings (mirror the google.cloud.scheduler_v1 Job.State enum).
 _SCHEDULER_PAUSED = "PAUSED"
 _SCHEDULER_ENABLED = "ENABLED"
@@ -391,6 +415,63 @@ def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
     return _read
 
 
+def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
+    """Return ``job_stem -> minutes since the job's last SUCCEEDED execution | None``.
+
+    KEY #4 (operator 2026-06-23): the authoritative "did the cron fire" signal is the
+    Cloud Run **Job**'s real execution history, NOT the lagging GCS sentinel. The
+    ``dp-exit-code-monitor`` false-fired DP_CRON_DID_NOT_FIRE on a stale sentinel
+    while its executions Completed every 5 min. This reader queries the Run v2
+    executions API for the most recent SUCCEEDED execution and returns its age in
+    minutes; ``check_cron_fired`` suppresses the stale-sentinel alert when that age
+    is within budget.
+
+    The ``google.cloud.run_v2`` client is deferred-imported here (credential-bound),
+    mirroring the scheduler reader — the watcher modules stay import-safe +
+    credential-free. Any error / no-success returns ``None`` (UNKNOWN → the watcher
+    does NOT suppress; a genuinely-dead job still alerts). The job-name STEM is
+    resolved to ``{env_prefix}-{stem}`` then to the fully-qualified
+    ``projects/{p}/locations/{loc}/jobs/{name}`` path.
+    """
+    project = _project_id()
+    location = "asia-northeast1"  # the fleet's canonical region (all Cloud Run jobs)
+    env_prefix = _scheduler_env_prefix()
+    try:
+        run_mod = importlib.import_module("google.cloud.run_v2")  # noqa: imports-inside-functions — credential-bound SDK, deferred
+        client = run_mod.ExecutionsClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
+    except Exception as exc:
+        logger.info("execution-history reader unavailable (KEY#4 cross-check off, alerts fail-safe-on): %s", exc)
+        return lambda _job: None
+
+    def _read(job_stem: str) -> float | None:
+        if not project or not job_stem:
+            return None
+        job_name = f"{env_prefix}-{job_stem}" if env_prefix else job_stem
+        parent = f"projects/{project}/locations/{location}/jobs/{job_name}"
+        try:
+            youngest_age: float | None = None
+            for execution in client.list_executions(parent=parent):  # pyright: ignore[reportAny] — dynamic SDK page iterator
+                # A SUCCEEDED execution has a non-zero succeeded_count + a
+                # completion_time. Take the most RECENT completion across successes.
+                if int(getattr(execution, "succeeded_count", 0) or 0) <= 0:  # pyright: ignore[reportAny] — dynamic SDK attr
+                    continue
+                completion = getattr(execution, "completion_time", None)  # pyright: ignore[reportAny] — dynamic SDK attr
+                if completion is None:
+                    continue
+                completed_dt = completion if isinstance(completion, datetime) else completion.ToDatetime(tzinfo=UTC)  # pyright: ignore[reportAny] — protobuf Timestamp
+                age_min = (datetime.now(UTC) - completed_dt).total_seconds() / 60.0
+                if youngest_age is None or age_min < youngest_age:
+                    youngest_age = age_min
+            return youngest_age
+        except Exception as exc:
+            # NotFound / permission / transient → UNKNOWN; the watcher does not
+            # suppress on None (a genuinely-dead job still alerts).
+            logger.info("execution-history lookup for %s → unknown: %s", job_name, exc)
+            return None
+
+    return _read
+
+
 def _consolidator_scheduler_job(ag: str) -> str:
     """The Cloud Scheduler job name backing the per-AG market-data consolidator.
 
@@ -408,11 +489,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pm-repo-path", default=None, help="PM clone path for the file_issue tier")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--stall-minutes", type=float, default=heartbeat_stall_watcher.DEFAULT_STALL_MINUTES)
+    parser.add_argument(
+        "--kill-minutes",
+        type=float,
+        default=heartbeat_stall_watcher.DEFAULT_KILL_MINUTES,
+        help="auto-DELETE a stalled backfill VM once its stall is this old (reclaims its wave-launcher slot)",
+    )
+    parser.add_argument(
+        "--no-auto-kill",
+        action="store_true",
+        help="disable the heartbeat-stall auto-kill (alert-only) — the kill defaults ON for the heartbeat mode",
+    )
     args = parser.parse_args(argv)
     mode: str = str(cast("object", args.mode))
     _pm_raw = cast("object", args.pm_repo_path)
     pm_repo_path: str | None = str(_pm_raw) if _pm_raw else None
     dry_run: bool = bool(cast("object", args.dry_run))
+    kill_minutes: float = float(cast("object", args.kill_minutes))
+    auto_kill: bool = not bool(cast("object", args.no_auto_kill))
     stall_minutes: float = float(cast("str | float", args.stall_minutes))
 
     # Wire log_event to PubSub so DP_* findings reach #data-pipeline-alerts.
@@ -487,8 +581,10 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                vm_killer=_kill_stalled_vm if auto_kill else None,
                 prior_captured=prior,
                 stall_minutes=stall_minutes,
+                kill_minutes=kill_minutes,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -553,11 +649,16 @@ def main(argv: list[str] | None = None) -> int:
             # sweep sentinels themselves. A stopped exit-code/heartbeat/meta cron
             # leaves its vm-census/<mode>-last-run.json stale → DP_CRON_DID_NOT_FIRE
             # (DP-WATCHER-002, page). The meta sweep can't catch its OWN death this
-            # way — Layer-2's out-of-band deadman owns that.
+            # way — Layer-2's out-of-band deadman owns that. KEY #4: the
+            # execution-history reader cross-checks each monitor's REAL Cloud Run
+            # Job execution history so a stale sentinel + recent SUCCEEDED execution
+            # (the dp-exit-code-monitor false positive) is suppressed, not paged.
+            execution_history_reader = _make_execution_history_reader()
             meta_watchers.check_monitor_crons_fired(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
                 scheduler_state_reader=scheduler_state_reader,
+                execution_history_reader=execution_history_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
