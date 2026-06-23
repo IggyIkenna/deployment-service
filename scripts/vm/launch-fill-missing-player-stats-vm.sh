@@ -38,8 +38,9 @@
 #   bash launch-fill-missing-player-stats-vm.sh --force                    # bypass singleton
 #
 # Cost: e2-standard-2 for ~2-4h depending on rate-limit ceiling
-# (api_football Mega plan ≈ 900 req/min; ~117k calls expected for the
-# full PLAYER_STATS gap = ~2.2h at full quota).
+# (api_football Custom plan = 1200 req/min, 450,000 req/day; ~117k calls
+# expected for the full PLAYER_STATS gap = ~1.6h at full quota, well within
+# the daily 450k).
 
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`

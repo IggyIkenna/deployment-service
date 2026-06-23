@@ -337,6 +337,60 @@ def test_should_auto_kill_false_when_not_stall():
     assert not heartbeat_stall_watcher.should_auto_kill(alive, is_backfill=True, umbrella="batch")
 
 
+# ── EXPLICIT progress-guard (operator 2026-06-23): a PROGRESSING VM is NEVER
+# reaped — keyed on measured progress vs SLA, not live-status. Prevents the
+# zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23 incident.
+def test_is_vm_progressing_fresh_heartbeat():
+    # A fresh heartbeat within the kill window = the worker process-tree is alive.
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=5.0)
+    assert heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+
+
+def test_is_vm_progressing_advancing_run_log():
+    # No heartbeat blob but the run.log advanced recently = measured forward progress.
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=None, run_log_age=3.0)
+    assert heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+
+
+def test_is_vm_progressing_false_when_both_signals_stale():
+    # Heartbeat AND run.log both past the kill window = no recent progress.
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=60.0, run_log_age=70.0)
+    assert not heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+
+
+def test_is_vm_progressing_false_when_no_signals():
+    # No measured signal at all = not "fresh" (fail toward NOT-progressing so a
+    # genuinely-silent VM stays reapable — the guard only ever BLOCKS a kill).
+    res = _stall_result("tradfi-bf-cme-2026", hb_age=None, run_log_age=None)
+    assert not heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+
+
+def test_progressing_vm_is_never_reaped():
+    """THE invariant (operator 2026-06-23): a VM doing real work within its SLA is
+    NEVER auto-killed — even if some other signal looks stale. Defence-in-depth
+    over the STALL verdict; the explicit guard makes it independently provable."""
+    # Construct a STALL-verdict result (worst case for the reaper) that nonetheless
+    # carries a FRESH heartbeat — the progress-guard must veto the kill. (In live
+    # operation classify would never emit STALL with a fresh heartbeat, but the
+    # guard must hold even if a future classify change regresses that ordering.)
+    progressing = heartbeat_stall_watcher.LivenessResult(
+        vm_name="tradfi-bf-cme-2026",
+        verdict=heartbeat_stall_watcher.LivenessVerdict.STALL,
+        heartbeat_age_min=3.0,  # FRESH — within the 45m window → progressing
+        captured_flat=False,
+        run_log_age_min=None,
+    )
+    assert heartbeat_stall_watcher.is_vm_progressing(progressing, kill_minutes=45.0)
+    assert not heartbeat_stall_watcher.should_auto_kill(
+        progressing, is_backfill=True, umbrella="batch", kill_minutes=45.0
+    )
+    # Same VM but run.log still advancing (heartbeat absent) → still never reaped.
+    progressing_log = _stall_result("tradfi-bf-cme-2026", hb_age=None, run_log_age=4.0)
+    assert not heartbeat_stall_watcher.should_auto_kill(
+        progressing_log, is_backfill=True, umbrella="batch", kill_minutes=45.0
+    )
+
+
 def test_sweep_auto_kills_stalled_backfill_vm(monkeypatch):
     """A stalled backfill VM past kill_minutes is DELETED so the wave-launcher reclaims its slot."""
     vm = "tradfi-bf-cme-2026"
@@ -1294,13 +1348,44 @@ def test_catalogue_absent_alert_shows_probed_path(monkeypatch):
     assert cat[2]["probed_path"] == "gs://instruments-store-sports-prd-pid/prod/catalog.parquet"
 
 
-# ── KEY #4: OOM relaunch escalates to a bigger machine ───────────────────────
+# ── KEY #4: OOM relaunch escalates to a bigger machine (CONSUMES the canonical
+# launch_budget_registry MEMORY_TIER_LADDER — one ladder for launch-sizing AND
+# OOM-escalation, so the two can never drift; tops out at n2-highmem-32 = 256 GB).
 def test_escalated_machine_type_ladders_up():
+    # On-ladder rungs step UP via the registry's next_memory_tier (ascending by RAM):
+    #   e2-standard-4(16GB) → e2-standard-8(32GB) → n2-standard-16(64GB)
+    #   → n2-highmem-16(128GB) → n2-highmem-32(256GB).
     assert escalation._escalated_machine_type("e2-standard-4") == "e2-standard-8"
-    assert escalation._escalated_machine_type("n2-standard-8") == "n2-highmem-16"
-    # unknown family → high-mem fallback (never the same type — would re-OOM).
+    assert escalation._escalated_machine_type("e2-standard-8") == "n2-standard-16"
+    assert escalation._escalated_machine_type("n2-standard-16") == "n2-highmem-16"
+    # 128 GB → 256 GB: the Coinbase-class OOM rung (the explicit task ask).
+    assert escalation._escalated_machine_type("n2-highmem-16") == "n2-highmem-32"
+    # e2-highmem-16 is OFF-ladder (128 GB) → smallest ladder rung with MORE RAM
+    # = n2-highmem-32 (256 GB). So a 128 GB OOM always reaches 256 GB.
+    assert escalation._escalated_machine_type("e2-highmem-16") == "n2-highmem-32"
+    # Already at the top rung (256 GB) → stay at the top (budget pages, no loop).
+    assert escalation._escalated_machine_type("n2-highmem-32") == "n2-highmem-32"
+    # Off-ladder but RAM resolves (n2-standard-8 not in the ladder; RAM unknown
+    # in the registry table → falls to the high-mem fallback, never the same type).
+    assert escalation._escalated_machine_type("n2-standard-8") == escalation._OOM_FALLBACK_MACHINE
+    # Unknown family (RAM unresolvable) → high-mem fallback (never the same type).
     assert escalation._escalated_machine_type("c3-highcpu-176") == escalation._OOM_FALLBACK_MACHINE
     assert escalation._escalated_machine_type("") == escalation._OOM_FALLBACK_MACHINE
+
+
+def test_escalated_machine_type_top_rung_is_256gb():
+    """The canonical ladder ceiling an OOM relaunch escalates to is 256 GB
+    (n2-highmem-32) — the next rung above the prior 128 GB cap (the task ask)."""
+    from deployment_service.data_pipeline_monitors.launch_budget_registry import (
+        MEMORY_TIER_LADDER,
+        gce_machine_ram_gb,
+    )
+
+    top = MEMORY_TIER_LADDER[-1]
+    assert top.machine_type == "n2-highmem-32"
+    assert top.ram_gb == 256
+    assert gce_machine_ram_gb("n2-highmem-32") == 256
+    assert escalation._OOM_TOP_MACHINE == "n2-highmem-32"
 
 
 def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
@@ -1329,5 +1414,6 @@ def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
     )
     out = escalation._recover_backfill_vm(finding, dry_run=False)
     assert out["recovered"] is True
-    assert captured["launcher_env"] == {"MACHINE_TYPE": "e2-standard-16"}
-    assert out["escalated_machine_type"] == "e2-standard-16"
+    # e2-standard-8 (32 GB) → next canonical ladder rung n2-standard-16 (64 GB).
+    assert captured["launcher_env"] == {"MACHINE_TYPE": "n2-standard-16"}
+    assert out["escalated_machine_type"] == "n2-standard-16"
