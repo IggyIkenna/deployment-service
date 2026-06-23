@@ -1345,6 +1345,53 @@ def test_cron_stale_sentinel_alerts_when_execution_unknown(monkeypatch):
     assert "DP_CRON_DID_NOT_FIRE" in emitted
 
 
+def test_reconcile_resolved_emits_bookend_when_alert_clears(monkeypatch):
+    # A prior sweep fired DP_CATALOG_NOT_RUNNING::tradfi; this sweep it did NOT re-fire
+    # (catalogue fresh) → a ✅ RESOLVED INFO bookend is emitted + the active set cleared,
+    # so #data-pipeline-alerts reflects closure instead of a permanent RED.
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, meta_watchers.ACTIVE_DP_ALERTS_BLOB): (
+                json.dumps({"DP_CATALOG_NOT_RUNNING::tradfi": "DP_CATALOG_NOT_RUNNING"}).encode(),
+                0.0,
+            )
+        }
+    )
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    meta_watchers.reset_emitted_tracker()  # nothing re-fired this sweep
+    resolved = meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert resolved == ["DP_CATALOG_NOT_RUNNING::tradfi"]
+    assert ("DP_CATALOG_NOT_RUNNING", "INFO") in emitted  # bookend is INFO — never pages
+    assert (LOG_BUCKET, meta_watchers.ACTIVE_DP_ALERTS_BLOB) in storage.uploaded  # new (empty) set persisted
+
+
+def test_reconcile_resolved_no_bookend_while_still_firing(monkeypatch):
+    # Same condition still stale this sweep → it re-fires → NO RESOLVED bookend.
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, meta_watchers.ACTIVE_DP_ALERTS_BLOB): (
+                json.dumps({"DP_CATALOG_NOT_RUNNING::tradfi": "DP_CATALOG_NOT_RUNNING"}).encode(),
+                0.0,
+            )
+        }
+    )
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    meta_watchers.reset_emitted_tracker()
+    meta_watchers._EMITTED_THIS_SWEEP["DP_CATALOG_NOT_RUNNING::tradfi"] = "DP_CATALOG_NOT_RUNNING"  # re-fired
+    resolved = meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert resolved == []
+    assert emitted == []  # no RESOLVED while the condition still fires
+    meta_watchers.reset_emitted_tracker()  # clear module-global state for other tests
+
+
 def test_monitor_cron_targets_carry_cloud_run_job_stems():
     targets = {t.label: t for t in meta_watchers.monitor_cron_targets("deployment-scripts-prd")}
     assert targets["dp-exit-code-monitor"].cloud_run_job == "dp-exit-code-monitor"
