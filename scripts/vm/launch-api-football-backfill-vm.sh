@@ -215,17 +215,60 @@ ENTITY_DESC="all entities"
 [[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY only"
 echo "Launching $VM_NAME: API_FOOTBALL backfill ${RANGE_DESC} ($ENTITY_DESC)"
 
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${REPO_ROOT}/.venv/bin/python"
+[[ -x "$PY" ]] || PY="python3"
+
+# ── Live daily-quota read (query, don't hardcode — operator 2026-06-23) ──
+# api-football EXPOSES its real plan + usage at GET /status:
+# {"response":{"requests":{"current":<used_today>,"limit_day":<plan_per_day>}}}.
+# When REMAINING_DAILY_QUOTA was NOT hand-passed, default it to a LIVE read
+# (limit_day - current) so the allocation is daily-aware off REAL usage rather
+# than a hardcoded number. Resilient: any failure (no key, network, bad body)
+# leaves REMAINING_DAILY_QUOTA empty → the registry per-minute cap is the only
+# constraint (fine when the day is fresh), exactly as before. The fleet daily
+# limit itself stays the registry fallback here; the running adapter additionally
+# reads the live /status via get_live_quota() at runtime.
+if [[ -z "$REMAINING_DAILY_QUOTA" ]]; then
+  AF_KEY="$(gcloud secrets versions access latest --secret=api-football-api-key --project="$PROJECT" 2>/dev/null || true)"
+  if [[ -n "$AF_KEY" ]]; then
+    STATUS_JSON="$(curl -fsS --max-time 15 -H "x-apisports-key: ${AF_KEY}" \
+      "https://v3.football.api-sports.io/status" 2>/dev/null || true)"
+    if [[ -n "$STATUS_JSON" ]]; then
+      # Pass the /status JSON as argv[1] (NOT stdin) — a here-doc already feeds
+      # the program on stdin, so the JSON must go via an argument (SC2259).
+      LIVE_REMAINING="$("$PY" - "$STATUS_JSON" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    body = json.loads(sys.argv[1])
+    reqs = (body.get("response") or {}).get("requests") or {}
+    limit_day = reqs.get("limit_day")
+    current = reqs.get("current") or 0
+    if isinstance(limit_day, int) and limit_day > 0:
+        print(max(0, limit_day - int(current)))
+except Exception:
+    pass
+PYEOF
+)"
+      if [[ "$LIVE_REMAINING" =~ ^[0-9]+$ ]]; then
+        REMAINING_DAILY_QUOTA="$LIVE_REMAINING"
+        echo "Live api_football /status: remaining_daily_quota=${REMAINING_DAILY_QUOTA} (limit_day - current; authoritative over the registry constant)"
+      else
+        echo "NOTE: api_football /status read returned no usable limit_day — leaving REMAINING_DAILY_QUOTA unset (per-minute cap only)." >&2
+      fi
+    fi
+  fi
+fi
+
 # ── Registry-driven rate-budget allocation (Part 1) ──
 # Deterministically split the api_football EFFECTIVE fleet ceiling (Custom plan
 # 1200 req/min, daily-aware: min(1200, REMAINING_DAILY_QUOTA / minutes to 00:00
 # UTC) — ONE quota shared across ALL endpoints) across FLEET_VMS concurrent VMs
 # and derive this VM's per-minute share + matched concurrency. The registry
 # asserts the fail-closed hard rule on BOTH axes (sum(per_vm × N) ≤ per-minute
-# ceiling AND fleet_rpm × minutes_to_reset ≤ remaining daily quota). Resolved by
-# the repo venv so the same SSOT math runs here as the actuator consumes.
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PY="${REPO_ROOT}/.venv/bin/python"
-[[ -x "$PY" ]] || PY="python3"
+# ceiling AND fleet_rpm × minutes_to_reset ≤ remaining daily quota). REMAINING_DAILY_QUOTA
+# defaults to the live /status read above; the SSOT math runs in the repo venv so
+# the same allocation runs here as the actuator consumes.
 BUDGET_LINE="$(
   PYTHONPATH="${REPO_ROOT}" "$PY" - "$FLEET_VMS" "$REMAINING_DAILY_QUOTA" <<'PYEOF' 2>/dev/null || true
 import sys
@@ -247,7 +290,7 @@ PYEOF
 )"
 if [[ -n "$BUDGET_LINE" ]]; then
   read -r PER_VM_RPM ADAPTER_CONCURRENCY MIN_INTERVAL EFFECTIVE_RPM <<<"$BUDGET_LINE"
-  echo "Rate-budget: api_football effective ${EFFECTIVE_RPM} req/min (Custom cap 1200/min, 450k/day) ÷ ${FLEET_VMS} VMs → ${PER_VM_RPM} req/min/VM, concurrency=${ADAPTER_CONCURRENCY}, interval=${MIN_INTERVAL}s (PRIMARY throttle)"
+  echo "Rate-budget: api_football effective ${EFFECTIVE_RPM} req/min (Custom cap 1200/min; live /status daily quota) ÷ ${FLEET_VMS} VMs → ${PER_VM_RPM} req/min/VM, concurrency=${ADAPTER_CONCURRENCY}, interval=${MIN_INTERVAL}s (PRIMARY throttle)"
 else
   PER_VM_RPM=""
   ADAPTER_CONCURRENCY=""

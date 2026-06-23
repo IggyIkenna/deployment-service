@@ -3,11 +3,12 @@
 # Lifecycle: permanent
 # Delete-when: NA
 # AWS EC2 equivalent of launch-cefi-sharded-backfill.sh.
-# Launches sharded CeFi + TradFi Tardis backfill fleet on EC2 (ap-northeast-1).
+# Launches sharded CeFi Tardis backfill fleet on EC2 (ap-northeast-1).
+# (CeFi-ONLY — the former TradFi block was REMOVED 2026-06-23; TradFi rides the
+# canonical Databento launchers. See launch_tradfi_shard NOTE below.)
 #
 # GCP counterpart: launch-cefi-sharded-backfill.sh
 # VM naming: cefi-sharded-{venue_lower}-{year}-{group}-{YYYYMMDD}
-#            tradfi-sharded-{instrument}-{year}-{group}-{YYYYMMDD}
 # Profile:   uts-backfill-prod
 # Tarball:   s3://{S3_CODE_BUCKET}/code/mtds-code.tar.gz
 #
@@ -18,7 +19,7 @@
 # Instrument filter (operator-authoritative, 2026-04-19):
 #   CeFi:  BTC + ETH (spot + futures + perps + options DERIBIT only)
 #          SOL XRP BNB DOGE ADA AVAX LINK (spot + perps + futures, NO options)
-#   TradFi: CME ES (S&P 500 E-mini) + CBOE VIX futures + options
+#   (TradFi removed 2026-06-23 — Databento launchers serve it.)
 #
 # Usage:
 #   bash launch-cefi-sharded-backfill-aws.sh [--env prod|staging|dev]
@@ -100,12 +101,6 @@ DATA_HEAVY="trades;book_snapshot_5"
 DATA_LIGHT_PERPS="derivative_ticker;liquidations;futures_chain"
 DATA_LIGHT_DERIBIT="derivative_ticker;options_chain;futures_chain"
 
-SYMBOLS_CME_ES_2026="ESM26;ESU26;ESZ26"
-SYMBOLS_CME_ES_2025="ESM25;ESU25;ESZ25"
-SYMBOLS_CME_ES_2024="ESM24;ESU24;ESZ24"
-SYMBOLS_CBOE_VIX_2026="VXM26;VXU26;VXZ26;VX"
-SYMBOLS_CBOE_VIX_2025="VXM25;VXU25;VXZ25;VX"
-SYMBOLS_CBOE_VIX_2024="VXM24;VXU24;VXZ24;VX"
 
 _launched=0
 _concurrent=0
@@ -287,46 +282,12 @@ launch_cefi_shard() {
   _launched=$((_launched + 1))
 }
 
-launch_tradfi_shard() {
-  local instrument="$1" venue="$2" year="$3" group="$4" data_types="$5" symbols="$6"
-
-  local start_date end_date
-  if [[ "$year" == "2026" ]]; then
-    start_date="${year}-01-01"; end_date="2026-04-17"
-  else
-    start_date="${year}-01-01"; end_date="${year}-12-31"
-  fi
-
-  local machine="${MACHINE_TYPE_TRADFI:-m7i.xlarge}"
-
-  if [[ -n "${ONLY:-}" ]]; then
-    local key="${instrument}:${year}:${group}" matched=0
-    for tok in $ONLY; do [[ "$tok" == "$key" ]] && matched=1 && break; done
-    [[ $matched -eq 0 ]] && return 0
-  fi
-
-  local vm_name="tradfi-sharded-${instrument}-${year}-${group}-${TODAY}"
-
-  if [[ "$DRY_RUN" == "1" ]]; then
-    echo "[DRY-RUN] ${vm_name}  venue=${venue} year=${year} group=${group}"
-    _launched=$((_launched + 1)); return 0
-  fi
-
-  local ud_file
-  ud_file="$(_make_user_data "${vm_name}" "TRADFI" "${venue}" "${start_date}" "${end_date}" "${data_types}" "${symbols}")"
-
-  local EXTRA_TAGS
-  EXTRA_TAGS='[{"Key":"purpose","Value":"tradfi-sharded-backfill"},{"Key":"instrument","Value":"'"${instrument}"'"},{"Key":"venue","Value":"'"${venue}"'"},{"Key":"year","Value":"'"${year}"'"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"}]'
-
-  echo "Launching ${vm_name} (${venue} ${year} ${group})"
-  local INSTANCE_ID
-  INSTANCE_ID="$(lc_aws_ec2_run "${vm_name}" "${AWS_REGION}" "${machine}" "${DISK_GB}" "${INSTANCE_PROFILE}" "${ud_file}" "${EXTRA_TAGS}")"
-  rm -f "${ud_file}"
-  echo "  → ${INSTANCE_ID}"
-
-  _stagger; _batch_guard
-  _launched=$((_launched + 1))
-}
+# NOTE (2026-06-23): launch_tradfi_shard REMOVED — see the GCP twin
+# launch-cefi-sharded-backfill.sh. The Tardis venue tags CME-FUTURES /
+# CBOE-VIX-FUTURES / CME-OPTIONS / CBOE-VIX-OPTIONS are NOT canonical TRADFI venues
+# (UAC VENUES_BY_ASSET_GROUP["tradfi"] = {NASDAQ,NYSE,CME,ICE,CBOE}) → MTDS produced
+# "No active venues for TRADFI" → 0 rows. TradFi is served by the canonical Databento
+# launchers (launch-tradfi-bf-*-ohlcv-*.sh / launch-tradfi-backfill-vm.sh).
 
 # ── CeFi sharding — year × heavy/light (mirrors GCP) ──────────────────────────
 for year in 2020 2021 2022 2023 2024 2025 2026; do
@@ -370,18 +331,8 @@ for year in 2022 2023 2024 2025 2026; do
   launch_cefi_shard "UPBIT" "$year" "heavy" "$DATA_HEAVY" "$SYMBOLS_UPBIT"
 done
 
-# ── TradFi — CME ES + CBOE VIX ─────────────────────────────────────────────────
-for year in 2024 2025 2026; do
-  case "$year" in
-    2026) es_syms="$SYMBOLS_CME_ES_2026"; vix_syms="$SYMBOLS_CBOE_VIX_2026" ;;
-    2025) es_syms="$SYMBOLS_CME_ES_2025"; vix_syms="$SYMBOLS_CBOE_VIX_2025" ;;
-    2024) es_syms="$SYMBOLS_CME_ES_2024"; vix_syms="$SYMBOLS_CBOE_VIX_2024" ;;
-  esac
-  launch_tradfi_shard "es"  "CME-FUTURES"      "$year" "futures" "trades;book_snapshot_5" "$es_syms"
-  launch_tradfi_shard "es"  "CME-OPTIONS"       "$year" "options" "trades;options_chain"   "$es_syms"
-  launch_tradfi_shard "vix" "CBOE-VIX-FUTURES"  "$year" "futures" "trades;book_snapshot_5" "$vix_syms"
-  launch_tradfi_shard "vix" "CBOE-VIX-OPTIONS"  "$year" "options" "trades;options_chain"   "$vix_syms"
-done
+# TradFi block REMOVED 2026-06-23 (see launch_tradfi_shard NOTE above). This script
+# is now CeFi-only; TradFi rides the canonical Databento launchers.
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo ""; echo "=========================================="
