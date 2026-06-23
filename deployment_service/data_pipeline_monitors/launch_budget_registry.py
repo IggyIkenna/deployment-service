@@ -24,13 +24,13 @@ is allocated against the SOURCE (``api_football``), never per-endpoint; a VM's
 adapter throttle is the single token bucket all its endpoint calls pass through.
 
 **Two real ceilings — per-minute AND per-day** (operator 2026-06-23): the Custom
-plan is ``1200 req/min`` AND a hard daily quota that resets to ZERO at ``00:00
-UTC`` every day (unused requests are LOST — no rollover). The fleet ceiling is
-therefore time-aware: the EFFECTIVE per-minute ceiling is
-``min(per_minute_limit, remaining_daily_quota / minutes_until_reset)`` so that
-when the daily budget is nearly spent the allocator THROTTLES the fleet below
-1200/min automatically (rather than burning the remaining quota in minutes then
-429-thrashing for the rest of the day). ``SOURCE_DAILY_QUOTA`` carries the
+plan is ``1200 req/min`` AND a hard ``300,000 requests/day`` daily quota that
+resets to ZERO at ``00:00 UTC`` every day (unused requests are LOST — no
+rollover). The fleet ceiling is therefore time-aware: the EFFECTIVE per-minute
+ceiling is ``min(per_minute_limit, remaining_daily_quota / minutes_until_reset)``
+so that when the daily budget is nearly spent the allocator THROTTLES the fleet
+below 1200/min automatically (rather than burning the remaining quota in minutes
+then 429-thrashing for the rest of the day). ``SOURCE_DAILY_QUOTA`` carries the
 per-day ceiling; ``allocate_rate_budget`` consumes both.
 
 **Query the live limit, don't hardcode (operator 2026-06-23)**: api-football
@@ -100,8 +100,8 @@ SOURCE_RATE_LIMITS_RPM: dict[str, int | None] = {
     # endpoints (fixtures + injuries + fixture_stats + fixture_events +
     # fixture_lineups + player_stats). 1200 is the operator-confirmed Custom-plan
     # ceiling (2026-06-23, from the API-Football dashboard — supersedes the prior
-    # Mega-tier 900 misread). The Custom plan ALSO has a hard per-DAY quota
-    # (see SOURCE_DAILY_QUOTA) that resets at 00:00 UTC — both ceilings are
+    # Mega-tier 900 misread). The Custom plan ALSO has a hard 300,000 req/DAY
+    # quota (see SOURCE_DAILY_QUOTA) that resets at 00:00 UTC — both ceilings are
     # real and ``allocate_rate_budget`` honours both (fail-closed: under-allocate,
     # never over-subscribe). NB: this is the FALLBACK default — the LIVE per-minute
     # ceiling is read from the ``X-RateLimit-Limit`` header via the adapter's
@@ -156,13 +156,11 @@ SOURCE_RATE_LIMITS_RPM: dict[str, int | None] = {
 # ceiling) — such a source is NOT daily-throttled (the time-aware term is skipped
 # and the per-minute cap stands alone).
 SOURCE_DAILY_QUOTA: dict[str, int | None] = {
-    # API-Football Custom plan: per-day quota resets 00:00 UTC, no rollover.
-    # 300,000/day is the CURRENT reality (the API self-reports ``Custom300`` =
-    # 300,000/day, ~85k remaining mid-day; corrected from the stale 450,000
-    # 2026-06-23). This is the FALLBACK default only — the LIVE daily limit +
-    # remaining are read from ``GET /status`` (``requests.limit_day`` /
-    # ``requests.current``) via the adapter's ``get_live_quota()`` and are
-    # AUTHORITATIVE; this constant is consulted only when the live read fails.
+    # API-Football Custom300 plan: 300,000 requests/day, resets 00:00 UTC, no
+    # rollover (operator-confirmed 2026-06-23, GET /status subscription.plan=Custom300
+    # requests.limit_day=300000 — supersedes the prior 450,000 misread).
+    # This is the FALLBACK default — the live daily limit + remaining are read
+    # from ``GET /status`` via ``get_live_quota()`` and are AUTHORITATIVE.
     "api_football": 300_000,
     # Everything else: no documented per-day quota → per-minute cap is the only
     # ceiling. (Add a real number here when a vendor's daily quota is confirmed.)
@@ -398,16 +396,17 @@ def allocate_rate_budget(
     ``concurrency x max_per_query_rate ≤ per_vm_rpm``.
 
     Worked examples (the operator's API-Football case, Custom plan = 1200/min,
-    450,000/day, resets 00:00 UTC):
+    300,000/day, resets 00:00 UTC):
 
     * **Late-in-day, daily budget nearly spent** — ``remaining_daily_quota ≈
-      130,500`` with ``~270`` minutes to reset ⇒ ``daily_rpm = 130500 // 270 =
-      483`` < 1200 ⇒ ``effective_source_rpm = 483``. With 5 VMs ⇒
-      ``per_vm_rpm = 483 // 5 = 96`` (≈ the operator's "~5 VMs at ~90 rpm");
-      ``min_request_interval_s = 60/96 ≈ 0.625s``.
-    * **Post-reset, fresh 450,000/day** — just after 00:00 UTC ``remaining =
-      450,000`` with ``~1440`` minutes to reset ⇒ ``daily_rpm = 450000 // 1440 =
-      312``… but the operator runs the fleet against the FULL per-minute cap when
+      87,000`` (≈29 % of 300 k) with ``~270`` minutes to reset ⇒
+      ``daily_rpm = 87000 // 270 = 322`` < 1200 ⇒
+      ``effective_source_rpm = 322``. With 5 VMs ⇒
+      ``per_vm_rpm = 322 // 5 = 64`` (≈ the operator's "~5 VMs at ~65 rpm");
+      ``min_request_interval_s = 60/64 ≈ 0.94s``.
+    * **Post-reset, fresh 300,000/day** — just after 00:00 UTC ``remaining =
+      300,000`` with ``~1440`` minutes to reset ⇒ ``daily_rpm = 300000 // 1440 =
+      208``… but the operator runs the fleet against the FULL per-minute cap when
       the day is fresh (the daily budget is not the binding constraint over the
       whole day): pass no ``remaining_daily_quota`` (or a value large enough that
       the per-minute cap binds) ⇒ ``effective_source_rpm = 1200`` ⇒ with 13 VMs

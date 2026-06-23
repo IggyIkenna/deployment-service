@@ -6,7 +6,7 @@ backoff / OOM-escalation as the PRIMARY mechanism:
 Part 1 — API rate-budget:
     - ``allocate_rate_budget`` splits a source ceiling deterministically
       (per_vm_rpm = effective_source_rpm // n_vms), with matched concurrency;
-    - the worked API-Football examples (Custom plan = 1200/min + 450k/day);
+    - the worked API-Football examples (Custom plan = 1200/min + 300k/day);
     - the daily-quota- AND time-aware effective ceiling (late-in-day throttle +
       post-reset full 1200/min);
     - the fail-closed hard rule (``assert_fleet_within_budget`` raises on
@@ -60,11 +60,10 @@ def test_api_football_ceiling_is_1200() -> None:
 
 
 def test_api_football_daily_quota_is_300k() -> None:
-    """API-Football's per-DAY quota fallback is 300,000 (Custom300; resets 00:00 UTC).
+    """API-Football Custom300 plan: 300,000 req/day (resets 00:00 UTC, no rollover).
 
-    Corrected from the stale 450,000 (2026-06-23): the live ``/status`` self-reports
-    ``Custom300`` = 300,000/day. This constant is the FALLBACK default only — the
-    adapter's ``get_live_quota()`` reads the authoritative live figure.
+    Operator-confirmed 2026-06-23 via GET /status: subscription.plan=Custom300,
+    requests.limit_day=300000 — supersedes the prior 450,000 misread.
     """
     assert SOURCE_DAILY_QUOTA["api_football"] == 300_000
 
@@ -130,7 +129,7 @@ def test_late_in_day_daily_budget_throttles_fleet_below_1200() -> None:
 
 
 def test_post_reset_full_1200_supports_13_vms() -> None:
-    """Post-reset, fresh 450,000/day ⇒ full 1200/min → ~13 VMs at ~90 rpm.
+    """Post-reset, fresh 300,000/day ⇒ full 1200/min → ~13 VMs at ~90 rpm.
 
     With the day fresh the per-minute cap is the binding constraint (not the daily
     budget over the whole day), so the launcher allocates against 1200/min:
@@ -146,9 +145,9 @@ def test_post_reset_full_1200_supports_13_vms() -> None:
 def test_effective_ceiling_uses_per_minute_cap_when_daily_budget_ample() -> None:
     """A large remaining daily budget early in the day ⇒ per-minute cap binds (1200)."""
     now = datetime(2026, 6, 23, 0, 5, tzinfo=UTC)  # just after reset
-    alloc = allocate_rate_budget("api_football", n_vms=10, remaining_daily_quota=450_000, now_utc=now)
-    # 450000 // ~1435 min ≈ 313/min < 1200 → daily binds just after midnight.
-    assert alloc.effective_source_rpm == 313
+    alloc = allocate_rate_budget("api_football", n_vms=10, remaining_daily_quota=300_000, now_utc=now)
+    # 300000 // ~1435 min ≈ 209/min < 1200 → daily binds just after midnight.
+    assert alloc.effective_source_rpm == 209
     # Confirm that with a smaller VM count + ample budget the per-minute cap binds.
     later = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)  # 720 min left
     alloc2 = allocate_rate_budget("api_football", n_vms=10, remaining_daily_quota=900_000, now_utc=later)
@@ -364,7 +363,7 @@ def test_memory_tier_reverse_lookup() -> None:
 # Part 1 (window) — per-VM daily-quota share for the adapter's UTC-day window.
 # ──────────────────────────────────────────────────────────────────────────
 def test_per_vm_daily_quota_is_full_share_for_daily_source() -> None:
-    """api_football has a 300k/day quota → per_vm_daily_quota = 300000 // n_vms."""
+    """api_football Custom300 plan: 300k/day → per_vm_daily_quota = 300000 // n_vms."""
     a = allocate_rate_budget("api_football", n_vms=10)
     assert a.per_vm_daily_quota == 300_000 // 10
 
