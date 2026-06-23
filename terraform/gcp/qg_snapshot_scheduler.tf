@@ -27,6 +27,25 @@ resource "google_project_iam_member" "t1_batch_compute_instance_admin" {
   member  = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
+# Required for the batch SA to attach itself as the runtime SA when creating GCE VMs.
+# Without this, instances.insert with serviceAccounts=[t1_batch] returns
+# SERVICE_ACCOUNT_ACCESS_DENIED (iam.serviceAccountUser missing).
+# Granted ad-hoc 2026-06-23 to fix DeFi forward-poll singleton VMs silently failing.
+resource "google_project_iam_member" "t1_batch_service_account_user" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Required for the batch SA (as the GCE VM's runtime SA) to download the startup script URL.
+# Without this, setup-data-pipeline-vm.sh fetch returns 403 Forbidden from GCS metadata server.
+# Granted ad-hoc 2026-06-23 at bucket level (deployment-scripts-{project_id}).
+resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
 locals {
   qg_snapshot_zone        = "asia-northeast1-c"
   qg_snapshot_startup_url = "gs://deployment-scripts-${var.project_id}/vm/setup-data-pipeline-vm.sh"
