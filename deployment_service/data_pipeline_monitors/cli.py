@@ -20,6 +20,8 @@ watchdog + ci-failure-watcher convention).
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 import io
 import json
 import logging
@@ -28,6 +30,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pandas as pd
+from unified_api_contracts import VmPrefixSpec
 from unified_trading_library import (
     PubSubEventSink,
     StorageClient,
@@ -46,6 +49,10 @@ from deployment_service.data_pipeline_monitors import (
     meta_watchers,
 )
 from deployment_service.data_pipeline_monitors.launcher_registry import resolve_launcher_for_vm
+from deployment_service.deployment_classification import (
+    UnclassifiedDeploymentError,
+    umbrella_for_vm_name,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -258,6 +265,28 @@ def _launcher_for_vm(vm_name: str) -> str:
     return resolve_launcher_for_vm(vm_name) or ""
 
 
+def _umbrella_for_vm(vm_name: str) -> str:
+    """``vm_name -> deployment umbrella`` (LIVE/BATCH/PAPER/EXPERIMENT; "" when unresolved).
+
+    Resolves via ``vm_zombie_watchdog.VM_PREFIX_TO_BUCKET`` through the classification
+    SSOT ``umbrella_for_vm_name`` so DP_VM_* findings carry the umbrella the
+    alerting-service router splits on (LIVE → #uts-live-alerts, BATCH →
+    #data-pipeline-alerts). Returns "" on an unregistered prefix → the alert routes to
+    the batch default (never a sweep crash).
+    """
+    if importlib.util.find_spec("vm_zombie_watchdog") is None:
+        return ""
+    # vm_zombie_watchdog is a VM-side launcher script (imports google.cloud.compute_v1
+    # at module load) — NOT import-safe at this package's module top; deferred here so
+    # only the sweep path that needs the prefix registry pulls it in.
+    watchdog = importlib.import_module("vm_zombie_watchdog")  # noqa: imports-inside-functions — VM-side script, cloud-SDK-laden
+    registry = cast("dict[str, VmPrefixSpec | None]", watchdog.VM_PREFIX_TO_BUCKET)
+    try:
+        return umbrella_for_vm_name(vm_name, registry).value
+    except UnclassifiedDeploymentError:
+        return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Data-pipeline fleet monitors")
     parser.add_argument("--mode", required=True, choices=["exit-code", "heartbeat", "meta"])
@@ -295,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
                 captured_reader=captured_reader,
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
+                umbrella_for_vm=_umbrella_for_vm,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -337,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
                 captured_reader=captured_reader,
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
+                umbrella_for_vm=_umbrella_for_vm,
                 prior_captured=prior,
                 stall_minutes=stall_minutes,
                 pm_repo_path=pm_repo_path,
