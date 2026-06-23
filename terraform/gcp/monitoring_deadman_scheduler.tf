@@ -130,7 +130,7 @@ resource "google_monitoring_notification_channel" "monitoring_deadman_email" {
   # Deliberately a DIFFERENT mechanism from Slack — if the whole Slack relay is down,
   # email still delivers. TODO(operator): optionally swap to a native Slack channel.
   labels = {
-    email_address = "iggy2london@gmail.com"
+    email_address = "ikenna@odum-research.com"
   }
 }
 
