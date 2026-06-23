@@ -15,6 +15,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -328,6 +329,92 @@ def test_route_auto_recover_actuators_unavailable_falls_through(tmp_path: Path, 
     assert result["recovery"]["result"]["status"] == "UNAVAILABLE"
     assert result["effective_tier"] == "file_issue"  # degraded, not crashed
     assert result["issue_path"] is not None
+
+
+def test_actuator_unavailable_dispatches_worker_even_without_pm_clone(monkeypatch):
+    """The escalate-to-orchestrator relaunch hand-off (operator decision 2026-06-23).
+
+    When a WIRED auto_recover actuator cannot actuate in the Cloud Run monitor image
+    (``_ACTUATORS_AVAILABLE`` False) AND there is NO PM clone on disk, ``route_finding``
+    MUST still fire the dispatch so a planning-VM worker relaunches — the relaunch is
+    never stranded on the image-bound monitor.
+    """
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", False)
+    dispatched: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        escalation,
+        "_dispatch_to_orchestrator",
+        lambda f, _p: dispatched.append((f.event, dict(f.details))) or {"dispatched": True, "reason": "http_204"},
+    )
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="vm stalled",
+        details={
+            "vm_name": "uts-prod-tradfi-bf-cme-x",
+            "relaunch_launcher": "launch-tradfi-bf-cme.sh",
+            "asset_group": "tradfi",
+            "deployment_id": "dep-123",
+        },
+        registry_id="DP-VM-003",
+    )
+    # pm_repo_path points at a non-existent dir → no PM clone (the Cloud Run case).
+    result = escalation.route_finding(finding, pm_repo_path="/nonexistent/pm/path")
+    assert result["effective_tier"] == "file_issue"
+    assert result["recovery"]["result"]["status"] == "UNAVAILABLE"
+    assert len(dispatched) == 1, "degraded actuator must dispatch a worker even with no PM clone"
+    assert dispatched[0][0] == "DP_VM_STALL"
+
+
+def test_dispatch_payload_carries_relaunch_binding(monkeypatch):
+    """The dispatch ``client_payload`` carries the STRUCTURED relaunch binding so the
+    worker relaunches from the registries, not by parsing the context text."""
+
+    class _FakeSecretClient:
+        def get_secret(self, _name: str) -> str:
+            return "ghp_faketoken"
+
+    monkeypatch.setattr(escalation, "get_secret_client", lambda: _FakeSecretClient())
+    captured: dict[str, object] = {}
+
+    class _Resp:
+        status = 204
+
+        def close(self) -> None:
+            return None
+
+    def _fake_urlopen(req, timeout=15):  # noqa: ANN001, ANN202, ARG001
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _Resp()
+
+    monkeypatch.setattr(escalation.urllib.request, "urlopen", _fake_urlopen)
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="vm stalled",
+        details={
+            "vm_name": "vm-x",
+            "relaunch_launcher": "launch-x.sh",
+            "deployment_id": "dep-1",
+            "asset_group": "tradfi",
+        },
+        registry_id="DP-VM-003",
+    )
+    out = escalation._dispatch_to_orchestrator(finding, None)
+    assert out["dispatched"] is True
+    client_payload = captured["body"]["client_payload"]  # type: ignore[index]
+    assert client_payload["action"] == "relaunch_vm"
+    assert client_payload["vm_name"] == "vm-x"
+    assert client_payload["relaunch_launcher"] == "launch-x.sh"
+    assert client_payload["deployment_id"] == "dep-1"
+    assert client_payload["asset_group"] == "tradfi"
+    assert "rb_infra_relaunch.md" in client_payload["context"]
 
 
 def test_route_auto_recover_oom_relaunch_via_finding(tmp_path: Path, monkeypatch):
