@@ -183,6 +183,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "af-audit-": "launch-fixtures-truthset-audit-vm.sh",
     "af-recover-": "launch-fixtures-recovery-vm.sh",
     "tm-backfill-": "launch-transfermarkt-backfill-vm.sh",
+    "tm-forward-poll-": "launch-transfermarkt-forward-poll.sh",
     "sfi-backfill-": "launch-sfi-backfill-vm.sh",
     "us-backfill-": "launch-understat-backfill-vm.sh",
     "weather-backfill-": "launch-openmeteo-backfill-vm.sh",  # VM_NAME=weather-backfill-${RUN_TS}
