@@ -230,6 +230,29 @@ def _make_captured_reader(storage_client: StorageClient):
     return _read
 
 
+def _make_shard_mtime_reader(storage_client: StorageClient):
+    """Return ``vm_name -> per-VM manifest-shard mtime AGE (min)`` (None on miss).
+
+    Age of ``_index/per_vm/{vm}.parquet`` in the VM's asset_group market-data
+    bucket — the AUTHORITATIVE low-lag liveness signal: the worker writes that
+    shard DIRECTLY to GCS as it captures (~60s cadence), so a fresh mtime PROVES
+    the worker is alive AND capturing right now. The heartbeat-stall watcher reads
+    the ``PIPELINE_HEARTBEAT`` marker from the GCS-TEE'd run.log, which can lag the
+    on-VM log by tens of minutes (incident 2026-06-23: a tradfi-bf VM capturing
+    114k rows + heartbeating on-box every 60s false-STALLed on a 42m-behind tee'd
+    run.log). ``None`` ⇒ no shard / read miss ⇒ no override (fail-safe).
+    """
+
+    def _read(vm_name: str) -> float | None:
+        bucket = _shard_bucket_for_vm(vm_name)
+        if not bucket:
+            return None
+        blob_path = _PER_VM_SHARD.format(vm=vm_name)
+        return _gcs.blob_age_minutes(storage_client, bucket, blob_path)
+
+    return _read
+
+
 # The catalogue regen (build_instrument_catalogue.py) writes the canonical
 # artifact to ``gs://{instruments-store-{ag}-{env-short}-{pid}}/{DEPLOYMENT_ENV}/catalog.parquet``
 # — bucket is env-SHORT (``-prd-``), the blob PREFIX is the LONG env name (default
@@ -578,6 +601,7 @@ def main(argv: list[str] | None = None) -> int:
                 running_vms=running,
                 vm_age_reader=_age_reader,
                 captured_reader=captured_reader,
+                shard_mtime_reader=_make_shard_mtime_reader(storage_client),
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
