@@ -232,6 +232,37 @@ def test_classify_liveness_too_young_skips():
     assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.TOO_YOUNG
 
 
+def test_classify_liveness_fresh_shard_overrides_stale_heartbeat():
+    # INCIDENT 2026-06-23: a tradfi-bf VM captured 114k rows + heartbeat on-box every
+    # 60s, but its GCS-tee'd run.log lagged 42m so the PIPELINE_HEARTBEAT marker read
+    # stale → false DP_VM_STALL. The AUTHORITATIVE per-VM manifest-shard mtime (fresh,
+    # the worker writes it directly to GCS as it captures) must OVERRIDE the stale
+    # heartbeat → ALIVE.
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-cme-ohlcv-1m-cl-2025",
+        vm_age_min=120,
+        heartbeat_age_min=42,
+        captured_flat=False,
+        progress_age_min=1.0,
+        stall_minutes=10,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_liveness_stall_when_shard_also_stale():
+    # Fail-safe: no shard signal (None) → the heartbeat-staleness STALL still fires,
+    # so a VM that genuinely never writes a shard is still caught.
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-cme-ohlcv-1m-cl-2025",
+        vm_age_min=120,
+        heartbeat_age_min=42,
+        captured_flat=False,
+        progress_age_min=None,
+        stall_minutes=10,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
 def _pipeline_hb_runlog(vm: str, *, marker_age_min: float) -> bytes:
     """A run.log whose freshest PIPELINE_HEARTBEAT marker is ``marker_age_min`` old."""
     ts = (datetime.now(UTC) - timedelta(minutes=marker_age_min)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -350,6 +381,22 @@ def test_is_vm_progressing_advancing_run_log():
     # No heartbeat blob but the run.log advanced recently = measured forward progress.
     res = _stall_result("tradfi-bf-cme-2026", hb_age=None, run_log_age=3.0)
     assert heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+
+
+def test_is_vm_progressing_fresh_shard_blocks_kill():
+    # Defence-in-depth (lagging-GCS-tee class, incident 2026-06-23): a fresh per-VM
+    # manifest shard = the worker is capturing right now → never reap, even if the
+    # heartbeat + run.log signals lag past the kill bound.
+    res = heartbeat_stall_watcher.LivenessResult(
+        vm_name="tradfi-bf-cme-ohlcv-1m-cl-2025",
+        verdict=heartbeat_stall_watcher.LivenessVerdict.STALL,
+        heartbeat_age_min=99.0,
+        captured_flat=False,
+        run_log_age_min=99.0,
+        progress_age_min=2.0,
+    )
+    assert heartbeat_stall_watcher.is_vm_progressing(res, kill_minutes=45.0)
+    assert not heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="batch", kill_minutes=45.0)
 
 
 def test_is_vm_progressing_false_when_both_signals_stale():
