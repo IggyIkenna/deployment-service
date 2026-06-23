@@ -20,15 +20,18 @@ emit on stale/missing. The GCS read is injected for credential-free testing.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import cast
 
 from unified_trading_library import StorageClient
 from unified_trading_library.events import (  # noqa: qg-deep-import
     DP_CATALOG_NOT_RUNNING,
     DP_CRON_DID_NOT_FIRE,
     DP_ZOMBIE_WATCHDOG_DOWN,
+    log_event,
 )
 
 from deployment_service.data_pipeline_monitors import _gcs
@@ -44,6 +47,89 @@ logger = logging.getLogger(__name__)
 WATCHDOG_CENSUS_BLOB = "vm-census/watchdog-census.json"
 DEFAULT_CATALOGUE_MAX_AGE_MIN = 24 * 60.0
 DEFAULT_WATCHDOG_MAX_AGE_MIN = 30.0  # the watchdog ticks every 5 min
+
+# Active-alert tracking for the RESOLVED bookend (alert-lifecycle hardening,
+# operator 2026-06-23). The meta sweep records every EMITTED finding's key in
+# ``_EMITTED_THIS_SWEEP`` (via the ``_emit`` choke-point — so SUPPRESSED alerts,
+# which never reach ``_emit``, are correctly NOT tracked). ``reconcile_resolved``
+# then emits a ``✅ RESOLVED`` INFO bookend for any key that fired on a PRIOR sweep
+# but did NOT re-fire this sweep (the condition cleared). Without it a transient
+# stale-then-fresh artifact leaves a permanent RED in #data-pipeline-alerts (the
+# channel never reflects closure). Mirrors
+# ``scripts/repo-management/ci_failure_watcher.detect_resolved_prs``.
+ACTIVE_DP_ALERTS_BLOB = "vm-census/active-dp-alerts.json"
+_EMITTED_THIS_SWEEP: dict[str, str] = {}  # alert_key -> event_name (this sweep's fired set)
+
+
+def reset_emitted_tracker() -> None:
+    """Clear the per-sweep emitted-alert accumulator. Call at the START of a meta
+    sweep (and in tests) so the active set reflects only THIS sweep's emissions."""
+    _EMITTED_THIS_SWEEP.clear()
+
+
+def _alert_key(finding: PipelineFinding) -> str:
+    """Stable identity for an alert across sweeps: event + the most specific label
+    in its details, so a re-fire of the SAME condition maps to the SAME key and a
+    clear is detected by that key's ABSENCE this sweep."""
+    d = finding.details
+    label = d.get("asset_group") or d.get("label") or d.get("vm_name") or d.get("blob_path") or "default"
+    return f"{finding.event}::{label}"
+
+
+def reconcile_resolved(
+    *,
+    storage_client: StorageClient,
+    log_bucket: str,
+    dry_run: bool = False,
+) -> list[str]:
+    """Emit a ``✅ RESOLVED`` INFO bookend for each meta-watcher alert that fired on a
+    PRIOR sweep but did NOT re-fire this sweep (the condition cleared), so
+    #data-pipeline-alerts reflects closure instead of a permanent RED on a transient.
+
+    MUST be called AFTER the checks run (they populate the emitted set via
+    :func:`_emit`). Persists the live set in ``ACTIVE_DP_ALERTS_BLOB``. Returns the
+    resolved keys. Fail toward NO false-resolve: a read/parse miss treats the prior
+    set as empty (no spurious RESOLVED), and the bookend is INFO (never pages).
+    """
+    prior: dict[str, str] = {}
+    raw = _gcs.read_text(storage_client, log_bucket, ACTIVE_DP_ALERTS_BLOB)
+    if raw:
+        try:
+            loaded: object = json.loads(raw)
+            if isinstance(loaded, dict):
+                parsed = cast("dict[str, object]", loaded)
+                prior = {str(k): str(v) for k, v in parsed.items()}
+        except (ValueError, TypeError):
+            prior = {}
+    current = dict(_EMITTED_THIS_SWEEP)
+    resolved = [k for k in prior if k not in current]
+    for key in resolved:
+        event = prior[key]
+        label = key.split("::", 1)[1] if "::" in key else key
+        logger.info("meta_watchers: RESOLVED %s (%s)", key, event)
+        if not dry_run:
+            log_event(
+                event,
+                severity="INFO",
+                details={
+                    "resolved": True,
+                    "label": label,
+                    "registry_id": "DP-RESOLVED",
+                    "message": f":white_check_mark: RESOLVED — {label} recovered ({event} cleared)",
+                    "cloud": "GCP",
+                },
+            )
+    if not dry_run:
+        try:
+            storage_client.upload_bytes(
+                log_bucket,
+                ACTIVE_DP_ALERTS_BLOB,
+                json.dumps(current, sort_keys=True).encode("utf-8"),
+                content_type="application/json",
+            )
+        except Exception as exc:
+            logger.warning("reconcile_resolved: persist active set failed: %s", exc)
+    return resolved
 
 # The fleet-monitor / meta-watcher sweeps + their cadence (minutes). Each writes a
 # ``vm-census/<mode>-last-run.json`` sentinel at end-of-sweep; the budget is 2x the
@@ -136,6 +222,10 @@ def _emit(
     pm_repo_path: str | None,
     dry_run: bool,
 ) -> None:
+    # Record into the per-sweep emitted set FIRST (the active-alert tracker for the
+    # RESOLVED bookend). Suppressed alerts never reach _emit, so this captures
+    # exactly the fired set. Tracked even on dry_run (reconcile_resolved is dry too).
+    _EMITTED_THIS_SWEEP[_alert_key(finding)] = finding.event
     if not dry_run:
         route_finding(finding, pm_repo_path=pm_repo_path)
     logger.warning("meta_watchers: %s %s", finding.event, finding.summary)
