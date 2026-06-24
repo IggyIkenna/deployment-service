@@ -4,16 +4,16 @@
 # Delete-when: NA
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11.
 #
-# Launch a short-lived GCE VM that runs TWO manifest reconciliation scripts
+# Launch a short-lived GCE VM that runs THREE manifest reconciliation scripts
 # in APPLY mode (writes back to manifest) for a given asset_group:
 #
 #   1. reconcile_phantom_manifest_rows_all.py      --unphantom
 #   2. reconcile_expected_absence_reasons.py       --apply-flips
+#   3. reconcile_legacy_blank_to_typed_reason.py   --apply-flips
 #
-# NOTE: reconcile_legacy_blank_to_typed_reason.py (Script 3) is intentionally
-# EXCLUDED — blocked on classifier API fix (classify_blank_reason_row()
-# fixture_manifest kwarg mismatch). See issue:
-# plans/active/issues/classify_blank_reason_fixture_manifest_kwarg_2026_05_13.md
+# Script 3 was previously excluded due to a classifier API kwarg mismatch
+# (classify_blank_reason_row() fixture_manifest kwarg) — resolved 2026-05-14,
+# issue archived at plans/archive/issues/classify_blank_reason_fixture_manifest_kwarg_2026_05_13.md.
 #
 # Run on same-region (asia-northeast1-c) so GCS manifest reads are fast
 # (CLAUDE.md "Manifest phantom audit" — cross-region listing is 18× slower).
@@ -30,7 +30,9 @@
 #   - Live combined stdout: gs://deployment-scripts-{pid}/vm-logs/{vm_name}/run.log
 #   - Post-completion copy: gs://deployment-scripts-{pid}/recon-logs/YYYY-MM-DD/{vm_name}.log
 #   - Script 2 CSV report (written locally on VM to /tmp/):
-#       reconcile_expected_absence_reasons  → /tmp/recon-reasons-{ag}-{ts}.csv
+#       reconcile_expected_absence_reasons       → /tmp/recon-reasons-{ag}-{ts}.csv
+#   - Script 3 CSV report (written locally on VM to /tmp/):
+#       reconcile_legacy_blank_to_typed_reason   → /tmp/recon-legacy-typed-{ag}-{ts}.csv
 #
 # Gate dependencies:
 #   - Gate 1 (expected_unattempted_propagation_chain Phase 3+4+2.A) must be COMPLETE.
@@ -47,7 +49,7 @@
 # Cost: e2-standard-4 + 50GB. Estimated runtime (apply mode, same-region):
 #   cefi: ~30-60 min (2,223 phantom flips + 3,146 null-reason stamps)
 #   defi: ~15-20 min (1,298 phantom flips, 0 null-reason)
-#   tradfi: ~15-20 min (3,976 phantom flips, 0 null-reason)
+#   tradfi: ~20-30 min (3,976 phantom flips, 0 null-reason, 5,212 legacy-blank flips)
 set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
@@ -132,7 +134,9 @@ RECON_LOGS="gs://${CODE_BUCKET}/recon-logs/${RECON_DATE}"
 BACKFILL_CMD="MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group ${ASSET_GROUP} --unphantom"
 # cmd2: null-reason stamp (Script 2) — \$PYTHON_BIN expanded at runtime.
 BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP} --apply-flips"
-# Upload combined log to recon-logs/ after both scripts complete (no-fail).
+# cmd3: legacy-blank reclassification (Script 3) — classifier kwarg issue resolved 2026-05-14.
+BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP} --apply-flips"
+# Upload combined log to recon-logs/ after all scripts complete (no-fail).
 BACKFILL_CMD="${BACKFILL_CMD} && { gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true; }"
 
 METADATA="VM_TASK=phantom-recon"
@@ -143,10 +147,10 @@ METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
-echo "Launching $VM_NAME: apply-flips manifest recon (Scripts 1+2) for asset_group=${ASSET_GROUP}"
+echo "Launching $VM_NAME: apply-flips manifest recon (Scripts 1+2+3) for asset_group=${ASSET_GROUP}"
 echo "  Script 1: reconcile_phantom_manifest_rows_all.py --unphantom"
 echo "  Script 2: reconcile_expected_absence_reasons.py  --apply-flips"
-echo "  Script 3: EXCLUDED (classifier fixture_manifest kwarg issue — see issue P1)"
+echo "  Script 3: reconcile_legacy_blank_to_typed_reason.py --apply-flips"
 echo "  Log dest: ${RECON_LOGS}/${VM_NAME}.log"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
