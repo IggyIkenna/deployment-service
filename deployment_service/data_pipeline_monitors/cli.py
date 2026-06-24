@@ -253,6 +253,25 @@ def _make_shard_mtime_reader(storage_client: StorageClient):
     return _read
 
 
+def _make_sidecar_age_reader(storage_client: StorageClient):
+    """Return ``vm_name -> infra sidecar blob AGE (min)`` (None ⇒ no blob).
+
+    Age of ``vm-heartbeat/{vm}.txt`` in the log bucket — the FRESH HOST-liveness
+    signal (the ``vm_heartbeat_sidecar.sh`` nohup writes it 60s via a direct GCS
+    channel). The heartbeat-stall watcher reads this as the authoritative
+    ``heartbeat_age_min`` (REVISED 2026-06-24): a fresh blob ⇒ the VM host/network
+    is alive ⇒ never STALL/auto-kill on the laggy run.log; a STALE blob ⇒ the
+    host/network wedged ⇒ the reapable hang. SSOT: heartbeat_stall_watcher module
+    docstring + dp_alert_flood_triage_and_monitor_fixes_2026_06_23.md.
+    """
+    log_bucket = _log_bucket()
+
+    def _read(vm_name: str) -> float | None:
+        return _gcs.heartbeat_blob_age_minutes(storage_client, log_bucket, vm_name)
+
+    return _read
+
+
 # The catalogue regen (build_instrument_catalogue.py) writes the canonical
 # artifact to ``gs://{instruments-store-{ag}-{env-short}-{pid}}/{DEPLOYMENT_ENV}/catalog.parquet``
 # — bucket is env-SHORT (``-prd-``), the blob PREFIX is the LONG env name (default
@@ -602,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
                 vm_age_reader=_age_reader,
                 captured_reader=captured_reader,
                 shard_mtime_reader=_make_shard_mtime_reader(storage_client),
+                sidecar_age_reader=_make_sidecar_age_reader(storage_client),
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
@@ -663,6 +683,23 @@ def main(argv: list[str] | None = None) -> int:
                         scheduler_job=_consolidator_scheduler_job(ag),
                     )
                 )
+            # Host-cron freshness (FIX 2, 2026-06-24): the TradFi wave-launcher runs as
+            # a HOST cron (0 */3 on the monitor host) — invisible to Cloud Run execution
+            # history, so it carries NO cloud_run_job/scheduler_job cross-check. It writes
+            # vm-census/wave-launcher-last-run.json each tick (wave_launcher.py
+            # _write_last_run_sentinel); probe THAT freshness directly as the
+            # host-cron-fired signal (budget 2x the 3h cadence = 360m). A genuinely-dead
+            # wave-launcher still pages DP_CRON_DID_NOT_FIRE; a healthy host cron whose
+            # tick is invisible to Cloud Run no longer false-fires. Blob path mirrors
+            # scripts/wave_launcher.WAVE_LAUNCHER_LAST_RUN_BLOB (scripts/ is not importable).
+            cron_targets.append(
+                meta_watchers.FreshnessTarget(
+                    bucket=log_bucket,
+                    blob_path="vm-census/wave-launcher-last-run.json",
+                    max_age_min=360.0,
+                    label="tradfi-wave-launcher",
+                )
+            )
             meta_watchers.check_cron_fired(
                 storage_client=storage_client,
                 targets=cron_targets,
@@ -690,9 +727,7 @@ def main(argv: list[str] | None = None) -> int:
             # RESOLVED bookend (alert-lifecycle hardening): emit ✅ for any meta-watcher
             # alert that cleared since the last sweep, so #data-pipeline-alerts reflects
             # closure instead of a permanent RED on a transient stale-then-fresh artifact.
-            meta_watchers.reconcile_resolved(
-                storage_client=storage_client, log_bucket=log_bucket, dry_run=dry_run
-            )
+            meta_watchers.reconcile_resolved(storage_client=storage_client, log_bucket=log_bucket, dry_run=dry_run)
             logger.info("meta sweep complete")
             if not dry_run:
                 _gcs.write_monitor_last_run(storage_client, log_bucket, "meta", ok=True)

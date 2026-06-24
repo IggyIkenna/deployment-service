@@ -7,13 +7,30 @@ discovered from the compute API. A registered RUNNING data VM whose worker
 heartbeat / progress is older than the stall threshold (or absent past grace) is
 a silent stall — the "idle/hung VM emits nothing" gap.
 
-**BUG2 (2026-06-22):** this watcher previously keyed liveness on the generic
-infra ``vm-heartbeat/{vm}.txt`` sidecar, which the platform writes every 60s
-regardless of whether the data worker is alive — so EVERY running VM read ALIVE
-and a never-heartbeating / hung worker NEVER alerted (the operator's "zero alerts
-in 1.5h" symptom). It now reads the worker's own ``PIPELINE_HEARTBEAT`` run.log
-marker (decoupled from the always-fresh infra sidecar), so a VM whose data worker
-died / never launched / has a broken heartbeat timer is caught.
+**BUG2 (2026-06-22) → REVISED (2026-06-24, tradfi-fleet incident).** History:
+this watcher first keyed liveness on the infra ``vm-heartbeat/{vm}.txt`` sidecar;
+BUG2 switched it to the worker's ``PIPELINE_HEARTBEAT`` run.log marker because the
+sidecar (a separate ``nohup`` on the VM) keeps ticking if only the *worker* dies
+while the *host* lives → a dead worker read ALIVE ("zero alerts in 1.5h"). But the
+PIPELINE_HEARTBEAT marker rides the **GCS-tee'd run.log, which lags the on-VM log
+by 42-78m** (verified 2026-06-24: 704 fresh sidecar blobs <2m old while their run.log
+tees trailed 42-78m), so keying the STALL/auto-kill on it false-flagged every
+healthy-but-slow VM → the ``DP_VM_STALL`` flood + (worse) a live auto-kill foot-gun.
+
+REVISED MODEL — three signals, each with a distinct (freshness, fidelity) tradeoff:
+  * **sidecar blob** (``vm-heartbeat/{vm}.txt``, FRESH GCS channel, 60s) → proves the
+    VM *host/network* is alive. Goes stale ONLY when the host/network wedges (the
+    18:00 wave: both sidecar AND run.log stale) — the genuinely-reapable hang. This
+    is now the **authoritative ``heartbeat_age_min``** (a fresh sidecar ⇒ never STALL
+    on tee-lag, never auto-killed).
+  * **run.log advancing** (LAGGY tee, generous ``run_log_stall_minutes`` >> max tee
+    lag) → the hung-*worker*-on-a-live-host corroborator. A fresh sidecar + a run.log
+    frozen past the generous bound = a worker hung while the host lives → STALL
+    **alert-only** (NOT auto-killed — the host is up; a human/relaunch handles it).
+    This preserves BUG2's worker-death catch without the flood.
+  * **per-VM shard mtime** (FRESH GCS, worker-life) → the best signal *when capturing*.
+Auto-kill is therefore **gated on the SIDECAR being stale** (host/network wedged),
+never on the laggy run.log — the safety the tradfi agent required before enabling it.
 
 It sits BESIDE the zombie watchdog (does not fork it): the zombie watchdog KILLS
 stale VMs (network-partition / wedged class), while this watcher emits the
@@ -81,12 +98,16 @@ DEFAULT_KILL_CAP_PER_SWEEP = 5
 # WS VM logs sparsely + must not be reaped for a quiet run.log). Mirrors
 # deployment_classification.DeploymentUmbrella.LIVE.value.
 _LIVE_UMBRELLA = "live"
-# The run.log PROGRESS signal uses a SEPARATE, generous threshold (CLAUDE.md
-# 2026-06-22): the GCS-tee'd run.log LAGS the on-VM log by minutes, and a healthy
-# worker can legitimately go several minutes between log lines on a slow upstream
-# fetch. A frozen run.log only signals a genuine hung-process stall once it is
-# this far past its last advance — well beyond the heartbeat-blob staleness bound.
-DEFAULT_RUN_LOG_STALL_MINUTES = 45.0
+# The run.log PROGRESS signal uses a SEPARATE, generous threshold. It is the
+# hung-WORKER-on-a-live-host corroborator (sidecar fresh but the worker froze), so
+# it MUST sit ABOVE the worst observed GCS-tee lag — empirically 42-78m (2026-06-24
+# tradfi-fleet) — or a healthy-but-slow VM whose tee merely lags would false-STALL.
+# Raised 45→90 (margin over the 78m max lag): a frozen run.log past 90m on a
+# fresh-sidecar host is a genuinely hung worker (ALERT-only — the host is alive, so
+# the sidecar-gated auto-kill never fires here; a human / the relaunch actuator
+# handles it). The common reapable hang (host/network wedged) is caught FASTER by
+# the sidecar going stale (DEFAULT_STALL_MINUTES), independent of this bound.
+DEFAULT_RUN_LOG_STALL_MINUTES = 90.0
 
 
 def _is_backfill_vm(vm_name: str) -> bool:
@@ -141,27 +162,33 @@ def classify_vm_liveness(
 ) -> LivenessResult:
     """Pure liveness classification. No I/O.
 
+    ``heartbeat_age_min`` is the **sidecar blob** age (``vm-heartbeat/{vm}.txt``,
+    fresh 60s GCS channel) — the authoritative HOST-liveness signal (REVISED model,
+    see the module docstring). A fresh sidecar ⇒ the VM host/network is alive, so
+    tee-lag on the run.log can NEVER by itself produce a STALL.
+
     Precedence:
       - VM younger than ``grace_minutes``                        → TOO_YOUNG (skip)
-      - no heartbeat blob at all (``heartbeat_age_min is None``) → EVENT_LOOP_STARVED
-      - heartbeat older than ``stall_minutes``                  → STALL
-      - heartbeat fresh but the ``run.log`` is FROZEN past the
-        generous ``run_log_stall_minutes`` (hung-process: bash heartbeat
-        ticks but the worker made zero progress)               → STALL
-      - heartbeat fresh, log advancing, but captured FLAT AND the
-        log is itself stale past ``stall_minutes`` (corroborated
-        no-progress, not just a between-window lull)            → STALL
+      - per-VM shard mtime fresh (``progress_age_min``)          → ALIVE (capturing)
+      - no sidecar blob at all (``heartbeat_age_min is None``):
+          · no run.log              → EVENT_LOOP_STARVED (total silence)
+          · run.log frozen > bound  → STALL
+          · run.log advancing       → ALIVE (sidecar never started, worker logging)
+      - sidecar STALE (> ``stall_minutes``)                      → STALL (host/network
+        wedged — the reapable hang; both sidecar AND run.log stale on the 18:00 wave)
+      - sidecar FRESH but the ``run.log`` is FROZEN past the generous
+        ``run_log_stall_minutes`` (>> tee lag)                  → STALL (hung worker
+        on a live host — ALERT-only, the sidecar-gated kill never fires here)
+      - sidecar FRESH, captured FLAT AND run.log also frozen past
+        ``run_log_stall_minutes`` (corroborated no-progress)    → STALL
       - otherwise                                                → ALIVE
 
-    ``run_log_age_min`` is the PROGRESS signal (CLAUDE.md 2026-06-22 hung-process
-    rule) on a SEPARATE generous threshold (the GCS-tee'd run.log lags the on-VM
-    log by minutes — a tight bound false-flags a healthy slow fetch). ``None``
-    (no parseable log) is NOT a hang (fail-safe: only flag a positively-measured
-    stale log). ``captured_flat`` alone does NOT stall — a live-capture VM's
-    per-VM shard count legitimately holds flat between ticks; it only contributes
-    when CORROBORATED by a run.log that has also stopped advancing past the
-    heartbeat threshold, so a genuine "alive but doing nothing" is still caught
-    without false-flagging normal between-tick flatness.
+    ``run_log_age_min`` is the PROGRESS signal on a SEPARATE generous threshold (the
+    GCS-tee'd run.log lags the on-VM log 42-78m — a tight bound false-flags a healthy
+    slow fetch). ``None`` (no parseable log) is NOT a hang (fail-safe: only flag a
+    positively-measured stale log). ``captured_flat`` alone does NOT stall — it only
+    contributes when CORROBORATED by a run.log frozen past the same generous bound,
+    so normal between-tick flatness on a fresh-sidecar host never false-flags.
     """
     if vm_age_min < grace_minutes:
         verdict = LivenessVerdict.TOO_YOUNG
@@ -199,15 +226,21 @@ def classify_vm_liveness(
         else:
             verdict = LivenessVerdict.ALIVE
     elif heartbeat_age_min > stall_minutes:
+        # Sidecar blob stale → the VM host/network stopped writing its 60s blob →
+        # genuinely wedged (the reapable hang). This is what gates the auto-kill.
         verdict = LivenessVerdict.STALL
     elif is_backfill and run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
-        # Heartbeat fresh but the worker's own log froze → hung-process stall.
-        # Backfill-only: a live-capture WS VM logs sparsely, so a quiet log with a
-        # fresh heartbeat is normal (heartbeat freshness IS its liveness signal).
+        # Sidecar FRESH (host alive) but the worker's own log froze past the generous
+        # bound (>> tee lag) → hung WORKER on a live host. ALERT-only: the sidecar is
+        # fresh so should_auto_kill / is_vm_progressing never reap it. Backfill-only:
+        # a live-capture WS VM logs sparsely, so a quiet log with a fresh sidecar is
+        # normal (sidecar freshness IS its liveness signal).
         verdict = LivenessVerdict.STALL
-    elif captured_flat and run_log_age_min is not None and run_log_age_min > stall_minutes:
-        # Captured flat AND the log has also stopped advancing past the heartbeat
-        # bound → corroborated no-progress (alive-but-not-working).
+    elif captured_flat and run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
+        # Captured flat AND the log has also stopped advancing past the GENEROUS
+        # bound → corroborated no-progress (alive-but-not-working). Uses the generous
+        # run_log_stall_minutes (not stall_minutes) so normal between-tick flatness on
+        # a fresh-sidecar host whose tee merely lags never false-flags.
         verdict = LivenessVerdict.STALL
     else:
         verdict = LivenessVerdict.ALIVE
@@ -377,6 +410,7 @@ def sweep(
     vm_age_reader: Callable[[str, str], float],
     captured_reader: Callable[[str], int],
     shard_mtime_reader: Callable[[str], float | None] | None = None,
+    sidecar_age_reader: Callable[[str], float | None] | None = None,
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
@@ -417,25 +451,22 @@ def sweep(
             vm_age = vm_age_reader(vm_name, zone)
         except Exception:
             vm_age = grace_minutes  # unknown age → treat as just-past-grace, defer
-        # WORKER-life heartbeat (BUG2 fix, 2026-06-22): read the VM-life
-        # PIPELINE_HEARTBEAT marker the data worker echoes into the tee'd run.log
-        # every 60s — NOT the generic infra ``vm-heartbeat`` sidecar blob. The infra
-        # sidecar ticks every 60s regardless of whether the data worker is alive /
-        # progressing, so keying liveness off it made EVERY running VM read ALIVE →
-        # a never-heartbeating worker NEVER alerted (the operator's "zero alerts in
-        # 1.5h" symptom). The PIPELINE_HEARTBEAT marker only advances while the
-        # worker's tee'd process tree is alive. ``None`` ⇒ NO worker heartbeat marker
-        # at all (the worker died / never launched / the timer is broken) — the
-        # genuine total-silence signal ``EVENT_LOOP_STARVED`` is meant for. Falls
-        # back to the infra sidecar ONLY if the marker is absent AND the sidecar is
-        # also absent (a VM that wrote neither) — but the marker is the authority.
-        # Single run.log download per VM — extracts both the pipeline-heartbeat age
-        # and the run.log progress age in one read. Replaces the prior double-download
-        # (pipeline_heartbeat_age_minutes + run_log_age_minutes each called read_text
-        # independently) that OOM-killed the heartbeat watcher Cloud Run job on every
-        # tick (55 VMs x 2 downloads x multi-MB logs >> 2Gi; incident 2026-06-23).
+        # HOST-liveness heartbeat (REVISED 2026-06-24, see module docstring): read the
+        # FRESH infra sidecar blob (``vm-heartbeat/{vm}.txt``, written 60s via a direct
+        # GCS channel) as the authoritative ``heartbeat_age_min``. BUG2 (2026-06-22)
+        # had moved off it onto the run.log PIPELINE_HEARTBEAT marker — but that marker
+        # rides the GCS-tee'd run.log which LAGS 42-78m, so keying STALL/auto-kill on it
+        # false-flagged every healthy-but-slow VM (the DP_VM_STALL flood) AND made the
+        # auto-kill a foot-gun. The sidecar is fresh-channel + goes stale only when the
+        # host/network wedges (the genuinely-reapable hang) — so STALL/kill key on it,
+        # and the laggy run.log becomes the hung-WORKER corroborator (below). Falls back
+        # to the run.log marker only when no sidecar reader is wired (unit tests).
         _signals = _gcs.run_log_signals(storage_client, log_bucket, vm_name)
-        hb_age = _signals.pipeline_heartbeat_age_min
+        try:
+            sidecar_age = sidecar_age_reader(vm_name) if sidecar_age_reader is not None else None
+        except Exception:
+            sidecar_age = None
+        hb_age = sidecar_age if sidecar_age_reader is not None else _signals.pipeline_heartbeat_age_min
         # run.log progress signal — frozen log past threshold = hung-process stall
         # even when the bash heartbeat blob is fresh (CLAUDE.md 2026-06-22). ONLY
         # applies to BACKFILL VMs (they log continuously per date/league/chunk). A
