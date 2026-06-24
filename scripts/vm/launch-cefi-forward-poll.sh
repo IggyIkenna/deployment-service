@@ -10,8 +10,8 @@
 #
 # Purpose: ingest a single day of CeFi market-data ticks for the operator-
 # expected coverage set in EXPECTED_COVERAGE_BY_ASSET_GROUP['cefi']
-# (BINANCE-SPOT/FUTURES, BYBIT, OKX, DERIBIT, UPBIT, COINBASE, HYPERLIQUID,
-# ASTER) covering the data_types declared per venue
+# (BINANCE-SPOT/FUTURES, BYBIT, BYBIT-SPOT, OKX, DERIBIT, UPBIT,
+# COINBASE-SPOT/FUTURES, HYPERLIQUID, ASTER) covering the data_types declared per venue
 # (trades / book_snapshot_5 / derivative_ticker / liquidations / options_chain
 # / futures_chain).
 #
