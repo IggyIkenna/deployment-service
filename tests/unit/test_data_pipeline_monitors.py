@@ -1132,6 +1132,129 @@ def test_catalogue_stale_emits_critical(monkeypatch):
     assert any(e[0] == "DP_CATALOG_NOT_RUNNING" and e[1] == "CRITICAL" for e in emitted)
 
 
+# ── Fix 2: consecutive-miss gate (transient-blip suppression) ────────────────
+def _capture_emits(monkeypatch) -> list[tuple[str, str]]:
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    return emitted
+
+
+def test_catalogue_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
+    # A SINGLE stale sweep (a transient GCS-read blip under heavy backfill) must NOT
+    # page; only a SUSTAINED stale condition (>= min_consecutive sweeps) does.
+    bucket = "instruments-store-defi-prd-test-project"
+    blob = "_catalogue/instrument_catalogue.parquet"
+    storage = FakeStorage({(bucket, blob): (b"x", 30 * 60.0)})  # 30h old, budget 24h → stale
+    emitted = _capture_emits(monkeypatch)
+    target = meta_watchers.FreshnessTarget(
+        bucket=bucket, blob_path=blob, max_age_min=meta_watchers.DEFAULT_CATALOGUE_MAX_AGE_MIN, label="defi"
+    )
+    # Sweep 1 — first miss → suppressed.
+    t1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_catalogue_freshness(
+        storage_client=storage, targets=[target], miss_tracker=t1, min_consecutive=2
+    )
+    t1.persist()
+    assert not any(e[0] == "DP_CATALOG_NOT_RUNNING" for e in emitted)
+    # Sweep 2 — second consecutive miss (counter reloaded from GCS) → pages CRITICAL.
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_catalogue_freshness(
+        storage_client=storage, targets=[target], miss_tracker=t2, min_consecutive=2
+    )
+    t2.persist()
+    assert any(e[0] == "DP_CATALOG_NOT_RUNNING" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_catalogue_fresh_resets_miss_counter(monkeypatch):
+    # A miss followed by a fresh probe resets the counter — a recovered-then-stale-again
+    # cycle starts counting from 0, so only a CONSECUTIVE run pages.
+    bucket = "instruments-store-defi-prd-test-project"
+    blob = "_catalogue/instrument_catalogue.parquet"
+    storage = FakeStorage({(bucket, blob): (b"x", 30 * 60.0)})  # stale
+    _capture_emits(monkeypatch)
+    target = meta_watchers.FreshnessTarget(
+        bucket=bucket, blob_path=blob, max_age_min=meta_watchers.DEFAULT_CATALOGUE_MAX_AGE_MIN, label="defi"
+    )
+    t1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_catalogue_freshness(
+        storage_client=storage, targets=[target], miss_tracker=t1, min_consecutive=2
+    )
+    t1.persist()
+    assert t1._counts[meta_watchers._catalogue_miss_key(target)] == 1  # one miss recorded
+    # Now fresh — the reloaded counter (1) must reset to 0/absent on a fresh probe.
+    storage.blobs[(bucket, blob)] = (b"x", 1.0)
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert t2._counts[meta_watchers._catalogue_miss_key(target)] == 1  # loaded the prior miss
+    meta_watchers.check_catalogue_freshness(
+        storage_client=storage, targets=[target], miss_tracker=t2, min_consecutive=2
+    )
+    assert meta_watchers._catalogue_miss_key(target) not in t2._counts  # reset on fresh
+
+
+def test_cron_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
+    blob = "vm-census/some-cron-last-run.json"
+    storage = FakeStorage({(LOG_BUCKET, blob): (b"{}", 999.0)})  # well past budget → stale
+    emitted = _capture_emits(monkeypatch)
+    target = meta_watchers.FreshnessTarget(bucket=LOG_BUCKET, blob_path=blob, max_age_min=10.0, label="some-cron")
+    t1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], miss_tracker=t1, min_consecutive=2)
+    t1.persist()
+    assert not any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], miss_tracker=t2, min_consecutive=2)
+    t2.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_cron_paused_resets_miss_counter(monkeypatch):
+    # A suppressed-by-design (PAUSED scheduler) probe is NOT a real miss → resets the
+    # counter, so an un-pause-then-stale doesn't inherit stale misses.
+    blob = "vm-census/some-cron-last-run.json"
+    storage = FakeStorage({(LOG_BUCKET, blob): (b"{}", 999.0)})  # stale
+    _capture_emits(monkeypatch)
+    target = meta_watchers.FreshnessTarget(
+        bucket=LOG_BUCKET, blob_path=blob, max_age_min=10.0, label="some-cron", scheduler_job="job-x"
+    )
+    t = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    t.register(meta_watchers._cron_miss_key(target), stale=True)  # pre-seed a miss
+    meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[target],
+        scheduler_state_reader=lambda _j: "PAUSED",
+        miss_tracker=t,
+        min_consecutive=2,
+    )
+    assert meta_watchers._cron_miss_key(target) not in t._counts  # paused → reset
+
+
+def test_misstracker_load_register_persist_roundtrip():
+    storage = FakeStorage({})
+    t = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert t.register("k", stale=True) == 1
+    assert t.register("k", stale=True) == 2
+    assert t.register("k", stale=False) == 0  # reset
+    t.persist()
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert t2._counts == {}  # 'k' was reset before persist
+
+
+def test_catalogue_no_tracker_pages_immediately(monkeypatch):
+    # Back-compat: with no miss_tracker (existing call sites / tests), a stale probe
+    # pages on the FIRST sweep, as before.
+    bucket = "instruments-store-defi-prd-test-project"
+    blob = "_catalogue/instrument_catalogue.parquet"
+    storage = FakeStorage({(bucket, blob): (b"x", 30 * 60.0)})
+    emitted = _capture_emits(monkeypatch)
+    target = meta_watchers.FreshnessTarget(
+        bucket=bucket, blob_path=blob, max_age_min=meta_watchers.DEFAULT_CATALOGUE_MAX_AGE_MIN, label="defi"
+    )
+    meta_watchers.check_catalogue_freshness(storage_client=storage, targets=[target])
+    assert any(e[0] == "DP_CATALOG_NOT_RUNNING" and e[1] == "CRITICAL" for e in emitted)
+
+
 def test_zombie_watchdog_down_when_census_missing(monkeypatch):
     storage = FakeStorage({})  # no census blob
     emitted: list[str] = []

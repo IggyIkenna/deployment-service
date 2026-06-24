@@ -736,11 +736,19 @@ def main(argv: list[str] | None = None) -> int:
                 )
         else:  # meta
             meta_watchers.reset_emitted_tracker()
+            # Consecutive-miss gate (Fix 2, 2026-06-24): page the catalogue + cron
+            # alerts only after a probe is stale for N consecutive sweeps, so a single
+            # transient GCS-read blip during a heavy backfill never false-pages. The
+            # counters persist across Cloud Run sweeps in a GCS blob (each sweep is a
+            # fresh process). Loaded once, shared by all three checkers, persisted at
+            # end-of-sweep so the next sweep continues the count.
+            miss_tracker = meta_watchers.MissTracker.load(storage_client=storage_client, log_bucket=log_bucket)
             meta_watchers.check_catalogue_freshness(
                 storage_client=storage_client,
                 targets=_catalogue_targets(),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
+                miss_tracker=miss_tracker,
             )
             meta_watchers.check_zombie_watchdog_alive(
                 storage_client=storage_client,
@@ -803,6 +811,7 @@ def main(argv: list[str] | None = None) -> int:
                 execution_history_reader=execution_history_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
+                miss_tracker=miss_tracker,
             )
             # Cron-watches-cron (in-band): probe the fleet-monitor / meta-watcher
             # sweep sentinels themselves. A stopped exit-code/heartbeat/meta cron
@@ -819,7 +828,13 @@ def main(argv: list[str] | None = None) -> int:
                 execution_history_reader=execution_history_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
+                miss_tracker=miss_tracker,
             )
+            # Persist the consecutive-miss counters so the NEXT sweep continues the
+            # count (a stale condition that has now been a miss for N sweeps pages;
+            # a fresh/suppressed probe reset its key above). Before reconcile_resolved
+            # so a partial-sweep failure still records the misses.
+            miss_tracker.persist(dry_run=dry_run)
             # RESOLVED bookend (alert-lifecycle hardening): emit ✅ for any meta-watcher
             # alert that cleared since the last sweep, so #data-pipeline-alerts reflects
             # closure instead of a permanent RED on a transient stale-then-fresh artifact.
