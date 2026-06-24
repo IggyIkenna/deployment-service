@@ -137,24 +137,60 @@ def blob_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str)
 
 
 def _content_epoch_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str) -> float | None:
-    """Age in minutes from the blob's CONTENT first-line Unix epoch, or ``None``.
+    """Age in minutes from a blob's CONTENT timestamp, or ``None``.
 
-    The ``vm_heartbeat_sidecar.sh`` writes ``<epoch_seconds>\\n<rc>\\n<status>`` to
-    ``vm-heartbeat/{vm}.txt`` every 60s. The first line is the freshest heartbeat
-    instant — independent of (the often-bare) blob ``last_modified`` metadata.
-    Returns ``None`` when the blob is missing or its first line is not an int.
+    Handles the TWO content shapes that live in ``deployment-scripts-*`` (where the
+    storage-client ``last_modified`` metadata reads bare — see :func:`blob_age_minutes`):
+
+    * **epoch sidecar** — ``vm_heartbeat_sidecar.sh`` writes ``<epoch_seconds>\\n<rc>\\n<status>``
+      to ``vm-heartbeat/{vm}.txt``; the first line is a Unix epoch integer.
+    * **JSON sentinel/census** — ``write_monitor_last_run`` (``{mode}-last-run.json``) and the
+      zombie-watchdog census (``watchdog-census.json``) write ``{"ts": "<ISO>", ...}``; the first
+      char is ``{`` so the epoch parse fails → read the ISO ``ts`` field instead.
+
+    Returns ``None`` when the blob is missing or carries neither a leading epoch nor a JSON
+    ``ts``. **HARD-LEARNED (2026-06-23):** when only the epoch shape was handled, every JSON
+    sentinel read ``age=None`` → the out-of-band deadman paged all 3 fleet monitors
+    "sentinel stale: missing (never ran)" on every run despite the sweeps writing fresh
+    sentinels (the bug surfaced the moment the deadman stopped crashing before this check).
     """
     raw = read_text(storage_client, bucket, blob_path)
     if not raw:
         return None
-    first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    first = stripped.splitlines()[0].strip()
+    # Shape 1: epoch sidecar — first line is a positive Unix epoch integer.
     try:
         epoch = int(first)
     except ValueError:
+        epoch = 0
+    if epoch > 0:
+        return (datetime.now(UTC).timestamp() - float(epoch)) / 60.0
+    # Shape 2: JSON sentinel/census — read the ISO ``ts`` field as the freshness instant.
+    return _json_ts_age_minutes(stripped)
+
+
+def _json_ts_age_minutes(raw: str) -> float | None:
+    """Age in minutes from a JSON blob's ISO ``ts`` field, or ``None`` if absent/unparseable."""
+    try:
+        loaded = cast("object", json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
         return None
-    if epoch <= 0:
+    if not isinstance(loaded, dict):
         return None
-    return (datetime.now(UTC).timestamp() - float(epoch)) / 60.0
+    data = cast("dict[str, object]", loaded)
+    iso = data.get("ts")
+    if not isinstance(iso, str) or not iso:
+        return None
+    try:
+        when = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - when.astimezone(UTC)).total_seconds() / 60.0
 
 
 def heartbeat_blob_age_minutes(storage_client: StorageClient, bucket: str, vm_name: str) -> float | None:

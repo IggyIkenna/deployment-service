@@ -1511,3 +1511,42 @@ def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
     # e2-standard-8 (32 GB) → next canonical ladder rung n2-standard-16 (64 GB).
     assert captured["launcher_env"] == {"MACHINE_TYPE": "n2-standard-16"}
     assert out["escalated_machine_type"] == "n2-standard-16"
+
+
+# ── JSON-sentinel freshness on a bare-last_modified bucket (regression 2026-06-23) ──
+def _json_sentinel(ts_age_min: float) -> bytes:
+    ts = (datetime.now(UTC) - timedelta(minutes=ts_age_min)).isoformat()
+    return json.dumps({"mode": "exit-code", "ts": ts, "ok": True, "counts": {}}, sort_keys=True).encode()
+
+
+def test_blob_age_minutes_reads_json_ts_when_last_modified_bare():
+    """A fresh JSON sentinel with BARE metadata (age_min=None) reads its content `ts`,
+    not None — the deployment-scripts-* `last_modified=None` quirk previously made every
+    JSON sentinel read `age=None` → false 'sentinel stale: missing (never ran)'."""
+    blob = "vm-census/exit-code-last-run.json"
+    storage = FakeStorage({(LOG_BUCKET, blob): (_json_sentinel(3.0), None)})  # None ⇒ bare metadata
+    age = _gcs.blob_age_minutes(storage, LOG_BUCKET, blob)
+    assert age is not None
+    assert 2.0 < age < 5.0
+
+
+def test_monitor_sentinel_fresh_json_not_stale():
+    """probe_freshness on a monitor_cron_target reads a fresh-but-bare-metadata JSON sentinel
+    as FRESH (the exact deadman false-page path)."""
+    targets = meta_watchers.monitor_cron_targets(LOG_BUCKET)
+    target = next(t for t in targets if t.label == "dp-exit-code-monitor")
+    storage = FakeStorage({(LOG_BUCKET, target.blob_path): (_json_sentinel(1.0), None)})
+    result = meta_watchers.probe_freshness(storage, target)
+    assert result.age_min is not None
+    assert not result.stale
+
+
+def test_blob_age_minutes_still_reads_epoch_sidecar():
+    """The epoch-sidecar shape (heartbeat `<epoch>\\n<rc>\\n<status>`) still works — the JSON
+    fallback is additive, not a replacement."""
+    blob = "vm-heartbeat/some-vm.txt"
+    epoch = int((datetime.now(UTC) - timedelta(minutes=2.0)).timestamp())
+    storage = FakeStorage({(LOG_BUCKET, blob): (f"{epoch}\n0\nrunning\n".encode(), None)})
+    age = _gcs.blob_age_minutes(storage, LOG_BUCKET, blob)
+    assert age is not None
+    assert 1.0 < age < 4.0

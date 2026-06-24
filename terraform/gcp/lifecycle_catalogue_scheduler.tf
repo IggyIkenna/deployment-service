@@ -53,14 +53,20 @@ locals {
   # `memory`/`cpu` are per-AG (default 4Gi/2). tradfi OOM'd at 4Gi (2026-06-19), 8Gi AND
   # 16Gi (2026-06-23 catch-up, signal-9 after ~12 min) — "configured memory limit was
   # reached" — because it has the largest universe (equities + CME/CBOE futures + EC*
-  # event contracts) AND the by-date roll-up loads the whole corpus in memory, so it is
-  # bumped to 32Gi/cpu8 (Cloud Run job ceiling). DURABLE FIX (P2): chunk the roll-up so it
-  # is not memory-bound — tracked in lifecycle_catalogue_tradfi_rollup_chunking issue.
-  # Bump any other AG here if its roll-up OOMs.
+  # event contracts; 11.6k by_date parquets) AND the by-date roll-up *buffered the whole
+  # corpus in memory* (the old ThreadPoolExecutor.map eagerly downloaded + queued EVERY
+  # frame). DURABLE FIX SHIPPED 2026-06-23 (build_instrument_catalogue.py
+  # _bounded_parallel_load): the download is now a memory-BOUNDED sliding window — at most
+  # max_workers (16) frames in flight, each yielded into the streaming aggregate fold and
+  # dropped before the next — so peak memory is O(max_workers) not O(11.6k). With memory
+  # no longer the constraint, tradfi is back to 16Gi/cpu4 (the 32Gi band-aid is removed;
+  # 16Gi is generous headroom for 16 in-flight equities frames). The slow leg is now the
+  # 11.6k-blob GCS read, so `timeout_seconds` is raised 1800→3600 (+ the scheduler
+  # attempt_deadline) to give the read room. Bump any other AG here only if its roll-up OOMs.
   lifecycle_catalogue_asset_groups = {
     cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
     defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
-    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "32Gi", cpu = "8" }
+    tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "16Gi", cpu = "4" }
     sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"], memory = "4Gi", cpu = "2" }
     # prediction → flat "pred" short key per cloud-providers.yaml (instruments-store-prediction-… does not exist).
     prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
@@ -116,7 +122,7 @@ module "lifecycle_catalogue_regen_job" {
 
   cpu             = each.value.cpu    # per-AG (default 2; tradfi 4 — Cloud Run requires cpu>=4 at 16Gi)
   memory          = each.value.memory # per-AG (default 4Gi; tradfi 16Gi — OOM'd at 4Gi+8Gi)
-  timeout_seconds = 1800 # 30 min — by-date snapshot read + lifecycle roll-up + catalog.parquet write
+  timeout_seconds = 3600 # 60 min — the 11.6k-blob tradfi by_date GCS read is the slow leg (memory is bounded post-_bounded_parallel_load); raised 1800→3600 2026-06-23
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
@@ -155,7 +161,7 @@ resource "google_cloud_scheduler_job" "lifecycle_catalogue_regen_daily" {
   description      = "Roll up ${each.key} instrument_availability/by_date snapshots into the available_from/to lifecycle catalogue (catalog.parquet) for the v2 expected-universe enumerator"
   schedule         = "0 1 * * *" # 01:00 UTC daily — after 00:00 IS FAST refresh, before 02:00/04:30 downstream catalogue regens
   time_zone        = "UTC"
-  attempt_deadline = "1800s"
+  attempt_deadline = "1800s" # scheduler only fires the :run POST (returns immediately); the JOB's own timeout_seconds=3600 bounds the roll-up
 
   retry_config {
     retry_count          = 1
