@@ -276,6 +276,27 @@ def _derive_cme_root(underlying: str, instrument_id: str) -> str | None:
 
 def compute_dispatch_candidates(df: pd.DataFrame) -> tuple[list[Dispatch], dict[str, int]]:
     """Return (ordered candidate dispatches, out-of-scope gap summary)."""
+    # SOURCE-RESOLVE (2026-06-24): a logical cell is a gap only if NO source captured it.
+    # Multi-source union rule: ≥1 captured row for a cell → the whole cell is covered.
+    # This prevents orphaned EU rows from a now-secondary source (e.g. massive) from
+    # triggering re-dispatch when another source (e.g. databento) already captured the cell.
+    # Logical-cell key: (venue, date, data_type, instrument_id) — excludes source/pipeline_mode.
+    _CELL_KEY = ["venue", "date", "data_type", "instrument_id"]
+    _cell_cols = [c for c in _CELL_KEY if c in df.columns]
+    if _cell_cols and "capture_status" in df.columns:
+        _captured = df[df["capture_status"] == "captured"][_cell_cols].drop_duplicates()
+        if len(_captured):
+            # Use a merge to efficiently identify rows whose logical cell is already covered.
+            _gap_candidates = df[df["capture_status"].isin(NEEDS_WORK)]
+            _merged = _gap_candidates[_cell_cols].merge(_captured.assign(_covered=True), on=_cell_cols, how="left")
+            _not_covered = _merged["_covered"].isna()
+            df = pd.concat(
+                [
+                    df[~df["capture_status"].isin(NEEDS_WORK)],
+                    _gap_candidates[_not_covered.values],
+                ],
+                ignore_index=True,
+            )
     need = df[df["capture_status"].isin(NEEDS_WORK)].copy()
     need["year"] = pd.to_datetime(need["date"], errors="coerce").dt.year
     need = need[need["year"].notna()]
