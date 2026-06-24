@@ -752,17 +752,35 @@ def test_classify_captured_flat_alone_does_not_stall():
 
 
 def test_classify_captured_flat_with_stale_log_does_stall():
-    """Captured flat AND run.log also stopped advancing ⇒ corroborated stall."""
+    """Captured flat AND run.log frozen past the GENEROUS bound ⇒ corroborated stall.
+
+    The run.log must exceed run_log_stall_minutes (not the tight stall_minutes) so a
+    healthy-host VM whose tee merely lags never false-flags (REVISED 2026-06-24)."""
     res = heartbeat_stall_watcher.classify_vm_liveness(
         "tradfi-bf-vm",
         vm_age_min=120,
-        heartbeat_age_min=1.0,
+        heartbeat_age_min=1.0,  # fresh sidecar
         captured_flat=True,
-        run_log_age_min=20.0,
+        run_log_age_min=95.0,  # past the generous 90m bound
         stall_minutes=10.0,
-        run_log_stall_minutes=45.0,
+        run_log_stall_minutes=90.0,
     )
     assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+
+
+def test_classify_captured_flat_with_merely_lagging_log_is_alive():
+    """Fresh sidecar + captured flat + run.log lagging WITHIN the generous bound ⇒
+    ALIVE — the false-DP_VM_STALL-flood killer (a healthy-slow VM whose tee lags)."""
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "tradfi-bf-vm",
+        vm_age_min=120,
+        heartbeat_age_min=2.0,  # fresh sidecar = host alive
+        captured_flat=True,
+        run_log_age_min=60.0,  # laggy tee, but < 90m bound
+        stall_minutes=10.0,
+        run_log_stall_minutes=90.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
 
 
 def test_is_backfill_vm_classification():
@@ -1550,3 +1568,154 @@ def test_blob_age_minutes_still_reads_epoch_sidecar():
     age = _gcs.blob_age_minutes(storage, LOG_BUCKET, blob)
     assert age is not None
     assert 1.0 < age < 4.0
+
+
+# ── Sidecar-authoritative heartbeat (FIX 1/1b, 2026-06-24) ──────────────────────
+def test_sweep_sidecar_fresh_overrides_laggy_runlog(monkeypatch):
+    """Healthy-slow VM: run.log PIPELINE_HEARTBEAT marker laggy (60m) but the FRESH
+    sidecar (2m) is authoritative → ALIVE, no false DP_VM_STALL (the flood fix)."""
+    vm = "tradfi-bf-cme-6e-2025"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        sidecar_age_reader=lambda _vm: 2.0,  # FRESH sidecar = host alive
+        asset_group_for_vm=lambda _vm: "tradfi",
+        stall_minutes=10,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+    assert not any(e[0] == "DP_VM_STALL" for e in emitted)
+
+
+def test_sweep_sidecar_stale_stalls_and_autokills(monkeypatch):
+    """Sidecar STALE (host/network wedged) + not capturing → STALL, and the
+    sidecar-gated auto-kill fires (vm_killer called)."""
+    vm = "tradfi-bf-cme-6z-2025"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.heartbeat_stall_watcher.log_event",
+        lambda *a, **k: None,
+    )
+    killed: list[str] = []
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        sidecar_age_reader=lambda _vm: 60.0,  # STALE sidecar → host wedged
+        asset_group_for_vm=lambda _vm: "tradfi",
+        umbrella_for_vm=lambda _vm: "batch",
+        vm_killer=lambda name, _zone: bool(killed.append(name)) or True,
+        stall_minutes=10,
+        kill_minutes=45,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
+    assert killed == [vm]  # sidecar 60m >= kill_minutes 45 → reaped
+
+
+def test_should_auto_kill_fresh_sidecar_never_kills():
+    """Fresh sidecar (heartbeat_age_min < kill_minutes) ⇒ is_vm_progressing True ⇒
+    NEVER reaped even with a STALL verdict (hung-worker-on-live-host = alert-only)."""
+    res = heartbeat_stall_watcher.LivenessResult(
+        vm_name="vm",
+        verdict=heartbeat_stall_watcher.LivenessVerdict.STALL,
+        heartbeat_age_min=2.0,  # fresh sidecar
+        captured_flat=False,
+        run_log_age_min=95.0,
+    )
+    assert not heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="batch", kill_minutes=45.0)
+
+
+def test_should_auto_kill_stale_sidecar_kills():
+    """Stale sidecar (heartbeat_age_min ≥ kill_minutes) + STALL + backfill ⇒ reaped."""
+    res = heartbeat_stall_watcher.LivenessResult(
+        vm_name="vm",
+        verdict=heartbeat_stall_watcher.LivenessVerdict.STALL,
+        heartbeat_age_min=60.0,  # stale sidecar
+        captured_flat=False,
+        run_log_age_min=None,
+    )
+    assert heartbeat_stall_watcher.should_auto_kill(res, is_backfill=True, umbrella="batch", kill_minutes=45.0)
+
+
+def test_wave_launcher_host_cron_sentinel_fresh_not_stale():
+    """FIX 2: the wave-launcher host-cron sentinel (fresh JSON ts, BARE metadata)
+    probes FRESH via the JSON-ts path; the target carries NO cloud_run_job so it is
+    never cross-checked against Cloud Run history (a host cron is invisible there)."""
+    target = meta_watchers.FreshnessTarget(
+        bucket=LOG_BUCKET,
+        blob_path="vm-census/wave-launcher-last-run.json",
+        max_age_min=360.0,
+        label="tradfi-wave-launcher",
+    )
+    storage = FakeStorage({(LOG_BUCKET, target.blob_path): (_json_sentinel(30.0), None)})
+    result = meta_watchers.probe_freshness(storage, target)
+    assert result.age_min is not None
+    assert not result.stale
+    assert target.cloud_run_job == ""
+
+
+# ── RESOLVED bookend generalized to heartbeat/exit-code (alert-lifecycle, 2026-06-24) ──
+def test_reconcile_resolved_per_mode_blob_and_emitted(monkeypatch):
+    """A prior-active alert NOT in this sweep's emitted set posts a ✅ RESOLVED, using a
+    per-mode active blob + an injected emitted set (the heartbeat/exit-code path)."""
+    blob = "vm-census/active-dp-alerts-heartbeat.json"
+    prior = json.dumps({"DP_VM_STALL::vm-a": "DP_VM_STALL", "DP_VM_STALL::vm-b": "DP_VM_STALL"}).encode()
+    storage = FakeStorage({(LOG_BUCKET, blob): (prior, 1.0)})
+    emitted_events: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted_events.append((event, severity)),
+    )
+    # This sweep only re-fired vm-b → vm-a cleared → RESOLVED.
+    resolved = meta_watchers.reconcile_resolved(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        active_blob=blob,
+        emitted={"DP_VM_STALL::vm-b": "DP_VM_STALL"},
+    )
+    assert resolved == ["DP_VM_STALL::vm-a"]
+    assert ("DP_VM_STALL", "INFO") in emitted_events  # the ✅ RESOLVED INFO bookend
+    # The persisted active set is now exactly this sweep's emissions (vm-b only).
+    assert (
+        storage.uploaded[(LOG_BUCKET, blob)]
+        == json.dumps({"DP_VM_STALL::vm-b": "DP_VM_STALL"}, sort_keys=True).encode()
+    )
+
+
+def test_heartbeat_sweep_populates_finding_sink(monkeypatch):
+    """The heartbeat sweep appends each fired finding to finding_sink so the cli can
+    reconcile the RESOLVED bookend (a stalled VM's finding is captured)."""
+    vm = "tradfi-bf-cme-6z-2025"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda *a, **k: None,
+    )
+    sink: list = []
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        sidecar_age_reader=lambda _vm: 60.0,  # stale sidecar → STALL finding
+        asset_group_for_vm=lambda _vm: "tradfi",
+        finding_sink=sink,
+        stall_minutes=10,
+    )
+    assert len(sink) == 1
+    assert meta_watchers.alert_key(sink[0]).startswith("DP_VM_STALL::")

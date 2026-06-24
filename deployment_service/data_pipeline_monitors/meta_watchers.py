@@ -76,32 +76,44 @@ def _alert_key(finding: PipelineFinding) -> str:
     return f"{finding.event}::{label}"
 
 
+def alert_key(finding: PipelineFinding) -> str:
+    """Public alias of :func:`_alert_key` — the cross-sweep alert identity. Lets the
+    heartbeat / exit-code sweeps record their emitted findings for the same RESOLVED
+    bookend (alert-lifecycle hardening, extended to all 3 sweeps 2026-06-24)."""
+    return _alert_key(finding)
+
+
 def reconcile_resolved(
     *,
     storage_client: StorageClient,
     log_bucket: str,
+    active_blob: str = ACTIVE_DP_ALERTS_BLOB,
+    emitted: dict[str, str] | None = None,
     dry_run: bool = False,
 ) -> list[str]:
-    """Emit a ``✅ RESOLVED`` INFO bookend for each meta-watcher alert that fired on a
-    PRIOR sweep but did NOT re-fire this sweep (the condition cleared), so
-    #data-pipeline-alerts reflects closure instead of a permanent RED on a transient.
+    """Emit a ``✅ RESOLVED`` INFO bookend for each alert that fired on a PRIOR sweep
+    but did NOT re-fire this sweep (the condition cleared), so #data-pipeline-alerts
+    reflects closure instead of a permanent RED on a transient.
 
-    MUST be called AFTER the checks run (they populate the emitted set via
-    :func:`_emit`). Persists the live set in ``ACTIVE_DP_ALERTS_BLOB``. Returns the
-    resolved keys. Fail toward NO false-resolve: a read/parse miss treats the prior
-    set as empty (no spurious RESOLVED), and the bookend is INFO (never pages).
+    Generic across the 3 fleet sweeps (2026-06-24): ``active_blob`` is the per-mode
+    active-alert state blob (meta / heartbeat / exit-code each own one so they never
+    clobber each other's set — the sweeps cover DISJOINT event types), and ``emitted``
+    is THIS sweep's fired set (``alert_key -> event``). When ``emitted`` is ``None`` it
+    falls back to the meta sweep's ``_EMITTED_THIS_SWEEP`` accumulator (populated via
+    :func:`_emit`). Returns the resolved keys. Fail toward NO false-resolve: a
+    read/parse miss treats the prior set as empty, and the bookend is INFO (never pages).
     """
     prior: dict[str, str] = {}
-    raw = _gcs.read_text(storage_client, log_bucket, ACTIVE_DP_ALERTS_BLOB)
+    raw = _gcs.read_text(storage_client, log_bucket, active_blob)
     if raw:
         try:
-            loaded: object = json.loads(raw)
+            loaded = cast("object", json.loads(raw))
             if isinstance(loaded, dict):
                 parsed = cast("dict[str, object]", loaded)
                 prior = {str(k): str(v) for k, v in parsed.items()}
         except (ValueError, TypeError):
             prior = {}
-    current = dict(_EMITTED_THIS_SWEEP)
+    current = dict(_EMITTED_THIS_SWEEP if emitted is None else emitted)
     resolved = [k for k in prior if k not in current]
     for key in resolved:
         event = prior[key]
@@ -123,13 +135,14 @@ def reconcile_resolved(
         try:
             storage_client.upload_bytes(
                 log_bucket,
-                ACTIVE_DP_ALERTS_BLOB,
+                active_blob,
                 json.dumps(current, sort_keys=True).encode("utf-8"),
                 content_type="application/json",
             )
         except Exception as exc:
             logger.warning("reconcile_resolved: persist active set failed: %s", exc)
     return resolved
+
 
 # The fleet-monitor / meta-watcher sweeps + their cadence (minutes). Each writes a
 # ``vm-census/<mode>-last-run.json`` sentinel at end-of-sweep; the budget is 2x the
