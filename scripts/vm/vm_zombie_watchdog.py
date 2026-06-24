@@ -78,7 +78,7 @@ from requests.adapters import HTTPAdapter
 from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
 from unified_trading_library import StorageClient, get_storage_client, resolve_bucket_name, upload_to_storage
-from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import (gcs_copy_object not in UTL top-level)
+from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import (gcs_copy_object not in UTL top-level; root import raises ImportError at runtime)
     gcs_copy_object,
 )
 
@@ -200,10 +200,21 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Prediction live WS producer (launch-prediction-live.sh).
     # MANIFEST_PER_VM_SHARDS=true; LONG_LIVED_LIVE — runs continuously
     # as a live websocket stream for the full IS-enumerated universe.
-    # One VM per (venue × data_type) shard; singleton lock per shard.
+    # One VM per (venue x data_type) shard; singleton lock per shard.
     # Registered 2026-06-22.
     # ------------------------------------------------------------------
     "prediction-live-": VmPrefixSpec(bucket=_TICK_PRED, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
+    # ------------------------------------------------------------------
+    # Cross-venue (Kalshi ↔ Polymarket) prediction arb DETECTOR
+    # (launch-prediction-arb-detector.sh). LONG_LIVED_LIVE paper-mode loop:
+    # reads both venues' live book_snapshot_5, flags PURE_ARB / QUOTABLE_ARB,
+    # streams opportunities to the features-cross-instrument arb store. It does
+    # NOT write per-VM tick-manifest shards (its output is the arb store, not the
+    # manifest), so bucket=None = heartbeat-only liveness (no shard staleness
+    # check). Classified LIVE via LONG_LIVED_LIVE. Singleton-locked per prefix.
+    # Registered 2026-06-24.
+    # ------------------------------------------------------------------
+    "prediction-arb-detector-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     # ------------------------------------------------------------------
     # CeFi instrument discovery + one-offs (heartbeat-only)
     # ------------------------------------------------------------------
@@ -1175,7 +1186,7 @@ def _list_backfill_vms(compute_client: compute_v1.InstancesClient) -> list[tuple
     return [(name, zone) for (name, zone, _) in _list_watchable_vms(compute_client)]
 
 
-def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:
+def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:  # noqa: F821 — google.cloud.storage type-only ref; not imported at runtime (TID251-banned) and scripts/ is outside the basedpyright scope
     """Return age in minutes of a blob, or None if missing."""
     blob = bucket.blob(blob_name)
     try:
@@ -1346,10 +1357,10 @@ def _write_census_snapshot(
 
     Best-effort — a GCS failure logs a warning but never blocks the watchdog.
     Payload:
-      ts      – ISO-8601 UTC write time
-      running – sorted VM names currently alive (alive-verdict evaluated VMs)
-      zombies – sorted VM names the watchdog classified as zombie this cycle
-      oom     – always [] (no OOM signal today — honest absence)
+      ts      - ISO-8601 UTC write time
+      running - sorted VM names currently alive (alive-verdict evaluated VMs)
+      zombies - sorted VM names the watchdog classified as zombie this cycle
+      oom     - always [] (no OOM signal today - honest absence)
     """
     payload = {
         "ts": datetime.now(UTC).isoformat(),
