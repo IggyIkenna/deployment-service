@@ -414,6 +414,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    finding_sink: list[PipelineFinding] | None = None,
     vm_killer: Callable[[str, str], bool] | None = None,
     prior_captured: dict[str, int] | None = None,
     stall_minutes: float = DEFAULT_STALL_MINUTES,
@@ -517,6 +518,11 @@ def sweep(
             relaunch_launcher=launcher,
             umbrella=umbrella,
         )
+        # Record the fired finding for the RESOLVED-bookend lifecycle (the caller
+        # reconciles it against the prior active set so a recovered/reaped VM posts a
+        # ✅ RESOLVED). Tracked even on dry_run. Suppressed → no finding → not tracked.
+        if finding is not None and finding_sink is not None:
+            finding_sink.append(finding)
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:

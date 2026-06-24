@@ -49,6 +49,7 @@ from deployment_service.data_pipeline_monitors import (
     heartbeat_stall_watcher,
     meta_watchers,
 )
+from deployment_service.data_pipeline_monitors.escalation import PipelineFinding
 from deployment_service.data_pipeline_monitors.launcher_registry import resolve_launcher_for_vm
 from deployment_service.deployment_classification import (
     UnclassifiedDeploymentError,
@@ -568,6 +569,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if mode == "exit-code":
             running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
+            ec_findings: list[PipelineFinding] = []
             results = exit_code_fleet_monitor.sweep(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
@@ -576,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                finding_sink=ec_findings,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -598,6 +601,16 @@ def main(argv: list[str] | None = None) -> int:
                     ok=True,
                     counts={"terminated": len(results), "non_clean": len(non_clean)},
                 )
+            # RESOLVED bookend (alert-lifecycle, extended to exit-code 2026-06-24): a
+            # DP_VM_GONE/DP_VM_EXIT that fired last sweep but not this one (the cell got
+            # captured / relaunched) posts a ✅ RESOLVED. Own active blob (disjoint events).
+            meta_watchers.reconcile_resolved(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                active_blob="vm-census/active-dp-alerts-exit-code.json",
+                emitted={meta_watchers.alert_key(f): f.event for f in ec_findings},
+                dry_run=dry_run,
+            )
         elif mode == "heartbeat":
             running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
@@ -614,6 +627,7 @@ def main(argv: list[str] | None = None) -> int:
             def _age_reader(vm_name: str, _zone: str) -> float:
                 return _minutes_since(updated_first_seen.get(vm_name))
 
+            hb_findings: list[PipelineFinding] = []
             results = heartbeat_stall_watcher.sweep(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
@@ -625,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_asset_group_for_vm,
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                finding_sink=hb_findings,
                 vm_killer=_kill_stalled_vm if auto_kill else None,
                 prior_captured=prior,
                 stall_minutes=stall_minutes,
@@ -634,6 +649,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             stalled = [r for r in results if r.verdict.value in ("stall", "event_loop_starved")]
             logger.info("heartbeat sweep: %d running, %d stalled", len(results), len(stalled))
+            # RESOLVED bookend (alert-lifecycle, extended to heartbeat 2026-06-24): a
+            # DP_VM_STALL that fired last sweep but not this one (the VM recovered / was
+            # reaped + relaunched) posts a ✅ RESOLVED. Own active blob (disjoint events).
+            meta_watchers.reconcile_resolved(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                active_blob="vm-census/active-dp-alerts-heartbeat.json",
+                emitted={meta_watchers.alert_key(f): f.event for f in hb_findings},
+                dry_run=dry_run,
+            )
             if not dry_run:
                 # Prune first-seen entries for VMs that have gone (terminated), then persist.
                 running_names = {name for name, _ in running}

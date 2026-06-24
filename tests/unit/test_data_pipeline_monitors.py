@@ -1666,3 +1666,56 @@ def test_wave_launcher_host_cron_sentinel_fresh_not_stale():
     assert result.age_min is not None
     assert not result.stale
     assert target.cloud_run_job == ""
+
+
+# ── RESOLVED bookend generalized to heartbeat/exit-code (alert-lifecycle, 2026-06-24) ──
+def test_reconcile_resolved_per_mode_blob_and_emitted(monkeypatch):
+    """A prior-active alert NOT in this sweep's emitted set posts a ✅ RESOLVED, using a
+    per-mode active blob + an injected emitted set (the heartbeat/exit-code path)."""
+    blob = "vm-census/active-dp-alerts-heartbeat.json"
+    prior = json.dumps({"DP_VM_STALL::vm-a": "DP_VM_STALL", "DP_VM_STALL::vm-b": "DP_VM_STALL"}).encode()
+    storage = FakeStorage({(LOG_BUCKET, blob): (prior, 1.0)})
+    emitted_events: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted_events.append((event, severity)),
+    )
+    # This sweep only re-fired vm-b → vm-a cleared → RESOLVED.
+    resolved = meta_watchers.reconcile_resolved(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        active_blob=blob,
+        emitted={"DP_VM_STALL::vm-b": "DP_VM_STALL"},
+    )
+    assert resolved == ["DP_VM_STALL::vm-a"]
+    assert ("DP_VM_STALL", "INFO") in emitted_events  # the ✅ RESOLVED INFO bookend
+    # The persisted active set is now exactly this sweep's emissions (vm-b only).
+    assert (
+        storage.uploaded[(LOG_BUCKET, blob)]
+        == json.dumps({"DP_VM_STALL::vm-b": "DP_VM_STALL"}, sort_keys=True).encode()
+    )
+
+
+def test_heartbeat_sweep_populates_finding_sink(monkeypatch):
+    """The heartbeat sweep appends each fired finding to finding_sink so the cli can
+    reconcile the RESOLVED bookend (a stalled VM's finding is captured)."""
+    vm = "tradfi-bf-cme-6z-2025"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=60.0), None)})
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda *a, **k: None,
+    )
+    sink: list = []
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        sidecar_age_reader=lambda _vm: 60.0,  # stale sidecar → STALL finding
+        asset_group_for_vm=lambda _vm: "tradfi",
+        finding_sink=sink,
+        stall_minutes=10,
+    )
+    assert len(sink) == 1
+    assert meta_watchers.alert_key(sink[0]).startswith("DP_VM_STALL::")
