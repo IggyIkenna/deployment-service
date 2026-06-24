@@ -2,7 +2,7 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Build and deploy unified-trading-system-ui to Cloud Run (europe-west4).
+# Build and deploy unified-trading-system-ui to Cloud Run (asia-northeast1 prod / europe-west4 uat).
 #
 # SSOT for the build+deploy contract: docs/core/DEPLOYMENT.md.
 #
@@ -138,12 +138,12 @@ else
   docker push "${IMAGE_REF}"
 fi
 
-# Prod is multi-region (LB-fronted at www.odum-research.com). UAT is single-region.
-# Without fan-out, prod deploys would update only europe-west4 and silently leave
-# us-central1 + asia-northeast1 stale — easy to ship a europe-only fix and have
-# US / Asia customers seeing old code.
+# Prod is single-region (asia-northeast1): all data + client-reporting-api backend
+# are co-located in Tokyo; no global LB fronts odum-portal (verified 2026-06-24).
+# europe-west4 + us-central1 services exist at min=0 (scale-to-zero) and are NOT
+# deleted here — confirm www DNS routing before removing them separately.
 if [[ "${DEPLOY_ENV}" == "prod" ]]; then
-  DEPLOY_REGIONS=("europe-west4" "us-central1" "asia-northeast1")
+  DEPLOY_REGIONS=("asia-northeast1")
 else
   DEPLOY_REGIONS=("${REGION}")
 fi
