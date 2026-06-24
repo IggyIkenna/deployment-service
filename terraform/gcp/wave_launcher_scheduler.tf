@@ -89,8 +89,12 @@ module "wave_launcher_job" {
   image = local.wave_launcher_image_resolved
 
   # Manifest read (~7M rows) + gcloud calls — IO/memory bound, not CPU-heavy.
+  # 8Gi (bumped from 4Gi 2026-06-24) — OOM'd (signal 9) at 4Gi reading the full per-VM
+  # shard census + manifest on every tick → its last-run sentinel was never written →
+  # the deadman paged it stale. Runtime already bumped via `gcloud run jobs update`; this
+  # makes it durable so the next blanket apply doesn't revert it.
   cpu             = "2"
-  memory          = "4Gi"
+  memory          = "8Gi"
   timeout_seconds = 1800 # 30 min — a tick launches at most MAX_CONCURRENT VMs.
 
   max_retries = 0
