@@ -81,6 +81,8 @@
 # Optional environment overrides:
 #   FEATURE_GROUP=<group>     narrower-than-family selector (delta_one /
 #                             volatility / onchain accept this; others ignore)
+#   INSTRUMENTS=<ids>         space-separated canonical ids passed as
+#                             --instruments to the service CLI (e.g. "CME:FUTURES:ES")
 #   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
 #   FORCE=1                   rewrite parquets even if manifest shows captured
 
@@ -118,6 +120,7 @@ asset-group   ∈ { CEFI, DEFI, TRADFI, SPORTS, PREDICTION, GLOBAL }
 
 Optional env overrides:
   FEATURE_GROUP=<group>     narrower-than-family selector
+  INSTRUMENTS=<ids>         space-separated canonical ids (e.g. "CME:FUTURES:ES")
   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
   FORCE=1                   rewrite parquets even if manifest shows captured
 EOF
@@ -212,6 +215,10 @@ fi
 
 if [[ -n "${FORCE:-}" ]]; then
     CMD="$CMD --force"
+fi
+
+if [[ -n "${INSTRUMENTS:-}" ]]; then
+    CMD="$CMD --instruments ${INSTRUMENTS}"
 fi
 
 if [[ "$LAUNCH_MODE" == "dry" ]]; then
