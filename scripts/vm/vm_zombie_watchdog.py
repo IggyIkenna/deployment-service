@@ -77,9 +77,10 @@ from google.cloud import compute_v1
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
-from unified_trading_library import resolve_bucket_name
-from unified_trading_library import StorageClient, get_storage_client, upload_to_storage
-from unified_trading_library.cloud_interface import gcs_copy_object  # noqa: qg-deep-import — gcs_copy_object not yet promoted to UTL top-level __init__
+from unified_trading_library import StorageClient, get_storage_client, resolve_bucket_name, upload_to_storage
+from unified_trading_library.cloud_interface import (
+    gcs_copy_object,  # noqa: qg-deep-import — gcs_copy_object not yet promoted to UTL top-level __init__
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -1402,7 +1403,7 @@ def main(argv: list[str]) -> int:
     compute_client = compute_v1.InstancesClient()
     storage_client = get_storage_client()
     _bump_pool_size(compute_client.transport._session)
-    _bump_pool_size(storage_client._client._http)  # noqa: SLF001 — internal pool-size tuning, no UTL abstraction
+    _bump_pool_size(storage_client._client._http)
 
     t0 = time.monotonic()
     watchable = _list_watchable_vms(compute_client)

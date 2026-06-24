@@ -31,8 +31,8 @@ import sys
 from datetime import UTC, datetime
 
 from google.cloud import compute_v1
-from unified_trading_library import UnifiedCloudConfig, storage_exists, upload_to_storage
 from unified_api_contracts.canonical.crosscutting import LifecycleClass, VmPrefixSpec
+from unified_trading_library import UnifiedCloudConfig, storage_exists, upload_to_storage
 
 from deployment_service.deployments_registry import vm_serial_rolling_uri
 from scripts.vm.vm_zombie_watchdog import VM_PREFIX_TO_BUCKET
