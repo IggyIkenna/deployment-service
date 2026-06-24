@@ -154,6 +154,16 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "prediction-pipeline-": "launch-prediction-pipeline-vm.sh",
     "mtds-dex-pools-backfill": "launch-mtds-dex-pools-backfill-vm.sh",
     "mtds-dex-swaps-backfill": "launch-mtds-dex-swaps-backfill-vm.sh",
+    # Prefix variants for windowed/highmem EU-backfill VM names (mtds-dex-pools-eu-hm,
+    # mtds-liquidations-eu-20260624, …) — the singleton names above are exact; these
+    # cover the per-window/per-machine suffixed launches the catalogue-capture backfill uses.
+    "mtds-dex-pools-": "launch-mtds-dex-pools-backfill-vm.sh",
+    "mtds-dex-swaps-": "launch-mtds-dex-swaps-backfill-vm.sh",
+    "mtds-liquidations-": "launch-mtds-liquidations-backfill-vm.sh",
+    "mtds-position-data-": "launch-mtds-position-data-backfill-vm.sh",
+    "mtds-liquidation-events-": "launch-mtds-liquidation-events-backfill-vm.sh",
+    "mtds-flash-loan-events-": "launch-mtds-flash-loan-events-backfill-vm.sh",
+    "mtds-risk-params-": "launch-mtds-risk-params-backfill-vm.sh",
     "mtds-eigenlayer-rewards-backfill": "launch-mtds-eigenlayer-rewards-backfill-vm.sh",
     "mtds-solana-drift-backfill": "launch-mtds-solana-drift-backfill-vm.sh",
     "mtds-solana-defi-backfill": None,  # multi-protocol fan-out — no single-VM launcher
