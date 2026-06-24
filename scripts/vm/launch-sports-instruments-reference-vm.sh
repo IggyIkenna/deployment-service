@@ -11,10 +11,14 @@
 # Per-entity skip logic: manifest checked per entity (all sports entities);
 # only fetches those actually missing. No wasted API calls.
 #
-# Date range: 2020-06-01 → 2026-04-10 (~2,141 days), split across 3 VMs:
-#   sports-ref-v3-1: 2020-06-01 → 2022-05-31
-#   sports-ref-v3-2: 2022-06-01 → 2024-05-31
-#   sports-ref-v3-3: 2024-06-01 → 2026-04-10
+# Date range: 2014-01-01 → 2026-04-10 (full per-source-genesis history), split across 5 VMs:
+#   sports-ref-v3-e1: 2014-01-01 → 2016-12-31  (understat genesis 2014; api_football 2015)
+#   sports-ref-v3-e2: 2017-01-01 → 2020-05-31
+#   sports-ref-v3-1:  2020-06-01 → 2022-05-31  (odds_api genesis 2020-06)
+#   sports-ref-v3-2:  2022-06-01 → 2024-05-31
+#   sports-ref-v3-3:  2024-06-01 → 2026-04-10  (golden window 2025-09..11)
+# Per-source coverage_start clips pre-genesis fetches (footystats/transfermarkt/sfi 2019, odds 2020-06)
+# to honest-empty — no wasted API calls. The 5 VMs delete+recreate on each launch (idempotent).
 #
 # Usage:
 #   bash launch-sports-instruments-reference-vm.sh           # Launch all 3 VMs
@@ -53,6 +57,8 @@ CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 
 # 3 VM date-split ranges
 VM_CONFIGS=(
+  "sports-ref-v3-e1|2014-01-01|2016-12-31"
+  "sports-ref-v3-e2|2017-01-01|2020-05-31"
   "sports-ref-v3-1|2020-06-01|2022-05-31"
   "sports-ref-v3-2|2022-06-01|2024-05-31"
   "sports-ref-v3-3|2024-06-01|2026-04-10"
