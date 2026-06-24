@@ -25,6 +25,22 @@ from google.oauth2 import service_account
 from tests.mocks import make_mock_path_combinatorics
 
 
+@pytest.fixture(autouse=True)
+def _zero_probe_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Zero the freshness-probe retry backoff in tests.
+
+    ``meta_watchers.probe_freshness`` retries a ``None`` (transient-read vs
+    genuine-absence) read with a real production sleep before concluding stale —
+    so a momentary GCS blip can't fire a CRITICAL false page (2026-06-24 flappy
+    DP-CATALOG-001 fix). Tests that drive a genuinely-absent probe must not pay
+    that wall-clock; the verdict is identical at sleep=0.
+    """
+    with contextlib.suppress(Exception):
+        from deployment_service.data_pipeline_monitors import meta_watchers
+
+        monkeypatch.setattr(meta_watchers, "_PROBE_RETRY_SLEEP_S", 0.0)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Register --block-network option used by quality-gates.sh.
 
