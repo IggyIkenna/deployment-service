@@ -294,6 +294,50 @@ def test_meta_catalogue_fresh_no_alert(monkeypatch):
     assert emitted == []
 
 
+# ── _list_running_vms timeout (DP-WATCHER-002 root-cause fix) ────────────────
+
+def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
+    """_list_running_vms must return [] within _LIST_VMS_TIMEOUT_SECS even when
+    aggregated_list_instances blocks indefinitely — the sentinel write must still
+    fire so the Cloud Run Job finishes SUCCEEDED and no DP_CRON_DID_NOT_FIRE alert
+    is raised."""
+    import threading
+
+    hang_event = threading.Event()
+
+    class _HangingClient:
+        def aggregated_list_instances(self, project_id, filter_str):  # noqa: ARG002
+            hang_event.wait()  # blocks until the test releases it
+            return []
+
+    monkeypatch.setattr(cli, "get_compute_engine_client", lambda **_kw: _HangingClient())
+    monkeypatch.setattr(cli, "_project_id", lambda: "test-project")
+    # Patch the timeout to a tiny value so the test is fast.
+    monkeypatch.setattr(cli, "_LIST_VMS_TIMEOUT_SECS", 0.1)
+    try:
+        result = cli._list_running_vms()
+    finally:
+        hang_event.set()  # release the blocked thread so it doesn't leak
+
+    assert result == []
+
+
+def test_list_running_vms_returns_results_normally(monkeypatch):
+    """_list_running_vms returns real results when the API responds promptly."""
+
+    class _FastClient:
+        def aggregated_list_instances(self, project_id, filter_str):  # noqa: ARG002
+            return [
+                {"name": "mtds-live-cefi-2025", "status": "RUNNING", "zone": "asia-northeast1-c"},
+                {"name": "mtds-stopped-1", "status": "TERMINATED", "zone": "asia-northeast1-c"},
+            ]
+
+    monkeypatch.setattr(cli, "get_compute_engine_client", lambda **_kw: _FastClient())
+    monkeypatch.setattr(cli, "_project_id", lambda: "test-project")
+    result = cli._list_running_vms()
+    assert result == [("mtds-live-cefi-2025", "asia-northeast1-c")]
+
+
 def test_escalation_dry_run_emits_nothing(monkeypatch):
     emitted: list = []
     monkeypatch.setattr(
