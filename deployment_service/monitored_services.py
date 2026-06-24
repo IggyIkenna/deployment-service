@@ -20,10 +20,11 @@ Each entry is a classified :class:`DeploymentTarget` (mirroring the
   :func:`classify_deployment_target` so it is consistent with every other
   surface — never a silent default);
 * a ``health_path`` (``/health``, the UTL ``make_health_router`` endpoint);
-* a ``data_freshness`` flag — whether the service supplies a *meaningful*
-  ``make_health_router(data_freshness=...)`` callback (``True`` for data-plane /
-  data-reporting services; ``False`` for the pure API gateways that proxy
-  rather than own data).
+* a derived :class:`ShardResponsibility` (Phase 4.5) — the central binding from
+  this deployment to the availability-manifest shards it owns. Replaces the old
+  ``data_freshness: bool`` self-report (operator 2026-06-23: liveness ≠ data
+  freshness; the manifest is the per-shard freshness SSOT, and only genuine
+  shard owners carry an obligation). ``owns_data_freshness`` is the bool view.
 
 The guard test (``tests/unit/test_monitored_services_registry_guard.py``)
 asserts every ``service`` / ``api-service`` / ``api`` repo in
@@ -45,9 +46,12 @@ from unified_api_contracts import (
     DeploymentKind,
     DeploymentTarget,
     DeploymentUmbrella,
+    ShardResponsibility,
+    ShardResponsibilityKind,
 )
 
 from deployment_service.deployment_classification import classify_deployment_target
+from deployment_service.deployment_cluster_registry import responsibility_for_deployment
 
 # ---------------------------------------------------------------------------
 # Repos that carry a deployable-service ``type`` in workspace-manifest.json but
@@ -63,13 +67,19 @@ _NOT_LONG_LIVED_SERVICE_REPOS: Final[frozenset[str]] = frozenset()
 class MonitoredService:
     """A long-lived deployable service registered for cockpit monitoring.
 
-    Wraps the classified :class:`DeploymentTarget` with the two monitoring
-    self-report fields the cockpit needs (``health_path`` + ``data_freshness``).
+    Wraps the classified :class:`DeploymentTarget` with its ``health_path`` and
+    its derived :class:`ShardResponsibility` — the central binding from this
+    deployment to the availability-manifest shards it owns (Phase 4.5). The old
+    ``data_freshness: bool`` self-report was REPLACED by ``responsibility``
+    (operator 2026-06-23: a liveness ping is not data-freshness; only genuine
+    shard owners carry a freshness obligation, and the manifest — not a
+    per-service callback — is the per-shard freshness SSOT). ``owns_data_freshness``
+    is the bool view: ``True`` iff the resolved responsibility is not ``NONE``.
     """
 
     target: DeploymentTarget
     health_path: str
-    data_freshness: bool
+    responsibility: ShardResponsibility
 
     @property
     def name(self) -> str:
@@ -81,8 +91,18 @@ class MonitoredService:
         """The classified deployment umbrella (LIVE for every long-lived svc)."""
         return self.target.umbrella
 
+    @property
+    def owns_data_freshness(self) -> bool:
+        """Whether this service owns a (non-NONE) data-freshness obligation.
 
-def _live_service(name: str, *, data_freshness: bool, health_path: str = "/health") -> MonitoredService:
+        ``True`` for the capture producers / manifest-consolidator / strategy
+        service; ``False`` (liveness-only) for API gateways + consumers — the
+        cockpit renders the latter as ``liveness_only``, never a false "fresh".
+        """
+        return self.responsibility.kind is not ShardResponsibilityKind.NONE
+
+
+def _live_service(name: str, *, health_path: str = "/health") -> MonitoredService:
     """Build a LIVE (LONG_LIVED_LIVE) long-lived Cloud Run service entry.
 
     Classification routes through :func:`classify_deployment_target` with
@@ -90,7 +110,10 @@ def _live_service(name: str, *, data_freshness: bool, health_path: str = "/healt
     ``service=name`` so the derivation matches the cockpit's other surfaces and
     raises ``UnclassifiedDeploymentError`` rather than silently defaulting. The
     kind is ``CLOUD_RUN_JOB`` — DeploymentKind models VM vs Cloud-Run-unit, and
-    a long-lived service is the Cloud-Run unit (not a VM).
+    a long-lived service is the Cloud-Run unit (not a VM). The
+    :class:`ShardResponsibility` is DERIVED from the classified target (Phase
+    4.5) — never hand-supplied — so the capture producers carry their
+    obligation and the gateways/consumers correctly resolve to liveness-only.
     """
     target = classify_deployment_target(
         name,
@@ -99,33 +122,39 @@ def _live_service(name: str, *, data_freshness: bool, health_path: str = "/healt
         asset_group="",  # cross-asset control/data-plane services
         service=name,
     )
-    return MonitoredService(target=target, health_path=health_path, data_freshness=data_freshness)
+    return MonitoredService(
+        target=target,
+        health_path=health_path,
+        responsibility=responsibility_for_deployment(target),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Every long-lived deployable service (workspace-manifest type ∈
-# {service, api-service, api}). ``data_freshness=True`` = the service supplies a
-# meaningful make_health_router(data_freshness=...) callback (data-plane /
-# data-reporting); ``False`` = a pure API gateway / control plane that proxies
-# rather than owns data (its freshness callback is a fixed "serving").
+# {service, api-service, api}). The ShardResponsibility is DERIVED per entry
+# (Phase 4.5): the capture producers (MTDS / MDPS / instruments / features) ->
+# ASSET_GROUP_CAPTURE, strategy-service -> STRATEGY_SHARD, and the gateways +
+# consumers (alerting / client-reporting / execution / fund-admin / greeks / ml
+# / trading-agent / deployment-api / unified-trading-api) -> NONE (liveness-only,
+# no data-freshness obligation — the operator's correction to the old blanket
+# data_freshness=True). Manifest-consolidator is a Cloud Run JOB (CLOUD_RUN_JOBS),
+# not a long-lived service, so it is not listed here.
 # ---------------------------------------------------------------------------
 _MONITORED_SERVICE_LIST: Final[tuple[MonitoredService, ...]] = (
-    # --- data-plane / data-reporting services (real data_freshness) ---
-    _live_service("alerting-service", data_freshness=True),
-    _live_service("client-reporting-api", data_freshness=True),
-    _live_service("execution-service", data_freshness=True),
-    _live_service("features-service", data_freshness=True),
-    _live_service("fund-administration-service", data_freshness=True),
-    _live_service("greeks-service", data_freshness=True),
-    _live_service("instruments-service", data_freshness=True),
-    _live_service("market-data-processing-service", data_freshness=True),
-    _live_service("market-tick-data-service", data_freshness=True),
-    _live_service("ml-service", data_freshness=True),
-    _live_service("strategy-service", data_freshness=True),
-    _live_service("trading-agent-service", data_freshness=True),
-    # --- pure API gateways / control plane (fixed "serving" freshness) ---
-    _live_service("deployment-api", data_freshness=False),
-    _live_service("unified-trading-api", data_freshness=False),
+    _live_service("alerting-service"),
+    _live_service("client-reporting-api"),
+    _live_service("execution-service"),
+    _live_service("features-service"),
+    _live_service("fund-administration-service"),
+    _live_service("greeks-service"),
+    _live_service("instruments-service"),
+    _live_service("market-data-processing-service"),
+    _live_service("market-tick-data-service"),
+    _live_service("ml-service"),
+    _live_service("strategy-service"),
+    _live_service("trading-agent-service"),
+    _live_service("deployment-api"),
+    _live_service("unified-trading-api"),
 )
 
 
