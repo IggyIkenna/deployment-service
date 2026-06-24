@@ -13,13 +13,20 @@ GCS artifact each producer leaves behind and alert when it goes stale:
     the watchdog daemon is down (the meta-watcher of the watcher).
   - DP-WATCHER-002 (``DP_CRON_DID_NOT_FIRE``, CRITICAL): a scheduled audit /
     consolidator / digest cron's heartbeat/output artifact missed its window.
+  - DP-FETCH-009 (``DP_RUN_MOSTLY_EMPTY``, CRITICAL — event REUSED): per
+    (asset_group, data_type), a HIGH ``attempted_failed`` count/ratio in the
+    consolidated manifest ``_index``. Closes the gap where a backfill exits 0 /
+    captured climbs yet fails thousands of cells invisibly (the exit-code monitor
+    reads that as CLEAN). See ``check_high_attempted_failed``.
 
-Each probe is the same shape: read the artifact's age, compare to a threshold,
-emit on stale/missing. The GCS read is injected for credential-free testing.
+Each freshness probe is the same shape: read the artifact's age, compare to a
+threshold, emit on stale/missing. The GCS read is injected for credential-free
+testing. DP-FETCH-009 instead reads the index CONTENTS (counts), not freshness.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import time
@@ -27,10 +34,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import cast
 
+import pandas as pd
 from unified_trading_library import StorageClient
 from unified_trading_library.events import (  # noqa: qg-deep-import
     DP_CATALOG_NOT_RUNNING,
     DP_CRON_DID_NOT_FIRE,
+    DP_RUN_MOSTLY_EMPTY,
     DP_ZOMBIE_WATCHDOG_DOWN,
     log_event,
 )
@@ -169,6 +178,46 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
     """Consecutive-miss key for a cron probe — matches ``_alert_key`` (the DP_CRON
     finding has no asset_group/label/vm_name, so it falls to ``blob_path``)."""
     return f"{DP_CRON_DID_NOT_FIRE}::{target.blob_path}"
+
+
+# ── DP-FETCH-009: high attempted_failed manifest cells (the monitoring gap) ──
+#
+# The blind spot: a backfill VM can exit 0 with ``captured`` climbing, so the
+# exit-code fleet monitor classifies it CLEAN — even when the same run wrote
+# THOUSANDS of ``attempted_failed`` manifest cells, and the per-shard
+# ``ADAPTER_FETCH_FAILED`` events never aggregate into a DP alert. So a backfill
+# that fails thousands of cells is invisible (incident: sports golden-window had
+# 5,265 ``trades`` failures with no alert). This meta-watcher reads the
+# consolidated per-AG manifest ``_index`` and pages when a ``(asset_group,
+# data_type)`` cell has a HIGH ``attempted_failed`` count AND/OR ratio.
+#
+# Thresholds are NAMED CONSTANTS — page when EITHER an absolute floor (a large
+# batch of failures, even in a big corpus where the ratio stays small) OR a
+# ratio floor (a small corpus where most cells failed) is crossed, gated on
+# ``MIN_ATTEMPTED_FAILED_FOR_RATIO`` so a 1-of-2-failed micro-cell never pages on
+# ratio alone. Gated behind the same MissTracker as the catalogue/cron probes
+# (>= ``min_consecutive`` sweeps) so a transient consolidator blip never pages.
+ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
+ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
+MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+# Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
+AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
+
+
+def _high_attempted_failed_cell_label(asset_group: str, data_type: str) -> str:
+    """The per-cell identity label ``<asset_group>/<data_type>``. The finding stamps
+    this as ``details["asset_group"]`` so ``_alert_key`` (which reads ``asset_group``
+    first) yields ONE alert/RESOLVED-bookend identity PER (ag, data_type) cell — not a
+    per-AG collapse — keeping the miss-counter, the emitted-set and the RESOLVED bookend
+    all in agreement on a single identity (the cross-sweep alert-identity invariant)."""
+    return f"{asset_group}/{data_type}"
+
+
+def _high_attempted_failed_miss_key(asset_group: str, data_type: str) -> str:
+    """Consecutive-miss key for a high-attempted_failed cell — matches ``_alert_key``
+    EXACTLY (``event::<asset_group>/<data_type>``), so the counter, the emitted-set and
+    the RESOLVED bookend all agree on one identity per (ag, data_type) cell."""
+    return f"{DP_RUN_MOSTLY_EMPTY}::{_high_attempted_failed_cell_label(asset_group, data_type)}"
 
 
 @dataclass(frozen=True)
@@ -431,6 +480,175 @@ def check_catalogue_freshness(
                 dry_run=dry_run,
             )
     return results
+
+
+@dataclass(frozen=True)
+class AttemptedFailedCell:
+    """One ``(asset_group, data_type)`` cell's capture-status counts read from the
+    consolidated manifest ``_index``, plus the high-failure verdict for it."""
+
+    asset_group: str
+    data_type: str
+    captured: int
+    attempted_failed: int
+    ratio: float  # attempted_failed / (captured + attempted_failed), 0.0 when denom is 0
+    high: bool  # crossed the abs OR ratio threshold (a real failure batch)
+
+
+def _read_attempted_failed_cells(
+    storage_client: StorageClient,
+    *,
+    asset_group: str,
+    bucket: str,
+    blob: str = AVAILABILITY_INDEX_BLOB,
+) -> list[AttemptedFailedCell]:
+    """Read the consolidated ``_index`` parquet for one AG bucket and return per
+    ``data_type`` captured / attempted_failed counts + the high-failure verdict.
+
+    The read is injected (``storage_client.download_bytes``) so the checker stays
+    pure + credential-free; the cli wires the real GCS-backed client. A
+    missing/unreadable/empty/schema-less index reads as zero cells (never raises) —
+    an absent index is the catalogue/cron probes' job, not this one's.
+    """
+    try:
+        if not storage_client.blob_exists(bucket, blob):
+            return []
+        raw = storage_client.download_bytes(bucket, blob)
+    except Exception:
+        return []
+    try:
+        index = cast("pd.DataFrame", pd.read_parquet(io.BytesIO(raw)))
+    except Exception:
+        return []
+    if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
+        return []
+
+    status = index["capture_status"].astype(str)
+    data_type_col = index["data_type"].astype(str)
+    captured_mask = status == "captured"
+    failed_mask = status == "attempted_failed"
+
+    cells: list[AttemptedFailedCell] = []
+    # Stable order so the alert set + tests are deterministic (no set iteration).
+    for data_type in sorted(data_type_col.unique()):
+        dt_mask = data_type_col == data_type
+        captured = int((dt_mask & captured_mask).sum())
+        attempted_failed = int((dt_mask & failed_mask).sum())
+        denom = captured + attempted_failed
+        ratio = (attempted_failed / denom) if denom > 0 else 0.0
+        high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
+            attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
+        )
+        cells.append(
+            AttemptedFailedCell(
+                asset_group=asset_group,
+                data_type=data_type,
+                captured=captured,
+                attempted_failed=attempted_failed,
+                ratio=ratio,
+                high=high,
+            )
+        )
+    return cells
+
+
+def check_high_attempted_failed(
+    *,
+    storage_client: StorageClient,
+    targets: Iterable[FreshnessTarget],
+    pm_repo_path: str | None = None,
+    dry_run: bool = False,
+    miss_tracker: MissTracker | None = None,
+    min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
+) -> list[AttemptedFailedCell]:
+    """DP-FETCH-009 — page when a ``(asset_group, data_type)`` cell has a HIGH
+    ``attempted_failed`` count/ratio in the consolidated manifest ``_index``.
+
+    Closes the confirmed gap: nothing fires a Slack alert when a backfill exits 0
+    with ``captured`` climbing yet writes thousands of ``attempted_failed`` cells
+    (the exit-code monitor reads that as CLEAN; per-shard ``ADAPTER_FETCH_FAILED``
+    events never aggregate to a DP alert). Each ``FreshnessTarget`` names an AG's
+    market-data ``_index`` bucket (``label`` = the asset_group); the read is the
+    same blob the consolidator writes.
+
+    A cell is HIGH when its ``attempted_failed`` count crosses
+    ``ATTEMPTED_FAILED_ABS_THRESHOLD`` OR (count >= ``MIN_ATTEMPTED_FAILED_FOR_RATIO``
+    AND ratio >= ``ATTEMPTED_FAILED_RATIO_THRESHOLD``). When ``miss_tracker`` is
+    provided the CRITICAL alert fires only after the SAME cell has been HIGH for
+    ``min_consecutive`` consecutive sweeps (so a transient consolidator blip during
+    a heavy backfill never false-pages); ``None`` ⇒ fire on the first HIGH cell
+    (the prior fire-on-first behaviour; keeps back-compat for existing call sites).
+
+    Reuses the registered ``DP_RUN_MOSTLY_EMPTY`` event (DP-FETCH-007, CRITICAL,
+    PAGE_OPERATOR — the closest "a run failed to produce expected data" signal,
+    already routed to #data-pipeline-alerts) rather than declaring a new UTL event,
+    which would be cross-repo (UTL events + UAC alert rules). The ``registry_id``
+    ``DP-FETCH-009`` keeps the high-attempted_failed case traceable in the alert
+    details + issue doc.
+    """
+    all_cells: list[AttemptedFailedCell] = []
+    for target in targets:
+        cells = _read_attempted_failed_cells(
+            storage_client,
+            asset_group=target.label,
+            bucket=target.bucket,
+            blob=target.blob_path or AVAILABILITY_INDEX_BLOB,
+        )
+        all_cells.extend(cells)
+        for cell in cells:
+            if miss_tracker is not None:
+                misses = miss_tracker.register(
+                    _high_attempted_failed_miss_key(cell.asset_group, cell.data_type),
+                    stale=cell.high,
+                )
+                if cell.high and misses < min_consecutive:
+                    logger.info(
+                        "meta_watchers: DP_RUN_MOSTLY_EMPTY (high attempted_failed) for '%s/%s' "
+                        "below consecutive-miss threshold (%d/%d) — not paging yet "
+                        "(transient-blip suppression)",
+                        cell.asset_group,
+                        cell.data_type,
+                        misses,
+                        min_consecutive,
+                    )
+                    continue
+            if not cell.high:
+                continue
+            summary = (
+                f"high attempted_failed batch — asset_group={cell.asset_group} "
+                f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
+                f"of {cell.captured + cell.attempted_failed} attempted "
+                f"(ratio {cell.ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
+                f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). A backfill exited "
+                f"0 / captured climbed but failed this batch invisibly."
+            )
+            _emit(
+                PipelineFinding(
+                    event=DP_RUN_MOSTLY_EMPTY,
+                    severity="CRITICAL",
+                    tier=EscalationTier.PAGE_OPERATOR,
+                    summary=summary,
+                    details={
+                        # ``asset_group`` carries the COMBINED <ag>/<data_type> so
+                        # ``_alert_key`` yields one identity per cell (matches the
+                        # miss-counter key); clean fields kept for diagnosability.
+                        "asset_group": _high_attempted_failed_cell_label(cell.asset_group, cell.data_type),
+                        "asset_group_name": cell.asset_group,
+                        "data_type": cell.data_type,
+                        "captured": cell.captured,
+                        "attempted_failed": cell.attempted_failed,
+                        "ratio": round(cell.ratio, 4),
+                        "abs_threshold": ATTEMPTED_FAILED_ABS_THRESHOLD,
+                        "ratio_threshold": ATTEMPTED_FAILED_RATIO_THRESHOLD,
+                        "bucket": target.bucket,
+                        "blob_path": target.blob_path or AVAILABILITY_INDEX_BLOB,
+                    },
+                    registry_id="DP-FETCH-009",
+                ),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+            )
+    return all_cells
 
 
 def check_zombie_watchdog_alive(

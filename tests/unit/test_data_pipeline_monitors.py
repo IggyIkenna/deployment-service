@@ -1255,6 +1255,135 @@ def test_catalogue_no_tracker_pages_immediately(monkeypatch):
     assert any(e[0] == "DP_CATALOG_NOT_RUNNING" and e[1] == "CRITICAL" for e in emitted)
 
 
+# ── DP-FETCH-009: high attempted_failed manifest cells ──────────────────────
+_MD_BUCKET = "market-data-sports-prd-test-project"
+_AVAIL_INDEX = meta_watchers.AVAILABILITY_INDEX_BLOB
+
+
+def _index_parquet(rows: list[tuple[str, str]]) -> bytes:
+    """Build a consolidated _index parquet from (data_type, capture_status) rows."""
+    import io
+
+    import pandas as pd
+
+    df = pd.DataFrame(rows, columns=["data_type", "capture_status"])
+    buf = io.BytesIO()
+    df.to_parquet(buf, index=False)
+    return buf.getvalue()
+
+
+def _af_target(bucket: str = _MD_BUCKET, label: str = "sports") -> meta_watchers.FreshnessTarget:
+    return meta_watchers.FreshnessTarget(
+        bucket=bucket, blob_path=_AVAIL_INDEX, max_age_min=0.0, label=label
+    )
+
+
+def test_high_attempted_failed_pages_on_abs_threshold(monkeypatch):
+    # A backfill that exited 0 / captured climbed but wrote >ABS_THRESHOLD failed
+    # cells for one data_type → CRITICAL page (the invisible-failure gap closed).
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    assert any(c.data_type == "trades" and c.high for c in cells)
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_high_attempted_failed_pages_on_ratio_threshold(monkeypatch):
+    # Small corpus: below the abs floor but ratio crosses (and count >= the
+    # MIN_ATTEMPTED_FAILED_FOR_RATIO micro-cell guard) → pages.
+    n_failed = meta_watchers.MIN_ATTEMPTED_FAILED_FOR_RATIO + 10  # >= guard, < abs floor
+    rows = [("ohlcv", "captured")] * 20 + [("ohlcv", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "ohlcv")
+    assert cell.attempted_failed < meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD  # abs floor NOT crossed
+    assert cell.ratio >= meta_watchers.ATTEMPTED_FAILED_RATIO_THRESHOLD
+    assert cell.high
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_high_attempted_failed_low_failure_does_not_page(monkeypatch):
+    # A healthy cell (a few failures in a big captured corpus, ratio tiny) must NOT page.
+    rows = [("trades", "captured")] * 1000 + [("trades", "attempted_failed")] * 5
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    assert not any(c.high for c in cells)
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
+    # 1-of-2 failed = 50% ratio but below the MIN_ATTEMPTED_FAILED_FOR_RATIO guard →
+    # NOT high (ratio path requires a meaningful count to avoid micro-cell noise).
+    rows = [("oi", "captured"), ("oi", "attempted_failed")]
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "oi")
+    assert cell.ratio == 0.5 and not cell.high
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
+    # A SINGLE high sweep (a transient consolidator blip) must NOT page; only a
+    # SUSTAINED high condition (>= min_consecutive sweeps) does. Mirrors the catalogue gate.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    # Sweep 1 — first high → suppressed.
+    t1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(
+        storage_client=storage, targets=[_af_target()], miss_tracker=t1, min_consecutive=2
+    )
+    t1.persist()
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+    # Sweep 2 — second consecutive high (counter reloaded from GCS) → pages CRITICAL.
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(
+        storage_client=storage, targets=[_af_target()], miss_tracker=t2, min_consecutive=2
+    )
+    t2.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_high_attempted_failed_no_tracker_pages_immediately(monkeypatch):
+    # Back-compat: with no miss_tracker, a high cell pages on the FIRST sweep.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_high_attempted_failed_missing_index_no_page(monkeypatch):
+    # An absent _index is the catalogue/cron probes' job, not this one's — no page,
+    # no crash (read returns no cells).
+    storage = FakeStorage({})  # no index blob
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    assert cells == []
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+def test_high_attempted_failed_alert_key_matches_miss_key():
+    # The RESOLVED-bookend identity (_alert_key) MUST equal the miss-counter key so
+    # the counter, emitted-set and bookend all agree on ONE identity per (ag, dt) cell.
+    finding = PipelineFinding(
+        event="DP_RUN_MOSTLY_EMPTY",
+        severity="CRITICAL",
+        tier=meta_watchers.EscalationTier.PAGE_OPERATOR,
+        summary="x",
+        details={"asset_group": meta_watchers._high_attempted_failed_cell_label("sports", "trades")},
+        registry_id="DP-FETCH-009",
+    )
+    assert meta_watchers.alert_key(finding) == meta_watchers._high_attempted_failed_miss_key("sports", "trades")
+
+
 def test_zombie_watchdog_down_when_census_missing(monkeypatch):
     storage = FakeStorage({})  # no census blob
     emitted: list[str] = []
