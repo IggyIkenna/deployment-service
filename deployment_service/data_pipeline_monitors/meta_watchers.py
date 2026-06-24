@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import cast
@@ -219,12 +220,35 @@ class FreshnessResult:
     stale: bool
 
 
+# RETRY-BEFORE-FIRE (2026-06-24): blob_age_minutes returns None on BOTH a genuine
+# absence AND a transient GCS read error (it swallows exceptions by design). Firing
+# a CRITICAL page on a single None makes the probe FLAPPY — a momentary read blip
+# pages "artifact ABSENT" and self-resolves on the next sweep (the DP-CATALOG-001 /
+# DP-WATCHER-002 transient-read false-positive class; incident 2026-06-24: the defi
+# catalogue paged ABSENT at 6:17 then RESOLVED at 6:30 with a stable 10:17Z mtime —
+# the artifact was present the whole time). So on None we re-read a few times before
+# concluding genuine absence; a present artifact returns its age on retry and never fires.
+_PROBE_RETRIES_ON_NONE = 3
+_PROBE_RETRY_SLEEP_S = 2.0
+
+
 def probe_freshness(
     storage_client: StorageClient,
     target: FreshnessTarget,
 ) -> FreshnessResult:
-    """Probe one artifact's freshness. A missing artifact counts as stale."""
+    """Probe one artifact's freshness. A missing artifact counts as stale.
+
+    Retries on a ``None`` read (transient GCS error vs genuine absence are
+    indistinguishable at the ``blob_age_minutes`` layer) before concluding stale —
+    see the module comment above ``_PROBE_RETRIES_ON_NONE``.
+    """
     age = _gcs.blob_age_minutes(storage_client, target.bucket, target.blob_path)
+    if age is None:
+        for _ in range(_PROBE_RETRIES_ON_NONE):
+            time.sleep(_PROBE_RETRY_SLEEP_S)
+            age = _gcs.blob_age_minutes(storage_client, target.bucket, target.blob_path)
+            if age is not None:
+                break
     stale = age is None or age > target.max_age_min
     return FreshnessResult(target=target, age_min=age, stale=stale)
 
