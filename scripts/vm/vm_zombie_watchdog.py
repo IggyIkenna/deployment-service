@@ -78,8 +78,8 @@ from requests.adapters import HTTPAdapter
 from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
 from unified_trading_library import StorageClient, get_storage_client, resolve_bucket_name, upload_to_storage
-from unified_trading_library.cloud_interface import (
-    gcs_copy_object,  # noqa: qg-deep-import — gcs_copy_object not yet promoted to UTL top-level __init__
+from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import (gcs_copy_object not in UTL top-level)
+    gcs_copy_object,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
