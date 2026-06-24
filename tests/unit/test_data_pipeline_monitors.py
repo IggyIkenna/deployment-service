@@ -1139,6 +1139,40 @@ def test_no_capture_reason_mtds_idempotent_preflight_skip():
     assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
 
 
+def test_no_capture_reason_progress_when_records_written():
+    # The DeFi oracle-prices writer logs "Wrote N … RECORDS" (not "rows"); a flat captured
+    # count there is consolidated lag, NOT a silent zero (operator 2026-06-24:
+    # defi-fwd-oracle-prices-poll false positive — wrote 4 oracle price records, classified SILENT).
+    log = "2026-06-24 14:45:13 INFO Wrote 4 oracle price records for 2026-06-24 to gs://market-data-tick-defi-prd/.../oracle_prices.parquet"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.PROGRESS
+
+
+def test_no_capture_reason_honest_absence_sentinel_fan_out():
+    # The VM honestly enumerated its universe and recorded expected-but-absent SENTINELS
+    # (Tier-3 per-instrument sentinel fan-out, captured=0). A silent zero never reaches the
+    # fan-out (operator 2026-06-24: cefi-bybit-2021-light false positive).
+    log = "2026-06-24 14:55:47 INFO Tier-3 per-instrument sentinel fan-out: venue=BYBIT dt=trades date=2021-12-31 rows=50 (expected_instruments=50 captured=0)"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_honest_absence_arb_detector_no_pairs():
+    # A cross-venue arb DETECTOR (service-only / manifest-exempt) ran fine and matched no
+    # pairs → rows_written=0 is the correct empty result, not a silent capture failure
+    # (operator 2026-06-24: prediction-arb-detector false positive).
+    log = (
+        "2026-06-24 14:56:10 INFO Prediction XV: no cross-venue pairs matched for 2026-06-22\n"
+        "2026-06-24 14:56:10 INFO ARB_DETECT_TICK tick=6 two_way_on_both=0 pure=0 quotable=0 executable=0 rows_written=0"
+    )
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_still_silent_on_genuine_zero():
+    # Guard: the broadened patterns must NOT mask a genuine silent zero (auth fail / 0-universe
+    # with no write + no honest-absence + no rate-limit signal).
+    log = "2026-06-24 INFO authenticating…\n2026-06-24 ERROR 401 Unauthorized\n2026-06-24 INFO Batch complete: 0 results collected"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.SILENT
+
+
 def test_no_capture_reason_rate_limited_beats_absence():
     # A 429 throttle wins precedence so it's never mistaken for benign absence.
     log = "2026-06-23 WARNING HTTP 429 = Rate limited. Wait and retry.\n0 trades returned"

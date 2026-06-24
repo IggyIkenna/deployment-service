@@ -473,12 +473,19 @@ class NoCaptureReason(StrEnum):
 
 # Rows were genuinely written this run — the writer's own shard climbed even if the
 # CONSOLIDATED index hasn't merged yet. Matches the MTDS/IS handler write logs
-# ("Wrote N rows to gs://…", "record_captured", "N captured").
+# ("Wrote N rows to gs://…", "Wrote N oracle price records …", "record_captured",
+# "N captured").
+#   - ``Wrote N … rows|records``: broadened from "rows" only — the DeFi oracle-prices
+#     writer logs "Wrote 4 oracle price RECORDS …" (operator 2026-06-24 false positive:
+#     defi-fwd-oracle-prices-poll wrote 4-7 records yet classified SILENT because the
+#     pattern required the word "rows").
 _PROGRESS_RE = re.compile(
-    r"\bWrote\s+\d+\s+\w*\s*rows?\b|\brecord_captured\b|\bCATALOGUE_PROMOTED\b|\bcaptured=(?!0\b)\d+",
+    r"\bWrote\s+\d+\b[^\n]{0,60}\b(rows?|records?)\b"
+    r"|\brecord_captured\b|\bCATALOGUE_PROMOTED\b|\bcaptured=(?!0\b)\d+",
     re.IGNORECASE,
 )
-# The source legitimately had nothing / the shard was already complete. Matches
+# The source legitimately had nothing / the shard was already complete / the VM
+# honestly recorded the expected-but-absent universe (sentinels). Matches
 # honest-absence + enrichment-only "nothing to capture" run.log shapes (settled
 # market, off-season, all-already-captured, record_empty).
 _HONEST_ABSENCE_RE = re.compile(
@@ -489,7 +496,16 @@ _HONEST_ABSENCE_RE = re.compile(
     # captured and correctly skipped re-fetching → captured 0→0 is benign already-done,
     # NOT a silent zero (venue_fetch.py:248). Without this the classifier false-positived
     # DP_VM_GONE_NO_CAPTURE on every resumed/idempotent backfill VM (operator 2026-06-24).
-    r"|all requested data_types fully covered|fully covered \(atoms|atoms ⊆ captured",
+    r"|all requested data_types fully covered|fully covered \(atoms|atoms ⊆ captured"
+    # The VM honestly enumerated its universe and recorded expected-but-absent SENTINELS
+    # (the Tier-3 per-instrument sentinel fan-out → expected_unattempted) — a silent zero
+    # (auth fail / never-launched) never reaches the fan-out. captured=0 here is honest
+    # absence, not a silent failure (operator 2026-06-24: cefi-bybit-2021-light).
+    r"|per-instrument sentinel fan-out"
+    # A cross-venue arb DETECTOR (service-only output, manifest-exempt) ran fine and found
+    # no quotable pairs → rows_written=0 is the correct empty result, not a silent capture
+    # failure (operator 2026-06-24: prediction-arb-detector).
+    r"|no cross-venue pairs matched|ARB_DETECT_TICK\b",
     re.IGNORECASE,
 )
 # A rate-limit throttle (real-transient → backoff-retry tier, NOT silent-zero).
