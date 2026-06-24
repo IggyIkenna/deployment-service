@@ -26,6 +26,8 @@ import io
 import json
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
 from typing import cast
 
@@ -62,6 +64,9 @@ logger = logging.getLogger(__name__)
 ASSET_GROUPS = ("cefi", "defi", "tradfi", "sports", "prediction")
 # Per-VM manifest shard path (per-VM-shard isolation SSOT).
 _PER_VM_SHARD = "_index/per_vm/{vm}.parquet"
+# Hard ceiling on the synchronous GCP aggregated_list gRPC call.  60 s leaves
+# ample time for the sweep + sentinel write within the Cloud Run Job timeout.
+_LIST_VMS_TIMEOUT_SECS = 60.0
 # First-seen census for the heartbeat watcher's grace window (vm_name -> ISO ts).
 _FIRST_SEEN_BLOB = "vm-census/heartbeat-first-seen.json"
 
@@ -130,20 +135,44 @@ def _list_running_vms() -> list[tuple[str, str]]:
     Routes through the UTL Compute Engine client (cloud-SDK confined to the
     unified-cloud-interface — the same path ``gcp_instance_lister`` uses) rather
     than touching ``google.cloud.compute_v1`` directly.  Read-only + failure
-    isolated: an API error returns an empty list (the sweep then no-ops, the
-    safe default).
+    isolated: an API error or timeout returns an empty list (the sweep then
+    no-ops, the safe default).
+
+    The underlying ``aggregated_list_instances`` call is a synchronous blocking
+    paginated gRPC stream with no built-in timeout.  A slow or unresponsive GCP
+    Compute API stalls the entire Cloud Run Job, preventing ``write_monitor_last_run``
+    from being called and producing a spurious DP_CRON_DID_NOT_FIRE alert (DP-WATCHER-002).
+    The ``ThreadPoolExecutor`` + ``future.result(timeout=...)`` pattern bounds the
+    blocking call to ``_LIST_VMS_TIMEOUT_SECS``; on expiry the stuck gRPC thread is
+    abandoned (Python 3.13 ``cancel_futures=True``) and an empty list is returned so
+    the sweep + sentinel write proceed normally.
     """
     project_id = _project_id()
     try:
         client = get_compute_engine_client(provider="gcp", project_id=project_id)
-        running: list[tuple[str, str]] = []
-        for inst in client.aggregated_list_instances(project_id, ""):
-            status = str(inst.get("status", ""))
-            name = str(inst.get("name", ""))
-            zone = str(inst.get("zone", "") or "")
-            if status == "RUNNING" and name:
-                running.append((name, zone))
-        return running
+
+        def _fetch() -> list[tuple[str, str]]:
+            running: list[tuple[str, str]] = []
+            for inst in client.aggregated_list_instances(project_id, ""):
+                status = str(inst.get("status", ""))
+                name = str(inst.get("name", ""))
+                zone = str(inst.get("zone", "") or "")
+                if status == "RUNNING" and name:
+                    running.append((name, zone))
+            return running
+
+        pool = ThreadPoolExecutor(max_workers=1)
+        fut = pool.submit(_fetch)
+        try:
+            return fut.result(timeout=_LIST_VMS_TIMEOUT_SECS)
+        except FuturesTimeoutError:
+            logger.warning(
+                "_list_running_vms: aggregated_list stalled for >%.0fs — "
+                "returning [] so sentinel write still fires; stuck gRPC thread abandoned",
+                _LIST_VMS_TIMEOUT_SECS,
+            )
+            pool.shutdown(wait=False, cancel_futures=True)
+            return []
     except Exception as exc:
         logger.warning("_list_running_vms failed: %s", exc)
         return []
