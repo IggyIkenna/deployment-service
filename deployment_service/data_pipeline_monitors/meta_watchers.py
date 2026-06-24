@@ -24,7 +24,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from unified_trading_library import StorageClient
@@ -145,6 +145,93 @@ def reconcile_resolved(
     return resolved
 
 
+# CONSECUTIVE-MISS GATE (2026-06-24, Fix 2): a CRITICAL page on a SINGLE stale sweep
+# is flappy — one transient GCS-read blip during a heavy backfill paged "artifact
+# ABSENT" / "cron did not fire" and self-resolved on the next sweep (the DP-CATALOG-001
+# / DP-WATCHER-002 false-positive class; incident 2026-06-24, 17:50-18:30 window under
+# the 728k-object delete + 5 backfill VMs saturating the GCS API). So a probe must be
+# stale for >= ``min_consecutive`` CONSECUTIVE sweeps before its alert fires. The count
+# is GCS-persisted (each Cloud Run sweep is a fresh process — no in-memory carry-over),
+# keyed IDENTICALLY to ``_alert_key`` so the counter, the emitted-set and the RESOLVED
+# bookend all agree on one alert identity. A fresh (or suppressed-by-design) probe resets
+# its key to 0, so only a SUSTAINED stale condition pages — a self-resolving blip never does.
+DP_MISS_COUNTERS_BLOB = "vm-census/dp-miss-counters.json"
+DEFAULT_MIN_CONSECUTIVE_MISSES = 2  # meta sweep is */15 → 2 misses = ~30m sustained before paging
+
+
+def _catalogue_miss_key(target: FreshnessTarget) -> str:
+    """Consecutive-miss key for a catalogue probe — matches ``_alert_key`` (which
+    selects ``asset_group`` = ``target.label`` from the DP_CATALOG finding details)."""
+    return f"{DP_CATALOG_NOT_RUNNING}::{target.label}"
+
+
+def _cron_miss_key(target: FreshnessTarget) -> str:
+    """Consecutive-miss key for a cron probe — matches ``_alert_key`` (the DP_CRON
+    finding has no asset_group/label/vm_name, so it falls to ``blob_path``)."""
+    return f"{DP_CRON_DID_NOT_FIRE}::{target.blob_path}"
+
+
+@dataclass(frozen=True)
+class MissTracker:
+    """Cross-sweep consecutive-miss counter, GCS-persisted. ``register(key, stale=...)``
+    increments on a genuine (unsuppressed) stale probe and resets to 0 on a fresh or
+    suppressed-by-design probe; an alert fires only once the count reaches the
+    threshold. ``load`` at sweep start, ``persist`` at sweep end. Injected so the
+    checkers stay pure + credential-free; the cli wires the real GCS-backed instance."""
+
+    storage_client: StorageClient
+    log_bucket: str
+    blob: str = DP_MISS_COUNTERS_BLOB
+    _counts: dict[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def load(
+        cls,
+        *,
+        storage_client: StorageClient,
+        log_bucket: str,
+        blob: str = DP_MISS_COUNTERS_BLOB,
+    ) -> MissTracker:
+        """Read the persisted counters. Fail toward NO false-suppress: a read/parse
+        miss treats every counter as 0 (so a sustained-stale condition still pages
+        after ``min_consecutive`` fresh sweeps of accumulation, never silently never)."""
+        counts: dict[str, int] = {}
+        raw = _gcs.read_text(storage_client, log_bucket, blob)
+        if raw:
+            try:
+                loaded = cast("object", json.loads(raw))
+                if isinstance(loaded, dict):
+                    parsed = cast("dict[str, object]", loaded)
+                    counts = {str(k): int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
+            except (ValueError, TypeError):
+                counts = {}
+        return cls(storage_client=storage_client, log_bucket=log_bucket, blob=blob, _counts=counts)
+
+    def register(self, key: str, *, stale: bool) -> int:
+        """Increment ``key``'s consecutive-miss count on a stale probe, reset to 0 on
+        a fresh/suppressed one. Returns the new count (0 when reset)."""
+        if stale:
+            new = self._counts.get(key, 0) + 1
+            self._counts[key] = new
+            return new
+        self._counts.pop(key, None)
+        return 0
+
+    def persist(self, *, dry_run: bool = False) -> None:
+        """Write the updated counters back to GCS (no-op on dry_run)."""
+        if dry_run:
+            return
+        try:
+            self.storage_client.upload_bytes(
+                self.log_bucket,
+                self.blob,
+                json.dumps(self._counts, sort_keys=True).encode("utf-8"),
+                content_type="application/json",
+            )
+        except Exception as exc:
+            logger.warning("MissTracker.persist failed: %s", exc)
+
+
 # The fleet-monitor / meta-watcher sweeps + their cadence (minutes). Each writes a
 # ``vm-census/<mode>-last-run.json`` sentinel at end-of-sweep; the budget is 2x the
 # cadence (a single missed tick is benign jitter; two missed = the cron stopped).
@@ -228,8 +315,18 @@ class FreshnessResult:
 # catalogue paged ABSENT at 6:17 then RESOLVED at 6:30 with a stable 10:17Z mtime —
 # the artifact was present the whole time). So on None we re-read a few times before
 # concluding genuine absence; a present artifact returns its age on retry and never fires.
-_PROBE_RETRIES_ON_NONE = 3
-_PROBE_RETRY_SLEEP_S = 2.0
+# EXPONENTIAL BACKOFF (2026-06-24, Fix 1): retry a few times before concluding ABSENT,
+# with growing intervals so a sub-second GCS blip is caught on the FIRST quick retry
+# while a slightly slower one still gets a longer wait. Kept DELIBERATELY SHORT (~1.75s
+# total) — the in-sweep retry only rides out a momentary read blip; a SUSTAINED
+# heavy-load throttle window is covered by the cross-sweep consecutive-miss gate
+# (MissTracker below), NOT by sleeping longer in one sweep (a long per-probe sleep x many
+# probes blows past the 60s per-test budget — incident 2026-06-24: a 15s backoff timed
+# out the all-missing-storage meta-sweep test). Short retry + cross-sweep gate is the
+# right split: fast probe, sustained-throttle tolerance handled across sweeps. (~0.6s
+# total keeps the all-missing meta-sweep test well under the 60s per-test budget even
+# with ~19 probes, while still re-reading 3x with growing intervals for a momentary blip.)
+_PROBE_RETRY_BACKOFF_S: tuple[float, ...] = (0.1, 0.2, 0.3)
 
 
 def probe_freshness(
@@ -239,13 +336,13 @@ def probe_freshness(
     """Probe one artifact's freshness. A missing artifact counts as stale.
 
     Retries on a ``None`` read (transient GCS error vs genuine absence are
-    indistinguishable at the ``blob_age_minutes`` layer) before concluding stale —
-    see the module comment above ``_PROBE_RETRIES_ON_NONE``.
+    indistinguishable at the ``blob_age_minutes`` layer) with exponential backoff
+    before concluding stale — see the module comment above ``_PROBE_RETRY_BACKOFF_S``.
     """
     age = _gcs.blob_age_minutes(storage_client, target.bucket, target.blob_path)
     if age is None:
-        for _ in range(_PROBE_RETRIES_ON_NONE):
-            time.sleep(_PROBE_RETRY_SLEEP_S)
+        for sleep_s in _PROBE_RETRY_BACKOFF_S:
+            time.sleep(sleep_s)
             age = _gcs.blob_age_minutes(storage_client, target.bucket, target.blob_path)
             if age is not None:
                 break
@@ -274,12 +371,30 @@ def check_catalogue_freshness(
     targets: Iterable[FreshnessTarget],
     pm_repo_path: str | None = None,
     dry_run: bool = False,
+    miss_tracker: MissTracker | None = None,
+    min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
 ) -> list[FreshnessResult]:
-    """DP-CATALOG-001 — per-AG instrument-catalogue freshness."""
+    """DP-CATALOG-001 — per-AG instrument-catalogue freshness.
+
+    When ``miss_tracker`` is provided, the CRITICAL alert fires only after the probe
+    has been stale for ``min_consecutive`` consecutive sweeps (transient-blip
+    suppression — Fix 2). ``None`` ⇒ fire on the first stale probe (the prior
+    behaviour; keeps existing call sites / tests unchanged)."""
     results: list[FreshnessResult] = []
     for target in targets:
         result = probe_freshness(storage_client, target)
         results.append(result)
+        if miss_tracker is not None:
+            misses = miss_tracker.register(_catalogue_miss_key(target), stale=result.stale)
+            if result.stale and misses < min_consecutive:
+                logger.info(
+                    "meta_watchers: DP_CATALOG_NOT_RUNNING for '%s' below consecutive-miss "
+                    "threshold (%d/%d) — not paging yet (transient-blip suppression)",
+                    target.label,
+                    misses,
+                    min_consecutive,
+                )
+                continue
         if result.stale:
             # KEY #3 (operator 2026-06-23): the alert MUST SHOW WHAT IT PROBED —
             # the exact gs://bucket/path, the age it read (or "artifact ABSENT"),
@@ -394,6 +509,8 @@ def check_monitor_crons_fired(
     execution_history_reader: ExecutionHistoryReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
+    miss_tracker: MissTracker | None = None,
+    min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
 ) -> list[FreshnessResult]:
     """DP-WATCHER-002 — the fleet-monitor / meta-watcher crons fired on schedule.
 
@@ -415,6 +532,8 @@ def check_monitor_crons_fired(
         execution_history_reader=execution_history_reader,
         pm_repo_path=pm_repo_path,
         dry_run=dry_run,
+        miss_tracker=miss_tracker,
+        min_consecutive=min_consecutive,
     )
 
 
@@ -426,6 +545,8 @@ def check_cron_fired(
     execution_history_reader: ExecutionHistoryReader | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
+    miss_tracker: MissTracker | None = None,
+    min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
 ) -> list[FreshnessResult]:
     """DP-WATCHER-002 — scheduled audit/consolidator/digest crons fired on schedule.
 
@@ -459,7 +580,10 @@ def check_cron_fired(
     for target in targets:
         result = probe_freshness(storage_client, target)
         results.append(result)
+        miss_key = _cron_miss_key(target)
         if not result.stale:
+            if miss_tracker is not None:
+                miss_tracker.register(miss_key, stale=False)  # fresh → reset
             continue
         # Pause-aware skip: a PAUSED-by-design scheduler's stale artifact is
         # EXPECTED — suppress (no actuator, no page). Only an explicit PAUSED
@@ -473,6 +597,8 @@ def check_cron_fired(
                     target.label,
                     target.scheduler_job,
                 )
+                if miss_tracker is not None:
+                    miss_tracker.register(miss_key, stale=False)  # suppressed-by-design → not a real miss
                 continue
         # Execution-history cross-check (KEY #4): the AUTHORITATIVE signal is the
         # Cloud Run Job's real execution history, NOT the lagging sentinel. A recent
@@ -489,6 +615,21 @@ def check_cron_fired(
                     target.cloud_run_job,
                     last_success_age,
                     target.max_age_min,
+                )
+                if miss_tracker is not None:
+                    miss_tracker.register(miss_key, stale=False)  # job IS firing → not a real miss
+                continue
+        # Genuine stale + unsuppressed = a real miss. Consecutive-miss gate (Fix 2):
+        # page only once it has been a real miss for ``min_consecutive`` sweeps.
+        if miss_tracker is not None:
+            misses = miss_tracker.register(miss_key, stale=True)
+            if misses < min_consecutive:
+                logger.info(
+                    "meta_watchers: DP_CRON_DID_NOT_FIRE for '%s' below consecutive-miss "
+                    "threshold (%d/%d) — not paging yet (transient-blip suppression)",
+                    target.label,
+                    misses,
+                    min_consecutive,
                 )
                 continue
         if result.stale:
