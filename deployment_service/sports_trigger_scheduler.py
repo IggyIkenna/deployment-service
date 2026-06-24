@@ -37,6 +37,7 @@ from .backends.cloud_run import CloudRunBackend
 from .config_loader import ConfigLoader
 from .deployment_config import DeploymentConfig
 from .sports_latency_observation import (
+    FirstSuccessPoller,
     LatencyObservationRecorder,
     build_observations_for_fire,
 )
@@ -56,7 +57,6 @@ logger = logging.getLogger(__name__)
 # Single source for both post-match trigger firing AND latency observation, so
 # the ``observed_publish_lag_s`` baseline matches the firing baseline.
 MATCH_END_OFFSET_MIN: int = 105
-
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -133,6 +133,8 @@ class SportsTriggerScheduler:
         self._latency_recorder = (
             latency_recorder if latency_recorder is not None else self._build_latency_recorder(enabled=record_latency)
         )
+        dispatch_fn = (lambda **kw: self._dispatch_local(**kw)) if self._backend == "local" else None
+        self._first_success_poller = FirstSuccessPoller(self._latency_recorder, dispatch_fn, MATCH_END_OFFSET_MIN)
 
     def _build_latency_recorder(self, *, enabled: bool) -> LatencyObservationRecorder | None:
         """GCS-backed lag recorder; None if the bucket can't resolve (creds-less ctx)."""
@@ -147,12 +149,7 @@ class SportsTriggerScheduler:
         return LatencyObservationRecorder(bucket=bucket, run_tag=run_tag, enabled=True)
 
     def _build_periodic_state(self, state_bucket: str | None) -> PeriodicTierState | None:
-        """Construct the GCS-backed periodic state. Returns None on failure.
-
-        Failure to construct (e.g. no GCP creds in a unit-test-like context)
-        must NOT crash the scheduler — periodic tiers degrade to in-memory
-        state for that process, per shard-level failure isolation.
-        """
+        """GCS-backed periodic state; None on failure (creds-less ctx)."""
         try:
             bucket = state_bucket or resolve_state_bucket()
             return PeriodicTierState(bucket=bucket)
@@ -368,6 +365,7 @@ class SportsTriggerScheduler:
         self._state.mark_fired(trigger_name, fixture_id)
         if dispatched > 0:
             self._record_latency_observations(event)
+            self._first_success_poller.register_from_event(event, fixture_date, self._build_cli_cmd)
         return True
 
     def _record_latency_observations(self, event: TriggerEvent) -> None:
@@ -834,7 +832,7 @@ class SportsTriggerScheduler:
     def run_once(self) -> int:
         """Run a single evaluation cycle. Returns number of triggers fired."""
         fired = 0
-
+        self._first_success_poller.poll()
         # Tier-1 discovery + Tier-2 reference — periodic, not fixture-proximate.
         dispatcher = self._periodic_dispatcher()
         fired += dispatcher.check_discovery()

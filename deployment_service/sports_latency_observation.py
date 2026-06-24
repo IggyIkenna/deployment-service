@@ -53,7 +53,7 @@ import pandas as pd
 from unified_trading_library import StorageClient, get_storage_client
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,59 @@ constant in seconds). Only POST-MATCH data_types are observable for publish lag
 measure). Keys mirror Tier-4 ``post_match`` trigger entities in
 ``sports-trigger-tiers.yaml``."""
 
+# ---------------------------------------------------------------------------
+# First-success polling support
+# ---------------------------------------------------------------------------
+
+FIRST_SUCCESS_MAX_WINDOW_H: int = 48
+"""Maximum hours to keep polling for a first-success observation after the
+initial first-attempt fire. Covers the longest expected source publish lag
+(understat XG ~7200 s) plus generous margin for outliers."""
+
+FIRST_SUCCESS_EARLY_INTERVAL_MIN: int = 15
+"""Re-poll interval (minutes) for the first three retry attempts — tight
+cadence while source publish is likely imminent."""
+
+FIRST_SUCCESS_LATE_INTERVAL_H: int = 1
+"""Re-poll interval (hours) after the first three retry attempts — hourly
+cadence for slow sources (understat XG, SFI)."""
+
+
+@dataclass
+class FirstSuccessPendingEntry:
+    """In-memory pending entry for a post-match entity awaiting first-success.
+
+    Created when a post-match trigger fires (first-attempt observation written).
+    The scheduler re-dispatches the same CLI command on a tightening cadence
+    until rc==0 (proxy for rows > 0), then writes a ``first_success=True``
+    observation and removes the entry. Entries expire after
+    ``FIRST_SUCCESS_MAX_WINDOW_H`` hours.
+    """
+
+    fixture_id: str
+    league_id: str
+    data_type: str
+    source: str
+    match_end_utc: str
+    trigger_name: str
+    assumed_lag_constant_s: int
+    service: str
+    cmd: str
+    attempt: int
+    next_poll_utc: str
+    expires_utc: str
+
+
+def next_poll_utc_for_attempt(attempt: int, base_utc: datetime) -> datetime:
+    """Return the next-poll datetime for a given retry-attempt count.
+
+    Attempts 0-2 use a tight 15-min cadence; attempt 3+ switches to hourly.
+    ``base_utc`` is the current UTC time at the moment the previous attempt ran.
+    """
+    if attempt < 3:
+        return base_utc + timedelta(minutes=FIRST_SUCCESS_EARLY_INTERVAL_MIN)
+    return base_utc + timedelta(hours=FIRST_SUCCESS_LATE_INTERVAL_H)
+
 
 def build_observations_for_fire(
     *,
@@ -324,3 +377,194 @@ def build_observations_for_fire(
             )
         )
     return out
+
+
+class FirstSuccessPoller:
+    """Manages pending re-dispatch entries until source data arrives (rc==0).
+
+    Extracted from ``SportsTriggerScheduler`` so the scheduler stays within the
+    900-line file limit. The poller owns the ``_pending`` dict, the retry cadence
+    logic, and the observation write on first success.
+
+    Pass ``dispatch_fn=None`` (or ``recorder=None``) to disable — ``poll()``
+    and ``register_from_event()`` become no-ops.
+    """
+
+    def __init__(
+        self,
+        recorder: LatencyObservationRecorder | None,
+        dispatch_fn: Callable[..., bool] | None,
+        match_end_offset_min: int,
+    ) -> None:
+        self._recorder = recorder
+        self._dispatch_fn = dispatch_fn
+        self._match_end_offset_min = match_end_offset_min
+        self._pending: dict[str, FirstSuccessPendingEntry] = {}
+
+    @property
+    def pending(self) -> dict[str, FirstSuccessPendingEntry]:
+        return self._pending
+
+    def register_from_event(
+        self,
+        event: dict[str, object],
+        fixture_date: str,
+        build_cmd_fn: Callable[..., str],
+    ) -> None:
+        """Register pending poll entries for each observable entity in *event*."""
+        if self._recorder is None:
+            return
+        now = datetime.now(UTC)
+        expires_utc = (now + timedelta(hours=FIRST_SUCCESS_MAX_WINDOW_H)).isoformat()
+
+        try:
+            kickoff = datetime.fromisoformat(str(event["kickoff_utc"]).replace("Z", "+00:00"))
+            if kickoff.tzinfo is None:
+                kickoff = kickoff.replace(tzinfo=UTC)
+            match_end_utc = (kickoff + timedelta(minutes=self._match_end_offset_min)).isoformat()
+        except (TypeError, ValueError):
+            return
+
+        for svc in event["services"]:  # type: ignore[union-attr]
+            svc_obj = cast("dict[str, object]", svc)
+            args_obj = svc_obj.get("args", {})
+            entity = ""
+            if isinstance(args_obj, dict):
+                entity = str(cast("dict[str, object]", args_obj).get("--sports-entity", "")).upper()
+            if entity not in ENTITY_TO_OBSERVATION_TARGET:
+                continue
+
+            data_type, source, assumed = ENTITY_TO_OBSERVATION_TARGET[entity]
+            service = str(svc_obj.get("service", ""))
+            operation = str(svc_obj.get("operation", ""))
+            ag = str(svc_obj.get("asset_group") or svc_obj.get("category", "SPORTS"))
+            extra_args_raw = svc_obj.get("args", {})
+            extra_args: dict[str, object] = extra_args_raw if isinstance(extra_args_raw, dict) else {}
+
+            cmd = build_cmd_fn(
+                service=service,
+                operation=operation,
+                asset_group=ag,
+                start_date=fixture_date,
+                end_date=fixture_date,
+                extra_args=extra_args,
+            )
+            key = f"{event['fixture_id']}:{data_type}:{source}"
+            self._pending[key] = FirstSuccessPendingEntry(
+                fixture_id=event["fixture_id"],  # type: ignore[arg-type]
+                league_id=event["league_id"],  # type: ignore[arg-type]
+                data_type=data_type,
+                source=source,
+                match_end_utc=match_end_utc,
+                trigger_name=event["trigger_name"],  # type: ignore[arg-type]
+                assumed_lag_constant_s=assumed,
+                service=service,
+                cmd=cmd,
+                attempt=0,
+                next_poll_utc=next_poll_utc_for_attempt(0, now).isoformat(),
+                expires_utc=expires_utc,
+            )
+
+    def poll(self) -> None:
+        """Retry pending entries; write a genuine observation on rc==0.
+
+        No-op if ``dispatch_fn`` or ``recorder`` is None (backend != local, or
+        latency recording disabled).
+        """
+        if not self._pending or self._recorder is None or self._dispatch_fn is None:
+            return
+
+        now = datetime.now(UTC)
+        to_remove: list[str] = []
+        to_update: dict[str, FirstSuccessPendingEntry] = {}
+
+        for key, entry in self._pending.items():
+            try:
+                expires = datetime.fromisoformat(entry.expires_utc)
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                to_remove.append(key)
+                continue
+
+            if now >= expires:
+                logger.info(
+                    "First-success polling expired: %s:%s:%s — removing",
+                    entry.fixture_id,
+                    entry.data_type,
+                    entry.source,
+                )
+                to_remove.append(key)
+                continue
+
+            try:
+                next_poll = datetime.fromisoformat(entry.next_poll_utc)
+                if next_poll.tzinfo is None:
+                    next_poll = next_poll.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                to_remove.append(key)
+                continue
+
+            if now < next_poll:
+                continue
+
+            logger.info(
+                "First-success poll attempt=%d: %s:%s:%s",
+                entry.attempt + 1,
+                entry.fixture_id,
+                entry.data_type,
+                entry.source,
+            )
+            succeeded = self._dispatch_fn(
+                cmd=entry.cmd,
+                service=entry.service,
+                trigger_name=entry.trigger_name,
+                fixture_id=entry.fixture_id,
+            )
+
+            if succeeded:
+                first_fetch_iso = datetime.now(UTC).isoformat()
+                lag = compute_lag_seconds(entry.match_end_utc, first_fetch_iso)
+                if lag is not None:
+                    obs = LatencyObservation(
+                        fixture_id=entry.fixture_id,
+                        league_id=entry.league_id,
+                        data_type=entry.data_type,
+                        source=entry.source,
+                        match_end_utc=entry.match_end_utc,
+                        first_fetch_utc=first_fetch_iso,
+                        observed_publish_lag_s=lag,
+                        fetched_rows=1,
+                        first_success=True,
+                        trigger_name=entry.trigger_name,
+                        assumed_lag_constant_s=entry.assumed_lag_constant_s,
+                    )
+                    self._recorder.record([obs])
+                    logger.info(
+                        "First-success confirmed: %s:%s:%s lag=%.0fs",
+                        entry.fixture_id,
+                        entry.data_type,
+                        entry.source,
+                        lag,
+                    )
+                to_remove.append(key)
+            else:
+                new_next = next_poll_utc_for_attempt(entry.attempt + 1, now)
+                to_update[key] = FirstSuccessPendingEntry(
+                    fixture_id=entry.fixture_id,
+                    league_id=entry.league_id,
+                    data_type=entry.data_type,
+                    source=entry.source,
+                    match_end_utc=entry.match_end_utc,
+                    trigger_name=entry.trigger_name,
+                    assumed_lag_constant_s=entry.assumed_lag_constant_s,
+                    service=entry.service,
+                    cmd=entry.cmd,
+                    attempt=entry.attempt + 1,
+                    next_poll_utc=new_next.isoformat(),
+                    expires_utc=entry.expires_utc,
+                )
+
+        for key in to_remove:
+            self._pending.pop(key, None)
+        self._pending.update(to_update)
