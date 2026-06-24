@@ -1130,6 +1130,15 @@ def test_no_capture_reason_honest_absence_enrichment_already_complete():
     assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
 
 
+def test_no_capture_reason_mtds_idempotent_preflight_skip():
+    # A resumed/idempotent backfill VM re-runs a (venue, date) already fully captured
+    # and the MTDS pre-flight skips re-fetching (venue_fetch.py:248). captured 0->0 is
+    # benign already-done, NOT a silent zero — must NOT false-positive DP_VM_GONE_NO_CAPTURE
+    # (operator 2026-06-24: the bybit-2021-heavy false positive on the 171-VM backfill).
+    log = "2026-06-24 09:00:01 INFO Pre-flight: venue=BYBIT date=2021-12-31 — all requested data_types fully covered (atoms ⊆ captured), skipping"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
 def test_no_capture_reason_rate_limited_beats_absence():
     # A 429 throttle wins precedence so it's never mistaken for benign absence.
     log = "2026-06-23 WARNING HTTP 429 = Rate limited. Wait and retry.\n0 trades returned"
