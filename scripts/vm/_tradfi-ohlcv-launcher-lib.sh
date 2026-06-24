@@ -19,7 +19,13 @@ set -euo pipefail
 # Caller-provided (each wrapper overrides if needed):
 TRADFI_OHLCV_ZONE="${TRADFI_OHLCV_ZONE:-asia-northeast1-c}"
 TRADFI_OHLCV_PROJECT="${TRADFI_OHLCV_PROJECT:-central-element-323112}"
-TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-standard-4}"
+# e2-highmem-4 (32GB) — tradfi OHLCV backfill peaks ~15GB/chunk (a per-date transient
+# spike on a heavy fetch: liquid GC.OPT ohlcv_1s expiry day, or NASDAQ/NYSE many-symbol
+# ohlcv_1m week) that sits right at e2-standard-4's 16GB ceiling → OOM-crash-loop on 16GB
+# (verified 2026-06-24: gc-2025 cleared >1 7-day chunk on 32GB, zero OOM, peak RSS 15.3GB).
+# The per-date footprint itself is the real bug (tiny output, ~15GB transient) — reduce it
+# (memray) + revert to e2-standard-4. SSOT: tradfi_backfill_oom_remediation_2026_06_24.md.
+TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-highmem-4}"
 TRADFI_OHLCV_BOOT_GB="${TRADFI_OHLCV_BOOT_GB:-50}"
 TRADFI_OHLCV_CODE_BUCKET="${TRADFI_OHLCV_CODE_BUCKET:-deployment-scripts-${TRADFI_OHLCV_PROJECT}}"
 TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/vm/setup-data-pipeline-vm.sh}"
