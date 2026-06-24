@@ -484,7 +484,12 @@ _PROGRESS_RE = re.compile(
 _HONEST_ABSENCE_RE = re.compile(
     r"honest.?absence|record_empty|all (entities|expected sentinels|venues) already (captured|covered)"
     r"|already captured\b|0 trades\b|off.?season|EXPECTED_PAUSED_LEAGUE|EXPECTED_NO_PROVIDER_COVERAGE"
-    r"|fetching \[\]|Nothing to do\b|Skipping .* already captured|no fixtures",
+    r"|fetching \[\]|Nothing to do\b|Skipping .* already captured|no fixtures"
+    # MTDS idempotent-skip pre-flight: a re-run found the (venue, date) already fully
+    # captured and correctly skipped re-fetching → captured 0→0 is benign already-done,
+    # NOT a silent zero (venue_fetch.py:248). Without this the classifier false-positived
+    # DP_VM_GONE_NO_CAPTURE on every resumed/idempotent backfill VM (operator 2026-06-24).
+    r"|all requested data_types fully covered|fully covered \(atoms|atoms ⊆ captured",
     re.IGNORECASE,
 )
 # A rate-limit throttle (real-transient → backoff-retry tier, NOT silent-zero).
