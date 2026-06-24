@@ -131,10 +131,11 @@ resource "google_monitoring_alert_policy" "critical_service_down" {
 
   notification_channels = [google_monitoring_notification_channel.monitoring_deadman_email.id]
 
+  # NOTE: notification_rate_limit is REJECTED by the API for metric-threshold
+  # policies ("only log-based alert policies may specify a notification rate
+  # limit") — these are uptime/metric policies, so rate-limiting is not available;
+  # de-dup is handled by the 1200s alignment window + 300s duration above.
   alert_strategy {
-    notification_rate_limit {
-      period = "1800s" # at most one page / 30 min (the check is */5)
-    }
     auto_close = "604800s" # 7 days
   }
 
