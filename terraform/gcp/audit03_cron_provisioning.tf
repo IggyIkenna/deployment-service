@@ -356,7 +356,14 @@ module "alerting_paging_job" {
   # Subscriber loop: processes PubSub alert events, pages via Telegram + PagerDuty
   # on CRITICAL/HIGH severity (P&L breach / position-breach / kill-switch arm).
   # RUN_DURATION_HOURS not set → terminates via Cloud Run Job timeout (SIGTERM).
-  args = ["--operation", "alerts", "--mode", "live"]
+  #
+  # The alerting-service IMAGE is dual-use: its CMD is `uvicorn …` (the API SERVICE);
+  # this JOB needs the CLI subscriber, so it OVERRIDES the command to the CLI module
+  # (alerting_service/cli/main.py carries the `if __name__ == "__main__": main_service_cli()`
+  # guard). Without an explicit command the args alone exec'd `--operation` as a binary →
+  # "exec failed" every run (2026-06-24 incident: alerting SPOF down, deadman paged).
+  command = ["python", "-m", "alerting_service.cli.main"]
+  args    = ["--operation", "alerts", "--mode", "live"]
 
   environment_variables = {
     GCP_PROJECT_ID = var.project_id
