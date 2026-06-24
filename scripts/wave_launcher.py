@@ -196,8 +196,14 @@ def _write_last_run_sentinel() -> None:
         bucket = _LOG_BUCKET_TPL.format(project=project)
         payload = json.dumps({"ts": datetime.now(UTC).isoformat(), "source": "wave_launcher"}, sort_keys=True)
         storage = get_storage_client()
-        storage.bucket(bucket).blob(WAVE_LAUNCHER_LAST_RUN_BLOB).upload_from_string(
-            payload, content_type="application/json"
+        # Use the UTL StorageClient.upload_bytes API (the SAME call the dp-* monitors'
+        # write_monitor_last_run uses successfully) — the raw `.bucket().blob().upload_from_string()`
+        # is not reliably exposed on the cloud-agnostic client, so it failed silently here.
+        storage.upload_bytes(
+            bucket,
+            WAVE_LAUNCHER_LAST_RUN_BLOB,
+            payload.encode("utf-8"),
+            content_type="application/json",
         )
     except Exception as exc:
         logger.warning("wave_launcher last-run sentinel write failed (best-effort): %s", exc)
