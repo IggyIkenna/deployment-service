@@ -147,6 +147,23 @@ class LivenessResult:
     progress_age_min: float | None = None
 
 
+def _pipeline_heartbeat_stale(age_min: float | None, threshold_min: float) -> bool:
+    """True when the worker's ``PIPELINE_HEARTBEAT`` is stale enough to corroborate a hang.
+
+    A FRESH marker (``age_min <= threshold_min``) PROVES the worker loop is alive
+    (it emits one every 60s independent of chunk boundaries) → NOT hung → returns
+    False so the hung-worker STALL is suppressed even when the progress-line
+    ``run_log_age`` legitimately exceeds the bound on a slow single fetch. ``None``
+    (no marker parsed — read miss / never emitted) → True, falling back to the
+    progress-line signal alone (fail toward the original hung-detection behaviour).
+    Uses the GENEROUS ``run_log_stall_minutes`` bound so a tee-lagged-but-fresh
+    heartbeat (the tee trails the on-VM log ≤78m) is still treated as alive.
+    """
+    if age_min is None:
+        return True
+    return age_min > threshold_min
+
+
 def classify_vm_liveness(
     vm_name: str,
     *,
@@ -159,6 +176,7 @@ def classify_vm_liveness(
     run_log_stall_minutes: float = DEFAULT_RUN_LOG_STALL_MINUTES,
     grace_minutes: float = DEFAULT_GRACE_MINUTES,
     progress_age_min: float | None = None,
+    pipeline_heartbeat_age_min: float | None = None,
 ) -> LivenessResult:
     """Pure liveness classification. No I/O.
 
@@ -220,7 +238,14 @@ def classify_vm_liveness(
         # heartbeat-ABSENT branch — the live-sparse-logging exemption below only
         # guards the heartbeat-FRESH hung-process check.
         if run_log_age_min is None:
-            verdict = LivenessVerdict.EVENT_LOOP_STARVED
+            # No sidecar, no run.log, no PIPELINE_HEARTBEAT — but if the per-VM
+            # captured count is still CLIMBING, the worker is provably alive + working
+            # despite emitting none of the log/heartbeat instrumentation (a
+            # pre-heartbeat-tarball VM whose old image lacks the sidecar + the run.log
+            # tee, e.g. cefi-extended-2025-resume launched 2026-06-24 00:54 before the
+            # 05:03 sidecar rollout). Only TOTAL silence — no heartbeat, no log, AND
+            # captured FLAT — is a genuine starve. (operator 2026-06-24: false STARVED.)
+            verdict = LivenessVerdict.EVENT_LOOP_STARVED if captured_flat else LivenessVerdict.ALIVE
         elif run_log_age_min > run_log_stall_minutes:
             verdict = LivenessVerdict.STALL
         else:
@@ -229,18 +254,36 @@ def classify_vm_liveness(
         # Sidecar blob stale → the VM host/network stopped writing its 60s blob →
         # genuinely wedged (the reapable hang). This is what gates the auto-kill.
         verdict = LivenessVerdict.STALL
-    elif is_backfill and run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
+    elif (
+        is_backfill
+        and run_log_age_min is not None
+        and run_log_age_min > run_log_stall_minutes
+        and _pipeline_heartbeat_stale(pipeline_heartbeat_age_min, run_log_stall_minutes)
+    ):
         # Sidecar FRESH (host alive) but the worker's own log froze past the generous
         # bound (>> tee lag) → hung WORKER on a live host. ALERT-only: the sidecar is
         # fresh so should_auto_kill / is_vm_progressing never reap it. Backfill-only:
         # a live-capture WS VM logs sparsely, so a quiet log with a fresh sidecar is
         # normal (sidecar freshness IS its liveness signal).
+        # GATE (operator 2026-06-24): ``run_log_age_min`` is the age since the last
+        # *progress* line (completed date/chunk), which legitimately exceeds 90m on a
+        # VM grinding through ONE huge slow fetch (cefi-deribit-2025-light: an 8-min
+        # deribit OPTIONS/options_chain fetch with fresh "streaming in progress …
+        # elapsed" lines). The ``PIPELINE_HEARTBEAT`` marker is emitted every 60s
+        # INDEPENDENT of chunk boundaries — a FRESH one PROVES the worker loop is
+        # alive (slow-but-working), so it must ALSO be stale before we call it hung.
         verdict = LivenessVerdict.STALL
-    elif captured_flat and run_log_age_min is not None and run_log_age_min > run_log_stall_minutes:
+    elif (
+        captured_flat
+        and run_log_age_min is not None
+        and run_log_age_min > run_log_stall_minutes
+        and _pipeline_heartbeat_stale(pipeline_heartbeat_age_min, run_log_stall_minutes)
+    ):
         # Captured flat AND the log has also stopped advancing past the GENEROUS
         # bound → corroborated no-progress (alive-but-not-working). Uses the generous
         # run_log_stall_minutes (not stall_minutes) so normal between-tick flatness on
-        # a fresh-sidecar host whose tee merely lags never false-flags.
+        # a fresh-sidecar host whose tee merely lags never false-flags. Same
+        # PIPELINE_HEARTBEAT gate as the hung-worker branch above.
         verdict = LivenessVerdict.STALL
     else:
         verdict = LivenessVerdict.ALIVE
@@ -502,6 +545,7 @@ def sweep(
             captured_flat=captured_flat,
             run_log_age_min=run_log_age,
             progress_age_min=progress_age,
+            pipeline_heartbeat_age_min=_signals.pipeline_heartbeat_age_min,
             is_backfill=is_backfill,
             stall_minutes=stall_minutes,
             run_log_stall_minutes=run_log_stall_minutes,

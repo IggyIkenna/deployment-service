@@ -214,10 +214,53 @@ def test_classify_liveness_stall_on_stale_heartbeat():
 
 
 def test_classify_liveness_event_loop_starved_when_no_heartbeat():
-    res = heartbeat_stall_watcher.classify_vm_liveness(
-        "vm", vm_age_min=120, heartbeat_age_min=None, captured_flat=False
-    )
+    # Genuine starve: no heartbeat, no run.log AND captured FLAT (no progress by ANY
+    # signal). captured_flat=True is load-bearing — a CLIMBING captured count proves
+    # the worker is alive without instrumentation (see the next test).
+    res = heartbeat_stall_watcher.classify_vm_liveness("vm", vm_age_min=120, heartbeat_age_min=None, captured_flat=True)
     assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.EVENT_LOOP_STARVED
+
+
+def test_classify_liveness_no_instrumentation_but_capturing_is_alive():
+    # operator 2026-06-24: cefi-extended-2025-resume (pre-05:03-sidecar-rollout tarball)
+    # emits no sidecar + no run.log + no PIPELINE_HEARTBEAT, but its captured count
+    # CLIMBS (it's capturing a small DEX venue) → alive, NOT EVENT_LOOP_STARVED.
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "cefi-extended-2025-resume", vm_age_min=600, heartbeat_age_min=None, captured_flat=False
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_liveness_slow_fetch_fresh_pipeline_heartbeat_not_stall():
+    # operator 2026-06-24: cefi-deribit-2025-light grinds through ONE huge deribit
+    # OPTIONS/options_chain fetch (8-min/date) → its last *progress* line (run_log_age)
+    # legitimately exceeds 90m, but the 60s PIPELINE_HEARTBEAT marker is FRESH (worker
+    # loop alive) + sidecar fresh → ALIVE, NOT a false hung-worker STALL.
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "cefi-deribit-2025-light",
+        vm_age_min=300,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=120.0,
+        pipeline_heartbeat_age_min=1.0,
+        run_log_stall_minutes=90.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
+def test_classify_liveness_genuinely_hung_worker_still_stalls():
+    # The gate must NOT mask a real hang: sidecar fresh (host alive) but BOTH the
+    # progress line AND the PIPELINE_HEARTBEAT frozen past the bound → hung worker → STALL.
+    res = heartbeat_stall_watcher.classify_vm_liveness(
+        "cefi-deribit-2025-light",
+        vm_age_min=300,
+        heartbeat_age_min=1.0,
+        captured_flat=True,
+        run_log_age_min=120.0,
+        pipeline_heartbeat_age_min=120.0,
+        run_log_stall_minutes=90.0,
+    )
+    assert res.verdict is heartbeat_stall_watcher.LivenessVerdict.STALL
 
 
 def test_classify_liveness_alive_when_fresh_and_progressing():
@@ -1388,6 +1431,46 @@ def test_cron_stale_sentinel_alerts_when_execution_also_stale(monkeypatch):
         execution_history_reader=lambda _job: 90.0,  # last success 90m ago (> 10m budget) — genuinely stopped
     )
     assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+def test_consolidator_cloud_run_job_wired_for_key4():
+    """The consolidator watcher must name its Cloud Run Job (KEY #4) — without it a transiently
+    stale _index can't be cross-checked against the job's real execution history (the 2026-06-24
+    manifest-consolidator-tradfi false-positive)."""
+    from deployment_service.data_pipeline_monitors import cli
+
+    job = cli._consolidator_cloud_run_job("tradfi")
+    assert job  # non-empty → KEY #4 wired
+    assert job == cli._consolidator_scheduler_job("tradfi").removesuffix("-cron")
+    assert "manifest-consolidator-market-data-tradfi" in job
+
+
+def test_consolidator_stale_index_suppressed_when_execution_recent(monkeypatch):
+    """Regression: a transiently-stale _index + a recent SUCCEEDED consolidator execution must NOT
+    page DP_CRON_DID_NOT_FIRE (the manifest-consolidator-tradfi false-positive, 2026-06-24)."""
+    from deployment_service.data_pipeline_monitors import cli
+
+    bucket = "market-data-tick-tradfi-prd"
+    storage = FakeStorage({(bucket, "_index/availability_index.parquet"): (b"x", 200.0)})  # 200m > 180m budget
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    target = meta_watchers.FreshnessTarget(
+        bucket=bucket,
+        blob_path="_index/availability_index.parquet",
+        max_age_min=180.0,
+        label="manifest-consolidator-tradfi",
+        cloud_run_job=cli._consolidator_cloud_run_job("tradfi"),
+    )
+    results = meta_watchers.check_cron_fired(
+        storage_client=storage,
+        targets=[target],
+        execution_history_reader=lambda _job: 0.5,  # consolidator SUCCEEDED 30s ago → demonstrably healthy
+    )
+    assert results[0].stale is True  # the _index read is stale...
+    assert "DP_CRON_DID_NOT_FIRE" not in emitted  # ...but the recent execution suppresses the false alert
 
 
 def test_cron_stale_sentinel_alerts_when_execution_unknown(monkeypatch):
