@@ -280,6 +280,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
 ) -> list[TerminationResult]:
@@ -362,6 +363,11 @@ def sweep(
             if snippet:
                 finding.details["run_log_tail"] = snippet
             finding.details["log_url"] = _gcs.run_log_console_url(log_bucket, name)
+        # Record the fired finding for the RESOLVED-bookend lifecycle (the caller
+        # reconciles it against the prior active set). Tracked even on dry_run so the
+        # reconcile is dry too. Suppressed verdicts produce no finding → not tracked.
+        if finding is not None and finding_sink is not None:
+            finding_sink.append(finding)
         if finding is not None and not dry_run:
             route_finding(finding, pm_repo_path=pm_repo_path)
         if finding is not None:
