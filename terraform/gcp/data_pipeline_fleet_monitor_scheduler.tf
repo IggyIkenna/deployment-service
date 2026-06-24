@@ -162,11 +162,12 @@ module "data_pipeline_meta_watchers_job" {
 
   image = local.data_pipeline_monitor_image
 
-  # 8Gi/cpu2 (bumped from 2Gi/cpu1 2026-06-23) — the meta sweep OOM'd at 2Gi AND 4Gi (signal 9)
-  # on the UTL import baseline + the execution-history cross-check + catalogue/census reads →
-  # its sentinel was never written → deadman paged "dp-meta-monitor stale: never ran".
-  cpu             = "2"
-  memory          = "8Gi"
+  # 16Gi/cpu4 (bumped from 8Gi 2026-06-24) — the meta sweep OOM'd at 2/4/8Gi (signal 9) on the
+  # UTL import baseline + the execution-history cross-check + catalogue/census reads (the corpus
+  # grew after the consolidator merged ~18.6M rows) → its sentinel went stale → deadman paged
+  # "dp-meta-monitor stale: 45m". 8Gi was insufficient under the larger index; 16Gi is green.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 300
   max_retries     = 0
   parallelism     = 1

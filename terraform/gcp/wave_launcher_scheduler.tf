@@ -97,7 +97,11 @@ module "wave_launcher_job" {
   parallelism = 1
   task_count  = 1
 
-  command = ["python3", "/app/deployment-service/scripts/wave_launcher.py"]
+  # The Dockerfile WORKDIR is /app and COPYs scripts/ → /app/scripts/ — there is NO
+  # /app/deployment-service/ dir in the image. The prior /app/deployment-service/scripts/…
+  # path did not exist → `python3 <missing-file>` exited 2 on EVERY tick (the wave-launcher
+  # never ran autonomously; the early waves were launched by hand). Fixed 2026-06-24.
+  command = ["python3", "/app/scripts/wave_launcher.py"]
   args    = []
 
   environment_variables = {
