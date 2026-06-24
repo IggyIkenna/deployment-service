@@ -250,6 +250,10 @@ def test_heartbeat_sweep_event_loop_starved_emits(monkeypatch):
         running_vms=[(vm, "z")],
         vm_age_reader=lambda _n, _z: 120.0,
         captured_reader=lambda _vm: 0,
+        # captured FLAT (0 == prior 0) — load-bearing: a no-instrumentation VM whose
+        # captured count CLIMBS is alive (operator 2026-06-24), so a genuine starve
+        # needs total silence INCLUDING no capture progress.
+        prior_captured={vm: 0},
         asset_group_for_vm=lambda _vm: "defi",
     )
     assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.EVENT_LOOP_STARVED

@@ -576,6 +576,19 @@ def _consolidator_scheduler_job(ag: str) -> str:
     return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}-cron"
 
 
+def _consolidator_cloud_run_job(ag: str) -> str:
+    """The Cloud Run **Job** backing the per-AG market-data consolidator.
+
+    The ``-cron`` scheduler triggers this job. KEY #4 cross-check: a transiently
+    stale ``_index`` read is suppressed when this job shows a recent SUCCEEDED
+    execution (the consolidator fires every minute, so a stale-then-fresh artifact
+    must not page when the job is demonstrably healthy). Matches
+    ``manifest_consolidator_scheduler.tf`` (the job is the scheduler name minus
+    ``-cron``). A genuinely-down consolidator (no recent success) still pages.
+    """
+    return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Data-pipeline fleet monitors")
     parser.add_argument("--mode", required=True, choices=["exit-code", "heartbeat", "meta"])
@@ -756,6 +769,10 @@ def main(argv: list[str] | None = None) -> int:
                         max_age_min=180.0,  # consolidator should touch every cycle
                         label=f"manifest-consolidator-{ag}",
                         scheduler_job=_consolidator_scheduler_job(ag),
+                        # KEY #4: suppress a transiently-stale _index read when the
+                        # consolidator Cloud Run job shows a recent SUCCEEDED execution
+                        # (needs execution_history_reader passed to check_cron_fired below).
+                        cloud_run_job=_consolidator_cloud_run_job(ag),
                     )
                 )
             # Host-cron freshness (FIX 2, 2026-06-24): the TradFi wave-launcher runs as
@@ -775,10 +792,15 @@ def main(argv: list[str] | None = None) -> int:
                     label="tradfi-wave-launcher",
                 )
             )
+            # KEY #4 reader shared by the consolidator + monitor-cron sweeps: cross-checks
+            # the backing Cloud Run Job's REAL execution history so a transiently-stale
+            # artifact + a recent SUCCEEDED run is suppressed, not paged.
+            execution_history_reader = _make_execution_history_reader()
             meta_watchers.check_cron_fired(
                 storage_client=storage_client,
                 targets=cron_targets,
                 scheduler_state_reader=scheduler_state_reader,
+                execution_history_reader=execution_history_reader,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
@@ -790,7 +812,6 @@ def main(argv: list[str] | None = None) -> int:
             # execution-history reader cross-checks each monitor's REAL Cloud Run
             # Job execution history so a stale sentinel + recent SUCCEEDED execution
             # (the dp-exit-code-monitor false positive) is suppressed, not paged.
-            execution_history_reader = _make_execution_history_reader()
             meta_watchers.check_monitor_crons_fired(
                 storage_client=storage_client,
                 log_bucket=log_bucket,
