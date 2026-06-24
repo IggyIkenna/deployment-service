@@ -210,7 +210,7 @@ class RefetchFeed(Layer0Script):
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _resolve_contract(self, feed_id: str):  # noqa: ANN202 — DataFreshnessContract (avoid deep import)
+    def _resolve_contract(self, feed_id: str):
         contract = ALL_FRESHNESS_CONTRACTS.get(feed_id)
         if contract is None:
             raise UnroutableFeedError(
