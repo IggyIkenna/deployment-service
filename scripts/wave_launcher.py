@@ -73,6 +73,7 @@ Env (Cloud Run Job sets these):
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import re
@@ -91,6 +92,15 @@ logger = logging.getLogger("tradfi_wave_launcher")
 ASSET_GROUP = "tradfi"
 MANIFEST_BUCKET_TPL = "market-data-tick-tradfi-{env_short}-{project}"
 MANIFEST_KEY = "_index/availability_index.parquet"
+# Host-cron last-run sentinel (2026-06-24). The wave-launcher runs as a HOST cron
+# (0 */3 on the monitor host), invisible to Cloud Run execution history — so the
+# dp-meta-watchers fleet monitor cannot cross-check it via the Cloud-Run-history
+# reader and would false-fire DP_CRON_DID_NOT_FIRE. Instead the monitor probes THIS
+# sentinel's freshness (written to the SAME log bucket the monitor reads,
+# ``deployment-scripts-{project}``) as the authoritative host-cron-fired signal.
+# Same ``{"ts": <ISO>}`` shape the monitor sentinels use (blob_age_minutes reads it).
+_LOG_BUCKET_TPL = "deployment-scripts-{project}"
+WAVE_LAUNCHER_LAST_RUN_BLOB = "vm-census/wave-launcher-last-run.json"
 
 # Statuses that count as "needs work". attempted_failed is the P1 retry.
 NEEDS_WORK = frozenset({"expected_unattempted", "attempted_failed"})
@@ -169,6 +179,28 @@ def _manifest_bucket() -> str:
     project = _required_env("GCP_PROJECT_ID")
     env_short = os.environ.get("DEPLOYMENT_ENV_SHORT", "prd")
     return MANIFEST_BUCKET_TPL.format(env_short=env_short, project=project)
+
+
+def _write_last_run_sentinel() -> None:
+    """Record that this host-cron tick FIRED — the dp-meta-watchers host-cron signal.
+
+    Writes ``vm-census/wave-launcher-last-run.json`` (``{"ts": <ISO>}``) to the log
+    bucket the fleet monitor reads. The monitor probes its freshness (budget 2x the
+    3h cadence) instead of a Cloud Run execution-history cross-check, which is blind
+    to a HOST cron → no false ``DP_CRON_DID_NOT_FIRE``. Written at tick START so even
+    a 0-gap "backfill complete" tick records the cron fired. Best-effort: a write
+    failure must never crash the tick (the launch is the real work).
+    """
+    try:
+        project = _required_env("GCP_PROJECT_ID")
+        bucket = _LOG_BUCKET_TPL.format(project=project)
+        payload = json.dumps({"ts": datetime.now(UTC).isoformat(), "source": "wave_launcher"}, sort_keys=True)
+        storage = get_storage_client()
+        storage.bucket(bucket).blob(WAVE_LAUNCHER_LAST_RUN_BLOB).upload_from_string(
+            payload, content_type="application/json"
+        )
+    except Exception as exc:
+        logger.warning("wave_launcher last-run sentinel write failed (best-effort): %s", exc)
 
 
 # ── Dispatch atom ────────────────────────────────────────────────────────────
@@ -358,6 +390,11 @@ def _emit(event: str, message: str, **fields: object) -> None:
 def run_tick(*, dry_run: bool) -> int:
     env = os.environ.get("DEPLOYMENT_ENV", "prod")
     max_concurrent = _max_concurrent()
+
+    # Host-cron-fired sentinel FIRST (non-dry-run) — proves this tick ran even if it
+    # finds 0 gaps, so the fleet monitor's host-cron freshness probe stays green.
+    if not dry_run:
+        _write_last_run_sentinel()
 
     df = load_manifest()
     candidates, out_of_scope = compute_dispatch_candidates(df)

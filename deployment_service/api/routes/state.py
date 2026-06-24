@@ -266,7 +266,7 @@ def _canonical_coverage(
     reader = ManifestReader()
     cat_list = asset_groups or all_asset_group_categories()
 
-    totals = [0, 0, 0, 0, 0]
+    totals = [0] * len(CaptureStatusCounts._fields)
     for cat in cat_list:
         for bucket in reader.resolve_all_buckets(service, str(cat)):
             try:

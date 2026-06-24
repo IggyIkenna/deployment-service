@@ -2,7 +2,7 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Build and deploy unified-trading-system-ui to Cloud Run (asia-northeast1 prod / europe-west4 uat).
+# Build and deploy unified-trading-system-ui to Cloud Run (multi-region prod: europe-west4 + us-central1 + asia-northeast1; europe-west4 uat).
 #
 # SSOT for the build+deploy contract: docs/core/DEPLOYMENT.md.
 #
@@ -138,12 +138,15 @@ else
   docker push "${IMAGE_REF}"
 fi
 
-# Prod is single-region (asia-northeast1): all data + client-reporting-api backend
-# are co-located in Tokyo; no global LB fronts odum-portal (verified 2026-06-24).
-# europe-west4 + us-central1 services exist at min=0 (scale-to-zero) and are NOT
-# deleted here — confirm www DNS routing before removing them separately.
+# Prod is MULTI-REGION (europe-west4 + us-central1 + asia-northeast1) — do NOT
+# consolidate to asia-only. www.odum-research.com routes via Firebase Hosting + the
+# odum-research.com Cloud Run domain mapping to EUROPE-WEST4 (verified 2026-06-24),
+# so an asia-only deploy leaves the public www domain one deploy stale (incident
+# 2026-06-24: the coins-index page 404'd on www while asia-direct was fresh). The
+# data/CRA backend is in Tokyo, but the UI is stateless and the fan-out keeps every
+# www-fronting region current. (Reverts 9b4d23b; see deploy_ui.sh:5 + DEPLOYMENT.md.)
 if [[ "${DEPLOY_ENV}" == "prod" ]]; then
-  DEPLOY_REGIONS=("asia-northeast1")
+  DEPLOY_REGIONS=("europe-west4" "us-central1" "asia-northeast1")
 else
   DEPLOY_REGIONS=("${REGION}")
 fi

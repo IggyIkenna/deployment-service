@@ -32,12 +32,16 @@ os.environ.setdefault("DEPLOYMENT_ENV", "prod")
 os.environ.setdefault("GCP_PROJECT_ID", "test-project")
 os.environ.setdefault("PROJECT_ID", "test-project")
 
-from unified_api_contracts import DeploymentUmbrella  # noqa: E402 — after env setup.
+from unified_api_contracts import DeploymentUmbrella, ShardResponsibilityKind  # noqa: E402 — after env setup.
 
 from deployment_service.cloud_run_job_registry import CLOUD_RUN_JOBS  # noqa: E402
 from deployment_service.deployment_classification import (  # noqa: E402
     UnclassifiedDeploymentError,
     classify_deployment_target,
+)
+from deployment_service.deployment_cluster_registry import (  # noqa: E402
+    is_data_plane_service,
+    responsibility_for_deployment,
 )
 from deployment_service.monitored_services import (  # noqa: E402
     _NOT_LONG_LIVED_SERVICE_REPOS,
@@ -152,3 +156,55 @@ def test_guard_detects_an_unregistered_service() -> None:
     simulated_registered = registered - {a_registered}
     missing = expected - simulated_registered
     assert a_registered in missing, "guard is vacuous — dropping a service was not detected as missing"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.5 — shard-responsibility resolver: a data-plane producer NEVER
+# silently resolves to NONE; gateways/consumers ARE liveness-only.
+# ---------------------------------------------------------------------------
+def test_data_plane_services_never_silently_liveness_only() -> None:
+    """Every registered data-plane service resolves to a non-NONE responsibility.
+
+    The whole point of Phase 4.5: a service that owns availability-manifest
+    shards must declare them (ASSET_GROUP_CAPTURE / STRATEGY_SHARD), never
+    silently read as liveness-only. If this fails, a data producer would render
+    as ``liveness_only`` in the cockpit and its freshness would go unattributed.
+    """
+    silent: list[str] = []
+    for name, svc in MONITORED_SERVICES.items():
+        if is_data_plane_service(name) and svc.responsibility.kind is ShardResponsibilityKind.NONE:
+            silent.append(name)
+    assert not silent, f"data-plane service(s) silently resolved to NONE responsibility: {silent}"
+
+
+def test_capture_and_strategy_services_resolve_expected_kind() -> None:
+    """The capture producers -> ASSET_GROUP_CAPTURE; strategy -> STRATEGY_SHARD."""
+    kinds = {name: svc.responsibility.kind for name, svc in MONITORED_SERVICES.items()}
+    for capture in (
+        "market-tick-data-service",
+        "market-data-processing-service",
+        "instruments-service",
+        "features-service",
+    ):
+        assert kinds[capture] is ShardResponsibilityKind.ASSET_GROUP_CAPTURE, f"{capture} not ASSET_GROUP_CAPTURE"
+    assert kinds["strategy-service"] is ShardResponsibilityKind.STRATEGY_SHARD
+
+
+def test_gateways_and_consumers_are_liveness_only() -> None:
+    """API gateways + non-shard-owning consumers resolve to NONE (liveness-only)."""
+    for gw in ("deployment-api", "unified-trading-api", "execution-service", "ml-service", "alerting-service"):
+        svc = MONITORED_SERVICES[gw]
+        assert svc.responsibility.kind is ShardResponsibilityKind.NONE, f"{gw} should be liveness-only"
+        assert svc.owns_data_freshness is False, f"{gw} owns_data_freshness should be False"
+
+
+def test_strategy_mode_derived_from_umbrella() -> None:
+    """A STRATEGY_SHARD responsibility carries the mode derived from the umbrella."""
+    from deployment_service.deployment_classification import classify_deployment_target
+
+    target = classify_deployment_target(
+        "strategy-service", lifecycle_class="LONG_LIVED_LIVE", service="strategy-service"
+    )
+    resp = responsibility_for_deployment(target)
+    assert resp.kind is ShardResponsibilityKind.STRATEGY_SHARD
+    assert resp.mode == "live"  # LONG_LIVED_LIVE -> LIVE umbrella -> "live"
