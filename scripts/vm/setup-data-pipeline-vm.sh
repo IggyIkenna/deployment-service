@@ -1360,6 +1360,27 @@ elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
   else
     log "ERROR: qg-snapshot task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "prediction-arb-detect" ]]; then
+  # Live cross-venue (Kalshi ↔ Polymarket) prediction arb DETECTOR (paper mode).
+  # Runs the features-service cross_instrument CLI as a long-lived poll loop that
+  # reads both venues' live book_snapshot_5, flags PURE_ARB / QUOTABLE_ARB, and
+  # streams opportunities to the GCS arb store. Launcher: launch-prediction-arb-detector.sh.
+  # Design SSOT: codex/04-architecture/cross-venue-prediction-arb-detection.md.
+  _ARB_SCAN_DAYS=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_ARB_SCAN_DAYS" || echo "")
+  _ARB_POLL=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_ARB_POLL_INTERVAL_SECONDS" || echo "")
+  _ARB_MAX_DUR=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_ARB_MAX_DURATION_SECONDS" || echo "")
+  _ARB_THRESH=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_ARB_ENTRY_THRESHOLD" || echo "")
+  ARB_ARGS="--operation arb-detect --mode ${VM_MODE_LIVE:-live} --asset-group ${VM_ASSET_GROUP:-PREDICTION}"
+  [[ -n "$_ARB_SCAN_DAYS" ]] && ARB_ARGS="$ARB_ARGS --scan-days $_ARB_SCAN_DAYS"
+  [[ -n "$_ARB_POLL" ]] && ARB_ARGS="$ARB_ARGS --poll-interval-seconds $_ARB_POLL"
+  [[ -n "$_ARB_MAX_DUR" ]] && ARB_ARGS="$ARB_ARGS --max-duration-seconds $_ARB_MAX_DUR"
+  [[ -n "$_ARB_THRESH" ]] && ARB_ARGS="$ARB_ARGS --entry-threshold $_ARB_THRESH"
+  cd "$WORKSPACE/features" || { log "ERROR: $WORKSPACE/features missing — features-service tarball not extracted"; exit 1; }
+  _launch_with_tee "$VENV/bin/python -m features_service.cross_instrument $ARB_ARGS" "$LOGS/arb-detect.log"
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.

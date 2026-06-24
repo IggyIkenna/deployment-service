@@ -74,6 +74,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "defi-fwd-": "launch-defi-forward-poll.sh",
     "prediction-fwd-": "launch-prediction-forward-poll.sh",
     "prediction-live-": "launch-prediction-live.sh",
+    "prediction-arb-detector-": "launch-prediction-arb-detector.sh",
     # ── CeFi instrument discovery + one-offs ──────────────────────────────
     "cefi-instr-": "launch-cefi-instruments-backfill.sh",
     "cefi-rogue-": None,  # one-off rekey cleanup — no recurring launcher (manual)
