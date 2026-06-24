@@ -20,10 +20,11 @@ Each entry is a classified :class:`DeploymentTarget` (mirroring the
   :func:`classify_deployment_target` so it is consistent with every other
   surface — never a silent default);
 * a ``health_path`` (``/health``, the UTL ``make_health_router`` endpoint);
-* a ``data_freshness`` flag — whether the service supplies a *meaningful*
-  ``make_health_router(data_freshness=...)`` callback (``True`` for data-plane /
-  data-reporting services; ``False`` for the pure API gateways that proxy
-  rather than own data).
+* a ``responsibility`` — the :class:`ShardResponsibility` derived by
+  :func:`responsibility_for_deployment` (data-pipeline producers carry
+  ``ASSET_GROUP_CAPTURE``; ``strategy-service`` → ``STRATEGY_SHARD``;
+  ``manifest-consolidator`` → ``MANIFEST_CONSOLIDATION``; pure API gateways
+  / control-plane services → ``NONE`` / liveness-only).
 
 The guard test (``tests/unit/test_monitored_services_registry_guard.py``)
 asserts every ``service`` / ``api-service`` / ``api`` repo in
@@ -33,7 +34,7 @@ repos are NOT registered here; they register as Cloud Run JOBS in
 ``CLOUD_RUN_JOBS``.
 
 SSOT: ``plans/active/unified_deployment_health_cockpit_2026_06_23.md``
-Phase 4 (gap #6).
+Phase 4 (gap #6) + Phase 4.5 item 2.
 """
 
 from __future__ import annotations
@@ -45,9 +46,11 @@ from unified_api_contracts import (
     DeploymentKind,
     DeploymentTarget,
     DeploymentUmbrella,
+    ShardResponsibility,
 )
 
 from deployment_service.deployment_classification import classify_deployment_target
+from deployment_service.deployment_cluster_registry import responsibility_for_deployment
 
 # ---------------------------------------------------------------------------
 # Repos that carry a deployable-service ``type`` in workspace-manifest.json but
@@ -69,7 +72,7 @@ class MonitoredService:
 
     target: DeploymentTarget
     health_path: str
-    data_freshness: bool
+    responsibility: ShardResponsibility
 
     @property
     def name(self) -> str:
@@ -82,7 +85,7 @@ class MonitoredService:
         return self.target.umbrella
 
 
-def _live_service(name: str, *, data_freshness: bool, health_path: str = "/health") -> MonitoredService:
+def _live_service(name: str, *, health_path: str = "/health") -> MonitoredService:
     """Build a LIVE (LONG_LIVED_LIVE) long-lived Cloud Run service entry.
 
     Classification routes through :func:`classify_deployment_target` with
@@ -99,7 +102,7 @@ def _live_service(name: str, *, data_freshness: bool, health_path: str = "/healt
         asset_group="",  # cross-asset control/data-plane services
         service=name,
     )
-    return MonitoredService(target=target, health_path=health_path, data_freshness=data_freshness)
+    return MonitoredService(target=target, health_path=health_path, responsibility=responsibility_for_deployment(target))
 
 
 # ---------------------------------------------------------------------------
@@ -110,22 +113,20 @@ def _live_service(name: str, *, data_freshness: bool, health_path: str = "/healt
 # rather than owns data (its freshness callback is a fixed "serving").
 # ---------------------------------------------------------------------------
 _MONITORED_SERVICE_LIST: Final[tuple[MonitoredService, ...]] = (
-    # --- data-plane / data-reporting services (real data_freshness) ---
-    _live_service("alerting-service", data_freshness=True),
-    _live_service("client-reporting-api", data_freshness=True),
-    _live_service("execution-service", data_freshness=True),
-    _live_service("features-service", data_freshness=True),
-    _live_service("fund-administration-service", data_freshness=True),
-    _live_service("greeks-service", data_freshness=True),
-    _live_service("instruments-service", data_freshness=True),
-    _live_service("market-data-processing-service", data_freshness=True),
-    _live_service("market-tick-data-service", data_freshness=True),
-    _live_service("ml-service", data_freshness=True),
-    _live_service("strategy-service", data_freshness=True),
-    _live_service("trading-agent-service", data_freshness=True),
-    # --- pure API gateways / control plane (fixed "serving" freshness) ---
-    _live_service("deployment-api", data_freshness=False),
-    _live_service("unified-trading-api", data_freshness=False),
+    _live_service("alerting-service"),
+    _live_service("client-reporting-api"),
+    _live_service("deployment-api"),
+    _live_service("execution-service"),
+    _live_service("features-service"),
+    _live_service("fund-administration-service"),
+    _live_service("greeks-service"),
+    _live_service("instruments-service"),
+    _live_service("market-data-processing-service"),
+    _live_service("market-tick-data-service"),
+    _live_service("ml-service"),
+    _live_service("strategy-service"),
+    _live_service("trading-agent-service"),
+    _live_service("unified-trading-api"),
 )
 
 
