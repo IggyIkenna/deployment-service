@@ -69,6 +69,93 @@ _MANIFEST_CONSOLIDATOR_SERVICE: Final[str] = "manifest-consolidator"
 # The strategy service that owns strategy-shard as-if-filled state.
 _STRATEGY_SERVICE: Final[str] = "strategy-service"
 
+# ---------------------------------------------------------------------------
+# VM launcher-family coverage (Phase 4.5 follow-up, finding 2026-06-24).
+#
+# The canonical-name checks above resolve a *service* deployment (the long-lived
+# repos in ``MONITORED_SERVICES``: ``strategy-service``, ``market-tick-data-
+# service`` …). But the cockpit inventory's rows are mostly **VMs**, whose
+# ``DeploymentTarget.service`` is ``_derive_service(name)`` — a launcher-family
+# stem (``strategy-live-…`` / ``mtds-backfill-…`` / ``cefi-binance-…``), NOT a
+# canonical service name. Those rows fell through to ``NONE`` (liveness_only)
+# even though they own real capture / strategy shards.
+#
+# These two curated prefix tuples (matched on the original VM ``name``, mirroring
+# the existing explicit ``PAPER_PREFIXES`` pattern in deployment_classification)
+# upgrade those VM rows to their real responsibility. They are a CONSERVATIVE
+# allowlist: a name that matches nothing stays ``NONE`` / liveness_only — honest,
+# never a false "fresh" (the same fail-safe direction as
+# ``resolve_launcher_for_vm`` — under-claim, never wrongly attribute). Capture
+# additionally requires a derivable ``asset_group`` (no asset_group ⇒ freshness
+# cannot be attributed ⇒ stays liveness_only).
+
+# Strategy / paper-trading launcher families. A VM whose name starts with one of
+# these owns a STRATEGY_SHARD's as-if-filled state; the mode is derived from the
+# umbrella (``strategy-paper-`` / ``defi-paper-`` / ``funding-ensemble-paper-`` →
+# PAPER; ``strategy-live-`` → LIVE).
+_STRATEGY_LAUNCHER_PREFIXES: Final[tuple[str, ...]] = (
+    "strategy-live-",
+    "strategy-paper-",
+    "defi-paper-",
+    "funding-ensemble-paper-",
+)
+
+# Data-pipeline CAPTURE launcher families (market-data / instruments / features
+# producers: backfill + forward-poll + live capture). A VM whose name starts with
+# one of these AND carries a derivable asset_group owns that asset_group's
+# availability-manifest capture shards. The cefi per-venue families are listed
+# explicitly (rather than a bare ``cefi-``) so a non-capture one-off such as
+# ``cefi-rogue-`` is NOT swept in — conservative by construction.
+_CAPTURE_LAUNCHER_PREFIXES: Final[tuple[str, ...]] = (
+    # market-tick-data-service / market-data-processing-service
+    "mtds-",
+    "mdps-",
+    # instruments-service per-asset_group backfill
+    "instr-backfill-",
+    "cefi-instr-",
+    "tradfi-instr-",
+    # features-service
+    "features-",
+    "fss-backfill-",
+    "fs-backfill-",
+    # cefi per-venue OHLCV / tick capture + forward-poll
+    "cefi-binance-",
+    "cefi-bybit-",
+    "cefi-deribit-",
+    "cefi-coinbase-",
+    "cefi-okx-",
+    "cefi-upbit-",
+    "cefi-hyperliquid-",
+    "cefi-bitfinex-",
+    "cefi-bitget-",
+    "cefi-kraken-",
+    "cefi-aster-",
+    "cefi-cme-",
+    "cefi-extended-",
+    "cefi-lighter-",
+    "cefi-pacifica-",
+    "cefi-mr-",
+    "cefi-fwd-",
+    "cefi-ext-bfill-",
+    # tradfi capture
+    "tradfi-bf-",
+    "tradfi-fwd-",
+    "tradfi-recent-",
+    "tradfi-event-contract-",
+    "cme-events-",
+    # defi capture
+    "defi-fwd-",
+    "aster-fwd-",
+    # prediction capture
+    "prediction-fwd-",
+    "prediction-live-",
+    # sports source forward-poll / backfill
+    "footystats-fwd-",
+    "sfi-fwd-",
+    "af-backfill-",
+    "af-recover-",
+)
+
 # umbrella -> strategy "mode". Strategy shards run as one of these operational
 # modes; the umbrella already encodes it, so derive rather than parse the name.
 _UMBRELLA_TO_MODE: Final[dict[DeploymentUmbrella, str]] = {
@@ -87,27 +174,34 @@ def responsibility_for_deployment(target: DeploymentTarget) -> ShardResponsibili
     """Bind a classified deployment to the data shards it is responsible for.
 
     Pure derivation off ``target.service`` + ``target.asset_group`` +
-    ``target.umbrella`` — never a hand-maintained per-target dict. A deployment
-    whose service owns no capture / consolidation / strategy shards resolves to
-    ``ShardResponsibilityKind.NONE`` (liveness-only); the per-deployment
-    freshness endpoint renders those as ``liveness_only`` rather than a false
-    "fresh".
+    ``target.umbrella`` (canonical service deployments) and ``target.name``
+    (VM launcher families) — never a hand-maintained per-target dict. A
+    deployment whose service / launcher family owns no capture / consolidation /
+    strategy shards resolves to ``ShardResponsibilityKind.NONE`` (liveness-only);
+    the per-deployment freshness endpoint renders those as ``liveness_only``
+    rather than a false "fresh".
+
+    Resolution order (most-specific first): manifest consolidator → strategy
+    (canonical service OR a ``_STRATEGY_LAUNCHER_PREFIXES`` VM) → asset-group
+    capture (canonical service OR a ``_CAPTURE_LAUNCHER_PREFIXES`` VM with a
+    derivable asset_group) → NONE.
     """
     service = target.service
     asset_group = target.asset_group
+    name = target.name
 
     if service == _MANIFEST_CONSOLIDATOR_SERVICE:
         return ShardResponsibility(
             kind=ShardResponsibilityKind.MANIFEST_CONSOLIDATION,
             asset_group=asset_group,
         )
-    if service == _STRATEGY_SERVICE:
+    if service == _STRATEGY_SERVICE or name.startswith(_STRATEGY_LAUNCHER_PREFIXES):
         return ShardResponsibility(
             kind=ShardResponsibilityKind.STRATEGY_SHARD,
             asset_group=asset_group,
             mode=_strategy_mode(target),
         )
-    if service in _ASSET_GROUP_CAPTURE_SERVICES:
+    if service in _ASSET_GROUP_CAPTURE_SERVICES or (bool(asset_group) and name.startswith(_CAPTURE_LAUNCHER_PREFIXES)):
         return ShardResponsibility(
             kind=ShardResponsibilityKind.ASSET_GROUP_CAPTURE,
             asset_group=asset_group,

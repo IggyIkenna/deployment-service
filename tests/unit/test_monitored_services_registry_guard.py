@@ -208,3 +208,79 @@ def test_strategy_mode_derived_from_umbrella() -> None:
     resp = responsibility_for_deployment(target)
     assert resp.kind is ShardResponsibilityKind.STRATEGY_SHARD
     assert resp.mode == "live"  # LONG_LIVED_LIVE -> LIVE umbrella -> "live"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4.5 follow-up (finding 2026-06-24): VM launcher-family coverage.
+#
+# Inventory rows are VMs whose ``DeploymentTarget.service`` is the launcher-
+# family stem (``strategy-live-…`` / ``mtds-backfill-…`` / ``cefi-binance-…``),
+# NOT a canonical service name. These resolve to their real responsibility via
+# the ``_STRATEGY_LAUNCHER_PREFIXES`` / ``_CAPTURE_LAUNCHER_PREFIXES`` allowlists
+# rather than staying liveness_only. The allowlist is conservative: a name
+# matching nothing (or a capture family with no derivable asset_group) stays
+# NONE — honest, never a false "fresh".
+# ---------------------------------------------------------------------------
+def _classify(name: str, lifecycle_class: str):
+    from deployment_service.deployment_classification import classify_deployment_target
+
+    return classify_deployment_target(name, lifecycle_class=lifecycle_class)
+
+
+def test_strategy_live_vm_resolves_strategy_shard_live() -> None:
+    """A ``strategy-live-<ag>-<runid>`` VM row resolves to STRATEGY_SHARD/live."""
+    resp = responsibility_for_deployment(_classify("strategy-live-cefi-abc123", "LONG_LIVED_LIVE"))
+    assert resp.kind is ShardResponsibilityKind.STRATEGY_SHARD
+    assert resp.mode == "live"
+
+
+def test_strategy_paper_vm_resolves_strategy_shard_paper() -> None:
+    """A ``strategy-paper-<ag>-<runid>`` VM row resolves to STRATEGY_SHARD/paper.
+
+    The PAPER_PREFIXES override gives it the PAPER umbrella regardless of
+    lifecycle_class → mode ``paper``.
+    """
+    resp = responsibility_for_deployment(_classify("strategy-paper-defi-xyz789", "LONG_LIVED_LIVE"))
+    assert resp.kind is ShardResponsibilityKind.STRATEGY_SHARD
+    assert resp.mode == "paper"
+
+
+def test_paper_trading_launcher_families_resolve_strategy_shard() -> None:
+    """defi-paper / funding-ensemble-paper VMs are strategy paper shards, not capture."""
+    for name in ("defi-paper-trading-vm-1", "funding-ensemble-paper-cron-vm"):
+        resp = responsibility_for_deployment(_classify(name, "LONG_LIVED_LIVE"))
+        assert resp.kind is ShardResponsibilityKind.STRATEGY_SHARD, name
+        assert resp.mode == "paper", name
+
+
+def test_capture_launcher_families_resolve_asset_group_capture() -> None:
+    """mtds/mdps/cefi-venue backfill VMs resolve to ASSET_GROUP_CAPTURE with their ag."""
+    cases = {
+        "mtds-backfill-tradfi-vm1": "tradfi",
+        "mdps-backfill-cefi-shard3": "cefi",
+        "cefi-binance-spot-vm-1": "cefi",
+        "mtds-live-prediction-feed": "prediction",
+        "tradfi-bf-equities-2026": "tradfi",
+    }
+    for name, expected_ag in cases.items():
+        resp = responsibility_for_deployment(_classify(name, "EPHEMERAL_BATCH"))
+        assert resp.kind is ShardResponsibilityKind.ASSET_GROUP_CAPTURE, name
+        assert resp.asset_group == expected_ag, name
+
+
+def test_capture_family_without_asset_group_stays_liveness_only() -> None:
+    """A capture-family VM with NO derivable asset_group stays NONE (honest)."""
+    # ``mtds-backfill-vm`` carries no asset_group token → freshness unattributable.
+    resp = responsibility_for_deployment(_classify("mtds-backfill-vm", "EPHEMERAL_BATCH"))
+    assert resp.kind is ShardResponsibilityKind.NONE
+
+
+def test_non_capture_vm_with_asset_group_stays_liveness_only() -> None:
+    """An ag-scoped non-capture infra VM (orchestrator worker) is NOT swept into capture.
+
+    ``agent-orch-vm-cefi-…`` carries asset_group=cefi but is a control-plane
+    worker, not a data producer → must stay liveness_only (the conservative
+    allowlist does not match it).
+    """
+    resp = responsibility_for_deployment(_classify("agent-orch-vm-cefi-1", "LONG_LIVED_LIVE"))
+    assert resp.kind is ShardResponsibilityKind.NONE
