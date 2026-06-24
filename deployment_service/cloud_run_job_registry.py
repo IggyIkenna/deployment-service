@@ -180,6 +180,9 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("vm-log-archival", service="deployment-service"),
     # vm_serial_capture_scheduler.tf
     _batch("vm-serial-capture", service="deployment-service"),
+    # governance_snapshot_monitor_scheduler.tf — Phase 5 Snapshot governance space
+    # monitor (polls aavedao/comp-vote/morpho every 6h, emits GOVERNANCE_PROPOSAL_LIVE).
+    _batch("mtds-monitor-snapshot-governance", service="market-tick-data-service", asset_group="defi"),
     # wave_launcher_scheduler.tf — BATCH tradfi OHLCV wave-launcher (autonomous
     # backfill driver: launches/clamps tradfi-bf-* VMs wave-by-wave). Registry
     # entry required by the cloud_run_job_registry guard for every scheduler tf.
