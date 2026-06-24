@@ -530,6 +530,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # with a fixed name; bucket = market-data-tick-defi-{pid}.
     "mtds-dex-pools-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-dex-swaps-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Prefix variants for the catalogue-capture EU backfill (windowed/highmem VM names like
+    # mtds-dex-pools-eu-hm, mtds-liquidations-eu-…) + the 3 new per-data_type launchers
+    # (position_data / liquidation_events / flash_loan_events — handlers existed, launchers added
+    # 2026-06-24 to fill their expected_unattempted). All write the defi tick bucket.
+    "mtds-dex-pools-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-dex-swaps-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-liquidations-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-position-data-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-liquidation-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-flash-loan-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-risk-params-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
