@@ -29,6 +29,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
+from types import ModuleType
 from typing import cast
 
 import pandas as pd
@@ -372,6 +373,29 @@ def _launcher_for_vm(vm_name: str) -> str:
     return resolve_launcher_for_vm(vm_name) or ""
 
 
+def _zombie_watchdog() -> ModuleType | None:
+    """Import the ``vm_zombie_watchdog`` module — or ``None`` if unavailable.
+
+    Tries the IMAGE module path ``scripts.vm.vm_zombie_watchdog`` FIRST (the monitor
+    jobs run in the deployment-api image where WORKDIR=/app + ``scripts/`` is a package,
+    so the module resolves as ``scripts.vm.…``), then the bare ``vm_zombie_watchdog``
+    (the VM-side script's own cwd). The prior bare-only import silently failed in the
+    image (``find_spec`` → None) → the auto-kill returned False on EVERY stalled VM since
+    FIX 1b shipped AND ``_umbrella_for_vm`` defaulted to "" (2026-06-24 incident:
+    genuinely-hung VMs were never reaped → a persistent DP_VM_STALL flood). The module
+    imports ``google.cloud.compute_v1`` + does ``bucket_naming`` at load (needs
+    GCP_PROJECT_ID, set in the job env), so the import stays deferred here.
+    """
+    for name in ("scripts.vm.vm_zombie_watchdog", "vm_zombie_watchdog"):
+        if importlib.util.find_spec(name) is None:
+            continue
+        try:
+            return importlib.import_module(name)
+        except Exception as exc:
+            logger.warning("vm_zombie_watchdog import via %s failed: %s", name, exc)
+    return None
+
+
 def _umbrella_for_vm(vm_name: str) -> str:
     """``vm_name -> deployment umbrella`` (LIVE/BATCH/PAPER/EXPERIMENT; "" when unresolved).
 
@@ -381,12 +405,9 @@ def _umbrella_for_vm(vm_name: str) -> str:
     #data-pipeline-alerts). Returns "" on an unregistered prefix → the alert routes to
     the batch default (never a sweep crash).
     """
-    if importlib.util.find_spec("vm_zombie_watchdog") is None:
+    watchdog = _zombie_watchdog()
+    if watchdog is None:
         return ""
-    # vm_zombie_watchdog is a VM-side launcher script (imports google.cloud.compute_v1
-    # at module load) — NOT import-safe at this package's module top; deferred here so
-    # only the sweep path that needs the prefix registry pulls it in.
-    watchdog = importlib.import_module("vm_zombie_watchdog")  # noqa: imports-inside-functions — VM-side script, cloud-SDK-laden
     registry = cast("dict[str, VmPrefixSpec | None]", watchdog.VM_PREFIX_TO_BUCKET)
     try:
         return umbrella_for_vm_name(vm_name, registry).value
@@ -406,10 +427,10 @@ def _kill_stalled_vm(vm_name: str, zone: str) -> bool:
     credential-free + block-network in tests). Returns False if the watchdog module
     is unavailable in the runtime (the sweep then only alerts, never crashes).
     """
-    if importlib.util.find_spec("vm_zombie_watchdog") is None:
+    watchdog = _zombie_watchdog()
+    if watchdog is None:
         logger.warning("auto-kill: vm_zombie_watchdog unavailable in runtime — cannot kill %s", vm_name)
         return False
-    watchdog = importlib.import_module("vm_zombie_watchdog")  # noqa: imports-inside-functions — VM-side script, cloud-SDK-laden
     try:
         compute_client = watchdog.compute_v1.InstancesClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
         return bool(watchdog._kill_vm(compute_client, vm_name, zone))  # pyright: ignore[reportAny] — dynamic VM-side helper
