@@ -362,6 +362,30 @@ def _catalogue_targets() -> list[meta_watchers.FreshnessTarget]:
     return targets
 
 
+def _high_attempted_failed_targets() -> list[meta_watchers.FreshnessTarget]:
+    """Per-AG market-data ``_index`` targets for the high-attempted_failed check
+    (DP-FETCH-009). The ``label`` carries the asset_group (the alert + miss-counter
+    key), ``blob_path`` is the consolidated availability index the consolidator
+    writes. ``max_age_min`` is unused by ``check_high_attempted_failed`` (it reads
+    counts, not freshness) — set to the index blob's path for diagnosability.
+    """
+    targets: list[meta_watchers.FreshnessTarget] = []
+    for ag in ASSET_GROUPS:
+        try:
+            bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
+        except Exception:
+            continue
+        targets.append(
+            meta_watchers.FreshnessTarget(
+                bucket=bucket,
+                blob_path=meta_watchers.AVAILABILITY_INDEX_BLOB,
+                max_age_min=0.0,  # unused: this check reads counts, not freshness
+                label=ag,
+            )
+        )
+    return targets
+
+
 def _launcher_for_vm(vm_name: str) -> str:
     """``vm_name -> launcher-script-name`` for the relaunch actuators ("" when none).
 
@@ -746,6 +770,19 @@ def main(argv: list[str] | None = None) -> int:
             meta_watchers.check_catalogue_freshness(
                 storage_client=storage_client,
                 targets=_catalogue_targets(),
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-FETCH-009: page when a (asset_group, data_type) cell has a HIGH
+            # attempted_failed batch in the consolidated manifest _index — closes the
+            # gap where a backfill exits 0 / captured climbs yet fails thousands of
+            # cells invisibly (the exit-code monitor reads that as CLEAN; per-shard
+            # ADAPTER_FETCH_FAILED never aggregates to a DP alert). Shares the
+            # miss_tracker so a transient consolidator blip only pages when sustained.
+            meta_watchers.check_high_attempted_failed(
+                storage_client=storage_client,
+                targets=_high_attempted_failed_targets(),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
