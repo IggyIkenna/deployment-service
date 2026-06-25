@@ -188,6 +188,19 @@ def _asset_group_for_vm(vm_name: str) -> str:
     return "unknown"
 
 
+def _make_shard_backed_ag_fn(storage_client: StorageClient):
+    def _probe(ag: str, blob: str) -> bool:
+        try:
+            return storage_client.blob_exists(resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag), blob)
+        except Exception:
+            return False
+
+    def _fn(vm_name: str) -> str:
+        if (ag := _asset_group_for_vm(vm_name)) != "unknown":
+            return ag
+        found = [c for c in ASSET_GROUPS if _probe(c, _PER_VM_SHARD.format(vm=vm_name))]
+        return found[0] if len(found) == 1 else ("multi" if found else "unknown")
+    return _fn
 # VM-name prefixes that ARE data-pipeline backfill / live-capture VMs (the only
 # ones that emit a PIPELINE_HEARTBEAT + write a per-VM manifest shard). The
 # heartbeat / exit-code sweeps must SKIP infra VMs (zombie-watchdog, orchestrator,
@@ -662,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
                 log_bucket=log_bucket,
                 running_vms=running,
                 captured_reader=captured_reader,
-                asset_group_for_vm=_asset_group_for_vm,
+                asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
                 finding_sink=ec_findings,
@@ -723,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
                 captured_reader=captured_reader,
                 shard_mtime_reader=_make_shard_mtime_reader(storage_client),
                 sidecar_age_reader=_make_sidecar_age_reader(storage_client),
-                asset_group_for_vm=_asset_group_for_vm,
+                asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
                 finding_sink=hb_findings,

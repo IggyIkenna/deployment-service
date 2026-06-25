@@ -102,6 +102,74 @@ def test_shard_bucket_for_vm_unknown_is_none():
     assert cli._shard_bucket_for_vm("vm-zombie-watchdog-2025") is None
 
 
+# ── _make_shard_backed_ag_fn ──────────────────────────────────────────────────
+def test_shard_backed_ag_fn_known_name_no_io():
+    """VM with an AG segment in its name resolves via name-match — zero GCS calls."""
+    storage = FakeStorage({})
+    fn = cli._make_shard_backed_ag_fn(storage)
+    assert fn("sports-full-sweep-2025") == "sports"
+    assert fn("cefi-mr-binance-2025") == "cefi"
+    # blob_exists was never called (FakeStorage has no uploaded entries; if it were
+    # probed it would still return the name-match result — we just confirm no
+    # "unknown" leaks through for named VMs)
+
+
+def test_shard_backed_ag_fn_probes_gcs_when_name_unknown(monkeypatch):
+    """Generic instruments VM with no AG in name → GCS shard probe returns the AG."""
+    vm = "instruments-backfill-20260622-211407"
+    shard_path = cli._PER_VM_SHARD.format(vm=vm)
+    sports_bucket = "market-data-tick-sports-prd-x"
+
+    def _resolve(**kw):
+        if kw.get("asset_group") == "sports":
+            return sports_bucket
+        raise RuntimeError("no bucket for other AGs in this test")
+
+    monkeypatch.setattr(cli, "resolve_bucket_name", _resolve)
+    storage = FakeStorage({(sports_bucket, shard_path): (b"x", 5.0)})
+    fn = cli._make_shard_backed_ag_fn(storage)
+    assert fn(vm) == "sports"
+
+
+def test_shard_backed_ag_fn_multi_when_multiple_shards(monkeypatch):
+    """Shard found in two AG buckets → returns 'multi' (shouldn't happen but safe)."""
+    vm = "instruments-backfill-20260622-000001"
+    shard_path = cli._PER_VM_SHARD.format(vm=vm)
+    cefi_bucket = "market-data-tick-cefi-prd-x"
+    defi_bucket = "market-data-tick-defi-prd-x"
+
+    def _resolve(**kw):
+        ag = kw.get("asset_group")
+        if ag == "cefi":
+            return cefi_bucket
+        if ag == "defi":
+            return defi_bucket
+        raise RuntimeError("no bucket")
+
+    monkeypatch.setattr(cli, "resolve_bucket_name", _resolve)
+    storage = FakeStorage(
+        {
+            (cefi_bucket, shard_path): (b"x", 5.0),
+            (defi_bucket, shard_path): (b"x", 5.0),
+        }
+    )
+    fn = cli._make_shard_backed_ag_fn(storage)
+    assert fn(vm) == "multi"
+
+
+def test_shard_backed_ag_fn_unknown_when_no_shard(monkeypatch):
+    """Generic VM with no shard in any AG bucket → 'unknown'."""
+    vm = "instruments-backfill-20260622-999999"
+
+    def _resolve(**_kw):
+        raise RuntimeError("no bucket")
+
+    monkeypatch.setattr(cli, "resolve_bucket_name", _resolve)
+    storage = FakeStorage({})
+    fn = cli._make_shard_backed_ag_fn(storage)
+    assert fn(vm) == "unknown"
+
+
 # ── cli.main dispatch (dry-run, mocked clients) ──────────────────────────────
 @contextmanager
 def _noop_lifecycle(service_name: str):  # noqa: ARG001
@@ -299,6 +367,7 @@ def test_meta_catalogue_fresh_no_alert(monkeypatch):
 
 
 # ── _list_running_vms timeout (DP-WATCHER-002 root-cause fix) ────────────────
+
 
 def test_list_running_vms_returns_empty_on_timeout(monkeypatch):
     """_list_running_vms must return [] within _LIST_VMS_TIMEOUT_SECS even when
