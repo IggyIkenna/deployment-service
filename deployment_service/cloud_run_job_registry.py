@@ -129,6 +129,12 @@ _T1_RECON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
 # ---------------------------------------------------------------------------
 # Singleton infra jobs (one per scheduler tf).
 # ---------------------------------------------------------------------------
+_LIVE_EVENT_LOG_JOBS: Final[tuple[DeploymentTarget, ...]] = (
+    # terraform/gcp/live_event_log/compaction_job.tf — daily cold compaction of warm GCS sink.
+    # Plan: live_persist_03_infra_pubsub_sinks_2026_06_26.md (Plan 03, P1).
+    _batch("live-event-log-compactor", service="deployment-service"),
+)
+
 _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     # batch_live_smoke_matrix_scheduler.tf
     _batch("batch-live-smoke-matrix-daily", service="e2e-testing"),
@@ -204,6 +210,7 @@ CLOUD_RUN_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     *_FEATURES_ONCHAIN_COLLECT_JOBS,
     *_DEFI_COLLECT_JOBS,
     *_T1_RECON_JOBS,
+    *_LIVE_EVENT_LOG_JOBS,
 )
 """Every classified GCP Cloud Run job (the scheduler-tf job set).
 
