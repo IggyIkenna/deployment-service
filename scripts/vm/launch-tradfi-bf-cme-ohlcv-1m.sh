@@ -4,18 +4,18 @@
 # Delete-when: NA
 # Launch CME OHLCV-1m backfill VMs (one per (root, year-shard)).
 #
-# Roots per OHLCV-only MVP plan (tradfi_ohlcv_only_mvp_backfill_2026_05_15.md
-# Phase 6): ES + MES + NQ + MNQ + CL + GC + ES_OPT (CME options chain).
+# Full CME root universe (47 futures + options roots + 9 event-contract roots).
+# Each root entry: "ROOT|ROOT.FUT;ROOT.OPT" — the ES root already covers both
+# ES futures and ES options (ES.OPT); there is no separate ES_OPT root key.
 #
 # Symbol-set: Databento parent symbology — one symbol per root pulls the full
-# chain for the date window (BTC.FUT/ES.FUT/NQ.FUT/CL.FUT/...). Options use
-# the 11-cluster ES_OPT_PARENTS set.
+# chain for the date window. Futures-only roots yield an empty OPT bundle.
 #
 # Window: 2019-01-01 → today by default (per operator direction "full period
 # for tradfi"). Override with `--start-floor YYYY-MM-DD`.
 #
 # Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true (CLAUDE.md
-# HARD RULE). Singleton lock matches ^tradfi-bf-.
+# HARD RULE). Fleet concurrency cap: OHLCV_FLEET_CONCURRENCY_CAP (default 20).
 #
 # Usage:
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --dry-run
@@ -117,7 +117,8 @@ if [[ -n "$ONLY_ROOT" ]]; then
     done
     if (( ${#_filtered[@]} == 0 )); then
         echo "ERROR: --only-root '$ONLY_ROOT' does not match any CME_ROOTS entry" >&2
-        echo "Available roots: ES MES NQ MNQ CL GC ES_OPT" >&2
+        echo "Available roots: 6A 6B 6C 6E 6J 6L 6M 6N 6S 6Z BTC CL CT ES ETH GC HE HG HO LE MBT MES MET NG NKD NQ RB RTY SI XAB XAF XAI XAK XAP XAU XAV XAY YM ZB ZC ZF ZL ZM ZN ZS ZT ZW ECES ECBTC ECRTY ECYM ECGC ECCL ECNG EC6E ECNQ" >&2
+        echo "(Note: ES root covers ES.FUT and ES.OPT — there is no separate ES_OPT root key)" >&2
         exit 1
     fi
     CME_ROOTS=("${_filtered[@]}")
