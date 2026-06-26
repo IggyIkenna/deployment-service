@@ -138,9 +138,14 @@ module "lifecycle_catalogue_regen_job" {
   )
 
   environment_variables = {
-    GCP_PROJECT_ID = var.project_id
-    DEPLOYMENT_ENV = var.environment
-    CLOUD_PROVIDER = "gcp"
+    GCP_PROJECT_ID    = var.project_id
+    DEPLOYMENT_ENV    = var.environment
+    CLOUD_PROVIDER    = "gcp"
+    # Force Python stdout/stderr to line-buffered mode in the Cloud Run container so
+    # the bisection markers (print+flush=True in run_rollup) surface immediately in
+    # Cloud Logging rather than being swallowed by the default block-buffered mode
+    # (the previous "truncated traceback" symptom on job failures).
+    PYTHONUNBUFFERED  = "1"
   }
 
   service_name = "lifecycle-catalogue-regen-${each.key}"
