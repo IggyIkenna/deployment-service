@@ -96,7 +96,7 @@ _EXPECTED_UNIVERSE_V2_JOBS: Final[tuple[DeploymentTarget, ...]] = tuple(
 )
 _LIFECYCLE_CATALOGUE_JOBS: Final[tuple[DeploymentTarget, ...]] = tuple(
     _batch(f"lifecycle-catalogue-regen-{ag}", service="instruments-service", asset_group=ag)
-    for ag in ("cefi", "defi", "tradfi", "sports")  # local.lifecycle_catalogue_asset_groups (no prediction)
+    for ag in _ASSET_GROUPS  # cefi/defi/tradfi/sports/prediction — all 5 in lifecycle_catalogue_asset_groups (TF added prediction 2026-06-23)
 )
 _FEATURES_ONCHAIN_COLLECT_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("features-onchain-collect-lst-seasonal-rewards", service="features-onchain-service", asset_group="defi"),

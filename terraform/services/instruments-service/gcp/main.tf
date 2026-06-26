@@ -430,81 +430,87 @@ module "daily_job" {
   }
 }
 
-# Workflow for daily T+1 (computes yesterday's date and triggers job)
-module "daily_workflow" {
-  source = "../../../modules/workflow/gcp"
-
-  name                  = var.workflow_name
-  project_id            = var.project_id
-  region                = var.region
-  description           = "Daily T+1 workflow for instruments-service"
-  service_account_email = var.service_account_email
-
-  workflow_source = local.workflow_yaml
-
-  # Schedule at 8:30 AM UTC daily
-  schedule                        = var.schedule
-  time_zone                       = var.time_zone
-  scheduler_service_account_email = var.scheduler_service_account_email
-
-  workflow_args = {
-    trigger = "scheduled"
-  }
-
-  labels = {
-    "app"     = "instruments-service"
-    "type"    = "daily"
-    "version" = "v2"
-  }
-}
-
-# Backfill Workflow (manual trigger for historical data)
-module "backfill_workflow" {
-  source = "../../../modules/workflow/gcp"
-
-  name                  = var.backfill_workflow_name
-  project_id            = var.project_id
-  region                = var.region
-  description           = "Historical backfill workflow for instruments-service (instruments + corporate_actions)"
-  service_account_email = var.service_account_email
-
-  workflow_source = local.backfill_workflow_yaml
-
-  # No schedule - manual trigger only
-  schedule  = null
-  time_zone = var.time_zone
-
-  labels = {
-    "app"     = "instruments-service"
-    "type"    = "backfill"
-    "version" = "v2"
-  }
-}
-
-# Live Workflow (every 15 min - Cloud Run single-cycle, avoids wasting compute)
-module "live_workflow" {
-  source = "../../../modules/workflow/gcp"
-
-  name                  = var.live_workflow_name
-  project_id            = var.project_id
-  region                = var.region
-  description           = "Live mode workflow for instruments-service (single cycle every 15 min)"
-  service_account_email = var.service_account_email
-
-  workflow_source = local.live_workflow_yaml
-
-  # Every 15 minutes (minute 0, 15, 30, 45)
-  schedule                        = var.live_schedule
-  time_zone                       = var.time_zone
-  scheduler_service_account_email = var.scheduler_service_account_email
-
-  workflow_args = {
-    trigger = "scheduled"
-  }
-
-  labels = {
-    "app"     = "instruments-service"
-    "type"    = "live"
-    "version" = "v2"
-  }
-}
+# DISABLED 2026-06-26: daily_workflow, backfill_workflow, and live_workflow are all
+# superseded by the t1-recon Cloud Run jobs (instruments-service-t1-recon etc.) which
+# use the current CLI convention (--operation instruments --asset-group <ag>).
+# These module blocks used dead CLI flags (--operation instrument [singular], --CEFI,
+# --TRADFI, --DEFI) and were silently failing daily. Commenting out to stop creating
+# GCP Workflow resources. The Cloud Run job (module "daily_job" above) remains active.
+#
+# module "daily_workflow" {
+#   source = "../../../modules/workflow/gcp"
+#
+#   name                  = var.workflow_name
+#   project_id            = var.project_id
+#   region                = var.region
+#   description           = "Daily T+1 workflow for instruments-service"
+#   service_account_email = var.service_account_email
+#
+#   workflow_source = local.workflow_yaml
+#
+#   # Schedule at 8:30 AM UTC daily
+#   schedule                        = var.schedule
+#   time_zone                       = var.time_zone
+#   scheduler_service_account_email = var.scheduler_service_account_email
+#
+#   workflow_args = {
+#     trigger = "scheduled"
+#   }
+#
+#   labels = {
+#     "app"     = "instruments-service"
+#     "type"    = "daily"
+#     "version" = "v2"
+#   }
+# }
+#
+# # Backfill Workflow (manual trigger for historical data)
+# module "backfill_workflow" {
+#   source = "../../../modules/workflow/gcp"
+#
+#   name                  = var.backfill_workflow_name
+#   project_id            = var.project_id
+#   region                = var.region
+#   description           = "Historical backfill workflow for instruments-service (instruments + corporate_actions)"
+#   service_account_email = var.service_account_email
+#
+#   workflow_source = local.backfill_workflow_yaml
+#
+#   # No schedule - manual trigger only
+#   schedule  = null
+#   time_zone = var.time_zone
+#
+#   labels = {
+#     "app"     = "instruments-service"
+#     "type"    = "backfill"
+#     "version" = "v2"
+#   }
+# }
+#
+# # Live Workflow (every 15 min - Cloud Run single-cycle, avoids wasting compute)
+# module "live_workflow" {
+#   source = "../../../modules/workflow/gcp"
+#
+#   name                  = var.live_workflow_name
+#   project_id            = var.project_id
+#   region                = var.region
+#   description           = "Live mode workflow for instruments-service (single cycle every 15 min)"
+#   service_account_email = var.service_account_email
+#
+#   workflow_source = local.live_workflow_yaml
+#
+#   # Every 15 minutes (minute 0, 15, 30, 45)
+#   schedule                        = var.live_schedule
+#   time_zone                       = var.time_zone
+#   scheduler_service_account_email = var.scheduler_service_account_email
+#
+#   workflow_args = {
+#     trigger = "scheduled"
+#   }
+#
+#   labels = {
+#     "app"     = "instruments-service"
+#     "type"    = "live"
+#     "version" = "v2"
+#   }
+# }
