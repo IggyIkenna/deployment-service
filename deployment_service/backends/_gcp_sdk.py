@@ -28,9 +28,6 @@ if TYPE_CHECKING:
         compute_v1,
         run_v2,
     )
-    from google.cloud.artifactregistry_v1 import (  # noqa: cloud-sdk-direct — _gcp_sdk.py IS the GCP SDK boundary
-        ArtifactRegistryClient,
-    )
     from google.cloud.compute_v1.services.images import (
         transports as images_transports,
     )
@@ -39,7 +36,6 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "ArtifactRegistryClient",
     "compute_v1",
     "google_auth_default",
     "google_auth_requests",
@@ -52,7 +48,6 @@ __all__ = [
 # Maps exported name → (module_to_import, attribute_name_or_None)
 # If attribute_name is None, the module itself is returned.
 _DEFERRED: dict[str, tuple[str, str | None]] = {
-    "ArtifactRegistryClient": ("google.cloud.artifactregistry_v1", "ArtifactRegistryClient"),
     "google_exceptions": ("google.api_core.exceptions", None),
     "google_auth_default": ("google.auth", "default"),
     "google_auth_requests": ("google.auth.transport.requests", None),
