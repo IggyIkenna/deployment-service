@@ -16,9 +16,12 @@
 # Two phases: FAST (immediate sources) + SLOW (delayed sources)
 #
 # FAST phase (Sports, DeFi, Prediction, TradFi instruments):
-#   00:00 — instruments-service (all categories — DeFi/Sports/Prediction immediate, TradFi T+1 OK)
+#   00:00 — instruments-service DEFI (per-AG; DeFi on-chain immediate)
+#   00:10 — instruments-service TRADFI (per-AG; Databento T+1 OK at midnight)
+#   00:20 — instruments-service PREDICTION (per-AG; Polymarket immediate)
 #   00:30 — market-tick-data-service SPORTS + DEFI + PREDICTION + TRADFI (all available)
 #   00:30 — execution-service config snapshot
+#   01:00 — lifecycle-catalogue-regen per AG (after all per-AG instrument producers finish)
 #   01:30 — market-data-processing-service (for fast-phase tick data)
 #   02:00 — features-calendar, features-delta-one (TradFi), features-volatility
 #   02:30 — features-onchain, features-sports, features-cross-instrument,
@@ -27,12 +30,19 @@
 #   04:00 — strategy-service
 #
 # SLOW phase (CeFi — Tardis delayed):
+#   06:00 — instruments-service CEFI (per-AG; Tardis data now available)
 #   06:00 — market-tick-data-service CEFI (Tardis data now available)
 #   07:00 — market-data-processing-service CEFI
 #   07:30 — features-delta-one CEFI, features-onchain CEFI
 #   08:00 — ml-inference CEFI
 #
 #   09:00 — batch-live-reconciliation-service (after ALL phases complete)
+#
+# NOTE: The old all-AG "instruments" 00:00 job (uts-prod-instruments-service-t1-recon)
+# OOM'd at 8cpu/32Gi (signal 9) because sports alone = 5.6M rows in one execution.
+# It has been RETIRED and replaced by per-AG jobs (sports has its own sports-fixtures
+# jobs; cefi runs at 06:00). The old all-AG job was temporarily scoped to DEFI as an
+# interim — the DEFI per-AG entry below (00:00) supersedes it.
 
 # Service account for T+1 batch Cloud Scheduler jobs — must exist before scheduler jobs are created
 resource "google_service_account" "t1_batch" {
@@ -54,10 +64,23 @@ locals {
   t1_service_account_email = google_service_account.t1_batch.email
 
   t1_batch_services = {
-    "instruments" = {
+    # Per-AG instruments-service producers (FAST phase: 00:00-00:20, staggered 10min)
+    # REPLACES the retired all-AG "instruments" 00:00 job (OOM'd at 8cpu/32Gi — signal 9).
+    # Sports has its own sports-fixtures jobs; CeFi runs at 06:00 (Tardis lag).
+    "instruments-defi" = {
       schedule    = "0 0 * * *"
-      job_name    = "${local.env_prefix}-instruments-service-t1-recon"
-      description = "instruments-service T+1 — all categories (Sports/DeFi/Prediction immediate, TradFi Databento T+1 OK at midnight)"
+      job_name    = "${local.env_prefix}-instruments-service-defi-t1-recon"
+      description = "instruments-service DEFI T+1 — DeFi on-chain instrument definitions (immediate source; 4cpu/8Gi)"
+    }
+    "instruments-tradfi" = {
+      schedule    = "10 0 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-tradfi-t1-recon"
+      description = "instruments-service TRADFI T+1 — TradFi Databento instrument definitions (T+1 available at midnight; 4cpu/8Gi)"
+    }
+    "instruments-prediction" = {
+      schedule    = "20 0 * * *"
+      job_name    = "${local.env_prefix}-instruments-service-prediction-t1-recon"
+      description = "instruments-service PREDICTION T+1 — Polymarket prediction market instrument definitions (immediate source; 2cpu/4Gi)"
     }
     "instruments-cefi" = {
       schedule    = "0 6 * * *"
