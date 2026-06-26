@@ -24,6 +24,7 @@ from deployment_service.data_pipeline_monitors import (
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
     meta_watchers,
+    stale_image_watcher,
 )
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -2097,3 +2098,259 @@ def test_heartbeat_sweep_populates_finding_sink(monkeypatch):
     )
     assert len(sink) == 1
     assert meta_watchers.alert_key(sink[0]).startswith("DP_VM_STALL::")
+
+
+# ── DP-VM-007: check_cloud_run_image_freshness ────────────────────────────────
+
+_STALE_JOB = "deployment-service-job"
+_STALE_SERVICE = "deployment-service"
+# Two different digests — stale condition.
+_RUNNING_DIGEST = "asia-northeast1-docker.pkg.dev/test-project/trading-system/deployment-service@sha256:a41ad9f7aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+_LATEST_DIGEST = "sha256:f739a41bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+# Same digest — fresh condition.
+_FRESH_DIGEST = "asia-northeast1-docker.pkg.dev/test-project/trading-system/deployment-service@sha256:f739a41bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+
+def _make_stale_image_readers(
+    *,
+    running: str | None,
+    latest: str | None,
+) -> tuple[stale_image_watcher.ImageDigestReader, stale_image_watcher.LatestDigestReader]:
+    return (lambda _p, _l, _j: running), (lambda _p, _l, _r, _i: latest)
+
+
+def test_stale_image_emits_warn(monkeypatch):
+    """Running digest != latest digest → DP_CLOUD_RUN_STALE_IMAGE WARN emitted."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_RUNNING_DIGEST, latest=_LATEST_DIGEST)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+    )
+    assert len(results) == 1
+    assert results[0].stale is True
+    assert results[0].skipped is False
+    assert any(e[0] == "DP_CLOUD_RUN_STALE_IMAGE" and e[1] == "WARN" for e in emitted), emitted
+
+
+def test_fresh_image_no_alert(monkeypatch):
+    """Running digest == latest digest → no alert emitted."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_FRESH_DIGEST, latest=_LATEST_DIGEST)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+    )
+    assert len(results) == 1
+    assert results[0].stale is False
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted
+
+
+def test_missing_latest_digest_no_false_alert(monkeypatch):
+    """Latest digest unavailable (API miss) → no false alert (skip the job)."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_RUNNING_DIGEST, latest=None)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+    )
+    assert len(results) == 1
+    assert results[0].skipped is True
+    assert results[0].stale is False
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted
+
+
+def test_missing_running_digest_no_false_alert(monkeypatch):
+    """Running digest unavailable (job not found) → no false alert (skip the job)."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=None, latest=_LATEST_DIGEST)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+    )
+    assert len(results) == 1
+    assert results[0].skipped is True
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted
+
+
+def test_stale_image_consecutive_miss_suppresses_first_sweep(monkeypatch):
+    """First stale probe suppressed by consecutive-miss gate (min_consecutive=2)."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_RUNNING_DIGEST, latest=_LATEST_DIGEST)
+    storage = FakeStorage({})
+    t1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+        miss_tracker=t1,
+        min_consecutive=2,
+    )
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted, "first stale sweep must be suppressed"
+    t1.persist()
+    # Second sweep → should fire.
+    t2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+        miss_tracker=t2,
+        min_consecutive=2,
+    )
+    assert "DP_CLOUD_RUN_STALE_IMAGE" in emitted, "second consecutive stale sweep must page"
+
+
+def test_extract_digest_from_full_uri():
+    """_extract_digest correctly pulls sha256:... from a full image URI."""
+    uri = "asia-northeast1-docker.pkg.dev/proj/repo/service@sha256:abcdef1234"
+    assert stale_image_watcher._extract_digest(uri) == "sha256:abcdef1234"
+
+
+def test_extract_digest_bare():
+    """_extract_digest passes through a bare sha256:... string."""
+    assert stale_image_watcher._extract_digest("sha256:abcdef1234") == "sha256:abcdef1234"
+
+
+def test_extract_digest_tag_only_returns_empty():
+    """_extract_digest returns empty string for a tag-only image ref (no digest)."""
+    assert stale_image_watcher._extract_digest("asia.pkg.dev/proj/repo/service:latest") == ""
+
+
+def test_stale_image_dry_run_does_not_emit(monkeypatch):
+    """dry_run=True → finding is detected but log_event is NOT called."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_RUNNING_DIGEST, latest=_LATEST_DIGEST)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=[_STALE_JOB],
+        job_to_service=lambda _: _STALE_SERVICE,
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=True,
+    )
+    assert results[0].stale is True
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted
+
+
+def test_stale_image_no_service_skips_job(monkeypatch):
+    """job_to_service returns None → job skipped, no result emitted."""
+    meta_watchers.reset_emitted_tracker()
+    emitted: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append(event),
+    )
+    image_reader, latest_reader = _make_stale_image_readers(running=_RUNNING_DIGEST, latest=_LATEST_DIGEST)
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=["unknown-job"],
+        job_to_service=lambda _: None,  # no mapping
+        image_digest_reader=image_reader,
+        latest_digest_reader=latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=False,
+    )
+    assert results == []
+    assert "DP_CLOUD_RUN_STALE_IMAGE" not in emitted
+
+
+def test_stale_image_flags_prod_2026_06_23_scenario():
+    """Sanity-check: the concrete 2026-06-26 prod scenario (instruments-service on
+    the 2026-06-23 image missing f739a41/d279615) would flag as stale.
+
+    Running image: ...@sha256:a41ad9f7... (2026-06-23 build, the stale one).
+    Latest image:  sha256:f739a41b...   (the HEAD build with the fixes).
+    Expected: stale=True, running_norm != latest_norm.
+    """
+    running = "asia-northeast1-docker.pkg.dev/test-project/trading-system/instruments-service@sha256:a41ad9f7aaa"
+    latest = "sha256:f739a41bbbb"
+
+    def _image_reader(_p: str, _l: str, _j: str) -> str | None:
+        return running
+
+    def _latest_reader(_p: str, _l: str, _r: str, _i: str) -> str | None:
+        return latest
+
+    results = stale_image_watcher.check_cloud_run_image_freshness(
+        job_names=["instruments-service-t1-recon"],
+        job_to_service=lambda _: "instruments-service",
+        image_digest_reader=_image_reader,
+        latest_digest_reader=_latest_reader,
+        project_id="test-project",
+        location="asia-northeast1",
+        artifact_repository="trading-system",
+        dry_run=True,  # dry_run: only verify the verdict, don't emit
+    )
+    assert len(results) == 1
+    result = results[0]
+    assert result.stale is True, (
+        "prod scenario: instruments-service on 2026-06-23 image (a41ad9f7) != latest (f739a41b) "
+        "must flag stale — this is the concrete prod issue the alert was built to catch"
+    )
