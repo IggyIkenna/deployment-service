@@ -50,6 +50,7 @@ from deployment_service.data_pipeline_monitors import (
     _gcs,
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
+    live_stream_watcher,
     meta_watchers,
     stale_image_watcher,
 )
@@ -862,6 +863,8 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
             )
+            # DP-LIVE-001: live stream staleness ("VM alive, data dead" — polymarket_book_snapshot_5_dead_stream_2026_06_26).
+            live_stream_watcher.check_live_stream_stale(storage_client=storage_client, shards=live_stream_watcher.build_prediction_live_shards(storage_client), pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
             # DP-VM-007: stale-image check (stale_cloud_run_image_alert_gap_2026_06_26)
             _svc_map = stale_image_watcher.job_to_service_map()
             stale_image_watcher.check_cloud_run_image_freshness(
