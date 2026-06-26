@@ -23,6 +23,7 @@ from deployment_service.data_pipeline_monitors import (
     escalation,
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
+    live_stream_watcher,
     meta_watchers,
     stale_image_watcher,
 )
@@ -2354,3 +2355,171 @@ def test_stale_image_flags_prod_2026_06_23_scenario():
         "prod scenario: instruments-service on 2026-06-23 image (a41ad9f7) != latest (f739a41b) "
         "must flag stale — this is the concrete prod issue the alert was built to catch"
     )
+
+
+# ── DP-LIVE-002 tests ─────────────────────────────────────────────────────────
+
+def _make_manifest_parquet(
+    *,
+    capture_status: str = "captured",
+    venue: str = "POLYMARKET",
+    data_type: str = "book_snapshot_5",
+    date_iso: str = "2026-06-26",
+    row_count: int = 937,
+    written_at: str = "2026-06-26T20:22:08+00:00",
+) -> bytes:
+    import io
+
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {
+                "capture_status": capture_status,
+                "venue": venue,
+                "data_type": data_type,
+                "date": date_iso,
+                "row_count": row_count,
+                "written_at": pd.Timestamp(written_at, tz="UTC"),
+            }
+        ]
+    )
+    buf = io.BytesIO()
+    df.to_parquet(buf, index=False)
+    return buf.getvalue()
+
+
+class _FakeStorageLswMismatch:
+    """Fake StorageClient for DP-LIVE-002 tests."""
+
+    def __init__(self, *, manifest_bytes: bytes, gcs_file_count: int, min_age_secs: int = 0) -> None:
+        self._manifest_bytes = manifest_bytes
+        self._gcs_file_count = gcs_file_count
+        self._min_age_secs = min_age_secs
+
+    def blob_exists(self, _bucket: str, _blob: str) -> bool:
+        return True
+
+    def download_bytes(self, _bucket: str, _blob: str) -> bytes:
+        return self._manifest_bytes
+
+    def list_blobs(self, _bucket: str, prefix: str = "") -> list[object]:
+        if not prefix.startswith("raw_tick_data/"):
+            return []
+
+        class _Blob:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+        venue = "venue=POLYMARKET"
+        data_type = "data_type=book_snapshot_5"
+        return [
+            _Blob(f"raw_tick_data/by_date/day=2026-06-26/{venue}/{data_type}/instr{i}.parquet")
+            for i in range(self._gcs_file_count)
+        ]
+
+
+def test_dp_live_002_fires_when_captured_but_gcs_empty() -> None:
+    """DP-LIVE-002 fires when manifest shows captured rows but GCS has 0 files (the Plan04 bug)."""
+    import io
+    from datetime import UTC, datetime, timedelta
+
+    import pandas as pd
+
+    manifest = _make_manifest_parquet(
+        capture_status="captured",
+        written_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+    )
+    storage = _FakeStorageLswMismatch(manifest_bytes=manifest, gcs_file_count=0)
+    shard = live_stream_watcher.LiveVmShard(
+        vm_name="prediction-live-polymarket-book-snapshot-5-20260626-201038",
+        bucket="market-data-tick-pred-prd",
+        blob_path="_index/per_vm/prediction-live-polymarket-book-snapshot-5-20260626-201038.parquet",
+    )
+    findings: list[live_stream_watcher.LiveVmShard] = []
+
+    def _emit(finding: PipelineFinding, *, pm_repo_path: str | None, dry_run: bool) -> None:  # noqa: ARG001
+        findings.append(finding)  # type: ignore[arg-type]
+
+    import unittest.mock as mock
+    with mock.patch(
+        "deployment_service.data_pipeline_monitors.live_stream_watcher.emit_finding",
+        side_effect=_emit,
+    ):
+        result = live_stream_watcher.check_live_stream_gcs_write_mismatch(
+            storage_client=storage,  # type: ignore[arg-type]
+            shards=[shard],
+            min_age_hours=0.5,
+        )
+    assert len(result) == 1
+    assert result[0].vm_name == shard.vm_name
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.registry_id == "DP-LIVE-002"  # type: ignore[attr-defined]
+    assert "gcs-mismatch" in finding.details["label"]  # type: ignore[attr-defined]
+
+
+def test_dp_live_002_no_fire_when_gcs_has_files() -> None:
+    """DP-LIVE-002 does NOT fire when captured rows AND GCS files both exist."""
+    from datetime import UTC, datetime, timedelta
+
+    manifest = _make_manifest_parquet(
+        capture_status="captured",
+        written_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+    )
+    storage = _FakeStorageLswMismatch(manifest_bytes=manifest, gcs_file_count=26)
+    shard = live_stream_watcher.LiveVmShard(
+        vm_name="prediction-live-polymarket-book-snapshot-5-ok",
+        bucket="market-data-tick-pred-prd",
+        blob_path="_index/per_vm/prediction-live-polymarket-book-snapshot-5-ok.parquet",
+    )
+    result = live_stream_watcher.check_live_stream_gcs_write_mismatch(
+        storage_client=storage,  # type: ignore[arg-type]
+        shards=[shard],
+        min_age_hours=0.5,
+    )
+    assert len(result) == 0
+
+
+def test_dp_live_002_no_fire_when_all_empty_confirmed() -> None:
+    """DP-LIVE-002 does NOT fire when all rows are empty_confirmed (expected for illiquid markets)."""
+    from datetime import UTC, datetime, timedelta
+
+    manifest = _make_manifest_parquet(
+        capture_status="empty_confirmed",
+        written_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+    )
+    storage = _FakeStorageLswMismatch(manifest_bytes=manifest, gcs_file_count=0)
+    shard = live_stream_watcher.LiveVmShard(
+        vm_name="prediction-live-polymarket-book-snapshot-5-empty",
+        bucket="market-data-tick-pred-prd",
+        blob_path="_index/per_vm/prediction-live-polymarket-book-snapshot-5-empty.parquet",
+    )
+    result = live_stream_watcher.check_live_stream_gcs_write_mismatch(
+        storage_client=storage,  # type: ignore[arg-type]
+        shards=[shard],
+        min_age_hours=0.5,
+    )
+    assert len(result) == 0
+
+
+def test_dp_live_002_suppressed_for_new_vms() -> None:
+    """DP-LIVE-002 does NOT fire when VM is younger than min_age_hours (startup grace period)."""
+    from datetime import UTC, datetime, timedelta
+
+    manifest = _make_manifest_parquet(
+        capture_status="captured",
+        written_at=(datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+    )
+    storage = _FakeStorageLswMismatch(manifest_bytes=manifest, gcs_file_count=0)
+    shard = live_stream_watcher.LiveVmShard(
+        vm_name="prediction-live-polymarket-book-snapshot-5-new",
+        bucket="market-data-tick-pred-prd",
+        blob_path="_index/per_vm/prediction-live-polymarket-book-snapshot-5-new.parquet",
+    )
+    result = live_stream_watcher.check_live_stream_gcs_write_mismatch(
+        storage_client=storage,  # type: ignore[arg-type]
+        shards=[shard],
+        min_age_hours=1.0,
+    )
+    assert len(result) == 0

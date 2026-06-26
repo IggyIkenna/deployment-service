@@ -863,8 +863,9 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
             )
-            # DP-LIVE-001: live stream staleness ("VM alive, data dead" — polymarket_book_snapshot_5_dead_stream_2026_06_26).
-            live_stream_watcher.check_live_stream_stale(storage_client=storage_client, shards=live_stream_watcher.build_prediction_live_shards(storage_client), pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
+            _live_shards = live_stream_watcher.build_prediction_live_shards(storage_client)  # DP-LIVE-001/002 shared shard read
+            live_stream_watcher.check_live_stream_stale(storage_client=storage_client, shards=_live_shards, pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
+            live_stream_watcher.check_live_stream_gcs_write_mismatch(storage_client=storage_client, shards=_live_shards, pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
             # DP-VM-007: stale-image check (stale_cloud_run_image_alert_gap_2026_06_26)
             _svc_map = stale_image_watcher.job_to_service_map()
             stale_image_watcher.check_cloud_run_image_freshness(
