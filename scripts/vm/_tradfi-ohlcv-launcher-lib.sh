@@ -10,8 +10,8 @@
 # shard isolation via VM_NAME + MANIFEST_PER_VM_SHARDS=true (CLAUDE.md HARD
 # RULE).
 #
-# Sourced by the 4 venue wrappers. Singleton lock matches ^tradfi-bf- so all
-# wrappers serialize on the shared Databento PAYG account.
+# Sourced by the venue wrappers. Fleet concurrency cap (OHLCV_FLEET_CONCURRENCY_CAP,
+# default 20) prevents overloading the shared Databento subscription account.
 #
 # SSOT: plans/active/tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6.
 set -euo pipefail
@@ -45,25 +45,35 @@ TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-databento}"
 # Semicolon-delimited (gcloud metadata-safe; startup splits [,;] → spaces).
 TRADFI_OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_1m;ohlcv_1s}"
 
-# Singleton-lock check: refuse to launch if any tradfi-bf-* VM is RUNNING in
-# the zone, unless $FORCE=true or $DRY_RUN=true.
+# Concurrency-cap check: refuse to launch when the count of RUNNING tradfi-bf-*
+# VMs in the zone reaches OHLCV_FLEET_CONCURRENCY_CAP.
+#
+# RATIONALE: Databento documents 100 concurrent connections per IP and 100
+# timeseries requests/second per IP (DatabentoIPRateLimiter._RAW_LIMITS).
+# Empirically, 18 tradfi-bf-* VMs ran concurrently without triggering 429s
+# (instruments_foundation_completeness_2026_06_24.md — "killed the 18 RUNNING
+# tradfi-bf-* OHLCV backfills"). A singleton (cap=1) serialises the whole fleet
+# for no safety reason. Cap=20 is the minimum safe floor above the empirical
+# 18-VM high-water mark, well within the 100-connection hard limit.
+# Override: OHLCV_FLEET_CONCURRENCY_CAP=N (env) to raise/lower at call time.
+OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-20}"
+
 ohlcv_check_singleton_lock() {
     local force="${1:-false}"
     local dry_run="${2:-false}"
     if [[ "$force" == "true" || "$dry_run" == "true" ]]; then return 0; fi
-    local existing
-    existing="$(gcloud compute instances list \
+    local running_count
+    running_count="$(gcloud compute instances list \
         --filter='name~"^tradfi-bf-" AND status=RUNNING' \
         --zones="$TRADFI_OHLCV_ZONE" \
-        --format='value(name)' 2>/dev/null | head -1)"
-    if [[ -n "$existing" ]]; then
+        --format='value(name)' 2>/dev/null | wc -l)"
+    if (( running_count >= OHLCV_FLEET_CONCURRENCY_CAP )); then
         cat >&2 <<EOF
-ERROR: TRADFI backfill VM already running in $TRADFI_OHLCV_ZONE: $existing
-Refusing to launch a duplicate — Databento PAYG account is shared.
-Inspect:   gcloud compute ssh $existing --zone=$TRADFI_OHLCV_ZONE
-Tail log:  gsutil cat gs://${TRADFI_OHLCV_CODE_BUCKET}/vm-logs/${existing}/run.log
-Stop:      gcloud compute instances delete $existing --zone=$TRADFI_OHLCV_ZONE --quiet
-Force:     pass --force to bypass.
+ERROR: ${running_count} tradfi-bf-* VM(s) already RUNNING in $TRADFI_OHLCV_ZONE.
+Fleet concurrency cap reached (OHLCV_FLEET_CONCURRENCY_CAP=${OHLCV_FLEET_CONCURRENCY_CAP}).
+Inspect:  gcloud compute instances list --filter='name~"^tradfi-bf-" AND status=RUNNING' --zones=$TRADFI_OHLCV_ZONE
+Force:    pass --force to bypass.
+Override: OHLCV_FLEET_CONCURRENCY_CAP=N bash <launcher> to raise the cap.
 EOF
         exit 1
     fi
