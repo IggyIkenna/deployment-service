@@ -40,7 +40,7 @@ from deployment_service.data_pipeline_monitors.escalation import (
 from deployment_service.data_pipeline_monitors.meta_watchers import (
     DEFAULT_MIN_CONSECUTIVE_MISSES,
     MissTracker,
-    emit_finding,  # pyright: ignore[reportUnknownVariableType]
+    emit_finding,
 )
 
 logger = logging.getLogger(__name__)
