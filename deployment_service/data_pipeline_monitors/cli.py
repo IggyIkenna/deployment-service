@@ -51,6 +51,7 @@ from deployment_service.data_pipeline_monitors import (
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
     meta_watchers,
+    stale_image_watcher,
 )
 from deployment_service.data_pipeline_monitors.escalation import PipelineFinding
 from deployment_service.data_pipeline_monitors.launcher_registry import resolve_launcher_for_vm
@@ -546,22 +547,10 @@ def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
 
 
 def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
-    """Return ``job_stem -> minutes since the job's last SUCCEEDED execution | None``.
+    """Return ``job_stem -> minutes since last SUCCEEDED Cloud Run execution | None``.
 
-    KEY #4 (operator 2026-06-23): the authoritative "did the cron fire" signal is the
-    Cloud Run **Job**'s real execution history, NOT the lagging GCS sentinel. The
-    ``dp-exit-code-monitor`` false-fired DP_CRON_DID_NOT_FIRE on a stale sentinel
-    while its executions Completed every 5 min. This reader queries the Run v2
-    executions API for the most recent SUCCEEDED execution and returns its age in
-    minutes; ``check_cron_fired`` suppresses the stale-sentinel alert when that age
-    is within budget.
-
-    The ``google.cloud.run_v2`` client is deferred-imported here (credential-bound),
-    mirroring the scheduler reader — the watcher modules stay import-safe +
-    credential-free. Any error / no-success returns ``None`` (UNKNOWN → the watcher
-    does NOT suppress; a genuinely-dead job still alerts). The job-name STEM is
-    resolved to ``{env_prefix}-{stem}`` then to the fully-qualified
-    ``projects/{p}/locations/{loc}/jobs/{name}`` path.
+    KEY #4: suppresses DP_CRON_DID_NOT_FIRE when execution history shows a recent
+    success (vs lagging GCS sentinel). Deferred-import; errors return ``None``.
     """
     project = _project_id()
     location = "asia-northeast1"  # the fleet's canonical region (all Cloud Run jobs)
@@ -603,27 +592,20 @@ def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
 
 
 def _consolidator_scheduler_job(ag: str) -> str:
-    """The Cloud Scheduler job name backing the per-AG market-data consolidator.
+    """Scheduler job name: ``{env_prefix}-manifest-consolidator-market-data-{ag}-cron``.
 
-    Matches manifest_consolidator_scheduler.tf:
-    ``{env_prefix}-manifest-consolidator-market-data-{ag}-cron``. Used so a
-    PAUSED consolidator scheduler suppresses its stale-_index DP_CRON_DID_NOT_FIRE
-    (KEY #2) while an ENABLED-but-stale one still alerts.
+    Matches manifest_consolidator_scheduler.tf — PAUSED suppresses DP_CRON_DID_NOT_FIRE (KEY #2).
     """
     return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}-cron"
 
 
 def _consolidator_cloud_run_job(ag: str) -> str:
-    """The Cloud Run **Job** backing the per-AG market-data consolidator.
+    """Cloud Run job backing the per-AG consolidator (scheduler name minus ``-cron``).
 
-    The ``-cron`` scheduler triggers this job. KEY #4 cross-check: a transiently
-    stale ``_index`` read is suppressed when this job shows a recent SUCCEEDED
-    execution (the consolidator fires every minute, so a stale-then-fresh artifact
-    must not page when the job is demonstrably healthy). Matches
-    ``manifest_consolidator_scheduler.tf`` (the job is the scheduler name minus
-    ``-cron``). A genuinely-down consolidator (no recent success) still pages.
+    KEY #4: a stale ``_index`` is suppressed when a recent SUCCEEDED execution is found.
     """
     return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}"
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -876,6 +858,20 @@ def main(argv: list[str] | None = None) -> int:
                 log_bucket=log_bucket,
                 scheduler_state_reader=scheduler_state_reader,
                 execution_history_reader=execution_history_reader,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            # DP-VM-007: stale-image check (stale_cloud_run_image_alert_gap_2026_06_26)
+            _svc_map = stale_image_watcher.job_to_service_map()
+            stale_image_watcher.check_cloud_run_image_freshness(
+                job_names=list(_svc_map.keys()),
+                job_to_service=_svc_map.get,
+                image_digest_reader=stale_image_watcher.make_image_digest_reader(_scheduler_env_prefix()),
+                latest_digest_reader=stale_image_watcher.make_latest_digest_reader(),
+                project_id=_project_id(),
+                location=stale_image_watcher.ARTIFACT_REGISTRY_LOCATION,
+                artifact_repository=stale_image_watcher.ARTIFACT_REGISTRY_REPO,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
