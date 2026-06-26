@@ -414,6 +414,17 @@ def _emit(
     logger.warning("meta_watchers: %s %s", finding.event, finding.summary)
 
 
+def emit_finding(
+    finding: PipelineFinding,
+    *,
+    pm_repo_path: str | None,
+    dry_run: bool,
+) -> None:
+    """Public alias of :func:`_emit` — for sibling modules (e.g. stale_image_watcher)
+    that share the same alert-lifecycle bookend infrastructure."""
+    _emit(finding, pm_repo_path=pm_repo_path, dry_run=dry_run)
+
+
 def check_catalogue_freshness(
     *,
     storage_client: StorageClient,

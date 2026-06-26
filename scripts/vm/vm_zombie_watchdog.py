@@ -73,7 +73,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1
+from google.cloud import compute_v1  # noqa: TID251 — zombie watchdog is a standalone VM daemon with direct GCP SDK access; no UTL wrapper for aggregated_list_instances at this scope
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
