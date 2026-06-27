@@ -96,8 +96,8 @@ module "is_daily_enum_job" {
   # /app/instruments-service/scripts/ (same image as lifecycle-catalogue-regen).
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
 
-  cpu             = "2"
-  memory          = "4Gi"   # API pagination + parquet writes; CEFI/TRADFI are large
+  cpu             = "4"
+  memory          = "8Gi"   # prediction enumerates 50k+ Polymarket markets (5+ GB RSS observed); 8 Gi prevents OOM
   timeout_seconds = 7200    # 2 hours — allow for rate-limited CLOB pagination across 3-day window
   max_retries     = 1
   parallelism     = 1

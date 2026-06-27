@@ -71,11 +71,17 @@ set -euo pipefail
 FORCE=false
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Scheduler defaults to SPOT (~60-91% cheaper); it resumes safely from GCS
+# state after preemption (singleton lock + sports_scheduler_state/).
+# --on-demand forces standard provisioning when SPOT capacity is unavailable.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND="${ON_DEMAND:-false}"
 while [[ $# -gt 0 ]]; do
   case "${1:-}" in
     --force) FORCE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand) ON_DEMAND=true; shift ;;
     --help|-h)
       sed -n '1,55p' "$0"
       exit 0
@@ -123,7 +129,52 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="sports-scheduler-${RUN_TS}"
 
-echo "Launching $VM_NAME: sports fixture-aware trigger scheduler (daemon, poll=300s)"
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+# Preemption auto-relaunch: when GCE preempts this SPOT VM the shutdown script
+# detects the preemption flag, then launches a fresh scheduler VM so the tier
+# poll cadence resumes within one poll interval (~5 min). The singleton lock
+# bypassed via --force because the preempted VM is still briefly visible.
+# GCS state (sports_scheduler_state/) ensures the new VM picks up where the
+# preempted one left off (no tier double-fire, no gap > one poll interval).
+SHUTDOWN_FILE=$(mktemp)
+trap 'rm -f "$SHUTDOWN_FILE"' EXIT
+cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED" == "true" ]] || exit 0
+DEPL_ENV=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/attributes/DEPLOYMENT_ENV' \
+  2>/dev/null || echo 'prod')
+DRY=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SCHEDULER_DRY_RUN' \
+  2>/dev/null || echo '')
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
+ZONE="asia-northeast1-c"
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+NEW_VM="sports-scheduler-${RUN_TS}"
+META="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+META="${META},VM_TASK=sports-scheduler-poll,VM_SERVICE=deployment_service"
+META="${META},VM_ASSET_GROUP=sports,VM_MODE=live,DEPLOYMENT_ENV=${DEPL_ENV}"
+[[ "$DRY" == "true" ]] && META="${META},VM_SCHEDULER_DRY_RUN=true"
+echo "[preemption-relaunch] launching ${NEW_VM} (SPOT, --force bypasses singleton)" >&2
+# nohup + & so SIGTERM from preemption can't kill us before gcloud finishes
+nohup gcloud compute instances create "${NEW_VM}" \
+  --project="${PROJECT}" --zone="${ZONE}" \
+  --machine-type=e2-small \
+  --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+  --boot-disk-size=30GB --scopes=cloud-platform \
+  --metadata="${META}" \
+  --labels="purpose=sports-scheduler,env=${DEPL_ENV},run-ts=${RUN_TS},tier=scheduler" \
+  --provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure \
+  >/tmp/preempt-relaunch.log 2>&1 &
+SHUTDOWN_EOF
+
+echo "Launching $VM_NAME: sports fixture-aware trigger scheduler (daemon, poll=300s) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 if $DRY_RUN; then
   echo "  DRY-RUN MODE: scheduler will log dispatches without firing CLI commands"
 fi
@@ -138,6 +189,7 @@ fi
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # No VM_SHUTDOWN_ON_COMPLETION — this is a daemon, not a one-shot backfill.
 
+# shellcheck disable=SC2086
 gcloud compute instances create "$VM_NAME" \
   --project="$PROJECT" \
   --zone="$ZONE" \
@@ -146,13 +198,16 @@ gcloud compute instances create "$VM_NAME" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=30GB \
   --scopes=cloud-platform \
+  ${PROVISIONING_FLAGS} \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+  --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
   --labels=purpose=sports-scheduler,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",tier=scheduler
 
 echo ""
 echo "VM launched: $VM_NAME"
 echo "Zone: $ZONE"
 echo "Machine type: e2-small"
+echo "Provisioning: $([[ -n "$PROVISIONING_FLAGS" ]] && echo 'SPOT (auto-relaunches on preemption)' || echo 'on-demand')"
 echo ""
 echo "Logs:"
 echo "  SSH tail:   gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/sports-scheduler.log'"
