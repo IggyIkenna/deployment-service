@@ -50,6 +50,10 @@ FORCE="${FORCE:-0}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-8}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND="${ON_DEMAND:-false}"
 
 # ── Instrument universe ───────────────────────────────────────────────────────
 # BUG #4 (2026-06-22): catalogue-driven universe. The ALL sentinel makes the
@@ -135,10 +139,16 @@ launch_shard() {
         return
     fi
 
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if [[ "${ON_DEMAND:-false}" == "true" ]]; then PROVISIONING_FLAGS=""; fi
+
     wait_for_slot
+    # shellcheck disable=SC2086
     gcloud compute instances create "${vm_name}" \
         --zone="${ZONE}" \
         --machine-type="${machine}" \
+        ${PROVISIONING_FLAGS} \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB \

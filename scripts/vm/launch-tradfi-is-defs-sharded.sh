@@ -37,6 +37,10 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
 DRY_RUN=false
 FORCE=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 RUN_TS="$(date -u +%Y%m%d-%H%M%S)"
 
 while [[ $# -gt 0 ]]; do
@@ -47,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --zone)    ZONE="$2"; shift 2 ;;
     --env)     DEPLOYMENT_ENV="$2"; shift 2 ;;
     --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
+    --on-demand)  ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -102,12 +107,18 @@ for SHARD in "${SHARDS[@]}"; do
     continue
   fi
 
+  # SPOT by default (--no-restart-on-failure already passed below); --on-demand clears it.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+  echo "  launching [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+  # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
     --scopes=cloud-platform \
     --no-restart-on-failure \
+    ${PROVISIONING_FLAGS} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \

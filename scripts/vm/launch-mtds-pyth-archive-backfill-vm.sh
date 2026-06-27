@@ -57,14 +57,18 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
-PREEMPTIBLE=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)     DRY_RUN=true; shift ;;
         --force)       FORCE=true; shift ;;
         --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
-        --preemptible) PREEMPTIBLE=true; shift ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
+        --preemptible) shift ;;  # deprecated no-op: SPOT is now the default
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -146,12 +150,15 @@ METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
-  PREEMPTIBLE_ARG=""
-  $PREEMPTIBLE && PREEMPTIBLE_ARG="--preemptible"
+  # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -161,7 +168,7 @@ else
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
       --no-restart-on-failure \
-      ${PREEMPTIBLE_ARG} \
+      ${PROVISIONING_FLAGS} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
       --labels=purpose=mtds-pyth-archive-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi

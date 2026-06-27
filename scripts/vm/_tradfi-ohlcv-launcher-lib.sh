@@ -30,6 +30,18 @@ TRADFI_OHLCV_BOOT_GB="${TRADFI_OHLCV_BOOT_GB:-50}"
 TRADFI_OHLCV_CODE_BUCKET="${TRADFI_OHLCV_CODE_BUCKET:-deployment-scripts-${TRADFI_OHLCV_PROJECT}}"
 TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/vm/setup-data-pipeline-vm.sh}"
 
+# Provisioning model — backfill is idempotent (per-shard manifest resume via
+# VM_NAME + MANIFEST_PER_VM_SHARDS) so it DEFAULTS TO SPOT (~60-91% cheaper).
+# GCP promo credits were exhausted 2026-06-20, so on-demand backfill now burns
+# real cash. SPOT (not legacy --preemptible) so heavy shards aren't force-killed
+# at 24h; --instance-termination-action=DELETE avoids orphaned stopped VMs (their
+# disks accrue cost) since a preempted shard re-runs cleanly from the manifest.
+# Escape hatch: TRADFI_OHLCV_ON_DEMAND=true (env) or --on-demand (flag) forces
+# standard provisioning for a deadline-critical wave that can't absorb preemption.
+# Flags are computed at create time (ohlcv_create_vm) so --on-demand, parsed after
+# this lib is sourced, takes effect. SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+TRADFI_OHLCV_ON_DEMAND="${TRADFI_OHLCV_ON_DEMAND:-false}"
+
 # --source provenance selector (REQUIRED for a TradFi OHLCV download, 2026-06-19):
 # selects the fetching adapter AND stamps row-level provenance. Default = databento
 # (the 3-dataset subscription path: GLBX.MDP3 CME / DBEQ.BASIC equities / XCBF.PITCH
@@ -131,11 +143,20 @@ ohlcv_create_vm() {
         echo "          instruments=${instrument_ids}"
         echo "          machine=${TRADFI_OHLCV_MACHINE} zone=${TRADFI_OHLCV_ZONE}"
     else
-        echo "Launching $vm_name_safe (venue=$vm_venue ${start_date}..${end_date})"
+        # Idempotent backfill → SPOT by default (~60-91% cheaper); --on-demand /
+        # TRADFI_OHLCV_ON_DEMAND=true forces standard. Unquoted expansion is
+        # intentional (word-split the flag string; gcloud flags carry no spaces).
+        local provisioning_flags=""
+        if [[ "$TRADFI_OHLCV_ON_DEMAND" != "true" ]]; then
+            provisioning_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+        fi
+        echo "Launching $vm_name_safe (venue=$vm_venue ${start_date}..${end_date}) [$([[ -n "$provisioning_flags" ]] && echo SPOT || echo on-demand)]"
+        # shellcheck disable=SC2086
         gcloud compute instances create "$vm_name_safe" \
             --project="$TRADFI_OHLCV_PROJECT" \
             --zone="$TRADFI_OHLCV_ZONE" \
             --machine-type="$TRADFI_OHLCV_MACHINE" \
+            ${provisioning_flags} \
             --image-family=ubuntu-2404-lts-amd64 \
             --image-project=ubuntu-os-cloud \
             --boot-disk-size="${TRADFI_OHLCV_BOOT_GB}GB" \
@@ -190,6 +211,7 @@ ohlcv_parse_common_args() {
         case "$1" in
             --force)            FORCE=true; shift ;;
             --dry-run)          DRY_RUN=true; shift ;;
+            --on-demand)        TRADFI_OHLCV_ON_DEMAND=true; shift ;;
             --no-force-window)  FORCE_WINDOW="false"; shift ;;
             --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
             --start-floor)      START_FLOOR="$2"; shift 2 ;;
@@ -200,7 +222,7 @@ ohlcv_parse_common_args() {
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--on-demand] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac

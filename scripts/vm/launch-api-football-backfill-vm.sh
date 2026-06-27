@@ -95,6 +95,10 @@ DRY_RUN=false
 # per-minute cap is the only constraint, fine when the day is fresh).
 FLEET_VMS="${FLEET_VMS:-1}"
 REMAINING_DAILY_QUOTA="${REMAINING_DAILY_QUOTA:-}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -107,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     --fleet-vms) FLEET_VMS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
   esac
 done
@@ -337,10 +342,17 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+  echo "Launching VM $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
+  # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    ${PROVISIONING_FLAGS} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \

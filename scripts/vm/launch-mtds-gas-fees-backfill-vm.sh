@@ -61,7 +61,10 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
 CHUNKS=""
-PREEMPTIBLE=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -69,7 +72,8 @@ while [[ $# -gt 0 ]]; do
         --force)       FORCE=true; shift ;;
         --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
         --chunks)      CHUNKS="$2"; shift 2 ;;
-        --preemptible) PREEMPTIBLE=true; shift ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
+        --preemptible) shift ;;  # deprecated no-op: SPOT is now the default
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -182,9 +186,11 @@ launch_one_vm() {
     return 0
   fi
 
-  echo "Launching $vm_name: gas-fees ${start_date}..${end_date} chunk=${chunk_id:-single}"
-  PREEMPTIBLE_ARG=""
-  $PREEMPTIBLE && PREEMPTIBLE_ARG="--preemptible"
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+  echo "Launching $vm_name: gas-fees ${start_date}..${end_date} chunk=${chunk_id:-single} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+  # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -194,7 +200,7 @@ launch_one_vm() {
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
       --no-restart-on-failure \
-      ${PREEMPTIBLE_ARG} \
+      ${PROVISIONING_FLAGS} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
       --labels="$labels"
 }

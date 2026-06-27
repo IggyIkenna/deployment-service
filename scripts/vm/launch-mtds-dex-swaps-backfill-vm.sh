@@ -25,7 +25,10 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 MTDS_TARBALL_SHA="${MTDS_TARBALL_SHA:-}"
 UTL_TARBALL_SHA="${UTL_TARBALL_SHA:-}"
-PREEMPTIBLE=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 # TheGraph key-pool sharding (Part 4): SHARD_INDEX selects this VM's starting key
 # (key_number = SHARD_INDEX % pool_size + 1) so a multi-VM DeFi subgraph fan-out
 # spreads load across the 9-key thegraph-api-key[-2..9] SM pool — each VM begins
@@ -44,7 +47,8 @@ while [[ $# -gt 0 ]]; do
     --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
     --mtds-sha)       MTDS_TARBALL_SHA="$2"; shift 2 ;;
     --utl-sha)        UTL_TARBALL_SHA="$2"; shift 2 ;;
-    --preemptible)    PREEMPTIBLE=true; shift ;;
+    --on-demand)      ON_DEMAND=true; shift ;;
+    --preemptible)    shift ;;  # deprecated no-op: SPOT is now the default
     --shard-index)    SHARD_INDEX="$2"; shift 2 ;;
     --fleet-vms)      FLEET_VMS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
@@ -139,19 +143,19 @@ if [[ -n "${UTL_TARBALL_SHA}" ]]; then
   METADATA="${METADATA},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
 fi
 
-PREEMPTIBLE_FLAGS=""
-if $PREEMPTIBLE; then
-  PREEMPTIBLE_FLAGS="--preemptible --no-restart-on-failure"
-fi
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
-echo "Creating VM ${VM_NAME}..."
+echo "Creating VM ${VM_NAME} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
+# shellcheck disable=SC2086
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
   --no-restart-on-failure \
-  ${PREEMPTIBLE_FLAGS} \
+  ${PROVISIONING_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \

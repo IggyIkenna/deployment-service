@@ -88,6 +88,10 @@ OUTPUT_BUCKET_OVERRIDE=""
 # `[DATA] P1`). Without it the `mdps-backfill` VM_TASK branch in setup-data-pipeline-vm.sh
 # runs VM_BACKFILL_CMD verbatim and never re-processes fresh-in-manifest cells.
 FORCE_REPROCESS="${FORCE:-false}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 # Pre-parse --env, --source-bucket, --force, and narrow-scope filter flags before positional args.
 POSITIONAL=()
@@ -100,6 +104,7 @@ while [[ $# -gt 0 ]]; do
         --instrument-ids) FILTER_INSTRUMENT_IDS="$2"; shift 2 ;;
         --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
         --force) FORCE_REPROCESS="true"; shift ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -234,7 +239,11 @@ _launch() {
         cmd="$cmd --force"
     fi
 
-    echo "Launching $vm_name"
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+    echo "Launching $vm_name [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
     echo "  cmd: $cmd"
     echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
@@ -256,6 +265,7 @@ _launch() {
     [[ -n "$FILTER_INSTRUMENT_IDS" ]] && md="${md},VM_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS// /;}"
     [[ -n "$OUTPUT_BUCKET_OVERRIDE" ]] && md="${md},VM_OUTPUT_BUCKET=${OUTPUT_BUCKET_OVERRIDE}"
 
+    # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
@@ -264,6 +274,7 @@ _launch() {
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
+        ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
         --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
