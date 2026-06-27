@@ -70,6 +70,8 @@ COPY scripts/ ./scripts/
 # import chain (deployment_service/__init__ -> live_deployment -> backends -> vm/services/vm_config)
 # hit `from jinja2 import Template`. Install both explicitly so the image is self-contained and
 # does not depend on incidental base-image transitives.
+ARG SETUPTOOLS_SCM_PRETEND_VERSION_FOR_DEPLOYMENT_SERVICE
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_DEPLOYMENT_SERVICE=${SETUPTOOLS_SCM_PRETEND_VERSION_FOR_DEPLOYMENT_SERVICE:-}
 RUN uv pip install --system --no-deps -e . \
     && uv pip install --system --no-cache-dir gunicorn[gevent] gevent "uvicorn[standard]" jinja2
 

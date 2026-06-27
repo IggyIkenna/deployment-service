@@ -72,23 +72,46 @@ steps:
         fi
         docker pull "$${BASE}:latest" || true
 
+  # ── Extract version for SCM bypass in docker build ──────────────────────
+  - name: "gcr.io/cloud-builders/git"
+    id: "extract-version"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        git fetch --tags --force --quiet 2>/dev/null || true
+        VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//')
+        if [ -z "$$VERSION" ]; then
+          VERSION=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -1 | sed 's/^v//')
+        fi
+        if [ -z "$$VERSION" ]; then
+          VERSION=$(grep '^version' pyproject.toml 2>/dev/null | head -1 | sed 's/version = "//;s/"//')
+        fi
+        if [ -z "$$VERSION" ]; then
+          VERSION="$SHORT_SHA"
+        fi
+        echo "$$VERSION" > /workspace/VERSION
+        echo "Building version $$VERSION"
+    waitFor: ["-"]
+
   # Step 2: Build production image (API + UI)
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
-    waitFor: ["pull-base-image"]
+    entrypoint: "bash"
     args:
-      - "build"
-      - "--cache-from"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-      - "--build-arg"
-      - "PROJECT_ID=${PROJECT_ID}"
-      - "--target"
-      - "api"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-      - "."
+      - "-c"
+      - |
+        VERSION=$(cat /workspace/VERSION 2>/dev/null || echo "$SHORT_SHA")
+        DOCKER_BUILDKIT=1 docker build \
+          --cache-from ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest \
+          --build-arg PROJECT_ID=${PROJECT_ID} \
+          --build-arg SETUPTOOLS_SCM_PRETEND_VERSION_FOR_DEPLOYMENT_SERVICE=$$VERSION \
+          --target api \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:$$VERSION \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest \
+          .
+    waitFor: ["pull-base-image", "extract-version"]
 
   # Step 3: Build api-dev image (includes dev deps for quality gates)
   - name: "gcr.io/cloud-builders/docker"
