@@ -373,6 +373,25 @@ STARTUP_EOF
   PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
   if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
+  # Preemption signal: write PREEMPTED blob so the exit-code fleet monitor
+  # classifies a spot preemption as a benign relaunch (no DP_VM_GONE_NO_CAPTURE).
+  SHUTDOWN_FILE=$(mktemp)
+  trap 'rm -f "$SHUTDOWN_FILE"' RETURN
+  cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED" == "true" ]] || exit 0
+VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
+PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
+[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
+echo "preempted" | gcloud storage cp - \
+  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
+echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+SHUTDOWN_EOF
+
   echo "  Launching ${VM_NAME} (${CHUNK_START} → ${CHUNK_END}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
 
   # Delete existing VM if present (from previous run)
@@ -408,6 +427,7 @@ STARTUP_EOF
     ${SA_FLAG} \
     --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
 
   rm -f "$STARTUP_FILE"

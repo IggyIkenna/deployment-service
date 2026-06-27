@@ -68,6 +68,7 @@ class TerminationVerdict(StrEnum):
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
     CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
+    PREEMPTED = "preempted"  # GCE spot preemption → benign relaunch, NO alert (INFO only)
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class TerminationResult:
     # GONE_NO_CAPTURE-vs-EXPECTED_NO_CAPTURE-vs-RATE_LIMITED split. SILENT for a
     # genuine silent-zero (the only flat-captured case that still alerts).
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT
+    preempted: bool = False
 
     @property
     def captured_climbed(self) -> bool:
@@ -96,10 +98,15 @@ def classify_terminated_vm(
     captured_before: int,
     captured_after: int,
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
+    preempted: bool = False,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
+      - ``preempted == True``                         → PREEMPTED (benign SPOT relaunch)
+          GCE preemption SIGTERM causes a non-zero exit; the PREEMPTED blob written
+          by the VM's shutdown-script is the authoritative "this was benign" signal —
+          checked BEFORE exit_code so a preempted VM never false-fires DP-VM-001.
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
       - captured CLIMBED                              → CLEAN (work landed)
       - captured FLAT — split on the run.log reason (the 2026-06-23
@@ -123,7 +130,9 @@ def classify_terminated_vm(
     "the VM is gone" + no evidence of work).
     """
     climbed = captured_after > captured_before
-    if exit_code is not None and exit_code != 0:
+    if preempted:
+        verdict = TerminationVerdict.PREEMPTED
+    elif exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
     elif climbed:
         verdict = TerminationVerdict.CLEAN
@@ -140,6 +149,7 @@ def classify_terminated_vm(
         captured_before=captured_before,
         captured_after=captured_after,
         no_capture_reason=no_capture_reason,
+        preempted=preempted,
     )
 
 
@@ -228,6 +238,7 @@ def _finding_for(
             details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
             registry_id="DP-VM-002",
         )
+    # PREEMPTED (spot preemption → benign relaunch, INFO logged by sweep) +
     # EXPECTED_NO_CAPTURE (rows written but consolidated lags / honest-absence /
     # shard already complete) + CLEAN + UNKNOWN → no finding (benign / not a failure).
     return None
@@ -332,7 +343,12 @@ def sweep(
         # path) — a non-zero exit or a climbing capture never needs it, so we don't
         # download the run.log for those (keeps the per-tick download count low,
         # mirrors the OOM-fix double-download discipline).
-        needs_reason = (exit_code is None or exit_code == 0) and captured_after <= captured_before
+        is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
+        needs_reason = (
+            not is_preempted
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+        )
         no_capture_reason = (
             _gcs.no_capture_reason_from_run_log(storage_client, log_bucket, name)
             if needs_reason
@@ -344,8 +360,15 @@ def sweep(
             captured_before=captured_before,
             captured_after=captured_after,
             no_capture_reason=no_capture_reason,
+            preempted=is_preempted,
         )
         results.append(result)
+
+        if result.verdict is TerminationVerdict.PREEMPTED:
+            logger.info(
+                "exit_code_fleet_monitor: %s preempted → SPOT relaunch (benign, no alert)",
+                name,
+            )
 
         launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
         umbrella = umbrella_for_vm(name) if umbrella_for_vm is not None else ""
