@@ -832,6 +832,9 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # rule. Bucket names resolved via resolve_bucket_name() (yaml SSOT) at
     # process start — same env-tiered names as all other entries in this dict.
     # ------------------------------------------------------------------
+    # Consolidated MVP CeFi launcher (2026-06-27): one VM, all shards.
+    # Must appear BEFORE "mtds-live-cefi-" (longest-prefix wins in watchdog + registry).
+    "mtds-live-cefi-consolidated-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mtds-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mtds-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mtds-live-tradfi-": VmPrefixSpec(
