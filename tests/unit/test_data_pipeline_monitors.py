@@ -1482,6 +1482,59 @@ def test_no_capture_reason_silent_when_no_signal_or_empty():
     assert _gcs.classify_no_capture_reason("") is _gcs.NoCaptureReason.SILENT
 
 
+def test_no_capture_reason_honest_absence_empty_confirmed_writes():
+    # operator 2026-06-27: sports-ref-v3-1 backfilled zero-fixture 2022 dates and the writer
+    # recorded 4-state honest-absence rows (empty_confirmed), NOT captured rows → flat captured
+    # 0→0 is honest absence. It false-fired DP_SOURCE_RATE_LIMITED and, post-regex-tighten, must
+    # land on HONEST_ABSENCE (benign), never GONE_NO_CAPTURE.
+    log = (
+        "2026-06-27 07:21:06 INFO Zero-fixture fast path: wrote empty_confirmed for 4 "
+        "fixture-dependent entities on date=2022-05-31\n"
+        "2026-06-27 07:23:11 INFO ManifestWriter: per-VM shard updated (198 total entries, 198 new)"
+    )
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_honest_absence_expected_unattempted_seeding():
+    # operator 2026-06-27: instr-backfill-tradfi-ice seeded expected_unattempted sentinels for the
+    # target universe → captured flat is honest absence, not a silent zero.
+    log = "2026-06-27 07:58:04 INFO EU seeding: wrote expected_unattempted for 6 target-universe venue cells on date=2026-06-25"
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_benign_rate_limit_config_is_not_throttled():
+    # REGRESSION (2026-06-27 false-positive flood): a clean run that merely MENTIONS rate-limiting
+    # in a config/telemetry line — or echoes the event name DP_SOURCE_RATE_LIMITED — must NOT be
+    # classified RATE_LIMITED. The old bare-substring + self-referential pattern tripped on both.
+    benign_config = (
+        "2026-06-27 07:20:00 INFO rate limiter configured: 300 requests per minute\n"
+        "2026-06-27 07:21:06 INFO Sports reference: 0 injuries returned by API\n"
+        "PIPELINE_HEARTBEAT vm=sports-ref-v3-1 ag=SPORTS task=instruments-backfill\n"
+        "2026-06-27 07:23:11 INFO Zero-fixture fast path: wrote empty_confirmed for 4 entities"
+    )
+    # Matches honest-absence (empty_confirmed), NOT rate-limited.
+    assert _gcs.classify_no_capture_reason(benign_config) is _gcs.NoCaptureReason.HONEST_ABSENCE
+    # The self-referential event name alone must not self-trigger RATE_LIMITED.
+    self_ref = "2026-06-27 INFO prior alert was [DP_SOURCE_RATE_LIMITED]; nothing wrong now\ndone"
+    assert _gcs.classify_no_capture_reason(self_ref) is _gcs.NoCaptureReason.SILENT
+
+
+def test_no_capture_reason_genuine_throttle_still_rate_limited():
+    # Guard: a REAL throttle signal must still classify RATE_LIMITED after the tighten.
+    assert (
+        _gcs.classify_no_capture_reason("2026-06-27 WARNING API-Football: Too many requests (429)")
+        is _gcs.NoCaptureReason.RATE_LIMITED
+    )
+    assert (
+        _gcs.classify_no_capture_reason("2026-06-27 ERROR subgraph quota exceeded for the day")
+        is _gcs.NoCaptureReason.RATE_LIMITED
+    )
+    assert (
+        _gcs.classify_no_capture_reason("2026-06-27 WARNING rate limit exceeded, backing off 30s")
+        is _gcs.NoCaptureReason.RATE_LIMITED
+    )
+
+
 def test_classify_flat_with_progress_is_expected_no_capture():
     res = exit_code_fleet_monitor.classify_terminated_vm(
         "vm",
