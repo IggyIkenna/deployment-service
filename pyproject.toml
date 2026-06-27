@@ -1,6 +1,6 @@
 [project]
 name = "deployment-service"
-version = "0.105.0"
+dynamic = ["version"]
 requires-python = ">=3.13,<3.14"
 description = "Deployment orchestration engine (split from unified-trading-deployment-v3 2026-03-03)"
 dependencies = [
@@ -178,5 +178,8 @@ skips = []
 [build-system]
 requires = [
     "hatchling",
-]
+"hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
