@@ -45,16 +45,21 @@ SELECTED_VENUE=""
 SELECTED_YEAR=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run) DRY_RUN=true; shift ;;
-        --dry)    DRY=1; shift ;;
-        --commit) DRY=0; shift ;;
-        --venue)  SELECTED_VENUE="$2"; shift 2 ;;
-        --year)   SELECTED_YEAR="$2"; shift 2 ;;
-        --env)    DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --dry-run)   DRY_RUN=true; shift ;;
+        --dry)       DRY=1; shift ;;
+        --commit)    DRY=0; shift ;;
+        --venue)     SELECTED_VENUE="$2"; shift 2 ;;
+        --year)      SELECTED_YEAR="$2"; shift 2 ;;
+        --env)       DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand) ON_DEMAND=true; shift ;;
         *) echo "Unknown arg: $1"; exit 2 ;;
     esac
 done
@@ -105,17 +110,23 @@ _launch_shard() {
     # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
     meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
 
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
     if [[ "$DRY" == "1" ]]; then
         echo "[DRY] ${vm_name} venue=${venue} year=${year} ${start_date}..${end_date}"
         echo "      data_types=options_chain symbols=${symbols}"
     else
-        echo "Launching ${vm_name}"
+        echo "Launching ${vm_name} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
           echo "[DRY-RUN] Would create VM: "${vm_name}""
           echo "[DRY-RUN] (gcloud compute instances create skipped)"
         else
+          # shellcheck disable=SC2086
           gcloud compute instances create "${vm_name}" \
               --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
+              ${PROVISIONING_FLAGS} \
               --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
               --scopes=cloud-platform --metadata="${meta}" \
               --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \

@@ -92,6 +92,10 @@ END_DATE_OVERRIDE=""
 SKIP_MONTHS=""
 FORCE_WINDOW=true
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -109,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --end-date)         END_DATE_OVERRIDE="$2"; shift 2 ;;
         --skip-months)      SKIP_MONTHS="$2"; shift 2 ;;
         --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand)        ON_DEMAND=true; shift ;;
         --help|-h)
             grep '^#' "$0" | head -70
             exit 0
@@ -234,11 +239,16 @@ _create_vm() {
         echo "          instruments=${instrument_ids}"
         echo "          machine=${MACHINE_TYPE} zone=${ZONE}"
     else
-        echo "Launching $vm_name_safe (root=$root tier=$tier ${start_date}..${end_date})"
+        # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+        PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+        if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+        echo "Launching $vm_name_safe (root=$root tier=$tier ${start_date}..${end_date}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+        # shellcheck disable=SC2086
         gcloud compute instances create "$vm_name_safe" \
             --project="$PROJECT" \
             --zone="$ZONE" \
             --machine-type="$MACHINE_TYPE" \
+            ${PROVISIONING_FLAGS} \
             --image-family=ubuntu-2404-lts-amd64 \
             --image-project=ubuntu-os-cloud \
             --boot-disk-size="${BOOT_DISK_GB}GB" \

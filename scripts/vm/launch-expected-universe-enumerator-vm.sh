@@ -69,13 +69,18 @@ set -euo pipefail
 FORCE=false
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
-# Pre-parse named flags (--force / --dry-run / --env <val>) before positional args.
+# Pre-parse named flags (--force / --dry-run / --env <val> / --on-demand) before positional args.
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --force) FORCE=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
         *) break ;;
     esac
 done
@@ -183,10 +188,17 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+  echo "Launching VM $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
+  # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
       --machine-type="$MACHINE_TYPE" \
+      ${PROVISIONING_FLAGS} \
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \

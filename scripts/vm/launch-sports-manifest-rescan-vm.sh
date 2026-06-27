@@ -75,6 +75,10 @@ CHUNKS=""
 COORDINATE=false
 RUN_ID=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --coordinate) COORDINATE=true; shift ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     *) echo "ERROR: unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -157,6 +162,10 @@ EOF
   fi
 fi
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
 # ── Helper: launch one VM with a prepared rescan command ────────────────
 launch_vm() {
   local vm_name="$1"
@@ -175,12 +184,14 @@ launch_vm() {
     labels="${labels},chunk=${chunk_label}"
   fi
 
-  echo "  → Launching $vm_name"
+  echo "  → Launching $vm_name [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
   echo "    cmd: $rescan_cmd"
+  # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type=e2-standard-4 \
+    ${PROVISIONING_FLAGS} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \

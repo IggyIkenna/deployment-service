@@ -55,6 +55,10 @@ VM_FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 # Prediction venue to backfill. Default POLYMARKET (historical default); KALSHI is
 # wired (kalshi_adapter.py routes via the VENUE_REGISTRY factory; market-data read
 # endpoints are PUBLIC — no auth/RSA-PSS needed, that's trading-only). Both run the
@@ -75,6 +79,7 @@ while [[ $# -gt 0 ]]; do
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
         --venue) VENUE="$2"; shift 2 ;;
         --data-types) DATA_TYPES="$2"; shift 2 ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -144,7 +149,11 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="mtds-prediction-$(echo "$VENUE" | tr '[:upper:]' '[:lower:]')-${RUN_TS}"
 
-echo "Launching $VM_NAME: ${VENUE} ${DATA_TYPES} ${START_DATE}..${END_DATE}"
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+echo "Launching $VM_NAME: ${VENUE} ${DATA_TYPES} ${START_DATE}..${END_DATE} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly (the task
@@ -165,10 +174,12 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
       --machine-type="$MACHINE_TYPE" \
+      ${PROVISIONING_FLAGS} \
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \

@@ -72,6 +72,10 @@ START_DATE="${3:-}"
 END_DATE="${4:-}"
 MODE="${5:-dry}"  # dry | full
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND="${ON_DEMAND:-false}"
 
 # DEPRECATED 2026-05-08 / hard-redirect 2026-05-17 (slot-1-main).
 # Per `plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md`
@@ -241,7 +245,11 @@ if [[ "$MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
 
-echo "Launching $VM_NAME"
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+echo "Launching $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 echo "  cmd: $CMD"
 echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
@@ -259,10 +267,12 @@ MD="${MD},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
 MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
 
+# shellcheck disable=SC2086
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    ${PROVISIONING_FLAGS} \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \

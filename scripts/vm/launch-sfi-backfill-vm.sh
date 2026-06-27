@@ -93,6 +93,10 @@ CHUNKS=""
 DRY_RUN=false
 RECOVERY_FIXTURE_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND="${ON_DEMAND:-false}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=true; shift ;;
@@ -101,6 +105,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
   esac
 done
@@ -201,6 +206,10 @@ EOF
   fi
 fi
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
 # --- Helper: launch a single VM with the provided date range + chunk label ---
 launch_one_vm() {
   local vm_name="$1"
@@ -240,12 +249,14 @@ launch_one_vm() {
     return 0
   fi
 
-  echo "Launching $vm_name: SOCCER_FOOTBALL_INFO backfill ${start_date}..${end_date} (${entity_desc}) chunk=${chunk_id:-single}"
+  echo "Launching $vm_name: SOCCER_FOOTBALL_INFO backfill ${start_date}..${end_date} (${entity_desc}) chunk=${chunk_id:-single} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 
+  # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    ${PROVISIONING_FLAGS} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \

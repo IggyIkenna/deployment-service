@@ -75,6 +75,10 @@ TARBALL_MODE="prod"  # prod | local
 ASSET_GROUP="cross_asset_all"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 PASS="all"  # all | 1 | 2 | 3 | 4
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -102,6 +106,7 @@ while [[ $# -gt 0 ]]; do
       esac
       shift 2
       ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     cefi|defi|tradfi|sports|prediction|cross_asset_all)
       ASSET_GROUP="$1"
       shift
@@ -254,10 +259,15 @@ launch_single_vm() {
 
   local run_ts="${vm_name##*-}"  # last segment of vm_name is the timestamp
   echo "Launching $vm_name (pass=${pass_num} asset_group=${ASSET_GROUP} mode=${MODE_LABEL})"
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+  if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
+  # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type=e2-standard-4 \
+    ${prov_flags} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=100GB \
