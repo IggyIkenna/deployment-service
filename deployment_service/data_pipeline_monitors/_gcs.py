@@ -505,14 +505,31 @@ _HONEST_ABSENCE_RE = re.compile(
     # A cross-venue arb DETECTOR (service-only output, manifest-exempt) ran fine and found
     # no quotable pairs → rows_written=0 is the correct empty result, not a silent capture
     # failure (operator 2026-06-24: prediction-arb-detector).
-    r"|no cross-venue pairs matched|ARB_DETECT_TICK\b",
+    r"|no cross-venue pairs matched|ARB_DETECT_TICK\b"
+    # The WRITER recorded a 4-state honest-absence / sentinel row (capture_status
+    # empty_confirmed / expected_unattempted): a backfill that hit a genuinely empty
+    # (venue, date) cell writes THESE, not captured rows, so a flat captured 0→0 is
+    # honest absence, not a silent zero. A crashed / auth-failed / never-launched VM
+    # never reaches the 4-state write. operator 2026-06-27: sports-ref-v3-1 (zero-fixture
+    # 2022 dates → empty_confirmed) + instr-backfill-tradfi-ice (EU-seeding →
+    # expected_unattempted) flat-captured runs that false-fired DP_SOURCE_RATE_LIMITED
+    # and would otherwise have fallen through to GONE_NO_CAPTURE.
+    r"|empty_confirmed\b|expected_unattempted\b|[Zz]ero-fixture fast path",
     re.IGNORECASE,
 )
-# A rate-limit throttle (real-transient → backoff-retry tier, NOT silent-zero).
-# Matches API-Football / HTTP-429 / DP_SOURCE_RATE_LIMITED run.log shapes.
+# A rate-limit THROTTLE event (real-transient → backoff-retry tier, NOT silent-zero).
+# Tightened 2026-06-27 (DP_SOURCE_RATE_LIMITED false-positive flood: sports-ref-v3-1 +
+# instr-backfill-tradfi-ice were clean rc=0 runs with NO 429): the prior pattern matched
+# the BARE substring `rate.?limit(ed)?` — so any benign rate-limiter CONFIG / budget /
+# telemetry line tripped it — and even its OWN event name `DP_SOURCE_RATE_LIMITED` (a
+# self-match on a heartbeat / prior-alert / comment echo in the run.log). Require a genuine
+# 429 / "too many requests" / "quota exceeded", or a "rate limit" immediately qualified by
+# an error / retry context — never the bare config mention or the self-reference.
 _RATE_LIMIT_RE = re.compile(
-    r"Too many requests|HTTP 429\b|\b429\b.*(rate|limit)|rate.?limit(ed)?|DP_SOURCE_RATE_LIMITED"
-    r"|requests per (minute|day)|quota exceeded",
+    r"Too many requests"
+    r"|HTTP[ /]?429\b|\b429\b[^\n]{0,40}(rate|limit|throttl|too many)"
+    r"|rate.?limit(ed)?[^\n]{0,30}(exceeded|hit|reached|retry|back.?off|429)"
+    r"|quota exceeded|throttl(ed|ing)\b",
     re.IGNORECASE,
 )
 

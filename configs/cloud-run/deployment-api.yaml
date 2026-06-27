@@ -1,0 +1,63 @@
+# Cloud Run service spec for deployment-api.
+# Declarative reference; actual deployment via scripts/cloud-run/deploy.sh.
+# Region: asia-northeast1.
+# Health endpoints: /health, /readiness, /liveness (UTL make_health_router STEP 5.62).
+# Note: deployment-api is the single backend for deployment-ui + user-management-ui.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: deployment-api
+  annotations:
+    run.googleapis.com/launch-stage: GA
+    run.googleapis.com/description: >
+      deployment-api — single deploy/launch + subscriptions backend for deployment-ui
+      (devops + launch consoles) and deployment-ui user-management.
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "3"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      serviceAccountName: deployment-prod@central-element-323112.iam.gserviceaccount.com
+      timeoutSeconds: 120
+      containerConcurrency: 80
+      containers:
+        - image: asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading/deployment-api:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          env:
+            - name: DEPLOYMENT_ENV
+              value: "prod"
+            - name: CLOUD_PROVIDER
+              value: "gcp"
+            - name: GCP_PROJECT_ID
+              value: "central-element-323112"
+            - name: GCS_REGION
+              value: "asia-northeast1"
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+  traffic:
+    - latestRevision: true
+      percent: 100
