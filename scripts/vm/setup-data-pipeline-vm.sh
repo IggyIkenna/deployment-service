@@ -598,6 +598,13 @@ log "Installing Python dependencies..."
 # heartbeat helper (which only touches deployments_registry.py, stdlib +
 # UTL StorageClient). Install it with --no-deps to avoid a resolve
 # failure that stops the whole VM. Everything else installs normally.
+#
+# hatch-vcs fallback: tarballs have no .git history; without this env var,
+# hatch-vcs calls setuptools_scm.get_version() which exits non-zero when
+# no git repo is found. Setting SETUPTOOLS_SCM_PRETEND_VERSION makes every
+# hatch-vcs-based package resolve to "0.0.0" on the VM (D13 fleet rollout
+# moved workspace repos to version_source=git-tag — 2026-06-27).
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0"
 INSTALL_ARGS_STD=("--no-sources")
 INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # For synthetic-benchmark VMs, install every service package (mdps / features /
