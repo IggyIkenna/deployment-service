@@ -98,6 +98,9 @@ _LIFECYCLE_CATALOGUE_JOBS: Final[tuple[DeploymentTarget, ...]] = tuple(
     _batch(f"lifecycle-catalogue-regen-{ag}", service="instruments-service", asset_group=ag)
     for ag in _ASSET_GROUPS  # cefi/defi/tradfi/sports/prediction — all 5 in lifecycle_catalogue_asset_groups (TF added prediction 2026-06-23)
 )
+_IS_DAILY_ENUM_JOBS: Final[tuple[DeploymentTarget, ...]] = tuple(
+    _batch(f"is-daily-enum-{ag}", service="instruments-service", asset_group=ag) for ag in _ASSET_GROUPS
+)
 _FEATURES_ONCHAIN_COLLECT_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("features-onchain-collect-lst-seasonal-rewards", service="features-onchain-service", asset_group="defi"),
 )
@@ -207,6 +210,7 @@ CLOUD_RUN_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     *_MANIFEST_CONSOLIDATOR_JOBS,
     *_EXPECTED_UNIVERSE_V2_JOBS,
     *_LIFECYCLE_CATALOGUE_JOBS,
+    *_IS_DAILY_ENUM_JOBS,
     *_FEATURES_ONCHAIN_COLLECT_JOBS,
     *_DEFI_COLLECT_JOBS,
     *_T1_RECON_JOBS,
