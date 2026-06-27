@@ -42,6 +42,21 @@ TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/v
 # this lib is sourced, takes effect. SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 TRADFI_OHLCV_ON_DEMAND="${TRADFI_OHLCV_ON_DEMAND:-false}"
 
+# --force-recapture (corrective re-capture only). When true, ohlcv_create_vm
+# stamps VM_FORCE=true into the VM metadata, which setup-data-pipeline-vm.sh
+# turns into the MTDS CLI `--force` flag. `--force` makes the MTDS download
+# handler BYPASS `_apply_freshness_skip()` (tick_data_handler.py), so the VM
+# re-fetches the dates IN ITS WINDOW even when the manifest already has some
+# CME rows for those dates (the freshness check otherwise marks an
+# already-partially-captured historical date as "fresh" → skips it → a windowed
+# corrective re-capture silently does nothing + emits no per-VM manifest shard).
+# DELIBERATELY OFF BY DEFAULT: a steady-state full backfill must stay
+# idempotent (skip already-captured dates, never re-fetch / overwrite good
+# data). Only a surgical corrective window (e.g. re-capturing dates whose
+# options legs failed schema validation under an old bug) sets this.
+# SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md (freshness-skip vs VM_FORCE).
+OHLCV_FORCE_RECAPTURE="${OHLCV_FORCE_RECAPTURE:-false}"
+
 # --source provenance selector (REQUIRED for a TradFi OHLCV download, 2026-06-19):
 # selects the fetching adapter AND stamps row-level provenance. Default = databento
 # (the 3-dataset subscription path: GLBX.MDP3 CME / DBEQ.BASIC equities / XCBF.PITCH
@@ -124,6 +139,10 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_ASSET_GROUP=TRADFI"
     metadata="${metadata},VM_VENUE=${vm_venue}"
     metadata="${metadata},VM_FORCE_WINDOW=${force_window}"
+    # Corrective re-capture: VM_FORCE=true → setup-data-pipeline-vm.sh adds
+    # `--force` to the MTDS CLI → bypass the freshness-skip for the window.
+    # Gated behind --force-recapture so steady-state backfill stays idempotent.
+    metadata="${metadata},VM_FORCE=${OHLCV_FORCE_RECAPTURE}"
     metadata="${metadata},VM_START_DATE=${start_date}"
     metadata="${metadata},VM_END_DATE=${end_date}"
     metadata="${metadata},VM_DATA_TYPES=${TRADFI_OHLCV_DATA_TYPES}"
@@ -199,6 +218,8 @@ ohlcv_year_shards() {
 
 # Standard arg parser used by each wrapper. Sets globals:
 #   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR | FORCE_WINDOW | ONLY_YEAR
+#   | OHLCV_FORCE_RECAPTURE (--force-recapture: stamp VM_FORCE=true → MTDS
+#     `--force` → bypass the freshness-skip for a corrective windowed re-fetch)
 ohlcv_parse_common_args() {
     FORCE=false
     DRY_RUN=false
@@ -210,6 +231,7 @@ ohlcv_parse_common_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --force)            FORCE=true; shift ;;
+            --force-recapture)  OHLCV_FORCE_RECAPTURE=true; FORCE=true; shift ;;
             --dry-run)          DRY_RUN=true; shift ;;
             --on-demand)        TRADFI_OHLCV_ON_DEMAND=true; shift ;;
             --no-force-window)  FORCE_WINDOW="false"; shift ;;
@@ -222,7 +244,7 @@ ohlcv_parse_common_args() {
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--on-demand] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac
