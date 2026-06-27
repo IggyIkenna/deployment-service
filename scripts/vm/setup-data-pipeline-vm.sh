@@ -602,9 +602,12 @@ log "Installing Python dependencies..."
 # hatch-vcs fallback: tarballs have no .git history; without this env var,
 # hatch-vcs calls setuptools_scm.get_version() which exits non-zero when
 # no git repo is found. Setting SETUPTOOLS_SCM_PRETEND_VERSION makes every
-# hatch-vcs-based package resolve to "0.0.0" on the VM (D13 fleet rollout
+# hatch-vcs-based package resolve to "0.99.0" on the VM (D13 fleet rollout
 # moved workspace repos to version_source=git-tag — 2026-06-27).
-export SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0"
+# Must be <1.0.0 and >= the highest lower-bound in any cross-package constraint
+# (e.g. features-service requires unified-trading-library>=0.13.0,<1.0.0 — 0.99.0
+# satisfies both bounds; 0.0.0 would fail the >=0.13.0 floor).
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 INSTALL_ARGS_STD=("--no-sources")
 INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # For synthetic-benchmark VMs, install every service package (mdps / features /
