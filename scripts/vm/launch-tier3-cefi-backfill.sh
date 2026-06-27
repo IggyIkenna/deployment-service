@@ -28,12 +28,17 @@ DRY_RUN=false
 DO_INSTRUMENTS=true
 DO_MARKET_TICK=true
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)        DRY_RUN=true; shift ;;
         --instruments)    DO_MARKET_TICK=false; shift ;;
         --market-tick)    DO_INSTRUMENTS=false; shift ;;
         --env)            DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand)      ON_DEMAND=true; shift ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
@@ -180,10 +185,15 @@ create_vm() {
         echo "[DRY-RUN] $vm_name"
         return
     fi
-    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-8})"
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+    echo "Launching $vm_name (machine=${MACHINE_TYPE:-e2-highmem-8}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+    # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
         --machine-type="${MACHINE_TYPE:-e2-highmem-8}" \
+        ${PROVISIONING_FLAGS} \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size=50GB --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \

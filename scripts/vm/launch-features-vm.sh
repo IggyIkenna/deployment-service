@@ -97,6 +97,10 @@ MODE="batch"
 OPERATION="compute"
 LAUNCH_MODE="dry"  # dry | full
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 print_usage() {
     cat <<'EOF'
@@ -136,6 +140,7 @@ while [[ $# -gt 0 ]]; do
         --operation)      OPERATION="${2:-}";      shift 2 ;;
         --launch-mode)    LAUNCH_MODE="${2:-}";    shift 2 ;;
         --env)            DEPLOYMENT_ENV="${2:-}"; shift 2 ;;
+        --on-demand)      ON_DEMAND=true; shift ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; print_usage; exit 2 ;;
     esac
@@ -225,7 +230,13 @@ if [[ "$LAUNCH_MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
 fi
 
-echo "Launching $VM_NAME"
+# SPOT by default for batch backfill (idempotent → ~60-91% cheaper); --on-demand /
+# ON_DEMAND=true forces standard. SAFETY: --mode live is a continuous VM that
+# preemption would disrupt → always on-demand regardless of ON_DEMAND.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND || [[ "$MODE" == "live" ]]; then PROVISIONING_FLAGS=""; fi
+
+echo "Launching $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 echo "  cmd: $CMD"
 echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
 
@@ -247,10 +258,12 @@ MD="${MD},MANIFEST_PER_VM_SHARDS=true"
 MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
 
 # ---------- launch ----------
+# shellcheck disable=SC2086
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    ${PROVISIONING_FLAGS} \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \

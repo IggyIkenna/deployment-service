@@ -52,6 +52,10 @@ DRY_RUN=false
 STATUS_ONLY=false
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 # WORKSPACE_ROOT default: 3 levels up (deployment-service/scripts/vm/ →
 # unified-trading-system-repos/). Was `../..` at the source location
 # (features-sports-service/scripts/); fixed for the new canonical path.
@@ -78,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --bucket) GCS_BUCKET="$2"; GCS_STAGING="${GCS_BUCKET}/_vm_staging/fss_backfill"; shift 2 ;;
     --service-account) SERVICE_ACCOUNT="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -364,7 +369,11 @@ date
 exit 0
 STARTUP_EOF
 
-  echo "  Launching ${VM_NAME} (${CHUNK_START} → ${CHUNK_END})..."
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+  echo "  Launching ${VM_NAME} (${CHUNK_START} → ${CHUNK_END}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
 
   # Delete existing VM if present (from previous run)
   gcloud compute instances delete "${VM_NAME}" \
@@ -385,10 +394,12 @@ STARTUP_EOF
   METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+  # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
+    ${PROVISIONING_FLAGS} \
     --scopes=cloud-platform \
     --no-restart-on-failure \
     --image-family=ubuntu-2404-lts-amd64 \

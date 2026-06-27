@@ -23,7 +23,10 @@ START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
-PREEMPTIBLE=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,7 +37,8 @@ while [[ $# -gt 0 ]]; do
     --end)         END_DATE="$2"; shift 2 ;;
     --force)       FORCE=true; shift ;;
     --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
-    --preemptible) PREEMPTIBLE=true; shift ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
+    --preemptible) shift ;;  # deprecated no-op: SPOT is now the default
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -94,19 +98,19 @@ METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 
-PREEMPTIBLE_FLAGS=""
-if $PREEMPTIBLE; then
-  PREEMPTIBLE_FLAGS="--preemptible --no-restart-on-failure"
-fi
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
-echo "Creating VM ${VM_NAME}..."
+echo "Creating VM ${VM_NAME} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
+# shellcheck disable=SC2086
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \
   --no-restart-on-failure \
-  ${PREEMPTIBLE_FLAGS} \
+  ${PROVISIONING_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \

@@ -104,6 +104,11 @@ TARDIS_KEY_CHECK="${TARDIS_KEY_CHECK:-1}"
 # in Secret Manager so the VM can authenticate at all.
 FREE_ONLY="${FREE_ONLY:-0}"
 
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
+
 # Parse --env (Phase 0f env-tier targeting per bucket-naming SSOT). The legacy
 # behavior (no CLI args, env-var overrides only) is preserved — only --env is
 # accepted on the command line. Other config still flows via env vars
@@ -111,7 +116,8 @@ FREE_ONLY="${FREE_ONLY:-0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
-    *) echo "ERROR: unknown flag '$1' (only --env is supported; other config via env vars)" >&2; exit 1 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
+    *) echo "ERROR: unknown flag '$1' (only --env and --on-demand are supported; other config via env vars)" >&2; exit 1 ;;
   esac
 done
 
@@ -402,10 +408,15 @@ launch_cefi_shard() {
     echo "          metadata=$meta"
   else
     echo "Launching $vm_name ($venue $year $group)"
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
     # Metadata passed as single --metadata arg to avoid shell interpretation
     # of ';' inside VM_DATA_TYPES / VM_INSTRUMENT_IDS values.
+    # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
+      ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \

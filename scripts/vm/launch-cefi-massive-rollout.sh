@@ -44,6 +44,10 @@
 set -euo pipefail
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 # Parse --env flag (anywhere in args) while preserving positional MODE+dates.
 _positional=()
@@ -53,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
         *) _positional+=("$1"); shift ;;
     esac
 done
@@ -205,11 +210,17 @@ _launch_one() {
         echo "ok" > "$RESULTS_DIR/$vm_name"
         return 0
     fi
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
+
     while (( attempt < RETRY_MAX * zone_count )); do
         local zone="${ZONES[$(( (zone_offset + attempt) % zone_count ))]}"
+        # shellcheck disable=SC2086
         if gcloud compute instances create "$vm_name" \
                 --project="$PROJECT" --zone="$zone" \
                 --machine-type="$MACHINE_TYPE" \
+                ${prov_flags} \
                 --boot-disk-size="${BOOT_DISK_GB}GB" \
                 --image-family=ubuntu-2404-lts-amd64 \
                 --image-project=ubuntu-os-cloud \

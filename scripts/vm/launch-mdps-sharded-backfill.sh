@@ -96,12 +96,17 @@ DRY=false       # MDPS --dry-run (in-VM, no GCS writes; VMs still spawn)
 PREVIEW=false   # local preview only — print plan, no VM creation
 SELECTED_AGS=""
 SELECTED_YEARS=""
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry) DRY=true; shift ;;
         --preview) PREVIEW=true; shift ;;
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand)   ON_DEMAND=true; shift ;;
         --year)
             shift
             while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
@@ -263,7 +268,11 @@ launch_year_shard() {
         cmd="$cmd --dry-run"
     fi
 
-    echo "[$cat $year] $vm_name  ${start_date}..${end_date}  (machine=$machine_type, max_workers=${resolved_max_workers:-default})"
+    # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+    local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+    if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+    echo "[$cat $year] $vm_name  ${start_date}..${end_date}  (machine=$machine_type, max_workers=${resolved_max_workers:-default}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
     echo "  cmd: $cmd"
 
     if $PREVIEW; then
@@ -301,6 +310,7 @@ launch_year_shard() {
     # =/space/comma-free → metadata-safe.
     [[ "$cat" == "sports" ]] && md="${md},STALL_PROGRESS_REGEX=Processing|Skipping"
 
+    # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
@@ -309,6 +319,7 @@ launch_year_shard() {
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
+        ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=${STARTUP},${md}" \
         --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
         > /dev/null

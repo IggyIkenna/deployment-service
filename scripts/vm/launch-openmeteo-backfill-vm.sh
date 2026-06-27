@@ -50,6 +50,10 @@ FORCE_WINDOW=false
 RECOVERY_FIXTURE_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 DRY_RUN=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND="${ON_DEMAND:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --force-window) FORCE_WINDOW=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
   esac
 done
@@ -131,10 +136,6 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="weather-backfill-${RUN_TS}"
 
-ENTITY_DESC="entity=WEATHER"
-[[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY"
-echo "Launching $VM_NAME: OPEN_METEO backfill ${RANGE_DESC} ($ENTITY_DESC)"
-
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
@@ -153,14 +154,24 @@ METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY:-WEATHER}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+ENTITY_DESC="entity=WEATHER"
+[[ -n "$ENTITY" ]] && ENTITY_DESC="entity=$ENTITY"
+echo "Launching $VM_NAME: OPEN_METEO backfill ${RANGE_DESC} ($ENTITY_DESC) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    ${PROVISIONING_FLAGS} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
