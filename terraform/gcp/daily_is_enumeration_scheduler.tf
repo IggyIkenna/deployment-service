@@ -53,26 +53,21 @@ locals {
   }
 }
 
+# The Cloud Scheduler oauth_token authenticates as this SA to call the Cloud Run :run endpoint.
+# The SA only needs roles/run.invoker on each job (not bucket/secret access — those belong to
+# the execution SA below). Kept as a dedicated SA so the scheduler auth identity is narrow.
 resource "google_service_account" "is_daily_enum" {
   project      = var.project_id
   account_id   = "is-daily-enum"
-  display_name = "IS Daily Enumerator — daily CLOB/Gamma instrument batch enumeration (all AGs, 13:30 UTC)"
+  display_name = "IS Daily Enumerator scheduler auth — oauth_token for Cloud Scheduler → Cloud Run :run"
 }
 
-# Write IS parquets + manifest shards to instruments-store bucket per AG.
-resource "google_storage_bucket_iam_member" "is_daily_enum_store_admin" {
-  for_each = local.is_daily_enum_asset_groups
-  bucket   = each.value
-  role     = "roles/storage.objectAdmin"
-  member   = "serviceAccount:${google_service_account.is_daily_enum.email}"
-}
-
-# Read secrets from Secret Manager (Polymarket CLOB/Gamma API keys, Kalshi API keys).
-# IS batch enumeration resolves these via UnifiedCloudConfig → Secret Manager internally.
-resource "google_project_iam_member" "is_daily_enum_secret_accessor" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.is_daily_enum.email}"
+# Reuse unified-trading-sa as the Cloud Run Job execution SA: it already holds objectAdmin on all
+# instruments-store buckets (from IS VM runs) and secretmanager.secretAccessor at project level.
+# This avoids needing storage.admin / resourcemanager.projectIamAdmin for the deploying SA.
+data "google_service_account" "unified_trading_sa" {
+  project    = var.project_id
+  account_id = "unified-trading-sa"
 }
 
 # CRITICAL: the Cloud Scheduler job authenticates as the SA (oauth_token) and POSTs
@@ -95,7 +90,7 @@ module "is_daily_enum_job" {
   name                  = "is-daily-enum-${each.key}"
   project_id            = var.project_id
   region                = var.region
-  service_account_email = google_service_account.is_daily_enum.email
+  service_account_email = data.google_service_account.unified_trading_sa.email
 
   # instruments-service image — daily_is_enumeration.py lives at
   # /app/instruments-service/scripts/ (same image as lifecycle-catalogue-regen).
