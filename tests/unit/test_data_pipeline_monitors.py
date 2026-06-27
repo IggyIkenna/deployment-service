@@ -128,6 +128,155 @@ def test_classify_unknown_exit_flat_is_failsafe_gone_no_capture():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
 
 
+# ── preemption-aware classification (GCE SPOT) ───────────────────────────────
+def test_classify_preempted_flag_overrides_flat_captured_exit0():
+    # A SPOT VM preempted mid-run: exit 0 (graceful kill), captured flat.
+    # Without is_preempted this would be GONE_NO_CAPTURE (CRITICAL false alarm).
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-api-football-backfill-20260627",
+        exit_code=0,
+        captured_before=50,
+        captured_after=50,
+        is_preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_classify_preempted_flag_overrides_nonzero_exit():
+    # A SPOT VM killed mid-run: exit 143 (SIGTERM), captured flat.
+    # Without is_preempted this would be EXIT_NONZERO (CRITICAL false alarm).
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-understat-backfill-20260627",
+        exit_code=143,
+        captured_before=10,
+        captured_after=10,
+        is_preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_classify_preempted_flag_with_some_captured_climb():
+    # A SPOT VM preempted after writing some rows — preemption still wins.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-footystats-backfill-20260627",
+        exit_code=None,
+        captured_before=0,
+        captured_after=42,
+        is_preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_classify_preempted_false_falls_through_normally():
+    # is_preempted=False must not suppress a real silent-zero failure.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-openmeteo-backfill-20260627",
+        exit_code=0,
+        captured_before=100,
+        captured_after=100,
+        is_preempted=False,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+
+
+def test_sweep_preemption_checker_suppresses_gone_no_capture(monkeypatch):
+    # End-to-end sweep: a terminated SPOT VM is detected as preempted via the
+    # injected checker → verdict PREEMPTED, no DP_VM_GONE_NO_CAPTURE emitted.
+    vm = "sports-api-football-backfill-20260627"
+    zone = "asia-northeast1-c"
+    census = json.dumps({"vms": {vm: 100}}).encode()
+    zone_census = json.dumps({"zones": {vm: zone}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, exit_code_fleet_monitor.ZONE_CENSUS_BLOB): (zone_census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),  # clean exit — flat captured
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],  # VM is gone (preempted + self-deleted)
+        captured_reader=lambda _vm: 100,  # flat captured (preempted mid-run)
+        asset_group_for_vm=lambda _vm: "sports",
+        preemption_checker=lambda _vm, _zone: True,  # GCE confirms preemption
+    )
+    assert len(results) == 1
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    # No CRITICAL alert — preemption is a benign infrastructure event.
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted)
+    assert not any(e[0] == "DP_VM_EXIT_NONZERO" for e in emitted)
+
+
+def test_sweep_preemption_checker_false_still_alerts(monkeypatch):
+    # When the preemption checker returns False (no preemption event found),
+    # a flat-captured silent-zero still fires DP_VM_GONE_NO_CAPTURE.
+    vm = "sports-understat-backfill-20260627"
+    zone = "asia-northeast1-c"
+    census = json.dumps({"vms": {vm: 100}}).encode()
+    zone_census = json.dumps({"zones": {vm: zone}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, exit_code_fleet_monitor.ZONE_CENSUS_BLOB): (zone_census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 100,  # flat — no work done, no benign reason
+        asset_group_for_vm=lambda _vm: "sports",
+        preemption_checker=lambda _vm, _zone: False,  # not preempted
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+    assert any(e[0] == "DP_VM_GONE_NO_CAPTURE" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_sweep_preemption_checker_no_zone_skips_check(monkeypatch):
+    # If the zone census has no entry for the VM (first tick after feature rollout),
+    # the preemption checker is skipped (zone is ""), and classification falls through
+    # normally. This prevents a missed-zone from suppressing a real failure.
+    vm = "sports-openmeteo-backfill-20260627"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    # No zone census entry for this VM.
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    checker_called: list[str] = []
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,  # flat — genuine silent-zero
+        asset_group_for_vm=lambda _vm: "sports",
+        preemption_checker=lambda vm_n, z: checker_called.append(z) or False,
+    )
+    # Checker never called (no zone → skipped).
+    assert checker_called == []
+    # Falls through to GONE_NO_CAPTURE — fail-safe direction.
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+
+
 # ── exit_code_fleet_monitor.sweep end-to-end ────────────────────────────────
 def test_sweep_emits_exit_nonzero_on_137_run_log(monkeypatch):
     vm = "sports-full-sweep-2025"

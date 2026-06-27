@@ -318,13 +318,8 @@ def _make_sidecar_age_reader(storage_client: StorageClient):
     return _read
 
 
-# The catalogue regen (build_instrument_catalogue.py) writes the canonical
-# artifact to ``gs://{instruments-store-{ag}-{env-short}-{pid}}/{DEPLOYMENT_ENV}/catalog.parquet``
-# — bucket is env-SHORT (``-prd-``), the blob PREFIX is the LONG env name (default
-# ``prod``). The monitor MUST mirror BOTH or it probes a non-existent object →
-# age=None → false "missing" (KEY #3, the documented env-less-vs-env-short reader
-# bug class). SSOT: instruments-service/scripts/build_instrument_catalogue.py
-# (``_catalogue_object_paths`` + ``_instruments_store_bucket_for``).
+# Catalogue: bucket uses env-SHORT (``-prd-``), blob PREFIX uses LONG env name.
+# SSOT: instruments-service/scripts/build_instrument_catalogue.py
 _CATALOGUE_FILENAME = "catalog.parquet"
 # prediction uses a dedicated FLAT bucket key (no PREDICTION entry in the per-AG
 # ``instruments-store`` dict), mirroring build_instrument_catalogue's resolver.
@@ -455,17 +450,7 @@ def _umbrella_for_vm(vm_name: str) -> str:
 
 
 def _kill_stalled_vm(vm_name: str, zone: str) -> bool:
-    """``(vm_name, zone) -> killed`` deleter for the heartbeat sweep's auto-kill.
-
-    Reuses the zombie watchdog's ``_kill_vm`` (which archives run.log + serial
-    console for forensics before deleting via the compute API), so the kill path is
-    identical to the watchdog's. ``vm_zombie_watchdog`` is a VM-side launcher script
-    that imports ``google.cloud.compute_v1`` at module load, so it is pulled in HERE
-    (deferred) rather than at this package's module top — the sweep itself never
-    touches a cloud SDK (it receives this resolver injected, keeping the pure sweep
-    credential-free + block-network in tests). Returns False if the watchdog module
-    is unavailable in the runtime (the sweep then only alerts, never crashes).
-    """
+    """Kill stalled VM via zombie watchdog's ``_kill_vm``; returns False if watchdog unavailable."""
     watchdog = _zombie_watchdog()
     if watchdog is None:
         logger.warning("auto-kill: vm_zombie_watchdog unavailable in runtime — cannot kill %s", vm_name)
@@ -478,14 +463,28 @@ def _kill_stalled_vm(vm_name: str, zone: str) -> bool:
         return False
 
 
+def _is_vm_preempted(vm_name: str, zone: str) -> bool:
+    wd = _zombie_watchdog()
+    if wd is None:
+        return False
+    try:
+        pid = _project_id()
+        tgt = f"https://www.googleapis.com/compute/v1/projects/{pid}/zones/{zone}/instances/{vm_name}"
+        ops = wd.compute_v1.ZoneOperationsClient()  # pyright: ignore[reportAny]
+        req = wd.compute_v1.ListZoneOperationsRequest(  # pyright: ignore[reportAny]
+            project=pid, zone=zone, max_results=1,
+            filter=f'targetLink="{tgt}" AND operationType="compute.instances.preempted"',
+        )
+        return any(True for _ in ops.list(request=req))  # pyright: ignore[reportAny]
+    except Exception as exc:
+        logger.warning("preemption-check: zone-ops failed %s/%s: %s", zone, vm_name, exc)
+        return False
+
+
 # Cloud Scheduler state strings (mirror the google.cloud.scheduler_v1 Job.State enum).
 _SCHEDULER_PAUSED = "PAUSED"
 _SCHEDULER_ENABLED = "ENABLED"
-# Long → 3-char env-short (mirrors UTL bucket_naming._DEPLOYMENT_ENV_SHORT_FORM, the
-# same map ``resolve_bucket_name`` uses for the ``-prd-`` segment). Kept inline (a
-# tiny constant) rather than importing the UTL private to avoid an in-function /
-# deep private import; the public ``get_environment()`` (imported at top) gives the
-# long name. Default → prd (the fleet default).
+# Mirrors UTL DEPLOYMENT_ENV_SHORT_FORM (inline to avoid importing the UTL private).
 _ENV_SHORT_FORM: dict[str, str] = {
     "dev": "dev",
     "development": "dev",
@@ -661,15 +660,14 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                preemption_checker=_is_vm_preempted,
                 finding_sink=ec_findings,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
-            # "clean" + "expected_no_capture" are both benign (the latter = rows
-            # written but consolidated lags / honest-absence / shard already
-            # complete — the 2026-06-23 false-positive killer). "rate_limited" is a
-            # real-transient finding, so it counts as non_clean (it alerts WARN).
-            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture")]
+            # "clean", "expected_no_capture", and "preempted" are all benign.
+            # "rate_limited" is a real-transient finding → counts as non_clean.
+            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture", "preempted")]
             logger.info(
                 "exit-code sweep: %d terminated, %d non-clean (%s)",
                 len(results),

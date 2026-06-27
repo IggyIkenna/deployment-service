@@ -57,6 +57,8 @@ logger = logging.getLogger(__name__)
 
 # The census blob lives in the heartbeat/log bucket so it is durable + cheap.
 CENSUS_BLOB = "vm-census/exit-code-fleet-census.json"
+# Zone census: vm_name → last-known GCE zone (same bucket, separate blob).
+ZONE_CENSUS_BLOB = "vm-census/exit-code-fleet-zone-census.json"
 
 
 class TerminationVerdict(StrEnum):
@@ -66,6 +68,7 @@ class TerminationVerdict(StrEnum):
     GONE_NO_CAPTURE = "gone_no_capture"  # DP-VM-002 — genuine silent zero → ALERT
     RATE_LIMITED = "rate_limited"  # flat captured but run.log shows a 429/throttle → backoff-retry
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
+    PREEMPTED = "preempted"  # SPOT VM preempted by GCE → benign relaunch, no alert
     CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
 
@@ -96,10 +99,12 @@ def classify_terminated_vm(
     captured_before: int,
     captured_after: int,
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
+    is_preempted: bool = False,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
+      - ``is_preempted`` (GCE SPOT preemption event)   → PREEMPTED (benign relaunch, no alert)
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
       - captured CLIMBED                              → CLEAN (work landed)
       - captured FLAT — split on the run.log reason (the 2026-06-23
@@ -121,9 +126,16 @@ def classify_terminated_vm(
     it, so a self-deleting VM that honestly recorded absence no longer false-fires.
     A None exit code with a SILENT reason still alerts (never infer success from
     "the VM is gone" + no evidence of work).
+
+    ``is_preempted`` overrides ALL other signals: GCE preemption is a benign
+    infrastructure event (the VM is re-launched by the auto-relaunch shutdown
+    script), not a job failure. Even a non-zero exit code or flat captured count
+    is expected when a SPOT VM is mid-run at preemption time.
     """
     climbed = captured_after > captured_before
-    if exit_code is not None and exit_code != 0:
+    if is_preempted:
+        verdict = TerminationVerdict.PREEMPTED
+    elif exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
     elif climbed:
         verdict = TerminationVerdict.CLEAN
@@ -228,8 +240,9 @@ def _finding_for(
             details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
             registry_id="DP-VM-002",
         )
-    # EXPECTED_NO_CAPTURE (rows written but consolidated lags / honest-absence /
-    # shard already complete) + CLEAN + UNKNOWN → no finding (benign / not a failure).
+    # PREEMPTED + EXPECTED_NO_CAPTURE (rows written but consolidated lags /
+    # honest-absence / shard already complete) + CLEAN + UNKNOWN → no finding
+    # (benign / not a failure). PREEMPTED is logged as INFO in the sweep caller.
     return None
 
 
@@ -271,6 +284,37 @@ def write_census(storage_client: StorageClient, log_bucket: str, census: dict[st
         logger.warning("exit_code_fleet_monitor: failed to persist census: %s", exc)
 
 
+def load_zone_census(storage_client: StorageClient, log_bucket: str) -> dict[str, str]:
+    """Load the prior zone census (vm_name → GCE zone). Returns {} on miss/corrupt."""
+    raw = _gcs.read_text(storage_client, log_bucket, ZONE_CENSUS_BLOB)
+    if not raw:
+        return {}
+    try:
+        loaded = cast("object", json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    data = cast("dict[str, object]", loaded)
+    zones_obj = data.get("zones", {})
+    if not isinstance(zones_obj, dict):
+        return {}
+    zones = cast("dict[str, object]", zones_obj)
+    return {str(k): str(v) for k, v in zones.items() if isinstance(v, str)}
+
+
+def write_zone_census(storage_client: StorageClient, log_bucket: str, zones: dict[str, str]) -> None:
+    """Persist the current zone census. Best-effort (never raises the sweep)."""
+    payload = json.dumps(
+        {"updated_at": datetime.now(UTC).isoformat(), "zones": zones},
+        sort_keys=True,
+    ).encode("utf-8")
+    try:
+        storage_client.upload_bytes(log_bucket, ZONE_CENSUS_BLOB, payload, content_type="application/json")
+    except Exception as exc:
+        logger.warning("exit_code_fleet_monitor: failed to persist zone census: %s", exc)
+
+
 def sweep(
     *,
     storage_client: StorageClient,
@@ -280,6 +324,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    preemption_checker: Callable[[str, str], bool] | None = None,
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
@@ -300,27 +345,49 @@ def sweep(
             supplied, the DP_VM_* finding carries the umbrella so the alerting-service
             router splits LIVE → #uts-live-alerts vs BATCH → #data-pipeline-alerts;
             absent it (or "" returned) the alert routes to the batch default.
+        preemption_checker: optional ``(vm_name, zone) -> bool`` resolver. When
+            supplied and returns True for a terminated VM, the verdict is ``PREEMPTED``
+            (benign relaunch — no alert). Requires zone information from the zone
+            census (stored each tick from the running VMs list). Absent (or False
+            returned) → classification proceeds normally via exit_code + captured.
+            Injected so the sweep stays credential-free + block-network in tests.
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
     Returns the list of TerminationResult for VMs that terminated since last tick.
     """
     prior = load_census(storage_client, log_bucket)
+    prior_zones = load_zone_census(storage_client, log_bucket) if preemption_checker is not None else {}
     running = dict(running_vms)
 
     # Update census for currently-running VMs (record their latest captured_cum).
     current_census: dict[str, int] = {}
-    for name in running:
+    current_zones: dict[str, str] = {}
+    for name, zone in running.items():
         try:
             current_census[name] = max(captured_reader(name), prior.get(name, 0))
         except Exception:
             current_census[name] = prior.get(name, 0)
+        current_zones[name] = zone
 
     # Terminated = in prior census, gone now.
     terminated = [name for name in prior if name not in running]
 
     results: list[TerminationResult] = []
     for name in terminated:
+        # Check GCE preemption FIRST (before any I/O for exit_code / run.log):
+        # a preempted SPOT VM may have a non-zero exit or flat capture count, but
+        # these are expected (the VM was mid-run when GCE reclaimed it). Checking
+        # preemption early avoids downloading run.log for a benign event.
+        is_preempted = False
+        if preemption_checker is not None:
+            last_zone = prior_zones.get(name, "")
+            if last_zone:
+                try:
+                    is_preempted = preemption_checker(name, last_zone)
+                except Exception as exc:
+                    logger.warning("exit_code_fleet_monitor: preemption check failed for %s: %s", name, exc)
+
         exit_code = _gcs.read_terminal_exit_code(storage_client, log_bucket, name)
         captured_before = prior.get(name, 0)
         try:
@@ -331,8 +398,13 @@ def sweep(
         # otherwise be flat-captured-and-clean-exit (the GONE_NO_CAPTURE candidate
         # path) — a non-zero exit or a climbing capture never needs it, so we don't
         # download the run.log for those (keeps the per-tick download count low,
-        # mirrors the OOM-fix double-download discipline).
-        needs_reason = (exit_code is None or exit_code == 0) and captured_after <= captured_before
+        # mirrors the OOM-fix double-download discipline). Skip when preempted too
+        # (we already know the reason).
+        needs_reason = (
+            not is_preempted
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+        )
         no_capture_reason = (
             _gcs.no_capture_reason_from_run_log(storage_client, log_bucket, name)
             if needs_reason
@@ -344,8 +416,20 @@ def sweep(
             captured_before=captured_before,
             captured_after=captured_after,
             no_capture_reason=no_capture_reason,
+            is_preempted=is_preempted,
         )
         results.append(result)
+
+        if result.verdict is TerminationVerdict.PREEMPTED:
+            logger.info(
+                "exit_code_fleet_monitor: %s preempted by GCE — benign relaunch (no alert); "
+                "captured=%d->%d exit_code=%s",
+                name,
+                captured_before,
+                result.captured_after,
+                exit_code,
+            )
+            continue
 
         launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
         umbrella = umbrella_for_vm(name) if umbrella_for_vm is not None else ""
@@ -382,5 +466,7 @@ def sweep(
 
     if not dry_run:
         write_census(storage_client, log_bucket, current_census)
+        if preemption_checker is not None:
+            write_zone_census(storage_client, log_bucket, current_zones)
 
     return results
