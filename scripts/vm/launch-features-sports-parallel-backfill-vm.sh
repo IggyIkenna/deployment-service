@@ -210,7 +210,7 @@ REPOS=(
   "unified-trading-library"
   "market-tick-data-service"
   "instruments-service"
-  "features-sports-service"
+  "features-service"
 )
 
 TARBALL_PATH="/tmp/fss_backfill_codebase.tar.gz"
