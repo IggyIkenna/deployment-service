@@ -4,7 +4,7 @@
 # Delete-when: NA
 # Launch CME OHLCV-1m backfill VMs (one per (root, year-shard)).
 #
-# Full CME root universe (47 futures + options roots + 9 event-contract roots).
+# Full CME root universe (49 futures + options roots + 9 event-contract roots).
 # Each root entry: "ROOT|ROOT.FUT;ROOT.OPT" — the ES root already covers both
 # ES futures and ES options (ES.OPT); there is no separate ES_OPT root key.
 #
@@ -46,7 +46,7 @@ ohlcv_parse_common_args "$@"
 
 # CME root universe (parent-symbol set). Each entry: "root|parent_symbols"
 # semicolon-delimited parent-symbols form a single VM's instrument-ids list.
-# CME root universe — ALL 47 catalogue future roots (operator 2026-06-22: download
+# CME root universe — ALL 49 catalogue future roots (operator 2026-06-22: download
 # everything, no client-side filters; the market is the filter — listed-no-trade -> empty).
 # Each root fetched as <root>.FUT + <root>.OPT (options bundle is empty for futures-only roots).
 declare -a CME_ROOTS=(
@@ -76,6 +76,8 @@ declare -a CME_ROOTS=(
     "NG|NG.FUT;NG.OPT"
     "NKD|NKD.FUT;NKD.OPT"
     "NQ|NQ.FUT;NQ.OPT"
+    "PA|PA.FUT;PA.OPT"
+    "PL|PL.FUT;PL.OPT"
     "RB|RB.FUT;RB.OPT"
     "RTY|RTY.FUT;RTY.OPT"
     "SI|SI.FUT;SI.OPT"
@@ -117,7 +119,7 @@ if [[ -n "$ONLY_ROOT" ]]; then
     done
     if (( ${#_filtered[@]} == 0 )); then
         echo "ERROR: --only-root '$ONLY_ROOT' does not match any CME_ROOTS entry" >&2
-        echo "Available roots: 6A 6B 6C 6E 6J 6L 6M 6N 6S 6Z BTC CL CT ES ETH GC HE HG HO LE MBT MES MET NG NKD NQ RB RTY SI XAB XAF XAI XAK XAP XAU XAV XAY YM ZB ZC ZF ZL ZM ZN ZS ZT ZW ECES ECBTC ECRTY ECYM ECGC ECCL ECNG EC6E ECNQ" >&2
+        echo "Available roots: 6A 6B 6C 6E 6J 6L 6M 6N 6S 6Z BTC CL CT ES ETH GC HE HG HO LE MBT MES MET NG NKD NQ PA PL RB RTY SI XAB XAF XAI XAK XAP XAU XAV XAY YM ZB ZC ZF ZL ZM ZN ZS ZT ZW ECES ECBTC ECRTY ECYM ECGC ECCL ECNG EC6E ECNQ" >&2
         echo "(Note: ES root covers ES.FUT and ES.OPT — there is no separate ES_OPT root key)" >&2
         exit 1
     fi
