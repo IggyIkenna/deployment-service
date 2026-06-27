@@ -33,6 +33,8 @@ ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 DRY_RUN=false
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); --on-demand opts out.
+ON_DEMAND="${ON_DEMAND:-false}"
 
 ENTITY=""
 PROVIDER="API_FOOTBALL"
@@ -50,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --zone)          ZONE="$2"; shift 2 ;;
     --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
     --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --on-demand)     ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -112,6 +115,12 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=${PROVIDER}"
 METADATA="${METADATA},SKIP_DEPENDENCY_CHECK=true"
 METADATA="${METADATA},STALL_TIMEOUT_SEC=7200"
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+echo "Provisioning: $([[ -n "$PROVISIONING_FLAGS" ]] && echo 'SPOT (auto-relaunches on preemption)' || echo 'on-demand')"
+
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
@@ -122,7 +131,8 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=30GB \
   --labels="purpose=sports-is-gap-fill,entity=$(echo "${ENTITY}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}" \
-  --metadata="${METADATA}"
+  --metadata="${METADATA}" \
+  ${PROVISIONING_FLAGS}
 
 echo ""
 echo "VM RUNNING: ${VM_NAME}"

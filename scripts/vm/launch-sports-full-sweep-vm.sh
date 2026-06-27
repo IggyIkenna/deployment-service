@@ -29,6 +29,8 @@ ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); --on-demand opts out.
+ON_DEMAND="${ON_DEMAND:-false}"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
 # Optional: restrict the sweep to ONE sports entity (e.g. FIXTURES). When set,
 # only that entity is fetched per date — used for the fixtures-first phase so the
@@ -46,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --env)        DEPLOYMENT_ENV="$2"; shift 2 ;;
     --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
     --entity)     ENTITY="$(echo "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;
+    --on-demand)  ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -66,7 +69,7 @@ RANGES=(
   "sports-full-sweep-2023|2023-01-01|2023-12-31"
   "sports-full-sweep-2024|2024-01-01|2024-12-31"
   "sports-full-sweep-2025|2025-01-01|2025-12-31"
-  "sports-full-sweep-2026|2026-01-01|2026-04-10"
+  "sports-full-sweep-2026|2026-01-01|2026-06-27"
 )
 
 echo "============================================================"
@@ -94,6 +97,10 @@ launch_vm() {
   gcloud compute instances delete "${VM_NAME}" \
     --project="${PROJECT_ID}" --zone="${ZONE}" --quiet 2>/dev/null || true
 
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
   local METADATA
   METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
   METADATA="${METADATA},VM_TASK=instruments-backfill"
@@ -119,8 +126,9 @@ launch_vm() {
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=30GB \
     --labels="purpose=sports-full-sweep,env=${DEPLOYMENT_ENV}" \
-    --metadata="${METADATA}"
-  echo "  Created: ${VM_NAME} (${START_DATE} → ${END_DATE})"
+    --metadata="${METADATA}" \
+    ${PROVISIONING_FLAGS}
+  echo "  Created: ${VM_NAME} (${START_DATE} → ${END_DATE}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
   echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
 }
 
