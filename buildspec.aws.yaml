@@ -17,7 +17,7 @@ phases:
     runtime-versions:
       python: "3.13"
     commands:
-      - VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/version = "//;s/"//') && export VERSION && echo "$VERSION" > VERSION
+      - VERSION=$(git describe --tags --always 2>/dev/null || echo "unknown") && export VERSION && echo "$VERSION" > VERSION
       - echo "Building version $VERSION"
       - export IMAGE_TAG=$VERSION
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
