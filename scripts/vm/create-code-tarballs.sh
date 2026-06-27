@@ -268,9 +268,12 @@ create_tarball() {
         fi
     fi
 
-    # Extract version from pyproject.toml
+    # Derive version from git tags (DS-1 / WS-L Phase-2 pre-audit). Previously this grepped
+    # pyproject.toml::project.version, which returns empty once Phase 2 moves version to
+    # git-tags (dynamic). git describe --tags --always is Phase-2-safe: it returns the nearest
+    # annotated tag (or the tag + commit delta), falling back to the commit SHA if untagged.
     local pyproject_version
-    pyproject_version=$(grep '^version' "$repo_path/pyproject.toml" 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/\1/' | tr -d ' ')
+    pyproject_version=$(git -C "$repo_path" describe --tags --always 2>/dev/null)
     [[ -z "$pyproject_version" ]] && pyproject_version="unknown"
 
     # Write manifest.json sibling (always — even in dry-run for display)
