@@ -80,3 +80,11 @@ else
             || log_warn "Missing log_event('${event}') in ${SERVICE_NAME} — see codex 03-observability/lifecycle-events.md"
     done
 fi
+
+# Dual-cloud build parity: every repo with a real Docker image build (cloudbuild.yaml)
+# must also have buildspec.aws.yaml. SSOT: codex/05-infrastructure/dual-cloud-image-builds.md
+log_section "[DUAL-CLOUD] Dual-cloud image build parity check"
+WORKSPACE_ROOT="${WORKSPACE_ROOT}" run_timeout 30 \
+    python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_dual_cloud_parity.py" \
+    && log_success "Dual-cloud parity: all image-building repos have buildspec.aws.yaml" \
+    || log_fail "Dual-cloud parity FAILED — see above for missing repos"
