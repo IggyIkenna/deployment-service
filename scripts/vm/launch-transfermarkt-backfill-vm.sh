@@ -201,6 +201,17 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  SHUTDOWN_FILE=$(mktemp)
+  cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED_FLAG=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED_FLAG" == "true" ]] || exit 0
+SELF_VM=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+[[ -n "$SELF_VM" ]] || exit 0
+echo "1" | gsutil -q cp - "gs://deployment-scripts-central-element-323112/vm-logs/${SELF_VM}/PREEMPTED" 2>/dev/null || true
+SHUTDOWN_EOF
   # shellcheck disable=SC2086
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
@@ -212,7 +223,9 @@ else
     --boot-disk-size=50GB \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
     --labels=purpose=transfermarkt-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+  rm -f "$SHUTDOWN_FILE"
 fi
 
 echo ""

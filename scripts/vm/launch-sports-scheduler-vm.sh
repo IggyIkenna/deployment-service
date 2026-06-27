@@ -146,14 +146,19 @@ cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
 PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
 [[ "$PREEMPTED" == "true" ]] || exit 0
+SELF_VM=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+PROJECT="central-element-323112"
+CODE_BUCKET="deployment-scripts-${PROJECT}"
+# Write PREEMPTED GCS marker so the fleet monitor classifies this as a benign
+# relaunch (not DP_VM_GONE_NO_CAPTURE CRITICAL). Best-effort — never block relaunch.
+[[ -n "$SELF_VM" ]] && echo "1" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${SELF_VM}/PREEMPTED" 2>/dev/null || true
 DEPL_ENV=$(curl -sf -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/instance/attributes/DEPLOYMENT_ENV' \
   2>/dev/null || echo 'prod')
 DRY=$(curl -sf -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SCHEDULER_DRY_RUN' \
   2>/dev/null || echo '')
-PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-${PROJECT}"
 ZONE="asia-northeast1-c"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 NEW_VM="sports-scheduler-${RUN_TS}"

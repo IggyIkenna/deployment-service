@@ -251,6 +251,18 @@ launch_one_vm() {
 
   echo "Launching $vm_name: SOCCER_FOOTBALL_INFO backfill ${start_date}..${end_date} (${entity_desc}) chunk=${chunk_id:-single} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
 
+  local sfi_shutdown_file
+  sfi_shutdown_file=$(mktemp)
+  cat > "$sfi_shutdown_file" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED_FLAG=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED_FLAG" == "true" ]] || exit 0
+SELF_VM=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+[[ -n "$SELF_VM" ]] || exit 0
+echo "1" | gsutil -q cp - "gs://deployment-scripts-central-element-323112/vm-logs/${SELF_VM}/PREEMPTED" 2>/dev/null || true
+SHUTDOWN_EOF
   # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
@@ -262,7 +274,9 @@ launch_one_vm() {
     --boot-disk-size=50GB \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
+    --metadata-from-file="shutdown-script=${sfi_shutdown_file}" \
     --labels="$labels"
+  rm -f "$sfi_shutdown_file"
 }
 
 # --- Chunked fan-out (Option 2: independent chunks) ---

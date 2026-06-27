@@ -35,6 +35,12 @@ HEARTBEAT_BLOB = "vm-heartbeat/{vm}.txt"
 # as CENSUS_BLOB / _FIRST_SEEN_BLOB.
 MONITOR_LAST_RUN_BLOB = "vm-census/{mode}-last-run.json"
 
+# Written by the VM shutdown-script when GCE preempts a SPOT instance (the
+# shutdown-script reads the ``preempted`` metadata endpoint and writes this blob
+# in the 30-second preemption window). The fleet monitor reads it to distinguish
+# a preemption (benign → auto-relaunch) from a silent crash (DP_VM_GONE_NO_CAPTURE).
+PREEMPTED_BLOB = "vm-logs/{vm}/PREEMPTED"
+
 
 def write_monitor_last_run(
     storage_client: StorageClient,
@@ -566,3 +572,15 @@ def no_capture_reason_from_run_log(storage_client: StorageClient, bucket: str, v
     """
     log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
     return classify_no_capture_reason(log)
+
+
+def is_preempted(storage_client: StorageClient, log_bucket: str, vm_name: str) -> bool:
+    """True when the VM's shutdown-script wrote the GCE preemption marker.
+
+    SPOT VMs run a shutdown-script that checks the GCE ``preempted`` metadata
+    endpoint; when the endpoint returns ``true`` the script writes
+    ``vm-logs/{vm}/PREEMPTED`` in the 30-second preemption window. A missing
+    marker means the VM exited for a different reason (crash / OOM / clean exit).
+    Never raises.
+    """
+    return bool(read_text(storage_client, log_bucket, PREEMPTED_BLOB.format(vm=vm_name)))

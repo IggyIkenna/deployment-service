@@ -394,6 +394,18 @@ STARTUP_EOF
   METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+  local fss_shutdown_file
+  fss_shutdown_file=$(mktemp)
+  cat > "$fss_shutdown_file" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED_FLAG=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED_FLAG" == "true" ]] || exit 0
+SELF_VM=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
+[[ -n "$SELF_VM" ]] || exit 0
+echo "1" | gsutil -q cp - "gs://deployment-scripts-central-element-323112/vm-logs/${SELF_VM}/PREEMPTED" 2>/dev/null || true
+SHUTDOWN_EOF
   # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
@@ -408,9 +420,10 @@ STARTUP_EOF
     ${SA_FLAG} \
     --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --metadata-from-file=shutdown-script="${fss_shutdown_file}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
 
-  rm -f "$STARTUP_FILE"
+  rm -f "$STARTUP_FILE" "$fss_shutdown_file"
   echo "  ${VM_NAME} created."
 }
 

@@ -1635,6 +1635,111 @@ def test_sweep_rate_limit_emits_source_rate_limited_warn(monkeypatch):
     assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted)
 
 
+# ── KEY #3: GCE SPOT preemption is classified PREEMPTED, not GONE_NO_CAPTURE ──
+def _preempted_blob(vm: str) -> str:
+    return _gcs.PREEMPTED_BLOB.format(vm=vm)
+
+
+def test_classify_preempted_no_exit_code_flat():
+    # A SPOT VM killed by GCE: exit_code=None (SIGKILL before EXIT_STATUS write),
+    # captured flat, preempted=True → must NOT fire DP_VM_GONE_NO_CAPTURE.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-api-football-2025",
+        exit_code=None,
+        captured_before=100,
+        captured_after=100,
+        preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert res.preempted is True
+
+
+def test_classify_preempted_overrides_gone_no_capture():
+    # Even with a SILENT no_capture_reason, preempted=True must win over GONE_NO_CAPTURE.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-sfi-backfill-2025",
+        exit_code=None,
+        captured_before=50,
+        captured_after=50,
+        no_capture_reason=_gcs.NoCaptureReason.SILENT,
+        preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_classify_nonzero_exit_not_preempted():
+    # A non-zero exit code (OOM/crash) beats preempted=True — a VM can OOM
+    # and also somehow trigger a preemption path; the real failure still alerts.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-understat-2025",
+        exit_code=137,
+        captured_before=0,
+        captured_after=0,
+        preempted=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+
+
+def test_sweep_preempted_vm_no_critical_alert(monkeypatch):
+    # Full sweep: SPOT VM preempted (PREEMPTED blob present, no exit code, flat
+    # captured) → verdict PREEMPTED, zero DP_VM_GONE_NO_CAPTURE emitted (R5 pass).
+    vm = "sports-openmeteo-backfill-2025"
+    census = json.dumps({"vms": {vm: 200}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            # No EXIT_STATUS blob (SIGKILL before write) and PREEMPTED marker present.
+            (LOG_BUCKET, _preempted_blob(vm)): (b"1\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 200,  # flat
+        asset_group_for_vm=lambda _vm: "sports",
+        preemption_checker=lambda name: _gcs.is_preempted(storage, LOG_BUCKET, name),
+    )
+    assert len(results) == 1
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert results[0].preempted is True
+    # Gate: zero CRITICAL alerts (R5 preserved).
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted)
+    assert not any(e[1] == "CRITICAL" for e in emitted)
+
+
+def test_sweep_no_preemption_marker_still_alerts(monkeypatch):
+    # Without a PREEMPTED marker, a flat-captured silent VM still fires GONE_NO_CAPTURE.
+    vm = "sports-transfermarkt-backfill-2025"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            # No EXIT_STATUS and no PREEMPTED blob → genuine silent failure.
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,  # flat
+        asset_group_for_vm=lambda _vm: "sports",
+        preemption_checker=lambda name: _gcs.is_preempted(storage, LOG_BUCKET, name),
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+    assert any(e[0] == "DP_VM_GONE_NO_CAPTURE" and e[1] == "CRITICAL" for e in emitted)
+
+
 # ── KEY #2: DP_CRON_DID_NOT_FIRE is pause-aware ──────────────────────────────
 def _consolidator_target() -> meta_watchers.FreshnessTarget:
     return meta_watchers.FreshnessTarget(

@@ -661,15 +661,15 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                preemption_checker=lambda name: _gcs.is_preempted(storage_client, log_bucket, name),
                 finding_sink=ec_findings,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
-            # "clean" + "expected_no_capture" are both benign (the latter = rows
-            # written but consolidated lags / honest-absence / shard already
-            # complete — the 2026-06-23 false-positive killer). "rate_limited" is a
-            # real-transient finding, so it counts as non_clean (it alerts WARN).
-            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture")]
+            # "clean" + "expected_no_capture" + "preempted" are all benign (no alert).
+            # "preempted" = GCE SPOT preemption; the VM auto-relaunches via shutdown-script.
+            # "rate_limited" is a real-transient finding (alerts WARN) → counts as non_clean.
+            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture", "preempted")]
             logger.info(
                 "exit-code sweep: %d terminated, %d non-clean (%s)",
                 len(results),

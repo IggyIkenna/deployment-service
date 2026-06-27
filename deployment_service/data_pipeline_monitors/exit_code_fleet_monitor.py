@@ -68,6 +68,7 @@ class TerminationVerdict(StrEnum):
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
     CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
+    PREEMPTED = "preempted"  # GCE SPOT preemption → benign auto-relaunch, no CRITICAL alert (R5)
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,9 @@ class TerminationResult:
     # GONE_NO_CAPTURE-vs-EXPECTED_NO_CAPTURE-vs-RATE_LIMITED split. SILENT for a
     # genuine silent-zero (the only flat-captured case that still alerts).
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT
+    # True when the GCS PREEMPTED marker was present — written by the VM's
+    # shutdown-script on GCE SPOT preemption (benign; auto-relaunch expected).
+    preempted: bool = False
 
     @property
     def captured_climbed(self) -> bool:
@@ -96,11 +100,15 @@ def classify_terminated_vm(
     captured_before: int,
     captured_after: int,
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
+    preempted: bool = False,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
+      - ``preempted == True``                          → PREEMPTED (benign; no alert)
+        (GCE SPOT preemption; shutdown-script wrote the GCS PREEMPTED marker;
+        the VM auto-relaunches — R5 alert-zero preserved)
       - captured CLIMBED                              → CLEAN (work landed)
       - captured FLAT — split on the run.log reason (the 2026-06-23
         false-positive killer; a flat consolidated/shard count is NOT inherently
@@ -125,6 +133,8 @@ def classify_terminated_vm(
     climbed = captured_after > captured_before
     if exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
+    elif preempted:
+        verdict = TerminationVerdict.PREEMPTED
     elif climbed:
         verdict = TerminationVerdict.CLEAN
     elif no_capture_reason is NoCaptureReason.RATE_LIMITED:
@@ -140,6 +150,7 @@ def classify_terminated_vm(
         captured_before=captured_before,
         captured_after=captured_after,
         no_capture_reason=no_capture_reason,
+        preempted=preempted,
     )
 
 
@@ -228,6 +239,7 @@ def _finding_for(
             details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
             registry_id="DP-VM-002",
         )
+    # PREEMPTED → benign GCE SPOT preemption; INFO logged in sweep(), no CRITICAL.
     # EXPECTED_NO_CAPTURE (rows written but consolidated lags / honest-absence /
     # shard already complete) + CLEAN + UNKNOWN → no finding (benign / not a failure).
     return None
@@ -280,6 +292,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    preemption_checker: Callable[[str], bool] | None = None,
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
@@ -300,6 +313,10 @@ def sweep(
             supplied, the DP_VM_* finding carries the umbrella so the alerting-service
             router splits LIVE → #uts-live-alerts vs BATCH → #data-pipeline-alerts;
             absent it (or "" returned) the alert routes to the batch default.
+        preemption_checker: optional ``vm_name -> bool`` that returns True when the VM's
+            GCS PREEMPTED marker exists (written by the shutdown-script on GCE SPOT
+            preemption). When supplied, terminates the GONE_NO_CAPTURE false-positive
+            path for preempted SPOT VMs (R5 alert-zero preserved).
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
@@ -327,12 +344,18 @@ def sweep(
             captured_after = max(captured_reader(name), captured_before)
         except Exception:
             captured_after = captured_before
+        # Check preemption first when exit_code is absent (GCE SIGKILL doesn't
+        # leave a durable EXIT_STATUS) — avoids the GCS reads on clean/non-zero exits.
+        is_preempted = exit_code is None and preemption_checker is not None and preemption_checker(name)
         # Only resolve the run.log no-capture reason when the verdict would
         # otherwise be flat-captured-and-clean-exit (the GONE_NO_CAPTURE candidate
-        # path) — a non-zero exit or a climbing capture never needs it, so we don't
-        # download the run.log for those (keeps the per-tick download count low,
-        # mirrors the OOM-fix double-download discipline).
-        needs_reason = (exit_code is None or exit_code == 0) and captured_after <= captured_before
+        # path) — a non-zero exit, a climbing capture, or a confirmed preemption
+        # never needs it (keeps the per-tick download count low).
+        needs_reason = (
+            not is_preempted
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+        )
         no_capture_reason = (
             _gcs.no_capture_reason_from_run_log(storage_client, log_bucket, name)
             if needs_reason
@@ -344,6 +367,7 @@ def sweep(
             captured_before=captured_before,
             captured_after=captured_after,
             no_capture_reason=no_capture_reason,
+            preempted=is_preempted,
         )
         results.append(result)
 
@@ -378,6 +402,11 @@ def sweep(
                 exit_code,
                 captured_before,
                 result.captured_after,
+            )
+        elif result.verdict is TerminationVerdict.PREEMPTED:
+            logger.info(
+                "exit_code_fleet_monitor: %s preempted→relaunch (benign GCE SPOT preemption; no alert)",
+                name,
             )
 
     if not dry_run:
