@@ -128,6 +128,62 @@ def test_classify_unknown_exit_flat_is_failsafe_gone_no_capture():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
 
 
+def test_classify_preempted_overrides_exit_nonzero():
+    # A spot preemption sends SIGTERM → non-zero exit, but PREEMPTED flag takes
+    # priority so no DP_VM_EXIT_NONZERO false-fires.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "sports-backfill-vm-001", exit_code=1, captured_before=0, captured_after=0, preempted=True
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert res.preempted is True
+
+
+def test_classify_preempted_overrides_gone_no_capture():
+    # A preempted VM with flat captured must NOT produce GONE_NO_CAPTURE CRITICAL.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "af-backfill-vm-001", exit_code=0, captured_before=50, captured_after=50, preempted=True
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
+def test_is_vm_preempted_true_when_blob_exists():
+    storage = FakeStorage({(LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm="af-backfill-001")): (b"preempted", 0.0)})
+    assert _gcs.is_vm_preempted(storage, LOG_BUCKET, "af-backfill-001") is True
+
+
+def test_is_vm_preempted_false_when_blob_absent():
+    storage = FakeStorage({})
+    assert _gcs.is_vm_preempted(storage, LOG_BUCKET, "af-backfill-001") is False
+
+
+def test_sweep_preempted_vm_emits_no_critical(monkeypatch):
+    # A spot preemption should produce PREEMPTED verdict and NO CRITICAL alert.
+    vm = "api-football-backfill-20260627"
+    census = json.dumps({"vms": {vm: 50}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.EXIT_STATUS_BLOB.format(vm=vm)): (b"1\n", 0.0),  # non-zero from SIGTERM
+            # PREEMPTED signal blob written by the VM's shutdown-script
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 50,  # flat — would otherwise trigger GONE_NO_CAPTURE
+        asset_group_for_vm=lambda _vm: "sports",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert not any(e[1] == "CRITICAL" for e in emitted), f"unexpected CRITICAL alert on preemption: {emitted}"
+
+
 # ── exit_code_fleet_monitor.sweep end-to-end ────────────────────────────────
 def test_sweep_emits_exit_nonzero_on_137_run_log(monkeypatch):
     vm = "sports-full-sweep-2025"
@@ -1577,6 +1633,117 @@ def test_classify_flat_silent_still_gone_no_capture():
         no_capture_reason=_gcs.NoCaptureReason.SILENT,
     )
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+
+
+# ── KEY #5: LIVE-VM exemption from DP_VM_GONE_NO_CAPTURE (2026-06-27) ─────────
+# Incident: 17 CRITICAL false fires when 16 mtds-live-cefi-* VMs were deleted
+# during intentional consolidation.  Flat captured on a live VM is the INSTRUMENT
+# COUNT (~15, stable by design), NOT the batch instrument-days counter.
+
+
+def test_classify_live_vm_flat_exit0_is_expected_no_capture():
+    # LIVE VM + exit 0 + flat captured (instrument count stable) → NOT GONE_NO_CAPTURE.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-live-cefi-binance-001",
+        exit_code=0,
+        captured_before=15,
+        captured_after=15,
+        is_live_vm=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+
+
+def test_classify_live_vm_flat_exit_none_is_expected_no_capture():
+    # LIVE VM + no durable exit code + flat captured → also benign (not a silent zero).
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-live-cefi-okx-001",
+        exit_code=None,
+        captured_before=0,
+        captured_after=0,
+        is_live_vm=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+
+
+def test_classify_live_vm_nonzero_exit_still_alerts():
+    # LIVE VM + exit != 0 → EXIT_NONZERO (crashes still page, live exemption never masks OOM/error).
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-live-cefi-bybit-001",
+        exit_code=1,
+        captured_before=15,
+        captured_after=15,
+        is_live_vm=True,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+
+
+def test_classify_batch_vm_flat_silent_still_gone_no_capture_unchanged():
+    # BATCH VM behaviour UNCHANGED: flat captured + SILENT reason → GONE_NO_CAPTURE.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-backfill-cefi-2025",
+        exit_code=0,
+        captured_before=50,
+        captured_after=50,
+        is_live_vm=False,
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
+
+
+def test_sweep_live_vm_flat_captured_no_gone_no_capture_alert(monkeypatch):
+    # End-to-end: a terminated live VM with flat captured must NOT fire DP_VM_GONE_NO_CAPTURE.
+    # Reproduces the 2026-06-27 false-alarm: 16 mtds-live-cefi-* deleted during consolidation.
+    vm = "mtds-live-cefi-binance-001"
+    census = json.dumps({"vms": {vm: 15}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"0\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 15,  # FLAT instrument count — stable by design for a live VM
+        asset_group_for_vm=lambda _vm: "cefi",
+        umbrella_for_vm=lambda _vm: "live",  # the live resolver that should gate the exemption
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXPECTED_NO_CAPTURE
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted), (
+        f"DP_VM_GONE_NO_CAPTURE must NOT fire for a LIVE VM with flat instrument count: {emitted}"
+    )
+
+
+def test_sweep_live_vm_nonzero_exit_still_emits_exit_nonzero(monkeypatch):
+    # A crashed live VM (exit 1) still fires EXIT_NONZERO — the exemption never masks crashes.
+    vm = "mtds-live-cefi-okx-001"
+    census = json.dumps({"vms": {vm: 15}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"1\n", 0.0),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 15,
+        asset_group_for_vm=lambda _vm: "cefi",
+        umbrella_for_vm=lambda _vm: "live",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    assert any(e[0] == "DP_VM_EXIT_NONZERO" and e[1] == "CRITICAL" for e in emitted)
 
 
 def test_sweep_shard_wrote_rows_suppresses_gone_no_capture(monkeypatch):

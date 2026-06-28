@@ -235,6 +235,9 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # ── MDPS sports bucket-pass ───────────────────────────────────────────
     "mdps-sports-bucket-": "launch-mdps-sports-bucket-vm.sh",
     # ── Live-pipeline VMs (per-AG live producer/consumer + singletons) ────
+    # Consolidated launcher (2026-06-27): one VM runs all MVP CeFi shards.
+    # Must appear BEFORE the generic "mtds-live-cefi-" entry (longest-prefix wins).
+    "mtds-live-cefi-consolidated-": "launch-mtds-live-cefi-consolidated.sh",
     "mtds-live-cefi-": "launch-mtds-live.sh",
     "mtds-live-defi-": "launch-mtds-live.sh",
     "mtds-live-tradfi-": "launch-mtds-live.sh",

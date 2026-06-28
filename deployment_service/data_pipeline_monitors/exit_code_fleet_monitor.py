@@ -24,6 +24,17 @@ This monitor is census-diffing + durable-signal-reading:
 The wake/alert condition is ``exit_code != 0 OR captured did not climb`` — NEVER
 "VM gone ⇒ success".
 
+**LIVE/LONG_LIVED_LIVE exemption (2026-06-27, incident: 17 false-fire CRITICAL storm
+on ``mtds-live-cefi-*`` consolidation)**: for LIVE VMs (``umbrella == "live"``) the
+manifest ``captured`` count is the INSTRUMENT COUNT (~15, stable) NOT a batch
+instrument-days counter that must climb.  Flat captured on a LIVE VM is by design —
+live data volume grows in the EVENT-LOG/GCS sink, NOT in the manifest captured count.
+The ``DP_VM_GONE_NO_CAPTURE`` check is therefore SKIPPED for live VMs:
+  - LIVE VM + exit 0 + flat captured  → ``EXPECTED_NO_CAPTURE`` (no alert — benign)
+  - LIVE VM + exit != 0               → ``EXIT_NONZERO`` (still alerts, crash is a crash)
+Live capture health (VM alive but stream dead) is covered by ``live_stream_watcher.py``
+DP-LIVE-001/002, not by this exit-code sweep.
+
 Pure-function core (``classify_terminated_vm``) is unit-tested with fixtures; the
 GCS/compute I/O is injected so the sweep is credential-free + block-network safe.
 """
@@ -68,6 +79,7 @@ class TerminationVerdict(StrEnum):
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
     CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
+    PREEMPTED = "preempted"  # GCE spot preemption → benign relaunch, NO alert (INFO only)
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,7 @@ class TerminationResult:
     # GONE_NO_CAPTURE-vs-EXPECTED_NO_CAPTURE-vs-RATE_LIMITED split. SILENT for a
     # genuine silent-zero (the only flat-captured case that still alerts).
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT
+    preempted: bool = False
 
     @property
     def captured_climbed(self) -> bool:
@@ -96,12 +109,25 @@ def classify_terminated_vm(
     captured_before: int,
     captured_after: int,
     no_capture_reason: NoCaptureReason = NoCaptureReason.SILENT,
+    preempted: bool = False,
+    is_live_vm: bool = False,
 ) -> TerminationResult:
     """Pure classification of a terminated VM. No I/O.
 
     Verdict precedence (most severe first):
+      - ``preempted == True``                         → PREEMPTED (benign SPOT relaunch)
+          GCE preemption SIGTERM causes a non-zero exit; the PREEMPTED blob written
+          by the VM's shutdown-script is the authoritative "this was benign" signal —
+          checked BEFORE exit_code so a preempted VM never false-fires DP-VM-001.
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
       - captured CLIMBED                              → CLEAN (work landed)
+      - ``is_live_vm == True`` + captured FLAT        → EXPECTED_NO_CAPTURE (no alert)
+          A LIVE/LONG_LIVED_LIVE VM's manifest ``captured`` count is the INSTRUMENT
+          COUNT (~15, stable by design) — it does NOT climb like a batch
+          instrument-days counter.  Flat captured on a live VM is therefore benign;
+          DP_VM_GONE_NO_CAPTURE must NOT fire.  A live crash (exit != 0) is still
+          caught above via EXIT_NONZERO.  Live stream health (VM alive, data dead)
+          is deferred to ``live_stream_watcher.py`` DP-LIVE-001/002.
       - captured FLAT — split on the run.log reason (the 2026-06-23
         false-positive killer; a flat consolidated/shard count is NOT inherently
         a failure):
@@ -123,10 +149,16 @@ def classify_terminated_vm(
     "the VM is gone" + no evidence of work).
     """
     climbed = captured_after > captured_before
-    if exit_code is not None and exit_code != 0:
+    if preempted:
+        verdict = TerminationVerdict.PREEMPTED
+    elif exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
     elif climbed:
         verdict = TerminationVerdict.CLEAN
+    elif is_live_vm:
+        # LIVE VMs: captured is the instrument count (~15, stable). Flat is benign.
+        # Live capture health is owned by live_stream_watcher.py DP-LIVE-001/002.
+        verdict = TerminationVerdict.EXPECTED_NO_CAPTURE
     elif no_capture_reason is NoCaptureReason.RATE_LIMITED:
         verdict = TerminationVerdict.RATE_LIMITED
     elif no_capture_reason in (NoCaptureReason.PROGRESS, NoCaptureReason.HONEST_ABSENCE):
@@ -140,6 +172,7 @@ def classify_terminated_vm(
         captured_before=captured_before,
         captured_after=captured_after,
         no_capture_reason=no_capture_reason,
+        preempted=preempted,
     )
 
 
@@ -228,6 +261,7 @@ def _finding_for(
             details={**base_details, "no_capture_reason": str(result.no_capture_reason)},
             registry_id="DP-VM-002",
         )
+    # PREEMPTED (spot preemption → benign relaunch, INFO logged by sweep) +
     # EXPECTED_NO_CAPTURE (rows written but consolidated lags / honest-absence /
     # shard already complete) + CLEAN + UNKNOWN → no finding (benign / not a failure).
     return None
@@ -300,6 +334,11 @@ def sweep(
             supplied, the DP_VM_* finding carries the umbrella so the alerting-service
             router splits LIVE → #uts-live-alerts vs BATCH → #data-pipeline-alerts;
             absent it (or "" returned) the alert routes to the batch default.
+            Critically, ``umbrella == "live"`` also gates the LIVE-VM exemption:
+            ``DP_VM_GONE_NO_CAPTURE`` is NOT fired for live VMs because their manifest
+            ``captured`` count is the instrument count (~15, stable by design), not a
+            batch instrument-days counter.  Live capture health is owned by
+            ``live_stream_watcher.py`` DP-LIVE-001/002.
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
@@ -327,12 +366,22 @@ def sweep(
             captured_after = max(captured_reader(name), captured_before)
         except Exception:
             captured_after = captured_before
+        # Resolve umbrella first — it gates the is_live_vm flag used in
+        # classify_terminated_vm and the alert channel routing.
+        umbrella = umbrella_for_vm(name) if umbrella_for_vm is not None else ""
+        is_live_vm = umbrella == "live"
         # Only resolve the run.log no-capture reason when the verdict would
         # otherwise be flat-captured-and-clean-exit (the GONE_NO_CAPTURE candidate
-        # path) — a non-zero exit or a climbing capture never needs it, so we don't
-        # download the run.log for those (keeps the per-tick download count low,
-        # mirrors the OOM-fix double-download discipline).
-        needs_reason = (exit_code is None or exit_code == 0) and captured_after <= captured_before
+        # path) — a non-zero exit, a climbing capture, or a live VM never needs it,
+        # so we don't download the run.log for those (keeps the per-tick download
+        # count low, mirrors the OOM-fix double-download discipline).
+        is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
+        needs_reason = (
+            not is_preempted
+            and not is_live_vm
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+        )
         no_capture_reason = (
             _gcs.no_capture_reason_from_run_log(storage_client, log_bucket, name)
             if needs_reason
@@ -344,14 +393,29 @@ def sweep(
             captured_before=captured_before,
             captured_after=captured_after,
             no_capture_reason=no_capture_reason,
+            preempted=is_preempted,
+            is_live_vm=is_live_vm,
         )
         results.append(result)
 
+        if result.verdict is TerminationVerdict.PREEMPTED:
+            logger.info(
+                "exit_code_fleet_monitor: %s preempted → SPOT relaunch (benign, no alert)",
+                name,
+            )
+        if is_live_vm and result.verdict is TerminationVerdict.EXPECTED_NO_CAPTURE:
+            logger.info(
+                "exit_code_fleet_monitor: %s is a LIVE VM (umbrella=live) — "
+                "flat captured is instrument-count (stable by design), not a silent zero; "
+                "DP_VM_GONE_NO_CAPTURE suppressed. Live capture health → live_stream_watcher DP-LIVE-001.",
+                name,
+            )
+
         launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
-        umbrella = umbrella_for_vm(name) if umbrella_for_vm is not None else ""
         finding = _finding_for(
             result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher, umbrella=umbrella
         )
+
         if finding is not None:
             # Make the alert ACTIONABLE: attach the durable run.log error/warn
             # snippet + a click-through console link. The GCS-tee'd run.log

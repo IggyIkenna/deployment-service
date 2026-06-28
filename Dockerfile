@@ -19,10 +19,19 @@ ARG PROJECT_ID
 # Digest-pinned UTL base image (QG STEP 5.79 -- reproducible builds + UTL/UAC provenance).
 # Refreshed by the dependency-update fan-out (update-dependency-version.yml) on base-image
 # republish; cloudbuild may override at build time: --build-arg BASE_IMAGE_DIGEST=sha256:...
-ARG BASE_IMAGE_DIGEST=sha256:75926d35b5960cfc88eb3dd95e9498461857a5d6b0e8070880a35c951bafd4a8
+ARG BASE_IMAGE_DIGEST=sha256:84a1baaa01ef17c62d7cd976b713f0679a48054d2d32c85b18627cc6914d9423
 FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST} AS base
 
 FROM base AS api
+
+# cloudbuild passes the git-tag-derived version as --build-arg SETUPTOOLS_SCM_PRETEND_VERSION.
+# Export it as an ENV so hatch-vcs (pyproject `[tool.hatch.version] source = "vcs"`) resolves a
+# version during `uv pip install -e .` below — inside the docker build `.git` is absent (.dockerignore'd
+# + COPY . . excludes it), so setuptools-scm cannot detect a version on its own. Without this, the
+# `-e .` install fails: "setuptools-scm was unable to detect version". The api-dev / sports-scheduler /
+# maintenance-jobs stages all build FROM api, so this ENV carries through to their installs too.
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 # All GCP/app configuration comes from .env at runtime (via docker-compose env_file)
 # Only set Python & performance knobs that never change between environments.

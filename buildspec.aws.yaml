@@ -41,7 +41,12 @@ phases:
       - VERSION=$(cat VERSION)
       - REPO_NAME=$(basename $(pwd))
       - ECR_REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$REPO_NAME
-      - docker build -f Dockerfile --build-arg PROJECT_ID=$GCP_PROJECT_ID -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
+      # hatch-vcs (pyproject source = "vcs") cannot detect a version inside the docker build
+      # (.git is .dockerignore'd) → `uv pip install -e .` fails. Pass a PEP440-valid version as
+      # SETUPTOOLS_SCM_PRETEND_VERSION. Derive it from the tag (strip leading v + git-describe
+      # suffix); fall back to 0.0.0.dev0 (PEP440-valid) — never a bare short-sha (invalid version).
+      - SCM_VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//'); [ -z "$SCM_VERSION" ] && SCM_VERSION="0.0.0.dev0"
+      - docker build -f Dockerfile --build-arg PROJECT_ID=$GCP_PROJECT_ID --build-arg SETUPTOOLS_SCM_PRETEND_VERSION=$SCM_VERSION -t $ECR_REPO:$VERSION -t $ECR_REPO:latest .
       # In-image quality gates (ADVISORY — parity with cloudbuild.yaml step 4).
       # `scripts/quality-gates.sh` sources `unified-trading-pm/scripts/quality-gates-base/
       # base-service.sh` via a WORKSPACE_ROOT that the script RE-DERIVES from

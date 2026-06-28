@@ -210,6 +210,25 @@ fi
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
 if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
+# Preemption signal: write PREEMPTED blob so the exit-code fleet monitor
+# classifies a spot preemption as a benign relaunch (no DP_VM_GONE_NO_CAPTURE).
+SHUTDOWN_FILE=$(mktemp)
+trap 'rm -f "$SHUTDOWN_FILE"' EXIT
+cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
+#!/usr/bin/env bash
+PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED" == "true" ]] || exit 0
+VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
+PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
+[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
+echo "preempted" | gcloud storage cp - \
+  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
+echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+SHUTDOWN_EOF
+
 # --- Helper: launch a single VM with the provided date range + chunk label ---
 launch_one_vm() {
   local vm_name="$1"
@@ -262,6 +281,7 @@ launch_one_vm() {
     --boot-disk-size=50GB \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
+    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
     --labels="$labels"
 }
 

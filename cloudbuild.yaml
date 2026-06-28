@@ -33,6 +33,38 @@ steps:
   # QUALITY GATES - Must pass before Docker build proceeds
   # ============================================================
 
+  # Step 0: Extract the real semver from the git tag for hatch-vcs (source = "vcs").
+  # Cloud Build's checkout is shallow + UNAUTHENTICATED, so `git describe` cannot see the
+  # v-tag → the docker build's `uv pip install -e .` fails with "setuptools-scm was unable
+  # to detect version". GH_PAT (Secret Manager) authenticates a `--unshallow --tags` fetch so
+  # the tagged commits become reachable; the resolved version is written to /workspace/VERSION
+  # and passed into the docker build as --build-arg SETUPTOOLS_SCM_PRETEND_VERSION.
+  - name: "gcr.io/cloud-builders/git"
+    id: "extract-version"
+    entrypoint: "bash"
+    secretEnv: ["GH_PAT"]
+    waitFor: ["-"]
+    args:
+      - "-c"
+      - |
+        git fetch "https://$$GH_PAT@github.com/IggyIkenna/deployment-service.git" --unshallow --tags --force 2>/dev/null \
+          || git fetch "https://$$GH_PAT@github.com/IggyIkenna/deployment-service.git" --tags --force 2>/dev/null \
+          || true
+        VERSION=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//')
+        if [ -z "$$VERSION" ]; then
+          VERSION=$(git tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null | head -1 | sed 's/^v//')
+        fi
+        if [ -z "$$VERSION" ]; then
+          VERSION=$(grep '^version' pyproject.toml 2>/dev/null | head -1 | sed 's/version = "//;s/"//')
+        fi
+        if [ -z "$$VERSION" ]; then
+          # PEP440-valid AND docker-tag-safe fallback (no bare $SHORT_SHA, no +local segment):
+          # hatch-vcs accepts 0.0.0.dev0 and it is a valid docker tag if ever reused as one.
+          VERSION="0.0.0.dev0"
+        fi
+        echo "$$VERSION" > /workspace/VERSION
+        echo "Building version $$VERSION"
+
   # Step 1: Configure Docker auth
   - name: "gcr.io/cloud-builders/gcloud"
     id: "configure-docker"
@@ -75,36 +107,37 @@ steps:
   # Step 2: Build production image (API + UI)
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
-    waitFor: ["pull-base-image"]
+    waitFor: ["pull-base-image", "extract-version"]
+    entrypoint: "bash"
     args:
-      - "build"
-      - "--cache-from"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-      - "--build-arg"
-      - "PROJECT_ID=${PROJECT_ID}"
-      - "--target"
-      - "api"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-      - "."
+      - "-c"
+      - |
+        VERSION=$(cat /workspace/VERSION 2>/dev/null || echo "0.0.0.dev0")
+        docker build \
+          --cache-from "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest" \
+          --build-arg PROJECT_ID=${PROJECT_ID} \
+          --build-arg SETUPTOOLS_SCM_PRETEND_VERSION=$$VERSION \
+          --target api \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:${COMMIT_SHA}" \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest" \
+          .
 
   # Step 3: Build api-dev image (includes dev deps for quality gates)
   - name: "gcr.io/cloud-builders/docker"
     id: "build-dev"
-    waitFor: ["build"]
+    waitFor: ["build", "extract-version"]
+    entrypoint: "bash"
     args:
-      - "build"
-      - "--cache-from"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-      - "--build-arg"
-      - "PROJECT_ID=${PROJECT_ID}"
-      - "--target"
-      - "api-dev"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev"
-      - "."
+      - "-c"
+      - |
+        VERSION=$(cat /workspace/VERSION 2>/dev/null || echo "0.0.0.dev0")
+        docker build \
+          --cache-from "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest" \
+          --build-arg PROJECT_ID=${PROJECT_ID} \
+          --build-arg SETUPTOOLS_SCM_PRETEND_VERSION=$$VERSION \
+          --target api-dev \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:dev" \
+          .
 
   # Step 3b: Build sports-scheduler image (Cloud Run Job for fixture-aware cron)
   # Tagged under the same artifact repo so IAM / scanning inherit `api`'s setup.
@@ -113,20 +146,20 @@ steps:
   # builds + pushes the image; job spec + cron are provisioned out-of-band.
   - name: "gcr.io/cloud-builders/docker"
     id: "build-sports-scheduler"
-    waitFor: ["build"]
+    waitFor: ["build", "extract-version"]
+    entrypoint: "bash"
     args:
-      - "build"
-      - "--cache-from"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest"
-      - "--build-arg"
-      - "PROJECT_ID=${PROJECT_ID}"
-      - "--target"
-      - "sports-scheduler"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:${COMMIT_SHA}"
-      - "-t"
-      - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest"
-      - "."
+      - "-c"
+      - |
+        VERSION=$(cat /workspace/VERSION 2>/dev/null || echo "0.0.0.dev0")
+        docker build \
+          --cache-from "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest" \
+          --build-arg PROJECT_ID=${PROJECT_ID} \
+          --build-arg SETUPTOOLS_SCM_PRETEND_VERSION=$$VERSION \
+          --target sports-scheduler \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:${COMMIT_SHA}" \
+          -t "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/sports-scheduler:latest" \
+          .
 
   # Step 4: Run quality gates INSIDE the api-dev image (ADVISORY).
   #
@@ -363,3 +396,10 @@ options:
 
 # Timeout for the entire build (30 minutes)
 timeout: "600s"
+
+# Secret Manager secrets exposed to steps that declare `secretEnv` (extract-version uses GH_PAT to
+# AUTHENTICATE the git fetch --unshallow --tags so hatch-vcs (source = "vcs") sees the real v-tag).
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/GH_PAT/versions/latest
+      env: GH_PAT

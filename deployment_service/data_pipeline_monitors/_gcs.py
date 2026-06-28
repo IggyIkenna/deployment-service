@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 RUN_LOG_BLOB = "vm-logs/{vm}/run.log"
 EXIT_STATUS_BLOB = "vm-logs/{vm}/EXIT_STATUS"
 HEARTBEAT_BLOB = "vm-heartbeat/{vm}.txt"
+# Written by the backfill-VM shutdown-script when GCE triggers a spot preemption.
+# Presence ⇒ the monitor classifies the termination as a benign relaunch (not CRITICAL).
+PREEMPTED_BLOB = "vm-logs/{vm}/PREEMPTED"
 
 # Per-monitor-sweep "last-run" sentinel (the cron-watches-cron + deadman signal).
 # Each fleet-monitor / meta-watcher sweep writes ``vm-census/<mode>-last-run.json``
@@ -441,6 +444,23 @@ def run_log_shows_stall(storage_client: StorageClient, bucket: str, vm_name: str
     if not log:
         return False
     return bool(_STALL_RE.search(log))
+
+
+def is_vm_preempted(storage_client: StorageClient, bucket: str, vm_name: str) -> bool:
+    """True when the PREEMPTED signal blob exists for ``vm_name``.
+
+    A spot backfill VM writes ``vm-logs/{vm}/PREEMPTED`` in its shutdown-script when
+    GCE sends the preemption signal (30-second window before instance deletion).
+    Presence of this blob tells the exit-code fleet monitor the termination was a
+    benign SPOT preemption — not a crash or silent failure — so no
+    ``DP_VM_GONE_NO_CAPTURE`` CRITICAL should fire. Never raises (a read error
+    conservatively returns ``False`` so the monitor falls through to the normal
+    classification path).
+    """
+    try:
+        return storage_client.blob_exists(bucket, PREEMPTED_BLOB.format(vm=vm_name))
+    except Exception:
+        return False
 
 
 # ── no-capture-reason classification (DP-VM-002 false-positive killer) ────────
