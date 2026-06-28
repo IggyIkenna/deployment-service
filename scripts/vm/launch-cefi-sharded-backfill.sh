@@ -414,18 +414,26 @@ launch_cefi_shard() {
     # Metadata passed as single --metadata arg to avoid shell interpretation
     # of ';' inside VM_DATA_TYPES / VM_INSTRUMENT_IDS values.
     # shellcheck disable=SC2086
-    gcloud compute instances create "$vm_name" \
+    # Run synchronously (no --async) so SPOT capacity failures surface immediately
+    # and the exit code is captured. The former `--async 2>&1 | tail -1 &` pattern
+    # silently swallowed SPOT preemption/capacity errors — the VM was DELETE'd in <1s
+    # but _launched still incremented (2026-06-28 incident: 3 consecutive relaunches
+    # all reported "All 1 VMs launched" but no VM appeared).
+    if gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="$meta" \
       --labels=env="${DEPLOYMENT_ENV}" \
-      --project="$PROJECT" --async 2>&1 | tail -1 &
+      --project="$PROJECT" 2>&1; then
+      _launched=$((_launched + 1))
+    else
+      echo "ERROR: Failed to create $vm_name — check SPOT capacity or machine type" >&2
+    fi
     _stagger
     _batch_guard
   fi
-  _launched=$((_launched + 1))
 }
 
 # ─── CeFi sharding — year-per-shard × heavy/light group ──────────────────────
@@ -483,7 +491,6 @@ done
 # venue=CME/CBOE, --source databento) + launch-tradfi-backfill-vm.sh — NOT this CeFi
 # Tardis launcher. This script is now CeFi-only.
 
-wait
 if [[ "$DRY_RUN" == "1" ]]; then
   echo ""
   echo "=========================================="
