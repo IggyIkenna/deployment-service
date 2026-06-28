@@ -782,6 +782,15 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # sports v9 migration VMs — launch-sports-v9-migration-vm.sh (E4)
+    # naming: sports-v9-migration-{mdps|instruments}-{year}-{ts}
+    # Two-phase: migrate_sports_canonical_v9 + rebuild_sports_manifest_v9
+    # MANIFEST_PER_VM_SHARDS=true; one VM per (surface, year).
+    # Registered 2026-06-28 (plan: sports_manifest_canonicalisation_2026_06_01.md § E4).
+    "sports-v9-migration-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # GCS migration bundle Phase 3 VMs — launch-gcs-migration-bundle-vm.sh
     # naming: gcs-migration-bundle-{ag}-{year}-{ts}

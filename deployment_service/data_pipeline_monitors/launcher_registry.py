@@ -226,6 +226,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "canonical-migration-legacy-defi-": "launch-legacy-bucket-migration-sharded.sh",
     "canonical-migration-legacy-prediction-": "launch-legacy-bucket-migration-sharded.sh",
     "canonical-migration-legacy-sports-": "launch-legacy-bucket-migration-sharded.sh",
+    # ── Sports v9 migration VMs (E4 — year-sharded fleet, both surfaces) ──
+    "sports-v9-migration-": "launch-sports-v9-migration-vm.sh",
     # ── GCS migration bundle Phase 3 VMs (per-(ag, year)) ─────────────────
     "gcs-migration-bundle-cefi-": "launch-gcs-migration-bundle-vm.sh",
     "gcs-migration-bundle-defi-": "launch-gcs-migration-bundle-vm.sh",
