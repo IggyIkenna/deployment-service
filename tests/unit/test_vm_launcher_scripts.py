@@ -675,6 +675,12 @@ class TestDurableLogStreamerCoverage:
             "wires the GCS heartbeat sidecar (vm_heartbeat_sidecar.sh) directly — the "
             "durable-log tee is not applicable to a multi-process supervisor."
         ),
+        "launch-mtds-live-prediction-consolidated.sh": (
+            "LONG_LIVED_LIVE consolidated prediction live VM; uses setup-prediction-live-consolidated-vm.sh "
+            "which runs 4 parallel websocket-streaming shards (KALSHI + POLYMARKET × trades + book_snapshot_5). "
+            "The custom startup script wires the GCS heartbeat sidecar directly — the "
+            "durable-log tee is not applicable to a multi-process supervisor."
+        ),
         # --- Pure fan-out wrappers that delegate to a covered per-shard launcher ---
         "launch-cefi-week-test.sh": "Fan-out wrapper → launch-cefi-forward-poll.sh (covered) per day.",
         "launch-sku-matrix-v2-benchmark.sh": "Fan-out wrapper → launch-synthetic-benchmark-vm.sh (covered) per archetype.",
