@@ -24,6 +24,15 @@ FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified
 
 FROM base AS api
 
+# cloudbuild passes the git-tag-derived version as --build-arg SETUPTOOLS_SCM_PRETEND_VERSION.
+# Export it as an ENV so hatch-vcs (pyproject `[tool.hatch.version] source = "vcs"`) resolves a
+# version during `uv pip install -e .` below — inside the docker build `.git` is absent (.dockerignore'd
+# + COPY . . excludes it), so setuptools-scm cannot detect a version on its own. Without this, the
+# `-e .` install fails: "setuptools-scm was unable to detect version". The api-dev / sports-scheduler /
+# maintenance-jobs stages all build FROM api, so this ENV carries through to their installs too.
+ARG SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
+
 # All GCP/app configuration comes from .env at runtime (via docker-compose env_file)
 # Only set Python & performance knobs that never change between environments.
 ENV PYTHONDONTWRITEBYTECODE=1 \
