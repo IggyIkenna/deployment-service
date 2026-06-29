@@ -329,13 +329,8 @@ echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Range: ${CHUNK_START} → ${CHUNK_END}"
 date
 
-# Install Python 3.13
-apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
-echo "  Python: \$(python3.13 --version)"
-
-# Install uv
+# Install system deps + uv; Python 3.13 is resolved by uv (avoids PPA)
+apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="/root/.local/bin:\$PATH"
 
