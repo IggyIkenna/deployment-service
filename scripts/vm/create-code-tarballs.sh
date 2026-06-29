@@ -347,7 +347,7 @@ if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     for _peer in unified-api-contracts unified-trading-library; do
         _peer_path="$WORKSPACE_ROOT/$_peer/pyproject.toml"
         if [[ -f "$_peer_path" ]]; then
-            _ver=$(grep -m1 '^version' "$_peer_path" | sed -E 's/^version[^"]*"([^"]+)".*/\1/')
+            _ver=$(grep -m1 '^version' "$_peer_path" 2>/dev/null | sed -E 's/^version[^"]*"([^"]+)".*/\1/' || true)
             _PEER_VERSIONS="${_PEER_VERSIONS}${_peer}=${_ver} "
         fi
     done
