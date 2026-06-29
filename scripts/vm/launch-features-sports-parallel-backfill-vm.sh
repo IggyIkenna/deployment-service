@@ -413,6 +413,9 @@ SHUTDOWN_EOF
   METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+  # gcloud SDK ≥569.0.0 silently drops startup-script when --metadata and
+  # --metadata-from-file appear in the same create command. Use a two-step
+  # approach: create WITHOUT file-based metadata, then add-metadata separately.
   # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
@@ -426,9 +429,14 @@ SHUTDOWN_EOF
     --boot-disk-size=50GB \
     ${SA_FLAG} \
     --metadata="${METADATA}" \
-    --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
+
+  # Inject file-based metadata separately to work around gcloud SDK bug.
+  gcloud compute instances add-metadata "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}"
 
   rm -f "$STARTUP_FILE"
   echo "  ${VM_NAME} created."
