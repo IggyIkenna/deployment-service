@@ -113,6 +113,7 @@ gcloud compute instances create "$VM_NAME" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB \
+  --service-account="unified-trading-sa@${PROJECT}.iam.gserviceaccount.com" \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-prediction-live-consolidated-vm.sh,${METADATA}" \
   --labels=purpose=mtds-live-consolidated,asset-group=prediction,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"

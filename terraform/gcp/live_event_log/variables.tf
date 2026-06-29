@@ -43,3 +43,9 @@ variable "create_bq_external_tables" {
   type        = bool
   default     = false
 }
+
+variable "project_number" {
+  description = "GCP project number — used to derive default compute SA email (PROJECT_NUMBER-compute@developer.gserviceaccount.com) for publisher IAM on persist-* topics."
+  type        = string
+  default     = "1060025368044"
+}
