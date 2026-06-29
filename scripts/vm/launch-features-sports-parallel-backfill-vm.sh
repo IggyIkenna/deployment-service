@@ -431,11 +431,16 @@ SHUTDOWN_EOF
     --metadata="${METADATA}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
 
-  # Inject file-based metadata separately to work around gcloud SDK bug.
+  # Inject startup-script and shutdown-script in SEPARATE add-metadata calls.
+  # gcloud SDK silently drops startup-script when both are in the same call
+  # (same bug as the --metadata + --metadata-from-file create issue).
   gcloud compute instances add-metadata "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
-    --metadata-from-file=startup-script="${STARTUP_FILE}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}"
+  gcloud compute instances add-metadata "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
     --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}"
 
   rm -f "$STARTUP_FILE"
