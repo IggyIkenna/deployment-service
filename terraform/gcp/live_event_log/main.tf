@@ -758,3 +758,11 @@ resource "google_pubsub_topic" "persist_tradfi_trades" {
   }
 }
 
+
+# Pub/Sub SA bucket access granted manually by admin (unified-trading-sa lacks setIamPolicy).
+# Command used: gcloud storage buckets add-iam-policy-binding gs://central-element-323112-events
+#   --member=serviceAccount:service-1060025368044@gcp-sa-pubsub.iam.gserviceaccount.com
+#   --role=roles/storage.legacyBucketReader (and objectCreator)
+data "google_project" "project" {
+  project_id = var.project_id
+}

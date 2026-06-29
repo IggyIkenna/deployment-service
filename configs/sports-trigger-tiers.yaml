@@ -157,13 +157,13 @@ pre_match:
       tolerance_minutes: 15
       depends_on: odds_t1h
       services:
-        - service: features-sports-service
+        - service: features-service
           operation: compute
           category: SPORTS
           cloud_run_job_name: "sports-trigger-features-sports"
           args:
-            --tables: fixture_features
-          description: Compute pre-match features from all collected data
+            --tables: fixture_features,odds_features
+          description: Compute pre-match features (fixture + odds velocity/CLV/steam) from all collected data
 
     - name: inference_pre_match
       offset_hours: -1
@@ -202,6 +202,19 @@ post_match:
           args:
             --sports-entity: XG
           description: Delayed advanced stats (xG from Understat/FootyStats)
+
+    - name: features_post_match
+      offset_hours: 25
+      tolerance_minutes: 60
+      depends_on: stats_delayed
+      services:
+        - service: features-service
+          operation: compute
+          category: SPORTS
+          cloud_run_job_name: "sports-trigger-features-sports"
+          args:
+            --tables: derived_features
+          description: Compute post-match derived features (footystats/understat final stats), T+25h after final whistle
 
 # GCS fixture calendar source
 # Primary path: sports_reference/fixtures/day={date}/ (legacy, has historical data)

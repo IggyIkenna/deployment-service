@@ -194,18 +194,21 @@ if $DO_BUILD; then
   echo "    pm-configs:  $(du -sh "${DEPLOYMENT_API_DIR}/pm-configs" | cut -f1)"
   trap 'rm -rf "${DEPLOYMENT_API_DIR}/ui" "${DEPLOYMENT_API_DIR}/codex-data" "${DEPLOYMENT_API_DIR}/pm-plans" "${DEPLOYMENT_API_DIR}/pm-configs" "${DEPLOYMENT_API_DIR}/_deployment-service" "${DEPLOYMENT_API_DIR}/_unified-api-contracts" "${DEPLOYMENT_API_DIR}/_strategy-service" 2>/dev/null; ln -sfn ../unified-trading-pm/codex/10-audit/repos "${DEPLOYMENT_API_DIR}/codex-data"; ln -sfn ../unified-trading-pm/plans "${DEPLOYMENT_API_DIR}/pm-plans"; ln -sfn ../unified-trading-pm/configs "${DEPLOYMENT_API_DIR}/pm-configs"' EXIT
 
-  # Manual `gcloud builds submit` does not auto-populate SHORT_SHA / COMMIT_SHA
-  # (those only come from Cloud Build triggers). The repo's cloudbuild.yaml
-  # references both in the ``images:`` push list, so we synthesise them from
-  # local git HEAD and override via --substitutions. The image SHA tag is
+  # Manual `gcloud builds submit` does not auto-populate SHORT_SHA / COMMIT_SHA (those only come from
+  # Cloud Build triggers). The repo's cloudbuild.yaml references SHORT_SHA in the ``images:`` push list,
+  # so we synthesise it from local git HEAD and override via --substitutions. The image SHA tag is
   # informational; :latest is what Cloud Run actually consumes.
+  # NOTE: REPO_NAME is a RESERVED automatic substitution — gcloud rejects setting it on a manual submit
+  # ("not matched in the template"), even with ALLOW_LOOSE. The repo-CI Image column instead attributes
+  # this DEPLOYED tier-3 build to deployment-api via the _SERVICE_NAME fallback in
+  # deployment-api/_cloud_builds_history.py (_recent_builds_by_repo_name).
   SHORT_SHA="$(git -C "$DEPLOYMENT_API_DIR" rev-parse --short HEAD)"
   COMMIT_SHA="$(git -C "$DEPLOYMENT_API_DIR" rev-parse HEAD)"
 
   gcloud builds submit . \
     --project="$PROJECT_ID" \
     --config=cloudbuild-tier3.yaml \
-    --substitutions="SHORT_SHA=${SHORT_SHA}" \
+    --substitutions="SHORT_SHA=${SHORT_SHA},_SERVICE_NAME=deployment-api" \
     --region="$REGION"
   echo "==> Build complete. :latest now points at the new digest."
 fi

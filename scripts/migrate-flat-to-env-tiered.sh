@@ -160,10 +160,15 @@ build_gcp_pairs() {
   done
 
   # Tier 6 — strategy + execution
+  # Cross-asset strategy-store is flat (no per-AG) per cloud-providers.yaml operator decision 2026-05-20
+  _pair "strategy-store"
+  _pair "strategy-store-test"
   for ag in cefi tradfi defi pred; do
     pairs+=("gs://strategy-store-${ag}-${pid}" "gs://strategy-store-${ag}-${env_short}-${pid}")
     pairs+=("gs://execution-store-${ag}-${pid}" "gs://execution-store-${ag}-${env_short}-${pid}")
   done
+  # sports execution-store is per-AG but not in the cefi/tradfi/defi/pred loop above
+  pairs+=("gs://execution-store-sports-${pid}" "gs://execution-store-sports-${env_short}-${pid}")
 
   # Tier 7 — market-data
   for ag in cefi defi tradfi sports pred; do
@@ -272,9 +277,10 @@ for line in pair_lines:
 client = storage.Client()
 
 def bucket_exists(uri: str) -> bool:
+    # SA has storage.objects.list but not storage.buckets.get; use list_blobs
     bname = uri.removeprefix("gs://").split("/")[0]
     try:
-        client.get_bucket(bname)
+        list(client.list_blobs(bname, max_results=1))
         return True
     except Exception:
         return False
