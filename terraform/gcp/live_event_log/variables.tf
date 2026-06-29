@@ -37,3 +37,9 @@ variable "compactor_sa_email" {
   description = "Service account email for the compaction job (needs GCS read/write + Cloud Run invoker)"
   type        = string
 }
+
+variable "create_bq_external_tables" {
+  description = "Create BigQuery external tables over warm GCS sink. Enable once warm-sink data exists (autodetect requires at least one file)."
+  type        = bool
+  default     = false
+}

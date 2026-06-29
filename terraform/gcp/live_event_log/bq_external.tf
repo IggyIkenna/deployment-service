@@ -31,6 +31,8 @@ resource "google_bigquery_dataset" "live_events" {
 }
 
 resource "google_bigquery_table" "persist_all_book_depth_bands" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_book_depth_bands"
   project             = var.project_id
@@ -43,6 +45,7 @@ resource "google_bigquery_table" "persist_all_book_depth_bands" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/book_depth_bands/"
     }
   }
 
@@ -57,6 +60,8 @@ resource "google_bigquery_table" "persist_all_book_depth_bands" {
 }
 
 resource "google_bigquery_table" "persist_all_candle" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_candle"
   project             = var.project_id
@@ -69,6 +74,7 @@ resource "google_bigquery_table" "persist_all_candle" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/candle/"
     }
   }
 
@@ -83,6 +89,8 @@ resource "google_bigquery_table" "persist_all_candle" {
 }
 
 resource "google_bigquery_table" "persist_all_cme_gap" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_cme_gap"
   project             = var.project_id
@@ -95,6 +103,7 @@ resource "google_bigquery_table" "persist_all_cme_gap" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cme_gap/"
     }
   }
 
@@ -109,6 +118,8 @@ resource "google_bigquery_table" "persist_all_cme_gap" {
 }
 
 resource "google_bigquery_table" "persist_all_composite_sr" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_composite_sr"
   project             = var.project_id
@@ -121,6 +132,7 @@ resource "google_bigquery_table" "persist_all_composite_sr" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/composite_sr/"
     }
   }
 
@@ -135,6 +147,8 @@ resource "google_bigquery_table" "persist_all_composite_sr" {
 }
 
 resource "google_bigquery_table" "persist_all_cross_asset_correlation" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_cross_asset_correlation"
   project             = var.project_id
@@ -147,6 +161,7 @@ resource "google_bigquery_table" "persist_all_cross_asset_correlation" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_asset_correlation/"
     }
   }
 
@@ -161,6 +176,8 @@ resource "google_bigquery_table" "persist_all_cross_asset_correlation" {
 }
 
 resource "google_bigquery_table" "persist_all_cross_venue_spreads" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_cross_venue_spreads"
   project             = var.project_id
@@ -173,6 +190,7 @@ resource "google_bigquery_table" "persist_all_cross_venue_spreads" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/cross_venue_spreads/"
     }
   }
 
@@ -187,6 +205,8 @@ resource "google_bigquery_table" "persist_all_cross_venue_spreads" {
 }
 
 resource "google_bigquery_table" "persist_all_economic_events" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_economic_events"
   project             = var.project_id
@@ -199,6 +219,7 @@ resource "google_bigquery_table" "persist_all_economic_events" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/economic_events/"
     }
   }
 
@@ -213,6 +234,8 @@ resource "google_bigquery_table" "persist_all_economic_events" {
 }
 
 resource "google_bigquery_table" "persist_all_execution_fills" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_execution_fills"
   project             = var.project_id
@@ -225,6 +248,7 @@ resource "google_bigquery_table" "persist_all_execution_fills" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_fills/"
     }
   }
 
@@ -239,6 +263,8 @@ resource "google_bigquery_table" "persist_all_execution_fills" {
 }
 
 resource "google_bigquery_table" "persist_all_execution_pnl" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_execution_pnl"
   project             = var.project_id
@@ -251,6 +277,7 @@ resource "google_bigquery_table" "persist_all_execution_pnl" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_pnl/"
     }
   }
 
@@ -265,6 +292,8 @@ resource "google_bigquery_table" "persist_all_execution_pnl" {
 }
 
 resource "google_bigquery_table" "persist_all_execution_positions" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_execution_positions"
   project             = var.project_id
@@ -277,6 +306,7 @@ resource "google_bigquery_table" "persist_all_execution_positions" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/execution_positions/"
     }
   }
 
@@ -291,6 +321,8 @@ resource "google_bigquery_table" "persist_all_execution_positions" {
 }
 
 resource "google_bigquery_table" "persist_all_flow_interaction" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_flow_interaction"
   project             = var.project_id
@@ -303,6 +335,7 @@ resource "google_bigquery_table" "persist_all_flow_interaction" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/flow_interaction/"
     }
   }
 
@@ -317,6 +350,8 @@ resource "google_bigquery_table" "persist_all_flow_interaction" {
 }
 
 resource "google_bigquery_table" "persist_all_futures_basis" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_futures_basis"
   project             = var.project_id
@@ -329,6 +364,7 @@ resource "google_bigquery_table" "persist_all_futures_basis" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_basis/"
     }
   }
 
@@ -343,6 +379,8 @@ resource "google_bigquery_table" "persist_all_futures_basis" {
 }
 
 resource "google_bigquery_table" "persist_all_futures_term_structure" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_futures_term_structure"
   project             = var.project_id
@@ -355,6 +393,7 @@ resource "google_bigquery_table" "persist_all_futures_term_structure" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/futures_term_structure/"
     }
   }
 
@@ -369,6 +408,8 @@ resource "google_bigquery_table" "persist_all_futures_term_structure" {
 }
 
 resource "google_bigquery_table" "persist_all_liquidation_clusters" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_liquidation_clusters"
   project             = var.project_id
@@ -381,6 +422,7 @@ resource "google_bigquery_table" "persist_all_liquidation_clusters" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidation_clusters/"
     }
   }
 
@@ -395,6 +437,8 @@ resource "google_bigquery_table" "persist_all_liquidation_clusters" {
 }
 
 resource "google_bigquery_table" "persist_all_liquidity_walls" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_liquidity_walls"
   project             = var.project_id
@@ -407,6 +451,7 @@ resource "google_bigquery_table" "persist_all_liquidity_walls" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/liquidity_walls/"
     }
   }
 
@@ -421,6 +466,8 @@ resource "google_bigquery_table" "persist_all_liquidity_walls" {
 }
 
 resource "google_bigquery_table" "persist_all_microstructure" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_microstructure"
   project             = var.project_id
@@ -433,6 +480,7 @@ resource "google_bigquery_table" "persist_all_microstructure" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/microstructure/"
     }
   }
 
@@ -447,6 +495,8 @@ resource "google_bigquery_table" "persist_all_microstructure" {
 }
 
 resource "google_bigquery_table" "persist_all_moving_averages" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_moving_averages"
   project             = var.project_id
@@ -459,6 +509,7 @@ resource "google_bigquery_table" "persist_all_moving_averages" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/moving_averages/"
     }
   }
 
@@ -473,6 +524,8 @@ resource "google_bigquery_table" "persist_all_moving_averages" {
 }
 
 resource "google_bigquery_table" "persist_all_options_iv" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_options_iv"
   project             = var.project_id
@@ -485,6 +538,7 @@ resource "google_bigquery_table" "persist_all_options_iv" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/options_iv/"
     }
   }
 
@@ -499,6 +553,8 @@ resource "google_bigquery_table" "persist_all_options_iv" {
 }
 
 resource "google_bigquery_table" "persist_all_options_term_structure" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_options_term_structure"
   project             = var.project_id
@@ -511,6 +567,7 @@ resource "google_bigquery_table" "persist_all_options_term_structure" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/options_term_structure/"
     }
   }
 
@@ -525,6 +582,8 @@ resource "google_bigquery_table" "persist_all_options_term_structure" {
 }
 
 resource "google_bigquery_table" "persist_all_paper_ledger" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_paper_ledger"
   project             = var.project_id
@@ -537,6 +596,7 @@ resource "google_bigquery_table" "persist_all_paper_ledger" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/paper_ledger/"
     }
   }
 
@@ -551,6 +611,8 @@ resource "google_bigquery_table" "persist_all_paper_ledger" {
 }
 
 resource "google_bigquery_table" "persist_all_per_strategy_signal" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_per_strategy_signal"
   project             = var.project_id
@@ -563,6 +625,7 @@ resource "google_bigquery_table" "persist_all_per_strategy_signal" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/per_strategy_signal/"
     }
   }
 
@@ -577,6 +640,8 @@ resource "google_bigquery_table" "persist_all_per_strategy_signal" {
 }
 
 resource "google_bigquery_table" "persist_all_realized_implied_vol" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_realized_implied_vol"
   project             = var.project_id
@@ -589,6 +654,7 @@ resource "google_bigquery_table" "persist_all_realized_implied_vol" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/realized_implied_vol/"
     }
   }
 
@@ -603,6 +669,8 @@ resource "google_bigquery_table" "persist_all_realized_implied_vol" {
 }
 
 resource "google_bigquery_table" "persist_all_regime_detection" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_regime_detection"
   project             = var.project_id
@@ -615,6 +683,7 @@ resource "google_bigquery_table" "persist_all_regime_detection" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/regime_detection/"
     }
   }
 
@@ -629,6 +698,8 @@ resource "google_bigquery_table" "persist_all_regime_detection" {
 }
 
 resource "google_bigquery_table" "persist_all_technical_indicators" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_technical_indicators"
   project             = var.project_id
@@ -641,6 +712,7 @@ resource "google_bigquery_table" "persist_all_technical_indicators" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/technical_indicators/"
     }
   }
 
@@ -655,6 +727,8 @@ resource "google_bigquery_table" "persist_all_technical_indicators" {
 }
 
 resource "google_bigquery_table" "persist_all_tf_momentum_alignment" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_tf_momentum_alignment"
   project             = var.project_id
@@ -667,6 +741,7 @@ resource "google_bigquery_table" "persist_all_tf_momentum_alignment" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_momentum_alignment/"
     }
   }
 
@@ -681,6 +756,8 @@ resource "google_bigquery_table" "persist_all_tf_momentum_alignment" {
 }
 
 resource "google_bigquery_table" "persist_all_tf_structure_context" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_tf_structure_context"
   project             = var.project_id
@@ -693,6 +770,7 @@ resource "google_bigquery_table" "persist_all_tf_structure_context" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_structure_context/"
     }
   }
 
@@ -707,6 +785,8 @@ resource "google_bigquery_table" "persist_all_tf_structure_context" {
 }
 
 resource "google_bigquery_table" "persist_all_tf_vol_compression" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_tf_vol_compression"
   project             = var.project_id
@@ -719,6 +799,7 @@ resource "google_bigquery_table" "persist_all_tf_vol_compression" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/tf_vol_compression/"
     }
   }
 
@@ -733,6 +814,8 @@ resource "google_bigquery_table" "persist_all_tf_vol_compression" {
 }
 
 resource "google_bigquery_table" "persist_all_time_features" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "all_time_features"
   project             = var.project_id
@@ -745,6 +828,7 @@ resource "google_bigquery_table" "persist_all_time_features" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/all/time_features/"
     }
   }
 
@@ -759,6 +843,8 @@ resource "google_bigquery_table" "persist_all_time_features" {
 }
 
 resource "google_bigquery_table" "persist_cefi_book_snapshot_5" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "cefi_book_snapshot_5"
   project             = var.project_id
@@ -771,6 +857,7 @@ resource "google_bigquery_table" "persist_cefi_book_snapshot_5" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/book_snapshot_5/"
     }
   }
 
@@ -785,6 +872,8 @@ resource "google_bigquery_table" "persist_cefi_book_snapshot_5" {
 }
 
 resource "google_bigquery_table" "persist_cefi_derivative_ticker" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "cefi_derivative_ticker"
   project             = var.project_id
@@ -797,6 +886,7 @@ resource "google_bigquery_table" "persist_cefi_derivative_ticker" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/derivative_ticker/"
     }
   }
 
@@ -811,6 +901,8 @@ resource "google_bigquery_table" "persist_cefi_derivative_ticker" {
 }
 
 resource "google_bigquery_table" "persist_cefi_liquidations" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "cefi_liquidations"
   project             = var.project_id
@@ -823,6 +915,7 @@ resource "google_bigquery_table" "persist_cefi_liquidations" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/liquidations/"
     }
   }
 
@@ -837,6 +930,8 @@ resource "google_bigquery_table" "persist_cefi_liquidations" {
 }
 
 resource "google_bigquery_table" "persist_cefi_trades" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "cefi_trades"
   project             = var.project_id
@@ -849,6 +944,7 @@ resource "google_bigquery_table" "persist_cefi_trades" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/cefi/trades/"
     }
   }
 
@@ -863,6 +959,8 @@ resource "google_bigquery_table" "persist_cefi_trades" {
 }
 
 resource "google_bigquery_table" "persist_commodity_storage_alpha" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "commodity_storage_alpha"
   project             = var.project_id
@@ -875,6 +973,7 @@ resource "google_bigquery_table" "persist_commodity_storage_alpha" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/commodity/storage_alpha/"
     }
   }
 
@@ -889,6 +988,8 @@ resource "google_bigquery_table" "persist_commodity_storage_alpha" {
 }
 
 resource "google_bigquery_table" "persist_commodity_weather_delta" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "commodity_weather_delta"
   project             = var.project_id
@@ -901,6 +1002,7 @@ resource "google_bigquery_table" "persist_commodity_weather_delta" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/commodity/weather_delta/"
     }
   }
 
@@ -915,6 +1017,8 @@ resource "google_bigquery_table" "persist_commodity_weather_delta" {
 }
 
 resource "google_bigquery_table" "persist_defi_arbitrage_price_dispersion" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_arbitrage_price_dispersion"
   project             = var.project_id
@@ -927,6 +1031,7 @@ resource "google_bigquery_table" "persist_defi_arbitrage_price_dispersion" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/arbitrage_price_dispersion/"
     }
   }
 
@@ -941,6 +1046,8 @@ resource "google_bigquery_table" "persist_defi_arbitrage_price_dispersion" {
 }
 
 resource "google_bigquery_table" "persist_defi_book_snapshot_5" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_book_snapshot_5"
   project             = var.project_id
@@ -953,6 +1060,7 @@ resource "google_bigquery_table" "persist_defi_book_snapshot_5" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/book_snapshot_5/"
     }
   }
 
@@ -967,6 +1075,8 @@ resource "google_bigquery_table" "persist_defi_book_snapshot_5" {
 }
 
 resource "google_bigquery_table" "persist_defi_dex_pools" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_dex_pools"
   project             = var.project_id
@@ -979,6 +1089,7 @@ resource "google_bigquery_table" "persist_defi_dex_pools" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_pools/"
     }
   }
 
@@ -993,6 +1104,8 @@ resource "google_bigquery_table" "persist_defi_dex_pools" {
 }
 
 resource "google_bigquery_table" "persist_defi_dex_swaps" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_dex_swaps"
   project             = var.project_id
@@ -1005,6 +1118,7 @@ resource "google_bigquery_table" "persist_defi_dex_swaps" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/dex_swaps/"
     }
   }
 
@@ -1019,6 +1133,8 @@ resource "google_bigquery_table" "persist_defi_dex_swaps" {
 }
 
 resource "google_bigquery_table" "persist_defi_lending_indices" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_lending_indices"
   project             = var.project_id
@@ -1031,6 +1147,7 @@ resource "google_bigquery_table" "persist_defi_lending_indices" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lending_indices/"
     }
   }
 
@@ -1045,6 +1162,8 @@ resource "google_bigquery_table" "persist_defi_lending_indices" {
 }
 
 resource "google_bigquery_table" "persist_defi_liquidations" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_liquidations"
   project             = var.project_id
@@ -1057,6 +1176,7 @@ resource "google_bigquery_table" "persist_defi_liquidations" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/liquidations/"
     }
   }
 
@@ -1071,6 +1191,8 @@ resource "google_bigquery_table" "persist_defi_liquidations" {
 }
 
 resource "google_bigquery_table" "persist_defi_lst_native_rates" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_lst_native_rates"
   project             = var.project_id
@@ -1083,6 +1205,7 @@ resource "google_bigquery_table" "persist_defi_lst_native_rates" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_native_rates/"
     }
   }
 
@@ -1097,6 +1220,8 @@ resource "google_bigquery_table" "persist_defi_lst_native_rates" {
 }
 
 resource "google_bigquery_table" "persist_defi_lst_rates" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_lst_rates"
   project             = var.project_id
@@ -1109,6 +1234,7 @@ resource "google_bigquery_table" "persist_defi_lst_rates" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_rates/"
     }
   }
 
@@ -1123,6 +1249,8 @@ resource "google_bigquery_table" "persist_defi_lst_rates" {
 }
 
 resource "google_bigquery_table" "persist_defi_lst_yields" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_lst_yields"
   project             = var.project_id
@@ -1135,6 +1263,7 @@ resource "google_bigquery_table" "persist_defi_lst_yields" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/lst_yields/"
     }
   }
 
@@ -1149,6 +1278,8 @@ resource "google_bigquery_table" "persist_defi_lst_yields" {
 }
 
 resource "google_bigquery_table" "persist_defi_trades" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "defi_trades"
   project             = var.project_id
@@ -1161,6 +1292,7 @@ resource "google_bigquery_table" "persist_defi_trades" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/defi/trades/"
     }
   }
 
@@ -1175,6 +1307,8 @@ resource "google_bigquery_table" "persist_defi_trades" {
 }
 
 resource "google_bigquery_table" "persist_prediction_book_snapshot" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "prediction_book_snapshot"
   project             = var.project_id
@@ -1187,6 +1321,7 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot/"
     }
   }
 
@@ -1201,6 +1336,8 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot" {
 }
 
 resource "google_bigquery_table" "persist_prediction_book_snapshot_5" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "prediction_book_snapshot_5"
   project             = var.project_id
@@ -1213,6 +1350,7 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot_5" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/book_snapshot_5/"
     }
   }
 
@@ -1227,6 +1365,8 @@ resource "google_bigquery_table" "persist_prediction_book_snapshot_5" {
 }
 
 resource "google_bigquery_table" "persist_prediction_trades" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "prediction_trades"
   project             = var.project_id
@@ -1239,6 +1379,7 @@ resource "google_bigquery_table" "persist_prediction_trades" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/prediction/trades/"
     }
   }
 
@@ -1253,6 +1394,8 @@ resource "google_bigquery_table" "persist_prediction_trades" {
 }
 
 resource "google_bigquery_table" "persist_sports_derived_features" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "sports_derived_features"
   project             = var.project_id
@@ -1265,6 +1408,7 @@ resource "google_bigquery_table" "persist_sports_derived_features" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/derived_features/"
     }
   }
 
@@ -1279,6 +1423,8 @@ resource "google_bigquery_table" "persist_sports_derived_features" {
 }
 
 resource "google_bigquery_table" "persist_sports_fixture_features" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "sports_fixture_features"
   project             = var.project_id
@@ -1291,6 +1437,7 @@ resource "google_bigquery_table" "persist_sports_fixture_features" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/fixture_features/"
     }
   }
 
@@ -1305,6 +1452,8 @@ resource "google_bigquery_table" "persist_sports_fixture_features" {
 }
 
 resource "google_bigquery_table" "persist_sports_odds_features" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "sports_odds_features"
   project             = var.project_id
@@ -1317,6 +1466,7 @@ resource "google_bigquery_table" "persist_sports_odds_features" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/odds_features/"
     }
   }
 
@@ -1331,6 +1481,8 @@ resource "google_bigquery_table" "persist_sports_odds_features" {
 }
 
 resource "google_bigquery_table" "persist_sports_trades" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "sports_trades"
   project             = var.project_id
@@ -1343,6 +1495,7 @@ resource "google_bigquery_table" "persist_sports_trades" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/sports/trades/"
     }
   }
 
@@ -1357,6 +1510,8 @@ resource "google_bigquery_table" "persist_sports_trades" {
 }
 
 resource "google_bigquery_table" "persist_tradfi_trades" {
+  count = var.create_bq_external_tables ? 1 : 0
+
   dataset_id          = google_bigquery_dataset.live_events.dataset_id
   table_id            = "tradfi_trades"
   project             = var.project_id
@@ -1369,6 +1524,7 @@ resource "google_bigquery_table" "persist_tradfi_trades" {
 
     hive_partitioning_options {
       mode = "AUTO"
+      source_uri_prefix = "gs://${var.warm_gcs_bucket}/live-events/warm/tradfi/trades/"
     }
   }
 
