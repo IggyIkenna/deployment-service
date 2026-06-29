@@ -329,13 +329,8 @@ echo "=== VM Startup: ${VM_NAME} ==="
 echo "  Range: ${CHUNK_START} → ${CHUNK_END}"
 date
 
-# Install Python 3.13
-apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update -qq && apt-get install -yqq python3.13 python3.13-venv python3.13-dev
-echo "  Python: \$(python3.13 --version)"
-
-# Install uv
+# Install system deps + uv; Python 3.13 is resolved by uv (avoids PPA)
+apt-get update -qq && apt-get install -yqq curl build-essential ca-certificates
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="/root/.local/bin:\$PATH"
 
@@ -413,6 +408,9 @@ SHUTDOWN_EOF
   METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 
+  # gcloud SDK ≥569.0.0 silently drops startup-script when --metadata and
+  # --metadata-from-file appear in the same create command. Use a two-step
+  # approach: create WITHOUT file-based metadata, then add-metadata separately.
   # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
@@ -426,9 +424,19 @@ SHUTDOWN_EOF
     --boot-disk-size=50GB \
     ${SA_FLAG} \
     --metadata="${METADATA}" \
-    --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
     --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
+
+  # Inject startup-script and shutdown-script in SEPARATE add-metadata calls.
+  # gcloud SDK silently drops startup-script when both are in the same call
+  # (same bug as the --metadata + --metadata-from-file create issue).
+  gcloud compute instances add-metadata "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --metadata-from-file=startup-script="${STARTUP_FILE}"
+  gcloud compute instances add-metadata "${VM_NAME}" \
+    --project="${PROJECT_ID}" \
+    --zone="${ZONE}" \
+    --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}"
 
   rm -f "$STARTUP_FILE"
   echo "  ${VM_NAME} created."
