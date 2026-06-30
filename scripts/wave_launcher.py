@@ -22,9 +22,10 @@ The backfill is MULTI-SOURCE, not databento-only:
 
 * CME / CBOE / NASDAQ / NYSE → Databento (GLBX.MDP3 / DBEQ.BASIC / XCBF.PITCH),
   fetching ``ohlcv_1m`` + ``ohlcv_1s`` (L0/free; 15m/24h aggregate downstream).
-* FX (spot pairs, e.g. USD/KRW) → Yahoo Finance DAILY (``ohlcv_24h``), via
-  ``launch-tradfi-bf-fx-ohlcv-24h.sh`` (venue-routed to the Yahoo adapter; no
-  ``--source`` — the MTDS CLI only accepts databento|massive there).
+* FX (spot pairs, e.g. USD/KRW) → **DESCOPED 2026-06-30**: out of TradFi MVP
+  (the MVP rule is venues={CME} so ``is_mvp(tradfi, FX, …)`` = False). FX is no
+  longer dispatched by the wave-launcher. The ``launch-tradfi-bf-fx-ohlcv-24h.sh``
+  launcher + the Yahoo daily adapter remain for a future re-scope.
 * ICE (IFEU/IFUS — Brent/Gasoil/softs/DX) → **NO source available**, so ICE is
   INTENTIONALLY NOT dispatched. Databento dropped ICE in the 3-dataset
   subscription lockdown, and Massive's flat-files carry NO ICE prefix (only
@@ -32,9 +33,9 @@ The backfill is MULTI-SOURCE, not databento-only:
   genuinely needs an ICE-data subscription ask (operator decision).
 
 Dispatch model (1 dispatch == exactly 1 VM): CME shards one VM per (root, year)
-via ``--only-root``; CBOE / NASDAQ / NYSE / FX ride ONE VM per year. A venue's
+via ``--only-root``; CBOE / NASDAQ / NYSE ride ONE VM per year. A venue's
 gap cell only counts toward the wave if its data_type is in that venue's
-addressable set (``VENUE_DATA_TYPES``: FX=ohlcv_24h, Databento venues=1m/1s).
+addressable set (``VENUE_DATA_TYPES`` overrides; Databento venues=1m/1s).
 Out-of-scope data_types (trades / tbbo / mbp_10 / earnings) + un-sourced venues
 (ICE / YAHOO_FINANCE / UNKNOWN) are reported but never launched.
 
@@ -113,9 +114,10 @@ OHLCV_DATA_TYPES = frozenset({"ohlcv_1m", "ohlcv_1s"})
 # venue's launcher. Databento OHLCV venues fetch ohlcv_1m/1s; FX is Yahoo
 # DAILY (ohlcv_24h) — a different surface entirely, so it has its own set.
 # Venues absent from this map fall back to OHLCV_DATA_TYPES.
-VENUE_DATA_TYPES: dict[str, frozenset[str]] = {
-    "FX": frozenset({"ohlcv_24h"}),
-}
+# FX (Yahoo daily ohlcv_24h) DESCOPED 2026-06-30: out of TradFi MVP — the MVP rule
+# is venues={CME} so is_mvp(tradfi, FX, …) = False. FX is no longer wave-launched.
+# (Ref: plans/active/issues/vm_backfill_data_correctness_findings_2026_06_29.md.)
+VENUE_DATA_TYPES: dict[str, frozenset[str]] = {}
 
 
 def _addressable_data_types(venue: str) -> frozenset[str]:
@@ -125,7 +127,7 @@ def _addressable_data_types(venue: str) -> frozenset[str]:
 
 # Venues with an OHLCV backfill launcher → multi-source (2026-06-22):
 #   * CME / CBOE / NASDAQ / NYSE → Databento (GLBX.MDP3 / DBEQ.BASIC / XCBF.PITCH)
-#   * FX                          → Yahoo Finance daily (ohlcv_24h, venue-routed)
+#   * FX → DESCOPED 2026-06-30 (out of TradFi MVP; was Yahoo daily ohlcv_24h)
 # ICE is INTENTIONALLY ABSENT: it is NOT backfillable today. Databento dropped
 # ICE (IFEU/IFUS) in the 3-dataset subscription lockdown, AND Massive's
 # flat-files carry NO ICE prefix (only us_futures_{cme,cbot,comex,nymex} +
@@ -137,7 +139,6 @@ LAUNCHER_FOR_VENUE: dict[str, str] = {
     "CBOE": "launch-tradfi-bf-cboe-ohlcv-1m.sh",
     "NASDAQ": "launch-tradfi-bf-nasdaq-ohlcv-1m.sh",
     "NYSE": "launch-tradfi-bf-nyse-ohlcv-1m.sh",
-    "FX": "launch-tradfi-bf-fx-ohlcv-24h.sh",
 }
 
 # Venues that shard one-VM-per-(root, year) and expose --only-root, so the
@@ -145,7 +146,7 @@ LAUNCHER_FOR_VENUE: dict[str, str] = {
 PER_ROOT_VENUES = frozenset({"CME"})
 
 # Venues that shard one-VM-per-year (whole universe in a single VM).
-PER_YEAR_VENUES = frozenset({"CBOE", "NASDAQ", "NYSE", "FX"})
+PER_YEAR_VENUES = frozenset({"CBOE", "NASDAQ", "NYSE"})
 
 DEFAULT_MAX_CONCURRENT = 12
 HARD_CEILING_MAX_CONCURRENT = 20  # operator HARD cap — NEVER exceed.
