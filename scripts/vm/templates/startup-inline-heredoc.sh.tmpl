@@ -83,7 +83,11 @@ date
 gsutil -q cp @@LOG_FILE@@ \
   "gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log" 2>/dev/null || true
 
-shutdown -h now
+# Self-DELETE on completion (VM_SHUTDOWN_ON_COMPLETION=true is set in metadata
+# below) so the VM frees its boot disk instead of orphaning as a billing
+# TERMINATED instance. Falls back to a plain stop if the delete is refused.
+gcloud compute instances delete "${VM_NAME}" --zone="${ZONE}" --quiet --delete-disks=all \
+  || shutdown -h now
 STARTUP_EOF
 )
 

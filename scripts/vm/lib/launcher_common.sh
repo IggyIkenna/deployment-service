@@ -301,7 +301,25 @@ _lc_final_upload() {
     done
     sleep 2
     gsutil -q cp "\$LOG_LOCAL" "\$GCS_LOG_URI" 2>/dev/null || true
-    shutdown -h +1 2>/dev/null || true
+    # On completion: self-DELETE iff the launcher set VM_SHUTDOWN_ON_COMPLETION=true
+    # (ephemeral batch / validation VMs), else just STOP (recurring cron / persistent
+    # VMs that omit the flag). Mirrors the proven self-delete in
+    # vm-exec-with-gcs-tee.sh / setup-data-pipeline-vm.sh — without this a completed
+    # VM only halts (TERMINATED) and orphans its boot disk as a recurring billing cost.
+    _lc_sd=\$(curl -sf -H 'Metadata-Flavor: Google' \
+        'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' 2>/dev/null || echo '')
+    if [[ "\$_lc_sd" == "true" ]]; then
+        _lc_zone=\$(curl -sf -H 'Metadata-Flavor: Google' \
+            'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print \$NF}')
+        if [[ -n "\$_lc_zone" ]]; then
+            gcloud compute instances delete '${vm_name}' --zone="\$_lc_zone" --quiet --delete-disks=all \
+                || sudo shutdown -h +1 2>/dev/null || true
+        else
+            sudo shutdown -h +1 2>/dev/null || true
+        fi
+    else
+        shutdown -h +1 2>/dev/null || true
+    fi
     return \$rc
 }
 trap _lc_final_upload EXIT
