@@ -13,6 +13,7 @@ Tests:
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -67,6 +68,11 @@ _WatchdogVerdict = _mod.WatchdogVerdict
 _VmPrefixSpec = _mod.VmPrefixSpec
 _DAEMON_TIER_LABELS = _mod.DAEMON_TIER_LABELS
 _DAEMON_PURPOSE_OPT_OUT = _mod.DAEMON_PURPOSE_OPT_OUT
+_resolve_lifecycle_class = _mod._resolve_lifecycle_class
+_evaluate_terminated_vm = _mod._evaluate_terminated_vm
+_ReapVerdict = _mod.ReapVerdict
+_REAPABLE_LIFECYCLE_CLASSES = _mod.REAPABLE_LIFECYCLE_CLASSES
+_LifecycleClass = _mod.LifecycleClass
 
 
 # ── prefix registration ───────────────────────────────────────────────────────
@@ -665,3 +671,112 @@ class TestForwardPollIdleThresholds:
         hb, shard = _resolve_idle_thresholds("mdps-features-live-defi-20260515", self._GLOBAL_HB, self._GLOBAL_SHARD)
         assert hb == 30.0
         assert shard == 240.0
+
+
+# ── Terminated-VM reaper ──────────────────────────────────────────────────────
+
+
+def _prefix_for(lifecycle: object) -> str:
+    """Return any registered VM_PREFIX_TO_BUCKET prefix tagged with ``lifecycle``.
+
+    Derived from the live registry so these tests don't hard-code a prefix that
+    could be retired; skips the test if no prefix carries that lifecycle class.
+    """
+    for prefix, spec in _VM_PREFIX_TO_BUCKET.items():
+        if spec is not None and spec.lifecycle_class == lifecycle:
+            return prefix
+    pytest.skip(f"no registered prefix with lifecycle_class={lifecycle}")
+
+
+def _ts_ago(*, hours: float) -> str:
+    """RFC3339 timestamp ``hours`` in the past (mirrors GCE lastStopTimestamp)."""
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+
+
+_REAP_AFTER_24H: Final[float] = 1440.0
+
+
+class TestResolveLifecycleClass:
+    """_resolve_lifecycle_class maps a VM name to its registered lifecycle class."""
+
+    def test_known_ephemeral_batch_prefix(self) -> None:
+        prefix = _prefix_for(_LifecycleClass.EPHEMERAL_BATCH)
+        assert _resolve_lifecycle_class(f"{prefix}20260101-000000") == _LifecycleClass.EPHEMERAL_BATCH
+
+    def test_unknown_prefix_returns_none(self) -> None:
+        assert _resolve_lifecycle_class("zzz-unregistered-prefix-20260101") is None
+
+    def test_longest_prefix_wins(self) -> None:
+        """When two prefixes match, the more specific (longer) one decides."""
+        # Build a name from the longest registered prefix and assert it resolves
+        # to that prefix's class (not a shorter prefix's).
+        longest = max(
+            (p for p, s in _VM_PREFIX_TO_BUCKET.items() if s is not None),
+            key=len,
+        )
+        spec = _VM_PREFIX_TO_BUCKET[longest]
+        assert _resolve_lifecycle_class(f"{longest}suffix") == spec.lifecycle_class
+
+
+class TestEvaluateTerminatedVm:
+    """_evaluate_terminated_vm gates: ephemeral + stopped-past-grace + not-retained → reap."""
+
+    def _eval(self, name: str, stopped_ts: str, labels: object) -> object:
+        return _evaluate_terminated_vm(name, "asia-northeast1-c", stopped_ts, labels, _REAP_AFTER_24H)
+
+    def test_ephemeral_stopped_past_grace_is_reaped(self) -> None:
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, _ts_ago(hours=48), {})
+        assert v.verdict == "reap"  # type: ignore[attr-defined]
+        assert v.should_reap() is True  # type: ignore[attr-defined]
+
+    def test_ephemeral_within_grace_is_kept(self) -> None:
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, _ts_ago(hours=2), {})
+        assert v.verdict == "keep_within_grace"  # type: ignore[attr-defined]
+        assert v.should_reap() is False  # type: ignore[attr-defined]
+
+    def test_long_lived_live_never_reaped(self) -> None:
+        """A paused LONG_LIVED_LIVE VM, even stopped for days, must be kept."""
+        name = f"{_prefix_for(_LifecycleClass.LONG_LIVED_LIVE)}20260101-000000"
+        v = self._eval(name, _ts_ago(hours=240), {})
+        assert v.verdict == "keep_not_ephemeral"  # type: ignore[attr-defined]
+
+    def test_unknown_prefix_never_reaped(self) -> None:
+        v = self._eval("zzz-unregistered-prefix-20260101", _ts_ago(hours=240), {})
+        assert v.verdict == "keep_not_ephemeral"  # type: ignore[attr-defined]
+
+    def test_keep_label_opt_out(self) -> None:
+        """keep=true retains an otherwise-reapable ephemeral VM for forensics."""
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, _ts_ago(hours=240), {"keep": "true"})
+        assert v.verdict == "keep_retained"  # type: ignore[attr-defined]
+
+    def test_daemon_opt_out(self) -> None:
+        """A daemon-labelled VM is never reaped even if its prefix looks ephemeral."""
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, _ts_ago(hours=240), {"tier": "daemon"})
+        assert v.verdict == "keep_retained"  # type: ignore[attr-defined]
+
+    def test_missing_timestamp_is_kept(self) -> None:
+        """No parseable stop/creation timestamp → cannot age-gate → keep (conservative)."""
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, "", {})
+        assert v.verdict == "keep_no_timestamp"  # type: ignore[attr-defined]
+
+    def test_unparseable_timestamp_is_kept(self) -> None:
+        name = f"{_prefix_for(_LifecycleClass.EPHEMERAL_BATCH)}20260101-000000"
+        v = self._eval(name, "not-a-timestamp", {})
+        assert v.verdict == "keep_no_timestamp"  # type: ignore[attr-defined]
+
+
+class TestReapableLifecycleClasses:
+    """Only the two ephemeral classes are reapable; live/recurring are protected."""
+
+    def test_ephemeral_classes_are_reapable(self) -> None:
+        assert _LifecycleClass.EPHEMERAL_BATCH in _REAPABLE_LIFECYCLE_CLASSES
+        assert _LifecycleClass.EPHEMERAL_EXPERIMENT in _REAPABLE_LIFECYCLE_CLASSES
+
+    def test_persistent_classes_not_reapable(self) -> None:
+        assert _LifecycleClass.LONG_LIVED_LIVE not in _REAPABLE_LIFECYCLE_CLASSES
+        assert _LifecycleClass.SCHEDULED_RECURRING not in _REAPABLE_LIFECYCLE_CLASSES

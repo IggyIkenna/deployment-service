@@ -1371,6 +1371,165 @@ def _kill_vm(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str
     return True
 
 
+# ── Terminated-VM reaper ──────────────────────────────────────────────────────
+# The heartbeat/shard watchdog above only evaluates RUNNING VMs. A VM that
+# STOPPED (TERMINATED) — because it self-halted via ``shutdown -h``, was drained,
+# was manually stopped, or hung-then-stopped — is never re-examined and orphans
+# its boot disk as a recurring storage cost forever. (2026-06-30 cleanup: 127
+# orphaned TERMINATED VMs, ~$330/mo in idle disk.) A stopped VM does zero work,
+# so reaping it needs NO stall detection — only proof it is an abandoned
+# ephemeral job:
+#   1. status == TERMINATED                            — already stopped; no live work at risk
+#   2. known prefix tagged EPHEMERAL_BATCH/_EXPERIMENT — never a paused live/cron VM
+#   3. stopped longer than the grace period            — the operator's restart window
+#   4. no ``keep=true`` label and not a daemon         — explicit retention opt-out
+# run.log + EXIT_STATUS are uploaded to GCS before shutdown, so the only thing
+# lost on delete is the disposable boot disk (``--delete-disks=all`` via _kill_vm).
+REAPABLE_LIFECYCLE_CLASSES: frozenset[LifecycleClass] = frozenset(
+    {LifecycleClass.EPHEMERAL_BATCH, LifecycleClass.EPHEMERAL_EXPERIMENT}
+)
+
+
+@dataclass
+class ReapVerdict:
+    """Per-VM result of the TERMINATED-reaper evaluation."""
+
+    vm_name: str
+    zone: str
+    stopped_age_min: float | None  # None when the verdict is decided before age-gating
+    lifecycle_class: LifecycleClass | None  # None = unknown / untagged prefix
+    verdict: str
+    # one of:
+    #   'reap'               — abandoned ephemeral VM, delete it + boot disk
+    #   'keep_retained'      — keep=true label or daemon opt-out; retained on purpose
+    #   'keep_not_ephemeral' — LONG_LIVED_LIVE / SCHEDULED_RECURRING / unknown prefix
+    #   'keep_within_grace'  — stopped, but still inside the restart grace window
+    #   'keep_no_timestamp'  — no parseable lastStop/creation timestamp; cannot age-gate
+
+    def should_reap(self) -> bool:
+        return self.verdict == "reap"
+
+
+def _resolve_lifecycle_class(vm_name: str) -> LifecycleClass | None:
+    """Longest-prefix LifecycleClass for ``vm_name``, or None if no known prefix.
+
+    Mirrors the longest-match lookup used by VM_PREFIX_TO_BUCKET /
+    PREFIX_IDLE_THRESHOLDS so the most specific prefix wins. A ``None`` spec
+    (heartbeat-only, no lifecycle tag) is treated as unknown.
+    """
+    best: LifecycleClass | None = None
+    best_len = -1
+    for prefix, spec in VM_PREFIX_TO_BUCKET.items():
+        if spec is not None and vm_name.startswith(prefix) and len(prefix) > best_len:
+            best = spec.lifecycle_class
+            best_len = len(prefix)
+    return best
+
+
+def _list_terminated_vms(
+    compute_client: compute_v1.InstancesClient,
+) -> list[tuple[str, str, str, object]]:
+    """List every TERMINATED (stopped) VM. Returns ``[(name, zone, stopped_ts, labels), ...]``.
+
+    ``stopped_ts`` is the RFC3339 lastStopTimestamp, falling back to
+    creationTimestamp when the VM was created but never started, or ``""``
+    when neither is populated.
+    """
+    request = compute_v1.AggregatedListInstancesRequest(project=PROJECT_ID)
+    out: list[tuple[str, str, str, object]] = []
+    for zone, scoped in compute_client.aggregated_list(request=request):
+        if not scoped.instances:
+            continue
+        for inst in scoped.instances:
+            if inst.status != "TERMINATED":
+                continue
+            stopped_ts = inst.last_stop_timestamp or inst.creation_timestamp or ""
+            z = zone.replace("zones/", "")
+            out.append((inst.name, z, stopped_ts, inst.labels))
+    return out
+
+
+def _evaluate_terminated_vm(
+    vm_name: str,
+    zone: str,
+    stopped_ts: str,
+    labels: object,
+    reap_after_min: float,
+) -> ReapVerdict:
+    """Decide whether an abandoned TERMINATED VM should be reaped (see gates above)."""
+    lifecycle = _resolve_lifecycle_class(vm_name)
+    # (4) Explicit retention: a keep=true label, or a daemon opt-out (incl. the
+    #     watchdog itself), is never auto-deleted.
+    if (labels and labels.get("keep") == "true") or _is_daemon(labels):
+        return ReapVerdict(vm_name, zone, None, lifecycle, "keep_retained")
+    # (2) Only ephemeral batch/experiment jobs are reapable. A paused
+    #     LONG_LIVED_LIVE / SCHEDULED_RECURRING VM, or an unknown prefix, is
+    #     left for the operator (same register-your-prefix convention as the
+    #     RUNNING-VM watcher's unknown-prefix logging).
+    if lifecycle not in REAPABLE_LIFECYCLE_CLASSES:
+        return ReapVerdict(vm_name, zone, None, lifecycle, "keep_not_ephemeral")
+    if not stopped_ts:
+        return ReapVerdict(vm_name, zone, None, lifecycle, "keep_no_timestamp")
+    try:
+        stopped = datetime.fromisoformat(stopped_ts).astimezone(UTC)
+    except ValueError:
+        return ReapVerdict(vm_name, zone, None, lifecycle, "keep_no_timestamp")
+    stopped_age_min = (datetime.now(UTC) - stopped).total_seconds() / 60.0
+    # (3) Grace period: a recently-stopped VM may be deliberately paused; wait.
+    if stopped_age_min < reap_after_min:
+        return ReapVerdict(vm_name, zone, stopped_age_min, lifecycle, "keep_within_grace")
+    return ReapVerdict(vm_name, zone, stopped_age_min, lifecycle, "reap")
+
+
+def _reap_terminated_vms(
+    compute_client: compute_v1.InstancesClient,
+    reap_after_min: float,
+    *,
+    dry_run: bool,
+    workers: int,
+) -> int:
+    """Delete abandoned ephemeral TERMINATED VMs (and their boot disks).
+
+    Returns the number of VMs reaped (0 in dry-run). Re-uses :func:`_kill_vm`
+    so each delete is preceded by the best-effort pre-kill log backup.
+    """
+    terminated = _list_terminated_vms(compute_client)
+    verdicts = [
+        _evaluate_terminated_vm(name, zone, stopped_ts, labels, reap_after_min)
+        for (name, zone, stopped_ts, labels) in terminated
+    ]
+    reapable = [v for v in verdicts if v.should_reap()]
+    logger.info(
+        "Terminated-reaper: %d TERMINATED VMs — %d reapable (EPHEMERAL_*, stopped > %.0fmin), %d kept",
+        len(terminated),
+        len(reapable),
+        reap_after_min,
+        len(verdicts) - len(reapable),
+    )
+    for v in reapable:
+        logger.warning(
+            "REAP-CANDIDATE %s (%s) stopped=%.0fmin lifecycle=%s",
+            v.vm_name,
+            v.zone,
+            v.stopped_age_min if v.stopped_age_min is not None else -1.0,
+            v.lifecycle_class.value if v.lifecycle_class is not None else "UNKNOWN",
+        )
+    if dry_run:
+        logger.info("DRY RUN — no terminated VMs reaped")
+        return 0
+    reaped = 0
+    if reapable:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = {pool.submit(_kill_vm, compute_client, v.vm_name, v.zone): v for v in reapable}
+            for fut in as_completed(results):
+                v = results[fut]
+                if fut.result():
+                    reaped += 1
+                    logger.warning("REAPED %s (%s) lifecycle=%s", v.vm_name, v.zone, v.lifecycle_class)
+    logger.info("terminated-reaper complete: reaped %d/%d", reaped, len(reapable))
+    return reaped
+
+
 def _write_census_snapshot(
     storage_client: StorageClient,
     running: list[WatchdogVerdict],
@@ -1427,6 +1586,23 @@ def main(argv: list[str]) -> int:
         ),
     )
     parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument(
+        "--reap-terminated-after",
+        type=float,
+        default=1440.0,
+        help=(
+            "Grace period (min) after a VM STOPPED before an abandoned ephemeral "
+            "(EPHEMERAL_BATCH / EPHEMERAL_EXPERIMENT) TERMINATED VM is deleted along "
+            "with its boot disk. Default 1440 (24h) — gives an operator time to restart "
+            "a deliberately-stopped VM. LONG_LIVED_LIVE / SCHEDULED_RECURRING / "
+            "unknown-prefix VMs and any VM labelled keep=true are never reaped."
+        ),
+    )
+    parser.add_argument(
+        "--no-reap-terminated",
+        action="store_true",
+        help="Disable the TERMINATED-VM reaper (run only the RUNNING-VM zombie watchdog).",
+    )
     parser.add_argument(
         "--notify-url",
         default="",
@@ -1507,15 +1683,24 @@ def main(argv: list[str]) -> int:
 
     if args.dry_run:
         logger.info("DRY RUN — no VMs killed")
-        return 0
+    else:
+        killed = 0
+        for v in zombies:
+            if _kill_vm(compute_client, v.vm_name, v.zone):
+                killed += 1
+                logger.warning("KILLED %s (%s) reason=%s", v.vm_name, v.zone, v.verdict)
+        logger.info("watchdog complete: killed %d/%d zombies", killed, len(zombies))
 
-    killed = 0
-    for v in zombies:
-        if _kill_vm(compute_client, v.vm_name, v.zone):
-            killed += 1
-            logger.warning("KILLED %s (%s) reason=%s", v.vm_name, v.zone, v.verdict)
+    # Second pass: reap abandoned ephemeral TERMINATED VMs (the RUNNING-VM passes
+    # above never see them). Honours --dry-run for reporting-only.
+    if not args.no_reap_terminated:
+        _reap_terminated_vms(
+            compute_client,
+            args.reap_terminated_after,
+            dry_run=args.dry_run,
+            workers=args.workers,
+        )
 
-    logger.info("watchdog complete: killed %d/%d zombies", killed, len(zombies))
     return 0
 
 
