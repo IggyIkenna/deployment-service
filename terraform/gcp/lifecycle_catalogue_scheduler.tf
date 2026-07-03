@@ -122,7 +122,7 @@ module "lifecycle_catalogue_regen_job" {
 
   cpu             = each.value.cpu    # per-AG (default 2; tradfi 4 — Cloud Run requires cpu>=4 at 16Gi)
   memory          = each.value.memory # per-AG (default 4Gi; tradfi 16Gi — OOM'd at 4Gi+8Gi)
-  timeout_seconds = 3600 # 60 min — the 11.6k-blob tradfi by_date GCS read is the slow leg (memory is bounded post-_bounded_parallel_load); raised 1800→3600 2026-06-23
+  timeout_seconds = 3600              # 60 min — vast headroom for the DAILY --mode incremental run (~90s tradfi window read; the old full walk that needed this budget now lives in the weekly lifecycle-catalogue-full-* jobs below)
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
@@ -138,14 +138,14 @@ module "lifecycle_catalogue_regen_job" {
   )
 
   environment_variables = {
-    GCP_PROJECT_ID    = var.project_id
-    DEPLOYMENT_ENV    = var.environment
-    CLOUD_PROVIDER    = "gcp"
+    GCP_PROJECT_ID = var.project_id
+    DEPLOYMENT_ENV = var.environment
+    CLOUD_PROVIDER = "gcp"
     # Force Python stdout/stderr to line-buffered mode in the Cloud Run container so
     # the bisection markers (print+flush=True in run_rollup) surface immediately in
     # Cloud Logging rather than being swallowed by the default block-buffered mode
     # (the previous "truncated traceback" symptom on job failures).
-    PYTHONUNBUFFERED  = "1"
+    PYTHONUNBUFFERED = "1"
   }
 
   service_name = "lifecycle-catalogue-regen-${each.key}"
@@ -178,6 +178,116 @@ resource "google_cloud_scheduler_job" "lifecycle_catalogue_regen_daily" {
   http_target {
     http_method = "POST"
     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/lifecycle-catalogue-regen-${each.key}:run"
+
+    oauth_token {
+      service_account_email = google_service_account.lifecycle_catalogue_regen.email
+    }
+  }
+}
+
+# ── Weekly --mode full self-heal (incremental-rollup plan Phase 3) ────────────
+# The DAILY jobs run `--mode incremental` (the script default since
+# instruments_catalogue_incremental_rollup_2026_06_29): prev catalog.parquet +
+# a self-widening trailing window (~90s tradfi vs 2h17m full). A retroactive
+# correction to a by_date file OLDER than the window would be invisible to the
+# increment, so a WEEKLY `--mode full` re-aggregation self-heals any drift.
+# by_date-walking AGs only (sports is a manifest single-read — always "full").
+#
+# timeout: the full tradfi walk measured 2h17m (2026-06-29) and grows with
+# history; 21600s (6h) gives ~2.6× headroom. The old "3600 = the Cloud-Run-Jobs
+# ceiling" note was WRONG — Cloud Run Jobs task timeout goes to 24h; 3600s was
+# only ever this file's chosen budget (validated at terraform apply).
+locals {
+  lifecycle_catalogue_full_asset_groups = {
+    for ag, cfg in local.lifecycle_catalogue_asset_groups : ag => cfg if ag != "sports"
+  }
+  # Stagger the weekly full rebuilds (Saturday, one hour apart) so four
+  # whole-corpus GCS walks don't run concurrently.
+  lifecycle_catalogue_full_schedule = {
+    cefi       = "0 3 * * 6"
+    defi       = "0 4 * * 6"
+    tradfi     = "0 5 * * 6"
+    prediction = "0 6 * * 6"
+  }
+}
+
+module "lifecycle_catalogue_full_job" {
+  source   = "../modules/container-job/gcp"
+  for_each = local.lifecycle_catalogue_full_asset_groups
+
+  name                  = "lifecycle-catalogue-full-${each.key}"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.lifecycle_catalogue_regen.email
+
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
+
+  cpu             = each.value.cpu
+  memory          = each.value.memory # full rebuild needs the daily job's headroom (tradfi 16Gi)
+  timeout_seconds = 21600             # 6h — full tradfi walk is 2h17m and grows; Jobs ceiling is 24h
+  max_retries     = 1
+  parallelism     = 1
+  task_count      = 1
+
+  command = ["python"]
+  args = concat(
+    [
+      "/app/instruments-service/scripts/build_instrument_catalogue.py",
+      "--asset-group",
+      each.key,
+      "--mode",
+      "full",
+    ],
+    each.value.extra_args,
+  )
+
+  environment_variables = {
+    GCP_PROJECT_ID   = var.project_id
+    DEPLOYMENT_ENV   = var.environment
+    CLOUD_PROVIDER   = "gcp"
+    PYTHONUNBUFFERED = "1"
+  }
+
+  service_name = "lifecycle-catalogue-full-${each.key}"
+  environment  = var.environment
+
+  labels = {
+    "purpose"     = "lifecycle-catalogue-full-selfheal"
+    "asset_group" = each.key
+  }
+}
+
+resource "google_cloud_run_v2_job_iam_member" "lifecycle_catalogue_full_run_invoker" {
+  for_each = local.lifecycle_catalogue_full_asset_groups
+
+  project  = var.project_id
+  location = var.region
+  name     = module.lifecycle_catalogue_full_job[each.key].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.lifecycle_catalogue_regen.email}"
+}
+
+resource "google_cloud_scheduler_job" "lifecycle_catalogue_full_weekly" {
+  for_each = local.lifecycle_catalogue_full_asset_groups
+
+  project          = var.project_id
+  region           = var.region
+  name             = "lifecycle-catalogue-full-${each.key}-weekly"
+  description      = "Weekly --mode full self-heal of the ${each.key} lifecycle catalogue (repairs drift from by_date corrections older than the incremental window)"
+  schedule         = local.lifecycle_catalogue_full_schedule[each.key]
+  time_zone        = "UTC"
+  attempt_deadline = "1800s" # fires the :run POST only; the JOB's timeout_seconds=21600 bounds the rebuild
+
+  retry_config {
+    retry_count          = 1
+    min_backoff_duration = "60s"
+    max_backoff_duration = "300s"
+    max_doublings        = 1
+  }
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/lifecycle-catalogue-full-${each.key}:run"
 
     oauth_token {
       service_account_email = google_service_account.lifecycle_catalogue_regen.email
