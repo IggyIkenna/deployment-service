@@ -47,7 +47,7 @@ locals {
 }
 
 # --- SA accessor: DATA_PIPELINE_ALERTS_SLACK_WEBHOOK ---
-# Mirrors the *_accessor IAM members (orphan_ping_audit_scheduler.tf). Binds the
+# Mirrors the *_accessor IAM members (hygiene_sweep_scheduler.tf). Binds the
 # unified_trading SA — which runs BOTH these monitor jobs AND the alerting-service
 # Cloud Run job (audit03_cron_provisioning.tf alerting_paging_job uses the same
 # SA) — so the alerting-service router AND the monitor runtime can read the
