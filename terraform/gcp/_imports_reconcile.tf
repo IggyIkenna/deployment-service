@@ -3,11 +3,6 @@
 # Owning plan: bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md
 
 import {
-  to = google_cloud_run_v2_job.orphan_ping_audit
-  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-orphan-ping-audit"
-}
-
-import {
   to = google_cloud_run_v2_job.plan_hygiene_sweep
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-plan-hygiene-sweep"
 }
@@ -35,11 +30,6 @@ import {
 import {
   to = google_cloud_scheduler_job.mtds_scenario_matrix_cron
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-mtds-scenario-matrix-cron"
-}
-
-import {
-  to = google_cloud_scheduler_job.orphan_ping_audit_cron
-  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-orphan-ping-audit-cron"
 }
 
 import {

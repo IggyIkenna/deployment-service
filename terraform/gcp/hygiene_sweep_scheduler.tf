@@ -9,10 +9,12 @@
 #      from Secret Manager.
 #   2. Run `bash scripts/plan-hygiene/run_hygiene_sweep.sh --ci` — exits 1
 #      if any HARD check fails (todo regression or frontmatter violations).
-#   3. If failures: append a notification to BOTH orchestrator inboxes
-#      (ikenna_orchestrator/_agent_pings.md + harsh_orchestrator/_agent_pings.md)
-#      and commit + push back to live-defi-rollout.
-#   4. Exit 0 always (failures are surfaced via inbox notifications).
+#   3. If failures: post a Slack alert to #agent-orchestrator-alerts
+#      (AGENT_ORCHESTRATOR_SLACK_WEBHOOK secret); details in job logs.
+#      (Pre-2026-07-04 behaviour — append to _agent_pings.md inboxes +
+#      auto-commit — is RETIRED along with the orphan-ping audit cron;
+#      the ping-ledger channel is dead.)
+#   4. Exit 0 always (failures are surfaced via Slack + job logs).
 #
 # Image
 #   `gcr.io/google.com/cloudsdktool/google-cloud-cli:slim` — has bash + git +
@@ -20,11 +22,31 @@
 #
 # Service account
 #   * Scheduler invoker + container runtime: `t1_batch_sa` (already has
-#     roles/run.invoker; GH_PAT secret accessor already granted via
-#     orphan_ping_audit_scheduler.tf).
+#     roles/run.invoker; GH_PAT + Slack-webhook secret accessors bound below —
+#     moved here from the deleted orphan_ping_audit_scheduler.tf 2026-07-04).
 #
 # Entrypoint:
 #   unified-trading-pm/scripts/plan-hygiene/cron_hygiene_sweep_entrypoint.sh
+
+# Bind GH_PAT secret-accessor to the t1_batch SA (container runtime clones
+# unified-trading-pm). Moved from orphan_ping_audit_scheduler.tf (deleted
+# 2026-07-04) — same TF address, no state churn.
+resource "google_secret_manager_secret_iam_member" "t1_batch_gh_pat_accessor" {
+  secret_id = "GH_PAT"
+  project   = var.project_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
+
+# Bind AGENT_ORCHESTRATOR_SLACK_WEBHOOK secret-accessor to the t1_batch SA so
+# the sweep can post hard-failure alerts to #agent-orchestrator-alerts.
+# Moved from orphan_ping_audit_scheduler.tf (deleted 2026-07-04).
+resource "google_secret_manager_secret_iam_member" "t1_batch_slack_webhook_accessor" {
+  secret_id = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
+  project   = var.project_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.t1_batch.email}"
+}
 
 # -------------------------------------------------------
 # Cloud Run Job — daily plan hygiene sweep
@@ -70,26 +92,19 @@ resource "google_cloud_run_v2_job" "plan_hygiene_sweep" {
           value = "https://github.com/IggyIkenna/unified-trading-pm.git"
         }
         env {
-          name  = "GIT_COMMITTER_EMAIL"
-          value = "hygiene-sweep-cron@odum-research.com"
-        }
-        env {
-          name  = "GIT_COMMITTER_NAME"
-          value = "hygiene-sweep-cron"
-        }
-        env {
-          name  = "GIT_AUTHOR_EMAIL"
-          value = "hygiene-sweep-cron@odum-research.com"
-        }
-        env {
-          name  = "GIT_AUTHOR_NAME"
-          value = "hygiene-sweep-cron"
-        }
-        env {
           name = "GH_PAT"
           value_source {
             secret_key_ref {
               secret  = "GH_PAT"
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
+          value_source {
+            secret_key_ref {
+              secret  = "AGENT_ORCHESTRATOR_SLACK_WEBHOOK"
               version = "latest"
             }
           }
@@ -107,6 +122,7 @@ resource "google_cloud_run_v2_job" "plan_hygiene_sweep" {
 
   depends_on = [
     google_secret_manager_secret_iam_member.t1_batch_gh_pat_accessor,
+    google_secret_manager_secret_iam_member.t1_batch_slack_webhook_accessor,
   ]
 }
 
@@ -115,7 +131,7 @@ resource "google_cloud_run_v2_job" "plan_hygiene_sweep" {
 # -------------------------------------------------------
 resource "google_cloud_scheduler_job" "plan_hygiene_sweep_cron" {
   name        = "${local.env_prefix}-plan-hygiene-sweep-cron"
-  description = "Run plan-hygiene sweep daily at 05:00 UTC. Appends failure notifications to orchestrator inboxes. CLAUDE.md Plan Hygiene HARD RULE."
+  description = "Run plan-hygiene sweep daily at 05:00 UTC. Posts hard-failure alerts to Slack #agent-orchestrator-alerts. CLAUDE.md Plan Hygiene HARD RULE."
   schedule    = "0 5 * * *"
   time_zone   = "UTC"
   region      = var.region

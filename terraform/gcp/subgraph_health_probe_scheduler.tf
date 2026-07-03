@@ -23,7 +23,7 @@
 # Service account
 #   Reuses `t1_batch_sa` (already has Secret Manager + Pub/Sub publish
 #   roles via existing bindings). GH_PAT + thegraph-api-key secret
-#   accessor bindings reuse the orphan-ping-audit grant pattern.
+#   accessor bindings reuse the hygiene-sweep grant pattern (hygiene_sweep_scheduler.tf).
 #
 # Cadence — `0 */6 * * *` UTC (every 6h)
 #   * 1/4 day catches drift within the HEAD_LAG threshold.
