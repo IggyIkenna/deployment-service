@@ -209,6 +209,18 @@ locals {
     tradfi     = "0 5 * * 6"
     prediction = "0 6 * * 6"
   }
+  # Weekly FULL rebuilds hold the whole-history aggregate in memory — the daily
+  # jobs no longer do (incremental window), so the full jobs need their OWN
+  # memory floor. prediction's 2.5M-row multi-grain aggregate OOM'd at the daily
+  # map's 4Gi on the first weekly cycle (2026-07-04, "configured memory limit
+  # was reached", execution lifecycle-catalogue-full-prediction-6h4fd); cefi
+  # (1h39m) and defi (41m) completed their full walks at 4Gi the same cycle.
+  lifecycle_catalogue_full_memory = {
+    cefi       = "4Gi"
+    defi       = "4Gi"
+    tradfi     = "16Gi"
+    prediction = "16Gi"
+  }
 }
 
 module "lifecycle_catalogue_full_job" {
@@ -223,8 +235,8 @@ module "lifecycle_catalogue_full_job" {
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
 
   cpu             = each.value.cpu
-  memory          = each.value.memory # full rebuild needs the daily job's headroom (tradfi 16Gi)
-  timeout_seconds = 21600             # 6h — full tradfi walk is 2h17m and grows; Jobs ceiling is 24h
+  memory          = local.lifecycle_catalogue_full_memory[each.key]
+  timeout_seconds = 21600 # 6h — full tradfi walk is 2h17m and grows; Jobs ceiling is 24h
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
