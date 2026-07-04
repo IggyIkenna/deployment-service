@@ -221,6 +221,14 @@ locals {
     tradfi     = "16Gi"
     prediction = "16Gi"
   }
+  # Cloud Run couples CPU and memory (2 CPU caps memory at 8Gi; 16Gi needs 4) —
+  # the 16Gi full jobs carry 4 CPU like the tradfi daily.
+  lifecycle_catalogue_full_cpu = {
+    cefi       = "2"
+    defi       = "2"
+    tradfi     = "4"
+    prediction = "4"
+  }
 }
 
 module "lifecycle_catalogue_full_job" {
@@ -234,7 +242,7 @@ module "lifecycle_catalogue_full_job" {
 
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
 
-  cpu             = each.value.cpu
+  cpu             = local.lifecycle_catalogue_full_cpu[each.key]
   memory          = local.lifecycle_catalogue_full_memory[each.key]
   timeout_seconds = 21600 # 6h — full tradfi walk is 2h17m and grows; Jobs ceiling is 24h
   max_retries     = 1
