@@ -32,7 +32,11 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_instruments_re
     "instruments-store-cefi-central-element-323112",
     "instruments-store-defi-central-element-323112",
     "instruments-store-sports-central-element-323112",
-    "instruments-store-prediction-central-element-323112",
+    # prediction → SSOT canonical `pred-prd` (per cloud-providers.yaml
+    # instruments-store-prediction template resolves to instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-…).
+    # The stale `instruments-store-prediction-central-element-323112` literal doesn't exist as a live bucket;
+    # the actual catalog.parquet lives here (lifecycle_catalogue_scheduler.tf writer confirmed 2026-07-06).
+    "instruments-store-pred-prd-central-element-323112",
   ])
   bucket = each.value
   role   = "roles/storage.objectViewer"
@@ -46,7 +50,8 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_market_data_re
     "market-data-tick-defi-central-element-323112",
     "market-data-tick-tradfi-central-element-323112",
     "market-data-tick-sports-central-element-323112",
-    "market-data-tick-prediction-central-element-323112",
+    # prediction → SSOT canonical `pred-prd` (per cloud-providers.yaml).
+    "market-data-tick-pred-prd-central-element-323112",
   ])
   bucket = each.value
   role   = "roles/storage.objectViewer"
