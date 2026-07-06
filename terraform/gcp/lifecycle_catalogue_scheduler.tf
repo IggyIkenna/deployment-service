@@ -37,11 +37,13 @@
 #   plans/active/master_data_canonicalisation_migration_catalogue_2026_06_07.md §G1.schedule
 #   plans/active/proper_instrument_catalogue_lifecycle_rollup_2026_06_04.md
 #
-# KNOWN bucket-name discrepancy (PRE-EXISTING — flagged, not introduced here):
-#   cloud-providers.yaml maps prediction → instruments-store-PRED-…, but the sibling
-#   instrument_catalogue_scheduler.tf grants on instruments-store-PREDICTION-… . This file
-#   matches the sibling's literals for consistency; reconcile both against the live bucket
-#   when the bucket_name_ssot L6 decommission lands (bucket_name_ssot_legacy_dual_write_remediation).
+# Prediction bucket-name reconciliation (RESOLVED 2026-07-06):
+#   cloud-providers.yaml maps `instruments-store-prediction` → `instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-…`
+#   (SSOT). This file's per-AG map (line 72 below) uses the canonical `instruments-store-pred-prd-…` short-key
+#   where the daily catalog.parquet actually lands (verified via B1 flip 2026-07-06: prediction 103.24MiB in the
+#   canonical bucket). The sibling schedulers (instrument_catalogue_scheduler.tf +
+#   catalogue_regen_scheduler.tf) were reconciled to the same SSOT bucket alongside this comment update
+#   (`is_catalogue_completion_2d_2026_07_06` P2 fix).
 
 locals {
   # asset_group → { bucket = instruments-store bucket, extra_args = per-AG CLI overrides }
