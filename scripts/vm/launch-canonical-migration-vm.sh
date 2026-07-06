@@ -21,6 +21,12 @@
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
+# Env overrides:
+#   MACHINE_TYPE=e2-standard-16  larger VM (default e2-standard-8; tradfi full-range OOM'd on -8, needs 64GB)
+#   WORKERS=24                   migrator concurrency (tradfi default 24; other AGs keep their per-AG default)
+#   ON_DEMAND=true               opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
+#   BOOT_DISK_GB=50              boot disk size
+#
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
@@ -48,6 +54,18 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
+# MACHINE_TYPE override (default e2-standard-8). TradFi v9 migration needs e2-standard-16
+# (64GB): the 2026-06-29 full-range run OOM-killed on e2-standard-8. Per-year chunking +
+# --workers 24 + 64GB is the fix (D3, instruments_completion_tracker_2026_07_06.md).
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+# Backfill/idempotent migration VMs default to SPOT (HARD RULE: spot-vms-for-backfill) — the
+# migrator is idempotent (already-copied objects skip), so preemption just resumes on restart.
+# ON_DEMAND=true is the only opt-out (matches the fleet backfill convention).
+if [[ "${ON_DEMAND:-false}" == "true" ]]; then
+    PROVISIONING_ARGS=(--provisioning-model=STANDARD)
+else
+    PROVISIONING_ARGS=(--provisioning-model=SPOT --instance-termination-action=STOP)
+fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|prediction|sports|all> <start-date> <end-date> [dry|full]"
@@ -69,7 +87,10 @@ _script_for() {
         cefi)       echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
         # TradFi v9: 3-layout-aware path canonicaliser (L-hive pipeline_mode insert + L-hyphen pseudo-hive parse +
         # candles; overlap dedup). DRY-BY-DEFAULT + --apply (same convention as the defi/cefi/prediction v9 tools).
-        tradfi)     echo "python -u -m market_tick_data_service.scripts.migrate_tradfi_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
+        # --workers default 24 (NOT 64): workers=64 on 2026-06-29 thrashed the GCS connection pool (SSL
+        # UNEXPECTED_EOF + pool-full) and OOM-killed on the full range. Run PER-YEAR (--start/--end) on
+        # e2-standard-16 (MACHINE_TYPE) to bound the up-front object-list accumulation. D3.
+        tradfi)     echo "python -u -m market_tick_data_service.scripts.migrate_tradfi_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-24}" ;;
         defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
         # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
         # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
@@ -124,7 +145,8 @@ _launch() {
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
-        --machine-type=e2-standard-8 \
+        --machine-type="$MACHINE_TYPE" \
+        "${PROVISIONING_ARGS[@]}" \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --boot-disk-size="${BOOT_DISK_GB}GB" \
