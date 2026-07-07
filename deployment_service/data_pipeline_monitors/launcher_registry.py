@@ -185,6 +185,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "blank-reason-recon-": "launch-blank-reason-recon-vm.sh",
     # ── Options-chain / CME-events backfills ──────────────────────────────
     "opt-deribit-": "launch-targeted-options-chain-backfill.sh",
+    # Deribit BTC/ETH options_chain daily forward-snapshot (live/replay handler);
+    # distinct from opt-deribit- (historical Tardis batch). Wired under
+    # infra_capture_and_devops_leftovers_2026_07_06 Plan 6 task 002.
+    "deribit-opts-fwd-": "launch-deribit-options-chain-daily.sh",
     "opt-cboe-": "launch-targeted-options-chain-backfill.sh",
     "opt-cme-": "launch-targeted-options-chain-backfill.sh",
     "cme-events-": None,  # CME event-contract — covered by tradfi-event-contract-backfill prefix
