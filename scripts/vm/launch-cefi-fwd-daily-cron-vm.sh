@@ -91,6 +91,15 @@ RUN_TS="$(lc_run_ts)"
 VM_NAME="${VM_PREFIX}${RUN_TS}"
 
 LAUNCHER_GCS_PATH="gs://${CODE_BUCKET}/code/deployment-service/scripts/vm/launch-cefi-forward-poll.sh"
+# Additional launcher fired by the SAME cron host — the Deribit BTC/ETH
+# options_chain daily snapshot runs via the live/replay MTDS operation
+# `deribit-options-chain` (distinct from the Tardis CeFi tick download the
+# primary cron line fires). Wired under infra_capture_and_devops_leftovers_
+# 2026_07_06 Plan 6 task 002; fires 15 min after the CeFi forward-poll so
+# quota/log noise stays disambiguated.
+DERIBIT_OPTS_LAUNCHER_GCS_PATH="gs://${CODE_BUCKET}/code/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh"
+DERIBIT_OPTS_CRON_MIN="${DERIBIT_OPTS_CRON_MIN:-15}"
+DERIBIT_OPTS_CRON_HOUR="${DERIBIT_OPTS_CRON_HOUR:-9}"
 
 LOG_TRAP="$(lc_log_upload_trap_block "$VM_NAME" "$PROJECT")"
 
@@ -102,7 +111,8 @@ set -euo pipefail
 echo "=== cefi-fwd-daily-cron host boot \$(date -u +%FT%TZ) ==="
 echo "VM_NAME=${VM_NAME}"
 echo "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-echo "CRON: ${CRON_MIN} ${CRON_HOUR} * * *"
+echo "CRON (cefi-fwd):        ${CRON_MIN} ${CRON_HOUR} * * *"
+echo "CRON (deribit-options): ${DERIBIT_OPTS_CRON_MIN} ${DERIBIT_OPTS_CRON_HOUR} * * *"
 
 apt-get update -y >/dev/null 2>&1 || true
 which gcloud || (apt-get install -y google-cloud-cli >/dev/null 2>&1 || true)
@@ -110,6 +120,8 @@ which gcloud || (apt-get install -y google-cloud-cli >/dev/null 2>&1 || true)
 mkdir -p /opt/deployment-service/scripts/vm/lib
 gsutil cp "${LAUNCHER_GCS_PATH}" /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh
 chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh
+gsutil cp "${DERIBIT_OPTS_LAUNCHER_GCS_PATH}" /opt/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh
+chmod +x /opt/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh
 
 # PATH MUST include /snap/bin — gcloud/gsutil are the snap symlinked into
 # /snap/bin on Ubuntu-2404 GCE, NOT /usr/bin; cron's minimal default PATH lacks
@@ -117,10 +129,17 @@ chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh
 # (\\\$) so they evaluate at FIRE time, not startup-script-generation time
 # (single-escape baked a frozen launch-minute timestamp + rc=0 into the crontab).
 # Same fix as the tradfi-fwd twin (2026-06-23).
+#
+# Two cron lines:
+#   1) cefi-forward-poll  (Tardis-fleet CeFi tick capture)   @ CRON_HOUR:CRON_MIN
+#   2) deribit-options-chain (live/replay BTC/ETH chain)     @ DERIBIT_OPTS_CRON_HOUR:DERIBIT_OPTS_CRON_MIN
+# Each gsutil-copies its launcher fresh + fires it; failures append a marker
+# to /var/log/cefi-fwd-cron.log so the daily cron heartbeat sees them.
 cat > /etc/cron.d/cefi-fwd-daily <<CRON_EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 ${CRON_MIN} ${CRON_HOUR} * * * root gsutil cp ${LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && chmod +x /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-cefi-forward-poll.sh --env ${DEPLOYMENT_ENV} >> /var/log/cefi-fwd-cron.log 2>&1 || echo "[\\\$(date -u +%FT%TZ)] cefi-fwd cron fire FAILED rc=\\\$?" >> /var/log/cefi-fwd-cron.log
+${DERIBIT_OPTS_CRON_MIN} ${DERIBIT_OPTS_CRON_HOUR} * * * root gsutil cp ${DERIBIT_OPTS_LAUNCHER_GCS_PATH} /opt/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh && chmod +x /opt/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh && DEPLOYMENT_ENV=${DEPLOYMENT_ENV} bash /opt/deployment-service/scripts/vm/launch-deribit-options-chain-daily.sh --env ${DEPLOYMENT_ENV} >> /var/log/cefi-fwd-cron.log 2>&1 || echo "[\\\$(date -u +%FT%TZ)] deribit-options-chain cron fire FAILED rc=\\\$?" >> /var/log/cefi-fwd-cron.log
 CRON_EOF
 chmod 0644 /etc/cron.d/cefi-fwd-daily
 

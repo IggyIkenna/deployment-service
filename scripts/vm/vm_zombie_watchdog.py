@@ -642,6 +642,14 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Options-chain backfills (per-venue bucket)
     # ------------------------------------------------------------------
     "opt-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Deribit BTC/ETH options_chain DAILY forward-snapshot via the live/replay
+    # `deribit-options-chain` MTDS operation — feeds cefi tick bucket under
+    # pipeline_mode=live_deribit. Distinct from opt-deribit- (historical Tardis
+    # batch). Wired by launch-deribit-options-chain-daily.sh under Plan 6
+    # infra_capture_and_devops_leftovers_2026_07_06 task 002.
+    "deribit-opts-fwd-": VmPrefixSpec(
+        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     "opt-cboe-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
