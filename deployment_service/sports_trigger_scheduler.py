@@ -32,10 +32,7 @@ from typing import TypedDict, cast
 import yaml
 from unified_trading_library import get_bucket_name
 
-from .backends.base import JobStatus
 from .backends.cloud_run import CloudRunBackend
-from .config_loader import ConfigLoader
-from .deployment_config import DeploymentConfig
 from .sports_latency_observation import (
     FirstSuccessPoller,
     LatencyObservationRecorder,
@@ -514,7 +511,7 @@ class SportsTriggerScheduler:
                             cr_backend.deploy_shard(
                                 shard_id=shard_id,
                                 docker_image="",
-                                args=shlex.split(cmd),
+                                args=self._strip_python_module_prefix(cmd),
                                 environment_variables={},
                                 compute_config={},
                                 labels={"trigger": trigger_name, "dispatch_id": dispatch_id},
@@ -568,6 +565,21 @@ class SportsTriggerScheduler:
             logger.warning("Failed to create CloudRunBackend for job %s: %s", job_name, exc)
             return None
 
+    @staticmethod
+    def _strip_python_module_prefix(cmd: str) -> list[str]:
+        """Strip the ``python -m <module>`` prefix ``_build_cli_cmd`` always emits.
+
+        Cloud Run Jobs V2 execution overrides can only replace a job's
+        ``args``, never its ``command``/entrypoint — every real target job
+        here (verified via ``gcloud run jobs describe
+        uts-prod-instruments-service-t1-recon``: ``command: None``, ``args:
+        ['--operation=instruments', ...]``) bakes the module invocation into
+        the image's own ENTRYPOINT, so the override must be CLI flags only.
+        """
+        all_tokens = shlex.split(cmd)
+        # _build_cli_cmd always starts with ["python", "-m", "<module>", ...]
+        return all_tokens[3:] if len(all_tokens) > 3 else all_tokens
+
     def _dispatch_local(
         self,
         cmd: str,
@@ -606,6 +618,18 @@ class SportsTriggerScheduler:
             cmd_tokens = raw_tokens
             cwd = str(service_dir)
         else:
+            # No workspace_root: assumes `service` is importable in THIS
+            # process's own environment. Loud WARNING (not silent) — a
+            # deployment-service-only container (e.g. the Cloud Run Job
+            # image) hits FileNotFoundError below on every call otherwise
+            # (the 2026-07-08 silent-zero-dispatch root cause).
+            logger.warning(
+                "Local dispatch for %s with no workspace_root — assumes %s is "
+                "importable here; use --backend cloud in a container that "
+                "only ships deployment-service.",
+                service,
+                service,
+            )
             cmd_tokens = shlex.split(cmd)
             cwd = None
 
@@ -665,93 +689,6 @@ class SportsTriggerScheduler:
                 trigger_name,
                 fixture_id,
                 " ".join(cmd_tokens),
-            )
-            return False
-
-    def _dispatch_cloud(
-        self,
-        cmd: str,
-        service: str,
-        trigger_name: str,
-        dispatch_id: str,
-    ) -> bool:
-        """Dispatch a CLI invocation as a Cloud Run Job execution.
-
-        Strips the ``python -m <module>`` prefix from ``cmd`` — the Cloud Run
-        Job container entrypoint handles that. Resolves the Cloud Run Job name
-        from the service sharding config (``cloud_run_job_name`` field),
-        falling back to the service name itself.
-
-        Returns True on successful launch (RUNNING or PENDING), False on error.
-        Never raises — shard-level failure isolation.
-        """
-        try:
-            loader = ConfigLoader(config_dir=str(Path(__file__).parent.parent / "configs"))
-            svc_config = loader.load_service_config(service)
-            job_name = str(svc_config.get("cloud_run_job_name") or service)
-        except (FileNotFoundError, KeyError, ValueError) as exc:
-            logger.warning(
-                "Could not read cloud_run_job_name for %s (%s) — using service name as job name",
-                service,
-                exc,
-            )
-            job_name = service
-
-        # Strip "python -m <module>" prefix — Cloud Run entrypoint handles it.
-        all_tokens = shlex.split(cmd)
-        # _build_cli_cmd always starts with ["python", "-m", "<module>", ...]
-        cli_args = all_tokens[3:] if len(all_tokens) > 3 else all_tokens
-
-        shard_id = f"sports-{service}-{trigger_name}-{dispatch_id}"
-
-        config = DeploymentConfig()
-        backend = CloudRunBackend(
-            project_id=config.project_id,
-            region=config.gcs_region,
-            service_account_email=config.service_account_email,
-            job_name=job_name,
-        )
-
-        logger.info(
-            "Cloud Run dispatch: job=%s shard_id=%s args=%s",
-            job_name,
-            shard_id,
-            cli_args,
-        )
-
-        try:
-            job_info = backend.deploy_shard(
-                shard_id=shard_id,
-                docker_image="",
-                args=cli_args,
-                environment_variables={},
-                compute_config={},
-                labels={"trigger": trigger_name},
-            )
-            if job_info.status in (JobStatus.RUNNING, JobStatus.PENDING):
-                logger.info(
-                    "Cloud Run dispatch succeeded: %s job_id=%s (trigger=%s dispatch=%s)",
-                    service,
-                    job_info.job_id,
-                    trigger_name,
-                    dispatch_id,
-                )
-                return True
-            logger.warning(
-                "Cloud Run dispatch failed for %s (trigger=%s dispatch=%s): %s",
-                service,
-                trigger_name,
-                dispatch_id,
-                job_info.error_message,
-            )
-            return False
-        except (OSError, ValueError, RuntimeError) as exc:
-            logger.warning(
-                "Cloud Run dispatch exception for %s (trigger=%s dispatch=%s): %s",
-                service,
-                trigger_name,
-                dispatch_id,
-                exc,
             )
             return False
 

@@ -456,7 +456,7 @@ def test_check_reference_season_boundary_no_trigger_when_far_from_boundary() -> 
 # ---------------------------------------------------------------------------
 
 
-def test_cloud_backend_routes_periodic_dispatch_via_dispatch_cloud(
+def test_cloud_backend_routes_periodic_dispatch_through_cloud_branch(
     scheduler: SportsTriggerScheduler,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -535,3 +535,78 @@ def test_get_upcoming_fixtures_returns_fixtures_within_horizon() -> None:
 
     assert len(fixtures) >= 1
     assert any(f["fixture_id"] == "fx-001" for f in fixtures)
+
+
+# ---------------------------------------------------------------------------
+# Cloud dispatch — args must never carry a second "python -m <module>" prefix
+# ---------------------------------------------------------------------------
+#
+# Regression coverage for the 2026-07-08 fix
+# (unified-trading-pm/plans/active/issues/
+# sports_trigger_scheduler_cloud_dispatch_broken_2026_07_08.md): the real,
+# provisioned Cloud Run Job targets (verified via `gcloud run jobs describe
+# uts-prod-instruments-service-t1-recon`) have ``command: None`` — the image's
+# own ENTRYPOINT already resolves to the module invocation — so
+# ``CloudRunBackend.deploy_shard``'s ``args=`` override must be CLI flags
+# only. Before this fix, `_dispatch_services`'s inline cloud branch passed
+# the FULL ``shlex.split(cmd)`` (including "python -m <module>") straight
+# through, which would have broken every real cloud dispatch even after the
+# CLI wiring bug was fixed.
+
+
+def test_strip_python_module_prefix_drops_python_dash_m_module() -> None:
+    """`_build_cli_cmd` always emits "python -m <module> <flags...>"."""
+    cmd = "python -m instruments_service --operation instruments --mode batch --asset-group SPORTS"
+    args = SportsTriggerScheduler._strip_python_module_prefix(cmd)
+    assert args == ["--operation", "instruments", "--mode", "batch", "--asset-group", "SPORTS"]
+    assert "python" not in args
+    assert "-m" not in args
+    assert "instruments_service" not in args
+
+
+def test_strip_python_module_prefix_short_command_returned_as_is() -> None:
+    """Fewer than 4 tokens (malformed/edge input) — nothing to strip, return unchanged."""
+    assert SportsTriggerScheduler._strip_python_module_prefix("python -m mod") == ["python", "-m", "mod"]
+
+
+def test_cloud_backend_dispatch_strips_python_module_prefix_before_deploy_shard(
+    scheduler: SportsTriggerScheduler,
+) -> None:
+    """`_dispatch_services`'s cloud branch must pass stripped args to `deploy_shard`.
+
+    Configures a real `cloud_run_job_name` (unlike the existing
+    `test_cloud_backend_routes_periodic_dispatch_through_cloud_branch`, which
+    intentionally has none and only asserts the warning path is reached) and
+    a fake `CloudRunBackend` so the actual `deploy_shard` call — the one that
+    would hit the real Cloud Run Jobs API in production — can be inspected.
+    """
+    import copy
+    from unittest.mock import MagicMock
+
+    scheduler._backend = "cloud"
+    scheduler._cloud_run_config = {
+        "project_id": "test-project",
+        "region": "asia-northeast1",
+        "service_account_email": "unified-trading-sa@test-project.iam.gserviceaccount.com",
+    }
+    # Deep-copy — `_DISCOVERY_CONFIG` is a module-level dict shared across
+    # every test using the `scheduler` fixture; mutating it in place would
+    # leak `cloud_run_job_name` into unrelated tests.
+    scheduler._config = copy.deepcopy(scheduler._config)
+    scheduler._config["reference"]["services"][0]["cloud_run_job_name"] = "uts-prod-instruments-service-t1-recon"
+
+    fake_backend = MagicMock()
+    scheduler._get_cloud_run_backend = lambda job_name: fake_backend  # type: ignore[method-assign]
+
+    fired = scheduler._check_reference()
+
+    assert fired == 1  # INJURIES has run_always: true
+    fake_backend.deploy_shard.assert_called_once()
+    call_kwargs = fake_backend.deploy_shard.call_args.kwargs
+    args = call_kwargs["args"]
+    assert "python" not in args, f"cloud dispatch args must not re-include the interpreter: {args}"
+    assert "-m" not in args, f"cloud dispatch args must not re-include -m: {args}"
+    assert "instruments_service" not in args, f"cloud dispatch args must not re-include the module: {args}"
+    assert "--sports-entity" in args
+    assert "INJURIES" in args
+    assert "--operation" in args and "instruments" in args

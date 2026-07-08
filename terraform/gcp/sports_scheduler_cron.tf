@@ -1,8 +1,23 @@
-# DEFERRED 2026-04-22 — Plan 3 activated via launch-sports-scheduler-vm.sh instead.
-# Keep for future Cloud Run migration once Plans 12 (deployment_service_build_infrastructure_repair)
-# and 13 (utl_base_image_rebuild_and_workflow_unblock) unblock the Cloud Build path.
-# The VM-daemon shape currently runs SportsTriggerScheduler.run() with its built-in
-# 300-s poll loop on an e2-small GCE VM — no Cloud Run image dependency.
+# REACTIVATED — this Cloud Run Job + Cloud Scheduler cron IS the live
+# production mechanism (confirmed 2026-07-08: `gcloud scheduler jobs describe
+# uts-prod-sports-scheduler-cron` ENABLED, `gcloud run jobs executions list
+# --job=uts-prod-sports-scheduler` shows real executions every 5 min). The
+# stale "DEFERRED... VM instead" note that used to be here was wrong — no
+# `sports-scheduler-*` VM has been running (`gcloud compute instances list`
+# returns zero matches); Plans 12/13 unblocked the Cloud Build path at some
+# point after 2026-04-22 and this job was reactivated without anyone updating
+# this comment. `launch-sports-scheduler-vm.sh` still exists as a documented
+# fallback shape but is NOT currently in use.
+#
+# 2026-07-08: fixed a silent zero-dispatch bug where the container's CMD
+# never passed `--backend`/`--cloud-run-*` to `sports-trigger run`, so every
+# invocation defaulted to `backend="local"` — which cannot work in this
+# image (ships only deployment-service, not instruments-service /
+# market-tick-data-service / features-service). See
+# unified-trading-pm/plans/active/issues/
+# sports_trigger_scheduler_cloud_dispatch_broken_2026_07_08.md. Fix: pass
+# `--backend cloud` + the real Cloud Run Job dispatch targets (see
+# configs/sports-trigger-tiers.yaml).
 #
 # Sports Scheduler — Cloud Run Job + Cloud Scheduler Cron
 #
@@ -12,7 +27,7 @@
 # Operational shape (Option B per plan §"Operational shape"):
 #   * Cloud Scheduler fires every 5 min on a cron.
 #   * Each tick triggers Cloud Run Job `sports-scheduler` which runs
-#     `python -m deployment_service sports-trigger run --one-shot`.
+#     `python -m deployment_service sports-trigger run --one-shot --backend cloud ...`.
 #   * One cycle = evaluate Tier-1 discovery + Tier-2 reference cadences +
 #     fixture-proximate Tier-3/4 triggers, dispatch any that are due, exit 0.
 #   * Cadence is preserved across short-lived containers by persisting
@@ -70,8 +85,20 @@ resource "google_cloud_run_v2_job" "sports_scheduler" {
       containers {
         image = "${var.region}-docker.pkg.dev/${var.project_id}/deployment-dashboard/sports-scheduler:latest"
 
-        # No CMD override — inherit Dockerfile CMD
-        # (`python -m deployment_service sports-trigger run --one-shot`).
+        # CMD override — Dockerfile CMD is `["python", "-m", "deployment_service",
+        # "sports-trigger", "run", "--one-shot"]`; args here REPLACES that whole
+        # CMD (ENTRYPOINT stays `/usr/bin/tini --`), appending the dispatch
+        # backend flags so triggers actually reach instruments-service /
+        # market-tick-data-service / features-sports-service via the real,
+        # already-provisioned Cloud Run Jobs named in
+        # configs/sports-trigger-tiers.yaml (see 2026-07-08 fix note above).
+        args = [
+          "python", "-m", "deployment_service", "sports-trigger", "run", "--one-shot",
+          "--backend", "cloud",
+          "--cloud-run-project", var.project_id,
+          "--cloud-run-region", var.region,
+          "--cloud-run-service-account", google_service_account.unified_trading.email,
+        ]
 
         env {
           name  = "GCP_PROJECT_ID"
