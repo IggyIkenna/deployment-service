@@ -128,6 +128,156 @@ class TestRunBlocking:
 
 
 # ---------------------------------------------------------------------------
+# --backend / --workspace-root / --cloud-run-* wiring
+# ---------------------------------------------------------------------------
+#
+# Regression coverage for the 2026-07-08 fix (unified-trading-pm/plans/active/
+# issues/sports_trigger_scheduler_cloud_dispatch_broken_2026_07_08.md): before
+# this fix, `run`/`evaluate` never passed `backend=`/`workspace_root=`/
+# `cloud_run_config=` to `SportsTriggerScheduler(...)` at all — every
+# invocation silently used the class default `backend="local"`, which cannot
+# work inside the deployment-service-only Cloud Run Job image.
+
+
+class TestBackendWiring:
+    """``--backend`` / ``--workspace-root`` / ``--cloud-run-*`` reach the ctor."""
+
+    @pytest.mark.unit
+    def test_default_backend_is_local_workspace_root_empty(self) -> None:
+        """No flags passed — defaults preserve prior (explicit) behavior."""
+        scheduler = MagicMock()
+        scheduler.run_once.return_value = 0
+
+        with patch(_TARGET, return_value=scheduler) as ctor:
+            runner = CliRunner()
+            result = runner.invoke(sports_trigger, ["run", "--one-shot"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        kwargs = ctor.call_args.kwargs
+        assert kwargs["backend"] == "local"
+        assert kwargs["workspace_root"] == ""
+        assert kwargs["cloud_run_config"] is None
+
+    @pytest.mark.unit
+    def test_backend_cloud_builds_cloud_run_config_from_explicit_flags(self) -> None:
+        """--backend cloud + explicit --cloud-run-* flags populate cloud_run_config."""
+        scheduler = MagicMock()
+        scheduler.run_once.return_value = 0
+
+        with patch(_TARGET, return_value=scheduler) as ctor:
+            runner = CliRunner()
+            result = runner.invoke(
+                sports_trigger,
+                [
+                    "run",
+                    "--one-shot",
+                    "--backend",
+                    "cloud",
+                    "--cloud-run-project",
+                    "test-project",
+                    "--cloud-run-region",
+                    "asia-northeast1",
+                    "--cloud-run-service-account",
+                    "unified-trading-sa@test-project.iam.gserviceaccount.com",
+                ],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = ctor.call_args.kwargs
+        assert kwargs["backend"] == "cloud"
+        assert kwargs["cloud_run_config"] == {
+            "project_id": "test-project",
+            "region": "asia-northeast1",
+            "service_account_email": "unified-trading-sa@test-project.iam.gserviceaccount.com",
+        }
+
+    @pytest.mark.unit
+    def test_backend_cloud_falls_back_to_deployment_config_when_flags_omitted(self) -> None:
+        """--backend cloud with no --cloud-run-* flags falls back to DeploymentConfig()."""
+        scheduler = MagicMock()
+        scheduler.run_once.return_value = 0
+
+        with (
+            patch(_TARGET, return_value=scheduler) as ctor,
+            patch("deployment_service.cli.commands.sports_trigger.DeploymentConfig") as mock_cfg,
+        ):
+            mock_cfg.return_value.project_id = "fallback-project"
+            mock_cfg.return_value.gcs_region = "fallback-region"
+            mock_cfg.return_value.service_account_email = "fallback-sa@example.iam.gserviceaccount.com"
+
+            runner = CliRunner()
+            result = runner.invoke(
+                sports_trigger,
+                ["run", "--one-shot", "--backend", "cloud"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = ctor.call_args.kwargs
+        assert kwargs["cloud_run_config"] == {
+            "project_id": "fallback-project",
+            "region": "fallback-region",
+            "service_account_email": "fallback-sa@example.iam.gserviceaccount.com",
+        }
+
+    @pytest.mark.unit
+    def test_workspace_root_forwarded_for_local_backend(self) -> None:
+        """--workspace-root reaches the ctor unchanged (--backend local, VM shape)."""
+        scheduler = MagicMock()
+        scheduler.run_once.return_value = 0
+
+        with patch(_TARGET, return_value=scheduler) as ctor:
+            runner = CliRunner()
+            result = runner.invoke(
+                sports_trigger,
+                ["run", "--one-shot", "--workspace-root", "/home/ikennaigboaka/workspace"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = ctor.call_args.kwargs
+        assert kwargs["backend"] == "local"
+        assert kwargs["workspace_root"] == "/home/ikennaigboaka/workspace"
+        assert kwargs["cloud_run_config"] is None
+
+    @pytest.mark.unit
+    def test_evaluate_backend_cloud_wiring(self) -> None:
+        """`evaluate` gets the same --backend/--cloud-run-* wiring as `run`."""
+        scheduler = MagicMock()
+        scheduler.run_once.return_value = 0
+
+        with patch(_TARGET, return_value=scheduler) as ctor:
+            runner = CliRunner()
+            result = runner.invoke(
+                sports_trigger,
+                [
+                    "evaluate",
+                    "--execute",
+                    "--backend",
+                    "cloud",
+                    "--cloud-run-project",
+                    "test-project",
+                    "--cloud-run-region",
+                    "asia-northeast1",
+                    "--cloud-run-service-account",
+                    "unified-trading-sa@test-project.iam.gserviceaccount.com",
+                ],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = ctor.call_args.kwargs
+        assert kwargs["backend"] == "cloud"
+        assert kwargs["dry_run"] is False
+        assert kwargs["cloud_run_config"] == {
+            "project_id": "test-project",
+            "region": "asia-northeast1",
+            "service_account_email": "unified-trading-sa@test-project.iam.gserviceaccount.com",
+        }
+
+
+# ---------------------------------------------------------------------------
 # evaluate --dry-run / --execute
 # ---------------------------------------------------------------------------
 
