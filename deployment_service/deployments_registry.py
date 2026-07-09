@@ -182,6 +182,11 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     disk_pct: float = 0.0
     io_write_rate_bytes_sec: float = 0.0
     net_recv_rate_bytes_sec: float = 0.0
+    # ---- workload-PID liveness (deployment_obs_backend_kinds_health_2026_07_09 D.5) —
+    # `kill -0 CMD_PID` sampled by the heartbeat daemon each tick. Default True
+    # (honestly-unknown, non-alarming) for pre-2026-07-09 rows and callers that
+    # never wired a cmd_pid_file — False is only ever a positive dead-PID reading.
+    workload_alive: bool = True
 
     def to_json(self) -> str:
         row = asdict(self)
@@ -225,6 +230,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
             disk_pct=float(data.get("disk_pct", 0.0) or 0.0),
             io_write_rate_bytes_sec=float(data.get("io_write_rate_bytes_sec", 0.0) or 0.0),
             net_recv_rate_bytes_sec=float(data.get("net_recv_rate_bytes_sec", 0.0) or 0.0),
+            workload_alive=bool(data.get("workload_alive", True)),
         )
 
 

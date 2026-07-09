@@ -309,6 +309,39 @@ def test_host_metrics_fields_round_trip() -> None:
     assert restored.net_recv_rate_bytes_sec == 2048.0
 
 
+def test_workload_alive_field_round_trips_false() -> None:
+    entry = _make_entry(workload_alive=False)
+    restored = DeploymentRegistryEntry.from_json(entry.to_json())
+    assert restored == entry
+    assert restored.workload_alive is False
+
+
+def test_legacy_row_without_workload_alive_defaults_true() -> None:
+    # A pre-D.5 GCS row — no workload_alive key. Honest-unknown default is
+    # True (non-alarming), never a fabricated False.
+    legacy = {
+        "deployment_id": "dep-legacy-3",
+        "vm_name": "vm-legacy",
+        "asset_group": "CEFI",
+        "task": "canonical-migration",
+        "mode": "dry",
+        "start_date": "2024-06-01",
+        "end_date": "2024-06-30",
+        "status": "running",
+        "started_at": "2026-04-18T04:23:59Z",
+        "last_heartbeat_at": "2026-04-18T04:23:59Z",
+        "completed_at": None,
+        "exit_code": None,
+        "rows_in": 0,
+        "rows_out": 0,
+        "rows_error": 0,
+        "events_emitted": 1,
+        "log_uri": "gs://bucket/vm-logs/x/run.log",
+    }
+    restored = DeploymentRegistryEntry.from_json(json.dumps(legacy))
+    assert restored.workload_alive is True
+
+
 def test_legacy_row_without_host_metrics_loads_with_zero_defaults() -> None:
     # A pre-D.1 GCS row (written before 2026-07-09) — none of the host-metric keys exist.
     legacy = {

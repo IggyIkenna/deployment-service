@@ -7,7 +7,7 @@ module owns only:
 
   - VM-specific CLI arg shape (--id/--name/--asset-group/--task/--mode/
     --start-date/--end-date/--log-uri/--local-log/--exit-status-file/
-    --stall-breadcrumb/--watchdog-file/--heartbeat-interval-sec/
+    --stall-breadcrumb/--watchdog-file/--cmd-pid-file/--heartbeat-interval-sec/
     --upload-interval-sec/--bucket)
   - ``_RegistryAdapter`` translating the generic ``HeartbeatStore`` protocol
     to ``deployment_service.deployments_registry.DeploymentsRegistry``
@@ -94,6 +94,7 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         disk_pct=float(cast(float, md.get("disk_pct", 0.0)) or 0.0),
         io_write_rate_bytes_sec=float(cast(float, md.get("io_write_rate_bytes_sec", 0.0)) or 0.0),
         net_recv_rate_bytes_sec=float(cast(float, md.get("net_recv_rate_bytes_sec", 0.0)) or 0.0),
+        workload_alive=bool(md.get("workload_alive", True)),
     )
 
 
@@ -129,6 +130,7 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "disk_pct": reg.disk_pct,
             "io_write_rate_bytes_sec": reg.io_write_rate_bytes_sec,
             "net_recv_rate_bytes_sec": reg.net_recv_rate_bytes_sec,
+            "workload_alive": reg.workload_alive,
         },
     )
 
@@ -187,6 +189,7 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
         "disk_pct": md.get("disk_pct", 0.0),
         "io_write_rate_bytes_sec": md.get("io_write_rate_bytes_sec", 0.0),
         "net_recv_rate_bytes_sec": md.get("net_recv_rate_bytes_sec", 0.0),
+        "workload_alive": md.get("workload_alive", True),
     }
 
 
@@ -246,6 +249,15 @@ def _build_parser(config: DeploymentConfig) -> argparse.ArgumentParser:
         help="Path this daemon touches every iter so the shell can verify it's alive",
     )
     p.add_argument(
+        "--cmd-pid-file",
+        default=None,
+        help=(
+            "Path the wrapper writes CMD_PID into once the foreground command starts "
+            "(workload-PID liveness via kill -0). Written after this daemon launches, "
+            "so the daemon reads it lazily — optional, omitted callers get workload_alive=unknown."
+        ),
+    )
+    p.add_argument(
         "--heartbeat-interval-sec",
         type=int,
         default=config.heartbeat_interval_sec,
@@ -299,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     def _i(name: str) -> int:
         return int(cast(int | str, getattr(raw_args, name)))
 
+    def _opt_s(name: str) -> str | None:
+        value = cast(object, getattr(raw_args, name))
+        return None if value is None else str(value)
+
     deployment_id = _s("id")
     vm_name = _s("name")
     asset_group = _s("asset_group")
@@ -311,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_status_str = _s("exit_status_file")
     stall_str = _s("stall_breadcrumb")
     watchdog_str = _s("watchdog_file")
+    cmd_pid_str = _opt_s("cmd_pid_file")
     heartbeat_interval = _i("heartbeat_interval_sec")
     upload_interval = _i("upload_interval_sec")
     upload_max_staleness = _i("upload_max_staleness_sec")
@@ -360,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_status_file=pathlib.Path(exit_status_str),
             stall_breadcrumb=pathlib.Path(stall_str),
             watchdog_file=pathlib.Path(watchdog_str),
+            cmd_pid_file=pathlib.Path(cmd_pid_str) if cmd_pid_str else None,
         )
 
         daemon = HeartbeatDaemon(
