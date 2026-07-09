@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from google.auth.transport import requests as google_auth_requests
     from google.cloud import (  # noqa: cloud-sdk-direct — _gcp_sdk.py IS the GCP SDK boundary; see QUALITY_GATE_BYPASS_AUDIT.md §2.5
         compute_v1,
+        functions_v2,
         run_v2,
     )
     from google.cloud.compute_v1.services.images import (
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "compute_v1",
+    "functions_v2",
     "google_auth_default",
     "google_auth_requests",
     "google_exceptions",
@@ -53,6 +55,7 @@ _DEFERRED: dict[str, tuple[str, str | None]] = {
     "google_auth_requests": ("google.auth.transport.requests", None),
     "compute_v1": ("google.cloud.compute_v1", None),
     "run_v2": ("google.cloud.run_v2", None),
+    "functions_v2": ("google.cloud.functions_v2", None),
     "images_transports": ("google.cloud.compute_v1.services.images.transports", None),
     "instances_transports": ("google.cloud.compute_v1.services.instances.transports", None),
 }
