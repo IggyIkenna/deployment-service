@@ -38,6 +38,7 @@ from unified_trading_library import (
     DEPLOYMENT_STARTED,
     HeartbeatDaemon,
     HeartbeatEntry,
+    HostMetricsSampler,
     LocalFsEventSink,  # pyright: ignore[reportPrivateImportUsage]
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     SignalProtocol,
@@ -87,6 +88,12 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         image_digest=str(md.get("image_digest", "")),
         git_commit=str(md.get("git_commit", "")),
         dep_versions={str(k): str(v) for k, v in dep_versions_raw.items()},
+        cpu_pct=float(cast(float, md.get("cpu_pct", 0.0)) or 0.0),
+        mem_pct=float(cast(float, md.get("mem_pct", 0.0)) or 0.0),
+        mem_slope=float(cast(float, md.get("mem_slope", 0.0)) or 0.0),
+        disk_pct=float(cast(float, md.get("disk_pct", 0.0)) or 0.0),
+        io_write_rate_bytes_sec=float(cast(float, md.get("io_write_rate_bytes_sec", 0.0)) or 0.0),
+        net_recv_rate_bytes_sec=float(cast(float, md.get("net_recv_rate_bytes_sec", 0.0)) or 0.0),
     )
 
 
@@ -116,6 +123,12 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "image_digest": reg.image_digest,
             "git_commit": reg.git_commit,
             "dep_versions": dict(reg.dep_versions),
+            "cpu_pct": reg.cpu_pct,
+            "mem_pct": reg.mem_pct,
+            "mem_slope": reg.mem_slope,
+            "disk_pct": reg.disk_pct,
+            "io_write_rate_bytes_sec": reg.io_write_rate_bytes_sec,
+            "net_recv_rate_bytes_sec": reg.net_recv_rate_bytes_sec,
         },
     )
 
@@ -168,6 +181,12 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
         "image_digest": md.get("image_digest", ""),
         "git_commit": md.get("git_commit", ""),
         "dep_versions": md.get("dep_versions") or {},
+        "cpu_pct": md.get("cpu_pct", 0.0),
+        "mem_pct": md.get("mem_pct", 0.0),
+        "mem_slope": md.get("mem_slope", 0.0),
+        "disk_pct": md.get("disk_pct", 0.0),
+        "io_write_rate_bytes_sec": md.get("io_write_rate_bytes_sec", 0.0),
+        "net_recv_rate_bytes_sec": md.get("net_recv_rate_bytes_sec", 0.0),
     }
 
 
@@ -358,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
             upload_interval_sec=upload_interval,
             upload_max_staleness_sec=upload_max_staleness,
             payload_builder=_vm_payload,
+            host_metrics_sampler=HostMetricsSampler(),
         )
         return daemon.run()
 

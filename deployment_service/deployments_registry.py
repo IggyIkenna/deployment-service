@@ -173,6 +173,15 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     git_commit: str = ""  # service git commit baked at build time ($SHORT_SHA / $COMMIT_SHA)
     dep_versions: dict[str, str] = field(default_factory=dict)  # UTL/UAC versions + base_image_digest
     extras: dict[str, str] = field(default_factory=dict)
+    # ---- D.1 host metric vector (deployment_obs_backend_kinds_health_2026_07_09) —
+    # stamped by the heartbeat daemon's HostMetricsSampler each tick. 0.0 defaults
+    # keep pre-2026-07-09 registry rows loadable (honestly-unknown, not fabricated).
+    cpu_pct: float = 0.0
+    mem_pct: float = 0.0
+    mem_slope: float = 0.0
+    disk_pct: float = 0.0
+    io_write_rate_bytes_sec: float = 0.0
+    net_recv_rate_bytes_sec: float = 0.0
 
     def to_json(self) -> str:
         row = asdict(self)
@@ -210,6 +219,12 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
             git_commit=str(data.get("git_commit", "") or ""),
             dep_versions=dep_versions,
             extras=extras,
+            cpu_pct=float(data.get("cpu_pct", 0.0) or 0.0),
+            mem_pct=float(data.get("mem_pct", 0.0) or 0.0),
+            mem_slope=float(data.get("mem_slope", 0.0) or 0.0),
+            disk_pct=float(data.get("disk_pct", 0.0) or 0.0),
+            io_write_rate_bytes_sec=float(data.get("io_write_rate_bytes_sec", 0.0) or 0.0),
+            net_recv_rate_bytes_sec=float(data.get("net_recv_rate_bytes_sec", 0.0) or 0.0),
         )
 
 

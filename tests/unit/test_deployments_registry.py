@@ -290,6 +290,56 @@ def test_register_persists_bom_fields(registry: DeploymentsRegistry, storage: In
     assert stored["dep_versions"] == {"unified-trading-library": "0.5.0"}
 
 
+# ----- D.1 host metric vector (deployment_obs_backend_kinds_health_2026_07_09) ---
+
+
+def test_host_metrics_fields_round_trip() -> None:
+    entry = _make_entry(
+        cpu_pct=42.5,
+        mem_pct=67.25,
+        mem_slope=1.5,
+        disk_pct=88.0,
+        io_write_rate_bytes_sec=1024.0,
+        net_recv_rate_bytes_sec=2048.0,
+    )
+    restored = DeploymentRegistryEntry.from_json(entry.to_json())
+    assert restored == entry
+    assert restored.cpu_pct == 42.5
+    assert restored.mem_slope == 1.5
+    assert restored.net_recv_rate_bytes_sec == 2048.0
+
+
+def test_legacy_row_without_host_metrics_loads_with_zero_defaults() -> None:
+    # A pre-D.1 GCS row (written before 2026-07-09) — none of the host-metric keys exist.
+    legacy = {
+        "deployment_id": "dep-legacy-2",
+        "vm_name": "vm-legacy",
+        "asset_group": "CEFI",
+        "task": "canonical-migration",
+        "mode": "dry",
+        "start_date": "2024-06-01",
+        "end_date": "2024-06-30",
+        "status": "running",
+        "started_at": "2026-04-18T04:23:59Z",
+        "last_heartbeat_at": "2026-04-18T04:23:59Z",
+        "completed_at": None,
+        "exit_code": None,
+        "rows_in": 0,
+        "rows_out": 0,
+        "rows_error": 0,
+        "events_emitted": 1,
+        "log_uri": "gs://bucket/vm-logs/x/run.log",
+    }
+    restored = DeploymentRegistryEntry.from_json(json.dumps(legacy))
+    assert restored.deployment_id == "dep-legacy-2"
+    assert restored.cpu_pct == 0.0
+    assert restored.mem_pct == 0.0
+    assert restored.mem_slope == 0.0
+    assert restored.disk_pct == 0.0
+    assert restored.io_write_rate_bytes_sec == 0.0
+    assert restored.net_recv_rate_bytes_sec == 0.0
+
+
 # ----- heartbeat.py subcommand integration --------------------------------
 
 
