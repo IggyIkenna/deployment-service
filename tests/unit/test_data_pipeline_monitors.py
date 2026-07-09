@@ -105,6 +105,48 @@ def test_exit_code_none_when_no_durable_signal():
     assert _gcs.read_terminal_exit_code(storage, LOG_BUCKET, "gone-vm") is None
 
 
+# ── _gcs.recent_log_summary ──────────────────────────────────────────────────
+def test_recent_log_summary_counts_error_lines_and_last_line():
+    vm = "defi-recursive-backfill-2026"
+    log = (
+        b"2026-07-09 10:00:00 INFO starting\n"
+        b"2026-07-09 10:00:05 ERROR connection refused\n"
+        b"2026-07-09 10:00:10 INFO retrying\n"
+        b"2026-07-09 10:00:15 WARN slow response\n"
+        b"2026-07-09 10:00:20 INFO done rows_out=42\n"
+    )
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, 0.0)})
+    summary = _gcs.recent_log_summary(storage, LOG_BUCKET, vm)
+    assert summary.recent_error_count == 2  # ERROR line + WARN line (both match _ERROR_LINE_RE)
+    assert summary.last_log_line == "2026-07-09 10:00:20 INFO done rows_out=42"
+
+
+def test_recent_log_summary_missing_log_is_honest_empty():
+    storage = FakeStorage({})
+    summary = _gcs.recent_log_summary(storage, LOG_BUCKET, "gone-vm")
+    assert summary.recent_error_count == 0
+    assert summary.last_log_line is None
+
+
+def test_recent_log_summary_ignores_trailing_blank_lines():
+    vm = "cefi-mr-2026"
+    log = b"2026-07-09 10:00:00 INFO started\n2026-07-09 10:00:01 INFO progressing rows_out=1\n\n\n"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, 0.0)})
+    summary = _gcs.recent_log_summary(storage, LOG_BUCKET, vm)
+    assert summary.last_log_line == "2026-07-09 10:00:01 INFO progressing rows_out=1"
+    assert summary.recent_error_count == 0
+
+
+def test_recent_log_summary_respects_tail_lines_window():
+    vm = "cefi-mr-2027"
+    # 3 old ERROR lines outside a tail_lines=2 window, 1 clean line inside it.
+    log = b"\n".join([b"ERROR old failure %d" % i for i in range(3)] + [b"INFO clean tail line"])
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (log, 0.0)})
+    summary = _gcs.recent_log_summary(storage, LOG_BUCKET, vm, tail_lines=1)
+    assert summary.recent_error_count == 0
+    assert summary.last_log_line == "INFO clean tail line"
+
+
 # ── exit_code_fleet_monitor classification ───────────────────────────────────
 def test_classify_137_is_exit_nonzero():
     res = exit_code_fleet_monitor.classify_terminated_vm("vm", exit_code=137, captured_before=0, captured_after=0)
@@ -1331,9 +1373,7 @@ def _index_parquet(rows: list[tuple[str, str]]) -> bytes:
 
 
 def _af_target(bucket: str = _MD_BUCKET, label: str = "sports") -> meta_watchers.FreshnessTarget:
-    return meta_watchers.FreshnessTarget(
-        bucket=bucket, blob_path=_AVAIL_INDEX, max_age_min=0.0, label=label
-    )
+    return meta_watchers.FreshnessTarget(bucket=bucket, blob_path=_AVAIL_INDEX, max_age_min=0.0, label=label)
 
 
 def test_high_attempted_failed_pages_on_abs_threshold(monkeypatch):
@@ -2579,6 +2619,7 @@ def test_stale_image_flags_prod_2026_06_23_scenario():
 
 # ── DP-LIVE-002 tests ─────────────────────────────────────────────────────────
 
+
 def _make_manifest_parquet(
     *,
     capture_status: str = "captured",
@@ -2662,6 +2703,7 @@ def test_dp_live_002_fires_when_captured_but_gcs_empty() -> None:
         findings.append(finding)  # type: ignore[arg-type]
 
     import unittest.mock as mock
+
     with mock.patch(
         "deployment_service.data_pipeline_monitors.live_stream_watcher.emit_finding",
         side_effect=_emit,
