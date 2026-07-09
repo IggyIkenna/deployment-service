@@ -309,6 +309,27 @@ def test_host_metrics_fields_round_trip() -> None:
     assert restored.net_recv_rate_bytes_sec == 2048.0
 
 
+def test_host_metrics_window_round_trips() -> None:
+    window = [
+        {"cpu_pct": 10.0, "mem_pct": 50.0, "sampled_at": "2026-07-09T00:00:00Z"},
+        {"cpu_pct": 12.0, "mem_pct": 51.0, "sampled_at": "2026-07-09T00:00:15Z"},
+    ]
+    entry = _make_entry(host_metrics_window=window)
+    restored = DeploymentRegistryEntry.from_json(entry.to_json())
+    assert restored == entry
+    assert restored.host_metrics_window == window
+
+
+def test_legacy_row_without_host_metrics_window_defaults_empty() -> None:
+    # A pre-2026-07-09 GCS row — no host_metrics_window key. Honest-empty default,
+    # never a fabricated window.
+    entry = _make_entry()
+    payload = json.loads(entry.to_json())
+    del payload["host_metrics_window"]
+    restored = DeploymentRegistryEntry.from_json(json.dumps(payload))
+    assert restored.host_metrics_window == []
+
+
 def test_workload_alive_field_round_trips_false() -> None:
     entry = _make_entry(workload_alive=False)
     restored = DeploymentRegistryEntry.from_json(entry.to_json())

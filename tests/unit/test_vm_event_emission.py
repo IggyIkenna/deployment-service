@@ -256,6 +256,7 @@ def test_entry_to_registry_roundtrip() -> None:
             "disk_pct": 40.0,
             "io_write_rate_bytes_sec": 1000.0,
             "net_recv_rate_bytes_sec": 2000.0,
+            "host_metrics_window": [{"cpu_pct": 10.0, "sampled_at": "2026-01-01T00:59:00Z"}],
         },
     )
 
@@ -266,9 +267,11 @@ def test_entry_to_registry_roundtrip() -> None:
     assert reg.exit_code == 0
     assert reg.cpu_pct == 12.5
     assert reg.mem_slope == 0.75
+    assert reg.host_metrics_window == [{"cpu_pct": 10.0, "sampled_at": "2026-01-01T00:59:00Z"}]
 
     restored = _registry_to_entry(reg)
     assert restored.deployment_id == "roundtrip-uuid"
     assert restored.counters["rows_in"] == 200
     assert restored.metadata["cpu_pct"] == 12.5
     assert restored.metadata["net_recv_rate_bytes_sec"] == 2000.0
+    assert restored.metadata["host_metrics_window"] == [{"cpu_pct": 10.0, "sampled_at": "2026-01-01T00:59:00Z"}]

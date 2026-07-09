@@ -182,6 +182,11 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     disk_pct: float = 0.0
     io_write_rate_bytes_sec: float = 0.0
     net_recv_rate_bytes_sec: float = 0.0
+    # ---- D.1 rolling window (parent plan D.2 STORE design) — the last ~10 D.1 samples
+    # (each a dict with the 6 metric fields + ``sampled_at``), oldest first, so
+    # ``mem_slope`` / "sustained idle" have a trend to plot instead of a single point.
+    # Empty list default keeps pre-2026-07-09 rows loadable (honest-empty, not fabricated).
+    host_metrics_window: list[dict[str, object]] = field(default_factory=list)
     # ---- workload-PID liveness (deployment_obs_backend_kinds_health_2026_07_09 D.5) —
     # `kill -0 CMD_PID` sampled by the heartbeat daemon each tick. Default True
     # (honestly-unknown, non-alarming) for pre-2026-07-09 rows and callers that
@@ -230,6 +235,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
             disk_pct=float(data.get("disk_pct", 0.0) or 0.0),
             io_write_rate_bytes_sec=float(data.get("io_write_rate_bytes_sec", 0.0) or 0.0),
             net_recv_rate_bytes_sec=float(data.get("net_recv_rate_bytes_sec", 0.0) or 0.0),
+            host_metrics_window=cast(list[dict[str, object]], data.get("host_metrics_window") or []),
             workload_alive=bool(data.get("workload_alive", True)),
         )
 

@@ -36,6 +36,7 @@ from unified_trading_library import (
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
+    HOST_METRICS_WINDOW_KEY,
     HeartbeatDaemon,
     HeartbeatEntry,
     HostMetricsSampler,
@@ -94,6 +95,7 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         disk_pct=float(cast(float, md.get("disk_pct", 0.0)) or 0.0),
         io_write_rate_bytes_sec=float(cast(float, md.get("io_write_rate_bytes_sec", 0.0)) or 0.0),
         net_recv_rate_bytes_sec=float(cast(float, md.get("net_recv_rate_bytes_sec", 0.0)) or 0.0),
+        host_metrics_window=cast("list[dict[str, object]]", md.get(HOST_METRICS_WINDOW_KEY) or []),
         workload_alive=bool(md.get("workload_alive", True)),
     )
 
@@ -130,6 +132,7 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "disk_pct": reg.disk_pct,
             "io_write_rate_bytes_sec": reg.io_write_rate_bytes_sec,
             "net_recv_rate_bytes_sec": reg.net_recv_rate_bytes_sec,
+            HOST_METRICS_WINDOW_KEY: list(reg.host_metrics_window),
             "workload_alive": reg.workload_alive,
         },
     )
