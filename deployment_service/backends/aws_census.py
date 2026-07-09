@@ -66,12 +66,25 @@ class _BatchClient(Protocol):
     def describe_jobs(self, *, jobs: list[str]) -> _RawResponse: ...
 
 
+class _EcsClient(Protocol):
+    """The read-only ECS client surface the census uses."""
+
+    def get_paginator(self, operation_name: str) -> _Paginator: ...
+
+    def describe_services(self, *, cluster: str, services: list[str]) -> _RawResponse: ...
+
+
 # AWS estate defaults (mirror vm_zombie_watchdog_aws.py — all GCS/S3 data + compute
 # live in ap-northeast-1, the AWS twin of GCP asia-northeast1).
 DEFAULT_AWS_REGION = "ap-northeast-1"
 
 # The default AWS Batch job queue (mirrors AWSBatchBackend's default).
 DEFAULT_BATCH_JOB_QUEUE = "unified-trading-job-queue"
+
+# The prod ECS clusters the deployment-observability census reads (mirrors the
+# ``cluster:`` field in ``deployment-service/configs/aws/*.yaml`` + the Terraform
+# ``aws_ecs_cluster.unified_trading`` name ``unified-trading-{environment}``).
+DEFAULT_ECS_CLUSTERS: tuple[str, ...] = ("uts-defi-prod", "unified-trading-prod")
 
 # How many recently-terminated EC2 instances + finished Batch jobs to surface (a
 # census is "live + recent", not the whole history) — Batch list_jobs is paged per
@@ -152,6 +165,31 @@ class AwsBatchJobCensus:
     stopped_at: datetime | None
     exit_code: int | None
     status_reason: str
+
+
+@dataclass(frozen=True)
+class AwsEcsServiceCensus:
+    """One ECS/Fargate service in the read-only census (always-on, not run-to-completion).
+
+    Attributes:
+        name: The ECS ``serviceName`` (the deployment name the classifier reads).
+        cluster: The owning ECS cluster name (``uts-defi-prod`` / ``unified-trading-prod``).
+        desired_count: The service's desired task count (0 = intentionally scaled to zero).
+        running_count: The service's currently running task count.
+        task_definition_revision: The active task-definition revision number, or ``None``
+            if the ARN's trailing segment is not a revision integer.
+        created_at: The service's ``createdAt`` (UTC), or ``None`` if unparseable.
+        updated_at: The primary deployment's ``updatedAt`` (UTC) — the most recent
+            deployment activity — or ``None`` if there is no primary deployment.
+    """
+
+    name: str
+    cluster: str
+    desired_count: int
+    running_count: int
+    task_definition_revision: int | None
+    created_at: datetime | None
+    updated_at: datetime | None
 
 
 def _as_dict(obj: object) -> dict[str, object]:
@@ -289,11 +327,91 @@ def list_batch_census(
         return []
 
 
+def _ecs_datetime(value: object) -> datetime | None:
+    """ECS ``createdAt``/``updatedAt`` are boto3 ``datetime`` objects → UTC datetime."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return None
+
+
+def _task_definition_revision(task_definition_arn: str) -> int | None:
+    """The trailing ``:{revision}`` of a task-definition ARN, or ``None`` if unparseable."""
+    tail = task_definition_arn.rsplit(":", 1)[-1] if ":" in task_definition_arn else ""
+    return int(tail) if tail.isdigit() else None
+
+
+def _parse_ecs_service(svc: dict[str, object], cluster: str) -> AwsEcsServiceCensus:
+    """Parse one ``describe_services`` response element into an ``AwsEcsServiceCensus``."""
+    deployments = _as_list(svc.get("deployments"))
+    primary = _as_dict(deployments[0]) if deployments else {}
+    raw_desired = svc.get("desiredCount")
+    raw_running = svc.get("runningCount")
+    return AwsEcsServiceCensus(
+        name=str(svc.get("serviceName", "")),
+        cluster=cluster,
+        desired_count=int(raw_desired) if isinstance(raw_desired, (int, float)) else 0,
+        running_count=int(raw_running) if isinstance(raw_running, (int, float)) else 0,
+        task_definition_revision=_task_definition_revision(str(svc.get("taskDefinition", ""))),
+        created_at=_ecs_datetime(svc.get("createdAt")),
+        updated_at=_ecs_datetime(primary.get("updatedAt")),
+    )
+
+
+def _list_ecs_service_arns(ecs: _EcsClient, cluster: str) -> list[str]:
+    """Page ``list_services`` for one cluster → every service ARN (running or scaled-to-zero)."""
+    paginator = ecs.get_paginator("list_services")
+    arns: list[str] = []
+    for page_obj in paginator.paginate(cluster=cluster):
+        arns.extend(str(a) for a in _as_list(_as_dict(page_obj).get("serviceArns")))
+    return arns
+
+
+def list_ecs_census(
+    region: str = DEFAULT_AWS_REGION,
+    clusters: tuple[str, ...] = DEFAULT_ECS_CLUSTERS,
+) -> list[AwsEcsServiceCensus]:
+    """List every ECS/Fargate service across the prod clusters, read-only.
+
+    Pages ``list_services`` per cluster for service ARNs, then ``describe_services``
+    (batched ≤10 per call, the ECS API limit) for desiredCount/runningCount/
+    taskDefinition/deployment timestamps. A service is returned exactly as listed —
+    including at 0 running (or 0 desired) tasks — never filtered here, so an
+    intentional scale-to-zero stays visible instead of vanishing (WS-B Open-Q7: the
+    service sub-taxonomy task derives ``serving``/``scaled-to-zero``/``dead``/
+    ``degraded`` from these counts; this census only supplies the raw numbers).
+
+    Honest degradation + shard-level failure isolation: a client-construction failure
+    degrades to an empty list; a single cluster's list/describe failure is logged and
+    that cluster's services are skipped — never raises — so one bad cluster never
+    blocks the others or the GCP inventory.
+    """
+    try:
+        ecs = cast("_EcsClient", _make_client(region, "ecs"))
+    except Exception as exc:
+        logger.warning("AWS ECS census client unavailable (degrading to empty list): %s", exc)
+        return []
+
+    result: list[AwsEcsServiceCensus] = []
+    for cluster in clusters:
+        try:
+            service_arns = _list_ecs_service_arns(ecs, cluster)
+            for i in range(0, len(service_arns), 10):
+                response = _as_dict(ecs.describe_services(cluster=cluster, services=service_arns[i : i + 10]))
+                for svc_obj in _as_list(response.get("services")):
+                    result.append(_parse_ecs_service(_as_dict(svc_obj), cluster))
+        except Exception as exc:
+            logger.warning("AWS ECS census failed for cluster %s (skipping cluster): %s", cluster, exc)
+    return result
+
+
 __all__ = [
     "DEFAULT_AWS_REGION",
     "DEFAULT_BATCH_JOB_QUEUE",
+    "DEFAULT_ECS_CLUSTERS",
     "AwsBatchJobCensus",
+    "AwsEcsServiceCensus",
     "AwsInstanceCensus",
     "list_batch_census",
     "list_ec2_census",
+    "list_ecs_census",
 ]
