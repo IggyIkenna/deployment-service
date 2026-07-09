@@ -74,6 +74,12 @@ class _EcsClient(Protocol):
     def describe_services(self, *, cluster: str, services: list[str]) -> _RawResponse: ...
 
 
+class _LambdaClient(Protocol):
+    """The read-only Lambda client surface the census uses."""
+
+    def get_paginator(self, operation_name: str) -> _Paginator: ...
+
+
 # AWS estate defaults (mirror vm_zombie_watchdog_aws.py — all GCS/S3 data + compute
 # live in ap-northeast-1, the AWS twin of GCP asia-northeast1).
 DEFAULT_AWS_REGION = "ap-northeast-1"
@@ -192,6 +198,37 @@ class AwsEcsServiceCensus:
     updated_at: datetime | None
 
 
+@dataclass(frozen=True)
+class AwsLambdaFunctionCensus:
+    """One Lambda function in the read-only census — existence + config only.
+
+    No invocation/error/duration stats: those are CloudWatch-only (Lambda has no
+    host/cgroup to sample at the edge), the one scoped exception to the
+    edge-push-metrics principle. A census-level presence check + its deployed
+    config is what's cheap/free from ``list_functions`` alone.
+
+    Attributes:
+        name: The ``FunctionName`` (the deployment name the classifier reads).
+        function_arn: The full function ARN.
+        runtime: The declared runtime (``python3.13`` / ``nodejs20.x`` / ...), or
+            ``""`` for a container-image function (no ``Runtime`` field).
+        memory_size_mb: The configured memory (MB).
+        last_modified: The function's last-modified time (UTC), or ``None`` if
+            unparseable.
+        state: The raw Lambda function state (``Active`` / ``Pending`` /
+            ``Failed`` / ``Inactive``).
+        package_type: ``Zip`` or ``Image``.
+    """
+
+    name: str
+    function_arn: str
+    runtime: str
+    memory_size_mb: int
+    last_modified: datetime | None
+    state: str
+    package_type: str
+
+
 def _as_dict(obj: object) -> dict[str, object]:
     """Narrow an untyped boto3 response element to ``dict[str, object]`` (boundary cast).
 
@@ -225,6 +262,19 @@ def _epoch_ms_to_utc(value: object) -> datetime | None:
         return datetime.fromtimestamp(value / 1000.0, UTC)
     except (ValueError, OSError, OverflowError):
         return None
+
+
+def _lambda_last_modified_to_utc(value: object) -> datetime | None:
+    """Lambda's ``LastModified`` is an ISO-8601 string (``2026-06-22T11:30:00.000+0000``),
+    unlike Batch's epoch-millis — parsed separately rather than forcing one shape.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("+0000", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def list_ec2_census(region: str = DEFAULT_AWS_REGION) -> list[AwsInstanceCensus]:
@@ -404,6 +454,46 @@ def list_ecs_census(
     return result
 
 
+def list_lambda_census(region: str = DEFAULT_AWS_REGION) -> list[AwsLambdaFunctionCensus]:
+    """List every Lambda function in the region, read-only — existence + config only.
+
+    A single paginated ``list_functions`` call (no per-function ``describe``/``get``
+    follow-up, no ``list_tags`` N+1) — existence + the config fields the list response
+    already carries. Classification is by ``FunctionName`` (the same name-based
+    resolution Cloud Run jobs use), not tags — Lambda tags require a per-function
+    ``list_tags`` call this census deliberately skips.
+
+    Honest degradation: any boto3 import / API / credential error is logged and yields
+    an empty list — never raises — so the inventory falls back to its other AWS/GCP
+    items.
+    """
+    try:
+        fn_client = cast("_LambdaClient", _make_client(region, "lambda"))
+        paginator = fn_client.get_paginator("list_functions")
+        result: list[AwsLambdaFunctionCensus] = []
+        for page_obj in paginator.paginate():
+            page = _as_dict(page_obj)
+            for fn_obj in _as_list(page.get("Functions")):
+                fn = _as_dict(fn_obj)
+                raw_memory = fn.get("MemorySize")
+                memory_size = int(raw_memory) if isinstance(raw_memory, (int, float)) else 0
+                result.append(
+                    AwsLambdaFunctionCensus(
+                        name=str(fn.get("FunctionName", "")),
+                        function_arn=str(fn.get("FunctionArn", "")),
+                        runtime=str(fn.get("Runtime", "")),
+                        memory_size_mb=memory_size,
+                        last_modified=_lambda_last_modified_to_utc(fn.get("LastModified")),
+                        state=str(fn.get("State", "unknown")),
+                        package_type=str(fn.get("PackageType", "Zip")),
+                    )
+                )
+        return result
+    except Exception as exc:
+        logger.warning("AWS Lambda census failed (degrading to empty list): %s", exc)
+        return []
+
+
 __all__ = [
     "DEFAULT_AWS_REGION",
     "DEFAULT_BATCH_JOB_QUEUE",
@@ -411,7 +501,9 @@ __all__ = [
     "AwsBatchJobCensus",
     "AwsEcsServiceCensus",
     "AwsInstanceCensus",
+    "AwsLambdaFunctionCensus",
     "list_batch_census",
     "list_ec2_census",
     "list_ecs_census",
+    "list_lambda_census",
 ]
