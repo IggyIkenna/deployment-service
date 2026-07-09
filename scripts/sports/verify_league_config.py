@@ -265,9 +265,9 @@ def verify_configuration(
             extra_in_config.append(
                 {
                     "league_id": league_id,
-                    "league_name": str(league.get("api_football_league_name", "")),
-                    "country": str(league.get("country_region", "")),
-                    "classification": str(league.get("classification", "")),
+                    "league_name": str(league.get("api_football_league_name", "")),  # noqa: qg-empty-fallback — display field, absent is meaningfully blank
+                    "country": str(league.get("country_region", "")),  # noqa: qg-empty-fallback — display field, absent is meaningfully blank
+                    "classification": str(league.get("classification", "")),  # noqa: qg-empty-fallback — display field, absent is meaningfully blank
                     "tier": league.get("tier"),
                     "note": "Uses placeholder ID - conflicts in source document",
                 }

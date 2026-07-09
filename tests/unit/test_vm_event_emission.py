@@ -121,6 +121,35 @@ def test_main_constructs_daemon_with_deployment_events() -> None:
     assert call_kwargs["upload_max_staleness_sec"] == 90
 
 
+def test_main_wires_host_metrics_sampler() -> None:
+    """HeartbeatDaemon is constructed with a HostMetricsSampler (D.1 vector, 2026-07-09)."""
+    from unified_trading_library import HostMetricsSampler
+
+    import deployment_service.vm.heartbeat_cli as hc
+
+    daemon_mock = MagicMock()
+    daemon_mock.run.return_value = 0
+    daemon_ctor = MagicMock(return_value=daemon_mock)
+
+    @contextmanager
+    def _fake_run_lifecycle(**_: Any):
+        yield
+
+    with (
+        patch.dict("os.environ", {"GCP_PROJECT_ID": "test-project"}),
+        patch("deployment_service.vm.heartbeat_cli.setup_events"),
+        patch("deployment_service.vm.heartbeat_cli.PubSubEventSink"),
+        patch("deployment_service.vm.heartbeat_cli.run_lifecycle", _fake_run_lifecycle),
+        patch("deployment_service.vm.heartbeat_cli.HeartbeatDaemon", daemon_ctor),
+        patch("deployment_service.vm.heartbeat_cli.DeploymentsRegistry"),
+        patch("deployment_service.vm.heartbeat_cli.get_storage_client"),
+    ):
+        hc.main(_REQUIRED_ARGV)
+
+    call_kwargs = daemon_ctor.call_args.kwargs
+    assert isinstance(call_kwargs["host_metrics_sampler"], HostMetricsSampler)
+
+
 def test_run_lifecycle_is_entered() -> None:
     """run_lifecycle() context manager is entered — STEP 5.63 compliance."""
     import deployment_service.vm.heartbeat_cli as hc
@@ -221,6 +250,12 @@ def test_entry_to_registry_roundtrip() -> None:
             "start_date": "2026-01-01",
             "end_date": "2026-01-31",
             "log_uri": "gs://bucket/logs/run.log",
+            "cpu_pct": 12.5,
+            "mem_pct": 55.0,
+            "mem_slope": 0.75,
+            "disk_pct": 40.0,
+            "io_write_rate_bytes_sec": 1000.0,
+            "net_recv_rate_bytes_sec": 2000.0,
         },
     )
 
@@ -229,7 +264,11 @@ def test_entry_to_registry_roundtrip() -> None:
     assert reg.asset_group == "cefi"
     assert reg.rows_in == 200
     assert reg.exit_code == 0
+    assert reg.cpu_pct == 12.5
+    assert reg.mem_slope == 0.75
 
     restored = _registry_to_entry(reg)
     assert restored.deployment_id == "roundtrip-uuid"
     assert restored.counters["rows_in"] == 200
+    assert restored.metadata["cpu_pct"] == 12.5
+    assert restored.metadata["net_recv_rate_bytes_sec"] == 2000.0

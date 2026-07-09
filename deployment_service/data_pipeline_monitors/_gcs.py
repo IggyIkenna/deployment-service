@@ -429,6 +429,52 @@ def error_snippet_from_run_log(
     return snippet
 
 
+@dataclass(frozen=True)
+class RecentLogSummary:
+    """The deployment-observability popover's log summary — count + last line.
+
+    Attributes:
+        recent_error_count: How many of the last ``tail_lines`` run.log lines
+            matched ``_ERROR_LINE_RE`` (error/exception/traceback/OOM/non-zero
+            rc/warn) — the SAME regex ``error_snippet_from_run_log`` uses, so
+            the popover's count agrees with the Slack-alert snippet.
+        last_log_line: The final non-empty line of the log, or ``None`` when
+            the log is missing/empty.
+    """
+
+    recent_error_count: int
+    last_log_line: str | None
+
+
+def recent_log_summary(
+    storage_client: StorageClient,
+    bucket: str,
+    vm_name: str,
+    *,
+    tail_lines: int = 200,
+) -> RecentLogSummary:
+    """Recent error count + last log line for the deployment-observability popover.
+
+    Reuses the SAME durable run.log blob + ``_ERROR_LINE_RE`` classifier
+    ``error_snippet_from_run_log`` already reads for Slack alerts — no new
+    GCS path, no new CloudWatch dependency (WS-D.0 principle 4's one scoped
+    exception is Lambda, not VM run.log). A missing/empty log degrades to
+    ``RecentLogSummary(0, None)`` — never raises, so a popover open for a
+    self-deleted or not-yet-started VM shows an honest empty state.
+
+    On-demand, single-target read (popover-triggered, not a bulk sweep) — the
+    same acceptable read pattern the existing snippet functions already use.
+    """
+    log = read_text(storage_client, bucket, RUN_LOG_BLOB.format(vm=vm_name))
+    if not log:
+        return RecentLogSummary(recent_error_count=0, last_log_line=None)
+    lines = log.splitlines()[-tail_lines:]
+    error_count = sum(1 for ln in lines if _ERROR_LINE_RE.search(ln))
+    non_empty = [ln for ln in lines if ln.strip()]
+    last_line = non_empty[-1] if non_empty else None
+    return RecentLogSummary(recent_error_count=error_count, last_log_line=last_line)
+
+
 def run_log_console_url(bucket: str, vm_name: str) -> str:
     """Return the GCS-console deep-link to a VM's durable run.log object.
 

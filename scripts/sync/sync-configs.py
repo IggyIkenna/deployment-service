@@ -248,7 +248,7 @@ def main() -> int:
     parser.add_argument("--dest", choices=["gcs", "s3"], default="s3", help="Destination for --sync (default: s3)")
     parser.add_argument(
         "--gcp-project",
-        default=os.environ.get("GCP_PROJECT_ID", ""),
+        default=os.environ.get("GCP_PROJECT_ID", ""),  # noqa: qg-empty-fallback — "" means unset; consumed as `or None` below
         help="GCP project ID (default: GCP_PROJECT_ID env var)",
     )
     parser.add_argument("--aws-region", default=os.environ.get("AWS_REGION", "ap-northeast-1"))

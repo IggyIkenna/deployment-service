@@ -7,7 +7,7 @@ module owns only:
 
   - VM-specific CLI arg shape (--id/--name/--asset-group/--task/--mode/
     --start-date/--end-date/--log-uri/--local-log/--exit-status-file/
-    --stall-breadcrumb/--watchdog-file/--heartbeat-interval-sec/
+    --stall-breadcrumb/--watchdog-file/--cmd-pid-file/--heartbeat-interval-sec/
     --upload-interval-sec/--bucket)
   - ``_RegistryAdapter`` translating the generic ``HeartbeatStore`` protocol
     to ``deployment_service.deployments_registry.DeploymentsRegistry``
@@ -38,6 +38,7 @@ from unified_trading_library import (
     DEPLOYMENT_STARTED,
     HeartbeatDaemon,
     HeartbeatEntry,
+    HostMetricsSampler,
     LocalFsEventSink,  # pyright: ignore[reportPrivateImportUsage]
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     SignalProtocol,
@@ -87,6 +88,13 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         image_digest=str(md.get("image_digest", "")),
         git_commit=str(md.get("git_commit", "")),
         dep_versions={str(k): str(v) for k, v in dep_versions_raw.items()},
+        cpu_pct=float(cast(float, md.get("cpu_pct", 0.0)) or 0.0),
+        mem_pct=float(cast(float, md.get("mem_pct", 0.0)) or 0.0),
+        mem_slope=float(cast(float, md.get("mem_slope", 0.0)) or 0.0),
+        disk_pct=float(cast(float, md.get("disk_pct", 0.0)) or 0.0),
+        io_write_rate_bytes_sec=float(cast(float, md.get("io_write_rate_bytes_sec", 0.0)) or 0.0),
+        net_recv_rate_bytes_sec=float(cast(float, md.get("net_recv_rate_bytes_sec", 0.0)) or 0.0),
+        workload_alive=bool(md.get("workload_alive", True)),
     )
 
 
@@ -116,6 +124,13 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "image_digest": reg.image_digest,
             "git_commit": reg.git_commit,
             "dep_versions": dict(reg.dep_versions),
+            "cpu_pct": reg.cpu_pct,
+            "mem_pct": reg.mem_pct,
+            "mem_slope": reg.mem_slope,
+            "disk_pct": reg.disk_pct,
+            "io_write_rate_bytes_sec": reg.io_write_rate_bytes_sec,
+            "net_recv_rate_bytes_sec": reg.net_recv_rate_bytes_sec,
+            "workload_alive": reg.workload_alive,
         },
     )
 
@@ -168,6 +183,13 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
         "image_digest": md.get("image_digest", ""),
         "git_commit": md.get("git_commit", ""),
         "dep_versions": md.get("dep_versions") or {},
+        "cpu_pct": md.get("cpu_pct", 0.0),
+        "mem_pct": md.get("mem_pct", 0.0),
+        "mem_slope": md.get("mem_slope", 0.0),
+        "disk_pct": md.get("disk_pct", 0.0),
+        "io_write_rate_bytes_sec": md.get("io_write_rate_bytes_sec", 0.0),
+        "net_recv_rate_bytes_sec": md.get("net_recv_rate_bytes_sec", 0.0),
+        "workload_alive": md.get("workload_alive", True),
     }
 
 
@@ -227,6 +249,15 @@ def _build_parser(config: DeploymentConfig) -> argparse.ArgumentParser:
         help="Path this daemon touches every iter so the shell can verify it's alive",
     )
     p.add_argument(
+        "--cmd-pid-file",
+        default=None,
+        help=(
+            "Path the wrapper writes CMD_PID into once the foreground command starts "
+            "(workload-PID liveness via kill -0). Written after this daemon launches, "
+            "so the daemon reads it lazily — optional, omitted callers get workload_alive=unknown."
+        ),
+    )
+    p.add_argument(
         "--heartbeat-interval-sec",
         type=int,
         default=config.heartbeat_interval_sec,
@@ -280,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     def _i(name: str) -> int:
         return int(cast(int | str, getattr(raw_args, name)))
 
+    def _opt_s(name: str) -> str | None:
+        value = cast(object, getattr(raw_args, name))
+        return None if value is None else str(value)
+
     deployment_id = _s("id")
     vm_name = _s("name")
     asset_group = _s("asset_group")
@@ -292,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_status_str = _s("exit_status_file")
     stall_str = _s("stall_breadcrumb")
     watchdog_str = _s("watchdog_file")
+    cmd_pid_str = _opt_s("cmd_pid_file")
     heartbeat_interval = _i("heartbeat_interval_sec")
     upload_interval = _i("upload_interval_sec")
     upload_max_staleness = _i("upload_max_staleness_sec")
@@ -341,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_status_file=pathlib.Path(exit_status_str),
             stall_breadcrumb=pathlib.Path(stall_str),
             watchdog_file=pathlib.Path(watchdog_str),
+            cmd_pid_file=pathlib.Path(cmd_pid_str) if cmd_pid_str else None,
         )
 
         daemon = HeartbeatDaemon(
@@ -358,6 +395,7 @@ def main(argv: list[str] | None = None) -> int:
             upload_interval_sec=upload_interval,
             upload_max_staleness_sec=upload_max_staleness,
             payload_builder=_vm_payload,
+            host_metrics_sampler=HostMetricsSampler(),
         )
         return daemon.run()
 

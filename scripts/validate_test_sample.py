@@ -172,7 +172,10 @@ def check_market_data_bucket(
 
         for date in dates:
             for instrument in instruments:
-                instrument_key = instrument.get("instrument_key", "")
+                instrument_key = instrument.get("instrument_key")
+                if not instrument_key:
+                    logger.warning("skipping instrument with missing instrument_key: %r", instrument)
+                    continue
                 for data_type in data_types:
                     # Build expected path
                     # Format: processed_candles/by_date/day-{date}/timeframe-{tf}/data_type-{dt}/{asset_group}/{venue}/{instrument_id}.parquet
