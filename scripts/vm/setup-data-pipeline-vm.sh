@@ -1123,9 +1123,9 @@ elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
   else
     log "ERROR: ${VM_TASK} task without VM_BACKFILL_CMD metadata"
   fi
-elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "expected-universe-enum" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
-  # Phase 5b/5c backfill + phantom-recon (2026-05-07) + expected-universe-enum
-  # (Phase 3.D.4 writegate, 2026-05-07) + cross-asset-rescan (Phase 3.D of
+elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$VM_TASK" == "phantom-recon" || "$VM_TASK" == "cross-asset-rescan" || "$VM_TASK" == "synthetic-benchmark" ]]; then
+  # Phase 5b/5c backfill + phantom-recon (2026-05-07) +
+  # cross-asset-rescan (Phase 3.D of
   # manifest_schema_final_gate_2026_05_09, fix shipped 2026-05-11 after
   # `cross-asset-rescan-20260511-153940` failed at `python -m instruments_service`
   # CLI dispatch — no `cross_asset_rescan` operation registered) +
@@ -1137,7 +1137,7 @@ elif [[ "$VM_TASK" == "mdps-backfill" || "$VM_TASK" == "features-backfill" || "$
   # BACKFILL_CMD metadata carries the full command (e.g. "python /workspace/instruments-service/scripts/
   # reconcile_phantom_manifest_rows_all.py --asset-group defi --dry-run").
   # This route lets one-off-script launchers (phantom-recon,
-  # expected-universe-enum, cross-asset-rescan, synthetic-benchmark, future) reuse
+  # cross-asset-rescan, synthetic-benchmark, future) reuse
   # the workspace tarball-pull + venv setup without bespoke startup scripts.
   VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")

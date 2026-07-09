@@ -145,7 +145,6 @@ _register "scenario-runner"                "execution-service"          "scenari
 # Instruments Service
 _register "instruments-backfill"           "instruments-service"        "instr-backfill-"          "uts-instruments-service-${DEPLOYMENT_ENV}"
 _register "instruments-smoke"              "instruments-service"        "instr-smoke-"             "uts-instruments-service-${DEPLOYMENT_ENV}"
-_register "expected-universe-enumerator"   "instruments-service"        "eu-enum-"                 "uts-instruments-service-${DEPLOYMENT_ENV}"
 _register "expected-universe-v2"           "instruments-service"        "eu-v2-"                   "uts-instruments-service-${DEPLOYMENT_ENV}"
 _register "sports-instruments-reference"   "instruments-service"        "sports-instr-ref-"        "uts-instruments-service-${DEPLOYMENT_ENV}"
 

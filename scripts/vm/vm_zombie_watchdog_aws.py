@@ -41,7 +41,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-import boto3  # noqa: TID251 — AWS EC2 compute ops (describe/terminate instances); UTL get_storage_client/get_secret_client wrap storage+secrets only, not EC2
+import boto3  # noqa: TID251,RUF100 — AWS EC2 compute ops (describe/terminate instances); UTL get_storage_client/get_secret_client wrap storage+secrets only, not EC2
 from botocore.exceptions import ClientError
 from unified_api_contracts import VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
@@ -120,7 +120,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "instr-backfill-sports-": VmPrefixSpec(bucket=_INSTR_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "instr-backfill-pred-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "instr-smoke-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "eu-enum-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "eu-v2-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "sports-instr-ref-": VmPrefixSpec(bucket=_INSTR_SPORTS, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "manifest-cons-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),

@@ -180,7 +180,6 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "manifest-recon-": None,  # read-only all-reconciler dry-run
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
-    "expected-universe-enum-": "launch-expected-universe-enumerator-vm.sh",
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
     "blank-reason-recon-": "launch-blank-reason-recon-vm.sh",
     # ── Options-chain / CME-events backfills ──────────────────────────────

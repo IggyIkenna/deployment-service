@@ -73,7 +73,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from google.cloud import compute_v1  # noqa: TID251 — zombie watchdog is a standalone VM daemon with direct GCP SDK access; no UTL wrapper for aggregated_list_instances at this scope
+from google.cloud import (
+    compute_v1,  # noqa: TID251,RUF100 — zombie watchdog is a standalone VM daemon with direct GCP SDK access; no UTL wrapper for aggregated_list_instances at this scope
+)
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import DeploymentUmbrella, VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
@@ -617,19 +619,10 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "batch-live-recon-": None,
     # ------------------------------------------------------------------
-    # Expected-universe enumerator (Phase 3.D.4 writegate, 2026-05-07).
-    # In --apply-write mode it writes per-VM manifest shards under
-    # gs://market-data-tick-{asset_group}-{pid}/_index/per_vm/{vm_name}.parquet
-    # which the consolidator daemon merges into the canonical manifest.
-    # Per-VM shard write means the watchdog needs no per-asset-group
-    # bucket signal here — heartbeat-only (None) is correct.
-    # ------------------------------------------------------------------
-    "expected-universe-enum-": None,
-    # ------------------------------------------------------------------
     # Per-instrument v2 expected-universe enumerator (Gate G3
     # manifest_evolution_SUPERSEDED_2026_05_21 / Phase 2.B, 2026-05-13).
     # Writes per-VM manifest shards only; no canonical data bucket to poll.
-    # Heartbeat-only (None) is correct — same rationale as v1 above.
+    # Heartbeat-only (None) is correct.
     "expected-universe-v2-": None,
     # ------------------------------------------------------------------
     # Blank-reason reconciler (writegate Phase 3.D.5 Wave 2.M, 2026-05-07).
@@ -647,9 +640,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # pipeline_mode=live_deribit. Distinct from opt-deribit- (historical Tardis
     # batch). Wired by launch-deribit-options-chain-daily.sh under Plan 6
     # infra_capture_and_devops_leftovers_2026_07_06 task 002.
-    "deribit-opts-fwd-": VmPrefixSpec(
-        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
-    ),
+    "deribit-opts-fwd-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "opt-cboe-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
