@@ -41,9 +41,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-# AWS EC2 compute ops (describe/terminate instances); UTL get_storage_client/
-# get_secret_client wrap storage+secrets only, not EC2
-import boto3
+import boto3  # noqa: TID251,RUF100 — AWS EC2 compute ops (describe/terminate instances); UTL get_storage_client/get_secret_client wrap storage+secrets only, not EC2
 from botocore.exceptions import ClientError
 from unified_api_contracts import VmPrefixSpec
 from unified_api_contracts.canonical.crosscutting import LifecycleClass
