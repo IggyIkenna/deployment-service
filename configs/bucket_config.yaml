@@ -52,30 +52,10 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
-    - name_template: "solana-defi-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "solana-defi-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "evm-defi-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "evm-defi-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "lending-indices-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "lending-indices-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # solana-defi, evm-defi, lending-indices REMOVED 2026-07-10 (bucket estate cleanup,
+    # [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero callers workspace-wide;
+    # real data goes to the shared market-data-tick-defi bucket instead. See
+    # cloud-providers.yaml's matching removal comment for the full rationale.
     - name_template: "dex-pools-{project_id}"
       service: market-tick-data-service
       type: reference_data
@@ -100,30 +80,8 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
-    - name_template: "liquidations-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "liquidations-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "dex-swaps-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "dex-swaps-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "oracle-prices-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "oracle-prices-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # liquidations, dex-swaps, oracle-prices REMOVED 2026-07-10 (bucket estate cleanup) —
+    # same rationale as solana-defi/evm-defi/lending-indices above.
     - name_template: "eigenlayer-rewards-{project_id}"
       service: market-tick-data-service
       type: reference_data
@@ -175,47 +133,12 @@ infrastructure_buckets:
       service: infrastructure
       type: infrastructure
       category: ALL
-    # Legacy risk-store naming (category-prefix instead of suffix)
-    - name_template: "risk-store-cefi-{project_id}"
-      service: strategy-service
-      type: output
-      category: cefi
-    - name_template: "risk-store-cefi-test-{project_id}"
-      service: strategy-service
-      type: test
-      category: cefi
-    - name_template: "risk-store-defi-{project_id}"
-      service: strategy-service
-      type: output
-      category: defi
-    - name_template: "risk-store-defi-test-{project_id}"
-      service: strategy-service
-      type: test
-      category: defi
-    - name_template: "risk-store-tradfi-{project_id}"
-      service: strategy-service
-      type: output
-      category: tradfi
-    - name_template: "risk-store-tradfi-test-{project_id}"
-      service: strategy-service
-      type: test
-      category: tradfi
-    - name_template: "risk-store-prediction-{project_id}"
-      service: strategy-service
-      type: output
-      category: prediction
-    - name_template: "risk-store-prediction-test-{project_id}"
-      service: strategy-service
-      type: test
-      category: prediction
-    - name_template: "risk-store-sports-{project_id}"
-      service: strategy-service
-      type: output
-      category: sports
-    - name_template: "risk-store-sports-test-{project_id}"
-      service: strategy-service
-      type: test
-      category: sports
+    # Legacy risk-store naming (category-prefix instead of suffix) — REMOVED 2026-07-10
+    # (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]): confirmed zero callers
+    # workspace-wide, in ANY of the 3 legacy naming schemes tried (this one, the -{pid}-{ag}
+    # suffix scheme, and cloud-providers.yaml's risk-store-defi flat key, also removed). Real
+    # naming is unified_trading_library/config_interface/paths/registry.py PATH_REGISTRY's
+    # risk-metrics-store-{pid}. risk-and-exposure-service doesn't exist as a repo.
     # Volatility defi (was missing from restricted_categories)
     - name_template: "features-volatility-defi-{project_id}"
       service: features-volatility-service
@@ -238,30 +161,8 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
-    - name_template: "unified-trading-solana-defi-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-solana-defi-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-evm-defi-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-evm-defi-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-lending-indices-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-lending-indices-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # unified-trading-solana-defi, unified-trading-evm-defi, unified-trading-lending-indices
+    # REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP-section removal above.
     - name_template: "unified-trading-dex-pools-{account_id}"
       service: market-tick-data-service
       type: reference_data
@@ -286,30 +187,8 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: defi
-    - name_template: "unified-trading-liquidations-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-liquidations-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-dex-swaps-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-dex-swaps-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-oracle-prices-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-oracle-prices-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # unified-trading-liquidations, unified-trading-dex-swaps, unified-trading-oracle-prices
+    # REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP-section removal above.
     - name_template: "unified-trading-eigenlayer-rewards-{account_id}"
       service: market-tick-data-service
       type: reference_data
@@ -327,38 +206,9 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data_test
       category: tradfi
-    - name_template: "risk-store-cefi-{account_id}"
-      service: strategy-service
-      type: output
-      category: cefi
-    - name_template: "risk-store-cefi-test-{account_id}"
-      service: strategy-service
-      type: test
-      category: cefi
-    - name_template: "risk-store-tradfi-{account_id}"
-      service: strategy-service
-      type: output
-      category: tradfi
-    - name_template: "risk-store-tradfi-test-{account_id}"
-      service: strategy-service
-      type: test
-      category: tradfi
-    - name_template: "risk-store-prediction-{account_id}"
-      service: strategy-service
-      type: output
-      category: prediction
-    - name_template: "risk-store-prediction-test-{account_id}"
-      service: strategy-service
-      type: test
-      category: prediction
-    - name_template: "risk-store-sports-{account_id}"
-      service: strategy-service
-      type: output
-      category: sports
-    - name_template: "risk-store-sports-test-{account_id}"
-      service: strategy-service
-      type: test
-      category: sports
+    # risk-store-{cefi,tradfi,prediction,sports} REMOVED 2026-07-10 (bucket estate cleanup) —
+    # mirrors the GCP-section removal above (confirmed zero callers, real naming is UTL
+    # PATH_REGISTRY's risk-metrics-store-{pid}).
 
 aws_bucket_mappings:
   instruments-store: "unified-trading-instruments-{category}-{account_id}"
@@ -375,23 +225,18 @@ aws_bucket_mappings:
   features-cross-instrument: "unified-trading-features-cross-instrument-{category}-{account_id}"
   execution-store: "unified-trading-execution-{category}-{account_id}"
   strategy-store: "unified-trading-strategy-{category}-{account_id}"
-  risk-store: "unified-trading-risk-{category}-{account_id}"
-  pnl-store: "unified-trading-pnl-{category}-{account_id}"
-  positions-store: "unified-trading-positions-{category}-{account_id}"
+  # risk-store, pnl-store, positions-store, solana-defi, evm-defi, lending-indices,
+  # liquidations, dex-swaps, oracle-prices REMOVED 2026-07-10 (bucket estate cleanup,
+  # [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero resolve_bucket_name() callers
+  # workspace-wide for all of these kinds (code-level finding, applies to both clouds).
   ml-models-store: "unified-trading-ml-models-{account_id}"
   ml-predictions-store: "unified-trading-ml-predictions-{account_id}"
   ml-configs-store: "unified-trading-ml-configs-{account_id}"
   ml-training-artifacts: "unified-trading-ml-training-artifacts-{account_id}"
   gas-fees: "unified-trading-gas-fees-{account_id}"
-  solana-defi: "unified-trading-solana-defi-{account_id}"
-  evm-defi: "unified-trading-evm-defi-{account_id}"
-  lending-indices: "unified-trading-lending-indices-{account_id}"
   dex-pools: "unified-trading-dex-pools-{account_id}"
   lst-rates: "unified-trading-lst-rates-{account_id}"
   perp-funding: "unified-trading-perp-funding-{account_id}"
-  liquidations: "unified-trading-liquidations-{account_id}"
-  dex-swaps: "unified-trading-dex-swaps-{account_id}"
-  oracle-prices: "unified-trading-oracle-prices-{account_id}"
   eigenlayer-rewards: "unified-trading-eigenlayer-rewards-{account_id}"
 
 bucket_settings:
