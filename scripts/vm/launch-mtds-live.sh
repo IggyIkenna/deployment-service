@@ -52,6 +52,16 @@
 # multiple data_type shards per asset_group without conflict.
 #
 # Cost: e2-standard-8 ~24/7 — live producer; auto-shutdown on STOPPED event only.
+#
+# --test-run: test-bucket-routed, BOUNDED, auto-shutdown live smoke check (plan todo 16,
+#   data_pipeline_e2e_check_2026_07_10.md). Sets IS_TEST_RUN=true + MANIFEST_ALLOW_STALE_FALLBACK=true
+#   (writes land on the -test- sibling bucket, never PROD), flips VM_SHUTDOWN_ON_COMPLETION=true, and
+#   uses a DISTINCT `mtds-live-smoke-` VM-name prefix (never collides with the real per-shard
+#   `mtds-live-{ag}-*` singleton lock). Pair with --max-duration-seconds so the run actually
+#   terminates (the live WS producer has no other natural completion signal).
+# --max-duration-seconds N: bounds the live run to N seconds (WebsocketStreamingHandler calls
+#   request_stop() after N seconds), then the VM exits + self-deletes if VM_SHUTDOWN_ON_COMPLETION=true.
+#   Only meaningful with --test-run; a real (non-test) live producer runs forever by design.
 set -euo pipefail
 
 ASSET_GROUP=""
@@ -60,6 +70,8 @@ INSTRUMENT_IDS=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 LIVE_SOURCE="native"
 FORCE=false
+TEST_RUN=false
+MAX_DURATION_SECONDS=""
 
 DRY_RUN=false
 
@@ -72,6 +84,8 @@ while [[ $# -gt 0 ]]; do
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --live-source) LIVE_SOURCE="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
+    --test-run) TEST_RUN=true; shift ;;
+    --max-duration-seconds) MAX_DURATION_SECONDS="$2"; shift 2 ;;
     *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -84,9 +98,12 @@ Usage:
   bash launch-mtds-live.sh --asset-group <cefi|defi|tradfi|sports|prediction> \
     --shard-spec <asset_group:venue:data_type> \
     --instrument-ids <semicolon-separated> \
-    [--env prod|staging|dev] [--live-source native|tardis-machine] [--force]
+    [--env prod|staging|dev] [--live-source native|tardis-machine] [--force] \
+    [--test-run] [--max-duration-seconds N]
 
 One VM per (asset_group, shard_spec). Singleton-locked per shard.
+--test-run + --max-duration-seconds: bounded, test-bucket-routed, auto-shutdown live smoke
+check (distinct mtds-live-smoke- prefix — never collides with a real live producer).
 
 Examples:
   bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:HYPERLIQUID:trades --instrument-ids "BTC-USD;ETH-USD;SOL-USD"
@@ -133,7 +150,14 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 SHARD_SLUG="${SHARD_SPEC//:/-}"
 SHARD_SLUG="${SHARD_SLUG//_/-}"  # GCE name: underscores → hyphens
 SHARD_SLUG="${SHARD_SLUG,,}"  # lowercase
-VM_PREFIX="mtds-live-${SHARD_SLUG}"
+# --test-run uses a DISTINCT prefix root (never `mtds-live-${SHARD_SLUG}`) so a bounded
+# smoke-check run never collides with — or singleton-locks against — a real live producer
+# for the same shard.
+if $TEST_RUN; then
+  VM_PREFIX="mtds-live-smoke-${SHARD_SLUG}"
+else
+  VM_PREFIX="mtds-live-${SHARD_SLUG}"
+fi
 
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
@@ -171,7 +195,16 @@ METADATA="${METADATA},VM_LIVE_SOURCE=${LIVE_SOURCE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=false"
+
+if $TEST_RUN; then
+  METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  if [[ -n "$MAX_DURATION_SECONDS" ]]; then
+    METADATA="${METADATA},VM_MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS}"
+  fi
+else
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=false"
+fi
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""

@@ -249,6 +249,9 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mtds-live-tradfi-": "launch-mtds-live.sh",
     "mtds-live-sports-": "launch-mtds-live.sh",
     "mtds-live-prediction-": "launch-mtds-live.sh",
+    # launch-mtds-live.sh --test-run: bounded, test-bucket-routed live smoke check (plan
+    # todo 16) — same launcher script, distinct VM-name prefix root (see vm_zombie_watchdog.py).
+    "mtds-live-smoke-": "launch-mtds-live.sh",
     "mdps-features-live-cefi-": "launch-mdps-features-live.sh",
     "mdps-features-live-defi-": "launch-mdps-features-live.sh",
     "mdps-features-live-tradfi-": "launch-mdps-features-live.sh",

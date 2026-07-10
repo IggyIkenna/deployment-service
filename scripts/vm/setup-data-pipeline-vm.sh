@@ -231,6 +231,9 @@ VM_INSTRUMENT_IDS=$(_meta VM_INSTRUMENT_IDS)
 # set -u does not fire when the metadata key is absent on non-gas-fee VMs.
 VM_GAS_FEE_CHAINS=$(_meta VM_GAS_FEE_CHAINS)
 VM_GAS_FEE_SAMPLE_INTERVAL=$(_meta VM_GAS_FEE_SAMPLE_INTERVAL)
+# VM_MAX_DURATION_SECONDS: bounds a live_websocket smoke-check run (launch-mtds-live.sh
+# --test-run --max-duration-seconds N); pre-initialised for the same set -u reason above.
+VM_MAX_DURATION_SECONDS=$(_meta VM_MAX_DURATION_SECONDS)
 # VM_SHARD_SPEC: live_websocket shard ("asset_group:venue:data_type", e.g. "cefi:HYPERLIQUID:trades").
 # VM_MODE_LIVE: explicit mode from live launchers (launch-mtds-live.sh sets VM_MODE=live in metadata).
 # Named VM_MODE_LIVE to avoid collision with the VM_MODE export inside _launch_with_tee() at line ~714
@@ -1506,6 +1509,10 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_INSTRUMENT_IDS" ]] && CLI_ARGS="$CLI_ARGS --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ -n "$VM_GAS_FEE_CHAINS" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-chains $VM_GAS_FEE_CHAINS"
   [[ -n "$VM_GAS_FEE_SAMPLE_INTERVAL" ]] && CLI_ARGS="$CLI_ARGS --gas-fee-sample-interval $VM_GAS_FEE_SAMPLE_INTERVAL"
+  # VM_MAX_DURATION_SECONDS: bounds a live_websocket run (launch-mtds-live.sh --test-run
+  # --max-duration-seconds N) so it actually terminates instead of running forever — only
+  # meaningful for websocket-streaming; a real (non-test) live producer never sets this.
+  [[ -n "$VM_MAX_DURATION_SECONDS" ]] && CLI_ARGS="$CLI_ARGS --max-duration-seconds $VM_MAX_DURATION_SECONDS"
   _LAUNCH_LOG="$LOGS/backfill.log"
   [[ "${VM_OPERATION:-}" == "live_websocket" ]] && _LAUNCH_LOG="$LOGS/live.log"
   _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$_LAUNCH_LOG"
