@@ -163,8 +163,11 @@ lc_aws_ec2_run() {
         echo "[lc_aws_ec2_run] Using Ubuntu 24.04 latest from SSM: ${ami_id}" >&2
     fi
 
+    # Name + a standardized managed-by tag so the deployments cockpit can PROVE provenance: an EC2
+    # instance WITHOUT this tag is provably ad-hoc (WS-D provenance robustness — the AWS twin of the
+    # GCP managed-by label). Added centrally so all AWS launchers inherit it without a per-copy edit.
     local name_tag
-    name_tag='[{"Key":"Name","Value":"'"$vm_name"'"}]'
+    name_tag='[{"Key":"Name","Value":"'"$vm_name"'"},{"Key":"managed-by","Value":"deployment-service"}]'
 
     # Merge name tag with extra tags; build full JSON tag-spec (shorthand form breaks on quotes)
     local all_tags tag_spec

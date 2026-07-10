@@ -113,6 +113,12 @@ lc_gcloud_create() {
     local metadata_str="${6:?lc_gcloud_create: metadata_str required}"
     local labels_str="${7:?lc_gcloud_create: labels_str required}"
 
+    # Every deployment-service launch carries a standardized managed-by label so the deployments
+    # cockpit can PROVE provenance: a live GCE instance WITHOUT this label is provably ad-hoc (WS-D
+    # provenance robustness — deployment_full_estate_cost_provenance). Appended centrally here so all
+    # ~80 launchers inherit it without a per-copy edit.
+    local final_labels="${labels_str},managed-by=deployment-service"
+
     # Centralised dry-run safety net (codified 2026-05-20 after the
     # launch-tradfi-forward-poll.sh incident — see
     # plans/active/issues/launcher_dry_run_support_gap_2026_05_20.md).
@@ -125,7 +131,7 @@ lc_gcloud_create() {
         echo "[DRY-RUN] Would create VM: ${vm_name}"
         echo "[DRY-RUN]   project=${project} zone=${zone} machine=${machine_type} disk=${disk_gb}GB"
         echo "[DRY-RUN]   metadata=${metadata_str}"
-        echo "[DRY-RUN]   labels=${labels_str}"
+        echo "[DRY-RUN]   labels=${final_labels}"
         return 0
     fi
 
@@ -139,7 +145,7 @@ lc_gcloud_create() {
         --scopes=cloud-platform \
         --no-restart-on-failure \
         --metadata="$metadata_str" \
-        --labels="$labels_str"
+        --labels="$final_labels"
 }
 
 # ---------------------------------------------------------------------------

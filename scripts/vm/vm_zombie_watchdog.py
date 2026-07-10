@@ -864,6 +864,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
     ),
+    # launch-mtds-live.sh --test-run: bounded, test-bucket-routed, auto-shutdown live smoke
+    # check (plan todo 16, data_pipeline_e2e_check_2026_07_10.md) — distinct prefix root, so
+    # it never collides with the real per-ag `mtds-live-{ag}-` singleton lock above. EPHEMERAL
+    # (self-shuts-down via --max-duration-seconds), not LONG_LIVED_LIVE like a real producer;
+    # bucket untracked (None) since the target varies by embedded asset_group in the shard slug
+    # and it's always a `-test-` bucket regardless — same simplification as `instruments-smoke-`.
+    "mtds-live-smoke-": None,
     "mdps-features-live-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mdps-features-live-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "mdps-features-live-tradfi-": VmPrefixSpec(
