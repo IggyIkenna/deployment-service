@@ -35,7 +35,10 @@
 # RUNNING in the zone. Pass --force to bypass.
 #
 # Env overrides:
-#   ON_DEMAND=true   opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
+#   ON_DEMAND=true          opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
+#   ENUM_START_DATE=YYYY-MM-DD / ENUM_END_DATE=YYYY-MM-DD
+#                           chunk a large --apply-write by window (e.g. one calendar year at a
+#                           time) instead of one giant run — see the 2026-07-10 OOM note below.
 #
 # Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true are always
 # passed so the enumerator's runtime guards are exercised on every run.
@@ -221,6 +224,13 @@ fi
 if [[ -n "$MAX_WRITES" ]]; then
     BACKFILL_CMD="${BACKFILL_CMD} --max-writes-per-run ${MAX_WRITES}"
 fi
+# ENUM_START_DATE/ENUM_END_DATE: chunk a large apply-write by year (or any
+# window) instead of one giant run. Found necessary 2026-07-10: a real 63.9M-
+# row defi --apply-write OOM-killed on e2-standard-16 (64GB) even after
+# candidate generation succeeded — the write phase itself needs a bounded
+# window, not just a bigger machine.
+[[ -n "${ENUM_START_DATE:-}" ]] && BACKFILL_CMD="${BACKFILL_CMD} --start-date ${ENUM_START_DATE}"
+[[ -n "${ENUM_END_DATE:-}" ]]   && BACKFILL_CMD="${BACKFILL_CMD} --end-date ${ENUM_END_DATE}"
 
 METADATA="VM_TASK=expected-universe-v2"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
