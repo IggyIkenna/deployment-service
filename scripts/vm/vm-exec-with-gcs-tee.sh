@@ -29,6 +29,15 @@
 #   4. On CMD_PID exit: write the final exit status into a file the daemon
 #      reads + SIGTERM the daemon. The daemon emits DEPLOYMENT_COMPLETED /
 #      DEPLOYMENT_FAILED + final GCS upload and exits.
+#   5. Workload-PID liveness (deployment_observability_expansion_2026_07_08,
+#      D.5 "Workload-PID liveness"): CMD_PID is written to $PID_FILE as soon
+#      as the workload backgrounds; the daemon is handed that path via
+#      --workload-pid-file and computes workload_alive = kill -0 CMD_PID on
+#      every tick. Without this the daemon (a process independent of the
+#      workload) kept heartbeating "running" for the whole window between an
+#      OOM-kill and this script's own `wait $CMD_PID` returning — the
+#      exit-status-file protocol alone can't see a dead-but-not-yet-reaped
+#      workload.
 #
 # Why a daemon instead of per-tick subprocesses:
 #   The previous layout forked `python deployment_heartbeat.py heartbeat ...`
@@ -149,6 +158,7 @@ else
         --exit-status-file "$EXIT_STATUS_FILE" \
         --stall-breadcrumb "$STALL_BREADCRUMB" \
         --watchdog-file "$DAEMON_ALIVE_FILE" \
+        --workload-pid-file "$PID_FILE" \
         >> "$LOCAL_LOG" 2>&1 &
     DAEMON_PID=$!
     echo "[vm-exec] heartbeat daemon pid=$DAEMON_PID" >> "$LOCAL_LOG"

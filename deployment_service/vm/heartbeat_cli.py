@@ -66,6 +66,10 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
     md = entry.metadata
     counters = entry.counters
     dep_versions_raw = cast("dict[str, object]", md.get("dep_versions") or {})
+    extras: dict[str, str] = {}
+    workload_alive = md.get("workload_alive")
+    if workload_alive is not None:
+        extras["workload_alive"] = "true" if workload_alive else "false"
     return DeploymentRegistryEntry(
         deployment_id=entry.deployment_id,
         vm_name=str(md.get("vm_name", entry.service_name)),
@@ -87,10 +91,25 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         image_digest=str(md.get("image_digest", "")),
         git_commit=str(md.get("git_commit", "")),
         dep_versions={str(k): str(v) for k, v in dep_versions_raw.items()},
+        extras=extras,
     )
 
 
 def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
+    metadata: dict[str, object] = {
+        "vm_name": reg.vm_name,
+        "asset_group": reg.asset_group,
+        "task": reg.task,
+        "mode": reg.mode,
+        "start_date": reg.start_date,
+        "end_date": reg.end_date,
+        "log_uri": reg.log_uri,
+        "image_digest": reg.image_digest,
+        "git_commit": reg.git_commit,
+        "dep_versions": dict(reg.dep_versions),
+    }
+    if "workload_alive" in reg.extras:
+        metadata["workload_alive"] = reg.extras["workload_alive"] == "true"
     return HeartbeatEntry(
         deployment_id=reg.deployment_id,
         service_name=reg.vm_name,
@@ -105,18 +124,7 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "rows_error": reg.rows_error,
             "events_emitted": reg.events_emitted,
         },
-        metadata={
-            "vm_name": reg.vm_name,
-            "asset_group": reg.asset_group,
-            "task": reg.task,
-            "mode": reg.mode,
-            "start_date": reg.start_date,
-            "end_date": reg.end_date,
-            "log_uri": reg.log_uri,
-            "image_digest": reg.image_digest,
-            "git_commit": reg.git_commit,
-            "dep_versions": dict(reg.dep_versions),
-        },
+        metadata=metadata,
     )
 
 
@@ -150,7 +158,7 @@ class _RegistryAdapter:
 def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
     md = entry.metadata
     counters = entry.counters
-    return {
+    payload: dict[str, object] = {
         "deployment_id": entry.deployment_id,
         "vm_name": md.get("vm_name", entry.service_name),
         "asset_group": md.get("asset_group") or md.get("category", ""),
@@ -169,6 +177,9 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
         "git_commit": md.get("git_commit", ""),
         "dep_versions": md.get("dep_versions") or {},
     }
+    if "workload_alive" in md:
+        payload["workload_alive"] = md["workload_alive"]
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +236,15 @@ def _build_parser(config: DeploymentConfig) -> argparse.ArgumentParser:
         "--watchdog-file",
         required=True,
         help="Path this daemon touches every iter so the shell can verify it's alive",
+    )
+    p.add_argument(
+        "--workload-pid-file",
+        default=None,
+        help=(
+            "Path the wrapper writes CMD_PID into (optional). When set, the daemon "
+            "computes workload_alive = kill -0 CMD_PID each tick, catching an "
+            "OOM-killed workload the daemon would otherwise keep heartbeating as alive."
+        ),
     )
     p.add_argument(
         "--heartbeat-interval-sec",
@@ -292,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_status_str = _s("exit_status_file")
     stall_str = _s("stall_breadcrumb")
     watchdog_str = _s("watchdog_file")
+    workload_pid_file_raw = cast("str | None", raw_args.workload_pid_file)
     heartbeat_interval = _i("heartbeat_interval_sec")
     upload_interval = _i("upload_interval_sec")
     upload_max_staleness = _i("upload_max_staleness_sec")
@@ -341,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_status_file=pathlib.Path(exit_status_str),
             stall_breadcrumb=pathlib.Path(stall_str),
             watchdog_file=pathlib.Path(watchdog_str),
+            workload_pid_file=pathlib.Path(workload_pid_file_raw) if workload_pid_file_raw else None,
         )
 
         daemon = HeartbeatDaemon(

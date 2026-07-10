@@ -233,3 +233,134 @@ def test_entry_to_registry_roundtrip() -> None:
     restored = _registry_to_entry(reg)
     assert restored.deployment_id == "roundtrip-uuid"
     assert restored.counters["rows_in"] == 200
+
+
+def test_entry_to_registry_includes_workload_alive_when_present() -> None:
+    """Workload-PID liveness (D.5): metadata['workload_alive'] -> extras['workload_alive']."""
+    from unified_trading_library import HeartbeatEntry
+
+    from deployment_service.vm.heartbeat_cli import _entry_to_registry
+
+    entry = HeartbeatEntry(
+        deployment_id="wa-uuid",
+        service_name="wa-vm",
+        status="running",
+        started_at="2026-01-01T00:00:00Z",
+        last_heartbeat_at="2026-01-01T00:01:00Z",
+        metadata={"vm_name": "wa-vm", "workload_alive": True},
+    )
+    reg = _entry_to_registry(entry)
+    assert reg.extras["workload_alive"] == "true"
+
+
+def test_entry_to_registry_omits_workload_alive_when_absent() -> None:
+    """No pid file wired up -> honest-absence, no fabricated extras key."""
+    from unified_trading_library import HeartbeatEntry
+
+    from deployment_service.vm.heartbeat_cli import _entry_to_registry
+
+    entry = HeartbeatEntry(
+        deployment_id="wa-uuid-2",
+        service_name="wa-vm",
+        status="running",
+        started_at="2026-01-01T00:00:00Z",
+        last_heartbeat_at="2026-01-01T00:01:00Z",
+        metadata={"vm_name": "wa-vm"},
+    )
+    reg = _entry_to_registry(entry)
+    assert "workload_alive" not in reg.extras
+
+
+def test_registry_to_entry_restores_workload_alive_bool() -> None:
+    from unified_trading_library import HeartbeatEntry
+
+    from deployment_service.vm.heartbeat_cli import _entry_to_registry, _registry_to_entry
+
+    entry = HeartbeatEntry(
+        deployment_id="wa-uuid-3",
+        service_name="wa-vm",
+        status="running",
+        started_at="2026-01-01T00:00:00Z",
+        last_heartbeat_at="2026-01-01T00:01:00Z",
+        metadata={"vm_name": "wa-vm", "workload_alive": False},
+    )
+    reg = _entry_to_registry(entry)
+    restored = _registry_to_entry(reg)
+    assert restored.metadata["workload_alive"] is False
+
+
+def test_vm_payload_includes_workload_alive_when_present() -> None:
+    from unified_trading_library import HeartbeatEntry
+
+    from deployment_service.vm.heartbeat_cli import _vm_payload
+
+    entry = HeartbeatEntry(
+        deployment_id="wa-uuid-4",
+        service_name="wa-vm",
+        status="running",
+        started_at="2026-01-01T00:00:00Z",
+        last_heartbeat_at="2026-01-01T00:01:00Z",
+        metadata={"vm_name": "wa-vm", "workload_alive": True},
+    )
+    payload = _vm_payload(entry)
+    assert payload["workload_alive"] is True
+
+
+def test_main_passes_workload_pid_file_to_signal_protocol() -> None:
+    """--workload-pid-file (optional) threads through to SignalProtocol."""
+    import deployment_service.vm.heartbeat_cli as hc
+
+    daemon_mock = MagicMock()
+    daemon_mock.run.return_value = 0
+    signal_ctor = MagicMock(wraps=hc.SignalProtocol)
+
+    @contextmanager
+    def _fake_run_lifecycle(**_: Any):
+        yield
+
+    argv = [*_REQUIRED_ARGV, "--workload-pid-file", "/tmp/test-workload.pid"]
+
+    with (
+        patch.dict("os.environ", {"GCP_PROJECT_ID": "test-project"}),
+        patch("deployment_service.vm.heartbeat_cli.setup_events"),
+        patch("deployment_service.vm.heartbeat_cli.PubSubEventSink"),
+        patch("deployment_service.vm.heartbeat_cli.run_lifecycle", _fake_run_lifecycle),
+        patch("deployment_service.vm.heartbeat_cli.HeartbeatDaemon", return_value=daemon_mock),
+        patch("deployment_service.vm.heartbeat_cli.DeploymentsRegistry"),
+        patch("deployment_service.vm.heartbeat_cli.get_storage_client"),
+        patch("deployment_service.vm.heartbeat_cli.SignalProtocol", signal_ctor),
+    ):
+        hc.main(argv)
+
+    signal_ctor.assert_called_once()
+    call_kwargs = signal_ctor.call_args.kwargs
+    assert call_kwargs["workload_pid_file"] is not None
+    assert str(call_kwargs["workload_pid_file"]) == "/tmp/test-workload.pid"
+
+
+def test_main_workload_pid_file_defaults_to_none() -> None:
+    """Backward-compat: a wrapper that doesn't pass --workload-pid-file still works."""
+    import deployment_service.vm.heartbeat_cli as hc
+
+    daemon_mock = MagicMock()
+    daemon_mock.run.return_value = 0
+    signal_ctor = MagicMock(wraps=hc.SignalProtocol)
+
+    @contextmanager
+    def _fake_run_lifecycle(**_: Any):
+        yield
+
+    with (
+        patch.dict("os.environ", {"GCP_PROJECT_ID": "test-project"}),
+        patch("deployment_service.vm.heartbeat_cli.setup_events"),
+        patch("deployment_service.vm.heartbeat_cli.PubSubEventSink"),
+        patch("deployment_service.vm.heartbeat_cli.run_lifecycle", _fake_run_lifecycle),
+        patch("deployment_service.vm.heartbeat_cli.HeartbeatDaemon", return_value=daemon_mock),
+        patch("deployment_service.vm.heartbeat_cli.DeploymentsRegistry"),
+        patch("deployment_service.vm.heartbeat_cli.get_storage_client"),
+        patch("deployment_service.vm.heartbeat_cli.SignalProtocol", signal_ctor),
+    ):
+        hc.main(_REQUIRED_ARGV)
+
+    signal_ctor.assert_called_once()
+    assert signal_ctor.call_args.kwargs["workload_pid_file"] is None
