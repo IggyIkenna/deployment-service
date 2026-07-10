@@ -17,6 +17,14 @@
 #   bash launch-mtds-backfill-vm.sh --asset-group DEFI --start 2024-04-05 --end 2026-04-05 --env staging
 #   bash launch-mtds-backfill-vm.sh --asset-group TRADFI --start 2026-03-29 --end 2026-04-05
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --dry-run
+#   bash launch-mtds-backfill-vm.sh --asset-group CEFI --venues BINANCE-FUTURES \
+#       --data-types trades --instrument-ids BTCUSDT --start 2026-07-01 --end 2026-07-01 \
+#       --vm-name mtds-backfill-cefi-pipelinecheck-1 --test-run   # Scoped single-shard smoke check (test bucket)
+#
+# --instrument-ids: verbatim-passed to VM_INSTRUMENT_IDS metadata; use ';' to separate
+# multiple symbols (gcloud --metadata=K=V,K=V splits on ',' at the key level — see
+# setup-data-pipeline-vm.sh:218-228). --test-run sets IS_TEST_RUN=true so writes route
+# to the -test- bucket sibling (MTDS's freshness-read stays PROD-driven regardless).
 #
 # Pre-launch prerequisite:
 #   bash deployment-service/scripts/vm/create-code-tarballs.sh   # CORE includes MTDS
@@ -35,6 +43,12 @@ CHUNK_SIZE="${CHUNK_SIZE:-7}"
 VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
+INSTRUMENT_IDS=""
+# --test-run routes writes to the -test- bucket sibling (IS_TEST_RUN=true metadata;
+# setup-data-pipeline-vm.sh:251-254 reads + exports it — MTDS's freshness-read
+# stays PROD-driven per the read-bucket asymmetry, only the WRITE target moves).
+# Used by the pipeline_e2e_check smoke harness.
+TEST_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
@@ -56,6 +70,8 @@ while [[ $# -gt 0 ]]; do
     --vm-name)       VM_NAME_OVERRIDE="$2"; shift 2 ;;
     --venues)        VENUES="$2"; shift 2 ;;
     --data-types)    DATA_TYPES="$2"; shift 2 ;;
+    --instrument-ids) INSTRUMENT_IDS="$2"; shift 2 ;;
+    --test-run)      TEST_RUN=true; shift ;;
     --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)     ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
@@ -91,6 +107,8 @@ echo "  Chunk:     ${CHUNK_SIZE} days per batch"
 echo "  Force:     ${FORCE}"
 echo "  Venues:    ${VENUES:-all}"
 echo "  DataTypes: ${DATA_TYPES:-all}"
+echo "  InstrIDs:  ${INSTRUMENT_IDS:-<full universe>}"
+echo "  TestRun:   ${TEST_RUN}"
 echo "  VM:        ${VM_NAME}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
 echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
@@ -117,6 +135,8 @@ if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
   echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
   echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
+  [[ -n "$INSTRUMENT_IDS" ]] && echo "  VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
+  $TEST_RUN && echo "  IS_TEST_RUN=true"
   exit 0
 fi
 
@@ -135,7 +155,9 @@ METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
 [[ -n "$TIER" ]]       && METADATA="${METADATA},VM_TIER=${TIER}"
 [[ -n "$VENUES" ]]     && METADATA="${METADATA},VM_VENUE=${VENUES}"
 [[ -n "$DATA_TYPES" ]] && METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
+[[ -n "$INSTRUMENT_IDS" ]] && METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
+$TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"

@@ -69,6 +69,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "cefi-ext-bfill-": "launch-mtds-extended-ohlcv-backfill.sh",  # VM_PREFIX=cefi-ext-bfill-
     "cefi-lighter-": "launch-cefi-sharded-backfill.sh",
     "cefi-pacifica-": "launch-cefi-sharded-backfill.sh",
+    "cefi-durability-force-converge-": "launch-cefi-durability-force-converge-vm.sh",
     "aster-fwd-": "launch-aster-forward-poll.sh",
     # ── DeFi / Prediction forward-poll + live ─────────────────────────────
     "defi-fwd-": "launch-defi-forward-poll.sh",
