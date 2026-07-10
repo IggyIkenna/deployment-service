@@ -252,6 +252,18 @@ IS_TEST_RUN=$(_meta IS_TEST_RUN)
 if [[ -n "$IS_TEST_RUN" ]]; then
   export IS_TEST_RUN
 fi
+# MANIFEST_ALLOW_STALE_FALLBACK — opt-in escape hatch for the manifest consolidator's
+# stale-index guard (unified_trading_library.manifest_writer._read_index), which
+# refuses to fall back to a per-VM-shard merge on a stale/missing consolidated index
+# (OOM risk on large prod buckets). Test buckets are always small (smoke-test data
+# only), so the OOM concern doesn't apply there; pipeline_e2e_check.py's launcher
+# invocations set this alongside IS_TEST_RUN so a skip-leg run against a `-test-`
+# bucket whose consolidator hasn't run yet still gets a real freshness read instead
+# of erroring out. Same empty-string-breaks-Pydantic-bool guard as IS_TEST_RUN above.
+MANIFEST_ALLOW_STALE_FALLBACK=$(_meta MANIFEST_ALLOW_STALE_FALLBACK)
+if [[ -n "$MANIFEST_ALLOW_STALE_FALLBACK" ]]; then
+  export MANIFEST_ALLOW_STALE_FALLBACK
+fi
 # SHARD_INDEX (Part 4 — TheGraph key-pool sharding). The DeFi subgraph launchers
 # stamp SHARD_INDEX so each VM starts on a distinct key in the 9-key thegraph pool
 # (mtds market_interface config reads SHARD_INDEX via AliasChoices; key_number =
@@ -1357,6 +1369,22 @@ elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
   export PAGERDUTY_DISABLED=true
   export RUN_DURATION_HOURS="$_DURATION"
   _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness.log"
+elif [[ "$VM_TASK" == "cefi-durability-force-converge" ]]; then
+  # 2026-07-10 — launch-cefi-durability-force-converge-vm.sh. VM_BACKFILL_CMD
+  # carries the full cefi_durability_force_converge_2026_07_10.py invocation
+  # (--quarantine-backups / --fix-by-date / --apply / --workers all controlled
+  # host-side by the launcher). GCP_PROJECT_ID is already exported above.
+  # Self-deletes on completion via VM_SHUTDOWN_ON_COMPLETION (always set by
+  # the launcher).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/cefi-durability-force-converge.log"
+  else
+    log "ERROR: cefi-durability-force-converge task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "expected-universe-v2" ]]; then
   # 2026-07-10 — launch-expected-universe-v2-vm.sh's ad-hoc one-shot / full-history
   # backfill path. VM_BACKFILL_CMD carries the full enumerate_expected_universe.py
