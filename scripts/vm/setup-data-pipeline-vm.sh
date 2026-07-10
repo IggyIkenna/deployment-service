@@ -1366,7 +1366,11 @@ elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
     _VM_ZONE=$(curl -sf -H "Metadata-Flavor: Google" \
       "http://metadata.google.internal/computeMetadata/v1/instance/zone" | awk -F/ '{print $NF}')
     _SELF_DELETE="gcloud compute instances delete '$VM_NAME_SELF' --zone='$_VM_ZONE' --quiet 2>&1 || log 'WARNING: qg-snapshot VM self-delete failed'"
-    _launch_with_tee "$VM_BACKFILL_CMD; $_SELF_DELETE" "$LOGS/qg-snapshot.log"
+    # Rewrite bare `python ` -> `$VENV/bin/python ` (matches strategy-backtest-grid /
+    # synthetic-benchmark branches above) — snapshot_to_parquet.py needs
+    # unified_trading_library + pyarrow, which only live in $VENV, not system python3.
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    _launch_with_tee "$FULL_CMD; $_SELF_DELETE" "$LOGS/qg-snapshot.log"
   else
     log "ERROR: qg-snapshot task without VM_BACKFILL_CMD metadata"
   fi
