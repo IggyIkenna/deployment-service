@@ -143,8 +143,13 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-4"
-BOOT_DISK_GB="50"
+# MACHINE_TYPE override: default e2-standard-4 (16GB) OOM-killed a real 63.9M-row
+# defi --apply-write run (2026-07-10, confirmed via `Killed` in run.log with no
+# Python traceback — classic OOM-killer signature) partway through candidate-set
+# construction. Bump for large-catalog/large-apply asset groups (defi is the
+# largest at 7,895 instruments): MACHINE_TYPE=e2-standard-16 bash launch-....
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
 
 # Backfill/idempotent VMs default to SPOT (HARD RULE: spot-vms-for-backfill) — the
 # enumerator writes to a per-VM manifest shard (MANIFEST_PER_VM_SHARDS=true, always
