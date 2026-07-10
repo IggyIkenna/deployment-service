@@ -1814,47 +1814,18 @@ resource "google_project_iam_member" "unified_trading_redis_viewer" {
 }
 
 # =============================================================================
-# GCS Buckets — CI/CD Event Retention
-# p5-14: cicd-events (90d). Retention is implemented via lifecycle_rule DELETE
-# after the retention window.
-#
-# alerting_history / alerting_state buckets (originally added here for 1yr /
-# 90d compliance-retention splits) were removed 2026-07-10: alerting-service
-# never wrote to them (storage_store.py always used the single shared
-# alerting-service-{project_id} bucket, under bucket_config.yaml's
-# shared_bucket_services convention) — confirmed 0 objects in both buckets
-# before deletion. The shared bucket is the actual audit trail; it currently
-# has no lifecycle rule (unbounded retention, not auto-pruned at 365d/90d).
+# p5-14 retention-split buckets (alerting_history, alerting_state, cicd_events)
+# were all removed 2026-07-10: none were ever actually written to.
+#   - alerting-service always wrote to the single shared alerting-service-{pid}
+#     bucket (bucket_config.yaml shared_bucket_services convention).
+#   - Every CI/CD event writer/reader (persist-cicd-event.yml, notify-slack.yml,
+#     semver-agent.yml, deployment-api _repo_ci_alerts.py/deployments_inventory.py)
+#     resolves CICD_EVENTS_BUCKET to the literal "unified-trading-cicd-events"
+#     bucket — never this cicd-events-{env}-{project_id} name.
+# All three sat at 0 objects since creation and were deleted directly via
+# gcloud (bucket not importable into this repo's local terraform state).
 # See unified-trading-pm/plans/archive/ui_api_alerting_observability_2026_03_14.plan.md
 # =============================================================================
-
-resource "google_storage_bucket" "cicd_events" {
-  name     = "cicd-events-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = false }
-
-  # CI/CD event audit trail retained for 90 days
-  lifecycle_rule {
-    condition { age = 90 }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "cicd-events",
-    "tier"    = "observability"
-  })
-}
-
-# IAM: unified-trading SA needs write access to cicd-events bucket
-resource "google_storage_bucket_iam_member" "cicd_events_writer" {
-  bucket = google_storage_bucket.cicd_events.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.unified_trading.email}"
-}
 
 # ---------------------------------------------------------------------------
 # Immutable execution audit trail — trading-audit-records
