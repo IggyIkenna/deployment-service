@@ -5,16 +5,17 @@
 #   + aws/manifest_consolidator_scheduler.tf (Batch-Fargate + EventBridge shape)
 #
 # AWS parity for gcp/cf_manifest_audit_scheduler.tf.
-# Runs `cf-manifest-audit-all --all-ags --json-out s3://<audit-bucket>/cf_audit/<date>.json`
-# once per day at 06:00 UTC. CLOUD_PROVIDER=aws routes get_storage_client() to S3.
-# Job exits NON-ZERO if any CF is RED — EventBridge + CloudWatch Alarm surfaces the failure.
+# Runs `python -m unified_trading_library.cf_manifest_audit --all-ags --json-out
+# s3://<audit-bucket>/cf_audit` once per day at 06:00 UTC. CLOUD_PROVIDER=aws routes
+# get_storage_client() to S3. Job exits NON-ZERO if any CF is RED — EventBridge +
+# CloudWatch Alarm surfaces the failure.
 #
 # NOTE: AWS equivalent for Athena/Redshift Spectrum external tables over the same hive layout
 # is a parallel option tracked separately in bigquery_feature_ml_compute_engine_option_2026_06_08.md
 # Phase 1 AWS analogue (not provisioned here — GCP BQ tables are the primary compute engine).
 
 variable "cf_audit_image_aws" {
-  description = "ECR image for the cf-manifest-audit-all job. Defaults to market-tick-data-service. Override once the PM audit wrapper ships its own release image."
+  description = "ECR image for the cf-manifest-audit job. Defaults to market-tick-data-service (UTL bundled — runs unified_trading_library.cf_manifest_audit). Override only if a dedicated image is ever needed."
   type        = string
   default     = "" # empty = fall through to local default below
 }
@@ -150,14 +151,18 @@ module "cf_manifest_audit_job_aws" {
     AWS_DEFAULT_REGION = var.aws_region
   }
 
-  # console_script entrypoint registered by the PM wrapper.
+  # unified_trading_library.cf_manifest_audit — bundled in the MTDS image via UTL
+  # (mirrors gcp/cf_manifest_audit_scheduler.tf's 2026-07-10 fix: the prior
+  # `cf-manifest-audit-all` console-script was never packaged/installed anywhere).
   # --all-ags: loop all 5 asset_groups × {market-data-tick, instruments-store}.
-  # --json-out: write machine-readable summary to S3.
+  # --json-out: S3 prefix — the {YYYY-MM-DD}.json filename is computed at runtime
+  # inside the script (AWS Batch `command` is an exec array, no shell, so a literal
+  # $(date ...) here is never evaluated).
   # Exits NON-ZERO if any CF is RED.
   command = [
-    "cf-manifest-audit-all",
+    "python", "-m", "unified_trading_library.cf_manifest_audit",
     "--all-ags",
-    "--json-out", "s3://${local.cf_audit_s3_bucket}/cf_audit/$(date +%Y-%m-%d).json",
+    "--json-out", "s3://${local.cf_audit_s3_bucket}/cf_audit",
   ]
 
   assign_public_ip = true

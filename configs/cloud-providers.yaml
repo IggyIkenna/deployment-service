@@ -25,44 +25,32 @@
 
 gcp:
   storage:
-    # NOTE on shapes (Phase 0/0e, 2026-05-11 — bucket_name_ssot_canonicalisation_2026_05_10.md):
-    #   * `features-*` / `ml-*` / `strategy-store` / `execution-store` = Group B (derived,
-    #     per-env): `{prefix}-{ag}-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}` (env tier AFTER asset_group).
-    #     `DEPLOYMENT_ENV=test` (→ short form `test`) naturally yields the E2E `-test-` variant —
-    #     that's the CANONICAL `-test-` shape (`{prefix}-{ag}-test-{pid}`); the legacy before-AG
-    #     variants (`market-data-tick-test-cefi-...`) are deprecated test-mode artifacts, not here.
-    #   * `instruments-store` / `market-data` / `features-calendar` / `*-prediction` = Group A (raw /
-    #     cross-cutting): env-tiered too as of Phase 0e (operator (b+) 2026-05-11 — env tier on ALL kinds).
-    #     `DEPLOYMENT_ENV=test` is the canonical `-test-` shape; on-disk flat (no-env) buckets migrate
-    #     in code_freeze Phase 2.6 (2026-05-15→05-19). GCP `dex-pools` / `dex-swaps` / `evm-defi` /
-    #     `eigenlayer-rewards` / `solana-defi` / `config-store` env-tiered 2026-05-11 (Phase 0e follow-up).
-    #     STILL env-less (pending): GCP `events` (`{pid}-events` referenced workspace-wide — high blast
-    #     radius, needs operator confirm before env-tiering). `pnl-store-defi` / `positions-store-defi` /
-    #     `risk-store-defi` resolved 2026-05-13 (Q7(b)) — now env-tiered, buckets were empty so no migration.
-    #     The only legitimately env-less kinds workspace-wide are `terraform-state` + `secrets` (not modelled here).
-    #   * Prediction = dedicated flat keys (`instruments-store-prediction`, `market-data-tick-prediction`,
-    #     `features-prediction`, `strategy-store-prediction`, `execution-store-prediction`) PLUS per-AG
-    #     `PREDICTION:` entries in `features-delta-one`/`features-volatility`/`features-xinstrument`/`features-mtf`.
-    #     The dict KEY stays `*-prediction` / `PREDICTION:` (consumer-facing); the bucket-name STRING uses
-    #     `pred` (4 chars) — per Q5/A5 Scope A. `features-cross-instrument` / `features-multi-timeframe`
-    #     consumer kinds map to the `features-xinstrument` / `features-mtf` yaml keys (UTL `_KIND_ALIASES`).
-    #     Sports = `asset_group="sports"` in the per-AG dicts (+ the dedicated `features-sports` flat key).
-    #     Deliberate asymmetry matching how the codebase routes them; consolidate if it ever bites.
-    #   * Per option (b) 2026-05-11 (operator/Ikenna): yaml is canonical → `features-*` env-tiered.
-    #     The flat `features-delta-one-cefi-{pid}` (no env) buckets on disk are legacy; the env-tiered
-    #     ones get provisioned + the flat-bucket data migrated in code_freeze Phase 2.6 (2026-05-15→05-19).
-    # ── Temporary env-split rollback (Group B) ────────────────────────────────────────────────
-    # Per bucket inventory 2026-05-19 (phase5_features_streaming_carry_staked_basis_mvp_2026_05_19.md
-    # Phase D): env-split buckets (`-prd-`, `-prod-`, `-staging-`) for ALL Group B derived kinds
-    # are either empty or non-existent; the populated on-disk buckets are non-env-split
-    # (e.g. `features-delta-one-cefi-{pid}`, `features-volatility-cefi-{pid}`,
-    # `strategy-store-cefi-{pid}`, `ml-training-artifacts-{pid}`).
-    # Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds:
-    #   features-delta-one, features-volatility, features-onchain, features-xinstrument,
-    #   features-mtf, strategy-store, execution-store, ml-artifacts, ml-training-artifacts.
-    # Re-enable when: bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates data.
-    # Successor plan: plans/active/bucket_env_split_rollout_2026_06.md
-    # ──────────────────────────────────────────────────────────────────────────────────────────
+    # NOTE on shapes (Phase 0/0e, 2026-05-11 — bucket_name_ssot_canonicalisation_2026_05_10.md).
+    # FIXED 2026-07-10 (bucket estate cleanup): this comment block was condensed from a ~38-line
+    # consecutive-comment run that triggered a PyYAML scanner edge case (recursion-depth issue on
+    # very long uninterrupted comment runs immediately before a mapping key) in the pre-commit
+    # check-yaml hook's isolated PyYAML version — content unchanged, only reflowed/shortened.
+    #   * Group B (`features-*` / `ml-*` / `strategy-store` / `execution-store`): derived, per-env,
+    #     `{prefix}-{ag}-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}` (env tier AFTER asset_group).
+    #     Temporary env-split ROLLBACK (2026-05-19 Phase D, phase5_features_streaming_carry_staked_
+    #     basis_mvp_2026_05_19.md): env-split buckets were empty/non-existent; the populated on-disk
+    #     buckets are non-env-split — DROP ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds
+    #     (features-delta-one, features-volatility, features-onchain, features-xinstrument,
+    #     features-mtf, strategy-store, execution-store, ml-artifacts, ml-training-artifacts).
+    #     Re-enable per plans/active/bucket_env_split_rollout_2026_06.md Phase 1.
+    #   * Group A (`instruments-store` / `market-data` / `features-calendar` / `*-prediction`): raw/
+    #     cross-cutting, env-tiered per (b+) Phase 0e. `DEPLOYMENT_ENV=test` is the canonical
+    #     `-test-` shape; on-disk flat buckets are legacy (migrate in code_freeze Phase 2.6).
+    #     Still env-less (pending operator confirm, high blast radius): `events` (`{pid}-events`).
+    #     Env-less workspace-wide: only `terraform-state` + `secrets` (not modelled here).
+    #   * Prediction: dedicated flat keys (`instruments-store-prediction`, `market-data-tick-
+    #     prediction`, `features-prediction`, `strategy-store-prediction`, `execution-store-
+    #     prediction`) PLUS per-AG `PREDICTION:` entries in features-delta-one/volatility/
+    #     xinstrument/mtf. Bucket-name STRING uses `pred` (4 chars, Q5/A5 Scope A).
+    #     `features-cross-instrument`/`features-multi-timeframe` consumer kinds alias to the
+    #     `features-xinstrument`/`features-mtf` yaml keys (UTL `_KIND_ALIASES`). Sports =
+    #     `asset_group="sports"` in the per-AG dicts + the dedicated `features-sports` flat key —
+    #     deliberate asymmetry, consolidate if it ever bites.
     # NOTE: features-delta-one env-split ROLLED BACK — non-env-split until provisioning lands.
     features-delta-one:
       CEFI: "features-delta-one-cefi-${GCP_PROJECT_ID}"
@@ -99,12 +87,14 @@ gcp:
       PREDICTION: "features-xinstrument-pred-${GCP_PROJECT_ID}"
       SPORTS: "features-xinstrument-sports-${GCP_PROJECT_ID}"
     # NOTE: features-mtf env-split ROLLED BACK — non-env-split until provisioning lands.
+    # PREDICTION/SPORTS keys REMOVED 2026-07-10 (bucket estate cleanup) — MTF is never
+    # computed for those asset_groups: features-service/scripts/multi_timeframe/smoke_matrix.py:35
+    # SUPPORTED_ASSET_GROUPS = ("CEFI","DEFI","TRADFI") only. Both buckets were confirmed empty
+    # and deleted.
     features-mtf:
       CEFI: "features-mtf-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-mtf-tradfi-${GCP_PROJECT_ID}"
       DEFI: "features-mtf-defi-${GCP_PROJECT_ID}"
-      PREDICTION: "features-mtf-pred-${GCP_PROJECT_ID}"
-      SPORTS: "features-mtf-sports-${GCP_PROJECT_ID}"
     ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
@@ -177,25 +167,29 @@ gcp:
     # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19). UCI bucket-resolver +
     # DeFi adapters resolve from this SSOT (no hardcoded fallbacks).
     dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    # Dedicated per-type DeFi market-data buckets (canonical migration target {stem}-prd-{pid};
-    # added 2026-06-02 so data-status / manifest-handlers resolve via resolve_bucket_name() instead of
-    # hardcoded f-strings — A11). dex-pools/dex-swaps/evm-defi/eigenlayer-rewards/solana-defi above.
-    lending-indices: "lending-indices-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # REMOVED 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]):
+    # dex-swaps, evm-defi, solana-defi, lending-indices, oracle-prices, liquidations kinds.
+    # Confirmed zero callers workspace-wide for resolve_bucket_name(kind=<these>) — every
+    # writer for these DeFi reference-data types resolves get_write_bucket_name("market_data",
+    # asset_group="defi") instead (the shared market-data-tick-defi-{env}-{pid} bucket), and no
+    # manifest scanner or reader resolves these kinds either. The dedicated per-kind buckets
+    # (flat + every env-tiered variant) were empty and deleted in the same cleanup. Kept:
+    # dex-pools (real reader in strategy-service/engine/core/canonical_dex_pool_provider.py +
+    # scripts/materialize_dex_pool_fees.py), gas-fees + lst-rates (real but MISMATCHED
+    # reader/writer buckets — see [[gas_fees_lst_rates_manifest_bucket_mismatch_2026_07_10]],
+    # root-caused not fixed, so their SSOT entries stay until that's resolved), eigenlayer-rewards
+    # + perp-funding (genuinely resolve their own kind, real data).
     lst-rates: "lst-rates-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    oracle-prices: "oracle-prices-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     perp-funding: "perp-funding-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     gas-fees: "gas-fees-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    liquidations: "liquidations-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    # Per-asset-group pnl/positions/risk DeFi stores. Aligned to standard GCP shape
-    # `{prefix}-{asset_group}-{env}-{project_id}` (2026-05-13, Q7(b) resolved — buckets were
-    # empty so no data migration needed; old names deleted). AWS shape unchanged (already correct).
-    pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-    risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # REMOVED 2026-07-10 (bucket estate cleanup): pnl-store-defi, positions-store-defi,
+    # risk-store-defi kinds. Confirmed zero callers workspace-wide — the real, live naming for
+    # pnl/risk/positions is unified_trading_library/config_interface/paths/registry.py's
+    # PATH_REGISTRY (`positions-store-{pid}` no-AG, `pnl-attribution-store-{pid}`,
+    # `risk-metrics-store-{pid}`), which never went through this cloud-providers.yaml SSOT at
+    # all. risk-and-exposure-service / pnl-attribution-service / position-balance-monitor-service
+    # (the services these kinds were provisioned for) don't exist as repos in this workspace.
     # Cross-cutting service buckets. `config-store` env-tiered per (b+) Phase 0e follow-up
     # (mirrors AWS). `events` STILL env-less on GCP — `{pid}-events` is referenced workspace-wide
     # (per "no fire-and-forget VM launches": `gs://{pid}-events/events/{service}/...`) — needs
@@ -275,12 +269,12 @@ aws:
       PREDICTION: "features-xinstrument-pred-${AWS_ACCOUNT_ID}"
       SPORTS: "features-xinstrument-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-mtf env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    # PREDICTION/SPORTS keys REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP
+    # section removal above; MTF is never computed for those asset_groups.
     features-mtf:
       CEFI: "features-mtf-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "features-mtf-tradfi-${AWS_ACCOUNT_ID}"
       DEFI: "features-mtf-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "features-mtf-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "features-mtf-sports-${AWS_ACCOUNT_ID}"
     ml-models-store: "ml-models-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     ml-predictions-store: "ml-predictions-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     ml-configs-store: "ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
@@ -327,21 +321,17 @@ aws:
     execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # DeFi raw on-chain pools / swaps / events. Mirrors GCP keys 1:1.
     dex-pools: "dex-pools-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    dex-swaps: "dex-swaps-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    evm-defi: "evm-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    solana-defi: "solana-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Dedicated per-type DeFi market-data buckets (A11, 2026-06-02) — mirrors GCP keys 1:1.
-    lending-indices: "lending-indices-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # REMOVED 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]) —
+    # mirrors the GCP-section removal above: dex-swaps, evm-defi, solana-defi, lending-indices,
+    # oracle-prices, liquidations. Confirmed zero callers workspace-wide. See the GCP section
+    # comment for the full rationale + what was kept and why.
     lst-rates: "lst-rates-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    oracle-prices: "oracle-prices-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     perp-funding: "perp-funding-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     gas-fees: "gas-fees-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    liquidations: "liquidations-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # Per-asset-group DeFi pnl/positions/risk stores — already symmetric (Q7(b) 2026-05-13).
-    pnl-store-defi: "pnl-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    positions-store-defi: "positions-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    risk-store-defi: "risk-store-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # REMOVED 2026-07-10 (bucket estate cleanup): pnl-store-defi, positions-store-defi,
+    # risk-store-defi — mirrors the GCP-section removal above (same rationale: zero callers,
+    # real naming is UTL PATH_REGISTRY, the provisioned-for services don't exist as repos).
     # Cross-cutting service buckets. `events` env-less (mirrors GCP ${GCP_PROJECT_ID}-events
     # project-first env-less shape; AWS uses account-suffix env-less shape — intentional
     # cloud-specific prefix, not a naming error).

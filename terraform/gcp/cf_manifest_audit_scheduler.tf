@@ -18,16 +18,20 @@
 #   Runs ONCE per day (not per-minute) because CF audit scans all 5 asset_groups ×
 #   {market-data-tick, instruments-store} buckets and is IO-intensive (~2-5 min).
 #
-# Entrypoint contract (wrapper built in unified-trading-pm, deployed via the same UTL image)
-#   Command: `cf-manifest-audit-all --all-ags --json-out gs://<audit-bucket>/cf_audit/<date>.json`
+# Entrypoint contract
+#   Command: `python -m unified_trading_library.cf_manifest_audit --all-ags
+#   --json-out gs://<audit-bucket>/cf_audit/<date>.json`
 #   - Loops all 5 asset_groups × {market-data-tick, instruments-store} = 10 CF checks.
 #   - Emits a per-CF GREEN/RED rollup to stdout + a machine-readable JSON summary to GCS.
 #   - Exits NON-ZERO if ANY CF is RED (enabling this job's execution to surface as a failure).
-#   NOTE: The console_script entrypoint `cf-manifest-audit-all` is registered by the
-#   unified-trading-pm wrapper package installed in the UTL image. Until the PM wrapper
-#   lands a stable release, the image variable below defaults to the same MTDS image the
-#   consolidator uses (UTL is bundled as a dep). Override `var.cf_audit_image` once the
-#   wrapper is promoted to its own release image.
+#   FIXED 2026-07-10: this job originally shipped as `command = ["cf-manifest-audit-all"]`,
+#   a console-script entry point that was never actually packaged/installed anywhere — the
+#   script lived as a bare file in unified-trading-pm, never wired into the MTDS image, so
+#   every run failed to exec (0 objects written for ~3 weeks, no alert since the exec
+#   failure itself never reached Cloud Monitoring's log-based filter). Fixed by moving the
+#   audit logic into `unified_trading_library.cf_manifest_audit` (mirrors
+#   `manifest_consolidator.py`'s exact deployment shape below) — MTDS already bundles UTL,
+#   so no dedicated image/build pipeline is needed.
 #
 # Alert-on-RED mechanism
 #   Cloud Run Jobs emit a `google.cloud.run.job.v1.JobFailed` Pub/Sub notification when
@@ -38,8 +42,8 @@
 #
 # Image
 #   Defaults to `market-tick-data-service:latest` (UTL bundled as dep — same as the
-#   consolidator job). Set `var.cf_audit_image` to a custom image once the PM wrapper
-#   ships its own release image.
+#   consolidator job; no dedicated image needed). `var.cf_audit_image` remains as an
+#   override escape hatch if a future need arises.
 #
 # Service account
 #   * Scheduler invoker: `t1_batch_sa` (already has roles/run.invoker).
@@ -48,7 +52,7 @@
 #     output bucket so the JSON summary can be written).
 
 variable "cf_audit_image" {
-  description = "Container image for the cf-manifest-audit-all job. Defaults to market-tick-data-service (UTL bundled). Override once the PM audit wrapper ships its own image."
+  description = "Container image for the cf-manifest-audit job. Defaults to market-tick-data-service (UTL bundled — runs unified_trading_library.cf_manifest_audit). Override only if a dedicated image is ever needed."
   type        = string
   default     = "" # empty = fall through to local default below
 }
@@ -129,14 +133,18 @@ module "cf_manifest_audit_job" {
   parallelism = 1
   task_count  = 1
 
-  # console_script entrypoint registered by the PM wrapper in the image.
+  # unified_trading_library.cf_manifest_audit — bundled in the MTDS image via UTL,
+  # same deployment shape as unified_trading_library.manifest_consolidator below.
   # --all-ags: loop all 5 asset_groups × {market-data-tick, instruments-store}.
-  # --json-out: write machine-readable summary to GCS for downstream consumers.
+  # --json-out: directory prefix — the {YYYY-MM-DD}.json filename is computed at
+  # runtime inside the script (Cloud Run Job args are an exec array, no shell, so
+  # a literal $(date ...) here would never be evaluated — see module docstring).
   # EXIT NON-ZERO if any CF is RED (enables Cloud Monitoring alert on job failure).
-  command = ["cf-manifest-audit-all"]
+  command = ["python"]
   args = [
+    "-m", "unified_trading_library.cf_manifest_audit",
     "--all-ags",
-    "--json-out", "gs://${local.cf_audit_output_bucket}/cf_audit/$(date +%Y-%m-%d).json",
+    "--json-out", "gs://${local.cf_audit_output_bucket}/cf_audit",
   ]
 
   environment_variables = {

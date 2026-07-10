@@ -72,6 +72,7 @@ LIVE_SOURCE="native"
 FORCE=false
 TEST_RUN=false
 MAX_DURATION_SECONDS=""
+VM_NAME_OVERRIDE=""
 
 DRY_RUN=false
 
@@ -86,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --test-run) TEST_RUN=true; shift ;;
     --max-duration-seconds) MAX_DURATION_SECONDS="$2"; shift 2 ;;
+    --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
     *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -99,11 +101,14 @@ Usage:
     --shard-spec <asset_group:venue:data_type> \
     --instrument-ids <semicolon-separated> \
     [--env prod|staging|dev] [--live-source native|tardis-machine] [--force] \
-    [--test-run] [--max-duration-seconds N]
+    [--test-run] [--max-duration-seconds N] [--vm-name NAME]
 
 One VM per (asset_group, shard_spec). Singleton-locked per shard.
 --test-run + --max-duration-seconds: bounded, test-bucket-routed, auto-shutdown live smoke
 check (distinct mtds-live-smoke- prefix — never collides with a real live producer).
+--vm-name: caller-supplied exact VM name (skips the internal RUN_TS timestamp) — use this
+whenever a caller (e.g. pipeline_e2e_check.py) needs to poll for the VM by a name it already
+knows, so it never has to predict/reconstruct the launcher's own timestamp.
 
 Examples:
   bash launch-mtds-live.sh --asset-group cefi --shard-spec cefi:HYPERLIQUID:trades --instrument-ids "BTC-USD;ETH-USD;SOL-USD"
@@ -179,8 +184,8 @@ EOF
   fi
 fi
 
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="${VM_PREFIX}-${RUN_TS}"
+RUN_TS="$(date -u +%Y%m%d-%H%M%S)"
+VM_NAME="${VM_NAME_OVERRIDE:-${VM_PREFIX}-${RUN_TS}}"
 
 echo "Launching $VM_NAME: MTDS live producer asset_group=${ASSET_GROUP} shard=${SHARD_SPEC} env=${DEPLOYMENT_ENV}"
 
