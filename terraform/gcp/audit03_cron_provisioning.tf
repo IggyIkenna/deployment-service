@@ -101,6 +101,50 @@ module "mtds_cefi_t1_recon_job" {
   }
 }
 
+# instruments-service CeFi T+1 reference-data recon — was live-but-unmanaged (created ad hoc via
+# `gcloud` 2026-06-23, redeployed by unified-trading-sa's image-push ReplaceJob calls, never
+# imported into Terraform — unlike its market-tick-data-service sibling above). Real incident
+# 2026-06-27 through 2026-07-10: 100% daily execution failure (OOM at the original 2cpu/4Gi pin;
+# the 2026-06-25 asset_group reclassification commit 2f7d4548 that moved LIGHTER/PACIFICA/EXTENDED
+# from defi->cefi grew the corpus without a resource bump). Verified fix 2026-07-10: 4cpu/8Gi still
+# failed (exit 1); 8cpu/16Gi completed successfully in ~1min — Deribit alone parses ~333K raw
+# instruments in memory before filtering, matching the same OOM-at-4Gi+8Gi / fixed-at-16Gi pattern
+# already documented for lifecycle_catalogue_scheduler.tf's tradfi rollup job. Import block below
+# adopts the LIVE resource (see _imports_reconcile.tf) at this verified spec so `tofu apply`
+# converges to zero drift instead of silently reverting the fix.
+module "instruments_cefi_t1_recon_job" {
+  source = "../modules/container-job/gcp"
+
+  # Name MUST match t1_batch_services["instruments-cefi"].job_name (t1_batch_scheduler.tf)
+  name                  = "${local.env_prefix}-instruments-service-cefi-t1-recon"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+  image                 = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
+  cpu                   = "8"
+  memory                = "16Gi" # verified 2026-07-10: 2cpu/4Gi + 4cpu/8Gi both OOM'd/exit(1); 8cpu/16Gi SUCCEEDED
+  timeout_seconds       = 3600
+  max_retries           = 0
+  parallelism           = 1
+  task_count            = 1
+
+  args = ["--operation", "instruments", "--mode", "batch", "--asset-group", "CEFI", "--run-tag", "t1-recon"]
+
+  environment_variables = {
+    GCP_PROJECT_ID   = var.project_id
+    DEPLOYMENT_ENV   = var.environment
+    GCS_LOCATION     = var.region
+    PYTHONUNBUFFERED = "1"
+  }
+
+  service_name = "instruments-service"
+  environment  = var.environment
+  labels = {
+    "purpose" = "t1-batch-cefi"
+    "finding" = "cefi-monotonicity-guard-alerting-2026-07-07"
+  }
+}
+
 module "batch_live_recon_job" {
   source = "../modules/container-job/gcp"
 

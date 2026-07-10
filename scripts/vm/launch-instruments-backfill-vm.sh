@@ -23,6 +23,11 @@
 #   bash launch-instruments-backfill-vm.sh --asset-group CEFI \
 #       --start 2026-01-01 --end 2026-03-31                                    # Override window
 #   bash launch-instruments-backfill-vm.sh --force                             # Bypass manifest skip
+#   bash launch-instruments-backfill-vm.sh --asset-group CEFI --venues BINANCE-FUTURES \
+#       --start 2026-07-01 --end 2026-07-01 --vm-name instr-backfill-cefi-pipelinecheck-1 \
+#       --test-run                                                             # Scoped single-shard smoke check (test bucket)
+#
+# NOTE: instruments-service has no `--data-types` CLI flag — do not add one here.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +43,16 @@ ASSET_GROUP_FILTER=""
 START_OVERRIDE=""
 END_OVERRIDE=""
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
+VENUES=""
+VM_NAME_OVERRIDE=""
+# Guards against a name collision: some asset groups (CEFI) have >1 predefined
+# VM slot in the VMS array below, all matching the same --asset-group filter.
+# Without this, --vm-name would try to gcloud-create the identical name 3x.
+VM_NAME_OVERRIDE_USED=false
+# --test-run routes writes to the -test- bucket sibling (IS_TEST_RUN=true metadata;
+# setup-data-pipeline-vm.sh:251-254 reads + exports it, get_write_bucket_name()
+# rewrites -{pid} -> -test-{pid}). Used by the pipeline_e2e_check smoke harness.
+TEST_RUN=false
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
@@ -55,6 +70,9 @@ while [[ $# -gt 0 ]]; do
     --end)         END_OVERRIDE="$2"; shift 2 ;;
     --chunk-days)  CHUNK_DAYS="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
+    --venues)      VENUES="$2"; shift 2 ;;
+    --vm-name)     VM_NAME_OVERRIDE="$2"; shift 2 ;;
+    --test-run)    TEST_RUN=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -62,6 +80,13 @@ done
 if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
   if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
     echo "ERROR: --start/--end requires --asset-group to scope the override." >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "${VENUES}" || -n "${VM_NAME_OVERRIDE}" ]]; then
+  if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
+    echo "ERROR: --venues/--vm-name requires --asset-group to scope the override." >&2
     exit 1
   fi
 fi
@@ -88,6 +113,9 @@ echo "  Filter:   ${ASSET_GROUP_FILTER:-all}"
 echo "  Force:    ${FORCE}"
 echo "  Chunk:    ${CHUNK_DAYS} days"
 echo "  Env:      ${DEPLOYMENT_ENV}"
+echo "  Venues:   ${VENUES:-all}"
+echo "  VM name:  ${VM_NAME_OVERRIDE:-<default>}"
+echo "  TestRun:  ${TEST_RUN}"
 echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-service-code.tar.gz"
 echo "============================================================"
 
@@ -102,6 +130,11 @@ launch_vm() {
     return 0
   fi
 
+  if [[ -n "${VM_NAME_OVERRIDE}" ]] && $VM_NAME_OVERRIDE_USED; then
+    echo "  Skipping ${VM_NAME} (--vm-name already applied to an earlier ${ASSET_GROUP} slot; scope with --start/--end to target exactly one)"
+    return 0
+  fi
+
   if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
     [[ -n "${START_OVERRIDE}" ]] && START_DATE="${START_OVERRIDE}"
     [[ -n "${END_OVERRIDE}" ]] && END_DATE="${END_OVERRIDE}"
@@ -110,12 +143,21 @@ launch_vm() {
     echo "  Date-window override: ${START_DATE} → ${END_DATE} (VM: ${VM_NAME})"
   fi
 
+  # --vm-name takes precedence over the date-suffix override above (operator named it explicitly).
+  if [[ -n "${VM_NAME_OVERRIDE}" ]]; then
+    VM_NAME="${VM_NAME_OVERRIDE}"
+    VM_NAME_OVERRIDE_USED=true
+    echo "  VM name override: ${VM_NAME}"
+  fi
+
   echo ""
   echo "--- ${VM_NAME}: ${ASSET_GROUP} ${START_DATE} → ${END_DATE} ---"
 
   if $DRY_RUN; then
     echo "  [DRY RUN] Would create VM: ${VM_NAME}"
     echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
+    [[ -n "${VENUES}" ]] && echo "  VM_VENUE=${VENUES}"
+    $TEST_RUN && echo "  IS_TEST_RUN=true"
     return 0
   fi
 
@@ -131,7 +173,9 @@ launch_vm() {
   METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_DAYS}"
   METADATA="${METADATA},VM_START_DATE=${START_DATE}"
   METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+  [[ -n "${VENUES}" ]] && METADATA="${METADATA},VM_VENUE=${VENUES}"
   $FORCE && METADATA="${METADATA},VM_FORCE=true"
+  $TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
 
   # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
   PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"

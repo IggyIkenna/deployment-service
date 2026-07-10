@@ -176,7 +176,7 @@ locals {
   qg_snapshot_startup_url = "gs://deployment-scripts-${var.project_id}/vm/setup-data-pipeline-vm.sh"
   qg_snapshot_backfill_cmd = join(" | ", [
     "bash /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot.sh",
-    "python3 /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot_to_parquet.py --project-id ${var.project_id}",
+    "python /home/unified/workspace/unified-trading-pm/scripts/quality_gates/snapshot_to_parquet.py --project-id ${var.project_id}",
   ])
 }
 

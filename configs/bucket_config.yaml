@@ -153,10 +153,6 @@ infrastructure_buckets:
       service: market-tick-data-service
       type: reference_data
       category: tradfi
-    - name_template: "backtest-configs-{project_id}"
-      service: strategy-service
-      type: config
-      category: ALL
     - name_template: "backtest-results-{project_id}"
       service: strategy-service
       type: results

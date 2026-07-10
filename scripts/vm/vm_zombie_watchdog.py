@@ -246,6 +246,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_INSTR_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # CeFi by_date/catalog durability force-converge (2026-07-10, one-off, see
+    # instrument_id_format_canonicalization_2026_07_08.md). launch-cefi-
+    # durability-force-converge-vm.sh — bucket = instruments-store-cefi.
+    "cefi-durability-force-converge-": VmPrefixSpec(
+        bucket=_INSTR_CEFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     "instr-backfill-pred": VmPrefixSpec(
         bucket=_INSTR_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,

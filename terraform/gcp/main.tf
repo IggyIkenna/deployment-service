@@ -1814,92 +1814,18 @@ resource "google_project_iam_member" "unified_trading_redis_viewer" {
 }
 
 # =============================================================================
-# GCS Buckets — Alerting & CI/CD Event Retention
-# p5-14: alerting/history (1yr = 365d), alerting/state (90d), cicd-events (90d)
-# Retention is implemented via lifecycle_rule DELETE after the retention window.
+# p5-14 retention-split buckets (alerting_history, alerting_state, cicd_events)
+# were all removed 2026-07-10: none were ever actually written to.
+#   - alerting-service always wrote to the single shared alerting-service-{pid}
+#     bucket (bucket_config.yaml shared_bucket_services convention).
+#   - Every CI/CD event writer/reader (persist-cicd-event.yml, notify-slack.yml,
+#     semver-agent.yml, deployment-api _repo_ci_alerts.py/deployments_inventory.py)
+#     resolves CICD_EVENTS_BUCKET to the literal "unified-trading-cicd-events"
+#     bucket — never this cicd-events-{env}-{project_id} name.
+# All three sat at 0 objects since creation and were deleted directly via
+# gcloud (bucket not importable into this repo's local terraform state).
+# See unified-trading-pm/plans/archive/ui_api_alerting_observability_2026_03_14.plan.md
 # =============================================================================
-
-resource "google_storage_bucket" "alerting_history" {
-  name     = "alerting-history-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = false }
-
-  # Compliance requirement: alerting history retained for 1 year (365 days)
-  lifecycle_rule {
-    condition { age = 365 }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "alerting-history",
-    "tier"    = "observability"
-  })
-}
-
-resource "google_storage_bucket" "alerting_state" {
-  name     = "alerting-state-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = false }
-
-  # Alerting cooldown/dedup state retained for 90 days
-  lifecycle_rule {
-    condition { age = 90 }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "alerting-state",
-    "tier"    = "observability"
-  })
-}
-
-resource "google_storage_bucket" "cicd_events" {
-  name     = "cicd-events-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = false }
-
-  # CI/CD event audit trail retained for 90 days
-  lifecycle_rule {
-    condition { age = 90 }
-    action { type = "Delete" }
-  }
-
-  labels = merge(local.common_labels, {
-    "purpose" = "cicd-events",
-    "tier"    = "observability"
-  })
-}
-
-# IAM: unified-trading SA needs write access to alerting + cicd-events buckets
-resource "google_storage_bucket_iam_member" "alerting_history_writer" {
-  bucket = google_storage_bucket.alerting_history.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.unified_trading.email}"
-}
-
-resource "google_storage_bucket_iam_member" "alerting_state_writer" {
-  bucket = google_storage_bucket.alerting_state.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.unified_trading.email}"
-}
-
-resource "google_storage_bucket_iam_member" "cicd_events_writer" {
-  bucket = google_storage_bucket.cicd_events.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.unified_trading.email}"
-}
 
 # ---------------------------------------------------------------------------
 # Immutable execution audit trail — trading-audit-records

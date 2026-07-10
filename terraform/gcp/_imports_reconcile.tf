@@ -168,6 +168,11 @@ import {
 }
 
 import {
+  to = module.instruments_cefi_t1_recon_job.google_cloud_run_v2_job.job
+  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-instruments-service-cefi-t1-recon"
+}
+
+import {
   to = module.mtds_paper_smoke_job.google_cloud_run_v2_job.job
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-mtds-paper-smoke"
 }

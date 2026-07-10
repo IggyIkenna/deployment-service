@@ -389,12 +389,12 @@ class CombinationCalculator:
             spot_only_venues: set[str] = set(
                 cast(
                     list[str],
-                    tardis_config_raw.get("spot_only_venues") or ["BINANCE-SPOT", "COINBASE", "UPBIT"],
+                    tardis_config_raw.get("spot_only_venues") or ["BINANCE-SPOT", "COINBASE-SPOT", "UPBIT"],
                 )
             )
         except (OSError, ValueError, RuntimeError) as e:
             logger.warning("Could not load spot-only venues config: %s, using defaults", e)
-            spot_only_venues = {"BINANCE-SPOT", "COINBASE", "UPBIT"}
+            spot_only_venues = {"BINANCE-SPOT", "COINBASE-SPOT", "UPBIT"}
 
         if not spot_only_venues:
             return combinations
