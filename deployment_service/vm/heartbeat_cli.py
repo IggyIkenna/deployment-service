@@ -36,6 +36,7 @@ from unified_trading_library import (
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
+    HOST_METRICS_WINDOW_KEY,
     HeartbeatDaemon,
     HeartbeatEntry,
     HostMetricsSampler,
@@ -53,6 +54,7 @@ from deployment_service.deployments_registry import (
     DEFAULT_BUCKET,
     DeploymentRegistryEntry,
     DeploymentsRegistry,
+    coerce_host_metrics_window,
 )
 
 logger = logging.getLogger("heartbeat_daemon")
@@ -95,6 +97,9 @@ def _entry_to_registry(entry: HeartbeatEntry) -> DeploymentRegistryEntry:
         io_write_rate_bytes_sec=float(cast(float, md.get("io_write_rate_bytes_sec", 0.0)) or 0.0),
         net_recv_rate_bytes_sec=float(cast(float, md.get("net_recv_rate_bytes_sec", 0.0)) or 0.0),
         workload_alive=bool(md.get("workload_alive", True)),
+        # D.1 rolling window — the daemon appended it onto metadata (HOST_METRICS_WINDOW_KEY);
+        # carry it onto the persisted registry entry so /detail can plot a trend, not a point.
+        host_metrics_window=coerce_host_metrics_window(md.get(HOST_METRICS_WINDOW_KEY)),
     )
 
 
@@ -131,6 +136,9 @@ def _registry_to_entry(reg: DeploymentRegistryEntry) -> HeartbeatEntry:
             "io_write_rate_bytes_sec": reg.io_write_rate_bytes_sec,
             "net_recv_rate_bytes_sec": reg.net_recv_rate_bytes_sec,
             "workload_alive": reg.workload_alive,
+            # Round-trip the rolling window back into metadata so the daemon's next tick
+            # appends to the existing window instead of restarting it from empty.
+            HOST_METRICS_WINDOW_KEY: reg.host_metrics_window,
         },
     )
 

@@ -142,6 +142,30 @@ ACTIVE_PREFIX = "deployments/active/"
 ARCHIVE_PREFIX = "deployments/archive/"
 
 
+def coerce_host_metrics_window(raw: object) -> list[dict[str, float | str]]:
+    """Coerce a JSON-parsed host-metrics window into typed samples (defensive; legacy → []).
+
+    Each sample's numeric metrics coerce to ``float`` and its ``sampled_at`` (or any other
+    non-numeric) to ``str``; a malformed sample is skipped rather than crashing the read.
+    """
+    if not isinstance(raw, list):
+        return []
+    window: list[dict[str, float | str]] = []
+    for sample in cast("list[object]", raw):
+        if not isinstance(sample, dict):
+            continue
+        typed: dict[str, float | str] = {}
+        for key, value in cast("dict[object, object]", sample).items():
+            if isinstance(value, bool):
+                typed[str(key)] = str(value)
+            elif isinstance(value, (int, float)):
+                typed[str(key)] = float(value)
+            else:
+                typed[str(key)] = str(value)
+        window.append(typed)
+    return window
+
+
 @dataclass
 class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     """One row of the VM deployments registry.
@@ -187,6 +211,13 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
     # (honestly-unknown, non-alarming) for pre-2026-07-09 rows and callers that
     # never wired a cmd_pid_file — False is only ever a positive dead-PID reading.
     workload_alive: bool = True
+    # ---- D.1 rolling window (deployment_obs_backend_kinds_health_2026_07_09 D.2 STORE) —
+    # the last ~10 host-metric samples the heartbeat daemon appended (UTL
+    # HOST_METRICS_WINDOW_KEY), oldest first — each a
+    # {cpu_pct/mem_pct/disk_pct/mem_slope/io_write.../net_recv.../sampled_at} sample. Gives the
+    # /detail popover a trend to plot (mem_slope / sustained-idle) instead of a single point.
+    # Empty for legacy rows / non-VM callers (honest absence, not a fabricated flat line).
+    host_metrics_window: list[dict[str, float | str]] = field(default_factory=list)
 
     def to_json(self) -> str:
         row = asdict(self)
@@ -231,6 +262,7 @@ class DeploymentRegistryEntry:  # CORRECT-LOCAL: service-internal registry model
             io_write_rate_bytes_sec=float(data.get("io_write_rate_bytes_sec", 0.0) or 0.0),
             net_recv_rate_bytes_sec=float(data.get("net_recv_rate_bytes_sec", 0.0) or 0.0),
             workload_alive=bool(data.get("workload_alive", True)),
+            host_metrics_window=coerce_host_metrics_window(data.get("host_metrics_window")),
         )
 
 
@@ -541,6 +573,7 @@ __all__ = [
     "DeploymentRegistryEntry",
     "DeploymentsRegistry",
     "InMemoryStorageClient",
+    "coerce_host_metrics_window",
     "vm_log_archive_uri",
     "vm_log_stream_uri",
     "vm_run_log_archive_uri",

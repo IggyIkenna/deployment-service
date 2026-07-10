@@ -309,6 +309,41 @@ def test_host_metrics_fields_round_trip() -> None:
     assert restored.net_recv_rate_bytes_sec == 2048.0
 
 
+def test_host_metrics_window_round_trips() -> None:
+    """The D.1 rolling window survives to_json -> from_json (so /detail can plot a trend)."""
+    window: list[dict[str, float | str]] = [
+        {"cpu_pct": 10.0, "mem_pct": 30.0, "sampled_at": "2026-07-10T00:00:00Z"},
+        {"cpu_pct": 12.5, "mem_pct": 31.0, "sampled_at": "2026-07-10T00:01:00Z"},
+    ]
+    entry = _make_entry(host_metrics_window=window)
+    restored = DeploymentRegistryEntry.from_json(entry.to_json())
+    assert restored == entry
+    assert restored.host_metrics_window == window
+    # numeric cells coerce to float, sampled_at stays a str.
+    assert isinstance(restored.host_metrics_window[0]["cpu_pct"], float)
+    assert isinstance(restored.host_metrics_window[0]["sampled_at"], str)
+
+
+def test_legacy_row_without_host_metrics_window_defaults_empty() -> None:
+    """A pre-D.2-STORE GCS row has no host_metrics_window key — honest empty, not a fake flat line."""
+    legacy = {
+        "deployment_id": "dep-legacy-window",
+        "vm_name": "vm-legacy",
+        "asset_group": "CEFI",
+        "task": "t",
+        "mode": "batch",
+        "start_date": "2026-07-10",
+        "end_date": "2026-07-10",
+        "status": "running",
+        "started_at": "2026-07-10T00:00:00Z",
+        "last_heartbeat_at": "2026-07-10T00:01:00Z",
+        "completed_at": None,
+        "exit_code": None,
+    }
+    restored = DeploymentRegistryEntry.from_json(json.dumps(legacy))
+    assert restored.host_metrics_window == []
+
+
 def test_workload_alive_field_round_trips_false() -> None:
     entry = _make_entry(workload_alive=False)
     restored = DeploymentRegistryEntry.from_json(entry.to_json())
