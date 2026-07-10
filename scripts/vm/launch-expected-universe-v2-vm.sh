@@ -34,6 +34,9 @@
 # Singleton lock: refuses to launch if another expected-universe-v2-* VM is
 # RUNNING in the zone. Pass --force to bypass.
 #
+# Env overrides:
+#   ON_DEMAND=true   opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
+#
 # Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true are always
 # passed so the enumerator's runtime guards are exercised on every run.
 #
@@ -143,6 +146,16 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-4"
 BOOT_DISK_GB="50"
 
+# Backfill/idempotent VMs default to SPOT (HARD RULE: spot-vms-for-backfill) — the
+# enumerator writes to a per-VM manifest shard (MANIFEST_PER_VM_SHARDS=true, always
+# on), so preemption just resumes on restart without double-counting.
+# ON_DEMAND=true is the only opt-out (matches the fleet backfill convention).
+if [[ "${ON_DEMAND:-false}" == "true" ]]; then
+    PROVISIONING_ARGS=(--provisioning-model=STANDARD)
+else
+    PROVISIONING_ARGS=(--provisioning-model=SPOT --instance-termination-action=STOP)
+fi
+
 # Singleton lock: only one expected-universe-v2-* per zone at a time.
 if ! $FORCE; then
     EXISTING="$(gcloud compute instances list \
@@ -228,6 +241,7 @@ else
       --image-project=ubuntu-os-cloud \
       --boot-disk-size="${BOOT_DISK_GB}GB" \
       --scopes=cloud-platform \
+      "${PROVISIONING_ARGS[@]}" \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
       --labels=purpose=expected-universe-v2,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi
