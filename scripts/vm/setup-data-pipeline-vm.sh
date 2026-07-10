@@ -1357,6 +1357,25 @@ elif [[ "$VM_TASK" == "alerting-quietness-baseline" ]]; then
   export PAGERDUTY_DISABLED=true
   export RUN_DURATION_HOURS="$_DURATION"
   _launch_with_tee "$VENV/bin/python -m alerting_service --mode live" "$LOGS/alerting-quietness.log"
+elif [[ "$VM_TASK" == "expected-universe-v2" ]]; then
+  # 2026-07-10 — launch-expected-universe-v2-vm.sh's ad-hoc one-shot / full-history
+  # backfill path. VM_BACKFILL_CMD carries the full enumerate_expected_universe.py
+  # --enumerator-version v2 invocation (asset-group/catalog-path/apply-write/
+  # max-writes-per-run all controlled host-side by the launcher). Found broken
+  # 2026-07-10 (real DeFi backlog launch crashed: VM_OPERATION="expected-universe-v2"
+  # fell through to the generic --operation dispatch below, which has no such CLI
+  # choice) — this branch was simply missing, so VM_BACKFILL_CMD was always ignored
+  # for this task. Self-deletes on completion via the launcher-attached
+  # shutdown-script (VM_SHUTDOWN_ON_COMPLETION=true, always set by the launcher).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/expected-universe-v2.log"
+  else
+    log "ERROR: expected-universe-v2 task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "qg-snapshot" ]]; then
   # B-018 Phase 4.A: daily QG snapshot → GCS parquet.
   # Runs snapshot.sh piped into snapshot_to_parquet.py then self-deletes.
