@@ -99,19 +99,19 @@ _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
 # MTDS defi data. Each entry is a canonical `cloud-providers.yaml` kind resolved
 # via `resolve_bucket_name()` (A11, 2026-06-02) — never a hardcoded f-string —
 # so they pick up the env tier and survive migrations that delete legacy buckets.
+# evm-defi/solana-defi/lending-indices/liquidations/dex-swaps/oracle-prices REMOVED
+# 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero
+# writers for these cloud-providers.yaml kinds (real DeFi data lands in the shared
+# market-data-tick-defi bucket, resolved separately as the primary bucket above), and the
+# dedicated buckets were empty and deleted. Left in place unguarded here they'd raise
+# BucketNamingError on every data-status resolve_all_buckets() call for this service/asset_group.
 _EXTRA_BUCKET_KINDS: dict[str, dict[str, list[str]]] = {
     "market-tick-data-service": {
         "defi": [
             "gas-fees",
-            "evm-defi",
-            "solana-defi",
-            "lending-indices",
             "dex-pools",
             "lst-rates",
             "perp-funding",
-            "liquidations",
-            "dex-swaps",
-            "oracle-prices",
             "eigenlayer-rewards",
         ],
     },

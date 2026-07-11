@@ -2,7 +2,7 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Provision the 10 DeFi-relevant S3 buckets needed for May-23 AWS cutover.
+# Provision the 4 DeFi-relevant S3 buckets needed for May-23 AWS cutover.
 #
 # Plan: unified-trading-pm/plans/active/aws_migration_defi_first_2026_05_07.plan Phase 2.
 # Triggered by Agent 4 (work_split_2026_05_07_ikenna_5tab_layout.md Item 3).
@@ -70,22 +70,19 @@ echo "Deployment:    $DEPLOYMENT_ENV (short: $ENV_SHORT)"
 echo "Mode:          $([[ "$APPLY" == "true" ]] && echo APPLY || echo DRY-RUN)"
 echo
 
-# 10 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan Phase 2.
+# 4 DeFi-relevant bucket keys per aws_migration_defi_first_2026_05_07.plan Phase 2.
 # Names mirror cloud-providers.yaml aws.storage entries exactly (using ENV_SHORT not DEPLOYMENT_ENV).
 # Phase 1 symmetry fix 2026-05-20 (slot 2): aligned to Phase 1 YAML templates —
-#   (a) drop unified-trading- prefix (dex-pools, dex-swaps, evm-defi, eigenlayer-rewards, solana-defi, config-store)
+#   (a) drop unified-trading- prefix (dex-pools, eigenlayer-rewards, config-store)
 #   (b) events is env-LESS (no ENV_SHORT) — matches cloud-providers.yaml aws.storage.events template
-#   (c) pnl/positions/risk already correct (no prefix change needed)
-# On-disk old buckets (with unified-trading- prefix) remain until Phase 5 migration renames them.
+# dex-swaps/evm-defi/solana-defi/pnl-store-defi/positions-store-defi/risk-store-defi REMOVED
+# 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero
+# callers workspace-wide, real data never lands in these dedicated buckets, and the yaml no
+# longer declares these kinds. On-disk old buckets (with unified-trading- prefix) remain until
+# Phase 5 migration renames them.
 BUCKETS=(
     "dex-pools-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "dex-swaps-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "evm-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
     "eigenlayer-rewards-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "solana-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "pnl-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "positions-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    "risk-store-defi-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
     "unified-trading-events-${AWS_ACCOUNT_ID}"
     "config-store-${ENV_SHORT}-${AWS_ACCOUNT_ID}"
 )
