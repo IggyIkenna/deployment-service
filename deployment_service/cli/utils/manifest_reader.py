@@ -100,7 +100,7 @@ _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
 # via `resolve_bucket_name()` (A11, 2026-06-02) — never a hardcoded f-string —
 # so they pick up the env tier and survive migrations that delete legacy buckets.
 # evm-defi/solana-defi/lending-indices/liquidations/dex-swaps/oracle-prices REMOVED
-# 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero
+# 2026-07-10 (bucket estate cleanup, see plans/active/gcs-bucket-estate-cleanup-2026-07-10) — confirmed zero
 # writers for these cloud-providers.yaml kinds (real DeFi data lands in the shared
 # market-data-tick-defi bucket, resolved separately as the primary bucket above), and the
 # dedicated buckets were empty and deleted. Left in place unguarded here they'd raise
