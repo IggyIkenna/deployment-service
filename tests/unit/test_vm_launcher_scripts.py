@@ -128,6 +128,151 @@ class TestLauncherCommonLibrary:
         assert "_lc_final_upload()" in output
 
 
+class TestTarballFreshnessGuard:
+    """Test lc_verify_tarball_freshness — the pre-launch stale-tarball guard.
+
+    Root cause it prevents (2026-07-12 morpho incident): a VM boots and fetches
+    a code tarball that was never republished after a fix landed on
+    live-defi-rollout, silently running days-old code. The helper compares the
+    floating tarball's .manifest.json commit_sha against the workspace clone's
+    current git SHA and warns / blocks / auto-republishes per LC_TARBALL_FRESHNESS.
+    SSOT: plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md
+    """
+
+    LIB = "scripts/vm/lib/launcher_common.sh"
+
+    @pytest.fixture
+    def lib_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LIB
+
+    def _lib_abs(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LIB
+
+    def test_tarball_name_for_repo_mapping(self, lib_path: Path):
+        """market-tick-data-service→mtds-code is the one special case; else <repo>-code."""
+        cases = {
+            "market-tick-data-service": "mtds-code",
+            "unified-api-contracts": "unified-api-contracts-code",
+            "unified-trading-library": "unified-trading-library-code",
+            "deployment-service": "deployment-service-code",
+            "instruments-service": "instruments-service-code",
+        }
+        for repo, expected in cases.items():
+            result = subprocess.run(
+                ["bash", "-c", f'source "{lib_path}" && lc_tarball_name_for_repo "{repo}"'],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0
+            assert result.stdout.strip() == expected, f"{repo} → {result.stdout.strip()!r} (want {expected!r})"
+
+    def test_off_mode_short_circuits(self, lib_path: Path):
+        """LC_TARBALL_FRESHNESS=off returns 0 without touching git/gsutil."""
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{lib_path}" && LC_TARBALL_FRESHNESS=off lc_verify_tarball_freshness bkt some-repo',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+    def _fresh_workspace(self, tmp_path: Path) -> tuple[Path, str]:
+        """Create a fake workspace with a git-cloned market-tick-data-service; return (ws, head_sha)."""
+        repo = tmp_path / "market-tick-data-service"
+        repo.mkdir(parents=True)
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "t@t"],
+            ["git", "config", "user.name", "t"],
+            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
+        ):
+            subprocess.run(cmd, cwd=repo, check=True, capture_output=True)
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        return tmp_path, head
+
+    def _run_with_mock_gsutil(self, ws: Path, manifest_sha: str, mode: str) -> subprocess.CompletedProcess[str]:
+        """Run the guard with gsutil mocked to emit a manifest carrying manifest_sha."""
+        lib = self._lib_abs()
+        # gsutil mock: for a `... cp gs://...manifest.json <dest>` call, write the manifest.
+        script = f"""
+gsutil() {{
+    local dest="${{@: -1}}"
+    if [[ "$*" == *manifest.json* && "$*" == *cp* ]]; then
+        printf '{{"commit_sha": "{manifest_sha}"}}' > "$dest"; return 0
+    fi
+    return 0
+}}
+export -f gsutil
+source "{lib}"
+# `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
+set +e
+if lc_verify_tarball_freshness bkt market-tick-data-service; then rc=0; else rc=$?; fi
+echo "RC=$rc"
+"""
+        return subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "WORKSPACE_ROOT": str(ws), "LC_TARBALL_FRESHNESS": mode},
+        )
+
+    def test_fresh_tarball_passes(self, tmp_path: Path):
+        ws, head = self._fresh_workspace(tmp_path)
+        result = self._run_with_mock_gsutil(ws, head, "warn")
+        assert "RC=0" in result.stdout
+        assert "tarball fresh" in result.stdout
+
+    def test_stale_tarball_warn_does_not_block(self, tmp_path: Path):
+        ws, _ = self._fresh_workspace(tmp_path)
+        result = self._run_with_mock_gsutil(ws, "deadbeef" * 5, "warn")
+        assert "RC=0" in result.stdout, "warn mode must not block a launch"
+        assert "STALE tarball" in result.stderr
+        assert "create-code-tarballs.sh --include market-tick-data-service" in result.stderr
+
+    def test_stale_tarball_enforce_blocks(self, tmp_path: Path):
+        ws, _ = self._fresh_workspace(tmp_path)
+        result = self._run_with_mock_gsutil(ws, "deadbeef" * 5, "enforce")
+        assert "RC=1" in result.stdout, "enforce mode must block a stale launch"
+        assert "refusing to launch a VM onto stale code" in result.stderr
+
+    def test_missing_manifest_enforce_blocks(self, tmp_path: Path):
+        """A missing/unreadable tarball manifest is treated as stale under enforce."""
+        ws, _ = self._fresh_workspace(tmp_path)
+        lib = self._lib_abs()
+        script = f"""
+gsutil() {{ if [[ "$*" == *cp* ]]; then return 1; fi; return 0; }}
+export -f gsutil
+source "{lib}"
+# `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
+set +e
+if lc_verify_tarball_freshness bkt market-tick-data-service; then rc=0; else rc=$?; fi
+echo "RC=$rc"
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "WORKSPACE_ROOT": str(ws), "LC_TARBALL_FRESHNESS": "enforce"},
+        )
+        assert "RC=1" in result.stdout
+        assert "manifest MISSING" in result.stderr
+
+    def test_incident_launcher_wires_the_guard(self):
+        """The morpho incident launcher must actually call the guard before launch."""
+        launcher = Path(__file__).parent.parent.parent / "scripts/vm/launch-mtds-lending-indices-backfill-vm.sh"
+        content = launcher.read_text()
+        assert "lc_verify_tarball_freshness" in content, (
+            "launch-mtds-lending-indices-backfill-vm.sh must wire lc_verify_tarball_freshness "
+            "(the exact launcher that ran 4-day-stale in the 2026-07-12 incident)"
+        )
+        assert "launcher_common.sh" in content, "launcher must source launcher_common.sh"
+
+
 class TestLauncherScriptPatterns:
     """Test common patterns used across launcher scripts"""
 
@@ -740,7 +885,7 @@ class TestDurableLogStreamerCoverage:
         fake_content = (
             "#!/usr/bin/env bash\nset -euo pipefail\n"
             'gcloud compute instances create "my-vm" --zone=asia-northeast1-c '
-            '--metadata-from-file=startup-script=/tmp/x\n'
+            "--metadata-from-file=startup-script=/tmp/x\n"
         )
         assert not self._streams_durable_log(fake_content), (
             "Self-test sentinel: a launcher with no streamer token must read as un-streamed."

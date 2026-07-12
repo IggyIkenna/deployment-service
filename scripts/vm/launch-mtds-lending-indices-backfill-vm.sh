@@ -44,6 +44,10 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
+
 FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
@@ -127,6 +131,18 @@ VM_NAME="mtds-lending-indices-${RUN_TS}"
 _SCOPE_MSG="${START_DATE}..${END_DATE}"
 [[ -n "$LENDING_PROTOCOLS" ]] && _SCOPE_MSG="${_SCOPE_MSG} (protocols: ${LENDING_PROTOCOLS})"
 echo "Launching $VM_NAME: DeFi lending indices ${_SCOPE_MSG}"
+
+# Pre-launch tarball-freshness guard (see lib/launcher_common.sh). This VM
+# fetches mtds-code (+ core UAC/UTL/deployment-service) — the exact code path
+# that ran 4-day-stale in the 2026-07-12 morpho incident (VM wrote 0 rows for
+# hours against the pre-fix _DEFAULT_PROTOCOLS list). Default mode is `warn`;
+# set LC_TARBALL_FRESHNESS=enforce to block a stale launch or =auto to
+# republish first. Skipped in dry-run.
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly.
