@@ -98,7 +98,12 @@ ML_TRAINING_REPOS=(
     features-service
     ml-service
 )
-# All known service repos (union of all categories)
+# All known service repos (union of all categories, plus repos with a
+# tarball-fetching VM launcher even though no --asset-group category covers
+# them — e.g. alerting-service (launch-alerting-quietness-baseline.sh) was
+# excluded from every category array AND this union, so `--all` silently
+# never refreshed it; found stale 275 commits / 20 days behind during the
+# 2026-07-12 cross-repo tarball staleness audit).
 ALL_SERVICE_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
@@ -106,6 +111,7 @@ ALL_SERVICE_REPOS=(
     strategy-service execution-service
     pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     batch-live-reconciliation-service
+    alerting-service
 )
 
 usage() {
