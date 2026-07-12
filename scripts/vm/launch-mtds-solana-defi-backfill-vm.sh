@@ -130,6 +130,14 @@ fi
 
 METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 METADATA="${METADATA},VM_TASK=solana-defi-backfill"
+# Declare the REAL CLI operation this VM_TASK branch runs (collect-solana-defi,
+# hardcoded in setup-data-pipeline-vm.sh's solana-defi-backfill branch regardless
+# of this metadata value). Without this, VM_OPERATION defaults to "download" and
+# the generic OOM preflight (setup-data-pipeline-vm.sh ~L867) treats this VM as a
+# bulk manifest-merge job and self-deletes (exit 78) whenever the defi
+# manifest-consolidator index is stale — a false positive for this small
+# per-date REST-fetch operation, which never reads the consolidated index.
+METADATA="${METADATA},VM_OPERATION=collect-solana-defi"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
 METADATA="${METADATA},VM_SOLANA_PROTOCOLS=${SOLANA_PROTOCOLS}"
