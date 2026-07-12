@@ -207,6 +207,13 @@ VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
 # the CLI for non-tradfi venue-fixed runs. SSOT:
 # codex/02-data/tradfi-databento-sourcing-ssot.md.
 VM_SOURCE=$(_meta VM_SOURCE)
+# VM_LENDING_PROTOCOLS: semicolon-separated protocol allowlist for the CLI's
+# --lending-protocols (nargs='+'). Scopes a lending-indices backfill VM to a
+# subset of lending_indices_handler.py's protocol dispatch (e.g. a
+# single-protocol backfill after wiring a new one in) instead of running the
+# full _DEFAULT_PROTOCOLS list. Analogous to VM_SOLANA_PROTOCOLS for
+# solana-defi-backfill. SSOT: launch-mtds-lending-indices-backfill-vm.sh.
+VM_LENDING_PROTOCOLS=$(_meta VM_LENDING_PROTOCOLS)
 # VM_DURATION_HOURS: optional run-time cap for services that accept --duration-hours.
 # Used by alerting-quietness-baseline (48h quietness run per Phase 7 of alerting plan).
 VM_DURATION_HOURS=$(_meta VM_DURATION_HOURS)
@@ -1495,6 +1502,7 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
   [[ -n "$VM_RECOVERY_FIXTURE_IDS" ]] && CLI_ARGS="$CLI_ARGS --recovery-fixture-ids $VM_RECOVERY_FIXTURE_IDS"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
+  [[ -n "$VM_LENDING_PROTOCOLS" ]] && CLI_ARGS="$CLI_ARGS --lending-protocols ${VM_LENDING_PROTOCOLS//[,;]/ }"
   # CLI expects nargs='+' → space-separated. Metadata values arrive with
   # semicolons (see VM_INSTRUMENT_IDS comment above) to avoid collision with
   # gcloud's comma key-separator. Transform semicolons → spaces. VM_DATA_TYPES
