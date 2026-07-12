@@ -947,6 +947,27 @@ if [[ "$VM_TASK" == "canonical-migration" ]]; then
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "sports-v9-migration" ]]; then
+  # E4 (sports_manifest_canonicalisation_2026_06_01.md) — year-sharded sports
+  # v9 migration. launch-sports-v9-migration-vm.sh sets VM_TASK=sports-v9-migration
+  # + VM_MIGRATION_CMD carrying the two-phase sequential command
+  # ("migrate_sports_canonical_v9 ... && rebuild_sports_manifest_v9 ...").
+  # Root-caused 2026-07-12: this VM_TASK value had no dispatch branch, so it
+  # fell through to the generic elif [ -n "$VM_TASK" ] fallback below, which
+  # built --operation "${VM_OPERATION}" (="migrate-sports-v9-{surface}") — not
+  # a registered market-tick-data-service CLI operation — argparse error,
+  # exit_code=2 on all 16 fleet VMs of the first E4 attempt. Mirrors the
+  # canonical-migration dispatch above (VM_MIGRATION_CMD-driven, both phases
+  # live in market_tick_data_service so cd into $WORKSPACE/mtds once).
+  VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
+  if [[ -n "$VM_MIGRATION_CMD" ]]; then
+    FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/sports-v9-migration.log"
+  else
+    log "ERROR: sports-v9-migration task without VM_MIGRATION_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "sports-manifest-rescan" ]]; then
   # Phase 5 (2026-04-21) — SPORTS FIXTURES per-(date, canonical_league_id)
   # manifest rescan. Runs instruments-service/scripts/rescan_sports_fixtures_canonical.py
