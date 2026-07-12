@@ -398,6 +398,26 @@ launch_cefi_shard() {
   # before Python starts; this catches anything that slips through (e.g. the
   # consolidator goes stale mid-run, not at bootstrap).
   meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
+  # STALL_PROGRESS_REGEX (cefi_bf_2021_heavy_vm_stalled_2026_07_12 root-cause):
+  # without this, vm-exec-with-gcs-tee.sh's stall watchdog falls back to raw
+  # LOCAL_LOG byte-growth detection — which the setup-data-pipeline-vm.sh
+  # vm-life-emitter (a `while true; echo PIPELINE_HEARTBEAT; sleep 60` loop
+  # wired into the SAME tee'd command, BUG1b 2026-06-22) defeats forever: its
+  # own 60s heartbeat lines keep the log "growing" even when the real Tardis
+  # worker is fully hung, so the 30-min stall timer never fires. Confirmed via
+  # gs://deployment-scripts-.../vm-logs/cefi-binance-futures-2021-heavy-20260703-105623/run.log:
+  # BINANCE-FUTURES/2021-07-01/book_snapshot_5 streaming produced its last
+  # "StreamingParquetWriter: uploaded ..." line at 2026-07-04T15:14:33Z, then
+  # ONLY PIPELINE_HEARTBEAT noise for the next 7+ days until manual termination
+  # 2026-07-12 — no traceback, no OOM, no next-symbol request line. "uploaded"
+  # is emitted by UTL StreamingParquetWriter/StreamingShardFinalizer on every
+  # per-shard GCS finalize, used by BOTH the heavy per-symbol streaming path
+  # (tardis_cefi_shards.py) and the light/DERIBIT bulk chain-glob path
+  # (tardis_bulk_download.py) — a safe universal per-shard progress marker
+  # across every venue/group this launcher spawns. Same pattern as
+  # launch-mdps-sharded-backfill.sh / launch-sfi-backfill-vm.sh /
+  # launch-mtds-gas-fees-backfill-vm.sh. =/space/comma-free (metadata-safe).
+  meta+=",STALL_PROGRESS_REGEX=uploaded"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
   [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
 
