@@ -22,6 +22,7 @@
 #
 # Cost shape (per shard): e2-standard-2/4 + Tardis options_chain pull
 #   DERIBIT: 7 year shards (2020-2026) × 1 = 7 VMs (BTC+ETH chain symbols)
+#   DERIBIT-COMBO: 7 year shards (2020-2026) × 1 = 7 VMs (BTC+ETH chain symbols)
 #   OKX: 7 year shards (2020-2026) × 1 = 7 VMs (BTC+ETH chain symbols)
 #   CME-OPTIONS / CBOE-VIX-OPTIONS: skip if you've verified manifest claims
 #       (run reconcile_market_tick_manifest.py first)
@@ -79,6 +80,7 @@ esac
 
 # Per-venue chain symbol sets (only the bases — Tardis chain glob expands server-side).
 SYMBOLS_DERIBIT="BTC;ETH"
+SYMBOLS_DERIBIT_COMBO="BTC;ETH"
 SYMBOLS_OKX="BTC;ETH"
 SYMBOLS_CME_OPTIONS="ES"
 SYMBOLS_CBOE_VIX_OPTIONS="VX"
@@ -148,6 +150,18 @@ _launch_shard() {
 # DERIBIT options_chain: 2020-2026
 for y in 2020 2021 2022 2023 2024 2025 2026; do
     _launch_shard "CEFI" "DERIBIT" "${y}" "${SYMBOLS_DERIBIT}"
+done
+
+# DERIBIT-COMBO options_chain: 2020-2026. Added 2026-07-12
+# (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md todo 1) once the
+# venue's Tardis routing + canonical_venue propagation + combo row
+# classification 3 fixes landed (market-tick-data-service@7dbd19f4,
+# @1bc4e000, unified-api-contracts@f0dc61a2). Shares the DERIBIT exchange
+# slug (Tardis "deribit"), filtered server-side to type=='combo' symbols by
+# the adapter; pre-coverage dates are expected to self-classify honest-empty
+# via EXPECTED_SOURCE_DOES_NOT_OFFER_DATA_TYPE per the issue doc's design.
+for y in 2020 2021 2022 2023 2024 2025 2026; do
+    _launch_shard "CEFI" "DERIBIT-COMBO" "${y}" "${SYMBOLS_DERIBIT_COMBO}"
 done
 
 # OKX options_chain: 2020-2026 (Tardis okex-options availableSince 2020-02-01)

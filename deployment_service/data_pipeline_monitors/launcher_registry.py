@@ -191,6 +191,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # distinct from opt-deribit- (historical Tardis batch). Wired under
     # infra_capture_and_devops_leftovers_2026_07_06 Plan 6 task 002.
     "deribit-opts-fwd-": "launch-deribit-options-chain-daily.sh",
+    "opt-okx-": "launch-targeted-options-chain-backfill.sh",
     "opt-cboe-": "launch-targeted-options-chain-backfill.sh",
     "opt-cme-": "launch-targeted-options-chain-backfill.sh",
     "cme-events-": None,  # CME event-contract — covered by tradfi-event-contract-backfill prefix

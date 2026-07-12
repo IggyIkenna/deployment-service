@@ -648,6 +648,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # batch). Wired by launch-deribit-options-chain-daily.sh under Plan 6
     # infra_capture_and_devops_leftovers_2026_07_06 task 002.
     "deribit-opts-fwd-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # OKX BTC/ETH options_chain historical Tardis batch backfill — added
+    # 2026-07-12 (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md
+    # todo 2) once the options_chain/futures_chain exchange resolution
+    # became instrument-type-aware for OKX. Same launcher + bucket shape
+    # as opt-deribit-. Also covers opt-deribit-combo- (a prefix of
+    # opt-deribit- above, no separate entry needed).
+    "opt-okx-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "opt-cboe-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
