@@ -48,6 +48,12 @@ STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # has thousands of strikes/expiries per underlying — much heavier than the
 # perp/spot data_types the previous heavy-profile fix targeted.
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# 2026-07-12: this launcher had NO --boot-disk-size (image default, ~10GB),
+# the one outlier among cefi Tardis backfill launchers — every sibling
+# (launch-cefi-sharded-backfill.sh, launch-cefi-hl-aster-historical-
+# backfill.sh) already sets 50GB. Confirmed live: OKX options_chain hit
+# "[Errno 28] No space left on device" mid-stream after a 58M+ row Tardis
+# fetch (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md round 5).
 
 DRY=1
 SELECTED_VENUE=""
@@ -148,6 +154,7 @@ _launch_shard() {
               --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
               ${PROVISIONING_FLAGS} \
               --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+              --boot-disk-size=50GB \
               --scopes=cloud-platform --metadata="${meta}" \
               --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
               --project="${PROJECT}" --async 2>&1 | tail -1
