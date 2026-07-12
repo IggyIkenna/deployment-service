@@ -49,6 +49,9 @@
 # Same protocol as launch-mtds-prediction-backfill-vm.sh.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 
@@ -122,6 +125,12 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \

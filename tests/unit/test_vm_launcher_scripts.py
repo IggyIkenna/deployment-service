@@ -895,5 +895,96 @@ class TestDurableLogStreamerCoverage:
         assert self._streams_durable_log(converted)
 
 
+class TestTarballFreshnessGuardCoverage:
+    """Guard: every ``launch-*.sh`` GCP launcher whose VM fetches a code tarball
+    (i.e. its ``gcloud`` metadata carries a GCS ``startup-script-url=``, the
+    mechanism every ``setup-*-vm.sh`` startup script uses to pull
+    ``gs://<bucket>/code/*-code.tar.gz``) must call ``lc_verify_tarball_freshness``
+    before launch. A launcher that fetches a tarball but skips the check can
+    silently boot onto stale code — the exact 2026-07-12 morpho lending_indices
+    incident (mtds-code sat 4 days stale; the VM ran the pre-fix protocol list
+    and wrote 0 rows for hours). SSOT:
+    plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md.
+
+    A future "added a tarball-fetching launcher, forgot the freshness guard"
+    regression fails here. Genuinely-exempt launchers (AWS family — parity
+    tracked separately, same boundary ``TestDurableLogStreamerCoverage`` uses)
+    are whitelisted explicitly below with a reason.
+    """
+
+    STARTUP_SCRIPT_URL_TOKEN = "startup-script-url=gs://"
+    GUARD_TOKEN = "lc_verify_tarball_freshness"
+
+    # Genuinely-exempt launchers. Each entry MUST carry a reason.
+    EXEMPT: dict[str, str] = {}
+
+    def _tarball_fetching_launchers(self) -> list[Path]:
+        scripts_dir = Path(__file__).parent.parent.parent / "scripts" / "vm"
+        # Exclude *-aws.sh (AWS family) — S3/EC2 tarball delivery is a separate
+        # mechanism (lc_verify_tarball_freshness reads GCS manifests only);
+        # AWS parity is tracked separately, same boundary as
+        # TestDurableLogStreamerCoverage.
+        return sorted(
+            p
+            for p in scripts_dir.glob("launch-*.sh")
+            if not p.name.endswith("-aws.sh") and self.STARTUP_SCRIPT_URL_TOKEN in p.read_text()
+        )
+
+    def test_tarball_fetching_launchers_present(self) -> None:
+        assert len(self._tarball_fetching_launchers()) > 0, "No tarball-fetching GCP launch-*.sh scripts found"
+
+    def test_every_tarball_fetching_launcher_wires_the_freshness_guard(self) -> None:
+        """No tarball-fetching launcher may skip lc_verify_tarball_freshness
+        without an explicit whitelist reason."""
+        offenders: list[str] = []
+        for script in self._tarball_fetching_launchers():
+            content = script.read_text()
+            if self.GUARD_TOKEN in content:
+                continue
+            if script.name in self.EXEMPT:
+                continue
+            offenders.append(script.name)
+
+        assert not offenders, (
+            "Tarball-fetching launcher(s) do NOT wire lc_verify_tarball_freshness "
+            f"and are not whitelisted-exempt: {offenders}. Source "
+            'lib/launcher_common.sh and call lc_verify_tarball_freshness "$CODE_BUCKET" '
+            "<repos...> before the gcloud create — else the VM can silently boot onto "
+            "stale code (2026-07-12 morpho lending_indices incident). If genuinely "
+            "exempt, add it to TestTarballFreshnessGuardCoverage.EXEMPT with a reason."
+        )
+
+    def test_whitelist_entries_still_exist(self) -> None:
+        """A whitelisted launcher that no longer exists is stale — drop it so the
+        guard stays honest."""
+        scripts_dir = Path(__file__).parent.parent.parent / "scripts" / "vm"
+        for name in self.EXEMPT:
+            assert (scripts_dir / name).exists(), (
+                f"Whitelisted-exempt launcher {name} no longer exists — remove it from "
+                "TestTarballFreshnessGuardCoverage.EXEMPT."
+            )
+
+    def test_whitelist_entries_have_reasons(self) -> None:
+        for name, reason in self.EXEMPT.items():
+            assert reason.strip(), f"Exempt launcher {name} has no reason — add one."
+
+    def test_guard_catches_an_unwired_launcher(self) -> None:
+        """Self-test: a synthetic launcher that fetches a tarball but omits the
+        freshness guard (and is not whitelisted) is detected as an offender —
+        proving the guard would catch the regression it exists to prevent."""
+        fake_content = (
+            "#!/usr/bin/env bash\nset -euo pipefail\n"
+            'gcloud compute instances create "my-vm" --zone=asia-northeast1-c '
+            '--metadata="startup-script-url=gs://deployment-scripts-x/vm/setup-data-pipeline-vm.sh"\n'
+        )
+        assert self.STARTUP_SCRIPT_URL_TOKEN in fake_content
+        assert self.GUARD_TOKEN not in fake_content, (
+            "Self-test sentinel: a launcher with no guard token must read as unwired."
+        )
+        # And a converted one (wires lc_verify_tarball_freshness) reads as covered.
+        converted = fake_content + 'lc_verify_tarball_freshness "$CODE_BUCKET" my-repo\n'
+        assert self.GUARD_TOKEN in converted
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

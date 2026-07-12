@@ -22,6 +22,9 @@
 # Boot disk: 50GB (parquets read into RAM during transform).
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 POSITIONAL=()
@@ -91,6 +94,12 @@ md="${md},VM_MIGRATION_MODE=${MODE}"
 md="${md},GCP_PROJECT_ID=${PROJECT}"
 md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \

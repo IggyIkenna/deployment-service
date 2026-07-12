@@ -18,6 +18,9 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 PROJECT="central-element-323112"
 ZONE="asia-northeast1-c"
 MACHINE_TYPE="e2-standard-2"
@@ -43,6 +46,12 @@ VM_SERVICE=instruments_service,\
 VM_SHUTDOWN_ON_COMPLETION=true,\
 VM_BACKFILL_CMD=${CALIB_CMD},\
 DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        instruments-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT}" \

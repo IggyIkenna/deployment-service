@@ -45,6 +45,9 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 SOURCE_BUCKET=""
 DEST_BUCKET=""
 WORKERS="8"
@@ -156,6 +159,12 @@ echo "  prefix: ${PREFIX_FILTER:-<full>}"
 echo "  workers: ${WORKERS}, dry-run: ${DRY_RUN}"
 echo "  zone: ${ZONE}, machine: ${MACHINE_TYPE}, boot: ${BOOT_DISK_GB}G"
 echo "  cmd: ${RSYNC_CMD}"
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        deployment-service unified-api-contracts unified-trading-library \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \

@@ -54,6 +54,9 @@
 # Dry-run:  DRY_RUN=1 bash scripts/vm/launch-cefi-sharded-backfill.sh
 set -e
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 PROJECT=central-element-323112
 # Zone: asia-northeast1-c (matches launch-mdps-backfill-vm.sh,
 # launch-canonical-migration-vm.sh, launch-features-backfill-vm.sh).
@@ -434,6 +437,18 @@ launch_cefi_shard() {
     # Metadata passed as single --metadata arg to avoid shell interpretation
     # of ';' inside VM_DATA_TYPES / VM_INSTRUMENT_IDS values.
     # shellcheck disable=SC2086
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "deployment-scripts-${PROJECT}" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "deployment-scripts-${PROJECT}" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \

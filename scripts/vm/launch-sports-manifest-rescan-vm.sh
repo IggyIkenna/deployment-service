@@ -65,6 +65,9 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 FORCE=false
 DRY_RUN=""
 DATE_FLAG=""
@@ -187,6 +190,12 @@ launch_vm() {
   echo "  → Launching $vm_name [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
   echo "    cmd: $rescan_cmd"
   # shellcheck disable=SC2086
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          instruments-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \

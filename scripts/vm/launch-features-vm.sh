@@ -88,6 +88,9 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 # ---------- argument parsing ----------
 FEATURE_FAMILY=""
 ASSET_GROUP=""
@@ -259,6 +262,12 @@ MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
 
 # ---------- launch ----------
 # shellcheck disable=SC2086
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        features-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
+
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \

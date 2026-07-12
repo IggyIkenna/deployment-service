@@ -37,6 +37,9 @@
 # rate-limit errors. Use --force to bypass.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 FORCE=false
@@ -128,6 +131,18 @@ if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] (gcloud compute instances create skipped)"
 else
   # shellcheck disable=SC2086
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          instruments-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          instruments-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
   ~/google-cloud-sdk/bin/gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \

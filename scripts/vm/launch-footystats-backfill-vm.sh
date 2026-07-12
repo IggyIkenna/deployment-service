@@ -49,6 +49,9 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 # Machine type override (default e2-standard-2). The per-league skip-check used
 # to re-read the 6.5 GB sports availability index, OOM-killing e2-standard-2;
 # fixed in instruments-service@505dcd9 (single index read). e2-standard-8
@@ -220,6 +223,12 @@ echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
 SHUTDOWN_EOF
 
   # shellcheck disable=SC2086
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          instruments-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \

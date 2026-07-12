@@ -30,6 +30,9 @@
 # SSOT: codex/05-infrastructure/live-pipeline-architecture.md
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 DRY_RUN=false
@@ -104,6 +107,12 @@ if $DRY_RUN; then
   echo "[DRY-RUN] startup-script-url=gs://${CODE_BUCKET}/vm/setup-prediction-live-consolidated-vm.sh"
   echo "[DRY-RUN] metadata=${METADATA}"
   exit 0
+fi
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
 gcloud compute instances create "$VM_NAME" \
