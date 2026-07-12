@@ -221,12 +221,15 @@ module "daily_job" {
     { name = "instruments-store-defi", bucket = "instruments-store-defi-${var.project_id}", read_only = true },
     { name = "instruments-store-tradfi", bucket = "instruments-store-tradfi-${var.project_id}", read_only = true },
     { name = "instruments-store-sports", bucket = "instruments-store-sports-${var.project_id}", read_only = true },
-    { name = "instruments-store-prediction", bucket = "instruments-store-prediction-${var.project_id}", read_only = true },
+    # instruments-store-prediction (legacy) REMOVED 2026-07-12 — prediction L3 is C-GREEN;
+    # MDPS reads prediction reference data via resolve_bucket_name(kind="instruments-store-prediction")
+    # → canonical instruments-store-pred-prd-… (bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7).
     { name = "market-data-tick-cefi", bucket = "market-data-tick-cefi-${var.project_id}", read_only = false },
     { name = "market-data-tick-defi", bucket = "market-data-tick-defi-${var.project_id}", read_only = false },
     { name = "market-data-tick-tradfi", bucket = "market-data-tick-tradfi-${var.project_id}", read_only = false },
     { name = "market-data-tick-sports", bucket = "market-data-tick-sports-${var.project_id}", read_only = false },
-    { name = "market-data-tick-prediction", bucket = "market-data-tick-prediction-${var.project_id}", read_only = false },
+    # market-data-tick-prediction (legacy) REMOVED 2026-07-12 — same decommission as above; MDPS
+    # source/sink already repointed to market-data-tick-pred-prd-… (Phase-0f, 2026-07-12).
   ]
 
   # No external API secrets needed - reads from tick data buckets
