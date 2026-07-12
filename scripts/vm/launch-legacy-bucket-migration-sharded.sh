@@ -20,6 +20,9 @@
 #   bash launch-legacy-bucket-migration-sharded.sh cefi             # one bucket only
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
@@ -85,6 +88,12 @@ for GROUP in cefi defi tradfi sports prediction; do
     MD="${MD},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
     MD="${MD},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     MD="${MD},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "$CODE_BUCKET" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
     gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \

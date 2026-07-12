@@ -34,6 +34,9 @@
 # migrates only that tier's data.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Pre-parse --env <val> before positional args.
@@ -141,6 +144,12 @@ _launch() {
     [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "$CODE_BUCKET" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
 
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \

@@ -41,6 +41,9 @@
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
 # Pre-parse --env <val> before positional args.
@@ -117,6 +120,12 @@ md="${md},VM_MIGRATION_CMD=${CMD}"
 md="${md},VM_MIGRATION_MODE=${MODE}"
 md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        market-data-processing-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \

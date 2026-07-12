@@ -46,6 +46,9 @@
 #   cefi/tradfi: ~45-60 min | defi: ~15 min | sports/prediction: ~10 min
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 
@@ -146,6 +149,12 @@ echo "  Script 1: reconcile_phantom_manifest_rows_all.py --dry-run"
 echo "  Script 2: reconcile_expected_absence_reasons.py  (scan-only)"
 echo "  Script 3: reconcile_legacy_blank_to_typed_reason.py (scan-only)"
 echo "  Log dest: ${RECON_LOGS}/${VM_NAME}.log"
+
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        instruments-service unified-api-contracts unified-trading-library deployment-service \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \

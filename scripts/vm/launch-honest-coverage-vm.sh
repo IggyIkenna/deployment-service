@@ -32,6 +32,9 @@
 
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
@@ -117,6 +120,10 @@ if $DRY_RUN; then
     printf '  %s \\\n' "${GCLOUD_CMD[@]}"
     exit 0
 fi
+
+lc_verify_tarball_freshness "$CODE_BUCKET" \
+    instruments-service unified-api-contracts unified-trading-library deployment-service \
+    || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 
 "${GCLOUD_CMD[@]}"
 

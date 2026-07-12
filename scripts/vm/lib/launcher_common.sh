@@ -12,6 +12,11 @@
 #                                          — standard gcloud compute instances create wrapper
 #   lc_code_bucket <project>               — emit deployment-scripts-<project>
 #   lc_run_ts                              — emit YYYYmmdd-HHMMSS timestamp
+#   lc_tarball_name_for_repo <repo>        — canonical GCS code-tarball basename
+#   lc_verify_tarball_freshness <bucket> <repo>...
+#                                          — PRE-LAUNCH guard: refuse/warn/auto-
+#                                            republish when a code tarball the VM
+#                                            will fetch is stale vs the repo HEAD
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -191,6 +196,207 @@ lc_code_bucket() {
 # Emit a sortable timestamp suitable for VM name suffixes: YYYYmmdd-HHMMSS
 lc_run_ts() {
     date +%Y%m%d-%H%M%S
+}
+
+# ---------------------------------------------------------------------------
+# lc_tarball_name_for_repo <repo>
+# ---------------------------------------------------------------------------
+# Emit the canonical GCS code-tarball basename create-code-tarballs.sh produces
+# for a given workspace repo dir. Keep this the SINGLE source of truth for the
+# repo→tarball mapping — it must stay in lockstep with CORE_REPOS in
+# create-code-tarballs.sh (the one special case is market-tick-data-service →
+# mtds-code; everything else is <repo>-code).
+lc_tarball_name_for_repo() {
+    local repo="${1:?lc_tarball_name_for_repo: repo required}"
+    case "$repo" in
+        market-tick-data-service) echo "mtds-code" ;;
+        *)                        echo "${repo}-code" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# lc_verify_tarball_freshness <code_bucket> <repo> [repo2 ...]
+# ---------------------------------------------------------------------------
+# PRE-LAUNCH guard against the silent-stale-tarball class of bug: a VM boots and
+# fetches gs://<bucket>/code/<repo>-code.tar.gz that was NEVER republished after
+# a fix landed on live-defi-rollout, so it silently runs days-old code despite
+# correct metadata. Root-caused 2026-07-12 (morpho lending_indices: mtds-code
+# was 4 days stale; the VM ran the pre-fix _DEFAULT_PROTOCOLS list and wrote 0
+# rows for hours). SSOT:
+# plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md.
+#
+# For each repo, compares the floating tarball's .manifest.json commit_sha
+# against the workspace clone's current git SHA (the exact SHA
+# create-code-tarballs.sh would tar right now) and acts per LC_TARBALL_FRESHNESS:
+#
+#   off      — skip the check entirely (return 0).
+#   warn     — (DEFAULT) print a loud WARNING + the exact republish remedy for
+#              each stale repo, then return 0 (never blocks a launch).
+#   enforce  — return 1 (block the launch) if ANY repo is stale or its tarball
+#              manifest is missing/unreadable — "never launch a VM onto stale
+#              code", mirroring setup-data-pipeline-vm.sh's TARBALL_EXPECTED_SHA
+#              gate one step earlier (before the VM even boots).
+#   auto     — republish each stale repo via create-code-tarballs.sh --include
+#              <repo>, re-verify, then return 0 (or 1 if a republish failed).
+#
+# Comparison ref: the local workspace clone HEAD by default (kept fresh by
+# slot-cron-ff-pull). Set LC_TARBALL_FRESHNESS_FETCH=true to `git fetch` first
+# and compare against origin/<LC_TARBALL_FRESHNESS_REF> (default
+# live-defi-rollout) for a network-authoritative check.
+#
+# Env knobs:
+#   LC_TARBALL_FRESHNESS        off|warn|enforce|auto  (default: warn)
+#   LC_TARBALL_FRESHNESS_FETCH  true|false             (default: false)
+#   LC_TARBALL_FRESHNESS_REF    branch                 (default: live-defi-rollout)
+#   WORKSPACE_ROOT              workspace root holding the sibling repo clones
+#                               (default: auto-detected from this lib's location)
+#
+# Robustness: git/gsutil unavailable, or a repo dir that isn't a git clone, is a
+# "can't verify" — warn+skip in every mode EXCEPT enforce with a genuinely
+# stale/missing tarball. A transient tooling absence never blocks a launch.
+#
+# Usage (in a launcher, before the gcloud create):
+#   source "${SCRIPT_DIR}/lib/launcher_common.sh"
+#   lc_verify_tarball_freshness "$CODE_BUCKET" market-tick-data-service \
+#       unified-api-contracts unified-trading-library deployment-service
+lc_verify_tarball_freshness() {
+    local code_bucket="${1:?lc_verify_tarball_freshness: code_bucket required}"
+    shift
+    if [[ $# -eq 0 ]]; then
+        echo "lc_verify_tarball_freshness: at least one repo required" >&2
+        return 2
+    fi
+
+    # bash-3.2 safe lowercase.
+    local mode
+    mode="$(printf '%s' "${LC_TARBALL_FRESHNESS:-warn}" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$mode" == "off" ]]; then
+        return 0
+    fi
+    case "$mode" in
+        warn|enforce|auto) ;;
+        *) echo "WARNING: unknown LC_TARBALL_FRESHNESS='$mode' — treating as 'warn'" >&2; mode="warn" ;;
+    esac
+
+    # Tooling preconditions — a missing tool means we can't verify anything;
+    # warn once and let the launch proceed (never block on a tooling gap).
+    if ! command -v gsutil >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+        echo "WARNING: lc_verify_tarball_freshness — gsutil/git unavailable, skipping tarball-freshness check" >&2
+        return 0
+    fi
+
+    # Resolve workspace root: env override, else up 4 dirs from this lib
+    # (<ws>/deployment-service/scripts/vm/lib/launcher_common.sh).
+    local ws_root lib_dir
+    lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    ws_root="${WORKSPACE_ROOT:-$(cd "$lib_dir/../../../.." && pwd)}"
+
+    local fetch_ref fetch_first
+    fetch_ref="${LC_TARBALL_FRESHNESS_REF:-live-defi-rollout}"
+    fetch_first="$(printf '%s' "${LC_TARBALL_FRESHNESS_FETCH:-false}" | tr '[:upper:]' '[:lower:]')"
+
+    local stale_repos="" stale_count=0
+    local repo tarball repo_path expected_sha actual_sha manifest_uri manifest_tmp cmp_n
+
+    for repo in "$@"; do
+        tarball="$(lc_tarball_name_for_repo "$repo")"
+        repo_path="$ws_root/$repo"
+
+        if [[ ! -d "$repo_path/.git" ]]; then
+            echo "WARNING: lc_verify_tarball_freshness — $repo not a git clone at $repo_path, skipping" >&2
+            continue
+        fi
+
+        # The SHA create-code-tarballs.sh would tar right now (or the fetched
+        # origin ref when LC_TARBALL_FRESHNESS_FETCH=true).
+        if [[ "$fetch_first" == "true" ]]; then
+            git -C "$repo_path" fetch --quiet origin "$fetch_ref" 2>/dev/null || true
+            expected_sha="$(git -C "$repo_path" rev-parse "origin/$fetch_ref" 2>/dev/null || echo "")"
+        else
+            expected_sha="$(git -C "$repo_path" rev-parse HEAD 2>/dev/null || echo "")"
+        fi
+        if [[ -z "$expected_sha" ]]; then
+            echo "WARNING: lc_verify_tarball_freshness — cannot resolve current SHA for $repo, skipping" >&2
+            continue
+        fi
+
+        # Read the floating tarball's manifest commit_sha from GCS.
+        manifest_uri="gs://${code_bucket}/code/${tarball}.manifest.json"
+        manifest_tmp="$(mktemp /tmp/lc-manifest-XXXX.json)"
+        if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
+            rm -f "$manifest_tmp"
+            echo "WARNING: tarball manifest MISSING for $repo ($manifest_uri) — VM would fetch an absent/stale tarball" >&2
+            stale_repos="${stale_repos}${repo} "
+            stale_count=$((stale_count + 1))
+            continue
+        fi
+        actual_sha="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('commit_sha',''))" "$manifest_tmp" 2>/dev/null || echo "")"
+        rm -f "$manifest_tmp"
+        if [[ -z "$actual_sha" ]]; then
+            echo "WARNING: tarball manifest for $repo has no commit_sha — cannot verify freshness" >&2
+            stale_repos="${stale_repos}${repo} "
+            stale_count=$((stale_count + 1))
+            continue
+        fi
+
+        # Prefix-safe compare (manifest carries full 40-char sha; either side may
+        # be short in practice).
+        cmp_n=${#expected_sha}
+        [[ ${#actual_sha} -lt $cmp_n ]] && cmp_n=${#actual_sha}
+        if [[ "${expected_sha:0:$cmp_n}" == "${actual_sha:0:$cmp_n}" ]]; then
+            echo "  tarball fresh: $repo ($tarball @ ${actual_sha:0:12})"
+        else
+            echo "WARNING: STALE tarball for $repo — ${tarball} manifest=${actual_sha:0:12} but repo=${expected_sha:0:12}" >&2
+            stale_repos="${stale_repos}${repo} "
+            stale_count=$((stale_count + 1))
+        fi
+    done
+
+    if [[ "$stale_count" -eq 0 ]]; then
+        echo "lc_verify_tarball_freshness: all ${#} tarball(s) current."
+        return 0
+    fi
+
+    # Trim trailing space for clean output.
+    stale_repos="${stale_repos% }"
+
+    local republish_cmd="bash ${lib_dir}/../create-code-tarballs.sh"
+    local r
+    for r in $stale_repos; do
+        republish_cmd="${republish_cmd} --include ${r}"
+    done
+
+    case "$mode" in
+        warn)
+            {
+                echo "WARNING: ${stale_count} STALE code tarball(s): ${stale_repos}"
+                echo "WARNING: the VM you are launching may fetch pre-fix code. Republish before launch:"
+                echo "WARNING:   ${republish_cmd}"
+                echo "WARNING: (set LC_TARBALL_FRESHNESS=enforce to block, or =auto to republish automatically)"
+            } >&2
+            return 0
+            ;;
+        enforce)
+            {
+                echo "ERROR: ${stale_count} STALE code tarball(s): ${stale_repos}"
+                echo "ERROR: refusing to launch a VM onto stale code. Republish first:"
+                echo "ERROR:   ${republish_cmd}"
+            } >&2
+            return 1
+            ;;
+        auto)
+            echo "lc_verify_tarball_freshness: auto-republishing stale tarball(s): ${stale_repos}"
+            if $republish_cmd; then
+                echo "lc_verify_tarball_freshness: republish complete — re-verifying"
+                # Re-verify once in warn mode (no infinite loop) so the operator
+                # sees confirmation the republish took.
+                LC_TARBALL_FRESHNESS=warn lc_verify_tarball_freshness "$code_bucket" $stale_repos
+                return 0
+            fi
+            echo "ERROR: auto-republish failed for: ${stale_repos} — not launching onto unverified code" >&2
+            return 1
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------

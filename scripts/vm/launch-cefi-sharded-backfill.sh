@@ -54,6 +54,9 @@
 # Dry-run:  DRY_RUN=1 bash scripts/vm/launch-cefi-sharded-backfill.sh
 set -e
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 PROJECT=central-element-323112
 # Zone: asia-northeast1-c (matches launch-mdps-backfill-vm.sh,
 # launch-canonical-migration-vm.sh, launch-features-backfill-vm.sh).
@@ -420,6 +423,15 @@ launch_cefi_shard() {
   meta+=",STALL_PROGRESS_REGEX=uploaded"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
   [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
+  # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
+  # tardis_concurrent_ip_lockout_2026_07_12). Opt-in ONLY: set
+  # TARDIS_CONCURRENCY_LEASE=1 + TARDIS_CONCURRENCY_LEASE_BUCKET=<control-bucket>
+  # on the launcher to serialise every Tardis-calling VM through one GCS TTL lease
+  # (fixes the concurrent-IP 403 lockout at the cost of ~20-80x slower waves). Left
+  # unstamped by default so MTDS's default-False flag keeps waves fully parallel.
+  # The bucket MUST be a coordination bucket, NOT a data/manifest-walked bucket.
+  [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
+  [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
@@ -434,6 +446,18 @@ launch_cefi_shard() {
     # Metadata passed as single --metadata arg to avoid shell interpretation
     # of ';' inside VM_DATA_TYPES / VM_INSTRUMENT_IDS values.
     # shellcheck disable=SC2086
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "deployment-scripts-${PROJECT}" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "deployment-scripts-${PROJECT}" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \

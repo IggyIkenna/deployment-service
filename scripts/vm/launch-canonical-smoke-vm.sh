@@ -73,6 +73,18 @@ launch_vm() {
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},IS_TEST_RUN=true"
 
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "$CODE_BUCKET" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
+    if [[ "${DRY_RUN:-false}" != "true" ]]; then
+        lc_verify_tarball_freshness "$CODE_BUCKET" \
+            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
     lc_gcloud_create "$vm_name" "$PROJECT" "$ZONE" "e2-standard-4" "30" \
         "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
         "purpose=canonical-smoke,category=${cat},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"

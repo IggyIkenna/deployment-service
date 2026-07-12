@@ -69,6 +69,9 @@
 # staging-tier manifests; default prod.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 FORCE=false
 APPLY=false
 TARBALL_MODE="prod"  # prod | local
@@ -263,6 +266,12 @@ launch_single_vm() {
   local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
   if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
   # shellcheck disable=SC2086
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+      lc_verify_tarball_freshness "$CODE_BUCKET" \
+          instruments-service unified-api-contracts unified-trading-library deployment-service \
+          || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
     --zone="$ZONE" \
