@@ -423,6 +423,15 @@ launch_cefi_shard() {
   meta+=",STALL_PROGRESS_REGEX=uploaded"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
   [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
+  # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
+  # tardis_concurrent_ip_lockout_2026_07_12). Opt-in ONLY: set
+  # TARDIS_CONCURRENCY_LEASE=1 + TARDIS_CONCURRENCY_LEASE_BUCKET=<control-bucket>
+  # on the launcher to serialise every Tardis-calling VM through one GCS TTL lease
+  # (fixes the concurrent-IP 403 lockout at the cost of ~20-80x slower waves). Left
+  # unstamped by default so MTDS's default-False flag keeps waves fully parallel.
+  # The bucket MUST be a coordination bucket, NOT a data/manifest-walked bucket.
+  [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
+  [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"

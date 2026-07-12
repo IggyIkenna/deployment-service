@@ -196,6 +196,16 @@ MTDS_TARBALL_SHA=$(_meta MTDS_TARBALL_SHA)
 # that prefer fewer parquet row-groups (slightly better compression).
 TARDIS_STREAM_BLOCK_SIZE_MB=$(_meta TARDIS_STREAM_BLOCK_SIZE_MB)
 [[ -n "$TARDIS_STREAM_BLOCK_SIZE_MB" ]] && export TARDIS_STREAM_BLOCK_SIZE_MB
+# Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
+# tardis_concurrent_ip_lockout_2026_07_12). When TARDIS_CONCURRENCY_LEASE=1 AND a
+# control bucket is set, the MTDS Tardis process acquires a workspace-wide GCS TTL
+# lease before any keyed datasets.tardis.dev call so only ONE Tardis-calling VM
+# runs at a time (serialises waves — see tardis_concurrency_lease.py). Only export
+# when non-empty (empty-string breaks Pydantic bool/str parsing, same as IS_TEST_RUN).
+TARDIS_CONCURRENCY_LEASE=$(_meta TARDIS_CONCURRENCY_LEASE)
+[[ -n "$TARDIS_CONCURRENCY_LEASE" ]] && export TARDIS_CONCURRENCY_LEASE
+TARDIS_CONCURRENCY_LEASE_BUCKET=$(_meta TARDIS_CONCURRENCY_LEASE_BUCKET)
+[[ -n "$TARDIS_CONCURRENCY_LEASE_BUCKET" ]] && export TARDIS_CONCURRENCY_LEASE_BUCKET
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
