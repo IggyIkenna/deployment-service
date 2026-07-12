@@ -167,7 +167,9 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mtds-risk-params-": "launch-mtds-risk-params-backfill-vm.sh",
     "mtds-eigenlayer-rewards-backfill": "launch-mtds-eigenlayer-rewards-backfill-vm.sh",
     "mtds-solana-drift-backfill": "launch-mtds-solana-drift-backfill-vm.sh",
-    "mtds-solana-defi-backfill": None,  # multi-protocol fan-out — no single-VM launcher
+    # G1.6 (mvp_backfill_defi_onchain_v10_2026_06_27.md): dedicated ORCA/RAYDIUM/
+    # KAMINO dex_pool_state backfill (VM_SOLANA_PROTOCOLS scopes the fan-out).
+    "mtds-solana-defi-backfill": "launch-mtds-solana-defi-backfill-vm.sh",
     "mtds-migrate-": "launch-cefi-migration-vm.sh",
     # ── MTDS per-AG generic backfill (the Deploy-Missing entry point) ─────
     "mtds-backfill-cefi-": "launch-mtds-backfill-vm.sh",
