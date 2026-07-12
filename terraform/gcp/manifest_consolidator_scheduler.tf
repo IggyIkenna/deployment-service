@@ -63,21 +63,22 @@ locals {
     # `source_bucket="market-data-tick-${cat}-${PROJECT}"` — no DEPLOYMENT_ENV_SHORT.
     # QG STEP 5.69 violation: fix tracked in bucket_name_ssot_canonicalisation_2026_05_10.md
     # Phase 0f. Remove these entries once Phase 0f migrates MDPS to env-tiered buckets.
-    "market-data-cefi-legacy"       = "market-data-tick-cefi-${var.project_id}"
-    "market-data-tradfi-legacy"     = "market-data-tick-tradfi-${var.project_id}"
-    "market-data-defi-legacy"       = "market-data-tick-defi-${var.project_id}"
-    "market-data-sports-legacy"     = "market-data-tick-sports-${var.project_id}"
-    "market-data-prediction-legacy" = "market-data-tick-prediction-${var.project_id}"
+    "market-data-cefi-legacy"   = "market-data-tick-cefi-${var.project_id}"
+    "market-data-tradfi-legacy" = "market-data-tick-tradfi-${var.project_id}"
+    "market-data-defi-legacy"   = "market-data-tick-defi-${var.project_id}"
+    "market-data-sports-legacy" = "market-data-tick-sports-${var.project_id}"
+    # market-data-prediction-legacy REMOVED 2026-07-12 — prediction L3 is C-GREEN, legacy
+    # bucket decommissioned (bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7).
     # Legacy instruments-store buckets — launch-expected-universe-v2-vm.sh and other IS
     # scripts use `instruments-store-{category}-${PROJECT}` (no env suffix). Added 2026-05-23
     # after per-VM shard audit found cefi/tradfi/defi legacy shards with no consolidator_run_at
     # metadata. setup-data-pipeline-vm.sh covers these while running; crons provide persistence.
     # Remove once Phase 0f migrates IS scripts to env-tiered bucket names.
-    "instruments-cefi-legacy"       = "instruments-store-cefi-${var.project_id}"
-    "instruments-tradfi-legacy"     = "instruments-store-tradfi-${var.project_id}"
-    "instruments-defi-legacy"       = "instruments-store-defi-${var.project_id}"
-    "instruments-sports-legacy"     = "instruments-store-sports-${var.project_id}"
-    "instruments-prediction-legacy" = "instruments-store-prediction-${var.project_id}"
+    "instruments-cefi-legacy"   = "instruments-store-cefi-${var.project_id}"
+    "instruments-tradfi-legacy" = "instruments-store-tradfi-${var.project_id}"
+    "instruments-defi-legacy"   = "instruments-store-defi-${var.project_id}"
+    "instruments-sports-legacy" = "instruments-store-sports-${var.project_id}"
+    # instruments-prediction-legacy REMOVED 2026-07-12 — same decommission as above.
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
@@ -90,27 +91,25 @@ locals {
   # on signal 9' mid-merge. Second bump: sports → 900s, plus cefi-market-data
   # added at 600s prophylactically since its shard count is 33x sports'.
   manifest_consolidator_timeouts = {
-    "instruments-sports"        = 1800
-    "market-data-sports"        = 1800
-    "market-data-cefi"          = 1800
-    "instruments-cefi"          = 1800
-    "instruments-defi"          = 1800
-    "market-data-defi"          = 1800
-    "instruments-tradfi"        = 1800
-    "market-data-tradfi"        = 1800
-    "instruments-prediction"    = 1800
-    "market-data-prediction"    = 1800
+    "instruments-sports"     = 1800
+    "market-data-sports"     = 1800
+    "market-data-cefi"       = 1800
+    "instruments-cefi"       = 1800
+    "instruments-defi"       = 1800
+    "market-data-defi"       = 1800
+    "instruments-tradfi"     = 1800
+    "market-data-tradfi"     = 1800
+    "instruments-prediction" = 1800
+    "market-data-prediction" = 1800
     # Legacy variants — same headroom as env-tiered equivalents.
-    "market-data-tradfi-legacy"       = 1800
-    "market-data-cefi-legacy"         = 1800
-    "market-data-defi-legacy"         = 1800
-    "market-data-prediction-legacy"   = 1800
-    "market-data-sports-legacy"       = 1800
-    "instruments-sports-legacy"       = 1800
-    "instruments-cefi-legacy"         = 1800
-    "instruments-defi-legacy"         = 1800
-    "instruments-tradfi-legacy"       = 1800
-    "instruments-prediction-legacy"   = 1800
+    "market-data-tradfi-legacy" = 1800
+    "market-data-cefi-legacy"   = 1800
+    "market-data-defi-legacy"   = 1800
+    "market-data-sports-legacy" = 1800
+    "instruments-sports-legacy" = 1800
+    "instruments-cefi-legacy"   = 1800
+    "instruments-defi-legacy"   = 1800
+    "instruments-tradfi-legacy" = 1800
   }
 
   # Per-category memory/cpu override. Default 4 vCPU / 16Gi covers buckets whose
@@ -148,28 +147,28 @@ locals {
   # Exception: features-sports + features-calendar remain env-tiered per yaml SSOT.
   # Re-enable env-split when bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates.)
   manifest_consolidator_buckets_extended = {
-    "features-delta-one-cefi"   = "features-delta-one-cefi-${var.project_id}"
-    "features-delta-one-tradfi" = "features-delta-one-tradfi-${var.project_id}"
-    "features-delta-one-defi"   = "features-delta-one-defi-${var.project_id}"
-    "features-volatility-cefi"  = "features-volatility-cefi-${var.project_id}"
+    "features-delta-one-cefi"    = "features-delta-one-cefi-${var.project_id}"
+    "features-delta-one-tradfi"  = "features-delta-one-tradfi-${var.project_id}"
+    "features-delta-one-defi"    = "features-delta-one-defi-${var.project_id}"
+    "features-volatility-cefi"   = "features-volatility-cefi-${var.project_id}"
     "features-volatility-tradfi" = "features-volatility-tradfi-${var.project_id}"
-    "features-onchain-cefi"     = "features-onchain-cefi-${var.project_id}"
-    "features-onchain-defi"     = "features-onchain-defi-${var.project_id}"
-    "features-sports"           = "features-sports-${local.deployment_env_short}-${var.project_id}"
-    "features-calendar"         = "features-calendar-${local.deployment_env_short}-${var.project_id}"
+    "features-onchain-cefi"      = "features-onchain-cefi-${var.project_id}"
+    "features-onchain-defi"      = "features-onchain-defi-${var.project_id}"
+    "features-sports"            = "features-sports-${local.deployment_env_short}-${var.project_id}"
+    "features-calendar"          = "features-calendar-${local.deployment_env_short}-${var.project_id}"
     # strategy-store consolidated to a single flat bucket (D6 Phase 4, 2026-05-20)
-    "strategy"                  = "strategy-store-${var.project_id}"
-    "execution-cefi"            = "execution-store-cefi-${var.project_id}"
-    "execution-tradfi"          = "execution-store-tradfi-${var.project_id}"
-    "execution-defi"            = "execution-store-defi-${var.project_id}"
-    "ml-training-artifacts"     = "ml-training-artifacts-${var.project_id}"
+    "strategy"              = "strategy-store-${var.project_id}"
+    "execution-cefi"        = "execution-store-cefi-${var.project_id}"
+    "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
+    "execution-defi"        = "execution-store-defi-${var.project_id}"
+    "ml-training-artifacts" = "ml-training-artifacts-${var.project_id}"
     # gas-fees reference bucket (flat name, Group B). Added 2026-06-19 after the
     # mtds-gas-fees backfill crashed with ManifestConsolidatorStaleError: the
     # collector writes per-VM shards here + read-preflights via
     # assert_consolidator_healthy(), but NO consolidator job covered this bucket
     # → the index was always stale → every gas-fees backfill VM died ~4min in.
     # Small bucket (~13 _index shards) → default 4vCPU/16Gi/300s is ample.
-    "gas-fees"                  = "gas-fees-${var.project_id}"
+    "gas-fees" = "gas-fees-${var.project_id}"
   }
 }
 
@@ -205,9 +204,9 @@ module "manifest_consolidator_job" {
   # 8 vCPU → max 32Gi. We pick 4 vCPU to unlock the 16Gi ceiling AND get
   # ~4× pandas-concat parallelism (multi-threaded BLAS / pyarrow). See
   # `feedback_manifest_consolidator_oom.md` (2026-05-06) for diagnosis.
-  cpu             = lookup(local.manifest_consolidator_cpu, each.key, "4")     # 8 vCPU for heavy buckets (>1600 shards) to unlock 32Gi ceiling
+  cpu             = lookup(local.manifest_consolidator_cpu, each.key, "4")       # 8 vCPU for heavy buckets (>1600 shards) to unlock 32Gi ceiling
   memory          = lookup(local.manifest_consolidator_memory, each.key, "16Gi") # 32Gi for heavy buckets; default 16Gi handles ~1600 shards
-  timeout_seconds = lookup(local.manifest_consolidator_timeouts, each.key, 300) # consolidation is a single read-list-merge-write cycle, ~5-30s typical; sports overridden to 600s for 2M+ row merges
+  timeout_seconds = lookup(local.manifest_consolidator_timeouts, each.key, 300)  # consolidation is a single read-list-merge-write cycle, ~5-30s typical; sports overridden to 600s for 2M+ row merges
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
