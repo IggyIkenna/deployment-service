@@ -44,18 +44,10 @@ infrastructure_buckets:
       service: deployment-service
       type: infrastructure
       category: ALL
-    - name_template: "gas-fees-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "gas-fees-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    # solana-defi, evm-defi, lending-indices REMOVED 2026-07-10 (bucket estate cleanup,
-    # [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero callers workspace-wide;
-    # real data goes to the shared market-data-tick-defi bucket instead. See
-    # cloud-providers.yaml's matching removal comment for the full rationale.
+    # solana-defi, evm-defi, lending-indices, gas-fees REMOVED (bucket estate cleanup +
+    # 2026-07-12 follow-up, [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero
+    # callers workspace-wide; real data goes to the shared market-data-tick-defi bucket
+    # instead. See cloud-providers.yaml's matching removal comment for the full rationale.
     - name_template: "dex-pools-{project_id}"
       service: market-tick-data-service
       type: reference_data
@@ -153,16 +145,9 @@ infrastructure_buckets:
       service: infrastructure
       type: infrastructure
       category: ALL
-    - name_template: "unified-trading-gas-fees-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-gas-fees-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    # unified-trading-solana-defi, unified-trading-evm-defi, unified-trading-lending-indices
-    # REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP-section removal above.
+    # unified-trading-solana-defi, unified-trading-evm-defi, unified-trading-lending-indices,
+    # unified-trading-gas-fees REMOVED (bucket estate cleanup + 2026-07-12 follow-up) —
+    # mirrors the GCP-section removal above.
     - name_template: "unified-trading-dex-pools-{account_id}"
       service: market-tick-data-service
       type: reference_data
@@ -233,7 +218,7 @@ aws_bucket_mappings:
   ml-predictions-store: "unified-trading-ml-predictions-{account_id}"
   ml-configs-store: "unified-trading-ml-configs-{account_id}"
   ml-training-artifacts: "unified-trading-ml-training-artifacts-{account_id}"
-  gas-fees: "unified-trading-gas-fees-{account_id}"
+  # gas-fees REMOVED 2026-07-12 (bucket estate cleanup follow-up) — zero callers left.
   dex-pools: "unified-trading-dex-pools-{account_id}"
   lst-rates: "unified-trading-lst-rates-{account_id}"
   perp-funding: "unified-trading-perp-funding-{account_id}"
