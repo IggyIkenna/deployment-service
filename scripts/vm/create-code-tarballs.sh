@@ -188,8 +188,15 @@ for repo in ${ASSET_GROUP_REPOS[@]+"${ASSET_GROUP_REPOS[@]}"} ${EXTRA_REPOS[@]+"
         *" $repo "*) ;;  # already seen, skip
         *)
             _seen_repos_list="${_seen_repos_list}${repo} "
-            # Don't add repos already in CORE_REPOS (MTDS is handled there)
-            if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" ]]; then
+            # Don't add repos already in CORE_REPOS (MTDS is handled there).
+            # market-tick-data-service was missing from this guard until
+            # 2026-07-12 — every category array lists it as a bare name (for
+            # readability), which fell through to the `${repo}-code` derivation
+            # below and produced a second, byte-identical `market-tick-data-
+            # service-code.tar.gz` alongside the CORE `mtds-code.tar.gz`. See
+            # plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md.
+            if [[ "$repo" != "unified-api-contracts" && "$repo" != "unified-trading-library" \
+                && "$repo" != "market-tick-data-service" ]]; then
                 MERGED_EXTRA_REPOS+=("$repo")
             fi
             ;;
