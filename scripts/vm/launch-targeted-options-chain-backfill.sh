@@ -6,22 +6,30 @@
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
 #
-# Targeted options_chain backfill — DERIBIT (CEFI) + CME-OPTIONS / CBOE-VIX-OPTIONS (TRADFI).
+# Targeted options_chain backfill — DERIBIT + OKX (CEFI) + CME-OPTIONS / CBOE-VIX-OPTIONS (TRADFI).
 #
 # Why a separate script: launch-cefi-sharded-backfill.sh re-captures the FULL
 # CeFi matrix (95 VMs, all venues × years × heavy/light) which is huge
 # overkill when we just need options_chain. This script spawns ONLY the
 # year-shards for the chain venues, with DATA_TYPES limited to options_chain.
 #
-# Cost shape (per shard): e2-standard-2 + Tardis options_chain pull
+# OKX added 2026-07-12 (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md
+# todo 2) once market-tick-data-service's Tardis exchange resolution became
+# instrument-type-aware for options_chain/futures_chain requests — before that
+# fix, an OKX options_chain request silently resolved to the wrong Tardis
+# exchange slug (venue-only lookup, not the itype-specific "okex-options").
+# Start year 2020 matches Tardis okex-options `availableSince: 2020-02-01`.
+#
+# Cost shape (per shard): e2-standard-2/4 + Tardis options_chain pull
 #   DERIBIT: 7 year shards (2020-2026) × 1 = 7 VMs (BTC+ETH chain symbols)
+#   OKX: 7 year shards (2020-2026) × 1 = 7 VMs (BTC+ETH chain symbols)
 #   CME-OPTIONS / CBOE-VIX-OPTIONS: skip if you've verified manifest claims
 #       (run reconcile_market_tick_manifest.py first)
 #
 # Usage:
 #   bash launch-targeted-options-chain-backfill.sh --dry
-#   bash launch-targeted-options-chain-backfill.sh --commit                # all 3 venues × all years
-#   bash launch-targeted-options-chain-backfill.sh --venue DERIBIT --year 2024 --commit
+#   bash launch-targeted-options-chain-backfill.sh --commit                # all 4 venues × all years
+#   bash launch-targeted-options-chain-backfill.sh --venue OKX --year 2024 --commit
 #
 # The MTDS adapter honours the ``--skip-existing`` semantics already (manifest-
 # guided pre-flight). With --force absent, days already in the manifest as
@@ -71,6 +79,7 @@ esac
 
 # Per-venue chain symbol sets (only the bases — Tardis chain glob expands server-side).
 SYMBOLS_DERIBIT="BTC;ETH"
+SYMBOLS_OKX="BTC;ETH"
 SYMBOLS_CME_OPTIONS="ES"
 SYMBOLS_CBOE_VIX_OPTIONS="VX"
 
@@ -139,6 +148,11 @@ _launch_shard() {
 # DERIBIT options_chain: 2020-2026
 for y in 2020 2021 2022 2023 2024 2025 2026; do
     _launch_shard "CEFI" "DERIBIT" "${y}" "${SYMBOLS_DERIBIT}"
+done
+
+# OKX options_chain: 2020-2026 (Tardis okex-options availableSince 2020-02-01)
+for y in 2020 2021 2022 2023 2024 2025 2026; do
+    _launch_shard "CEFI" "OKX" "${y}" "${SYMBOLS_OKX}"
 done
 
 # CME-OPTIONS (ES futures options): 2020-2026

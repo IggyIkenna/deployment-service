@@ -26,6 +26,8 @@
 #   bash launch-mtds-lending-indices-backfill-vm.sh 2026-03-15 2026-04-14 # 30-day window
 #   bash launch-mtds-lending-indices-backfill-vm.sh 2022-01-01 2026-04-14 # full history
 #   bash launch-mtds-lending-indices-backfill-vm.sh --force ...           # bypass singleton
+#   bash launch-mtds-lending-indices-backfill-vm.sh --lending-protocols morpho 2022-01-01 2026-04-14
+#                                                                         # single-protocol scoped run
 #
 # Cost: e2-standard-4 + 50GB. ~5s/day per (protocol × chain) shard.
 # The Graph paginates 1000 items per request; days with >1000 rate-index
@@ -46,6 +48,9 @@ FORCE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 POSITIONAL=()
 DRY_RUN=false
+# Scopes the run to a protocol subset (CLI --lending-protocols, nargs='+').
+# Empty = full _DEFAULT_PROTOCOLS list (unchanged default behavior).
+LENDING_PROTOCOLS=""
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
@@ -57,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --force)       FORCE=true; shift ;;
         --env)         DEPLOYMENT_ENV="$2"; shift 2 ;;
         --on-demand)   ON_DEMAND=true; shift ;;
+        --lending-protocols) LENDING_PROTOCOLS="$2"; shift 2 ;;
         --preemptible) shift ;;  # deprecated no-op: SPOT is now the default
         --) shift; while [[ $# -gt 0 ]]; do POSITIONAL+=("$1"); shift; done; break ;;
         -*) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
@@ -77,11 +83,13 @@ elif [[ ${#POSITIONAL[@]} -eq 0 ]]; then
     END_DATE="$START_DATE"
 else
     cat >&2 <<EOF
-Usage: $0 [--force] [--env prod|staging|dev] [START_DATE END_DATE]
+Usage: $0 [--force] [--env prod|staging|dev] [--lending-protocols P1;P2] [START_DATE END_DATE]
 
 Defaults to yesterday (T-1). Pass two YYYY-MM-DD dates for an explicit window.
 Pass --force to bypass the singleton lock.
 Pass --env to override the env tier (default: \$DEPLOYMENT_ENV or 'prod').
+Pass --lending-protocols to scope the run (semicolon-separated, e.g. 'morpho').
+Default (unset) runs the full _DEFAULT_PROTOCOLS list.
 EOF
     exit 1
 fi
@@ -116,7 +124,9 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="mtds-lending-indices-${RUN_TS}"
 
-echo "Launching $VM_NAME: DeFi lending indices ${START_DATE}..${END_DATE}"
+_SCOPE_MSG="${START_DATE}..${END_DATE}"
+[[ -n "$LENDING_PROTOCOLS" ]] && _SCOPE_MSG="${_SCOPE_MSG} (protocols: ${LENDING_PROTOCOLS})"
+echo "Launching $VM_NAME: DeFi lending indices ${_SCOPE_MSG}"
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly.
@@ -131,6 +141,9 @@ METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+if [[ -n "$LENDING_PROTOCOLS" ]]; then
+    METADATA="${METADATA},VM_LENDING_PROTOCOLS=${LENDING_PROTOCOLS}"
+fi
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"

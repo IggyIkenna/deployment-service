@@ -44,6 +44,7 @@ VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
 INSTRUMENT_IDS=""
+SOURCE=""
 # --test-run routes writes to the -test- bucket sibling (IS_TEST_RUN=true metadata;
 # setup-data-pipeline-vm.sh:251-254 reads + exports it — MTDS's freshness-read
 # stays PROD-driven per the read-bucket asymmetry, only the WRITE target moves).
@@ -71,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --venues)        VENUES="$2"; shift 2 ;;
     --data-types)    DATA_TYPES="$2"; shift 2 ;;
     --instrument-ids) INSTRUMENT_IDS="$2"; shift 2 ;;
+    --source)        SOURCE="$2"; shift 2 ;;
     --test-run)      TEST_RUN=true; shift ;;
     --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)     ON_DEMAND=true; shift ;;
@@ -108,6 +110,7 @@ echo "  Force:     ${FORCE}"
 echo "  Venues:    ${VENUES:-all}"
 echo "  DataTypes: ${DATA_TYPES:-all}"
 echo "  InstrIDs:  ${INSTRUMENT_IDS:-<full universe>}"
+echo "  Source:    ${SOURCE:-<SOURCE_PRIORITY default>}"
 echo "  TestRun:   ${TEST_RUN}"
 echo "  VM:        ${VM_NAME}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
@@ -144,6 +147,7 @@ if $DRY_RUN; then
   echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
   echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
   [[ -n "$INSTRUMENT_IDS" ]] && echo "  VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
+  [[ -n "$SOURCE" ]]         && echo "  VM_SOURCE=${SOURCE}"
   $TEST_RUN && echo "  IS_TEST_RUN=true"
   exit 0
 fi
@@ -164,6 +168,7 @@ METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
 [[ -n "$VENUES" ]]     && METADATA="${METADATA},VM_VENUE=${VENUES}"
 [[ -n "$DATA_TYPES" ]] && METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
 [[ -n "$INSTRUMENT_IDS" ]] && METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
+[[ -n "$SOURCE" ]]     && METADATA="${METADATA},VM_SOURCE=${SOURCE}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 $TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
 

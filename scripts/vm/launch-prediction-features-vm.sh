@@ -57,11 +57,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$DEPLOYMENT_ENV" in
-  prod|staging|dev) ;;
+  prod)    DEPLOYMENT_ENV_SHORT="prd" ;;
+  staging) DEPLOYMENT_ENV_SHORT="stg" ;;
+  dev)     DEPLOYMENT_ENV_SHORT="dev" ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
-GCS_BUCKET="gs://market-data-tick-prediction-${PROJECT_ID}"
+# CANONICAL env-tiered bucket (Phase-0f repoint 2026-07-12) — was the legacy flat
+# `market-data-tick-prediction-${PROJECT_ID}`, which is being decommissioned; features read
+# canonical raw ticks.
+GCS_BUCKET="gs://market-data-tick-pred-${DEPLOYMENT_ENV_SHORT}-${PROJECT_ID}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging/prediction_features"
 TARBALL_NAME="prediction_features_codebase.tar.gz"
 VM_NAME="${VM_NAME_OVERRIDE:-prediction-features-1}"
