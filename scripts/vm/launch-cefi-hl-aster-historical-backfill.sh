@@ -1,36 +1,51 @@
 #!/usr/bin/env bash
 # Epic: mtds_mdps_master
 # Lifecycle: campaign
-# Delete-when: HL/ASTER historical backfill complete (48.5k attempted_failed cells resolved)
+# Delete-when: HL/ASTER/LIGHTER/PACIFICA/EXTENDED historical backfill complete (denominator
+#   holes closed per mvp_backfill_cefi_tick_v10_2026_06_27.md G4 gate)
 #
-# Launch year-sharded backfill VMs for HYPERLIQUID (S3 requester-pays) and ASTER (REST)
-# historical data. These venues were previously blocked by an orchestrator defi-strip that
-# misclassified them as DeFi despite their failed cells living in the cefi manifest.
+# Launch year-sharded backfill VMs for on-chain-perp cefi venues via the generic
+# OnchainPerpBatchHandler (VM_OPERATION=collect-onchain-perp-batch): HYPERLIQUID (S3
+# requester-pays), ASTER (REST), LIGHTER-ZKSYNC / PACIFICA-SOLANA / EXTENDED-STARKNET
+# (native REST via _umi_lighter.py / _umi_pacifica.py / _umi_extended.py in
+# umi_tick_provider.py). These venues were previously blocked by an orchestrator defi-strip
+# that misclassified them as DeFi despite their failed cells living in the cefi manifest.
 #
-# Root cause fix (UAC@defi_venues.py): HYPERLIQUID and ASTER removed from ALL_DEFI_VENUES +
+# Root cause fix (UAC@defi_venues.py): these venues removed from ALL_DEFI_VENUES +
 # DEFI_VENUE_PHASE → VENUE_TO_ASSET_GROUP now maps them to "cefi" → both orchestrator
-# defi-strip and umi_tick_provider defi guard now pass → _fetch_hyperliquid_s3 and
-# _fetch_aster_rest routes in umi_tick_provider.py are reachable.
+# defi-strip and umi_tick_provider defi guard now pass → the per-venue _fetch_* routes
+# in umi_tick_provider.py are reachable.
 #
 # Data sources:
-#   HYPERLIQUID: requester-pays S3 via HyperliquidS3Downloader
-#                auth: aws-hyperliquid-s3 Secret Manager key (EXISTS)
-#   ASTER:       REST API via _fetch_aster_rest (Binance Futures-compatible)
+#   HYPERLIQUID:       requester-pays S3 via HyperliquidS3Downloader
+#                       auth: aws-hyperliquid-s3 Secret Manager key (EXISTS)
+#   ASTER:              REST API via _fetch_aster_rest (Binance Futures-compatible)
+#   LIGHTER-ZKSYNC:     REST via _umi_lighter.py (zkSync Era)
+#   PACIFICA-SOLANA:    REST via _umi_pacifica.py (Solana)
+#   EXTENDED-STARKNET:  REST via _umi_extended.py (Starknet)
 #
-# Coverage ranges (from cefi manifest attempted_failed audit 2026-06-21):
-#   HYPERLIQUID: 2023-01-01 → 2026-06-20 (30,835 cells)
-#   ASTER:       2024-01-01 → 2026-06-20 (17,675 cells)
+# Coverage ranges:
+#   HYPERLIQUID:        2023-01-01 → today (30,835 cells, cefi manifest audit 2026-06-21)
+#   ASTER:               2024-01-01 → today (17,675 cells, cefi manifest audit 2026-06-21)
+#   LIGHTER-ZKSYNC:      2024-08-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
+#   PACIFICA-SOLANA:     2025-06-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
+#   EXTENDED-STARKNET:   2024-10-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
 #
-# Data types: trades, derivative_ticker (+ book_snapshot_5 for HL only — the
-#   handler EXCLUDES per-venue live-only/dropped data_types automatically):
+# Data types: trades, derivative_ticker (+ book_snapshot_5 for HL/LIGHTER/PACIFICA/EXTENDED
+#   — the handler EXCLUDES per-venue live-only/dropped data_types automatically):
 #   - ASTER book_snapshot_5 + liquidations: LIVE-ONLY (Binance-compat WS captures
 #     them going forward) → excluded from the batch universe by the handler.
 #   - HYPERLIQUID liquidations: DROPPED entirely (HL publishes no liq feed anywhere).
-#   SSOT: cefi_hl_aster_batch_data_gaps_2026_06_22.md BUG #4.
+#   SSOT: cefi_hl_aster_batch_data_gaps_2026_06_22.md BUG #4;
+#   cefi_layer1_denominator_gaps_2026_07_03.md 2f (LIGHTER/PACIFICA/EXTENDED share the
+#   ASTER live-forward profile at the book5/derivative_ticker/trades grain).
 #
 # VM prefixes (already registered in vm_zombie_watchdog.py VM_PREFIX_TO_BUCKET):
 #   cefi-hyperliquid-  → EPHEMERAL_BATCH → tick-cefi bucket
 #   cefi-aster-        → EPHEMERAL_BATCH → tick-cefi bucket
+#   cefi-lighter-      → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-lighter-zksync-*)
+#   cefi-pacifica-     → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-pacifica-solana-*)
+#   cefi-extended-     → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-extended-starknet-*)
 #
 # Instrument universe (BUG #4): SYMBOLS=ALL → the OnchainPerpBatchHandler enumerates
 #   the FULL active perp universe per venue from the IS catalogue
@@ -71,14 +86,33 @@ SYMBOLS="${SYMBOLS:-ALL}"
 DATA_TYPES="${DATA_TYPES:-trades;book_snapshot_5;derivative_ticker}"
 
 # ── Year shards ───────────────────────────────────────────────────────────────
-# HL:    2023-01-01 → 2026-06-20
-# ASTER: 2024-01-01 → 2026-06-20
+# HL:                2023-01-01 → today
+# ASTER:             2024-01-01 → today
+# LIGHTER-ZKSYNC:    2024-08-01 → today
+# PACIFICA-SOLANA:   2025-06-01 → today
+# EXTENDED-STARKNET: 2024-10-01 → today
 CURRENT_YEAR=$(date +%Y)
-CUTOFF_DATE="2026-06-20"
+CUTOFF_DATE="${CUTOFF_DATE:-$(date +%F)}"
 
 declare -A VENUE_START_YEAR
 VENUE_START_YEAR["HYPERLIQUID"]=2023
 VENUE_START_YEAR["ASTER"]=2024
+VENUE_START_YEAR["LIGHTER-ZKSYNC"]=2024
+VENUE_START_YEAR["PACIFICA-SOLANA"]=2025
+VENUE_START_YEAR["EXTENDED-STARKNET"]=2024
+
+# Precise first-shard start date (UAC VENUE_DATA_TYPE_CAPABILITIES start_date) — the
+# first year-shard begins here instead of Jan-1 so the VM doesn't request dates the
+# source venue didn't exist for yet.
+declare -A VENUE_START_DATE
+VENUE_START_DATE["HYPERLIQUID"]="2023-01-01"
+VENUE_START_DATE["ASTER"]="2024-01-01"
+VENUE_START_DATE["LIGHTER-ZKSYNC"]="2024-08-01"
+VENUE_START_DATE["PACIFICA-SOLANA"]="2025-06-01"
+VENUE_START_DATE["EXTENDED-STARKNET"]="2024-10-01"
+
+# VENUES to launch — env-overridable so a re-run can target a subset.
+VENUES="${VENUES:-HYPERLIQUID ASTER LIGHTER-ZKSYNC PACIFICA-SOLANA EXTENDED-STARKNET}"
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 running_jobs=0
@@ -97,6 +131,12 @@ launch_shard() {
     local start_date="${year}-01-01"
     local end_date
 
+    # First shard year for this venue starts at its real capability start_date
+    # (not Jan-1) so the VM doesn't request pre-source-coverage dates.
+    if [[ "$year" -eq "${VENUE_START_YEAR[$venue]}" ]]; then
+        start_date="${VENUE_START_DATE[$venue]}"
+    fi
+
     if [[ "$year" -ge "$CURRENT_YEAR" ]]; then
         end_date="$CUTOFF_DATE"
     else
@@ -105,7 +145,7 @@ launch_shard() {
 
     local vm_name="${venue_lower//_/-}-${year}-${RUN_TS}"
     # Prepend cefi- prefix to match registered vm_zombie_watchdog.py prefixes:
-    #   cefi-hyperliquid-  / cefi-aster-
+    #   cefi-hyperliquid- / cefi-aster- / cefi-lighter- / cefi-pacifica- / cefi-extended-
     vm_name="cefi-${vm_name}"
 
     local machine="e2-highmem-8"
@@ -161,14 +201,14 @@ launch_shard() {
 }
 
 # ── Main: launch all year shards ─────────────────────────────────────────────
-echo "=== CeFi HL/ASTER historical backfill launcher ==="
-echo "    DRY_RUN=${DRY_RUN}  FORCE=${FORCE}  MAX_CONCURRENT=${MAX_CONCURRENT}"
+echo "=== CeFi on-chain-perp historical backfill launcher (HL/ASTER/LIGHTER/PACIFICA/EXTENDED) ==="
+echo "    DRY_RUN=${DRY_RUN}  FORCE=${FORCE}  MAX_CONCURRENT=${MAX_CONCURRENT}  VENUES=${VENUES}"
 echo "    RUN_TS=${RUN_TS}"
 echo ""
 
-for venue in HYPERLIQUID ASTER; do
+for venue in ${VENUES}; do
     start_year="${VENUE_START_YEAR[$venue]}"
-    echo "--- ${venue} (${start_year}→${CURRENT_YEAR}) ---"
+    echo "--- ${venue} (${VENUE_START_DATE[$venue]}→${CURRENT_YEAR}) ---"
     for year in $(seq "$start_year" "$CURRENT_YEAR"); do
         launch_shard "$venue" "$year"
     done
@@ -179,4 +219,4 @@ done
 wait
 echo ""
 echo "=== All shards dispatched. Verify at T+10min: ==="
-echo "    gcloud compute instances list --project=${PROJECT} --filter='name~^cefi-hyperliquid\\|name~^cefi-aster' --format='table(name,status,zone)'"
+echo "    gcloud compute instances list --project=${PROJECT} --filter='name~^cefi-hyperliquid\\|name~^cefi-aster\\|name~^cefi-lighter\\|name~^cefi-pacifica\\|name~^cefi-extended' --format='table(name,status,zone)'"

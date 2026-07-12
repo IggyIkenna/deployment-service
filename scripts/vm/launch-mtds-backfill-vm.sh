@@ -116,9 +116,17 @@ echo "============================================================"
 
 # ── Singleton lock ──
 # Refuses launch if any mtds-backfill-{category}-* VM is RUNNING in the zone.
-# Prevents Tardis per-IP thundering-herd (concurrent VMs share egress NAT).
+# Prevents Tardis per-IP thundering-herd (concurrent REAL, multi-day production
+# backfill VMs sharing egress NAT). --test-run launches are exempt: they're tiny,
+# single-day, test-bucket-only smoke-check fetches, not the multi-day production
+# volume this lock exists to protect against -- and the pipeline_e2e_check smoke
+# tool needs genuine concurrency across many shards' skip-leg (non-forced) checks
+# to be practical (confirmed via a real full-sweep run: 20-way concurrent smoke
+# checks for the same category made every non-forced launch see one of the other
+# 19 concurrently-running force-leg VMs and abort, a 100%-failure false negative,
+# not a real backfill collision).
 VM_PREFIX="mtds-backfill-${CATEGORY_LOWER}-"
-if ! $FORCE; then
+if ! $FORCE && ! $TEST_RUN; then
   EXISTING="$(gcloud compute instances list \
     --filter="name~\"^${VM_PREFIX}\" AND status=RUNNING" \
     --zones="${ZONE}" \
