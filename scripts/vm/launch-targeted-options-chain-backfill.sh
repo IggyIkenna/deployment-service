@@ -120,6 +120,15 @@ _launch_shard() {
     # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
     # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
     meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+    # 2026-07-12: relax the manifest-consolidator freshness preflight (default
+    # 120s) — the large cefi bucket's real Cloud Run consolidator cadence
+    # regularly exceeds 120s, so every launch of this VM was hard-failing at
+    # bootstrap (assert_consolidator_healthy -> ManifestConsolidatorStaleError)
+    # with 0 rows captured. Every other cefi/large-bucket backfill launcher
+    # already sets this same 86400s (24h) budget
+    # (launch-cefi-sharded-backfill.sh, launch-cefi-hl-aster-historical-
+    # backfill.sh, etc.) — this script was the one outlier missing it.
+    meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
     PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
