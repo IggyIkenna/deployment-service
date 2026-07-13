@@ -36,7 +36,11 @@ locals {
   #   audit-records — keeps its dedicated hand-written `google_storage_bucket.audit_records`
   #     (Object Versioning + 7-year Retention Lock; a generic for_each block cannot express
   #     the locked retention_policy safely).
-  canonical_excluded_kinds = toset(["dex-pools", "lst-rates", "perp-funding", "audit-records"])
+  #   manual-audit — same compliance class (discovered at first live plan 2026-07-13:
+  #     manual-audit-prd carries a LOCKED retentionPeriod=220752000; the generic block would
+  #     force a prevent_destroy-blocked replacement). TF-unmanaged for now; a dedicated
+  #     hand-written block mirroring audit_records is the follow-up if TF management is wanted.
+  canonical_excluded_kinds = toset(["dex-pools", "lst-rates", "perp-funding", "audit-records", "manual-audit"])
 
   # prd + test are the only provisioned tiers (dev/stg retired per the 2026-07-13 operator
   # ruling — bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 1).
