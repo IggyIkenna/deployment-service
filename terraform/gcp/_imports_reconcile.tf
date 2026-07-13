@@ -43,11 +43,6 @@ import {
 }
 
 import {
-  to = google_storage_bucket.evm_defi
-  id = "central-element-323112/evm-defi-central-element-323112"
-}
-
-import {
   to = google_storage_bucket.features_delta_one_cefi_test
   id = "central-element-323112/features-delta-one-cefi-test-central-element-323112"
 }
@@ -60,11 +55,6 @@ import {
 import {
   to = google_storage_bucket.features_volatility_cefi_test
   id = "central-element-323112/features-volatility-cefi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.gas_fees
-  id = "central-element-323112/gas-fees-central-element-323112"
 }
 
 import {
@@ -125,11 +115,6 @@ import {
 import {
   to = google_storage_bucket.market_data_tradfi_test
   id = "central-element-323112/market-data-tick-tradfi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.solana_defi
-  id = "central-element-323112/solana-defi-central-element-323112"
 }
 
 import {

@@ -161,13 +161,11 @@ locals {
     "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
     "execution-defi"        = "execution-store-defi-${var.project_id}"
     "ml-training-artifacts" = "ml-training-artifacts-${var.project_id}"
-    # gas-fees reference bucket (flat name, Group B). Added 2026-06-19 after the
-    # mtds-gas-fees backfill crashed with ManifestConsolidatorStaleError: the
-    # collector writes per-VM shards here + read-preflights via
-    # assert_consolidator_healthy(), but NO consolidator job covered this bucket
-    # → the index was always stale → every gas-fees backfill VM died ~4min in.
-    # Small bucket (~13 _index shards) → default 4vCPU/16Gi/300s is ample.
-    "gas-fees" = "gas-fees-${var.project_id}"
+    # "gas-fees" entry (flat legacy gas-fees-… bucket, added 2026-06-19) REMOVED 2026-07-13 —
+    # the legacy gas-fees-… bucket itself was decommissioned (one of the "14 legacy DeFi
+    # buckets deleted 2026-07-12"); this also retires the per-bucket Cloud Run Job +
+    # Cloud Scheduler cron this map generated (uts-prod-manifest-consolidator-gas-fees[-cron]),
+    # removed directly via gcloud since a real tofu apply is not runnable here.
   }
 }
 
