@@ -29,10 +29,6 @@ locals {
 
   # Kinds intentionally EXCLUDED from this for_each (own hand-written resource or owned by
   # another in-flight plan):
-  #   dex-pools, lst-rates, perp-funding — their `-prd` buckets are LIVE but pending
-  #     deletion under defi_dedicated_bucket_shared_migration_2026_07_13.md; folding them
-  #     into `canonical` now would fight that plan's upcoming `terraform state rm` +
-  #     bucket delete.
   #   audit-records — keeps its dedicated hand-written `google_storage_bucket.audit_records`
   #     (Object Versioning + 7-year Retention Lock; a generic for_each block cannot express
   #     the locked retention_policy safely).
@@ -40,7 +36,10 @@ locals {
   #     manual-audit-prd carries a LOCKED retentionPeriod=220752000; the generic block would
   #     force a prevent_destroy-blocked replacement). TF-unmanaged for now; a dedicated
   #     hand-written block mirroring audit_records is the follow-up if TF management is wanted.
-  canonical_excluded_kinds = toset(["dex-pools", "lst-rates", "perp-funding", "audit-records", "manual-audit"])
+  #   (dex-pools, lst-rates, perp-funding were excluded here until 2026-07-13; their kinds are
+  #     now REMOVED from cloud-providers.yaml entirely — readers migrated + gaps backfilled,
+  #     defi_dedicated_bucket_shared_migration_2026_07_13.)
+  canonical_excluded_kinds = toset(["audit-records", "manual-audit"])
 
   # prd + test are the only provisioned tiers (dev/stg retired per the 2026-07-13 operator
   # ruling — bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 1).

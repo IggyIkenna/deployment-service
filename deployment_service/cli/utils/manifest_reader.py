@@ -104,14 +104,15 @@ _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
 # unified-trading-pm/plans/active/) — confirmed zero writers for these cloud-providers.yaml
 # kinds (real DeFi data lands in the shared market-data-tick-defi bucket, resolved separately
 # as the primary bucket above), and the dedicated buckets were empty/migrated and deleted.
+# dex-pools/lst-rates/perp-funding REMOVED 2026-07-13
+# (defi_dedicated_bucket_shared_migration_2026_07_13) — every reader/scanner migrated to the
+# shared bucket, all (venue, data_type, day) shards backfilled there, kinds retired from
+# cloud-providers.yaml.
 # Left in place unguarded here they'd raise BucketNamingError on every data-status
 # resolve_all_buckets() call for this service/asset_group.
 _EXTRA_BUCKET_KINDS: dict[str, dict[str, list[str]]] = {
     "market-tick-data-service": {
         "defi": [
-            "dex-pools",
-            "lst-rates",
-            "perp-funding",
             "eigenlayer-rewards",
         ],
     },
