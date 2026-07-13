@@ -451,9 +451,10 @@ NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "de
 # before the benchmark CLI runs. VM_TASK=synthetic-benchmark + VM_SERVICE=synthetic_benchmark
 # triggers the multi-service install path here instead of the single-service
 # default.
-if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
-  # Paper/live strategy VMs run colocated_engine.py from e2e-testing via
-  # run-paper.sh / run-live.sh. colocated_engine.py imports:
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
+  # Paper/live strategy VMs (incl. defi-paper — launch-defi-paper-trading-vm.sh,
+  # same run-paper.sh path as strategy-paper) run colocated_engine.py from
+  # e2e-testing via run-paper.sh / run-live.sh. colocated_engine.py imports:
   #   strategy_service, execution_service (core logic)
   #   position_balance_monitor_service (treasury state, line 195)
   #   pnl_attribution_service (P&L breakdown, line 558)
@@ -683,6 +684,7 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   if [[ "$VM_TASK" != "synthetic-benchmark" && \
         "$VM_TASK" != "strategy-paper" && \
         "$VM_TASK" != "strategy-live" && \
+        "$VM_TASK" != "defi-paper" && \
         "$_base" != "deployment" ]]; then
     _route_to_nodeps=false
   fi
@@ -714,7 +716,7 @@ uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 # at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
 # version-pinning conflicts; sqlalchemy itself has no such conflict so install
 # it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
-if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
   log "  uv pip install sqlalchemy plotly  (pbm storage + e2e desired-state HTML, strategy VMs only)"
   uv pip install --find-links "$WHEEL_CACHE" sqlalchemy plotly 2>&1 | tail -3
 fi
@@ -1147,10 +1149,18 @@ elif [[ "$VM_TASK" == "strategy-backtest-grid" ]]; then
   else
     log "ERROR: strategy-backtest-grid task without VM_BACKFILL_CMD metadata"
   fi
-elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" ]]; then
-  # Strategy paper/live trading VMs — run colocated_engine.py via run-paper.sh /
-  # run-live.sh from $WORKSPACE/e2e-testing/scripts/defi/.
+elif [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
+  # Strategy paper/live trading VMs (incl. defi-paper — launch-defi-paper-trading-vm.sh)
+  # — run colocated_engine.py via run-paper.sh / run-live.sh from
+  # $WORKSPACE/e2e-testing/scripts/defi/.
   # (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+  # Found 2026-07-13: VM_TASK=defi-paper had NO dispatch branch here, so it fell
+  # through to the generic `elif [ -n "$VM_TASK" ]` fallback below, which built
+  # `--operation $VM_OPERATION` literally (="paper") — but strategy-service's CLI
+  # has no such choice (paper-run/paper-stream only) — an immediate argparse crash
+  # before any archetype code ever ran. launch-defi-paper-trading-vm.sh already
+  # prepares the correct VM_BACKFILL_CMD; this VM_TASK just needed to route to it,
+  # same as strategy-paper/strategy-live.
   # VM_BACKFILL_CMD carries the full run-paper.sh / run-live.sh invocation set
   # by the launcher (e.g. "bash scripts/defi/run-paper.sh --strategy carry_staked_basis
   # --tick-interval 3600 --continuous").
