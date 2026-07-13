@@ -48,6 +48,18 @@ STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # has thousands of strikes/expiries per underlying — much heavier than the
 # perp/spot data_types the previous heavy-profile fix targeted.
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# 2026-07-13: DERIBIT-COMBO specifically still OOM-kills at e2-standard-4
+# (rc=137) even after the catalog-reader-once-per-process fix
+# (market-tick-data-service@f8cab3f0) — live re-verify showed RSS already at
+# 80.5% of 15GB from the SINGLE (correctly-deduped) ~1.6M-row catalog load
+# alone, before DERIBIT-COMBO's own bulk-stream/Tier-3-fan-out overhead is
+# even added. Root cause of why a single load costs that much is still open
+# (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md); this bump is the
+# todo's own explicitly-sanctioned faster mitigation, matching the RAM tier
+# launch-cefi-sharded-backfill.sh already uses for the same catalog-loading
+# pattern (e2-highmem-8, 64GB) — DERIBIT-COMBO only, other venues on this
+# launcher (DERIBIT/OKX/CME-OPTIONS/CBOE-VIX-OPTIONS) proved fine at 15GB.
+MACHINE_TYPE_DERIBIT_COMBO="${MACHINE_TYPE_DERIBIT_COMBO:-e2-highmem-8}"
 # 2026-07-12: this launcher had NO --boot-disk-size (image default, ~10GB),
 # the one outlier among cefi Tardis backfill launchers — every sibling
 # (launch-cefi-sharded-backfill.sh, launch-cefi-hl-aster-historical-
@@ -107,6 +119,11 @@ _launch_shard() {
         start_date="${year}-01-01"; end_date="${year}-12-31"
     fi
 
+    local shard_machine_type="$MACHINE_TYPE"
+    if [[ "$venue" == "DERIBIT-COMBO" ]]; then
+        shard_machine_type="$MACHINE_TYPE_DERIBIT_COMBO"
+    fi
+
     local venue_lower vm_name
     venue_lower=$(echo "$venue" | tr '[:upper:]' '[:lower:]')
     vm_name="opt-${venue_lower}-${year}"
@@ -141,17 +158,17 @@ _launch_shard() {
     if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
     if [[ "$DRY" == "1" ]]; then
-        echo "[DRY] ${vm_name} venue=${venue} year=${year} ${start_date}..${end_date}"
+        echo "[DRY] ${vm_name} venue=${venue} year=${year} ${start_date}..${end_date} machine=${shard_machine_type}"
         echo "      data_types=options_chain symbols=${symbols}"
     else
-        echo "Launching ${vm_name} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+        echo "Launching ${vm_name} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)] machine=${shard_machine_type}"
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
           echo "[DRY-RUN] Would create VM: "${vm_name}""
           echo "[DRY-RUN] (gcloud compute instances create skipped)"
         else
           # shellcheck disable=SC2086
           gcloud compute instances create "${vm_name}" \
-              --zone="${ZONE}" --machine-type="${MACHINE_TYPE}" \
+              --zone="${ZONE}" --machine-type="${shard_machine_type}" \
               ${PROVISIONING_FLAGS} \
               --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
               --boot-disk-size=50GB \

@@ -108,11 +108,6 @@ import {
 }
 
 import {
-  to = google_storage_bucket.market_data_prediction
-  id = "central-element-323112/market-data-tick-prediction-central-element-323112"
-}
-
-import {
   to = google_storage_bucket.market_data_prediction_test
   id = "central-element-323112/market-data-tick-prediction-test-central-element-323112"
 }

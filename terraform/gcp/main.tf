@@ -271,40 +271,10 @@ resource "google_storage_bucket" "instruments_sports" {
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "instruments_prediction" {
-  name     = "instruments-store-prediction-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
+# instruments_prediction (legacy instruments-store-prediction-…) REMOVED 2026-07-13 —
+# bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7 L6 decommission:
+# prediction L3 is C-GREEN, all versions purged + bucket shell deleted. Canonical
+# instruments-store-pred-prd-… is the sole SSOT.
 
 # Test buckets for instruments (30-day lifecycle)
 resource "google_storage_bucket" "instruments_cefi_test" {
@@ -653,23 +623,10 @@ resource "google_storage_bucket" "market_data_sports" {
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "market_data_prediction" {
-  name     = "market-data-tick-prediction-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_prediction (legacy market-data-tick-prediction-…) REMOVED 2026-07-13 —
+# bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7 L6 decommission:
+# prediction L3 is C-GREEN, all 2,592,066 object-versions purged + bucket shell deleted.
+# Canonical market-data-tick-pred-prd-… is the sole SSOT.
 
 # Test buckets for market data tick (30-day lifecycle)
 resource "google_storage_bucket" "market_data_cefi_test" {
