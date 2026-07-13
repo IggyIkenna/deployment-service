@@ -207,6 +207,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _paper("daily-ledger-digest", service="batch-live-reconciliation-service"),
     # paper_stream_scheduler.tf — PAPER umbrella (B2 continuous-live paper-stream loop)
     _paper("paper-stream", service="strategy-service"),
+    # understat_eu_typing_scheduler.tf — daily typing sweep for the understat
+    # XG/XG_SHOTS expected_unattempted residual (matchday-aware, closes the
+    # forward-poll-enum-to-typing lag).
+    _batch("understat-eu-typing-sweep", service="instruments-service", asset_group="sports"),
 )
 
 
