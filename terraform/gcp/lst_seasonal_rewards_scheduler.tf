@@ -18,7 +18,7 @@
 #   target-net-delta-preserving cash sweeps.
 #
 # Why a separate scheduler entry (not a fan-out under defi_collect)
-#   * Different image — features-onchain-service, not market-tick-data-service.
+#   * Different image — features-service (onchain family), not market-tick-data-service.
 #   * Different cadence — fires AFTER all the upstream DeFi collection
 #     ops finish (the dex-pools / oracle-prices / lst-rates jobs in
 #     defi_collection_scheduler.tf complete by 02:05 UTC) and BEFORE the
@@ -55,18 +55,24 @@
 #   service drilldown.
 
 locals {
-  # features-onchain-service image — published by
-  # `features-onchain-service/cloudbuild.yaml` to the shared
-  # `unified-trading-system` Artifact Registry repo (matches the
-  # per-service `cloudbuild.yaml` `_REGISTRY_REPO=unified-trading-system`
-  # convention also used by defi_collection_scheduler.tf for MTDS).
+  # features-service image — published by `features-service/cloudbuild.yaml`
+  # (trigger `features-service-build`) to the shared `unified-trading-system`
+  # Artifact Registry repo. The onchain family lives INSIDE features-service
+  # (`features_service.onchain`) since the features repo consolidation —
+  # the standalone `features-onchain-service` repo was archived 2026-05-08
+  # (see unified-trading-pm plans/archive/issues/
+  # features_repo_consolidation_preaudit_2026_05_08.md) and its image name
+  # `unified-trading-system/features-onchain-service:latest` never had a
+  # producer, so every cron fire failed with INVALID_ARGUMENT until this
+  # was repointed (2026-07-13, issue doc
+  # features_onchain_image_pipeline_gap_2026_07_13.md).
   #
   # NB: per-service standalone Terraform under
   # `terraform/services/features-onchain-service/gcp/terraform.tfvars`
   # uses a DIFFERENT path (`features-onchain-service/features-onchain-service:latest`)
   # which is a stale convention pre-dating the shared-repo migration —
   # don't follow that pattern here.
-  features_onchain_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/features-onchain-service:latest"
+  features_onchain_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/features-service:latest"
 
   # Single op, so just one entry. Modelled as a map for symmetry with
   # defi_collect_operations + future-proofing if more reward-realisation
@@ -108,9 +114,14 @@ module "lst_rewards_collect_job" {
   #
   # `--date` is filled by the wrapper shell at runtime; passing it
   # directly here would freeze the date at terraform-apply time.
+  # Script path is the consolidated features-service layout
+  # (`scripts/onchain/…`, not the retired standalone repo's `scripts/…`).
+  # Invoked by FILE PATH, not `python -m scripts.…` — the editable-installed
+  # unified-api-contracts sibling also exposes a top-level `scripts` package,
+  # so the `-m` form resolves against the WRONG repo's scripts dir.
   command = ["/bin/bash", "-lc"]
   args = [
-    "python -m scripts.collect_lst_seasonal_rewards_daily --date $(date -u -d 'yesterday' +%Y-%m-%d) --project-id ${var.project_id} --env mainnet"
+    "python scripts/onchain/collect_lst_seasonal_rewards_daily.py --date $(date -u -d 'yesterday' +%Y-%m-%d) --project-id ${var.project_id} --env mainnet"
   ]
 
   environment_variables = {
