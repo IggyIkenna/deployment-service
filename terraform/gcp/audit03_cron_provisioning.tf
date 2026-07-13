@@ -145,6 +145,53 @@ module "instruments_cefi_t1_recon_job" {
   }
 }
 
+# uts-prod-instruments-service-prediction-t1-recon (2026-07-13): its first-ever cron-triggered
+# execution (2026-07-13T00:20Z, 17 days after the per-AG job split) OOM'd at the pinned 2cpu/4Gi —
+# Polymarket's CLOB adapter materializes the ENTIRE ~900K-market append-only history into memory
+# before per-date filtering (instruments_service/reference_data/adapters/prediction/polymarket/
+# clob.py::_fetch_all_raw_clob_markets), so this job's footprint grows monotonically over time
+# regardless of any single day's code correctness. Same OOM-at-2/4Gi-then-4/8Gi-fixed-at-8/16Gi
+# empirical pattern as instruments_cefi_t1_recon_job above — verified with a real
+# `gcloud run jobs execute --wait`: 4cpu/8Gi still OOM'd (exit "configured memory limit was
+# reached"); 8cpu/16Gi completed successfully. Was NEVER Terraform-managed (created ad hoc,
+# resources reset on every CI image-push ReplaceJob). Import block below adopts the LIVE resource
+# at this verified spec (see _imports_reconcile.tf) so `tofu apply` converges to zero drift.
+# Durable follow-up (NOT done here — scoped separately): bound the CLOB adapter's memory by
+# filtering per-page during pagination instead of materializing the full history, since 8cpu/16Gi
+# only buys time against an inherently unbounded, ever-growing corpus.
+module "instruments_prediction_t1_recon_job" {
+  source = "../modules/container-job/gcp"
+
+  # Name MUST match t1_batch_services["instruments-prediction"].job_name (t1_batch_scheduler.tf)
+  name                  = "${local.env_prefix}-instruments-service-prediction-t1-recon"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+  image                 = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
+  cpu                   = "8"
+  memory                = "16Gi" # verified 2026-07-13: 2cpu/4Gi + 4cpu/8Gi both OOM'd; 8cpu/16Gi SUCCEEDED
+  timeout_seconds       = 3600
+  max_retries           = 0
+  parallelism           = 1
+  task_count            = 1
+
+  args = ["--operation", "instruments", "--mode", "batch", "--asset-group", "PREDICTION", "--run-tag", "t1-recon"]
+
+  environment_variables = {
+    GCP_PROJECT_ID   = var.project_id
+    DEPLOYMENT_ENV   = var.environment
+    GCS_LOCATION     = var.region
+    PYTHONUNBUFFERED = "1"
+  }
+
+  service_name = "instruments-service"
+  environment  = var.environment
+  labels = {
+    "purpose" = "t1-batch-prediction"
+    "finding" = "polymarket-clob-unbounded-fetch-oom-2026-07-13"
+  }
+}
+
 module "batch_live_recon_job" {
   source = "../modules/container-job/gcp"
 

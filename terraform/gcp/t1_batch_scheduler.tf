@@ -80,7 +80,7 @@ locals {
     "instruments-prediction" = {
       schedule    = "20 0 * * *"
       job_name    = "${local.env_prefix}-instruments-service-prediction-t1-recon"
-      description = "instruments-service PREDICTION T+1 — Polymarket prediction market instrument definitions (immediate source; 2cpu/4Gi)"
+      description = "instruments-service PREDICTION T+1 — Polymarket prediction market instrument definitions (immediate source; 8cpu/16Gi, bumped 2026-07-13 after OOM at 2cpu/4Gi — see instruments_prediction_t1_recon_job)"
     }
     "instruments-cefi" = {
       schedule    = "0 6 * * *"
