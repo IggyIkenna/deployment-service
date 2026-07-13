@@ -716,9 +716,21 @@ uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 # at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
 # version-pinning conflicts; sqlalchemy itself has no such conflict so install
 # it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
+#
+# nautilus-trader (execution-service's #1 declared dependency — "Production-grade
+# backtesting system built on NautilusTrader", execution-service/pyproject.toml)
+# is ALSO skipped by execution-service's --no-deps NODEPS routing above (same
+# reason: betfairlightweight's requests<2.33.0 pin makes the full resolve
+# unsatisfiable). Unlike betfairlightweight, nautilus-trader has no such conflict
+# — install it standalone so execution_service.algorithms.impl.adaptive_twap's
+# `from nautilus_trader.config import ExecAlgorithmConfig` (needed by
+# TenderlyExecutionProvider, which every DeFi paper/live run imports) doesn't
+# ModuleNotFoundError. Found 2026-07-13: this was missing since --no-deps
+# routing was introduced (fix landed after strategy-paper/defi-paper's FIRST
+# real successful run past preflight surfaced it).
 if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
-  log "  uv pip install sqlalchemy plotly  (pbm storage + e2e desired-state HTML, strategy VMs only)"
-  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy plotly 2>&1 | tail -3
+  log "  uv pip install sqlalchemy plotly 'nautilus-trader>=1.221.0,<2.0.0'  (pbm storage + e2e desired-state HTML + execution algos, strategy VMs only)"
+  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy plotly 'nautilus-trader>=1.221.0,<2.0.0' 2>&1 | tail -5
 fi
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
