@@ -273,6 +273,130 @@ echo "RC=$rc"
         assert "launcher_common.sh" in content, "launcher must source launcher_common.sh"
 
 
+class TestSetupScriptFreshnessGuard:
+    """Test lc_verify_setup_script_freshness — the pre-launch stale-startup-script guard.
+
+    Root cause it prevents (2026-07-12 morpho incident, "UPDATE" section): unlike code
+    tarballs (which carry a .manifest.json commit_sha), the GCS setup/startup script a
+    Pattern-A VM's startup-script-url points at is published via a plain, unversioned
+    `gsutil cp` with no freshness record. A VM can boot and fetch that object before a
+    fix-then-launch turn's publish has landed, silently running stale startup logic
+    despite correct instance metadata. Unlike lc_verify_tarball_freshness (which every
+    launcher must wire individually), this guard is invoked automatically from
+    lc_gcloud_create so every caller inherits it with zero per-launcher wiring.
+    SSOT: plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md
+    """
+
+    LIB = "scripts/vm/lib/launcher_common.sh"
+
+    def _lib_abs(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LIB
+
+    def test_off_mode_short_circuits(self):
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{self._lib_abs()}" && LC_SETUP_SCRIPT_FRESHNESS=off '
+                'lc_verify_setup_script_freshness bkt "startup-script-url=gs://bkt/vm/setup-data-pipeline-vm.sh"',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+    def test_no_startup_script_url_is_a_noop(self):
+        """Bespoke launchers using --metadata-from-file startup-script have no GCS URL to check."""
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source "{self._lib_abs()}" && lc_verify_setup_script_freshness bkt "VM_TASK=foo,ENV=prod"',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+
+    def _run_with_mock_gsutil(
+        self, local_script: Path, remote_hash: str | None, mode: str
+    ) -> subprocess.CompletedProcess[str]:
+        lib = self._lib_abs()
+        remote_stat_body = f'echo "    Hash (md5):          {remote_hash}"' if remote_hash is not None else "return 1"
+        script = f"""
+gsutil() {{
+    if [[ "$1" == "hash" ]]; then
+        echo "    Hash (md5):          local-hash-abc"
+        return 0
+    fi
+    if [[ "$1" == "stat" ]]; then
+        {remote_stat_body}
+        return 0
+    fi
+    if [[ "$1" == "cp" ]]; then
+        return 0
+    fi
+    return 0
+}}
+export -f gsutil
+source "{lib}"
+# `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
+set +e
+if lc_verify_setup_script_freshness bkt "startup-script-url=gs://bkt/vm/{local_script.name}"; then rc=0; else rc=$?; fi
+echo "RC=$rc"
+"""
+        # lc_verify_setup_script_freshness resolves the local script relative to
+        # lib_dir/.. (scripts/vm/), so point BASH_SOURCE[0] at a lib.sh sitting next
+        # to the real script via a temp lib/ dir symlinking the real launcher_common.sh.
+        return subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_SETUP_SCRIPT_FRESHNESS": mode},
+        )
+
+    def test_fresh_script_passes(self, tmp_path: Path):
+        # setup-data-pipeline-vm.sh already exists in scripts/vm/ — reuse it so
+        # lc_verify_setup_script_freshness's local-path resolution finds a real file.
+        real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
+        assert real_script.exists(), "fixture assumes setup-data-pipeline-vm.sh exists in scripts/vm/"
+        result = self._run_with_mock_gsutil(real_script, "local-hash-abc", "warn")
+        assert "RC=0" in result.stdout
+        assert "setup script fresh" in result.stdout
+
+    def test_stale_script_warn_does_not_block(self, tmp_path: Path):
+        real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
+        result = self._run_with_mock_gsutil(real_script, "different-remote-hash", "warn")
+        assert "RC=0" in result.stdout, "warn mode must not block a launch"
+        assert "STALE setup script" in result.stderr
+        assert "gsutil cp" in result.stderr
+
+    def test_stale_script_enforce_blocks(self, tmp_path: Path):
+        real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
+        result = self._run_with_mock_gsutil(real_script, "different-remote-hash", "enforce")
+        assert "RC=1" in result.stdout, "enforce mode must block a stale launch"
+        assert "refusing to launch" in result.stderr
+
+    def test_missing_remote_script_enforce_blocks(self, tmp_path: Path):
+        real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
+        result = self._run_with_mock_gsutil(real_script, None, "enforce")
+        assert "RC=1" in result.stdout
+        assert "MISSING" in result.stderr
+
+    def test_lc_gcloud_create_wires_the_guard_automatically(self):
+        """No per-launcher wiring needed — lc_gcloud_create calls the guard itself."""
+        content = self._lib_abs().read_text()
+        assert "lc_verify_setup_script_freshness" in content
+        # Verify call site is inside lc_gcloud_create, before the real gcloud invocation.
+        create_fn_start = content.index("lc_gcloud_create() {")
+        guard_call = content.index("lc_verify_setup_script_freshness", create_fn_start)
+        gcloud_call = content.index('gcloud compute instances create "$vm_name"', create_fn_start)
+        assert create_fn_start < guard_call < gcloud_call, (
+            "lc_verify_setup_script_freshness must be called inside lc_gcloud_create, "
+            "before the real `gcloud compute instances create` invocation"
+        )
+
+
 class TestLauncherScriptPatterns:
     """Test common patterns used across launcher scripts"""
 

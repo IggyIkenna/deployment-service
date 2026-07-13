@@ -181,6 +181,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     ),  # launch-mtds-extended-ohlcv-backfill.sh — EXTENDED-STARKNET 2024-07-26..2025-07-31
     "cefi-lighter-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "cefi-pacifica-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "cefi-queue-": VmPrefixSpec(
+        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),  # launch-cefi-sharded-backfill.sh SINGLE_VM_QUEUE=1 mode — cefi-queue-{group}-{ts},
+    # one combined multi-venue VM per (group,data_types) bucket instead of per-shard.
+    # tardis_concurrent_ip_lockout_2026_07_12 course-correction 2026-07-13.
     "aster-fwd-": VmPrefixSpec(
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-aster-forward-poll.sh

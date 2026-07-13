@@ -69,6 +69,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "cefi-ext-bfill-": "launch-mtds-extended-ohlcv-backfill.sh",  # VM_PREFIX=cefi-ext-bfill-
     "cefi-lighter-": "launch-cefi-sharded-backfill.sh",
     "cefi-pacifica-": "launch-cefi-sharded-backfill.sh",
+    # SINGLE_VM_QUEUE=1 mode — cefi-queue-{group}-{ts}, one combined multi-venue VM per
+    # (group,data_types) bucket instead of per-shard (tardis_concurrent_ip_lockout_2026_07_12
+    # course-correction 2026-07-13).
+    "cefi-queue-": "launch-cefi-sharded-backfill.sh",
     "cefi-durability-force-converge-": "launch-cefi-durability-force-converge-vm.sh",
     "aster-fwd-": "launch-aster-forward-poll.sh",
     # ── DeFi / Prediction forward-poll + live ─────────────────────────────

@@ -2059,11 +2059,11 @@ def test_monitor_cron_targets_carry_cloud_run_job_stems():
 
 # ── KEY #3: DP_CATALOG_NOT_RUNNING env-short read + probed-path alert ─────────
 def test_catalogue_targets_use_env_short_bucket_and_prod_prefix(monkeypatch):
-    from deployment_service.data_pipeline_monitors import cli
+    from deployment_service.data_pipeline_monitors import cli, meta_targets
 
-    monkeypatch.setattr(cli, "get_environment", lambda: "prod")
+    monkeypatch.setattr(meta_targets, "get_environment", lambda: "prod")
     monkeypatch.setattr(
-        cli,
+        meta_targets,
         "resolve_bucket_name",
         lambda *, cloud, kind, asset_group=None: (
             f"{kind}-pred-prd-pid" if "prediction" in kind else f"{kind}-{asset_group}-prd-pid"

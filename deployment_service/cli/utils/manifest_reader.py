@@ -216,7 +216,7 @@ class ManifestReader:
                     if not idx.empty:
                         frames.append(idx)
                 except Exception:
-                    pass
+                    logger.debug("No manifest index in %s — treating as empty", bkt)
             index = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
             if index.empty:
                 return {"asset_group": asset_group, "overall_completion": 0, "dates": []}

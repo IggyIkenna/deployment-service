@@ -123,8 +123,23 @@ def _skip_integration_without_creds(
     request: pytest.FixtureRequest,
     gcp_auth_info: tuple[object | None, str, str | None],
 ) -> None:
-    """Skip @pytest.mark.integration tests when no real GCP credentials available."""
+    """Skip @pytest.mark.integration tests when no real GCP credentials available,
+    or when pytest-socket sandboxes the network to localhost-only.
+
+    quality-gates.sh's TESTS phase always invokes pytest with
+    ``--allow-hosts=127.0.0.1,::1,localhost`` (both the unit-dir run and the
+    tests/integration/ run — see base-service.sh [3] TESTS). A session with valid
+    ADC (e.g. an infra-execution agent that legitimately needs real gcloud/GCS
+    access) makes ``gcp_auth_info`` non-None, so the credentials-only check below
+    does NOT skip — the test then attempts a real GCP API call, which pytest-socket
+    blocks, surfacing as a hard test FAILURE (SocketBlockedError) instead of an
+    honest skip. Since --allow-hosts is unconditional in this harness's own
+    invocation, these tests can never actually reach a real GCP endpoint through
+    quality-gates.sh regardless of credential validity — skip is the honest verdict.
+    """
     if "integration" in request.keywords:
+        if request.config.getoption("allow_hosts", default=None) is not None:
+            pytest.skip("Network sandboxed (pytest-socket --allow-hosts) — skipping integration test")
         credentials, _, _ = gcp_auth_info
         if credentials is None:
             pytest.skip("No GCP credentials — skipping integration test")

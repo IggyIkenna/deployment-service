@@ -18,6 +18,7 @@ from deployment_service.data_pipeline_monitors import (
     escalation,
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
+    meta_targets,
     meta_watchers,
 )
 from tests.unit.test_data_pipeline_monitors import LOG_BUCKET, FakeStorage
@@ -215,8 +216,8 @@ def test_catalogue_targets_built(monkeypatch):
     # KEY #3 (2026-06-23): the catalogue artifact is {DEPLOYMENT_ENV}/catalog.parquet
     # in the env-SHORT instruments-store bucket — NOT _catalogue/instrument_catalogue.parquet
     # (the old wrong path made the probe read age=None → false "missing").
-    monkeypatch.setattr(cli, "get_environment", lambda: "prod")
-    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "instruments-store-x")
+    monkeypatch.setattr(meta_targets, "get_environment", lambda: "prod")
+    monkeypatch.setattr(meta_targets, "resolve_bucket_name", lambda **_kw: "instruments-store-x")
     targets = cli._catalogue_targets()
     assert len(targets) == len(cli.ASSET_GROUPS)
     assert all(t.blob_path == "prod/catalog.parquet" for t in targets)
@@ -226,7 +227,7 @@ def test_catalogue_targets_skips_on_resolve_error(monkeypatch):
     def _raise(**_kw):
         raise RuntimeError("no bucket")
 
-    monkeypatch.setattr(cli, "resolve_bucket_name", _raise)
+    monkeypatch.setattr(meta_targets, "resolve_bucket_name", _raise)
     assert cli._catalogue_targets() == []
 
 

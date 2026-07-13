@@ -70,6 +70,22 @@ MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
+# SINGLE_VM_QUEUE (tardis_concurrent_ip_lockout_2026_07_12, operator course-correction
+# 2026-07-13): opt-in mode that collapses every matched (venue,year,group) shard onto
+# ONE combined VM per (group, data_types) bucket instead of one VM per shard. One VM =
+# one egress IP, and the Tardis single-concurrent-IP lock is per-IP (not per-connection
+# — the 403 body says "already active from ANOTHER IP address"), so a single VM can run
+# several concurrent Tardis download streams (bounded by TARDIS_MAX_CONCURRENT_DOWNLOADS,
+# shared process-wide across every venue in its --venues list via the pooled
+# TardisAdapter singleton + asyncio.gather fan-out in process_ticks) without the
+# ~20-80x wall-clock hit of the TARDIS_CONCURRENCY_LEASE cross-VM serialization stopgap.
+# Still opt-in TARDIS_CONCURRENCY_LEASE + a control bucket is recommended as a safety
+# net even in this mode (harmless no-op cost when only one VM is ever running).
+SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-0}"
+declare -A _QUEUE_VENUES  # key="group|data_types" -> space-separated venue list
+declare -A _QUEUE_START   # key -> min matched start_date
+declare -A _QUEUE_END     # key -> max matched end_date
+
 # Registry-driven machine-sizing (operator 2026-06-23): a memory-heavy venue
 # launches correctly-sized on the FIRST try, NOT via repeated OOM-escalation.
 # The per-venue floor lives in deployment_service launch_budget_registry
@@ -432,6 +448,30 @@ launch_cefi_shard() {
   # The bucket MUST be a coordination bucket, NOT a data/manifest-walked bucket.
   [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
+  # tardis_concurrent_ip_lockout_2026_07_12 course-correction: operator-tunable
+  # intra-process Tardis download concurrency (default 16 when unset — see
+  # MarketTickDataServiceConfig.tardis_max_concurrent_downloads). Conservative for a
+  # first smoke wave (e.g. 4-8), stepped up once the 403 rate is confirmed clean.
+  [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+
+  # SINGLE_VM_QUEUE: accumulate this matched shard into its (group,data_types) bucket
+  # instead of launching a per-shard VM now — _flush_single_vm_queue launches ONE
+  # combined VM per bucket after the whole venue/year loop below has run.
+  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
+    local qkey="${group}|${data_types}"
+    if [[ -z "${_QUEUE_VENUES[$qkey]:-}" ]]; then
+      _QUEUE_VENUES[$qkey]="$venue"
+      _QUEUE_START[$qkey]="$start_date"
+      _QUEUE_END[$qkey]="$end_date"
+    else
+      _QUEUE_VENUES[$qkey]="${_QUEUE_VENUES[$qkey]} $venue"
+      [[ "$start_date" < "${_QUEUE_START[$qkey]}" ]] && _QUEUE_START[$qkey]="$start_date"
+      [[ "$end_date" > "${_QUEUE_END[$qkey]}" ]] && _QUEUE_END[$qkey]="$end_date"
+    fi
+    echo "[queue] $venue $year $group -> bucket '$qkey' (venues so far: ${_QUEUE_VENUES[$qkey]})"
+    _launched=$((_launched + 1))
+    return 0
+  fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  venue=$venue year=$year group=$group"
@@ -515,6 +555,71 @@ for venue in $VENUES; do
     fi
   done
 done
+
+# ─── SINGLE_VM_QUEUE flush — launch ONE combined VM per (group,data_types) bucket ──
+# See SINGLE_VM_QUEUE declaration above. No-op (empty _QUEUE_VENUES) unless
+# SINGLE_VM_QUEUE=1, in which case launch_cefi_shard accumulated matches above instead
+# of launching per-shard.
+_launch_queued_vm() {
+  local qkey="$1" venues_str="$2" start_date="$3" end_date="$4"
+  local group="${qkey%%|*}" data_types="${qkey#*|}"
+  local machine
+  if [[ "$group" == "heavy" ]]; then
+    machine="${MACHINE_TYPE_HEAVY:-e2-highmem-16}"
+  else
+    machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
+  fi
+  local vm_name="cefi-queue-${group}-${RUN_TS}"
+
+  local meta="startup-script-url=$STARTUP"
+  meta+=",VM_TASK=cefi-backfill"
+  meta+=",VM_SERVICE=market_tick_data_service"
+  meta+=",VM_OPERATION=download"
+  meta+=",VM_ASSET_GROUP=CEFI"
+  meta+=",VM_VENUE=$venues_str"
+  meta+=",VM_START_DATE=$start_date"
+  meta+=",VM_END_DATE=$end_date"
+  meta+=",VM_DATA_TYPES=$data_types"
+  meta+=",VM_FORCE=${VM_FORCE:-false}"
+  meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+  meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+  meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
+  meta+=",STALL_PROGRESS_REGEX=uploaded"
+  [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
+  [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
+  [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
+  [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[DRY-RUN] $vm_name  bucket=$qkey machine=$machine"
+    echo "          venues=$venues_str"
+    echo "          start=$start_date end=$end_date data_types=$data_types"
+    echo "          metadata=$meta"
+    return 0
+  fi
+
+  echo "Launching QUEUE VM $vm_name (venues: $venues_str; $start_date..$end_date; $data_types)"
+  local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+  if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
+  # shellcheck disable=SC2086
+  gcloud compute instances create "$vm_name" \
+    --zone="$ZONE" --machine-type="$machine" \
+    ${prov_flags} \
+    --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+    --boot-disk-size=50GB \
+    --scopes=cloud-platform --metadata="$meta" \
+    --labels=env="${DEPLOYMENT_ENV}" \
+    --project="$PROJECT" --async 2>&1 | tail -1
+}
+
+if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
+  echo ""
+  echo "=== SINGLE_VM_QUEUE: flushing ${#_QUEUE_VENUES[@]} bucket(s) into combined VM(s) ==="
+  for qkey in "${!_QUEUE_VENUES[@]}"; do
+    _launch_queued_vm "$qkey" "${_QUEUE_VENUES[$qkey]}" "${_QUEUE_START[$qkey]}" "${_QUEUE_END[$qkey]}"
+  done
+fi
 
 # NOTE (2026-06-23): the former TradFi block (CME ES + CBOE VIX via Tardis venues
 # CME-FUTURES / CBOE-VIX-FUTURES / CME-OPTIONS / CBOE-VIX-OPTIONS) was REMOVED.

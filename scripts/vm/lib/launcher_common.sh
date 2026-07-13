@@ -17,6 +17,12 @@
 #                                          — PRE-LAUNCH guard: refuse/warn/auto-
 #                                            republish when a code tarball the VM
 #                                            will fetch is stale vs the repo HEAD
+#   lc_verify_setup_script_freshness <bucket> <metadata_str>
+#                                          — PRE-LAUNCH guard (called automatically
+#                                            by lc_gcloud_create): refuse/warn/auto-
+#                                            republish when the GCS startup-script
+#                                            the VM's startup-script-url points at
+#                                            is stale vs the local script
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -138,6 +144,13 @@ lc_gcloud_create() {
         echo "[DRY-RUN]   metadata=${metadata_str}"
         echo "[DRY-RUN]   labels=${final_labels}"
         return 0
+    fi
+
+    # PRE-LAUNCH guard against the setup-script publish race (see
+    # lc_verify_setup_script_freshness below) — checked here, not per-launcher,
+    # so every caller of lc_gcloud_create (~80 launchers) inherits it automatically.
+    if ! lc_verify_setup_script_freshness "$(lc_code_bucket "$project")" "$metadata_str"; then
+        return 1
     fi
 
     gcloud compute instances create "$vm_name" \
@@ -394,6 +407,141 @@ lc_verify_tarball_freshness() {
                 return 0
             fi
             echo "ERROR: auto-republish failed for: ${stale_repos} — not launching onto unverified code" >&2
+            return 1
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# lc_verify_setup_script_freshness <code_bucket> <metadata_str>
+# ---------------------------------------------------------------------------
+# PRE-LAUNCH guard against the setup-script publish race: create-code-tarballs.sh
+# publishes scripts/vm/setup-data-pipeline-vm.sh (the file every Pattern-A VM's
+# startup-script-url points at) via a plain, unversioned `gsutil cp` with no
+# manifest/checksum companion — unlike the code tarballs (see
+# lc_verify_tarball_freshness above, which has a .manifest.json to compare
+# against). A VM can boot and fetch that GCS object BEFORE a fix-then-launch
+# turn's `gsutil cp` has actually landed, silently running stale startup logic
+# despite correct instance metadata. Root-caused 2026-07-12 (morpho
+# lending_indices first backfill VM ran the pre-fix _DEFAULT_PROTOCOLS list for
+# ~17 min before the race was noticed). SSOT:
+# plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md.
+#
+# Called automatically by lc_gcloud_create (not per-launcher) so every caller
+# inherits the guard without a per-file wiring pass. Parses <metadata_str> for
+# a `startup-script-url=gs://<bucket>/vm/<name>.sh` entry — a no-op (return 0)
+# if none is present (e.g. launchers using --metadata-from-file startup-script
+# instead of Pattern A). Compares the local script's content hash
+# (`gsutil hash -m`, matches `gsutil stat`'s reporting format) against the live
+# GCS object's md5 before the VM is created.
+#
+# Acts per LC_SETUP_SCRIPT_FRESHNESS (same semantics as LC_TARBALL_FRESHNESS):
+#   off      — skip the check entirely.
+#   warn     — (DEFAULT) print a loud WARNING + the exact republish remedy,
+#              then return 0 (never blocks a launch).
+#   enforce  — return 1 (block the launch) if the script is stale or missing.
+#   auto     — republish via `gsutil cp` the local script over the GCS object,
+#              then return 0 (or 1 if the republish itself failed).
+#
+# Robustness: gsutil unavailable, or the local script file not found, is a
+# "can't verify" — warn+skip in every mode (a tooling/path gap never blocks a
+# launch; only a genuinely-confirmed stale/missing object blocks in enforce).
+lc_verify_setup_script_freshness() {
+    local code_bucket="${1:?lc_verify_setup_script_freshness: code_bucket required}"
+    local metadata_str="${2:?lc_verify_setup_script_freshness: metadata_str required}"
+
+    local mode
+    mode="$(printf '%s' "${LC_SETUP_SCRIPT_FRESHNESS:-warn}" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$mode" == "off" ]]; then
+        return 0
+    fi
+    case "$mode" in
+        warn|enforce|auto) ;;
+        *) echo "WARNING: unknown LC_SETUP_SCRIPT_FRESHNESS='$mode' — treating as 'warn'" >&2; mode="warn" ;;
+    esac
+
+    # metadata_str is comma-separated key=value; the GCS URL itself has no commas.
+    local gcs_url
+    gcs_url="$(printf '%s' "$metadata_str" | grep -oE 'startup-script-url=gs://[^,]+' | sed 's/^startup-script-url=//' || true)"
+    if [[ -z "$gcs_url" ]]; then
+        return 0
+    fi
+
+    local script_name
+    script_name="$(basename "$gcs_url")"
+
+    if ! command -v gsutil >/dev/null 2>&1; then
+        echo "WARNING: lc_verify_setup_script_freshness — gsutil unavailable, skipping freshness check for $script_name" >&2
+        return 0
+    fi
+
+    local lib_dir local_path
+    lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local_path="$lib_dir/../${script_name}"
+    if [[ ! -f "$local_path" ]]; then
+        echo "WARNING: lc_verify_setup_script_freshness — local script $local_path not found, skipping" >&2
+        return 0
+    fi
+
+    local local_md5 remote_md5
+    local_md5="$(gsutil hash -m "$local_path" 2>/dev/null | awk -F': ' '/Hash \(md5\):/ {gsub(/^ +| +$/, "", $2); print $2}')"
+    remote_md5="$(gsutil stat "$gcs_url" 2>/dev/null | awk -F': ' '/Hash \(md5\):/ {gsub(/^ +| +$/, "", $2); print $2}')"
+
+    if [[ -z "$local_md5" ]]; then
+        echo "WARNING: lc_verify_setup_script_freshness — could not hash local $local_path, skipping" >&2
+        return 0
+    fi
+
+    local republish_cmd="gsutil cp ${local_path} ${gcs_url}"
+
+    if [[ -z "$remote_md5" ]]; then
+        echo "WARNING: setup script MISSING on GCS: $gcs_url — the VM would fail to fetch its startup-script-url" >&2
+        case "$mode" in
+            enforce)
+                echo "ERROR: refusing to launch. Republish first: ${republish_cmd}" >&2
+                return 1
+                ;;
+            auto)
+                echo "lc_verify_setup_script_freshness: publishing $script_name"
+                if ! $republish_cmd; then
+                    echo "ERROR: publish failed for $gcs_url — not launching onto an unverified startup script" >&2
+                    return 1
+                fi
+                ;;
+            *) echo "WARNING: republish before launch: ${republish_cmd}" >&2 ;;
+        esac
+        return 0
+    fi
+
+    if [[ "$local_md5" == "$remote_md5" ]]; then
+        echo "  setup script fresh: $script_name"
+        return 0
+    fi
+
+    local msg="STALE setup script on GCS: $gcs_url content does not match local $local_path — a VM booting now would silently run stale startup logic despite a landed fix"
+    case "$mode" in
+        warn)
+            {
+                echo "WARNING: ${msg}"
+                echo "WARNING: republish before launch: ${republish_cmd}"
+                echo "WARNING: (set LC_SETUP_SCRIPT_FRESHNESS=enforce to block, or =auto to republish automatically)"
+            } >&2
+            return 0
+            ;;
+        enforce)
+            {
+                echo "ERROR: ${msg}"
+                echo "ERROR: refusing to launch. Republish first: ${republish_cmd}"
+            } >&2
+            return 1
+            ;;
+        auto)
+            echo "lc_verify_setup_script_freshness: auto-republishing $script_name"
+            if $republish_cmd; then
+                echo "lc_verify_setup_script_freshness: republish complete"
+                return 0
+            fi
+            echo "ERROR: auto-republish failed for $gcs_url — not launching onto an unverified startup script" >&2
             return 1
             ;;
     esac
