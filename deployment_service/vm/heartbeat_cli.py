@@ -10,7 +10,7 @@ module owns only:
     --stall-breadcrumb/--watchdog-file/--cmd-pid-file/--heartbeat-interval-sec/
     --upload-interval-sec/--bucket)
   - ``_RegistryAdapter`` translating the generic ``HeartbeatStore`` protocol
-    to ``deployment_service.deployments_registry.DeploymentsRegistry``
+    to ``unified_trading_library.deployment_registry.DeploymentsRegistry``
   - Event-payload builder preserving the VM deployment wire format
     (deployment_id / vm_name / asset_group / task / mode / start_date /
     end_date / status / row counters / exit_code / log_uri)
@@ -32,17 +32,21 @@ import tempfile
 from typing import cast
 
 from unified_trading_library import (
+    DEFAULT_BUCKET,
     DEPLOYMENT_COMPLETED,
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
     HOST_METRICS_WINDOW_KEY,
+    DeploymentRegistryEntry,
+    DeploymentsRegistry,
     HeartbeatDaemon,
     HeartbeatEntry,
     HostMetricsSampler,
     LocalFsEventSink,  # pyright: ignore[reportPrivateImportUsage]
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     SignalProtocol,
+    coerce_host_metrics_window,
     get_storage_client,
     run_lifecycle,
     setup_events,
@@ -50,12 +54,6 @@ from unified_trading_library import (
 
 from deployment_service.bom import resolve_deployment_bom
 from deployment_service.deployment_config import DeploymentConfig
-from deployment_service.deployments_registry import (
-    DEFAULT_BUCKET,
-    DeploymentRegistryEntry,
-    DeploymentsRegistry,
-    coerce_host_metrics_window,
-)
 
 logger = logging.getLogger("heartbeat_daemon")
 

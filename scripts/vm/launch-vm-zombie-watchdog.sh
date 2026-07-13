@@ -201,13 +201,14 @@ fi
 # deployment-service tarball + export the env override so probing succeeds
 # regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
 # and no zombies get reaped — observed 2026-05-28.
+# NOTE: this only needs the tarball's configs/ dir on disk, not a pip install —
+# _backup_vm_logs_before_kill's registry-path helpers moved to
+# unified_trading_library.deployment_registry 2026-07-13 (UTL is already
+# installed above), so deployment_service no longer needs to be importable here.
 gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
 if [[ -f /tmp/dep.tar.gz ]]; then
     mkdir -p /tmp/dep-src
     tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
-    # Install the package so watchdog's _backup_vm_logs_before_kill can
-    # import deployment_service.deployments_registry at kill time (2026-05-28).
-    /opt/watchdog-venv/bin/pip install --quiet --no-deps /tmp/dep-src 2>&1 | tail -3 || true
 fi
 export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
 
