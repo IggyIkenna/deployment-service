@@ -37,6 +37,21 @@ PRINT_EXCLUDE_GLOBS=(--glob "!**/deployment/progress.py" --glob "!**/backends/se
 OS_ENV_EXCLUDE_GLOBS=(--glob "!**/config/bootstrap_config.py" --glob "!**/deployment/worker_manager.py" --glob "!**/config/env_substitutor.py" --glob "!**/shard_builder.py" --glob "!**/deployment_config.py")
 # Imports inside functions: deferred for CLI entry, route handlers, cloud SDK lazy loading, AWS boundary
 IMPORT_INSIDE_EXCLUDE_GLOBS=("!**/__main__.py" "!**/api/routes/state.py" "!**/backends/aws_ec2.py" "!**/backends/aws.py" "!**/backends/aws_batch.py" "!**/backends/_gcp_sdk.py" "!**/backends/base.py" "!**/calculators/shard_dimensions.py" "!**/backends/provider_factory.py" "!**/cli/handlers/cluster_handler.py")
+# Broad except Exception — best-effort multi-cloud (GCS+S3) CLI reads where any failure
+# (missing bucket, network, auth, corrupt parquet) is treated identically as "absent, skip"
+# rather than crashing the CLI display path. Justified in QUALITY_GATE_BYPASS_AUDIT.md §2.18
+# (2026-07-13). §§2.19-2.20: same never-raises pattern across the fleet-monitoring package.
+BE_EXCLUDE_GLOBS=(
+    "**/cli/utils/manifest_reader.py"
+    "**/data_pipeline_monitors/_gcs.py"
+    "**/data_pipeline_monitors/exit_code_fleet_monitor.py"
+    "**/data_pipeline_monitors/live_stream_watcher.py"
+    "**/data_pipeline_monitors/cli.py"
+    "**/data_pipeline_monitors/meta_targets.py"
+    "**/data_pipeline_monitors/heartbeat_stall_watcher.py"
+    "**/data_pipeline_monitors/meta_watchers.py"
+    "**/data_pipeline_monitors/deadman_poster.py"
+)
 # Empty string/dict/list: safe defaults for optional config dict lookups
 EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py")
 EMPTY_DICT_LIST_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py" --glob "!**/orchestrator.py")

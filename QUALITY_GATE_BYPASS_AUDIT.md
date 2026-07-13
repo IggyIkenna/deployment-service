@@ -245,13 +245,13 @@ the correct type.
 168 errors across four rule codes that represent genuine type-safety gaps in the service's
 own code that are fixable without external stub changes:
 
-| Rule                         | Count | Description                                                                                                                                     |
+| Rule | Count | Description |
 | ---------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `reportCallIssue`            | 97    | Incorrect argument counts or missing required arguments in function calls; also includes calls on `Unknown` receivers cascaded from boto3/click |
-| `reportIndexIssue`           | 50    | Indexing into `object` (unnarrowed dict results from boto3 responses) using `[]` subscript                                                      |
-| `reportOperatorIssue`        | 12    | Operator applied to `object                                                                                                                     | Unknown`type (boto3 response fields compared with`<=`) |
-| `reportOptionalMemberAccess` | 6     | Accessing attribute on `X                                                                                                                       | None` without None guard                               |
-| `reportGeneralTypeIssues`    | 3     | Miscellaneous assignment and type constraint violations                                                                                         |
+| `reportCallIssue` | 97 | Incorrect argument counts or missing required arguments in function calls; also includes calls on `Unknown` receivers cascaded from boto3/click |
+| `reportIndexIssue` | 50 | Indexing into `object` (unnarrowed dict results from boto3 responses) using `[]` subscript |
+| `reportOperatorIssue` | 12 | Operator applied to `object                                                                                                                     | Unknown`type (boto3 response fields compared with`<=`) |
+| `reportOptionalMemberAccess` | 6 | Accessing attribute on `X                                                                                                                       | None` without None guard |
+| `reportGeneralTypeIssues` | 3 | Miscellaneous assignment and type constraint violations |
 
 Note: ~50 of the `reportCallIssue` and `reportIndexIssue` counts are secondary cascades
 from boto3 `Unknown` types (Category 1). Installing the boto3 service stubs will eliminate
@@ -663,3 +663,95 @@ None of these types are exported in `deployment_service/__init__.py`, imported b
 **Why not in UIC:** These types model deployment-service–specific operational state (GCS blob counts, completion percentages, health aggregations). They are not domain data contracts shared across services and do not belong in `unified-internal-contracts`. Moving them to UIC would create a circular dependency (deployment-service exists to MANAGE other services, not to share contracts with them).
 
 **Status:** JUSTIFIED — no migration required.
+
+## 2.18 Broad except Exception — `cli/utils/manifest_reader.py` (CLI best-effort cloud reads)
+
+**Date:** 2026-07-13
+**File:** `deployment_service/cli/utils/manifest_reader.py`
+**Rule:** `except Exception:` (broad except, 5 occurrences: lines 165, 187, 218, 284, 647)
+**Status:** JUSTIFIED — architectural best-effort read pattern
+
+`ManifestReader` is a read-only CLI display helper (`data-status` command) that queries availability-index
+parquet files across many buckets spanning **both** GCP (GCS) and AWS (S3) via UCI's cloud-agnostic
+`StorageClient`. Every one of the 5 broad catches wraps a single best-effort cloud read/probe where the
+correct behavior for ANY failure — a missing bucket, a network error, an auth error, a bad or missing
+parquet file, a permission denial — is identical: treat the target as absent and continue querying the remaining
+buckets/services, never crash the CLI's display path. This is deliberately CLI-display semantics, not the
+data-pipeline `record_captured`/`record_failed` distinction — no manifest write happens here, so there is no
+honest-absence violation (see `codex/02-data/honest-absence-downstream-handling.md`, which governs the
+_writer_ side, not this read-only display path).
+
+Narrowing each catch to specific exception types is not practical: the underlying failures can originate from
+either `google.api_core.exceptions.*` or `botocore.exceptions.*` (two independent, unrelated exception
+hierarchies via UCI's `StorageClient`) plus `pyarrow.lib.ArrowException` subclasses on read, plus generic
+`OSError`/network errors — enumerating all of them across both cloud SDKs for a CLI display fallback would add
+substantial coupling and risk missing a real exception type (causing the CLI to crash on a single unreachable
+bucket instead of degrading gracefully), for no correctness benefit.
+
+| Line | Method                   | Pattern                                                                                  |
+| ---- | ------------------------ | ---------------------------------------------------------------------------------------- |
+| 165  | `_get_project_id()`      | `get_project_id()` best-effort resolve; falls back to `"unknown"` on any failure         |
+| 187  | `is_available()`         | Probe-read one bucket; any failure → `self._available = False`                           |
+| 218  | `get_completion()`       | Per-bucket loop; unreadable/missing bucket is skipped (silent — same pattern as 284/647) |
+| 284  | `get_manifest_status()`  | Per-bucket loop; unreadable/missing bucket is skipped + `logger.debug(...)`              |
+| 647  | `get_coverage_summary()` | Per-bucket loop; unreadable/missing bucket is skipped + `logger.debug(...)`              |
+
+**Resolution path:** None planned — this is the correct, permanent pattern for a multi-cloud CLI display
+helper. Revisit only if UCI ever exposes a single unified exception type across GCP/AWS storage backends.
+
+## 2.19 Broad except Exception — `data_pipeline_monitors/_gcs.py` + `exit_code_fleet_monitor.py` (monitor never-raises pattern)
+
+**Date:** 2026-07-13
+**Files:** `deployment_service/data_pipeline_monitors/_gcs.py` (lines 125, 346, 508),
+`deployment_service/data_pipeline_monitors/exit_code_fleet_monitor.py` (lines 355, 367)
+**Rule:** `except Exception:` (broad except, 5 occurrences)
+**Status:** JUSTIFIED — architectural "monitor never crashes" pattern, already documented per-function
+
+These are the pipeline-hardening self-monitoring layer (`data_pipeline_monitors/`) that watches live/backfill
+VM fleets via GCS blob reads (heartbeat age, exit-code, preemption signal, per-VM captured counts). Every one
+of the 5 catches is a **read helper whose own docstring already states "Never raises"** — a transient GCS
+read failure (network blip, missing blob, auth hiccup) must degrade to a safe default (`None` / `False` /
+last-known-count) rather than kill the monitor's tick and lose visibility into the entire fleet for that
+cycle. This is the same class of best-effort-cloud-read pattern as §2.18, applied to the monitoring layer
+instead of the CLI layer — the monitor's whole purpose (per its own module docstring) is to survive
+individual VM/blob read failures without an operator losing the whole fleet's status.
+
+| Line | Function                           | Fallback on any read failure                                                  |
+| ---- | ---------------------------------- | ----------------------------------------------------------------------------- |
+| 125  | `blob_age_minutes()`               | `meta = None` → falls through to content-epoch age fallback                   |
+| 346  | `read_text()`                      | Returns `None` (docstring: "Never raises... reads as `None`")                 |
+| 508  | `is_vm_preempted()`                | Returns `False` (docstring: "Never raises... conservatively returns `False`") |
+| 355  | `_run_termination_tick` (census)   | Falls back to prior known `captured` count                                    |
+| 367  | `_run_termination_tick` (captured) | Falls back to `captured_before` (last known count)                            |
+
+Narrowing is not practical for the same reason as §2.18: `storage_client` reads route through UCI across
+both GCP and AWS backends, so the failure surface spans two unrelated SDK exception hierarchies plus
+`OSError`/network errors — enumerating them all would add coupling without improving correctness for a
+monitor whose entire design goal is graceful degradation on read failure.
+
+**Resolution path:** None planned — permanent pattern for the fleet-monitoring read layer.
+
+## 2.20 Broad except Exception — remaining `data_pipeline_monitors/*` files (same never-raises pattern)
+
+**Date:** 2026-07-13
+**Status:** JUSTIFIED — same architectural pattern as §2.19, extended to the rest of the package
+
+A full-package scan (`grep -rn '^\s*except Exception:\s*$' deployment_service/`) found the broad-except
+pattern documented in §2.19 is package-wide, not limited to the 2 files first found there — the original
+QG output that seeded this audit's §2.18/§2.19 entries was `head -5`-truncated and undercounted. Every site
+below is the identical class: a GCS/S3 read (blob existence, parquet download, bucket resolution) or a
+caller-supplied reader callback (`captured_reader`, `vm_age_reader`, `sidecar_age_reader`,
+`shard_mtime_reader`) wrapped so a transient failure degrades to a documented safe default (`None` / `False`
+/ `0` / `[]` / last-known value / `continue`) instead of killing the monitor's sweep or the CLI's display
+loop for one bad VM/blob among many.
+
+| File                         | Lines                                | Fallback pattern                                                                                                                                                                                                                                                               |
+| ---------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `live_stream_watcher.py`     | 85, 89, 100, 109, 122, 218, 222, 238 | Missing/unreadable shard/bucket → `None` / `[]` / `(0, None, None, None, None)` / `pass`                                                                                                                                                                                       |
+| `cli.py`                     | 209, 262, 288, 700                   | Missing/unreadable bucket or shard → `False` / `None` / `0`                                                                                                                                                                                                                    |
+| `meta_targets.py`            | 68, 92                               | Bucket resolution failure → `continue` (skip that asset group); moved out of `cli.py` in a later commit landed mid-session, same pattern                                                                                                                                       |
+| `heartbeat_stall_watcher.py` | 496, 511, 530, 538                   | Reader callback failure → prior-known value / `None` (age treated as "just past grace" or "unknown")                                                                                                                                                                           |
+| `meta_watchers.py`           | 528, 532                             | Missing/unreadable index → `[]`                                                                                                                                                                                                                                                |
+| `deadman_poster.py`          | 408                                  | Top-level entrypoint catch; `logger.exception(...)`, exits 0 by design — the deadman cron's own execution-absence is covered by GCP-native Cloud Scheduler alerting (the "bedrock above this watcher", per the inline comment), so this handler intentionally never propagates |
+
+**Resolution path:** None planned — permanent pattern across the fleet-monitoring package.
