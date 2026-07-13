@@ -152,6 +152,20 @@ _launch_shard() {
     # (launch-cefi-sharded-backfill.sh, launch-cefi-hl-aster-historical-
     # backfill.sh, etc.) — this script was the one outlier missing it.
     meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+    # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
+    # tardis_concurrent_ip_lockout_2026_07_12). Opt-in ONLY: set
+    # TARDIS_CONCURRENCY_LEASE=1 + TARDIS_CONCURRENCY_LEASE_BUCKET=<control-bucket>
+    # on the launcher to serialise every Tardis-calling VM through one GCS TTL lease
+    # (fixes the concurrent-IP 403 lockout at the cost of ~20-80x slower waves). Left
+    # unstamped by default so MTDS's default-False flag keeps waves fully parallel.
+    # The bucket MUST be a coordination bucket, NOT a data/manifest-walked bucket.
+    # Mirrors launch-cefi-sharded-backfill.sh — this launcher was the one outlier
+    # missing this plumbing (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md,
+    # 2026-07-13T09:03Z finding: DERIBIT-COMBO options_chain backfills through this
+    # script cannot opt into the lease without it).
+    [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
+    [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
+    [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
 
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
     PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
