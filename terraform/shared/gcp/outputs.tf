@@ -5,57 +5,23 @@ output "artifact_registry_repositories" {
   value       = module.shared_infrastructure.artifact_registry_repositories
 }
 
-output "features_delta_one_buckets" {
-  description = "Map of category to features-delta-one bucket names"
-  value       = module.shared_infrastructure.features_delta_one_buckets
-}
-
-output "features_volatility_buckets" {
-  description = "Map of category to features-volatility bucket names"
-  value       = module.shared_infrastructure.features_volatility_buckets
-}
-
-output "features_onchain_buckets" {
-  description = "Map of category to features-onchain bucket names"
-  value       = module.shared_infrastructure.features_onchain_buckets
-}
-
-output "ml_models_store_bucket" {
-  description = "ML models store bucket name"
-  value       = module.shared_infrastructure.ml_models_store_bucket
-}
-
-output "ml_predictions_store_bucket" {
-  description = "ML predictions store bucket name"
-  value       = module.shared_infrastructure.ml_predictions_store_bucket
-}
-
-output "ml_configs_store_bucket" {
-  description = "ML configs store bucket name"
-  value       = module.shared_infrastructure.ml_configs_store_bucket
-}
-
-output "strategy_store_buckets" {
-  description = "Map of domain to strategy-store bucket names"
-  value       = module.shared_infrastructure.strategy_store_buckets
-}
-
-output "execution_store_buckets" {
-  description = "Map of domain to execution-store bucket names"
-  value       = module.shared_infrastructure.execution_store_buckets
-}
+# features_delta_one_buckets / features_volatility_buckets / features_onchain_buckets /
+# ml_models_store_bucket / ml_predictions_store_bucket / ml_configs_store_bucket /
+# strategy_store_buckets / execution_store_buckets / all_bucket_names REMOVED 2026-07-13 —
+# the underlying module outputs were dropped along with the resources they referenced
+# (bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform reconcile).
 
 output "deployment_orchestration_bucket" {
   description = "Deployment orchestration state bucket name"
   value       = module.shared_infrastructure.deployment_orchestration_bucket
 }
 
-output "batch_processing_service_account_email" {
-  description = "Email of the batch processing service account"
-  value       = module.shared_infrastructure.batch_processing_service_account_email
-}
-
-output "all_bucket_names" {
-  description = "List of all created bucket names"
-  value       = module.shared_infrastructure.all_bucket_names
+# `batch_processing_service_account_email` FIXED 2026-07-13 (pre-existing dangling
+# reference, unrelated to the Wave 0 removal above but found in this same file): the
+# module has never exposed an output by that name — only `env_service_account_email`
+# (found while touching this file for the Wave 0 change; findings-triage "in your file
+# → fix in same commit").
+output "env_service_account_email" {
+  description = "Email of the environment-specific data service account"
+  value       = module.shared_infrastructure.env_service_account_email
 }

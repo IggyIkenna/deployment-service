@@ -15,7 +15,10 @@
 # cutover gate fires on 2026-05-23.
 #
 # Output:
-#   - Recon report → gs://recon-store-{pid}/reports/{date}/report.json
+#   - Recon report → gs://recon-prd-{pid}/t1-recon/recon/summary_{date}.json (canonical
+#     `recon` kind added to cloud-providers.yaml 2026-07-13 — see
+#     recon_bucket_missing_nightly_recon_failing_2026_07_13.md; BLRS stage5_results_writer.py
+#     is the writer)
 #   - Lifecycle events → gs://{pid}-events/events/batch-live-reconciliation-service/
 #   - VM logs → gs://deployment-scripts-{pid}/vm-logs/{vm_name}/run.log
 #

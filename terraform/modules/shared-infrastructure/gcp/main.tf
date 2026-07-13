@@ -3,10 +3,14 @@
 #
 # This module provisions:
 # - Artifact Registry repositories for Docker images
-# - GCS Buckets for data storage (named with env for staging/prod isolation)
-# - Service accounts with appropriate per-bucket IAM (not project-level)
-# - Cross-env read access via cross_env_read_sa_emails (staging SA reads prod buckets)
+# - The deployment-orchestration GCS bucket (state isolated by path prefix, not env name)
+# - Service accounts
 # - Secret Manager access configuration
+#
+# NOTE 2026-07-13: the per-category/domain GCS buckets (features/ml/strategy/execution,
+# named with a long `-${var.env}-` infix) + their per-bucket IAM bindings were REMOVED —
+# see the "GCS Buckets - Features/ML/Strategy/Execution Services — REMOVED 2026-07-13"
+# comment below for why (bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0).
 
 terraform {
   required_version = ">= 1.0.0"
@@ -20,26 +24,6 @@ terraform {
 }
 
 locals {
-  # Categories for per-category buckets
-  categories = ["cefi", "tradfi", "defi"]
-
-  # Domains for backtesting buckets
-  domains = ["cefi", "tradfi", "defi"]
-
-  # Collect all data bucket names for per-bucket IAM bindings.
-  # deployment_orchestration is excluded — it is an infra bucket isolated by
-  # state path prefix, not by env name.
-  data_bucket_names = var.create_gcs_buckets ? concat(
-    [for k, v in google_storage_bucket.features_delta_one : v.name],
-    [for k, v in google_storage_bucket.features_volatility : v.name],
-    [for k, v in google_storage_bucket.features_onchain : v.name],
-    [for v in google_storage_bucket.ml_models_store : v.name],
-    [for v in google_storage_bucket.ml_predictions_store : v.name],
-    [for v in google_storage_bucket.ml_configs_store : v.name],
-    [for k, v in google_storage_bucket.strategy_store : v.name],
-    [for k, v in google_storage_bucket.execution_store : v.name],
-  ) : []
-
   # SA email for use in IAM bindings (empty string when not created)
   env_sa_email = var.create_service_accounts ? google_service_account.env_sa[0].email : ""
 }
@@ -67,286 +51,22 @@ resource "google_artifact_registry_repository" "service_repos" {
 }
 
 # =============================================================================
-# GCS Buckets - Features Services (per category)
+# GCS Buckets - Features/ML/Strategy/Execution Services — REMOVED 2026-07-13
 # =============================================================================
-
-# Features Delta One buckets (CEFI, TRADFI, DEFI)
-resource "google_storage_bucket" "features_delta_one" {
-  for_each = var.create_gcs_buckets ? toset(local.categories) : []
-
-  name     = "features-delta-one-${each.value}-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 365
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "features-delta-one-service"
-      "category"   = each.value
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# Features Volatility buckets (CEFI, TRADFI only - DEFI has no options)
-resource "google_storage_bucket" "features_volatility" {
-  for_each = var.create_gcs_buckets ? toset(["cefi", "tradfi"]) : []
-
-  name     = "features-volatility-${each.value}-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 365
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "features-volatility-service"
-      "category"   = each.value
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# Features Onchain buckets (CEFI, DEFI)
-resource "google_storage_bucket" "features_onchain" {
-  for_each = var.create_gcs_buckets ? toset(["cefi", "defi"]) : []
-
-  name     = "features-onchain-${each.value}-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 365
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "features-onchain-service"
-      "category"   = each.value
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# =============================================================================
-# GCS Buckets - ML Services (shared)
-# =============================================================================
-
-# ML Models Store
-resource "google_storage_bucket" "ml_models_store" {
-  count = var.create_gcs_buckets ? 1 : 0
-
-  name     = "ml-models-store-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "ml-service"
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# ML Predictions Store
-resource "google_storage_bucket" "ml_predictions_store" {
-  count = var.create_gcs_buckets ? 1 : 0
-
-  name     = "ml-predictions-store-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 90
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "ml-service"
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# ML Configs Store (for grid configs)
-resource "google_storage_bucket" "ml_configs_store" {
-  count = var.create_gcs_buckets ? 1 : 0
-
-  name     = "ml-configs-store-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "ml-service"
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# ML Training Artifacts (experiments, SHAP, grid configs, stage artifacts)
-resource "google_storage_bucket" "ml_training_artifacts" {
-  count = var.create_gcs_buckets ? 1 : 0
-
-  name     = "ml-training-artifacts-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "ml-service"
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# =============================================================================
-# GCS Buckets - Strategy & Execution Services (per domain)
-# =============================================================================
-
-# Strategy Store buckets (per domain)
-resource "google_storage_bucket" "strategy_store" {
-  for_each = var.create_gcs_buckets ? toset(local.domains) : []
-
-  name     = "strategy-store-${each.value}-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "strategy-service"
-      "domain"     = each.value
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
-
-# Execution Store buckets (per domain)
-resource "google_storage_bucket" "execution_store" {
-  for_each = var.create_gcs_buckets ? toset(local.domains) : []
-
-  name     = "execution-store-${each.value}-${var.env}-${var.project_id}"
-  project  = var.project_id
-  location = var.gcs_location
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-
-  versioning {
-    enabled = true
-  }
-
-  labels = merge(
-    {
-      "managed-by" = "terraform"
-      "service"    = "execution-service"
-      "domain"     = each.value
-      "env"        = var.env
-    },
-    var.labels
-  )
-}
+#
+# The features_delta_one / features_volatility / features_onchain / ml_models_store /
+# ml_predictions_store / ml_configs_store / ml_training_artifacts / strategy_store /
+# execution_store resources that lived here materialized long-env
+# (`-${var.env}-` = staging/prod/development) bucket names that NO resolver path emits
+# (the canonical resolver's short map is {dev,stg,prd,test}) — the exact same stale-naming
+# bug as the sibling long-env blocks removed from `terraform/gcp/main.tf` the same day, and
+# they overlapped those SAME physical bucket names (two TF codepaths fighting over one
+# bucket — see terraform_bucket_estate_drift_resurrection_2026_07_13.md). Removed per
+# bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform reconcile; this
+# module (`terraform/shared/gcp`, `create_gcs_buckets = true`) is a SEPARATE state/backend
+# from `terraform/gcp` — its own `terraform state rm` ops are in scratchpad/tf_state_surgery.sh.
+# `deployment_orchestration` below is a genuine infra bucket (isolated by path prefix, not by
+# env name) and is UNCHANGED.
 
 # =============================================================================
 # GCS Buckets - Deployment Orchestration State
@@ -429,30 +149,12 @@ resource "google_project_iam_member" "env_sa_workflows_invoker" {
 }
 
 # =============================================================================
-# Per-Bucket IAM — env SA gets objectAdmin on its own env's buckets
-# (replaces the old project-wide objectAdmin grant)
+# Per-Bucket IAM (env_sa_admin / cross_env_reader) — REMOVED 2026-07-13
 # =============================================================================
-
-resource "google_storage_bucket_iam_binding" "env_sa_admin" {
-  for_each = var.create_service_accounts && var.create_gcs_buckets ? toset(local.data_bucket_names) : toset([])
-
-  bucket  = each.value
-  role    = "roles/storage.objectAdmin"
-  members = ["serviceAccount:${local.env_sa_email}"]
-}
-
-# =============================================================================
-# Cross-Env Read Access
 #
-# Pass staging-sa email(s) via cross_env_read_sa_emails when deploying prod.
-# This grants staging services read-only access to prod data without duplicating
-# storage. Staging can test against real prod data; writes are blocked by IAM.
-# =============================================================================
-
-resource "google_storage_bucket_iam_binding" "cross_env_reader" {
-  for_each = var.create_gcs_buckets && length(var.cross_env_read_sa_emails) > 0 ? toset(local.data_bucket_names) : toset([])
-
-  bucket  = each.value
-  role    = "roles/storage.objectViewer"
-  members = [for email in var.cross_env_read_sa_emails : "serviceAccount:${email}"]
-}
+# Both `for_each`d over `local.data_bucket_names`, which only ever collected the names
+# of the features/ml/strategy/execution resources removed above. With no data buckets
+# left in this module, both bindings would resolve to an empty for_each (a no-op) —
+# removed outright rather than left as vestigial dead code. `cross_env_read_sa_emails`
+# stays a live variable (unused inside this module now, but not this task's blast radius
+# to remove from the public interface).

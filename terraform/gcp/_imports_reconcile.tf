@@ -52,69 +52,27 @@ import {
   id = "central-element-323112/features-sports-central-element-323112"
 }
 
-import {
-  to = google_storage_bucket.features_volatility_cefi_test
-  id = "central-element-323112/features-volatility-cefi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.gas_fees_test
-  id = "central-element-323112/gas-fees-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.instruments_cefi_test
-  id = "central-element-323112/instruments-store-cefi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.instruments_defi_test
-  id = "central-element-323112/instruments-store-defi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.instruments_prediction_test
-  id = "central-element-323112/instruments-store-prediction-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.instruments_sports_test
-  id = "central-element-323112/instruments-store-sports-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.instruments_tradfi_test
-  id = "central-element-323112/instruments-store-tradfi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.market_data_cefi_test
-  id = "central-element-323112/market-data-tick-cefi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.market_data_defi_test
-  id = "central-element-323112/market-data-tick-defi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.market_data_prediction_test
-  id = "central-element-323112/market-data-tick-prediction-test-central-element-323112"
-}
+# REMOVED 2026-07-13 (bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform
+# reconcile — the target resource no longer exists in config, so its import block must go
+# too, or `terraform plan`/`apply` errors on an import target with no matching resource):
+#   google_storage_bucket.features_volatility_cefi_test  (REMOVE_STALE)
+#   google_storage_bucket.gas_fees_test                  (REMOVE_STALE)
+#   google_storage_bucket.instruments_cefi_test          (double-declare — state-mv'd to
+#                                                          google_storage_bucket.canonical)
+#   google_storage_bucket.instruments_defi_test          (double-declare — state-mv'd)
+#   google_storage_bucket.instruments_prediction_test    (REMOVE_STALE)
+#   google_storage_bucket.instruments_sports_test         (double-declare — state-mv'd)
+#   google_storage_bucket.instruments_tradfi_test         (double-declare — state-mv'd)
+#   google_storage_bucket.market_data_cefi_test           (double-declare — state-mv'd)
+#   google_storage_bucket.market_data_defi_test           (double-declare — state-mv'd)
+#   google_storage_bucket.market_data_prediction_test     (REMOVE_STALE)
+#   google_storage_bucket.market_data_sports_test         (double-declare — state-mv'd)
+#   google_storage_bucket.market_data_tradfi_test         (double-declare — state-mv'd)
+# See scratchpad/tf_state_surgery.sh for the corresponding `state rm` / `state mv` ops.
 
 import {
   to = google_storage_bucket.market_data_sports
   id = "central-element-323112/market-data-tick-sports-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.market_data_sports_test
-  id = "central-element-323112/market-data-tick-sports-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.market_data_tradfi_test
-  id = "central-element-323112/market-data-tick-tradfi-test-central-element-323112"
 }
 
 import {

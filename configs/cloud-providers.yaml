@@ -200,6 +200,14 @@ gcp:
     # an operator confirm before env-tiering (high blast radius).
     events: "${GCP_PROJECT_ID}-events"
     config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # Batch-live reconciliation (T1) inputs + reports. Added 2026-07-13 per
+    # plans/active/issues/recon_bucket_missing_nightly_recon_failing_2026_07_13.md —
+    # BLRS config.py previously defaulted to a hand-rolled recon-{pid} name whose bucket
+    # never existed (nightly Cloud Run job failed 55/56 runs). Env-tiered kind chosen over
+    # a prefix-in-existing-bucket (autonomous decide-and-document 2026-07-13): consistent
+    # with the resolver architecture; +2 buckets (prd/test).
+    # Path: gs://recon-{env}-{pid}/t1-recon/{ml,strategy,recon}/{date}/...
+    recon: "recon-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Per-archetype daily Tenderly bundle-sim budget state (Phase 5C of
     # `defi_catalogue_chain_primitives_2026_05_10.md`). Single env-tiered bucket;
     # asset_group axis ignored (resolver exempts flat strings — see `bucket_naming.py`
@@ -342,6 +350,8 @@ aws:
     # cloud-specific prefix, not a naming error).
     events: "unified-trading-events-${AWS_ACCOUNT_ID}"
     config-store: "config-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # Batch-live reconciliation (mirrors GCP recon kind, 2026-07-13).
+    recon: "recon-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Per-archetype daily Tenderly bundle-sim budget state (mirrors GCP). Single env-tiered
     # bucket; asset_group axis ignored (flat-string kind). See GCP § for full reference.
     archetype-state: "archetype-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
