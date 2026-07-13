@@ -19,10 +19,11 @@ output "features_calendar_bucket" {
   value       = google_storage_bucket.features_calendar.name
 }
 
-output "ml_models_bucket" {
-  description = "Name of the ML model artifacts GCS bucket"
-  value       = google_storage_bucket.ml_models.name
-}
+# ml_models_bucket output REMOVED 2026-07-13 — google_storage_bucket.ml_models (the
+# long-env `-${var.environment}-` resource) was deleted (REMOVE_STALE,
+# bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0). Canonical
+# `ml-models-store-{env}-{pid}` is now `google_storage_bucket.canonical["ml-models-store-…"]`
+# in canonical_buckets.tf — no output was ever consumed downstream (grep found none).
 
 output "deployment_state_bucket" {
   description = "Name of the deployment config and state GCS bucket"

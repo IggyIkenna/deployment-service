@@ -276,96 +276,13 @@ resource "google_storage_bucket" "instruments_sports" {
 # prediction L3 is C-GREEN, all versions purged + bucket shell deleted. Canonical
 # instruments-store-pred-prd-… is the sole SSOT.
 
-# Test buckets for instruments (30-day lifecycle)
-resource "google_storage_bucket" "instruments_cefi_test" {
-  name     = "instruments-store-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_tradfi_test" {
-  name     = "instruments-store-tradfi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_defi_test" {
-  name     = "instruments-store-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_sports_test" {
-  name     = "instruments-store-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_prediction_test" {
-  name     = "instruments-store-prediction-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-test", "tier" = "group-a" })
-}
+# Test buckets for instruments (cefi/tradfi/defi/sports) REMOVED 2026-07-13 —
+# bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform reconcile:
+# their names (instruments-store-{ag}-test-{pid}) are now owned by the
+# derived-from-yaml `google_storage_bucket.canonical` for_each in
+# canonical_buckets.tf (state-mv'd, not destroyed). instruments_prediction_test
+# (the stale full-word `-prediction-test-` resource, REMOVE_STALE) was deleted
+# outright — canonical `instruments-store-pred-test-…` is the sole SSOT.
 
 # deployment-scripts — SINGLETON bucket (one physical bucket in the central project: VM code
 # tarballs + run.log archives + heartbeats). NOT per-env, so guard to the central project
@@ -443,23 +360,11 @@ resource "google_storage_bucket" "client_reporting_data" {
 
 # instruments-store-sports-prd: the NEW canonical sports instruments bucket (env-suffixed naming
 # is the new convention; the old no-env instruments-store-sports-<pid> above is the legacy
-# migration source — migration old->new in place). NOT a duplicate. Soft-delete already cleared
-# (0); no lifecycle / versioning live — matched exactly. UBLA off (fine-grained).
-resource "google_storage_bucket" "instruments_store_sports_prd" {
-  count    = var.project_id == "central-element-323112" ? 1 : 0
-  name     = "instruments-store-sports-prd-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = false
-  force_destroy               = false
-
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
+# migration source — migration old->new in place). REMOVED as a hand resource 2026-07-13
+# (bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0) — its name
+# (instruments-store-sports-prd-{pid}) is exactly what the derived-from-yaml
+# `google_storage_bucket.canonical["instruments-store-sports-prd-…"]` for_each in
+# canonical_buckets.tf produces; state-mv'd there (bucket itself untouched, still LIVE).
 
 resource "google_storage_bucket" "market_data_cefi" {
   name     = "market-data-tick-cefi-${var.project_id}"
@@ -608,96 +513,13 @@ resource "google_storage_bucket" "market_data_sports" {
 # prediction L3 is C-GREEN, all 2,592,066 object-versions purged + bucket shell deleted.
 # Canonical market-data-tick-pred-prd-… is the sole SSOT.
 
-# Test buckets for market data tick (30-day lifecycle)
-resource "google_storage_bucket" "market_data_cefi_test" {
-  name     = "market-data-tick-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_tradfi_test" {
-  name     = "market-data-tick-tradfi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_defi_test" {
-  name     = "market-data-tick-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_sports_test" {
-  name     = "market-data-tick-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_prediction_test" {
-  name     = "market-data-tick-prediction-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-test", "tier" = "group-a" })
-}
+# Test buckets for market data tick (cefi/tradfi/defi/sports) REMOVED 2026-07-13 —
+# bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform reconcile: their
+# names (market-data-tick-{ag}-test-{pid}) are now owned by the derived-from-yaml
+# `google_storage_bucket.canonical` for_each in canonical_buckets.tf (state-mv'd, not
+# destroyed). market_data_prediction_test (the stale full-word `-prediction-test-`
+# resource, REMOVE_STALE) was deleted outright — canonical
+# `market-data-tick-pred-test-…` is the sole SSOT.
 
 # Candles buckets retired 2026-04-18: MDPS writes co-located under
 # market-data-tick-{category}-* in the `processed_candles/` subprefix, not to a
@@ -732,166 +554,34 @@ resource "google_storage_bucket" "features_calendar" {
 # declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
 # gcloud. Config no longer declares this resource so a future apply will not recreate it again.
 
-resource "google_storage_bucket" "gas_fees_test" {
-  name     = "gas-fees-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "gas-fees-test", "tier" = "group-a" })
-}
-
-# solana_defi (legacy solana-defi-…) REMOVED 2026-07-13 — one of the "14 legacy DeFi buckets
-# deleted 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
-# (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this resource block was still
-# declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
-# gcloud. Config no longer declares this resource so a future apply will not recreate it again.
-
-resource "google_storage_bucket" "solana_defi_test" {
-  name     = "solana-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "solana-defi-test", "tier" = "group-a" })
-}
-
-# evm_defi (legacy evm-defi-…) REMOVED 2026-07-13 — one of the "14 legacy DeFi buckets deleted
-# 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
-# (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this resource block was still
-# declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
-# gcloud. Config no longer declares this resource so a future apply will not recreate it again.
-
-resource "google_storage_bucket" "evm_defi_test" {
-  name     = "evm-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "evm-defi-test", "tier" = "group-a" })
-}
+# gas_fees_test / solana_defi_test / evm_defi_test (retired-kind test buckets — kinds
+# removed from cloud-providers.yaml 2026-07-10/12) REMOVED 2026-07-13 (REMOVE_STALE,
+# bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0): each was one of the "14
+# legacy DeFi buckets deleted 2026-07-12" resurrected as an empty shell by the
+# 2026-07-12T21:59Z out-of-band apply because these resource blocks were still declared
+# after the physical buckets were deleted; confirmed 0 objects live, re-deleted via gcloud.
+# Config no longer declares any of the three so a future apply will not recreate them.
 
 # =============================================================================
 # GCS Buckets — Group B: Derived data (per-env)
 # Naming: {domain}-{category}-{environment}-{project_id}
-# =============================================================================
+#
+# NOTE 2026-07-13: every long-env (`-${var.environment}-` = dev/staging/prod) Group-B
+# resource that WAS declared in this section (features-delta-one/volatility/onchain,
+# ml-models/predictions/configs/training-artifacts, strategy-store, execution-store —
+# ×5 asset_groups incl. sports/prediction) has been REMOVED (bucket_estate_consolidation
+# _to_sub100_2026_07_13.md Wave 0 terraform reconcile — these names matched no resolver
+# path; the resurrected empty buckets they tracked are covered by the Wave-1 delete list).
+# Their canonical replacements are the derived-from-yaml `google_storage_bucket.canonical`
+# for_each in canonical_buckets.tf. `features-sports` / `deployment_state` below predate
+# this section's Group-B convention (kept as-is, see their own comments).
 
-resource "google_storage_bucket" "features_delta_one_cefi" {
-  name     = "features-delta-one-cefi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_tradfi" {
-  name     = "features-delta-one-tradfi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_defi" {
-  name     = "features-delta-one-defi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_sports" {
-  name     = "features-delta-one-sports-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_prediction" {
-  name     = "features-delta-one-prediction-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one", "tier" = "group-b" })
-}
+# features_delta_one_{cefi,tradfi,defi,sports,prediction} (long-env `-${var.environment}-`
+# Group-B resources) REMOVED 2026-07-13 (REMOVE_STALE, bucket_estate_consolidation_to_sub100
+# _2026_07_13.md Wave 0) — names unreachable by any resolver path (`-prod-`/`-staging-`
+# via var.environment; the resolver's short map emits {dev,stg,prd,test}). Canonical
+# `features-delta-one-{ag}-{pid}` (env-less, per cloud-providers.yaml) lives in
+# canonical_buckets.tf.
 
 # Test buckets for features-delta-one (30-day lifecycle)
 resource "google_storage_bucket" "features_delta_one_cefi_test" {
@@ -912,449 +602,17 @@ resource "google_storage_bucket" "features_delta_one_cefi_test" {
   labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
 }
 
-resource "google_storage_bucket" "features_delta_one_tradfi_test" {
-  name     = "features-delta-one-tradfi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_defi_test" {
-  name     = "features-delta-one-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_sports_test" {
-  name     = "features-delta-one-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_delta_one_prediction_test" {
-  name     = "features-delta-one-prediction-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_cefi" {
-  name     = "features-volatility-cefi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_tradfi" {
-  name     = "features-volatility-tradfi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_defi" {
-  name     = "features-volatility-defi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_sports" {
-  name     = "features-volatility-sports-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_prediction" {
-  name     = "features-volatility-prediction-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility", "tier" = "group-b" })
-}
-
-# Test buckets for features-volatility (30-day lifecycle)
-resource "google_storage_bucket" "features_volatility_cefi_test" {
-  name     = "features-volatility-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_tradfi_test" {
-  name     = "features-volatility-tradfi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_defi_test" {
-  name     = "features-volatility-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_sports_test" {
-  name     = "features-volatility-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_volatility_prediction_test" {
-  name     = "features-volatility-prediction-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-volatility-test", "tier" = "group-b" })
-}
-
-# Onchain features — cefi + defi only (cross-aspect)
-resource "google_storage_bucket" "features_onchain_cefi" {
-  name     = "features-onchain-cefi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_onchain_defi" {
-  name     = "features-onchain-defi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-onchain", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "ml_models" {
-  name     = "ml-models-store-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "ml-models", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "ml_predictions" {
-  name     = "ml-predictions-store-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "ml-predictions", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "ml_configs" {
-  name     = "ml-configs-store-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "ml-configs", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "ml_training_artifacts" {
-  name     = "ml-training-artifacts-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "ml-training-artifacts", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "strategy_cefi" {
-  name     = "strategy-store-cefi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "strategy_tradfi" {
-  name     = "strategy-store-tradfi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "strategy_defi" {
-  name     = "strategy-store-defi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "execution_cefi" {
-  name     = "execution-store-cefi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "execution_tradfi" {
-  name     = "execution-store-tradfi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "execution_defi" {
-  name     = "execution-store-defi-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "strategy_sports" {
-  name     = "strategy-store-sports-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "strategy_prediction" {
-  name     = "strategy-store-prediction-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "strategy", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "execution_sports" {
-  name     = "execution-store-sports-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "execution_prediction" {
-  name     = "execution-store-prediction-${var.environment}-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  labels = merge(local.common_labels, { "purpose" = "execution", "tier" = "group-b" })
-}
+# features_delta_one_{tradfi,defi,sports,prediction}_test, features_volatility_
+# {cefi,tradfi,defi,sports,prediction}[_test], features_onchain_{cefi,defi}, ml_
+# {models,predictions,configs,training_artifacts}, strategy_{cefi,tradfi,defi,sports,
+# prediction}, execution_{cefi,tradfi,defi,sports,prediction} — ALL REMOVED 2026-07-13
+# (REMOVE_STALE, bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform
+# reconcile): the prod-tier resources used the unreachable long-env `-${var.environment}-`
+# infix; the test-tier resources' flat `-test-{pid}` names are now owned by the
+# derived-from-yaml `google_storage_bucket.canonical` for_each in canonical_buckets.tf
+# (features_delta_one_cefi_test above is the sole survivor — canonical for_each is
+# env-less for this kind, so it does NOT reach the `-test-` name; kept as its own hand
+# resource). ml/strategy/execution had no live `-test-` twins in this file to preserve.
 
 # Features-sports (dedicated bucket, no env suffix — raw sports features)
 resource "google_storage_bucket" "features_sports" {
@@ -1375,79 +633,14 @@ resource "google_storage_bucket" "features_sports" {
   labels = merge(local.common_labels, { "purpose" = "features-sports", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "features_sports_test" {
-  name     = "features-sports-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-sports-test", "tier" = "group-a" })
-}
-
-# Features-calendar test bucket
-resource "google_storage_bucket" "features_calendar_test" {
-  name     = "features-calendar-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-calendar-test", "tier" = "group-a" })
-}
-
-# Onchain features test buckets
-resource "google_storage_bucket" "features_onchain_cefi_test" {
-  name     = "features-onchain-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-onchain-test", "tier" = "group-b" })
-}
-
-resource "google_storage_bucket" "features_onchain_defi_test" {
-  name     = "features-onchain-defi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-onchain-test", "tier" = "group-b" })
-}
+# features_sports_test / features_calendar_test REMOVED 2026-07-13 as hand resources
+# (double-declare, bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0) — their
+# names (features-sports-test-{pid}, features-calendar-test-{pid}) are exactly what the
+# derived-from-yaml `google_storage_bucket.canonical` for_each in canonical_buckets.tf
+# produces (env-tiered kinds); state-mv'd there (buckets untouched, still LIVE).
+# features_onchain_{cefi,defi}_test REMOVED outright (REMOVE_STALE) — the resolver never
+# emits a `-test-` name for this env-less kind (see features_delta_one_cefi_test above);
+# canonical `features-onchain-{cefi,defi}-{pid}` (no `-test-` twin) is the sole SSOT.
 
 # Deployment config and state (per-env, used by Cloud Scheduler + audit)
 resource "google_storage_bucket" "deployment_state" {
