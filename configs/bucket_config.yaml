@@ -48,30 +48,9 @@ infrastructure_buckets:
     # 2026-07-12 follow-up, [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero
     # callers workspace-wide; real data goes to the shared market-data-tick-defi bucket
     # instead. See cloud-providers.yaml's matching removal comment for the full rationale.
-    - name_template: "dex-pools-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "dex-pools-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "lst-rates-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "lst-rates-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "perp-funding-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "perp-funding-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # dex-pools, lst-rates, perp-funding (+ -test variants) REMOVED 2026-07-13
+    # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]) — readers migrated to the
+    # shared bucket, data gaps backfilled, dedicated buckets retired.
     # liquidations, dex-swaps, oracle-prices REMOVED 2026-07-10 (bucket estate cleanup) —
     # same rationale as solana-defi/evm-defi/lending-indices above.
     - name_template: "eigenlayer-rewards-{project_id}"
@@ -148,30 +127,9 @@ infrastructure_buckets:
     # unified-trading-solana-defi, unified-trading-evm-defi, unified-trading-lending-indices,
     # unified-trading-gas-fees REMOVED (bucket estate cleanup + 2026-07-12 follow-up) —
     # mirrors the GCP-section removal above.
-    - name_template: "unified-trading-dex-pools-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-dex-pools-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-lst-rates-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-lst-rates-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
-    - name_template: "unified-trading-perp-funding-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-perp-funding-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # unified-trading-dex-pools, unified-trading-lst-rates, unified-trading-perp-funding
+    # (+ -test variants) REMOVED 2026-07-13 — mirrors the GCP-section removal above
+    # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]).
     # unified-trading-liquidations, unified-trading-dex-swaps, unified-trading-oracle-prices
     # REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP-section removal above.
     - name_template: "unified-trading-eigenlayer-rewards-{account_id}"
@@ -219,9 +177,9 @@ aws_bucket_mappings:
   ml-configs-store: "unified-trading-ml-configs-{account_id}"
   ml-training-artifacts: "unified-trading-ml-training-artifacts-{account_id}"
   # gas-fees REMOVED 2026-07-12 (bucket estate cleanup follow-up) — zero callers left.
-  dex-pools: "unified-trading-dex-pools-{account_id}"
-  lst-rates: "unified-trading-lst-rates-{account_id}"
-  perp-funding: "unified-trading-perp-funding-{account_id}"
+  # dex-pools, lst-rates, perp-funding REMOVED 2026-07-13
+  # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]) — readers migrated to the
+  # shared bucket, dedicated buckets retired.
   eigenlayer-rewards: "unified-trading-eigenlayer-rewards-{account_id}"
 
 bucket_settings:

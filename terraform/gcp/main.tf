@@ -432,42 +432,17 @@ resource "google_storage_bucket" "market_data_defi" {
 # objects live, re-deleted via gcloud. Config no longer declares this resource so a future apply
 # will not recreate it again.
 
-resource "google_storage_bucket" "market_data_defi_lst_rates_prd" {
-  name                        = "lst-rates-prd-${var.project_id}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_defi_lst_rates_prd (lst-rates-prd-…) + market_data_defi_perp_funding_prd
+# (perp-funding-prd-…) REMOVED 2026-07-13 (defi_dedicated_bucket_shared_migration_2026_07_13):
+# every reader migrated to the shared market-data-tick-defi bucket, all
+# (venue, data_type, day) shards backfilled there, buckets pending deletion. Removing the
+# resource blocks BEFORE the physical delete (paired with `terraform state rm`) so a future
+# apply cannot resurrect them as empty shells — the exact failure that recreated ~30
+# cleanup-deleted buckets on 2026-07-12T21:59Z
+# ([[terraform_bucket_estate_drift_resurrection_2026_07_13]]).
 
 resource "google_storage_bucket" "market_data_defi_lending_indices_prd" {
   name                        = "lending-indices-prd-${var.project_id}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_defi_perp_funding_prd" {
-  name                        = "perp-funding-prd-${var.project_id}"
   project                     = var.project_id
   location                    = var.region
   uniform_bucket_level_access = true
