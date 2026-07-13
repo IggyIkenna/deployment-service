@@ -33,7 +33,6 @@ from types import ModuleType
 from typing import cast
 
 import pandas as pd
-from unified_api_contracts import VmPrefixSpec
 from unified_trading_library import (
     PubSubEventSink,
     StorageClient,
@@ -382,18 +381,25 @@ def _zombie_watchdog() -> ModuleType | None:
 def _umbrella_for_vm(vm_name: str) -> str:
     """``vm_name -> deployment umbrella`` (LIVE/BATCH/PAPER/EXPERIMENT; "" when unresolved).
 
-    Resolves via ``vm_zombie_watchdog.VM_PREFIX_TO_BUCKET`` through the classification
-    SSOT ``umbrella_for_vm_name`` so DP_VM_* findings carry the umbrella the
+    Resolves via the packaged ``VM_PREFIX_TO_BUCKET`` registry
+    (``deployment_service.vm_prefix_registry``) through the classification SSOT
+    ``umbrella_for_vm_name`` so DP_VM_* findings carry the umbrella the
     alerting-service router splits on (LIVE → #uts-live-alerts, BATCH →
     #data-pipeline-alerts). Returns "" on an unregistered prefix → the alert routes to
     the batch default (never a sweep crash).
+
+    The registry moved into the deployment_service PACKAGE (2026-07-13); it used to
+    live in the unpackaged ``scripts/vm/vm_zombie_watchdog.py``, which is absent from
+    the deployment-api image this monitor runs in — so the umbrella lookup crashed
+    every sweep with ``ModuleNotFoundError: No module named 'scripts.vm'``
+    (monitoring-deadman alert). Imported lazily so cli module-load stays
+    credential-free: the registry resolves bucket names via ``resolve_bucket_name``
+    on first use, inside the sweep where bucket resolution already works.
     """
-    watchdog = _zombie_watchdog()
-    if watchdog is None:
-        return ""
-    registry = cast("dict[str, VmPrefixSpec | None]", watchdog.VM_PREFIX_TO_BUCKET)
+    from deployment_service.vm_prefix_registry import VM_PREFIX_TO_BUCKET
+
     try:
-        return umbrella_for_vm_name(vm_name, registry).value
+        return umbrella_for_vm_name(vm_name, VM_PREFIX_TO_BUCKET).value
     except UnclassifiedDeploymentError:
         return ""
 

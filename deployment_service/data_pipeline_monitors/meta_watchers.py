@@ -528,7 +528,7 @@ def _read_attempted_failed_cells(
     except Exception:
         return []
     try:
-        index = cast("pd.DataFrame", pd.read_parquet(io.BytesIO(raw)))
+        index = pd.read_parquet(io.BytesIO(raw))
     except Exception:
         return []
     if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
