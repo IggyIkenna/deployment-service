@@ -152,6 +152,11 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("code-tarball-refresh", service="deployment-service"),
     # consolidator_liveness_scheduler.tf
     _batch("consolidator-liveness-watchdog", service="manifest-consolidator"),
+    # deployment_digest_scheduler.tf — daily Slack digest of the deployment estate
+    # rolled up per umbrella (LIVE targets up / BATCH completions+failures / PAPER
+    # run status). Distinct from dp-daily-digest below (that one is the
+    # data-pipeline-specific digest; this one is the deployment-observability digest).
+    _batch("deployment-digest", service="deployment-service"),
     # data_pipeline_audit_scheduler.tf
     _batch("dp-daily-digest", service="deployment-service"),
     _batch("dp-manifest-hygiene-changed", service="deployment-service"),
