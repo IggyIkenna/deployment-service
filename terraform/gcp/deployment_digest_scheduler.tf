@@ -13,17 +13,13 @@
 #   own memory envelope, off the live deployment-api service's request path) for
 #   the same reason the data-pipeline fleet monitors run as dedicated jobs — the
 #   digest loads the full inventory census, and the live service is memory-
-#   sensitive. The worker builds an INFO AlertEvent and POSTs it to
-#   alerting-service (the same /api/v1/alerts/rules/recent ingress the
-#   client-reporting digest posts to); alerting-service routes INFO via the
-#   catch-all rule to Slack.
-#
-# Alerting URL (honest no-op default)
-#   The worker reads ALERTING_SERVICE_URL from config. When unset (the default),
-#   the digest is an HONEST NO-OP — it logs the built message and skips the POST
-#   (never a fabricated send). Set ``alerting_service_url`` to the ni-service /
-#   alerting-service Cloud Run URL to activate posting. This keeps the cron green
-#   from day one and lights up the moment the URL is provided.
+#   sensitive. The worker emits an INFO ``DEPLOYMENT_DIGEST`` event via UTL
+#   ``log_event`` → the ``lifecycle-events`` Pub/Sub topic → the ni-service
+#   subscriber → ``#data-pipeline-alerts``. This is the SAME relay the deployment
+#   lifecycle alerts and the data-pipeline fleet monitors already use — NO HTTP
+#   URL to configure. The runtime SA (unified_trading) already holds
+#   pubsub.publisher on lifecycle-events (it runs the monitor jobs on the same
+#   topic).
 #
 # Schedule
 #   ``30 7 * * *`` UTC — a single morning digest (after overnight batch settles).
@@ -36,12 +32,6 @@
 #     deployment-api service reads — already granted fleet-wide).
 #
 # Plan: unified-trading-pm/plans/active/deployment_observability_parity_live_batch_paper_2026_06_22.md #5
-
-variable "alerting_service_url" {
-  type        = string
-  default     = ""
-  description = "Base URL of alerting-service (ni-service Cloud Run URL) for the deployment digest POST. Empty = honest no-op (worker logs + skips the POST)."
-}
 
 locals {
   deployment_digest_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/deployment-api:latest"
@@ -72,10 +62,9 @@ module "deployment_digest_job" {
   ]
 
   environment_variables = {
-    GCP_PROJECT_ID       = var.project_id
-    DEPLOYMENT_ENV       = var.environment
-    CLOUD_PROVIDER       = "gcp"
-    ALERTING_SERVICE_URL = var.alerting_service_url
+    GCP_PROJECT_ID = var.project_id
+    DEPLOYMENT_ENV = var.environment
+    CLOUD_PROVIDER = "gcp"
   }
 
   service_name = "deployment-digest"
