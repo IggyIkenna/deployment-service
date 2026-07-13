@@ -347,6 +347,14 @@ TARDIS_DERIBIT_BOOK_MAX_CONCURRENT=$(_meta TARDIS_DERIBIT_BOOK_MAX_CONCURRENT)
 [[ -n "$TARDIS_DERIBIT_BOOK_MAX_CONCURRENT" ]] && export TARDIS_DERIBIT_BOOK_MAX_CONCURRENT
 TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=$(_meta TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT)
 [[ -n "$TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT" ]] && export TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT
+# tardis_concurrent_ip_lockout_2026_07_12 (operator course-correction 2026-07-13):
+# one big VM (one egress IP) can safely run several concurrent (non-book_snapshot_5)
+# Tardis download streams — the 403 lockout is per-IP, not per-connection (see
+# TARDIS_CONCURRENCY_LEASE above). This dials that intra-process concurrency
+# (default 16 — see MarketTickDataServiceConfig.tardis_max_concurrent_downloads)
+# down for a conservative first smoke wave, then back up once confirmed clean.
+TARDIS_MAX_CONCURRENT_DOWNLOADS=$(_meta TARDIS_MAX_CONCURRENT_DOWNLOADS)
+[[ -n "$TARDIS_MAX_CONCURRENT_DOWNLOADS" ]] && export TARDIS_MAX_CONCURRENT_DOWNLOADS
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
