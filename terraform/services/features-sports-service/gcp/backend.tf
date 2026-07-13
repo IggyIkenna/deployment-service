@@ -1,7 +1,7 @@
 # Terraform Backend Configuration
 #
 # $central-element-323112 placeholder substituted at deploy time via
-# scripts/substitute-project-id.sh — matches features-onchain-service pattern.
+# scripts/substitute-project-id.sh — standard per-service backend pattern.
 
 terraform {
   backend "gcs" {

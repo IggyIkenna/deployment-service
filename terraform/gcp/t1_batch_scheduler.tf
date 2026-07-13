@@ -24,7 +24,7 @@
 #   01:00 — lifecycle-catalogue-regen per AG (after all per-AG instrument producers finish)
 #   01:30 — market-data-processing-service (for fast-phase tick data)
 #   02:00 — features-calendar, features-delta-one (TradFi), features-volatility
-#   02:30 — features-onchain, features-sports, features-cross-instrument,
+#   02:30 — features-sports, features-cross-instrument,
 #            features-multi-timeframe, features-commodity
 #   03:00 — ml-service
 #   04:00 — strategy-service
@@ -33,7 +33,7 @@
 #   06:00 — instruments-service CEFI (per-AG; Tardis data now available)
 #   06:00 — market-tick-data-service CEFI (Tardis data now available)
 #   07:00 — market-data-processing-service CEFI
-#   07:30 — features-delta-one CEFI, features-onchain CEFI
+#   07:30 — features-delta-one CEFI
 #   08:00 — ml-inference CEFI
 #
 #   09:00 — batch-live-reconciliation-service (after ALL phases complete)
@@ -141,11 +141,6 @@ locals {
       schedule    = "0 2 * * *"
       job_name    = "${local.env_prefix}-features-volatility-service-t1-recon"
       description = "features-volatility-service T+1 recon batch — writes to t1-recon/features/volatility/"
-    }
-    "features-onchain" = {
-      schedule    = "30 2 * * *"
-      job_name    = "${local.env_prefix}-features-onchain-service-t1-recon"
-      description = "features-onchain-service T+1 recon batch — writes to t1-recon/features/onchain/"
     }
     "features-sports" = {
       schedule    = "30 2 * * *"
