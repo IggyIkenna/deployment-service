@@ -284,7 +284,11 @@ launch_cefi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
-    end_date="2026-05-22"
+    # Dynamic "yesterday" cutoff (was a hardcoded 2026-05-22 that went stale
+    # 52+ days ago, permanently blocking any 2026 launch for a venue whose
+    # entire coverage window postdates the hardcode — found 2026-07-13 via
+    # COINBASE-CDE, launched 2026-07-10, cefi G4 re-verification).
+    end_date="$(date -u -d yesterday +%Y-%m-%d)"
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
