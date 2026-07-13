@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Final
 
 import pytest
+from unified_api_contracts import VmPrefixSpec
 
 # Paths
 SCRIPTS_VM_DIR: Final[Path] = Path(__file__).parent.parent.parent / "scripts" / "vm"
@@ -65,7 +66,7 @@ _mod = _load_watchdog_module()
 _VM_PREFIX_TO_BUCKET = _mod.VM_PREFIX_TO_BUCKET
 _is_daemon = _mod._is_daemon
 _WatchdogVerdict = _mod.WatchdogVerdict
-_VmPrefixSpec = _mod.VmPrefixSpec
+_VmPrefixSpec = VmPrefixSpec  # UAC SSOT type; registry moved to deployment_service.vm_prefix_registry (2026-07-13)
 _DAEMON_TIER_LABELS = _mod.DAEMON_TIER_LABELS
 _DAEMON_PURPOSE_OPT_OUT = _mod.DAEMON_PURPOSE_OPT_OUT
 _resolve_lifecycle_class = _mod._resolve_lifecycle_class

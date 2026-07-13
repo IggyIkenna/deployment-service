@@ -63,22 +63,22 @@ locals {
     # `source_bucket="market-data-tick-${cat}-${PROJECT}"` — no DEPLOYMENT_ENV_SHORT.
     # QG STEP 5.69 violation: fix tracked in bucket_name_ssot_canonicalisation_2026_05_10.md
     # Phase 0f. Remove these entries once Phase 0f migrates MDPS to env-tiered buckets.
-    "market-data-cefi-legacy"   = "market-data-tick-cefi-${var.project_id}"
     "market-data-tradfi-legacy" = "market-data-tick-tradfi-${var.project_id}"
-    "market-data-defi-legacy"   = "market-data-tick-defi-${var.project_id}"
-    "market-data-sports-legacy" = "market-data-tick-sports-${var.project_id}"
-    # market-data-prediction-legacy REMOVED 2026-07-12 — prediction L3 is C-GREEN, legacy
-    # bucket decommissioned (bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7).
+    # market-data-{cefi,defi,sports}-legacy REMOVED 2026-07-13 — legacy writers already
+    # drained + repointed to canonical for all three (this decommission's Phase 7 cron-removal
+    # step; the CF-audit + legacy-bucket DELETE gates are separately tracked per-AG in
+    # data_completion_to_100_all_ag_2026_06_21.md and remain OPEN — this only stops
+    # re-consolidating the already-frozen legacy `_index`, it does not touch/delete the
+    # buckets themselves). market-data-prediction-legacy REMOVED 2026-07-12 (prior wave, bucket
+    # since fully deleted — see bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md).
     # Legacy instruments-store buckets — launch-expected-universe-v2-vm.sh and other IS
     # scripts use `instruments-store-{category}-${PROJECT}` (no env suffix). Added 2026-05-23
     # after per-VM shard audit found cefi/tradfi/defi legacy shards with no consolidator_run_at
     # metadata. setup-data-pipeline-vm.sh covers these while running; crons provide persistence.
     # Remove once Phase 0f migrates IS scripts to env-tiered bucket names.
-    "instruments-cefi-legacy"   = "instruments-store-cefi-${var.project_id}"
     "instruments-tradfi-legacy" = "instruments-store-tradfi-${var.project_id}"
-    "instruments-defi-legacy"   = "instruments-store-defi-${var.project_id}"
-    "instruments-sports-legacy" = "instruments-store-sports-${var.project_id}"
-    # instruments-prediction-legacy REMOVED 2026-07-12 — same decommission as above.
+    # instruments-{cefi,defi,sports}-legacy REMOVED 2026-07-13 — same decommission as above.
+    # instruments-prediction-legacy REMOVED 2026-07-12 (prior wave).
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
@@ -102,13 +102,9 @@ locals {
     "instruments-prediction" = 1800
     "market-data-prediction" = 1800
     # Legacy variants — same headroom as env-tiered equivalents.
+    # {market-data,instruments}-{cefi,defi,sports}-legacy REMOVED 2026-07-13 (orphaned once
+    # their manifest_consolidator_buckets entries were removed above).
     "market-data-tradfi-legacy" = 1800
-    "market-data-cefi-legacy"   = 1800
-    "market-data-defi-legacy"   = 1800
-    "market-data-sports-legacy" = 1800
-    "instruments-sports-legacy" = 1800
-    "instruments-cefi-legacy"   = 1800
-    "instruments-defi-legacy"   = 1800
     "instruments-tradfi-legacy" = 1800
   }
 
@@ -124,11 +120,13 @@ locals {
   # scheduler firing every minute. market-data-tick-tradfi (1621 shards) was next
   # in line. Bumped both to 8 vCPU / 32Gi. Default stays 4/16 for the rest.
   manifest_consolidator_cpu = {
-    "market-data-cefi-legacy"   = "8"
+    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
+    # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "8"
   }
   manifest_consolidator_memory = {
-    "market-data-cefi-legacy"   = "32Gi"
+    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
+    # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "32Gi"
   }
   # DuckDB's own memory_limit (CONSOLIDATOR_DUCKDB_MEMORY_LIMIT) is deliberately
@@ -138,7 +136,8 @@ locals {
   # raise DuckDB to 24GB (leaving ~8GB for Python/IO/tmpfs) so the heavy
   # catch-up merge runs in-memory and completes inside the 90s soft-lock TTL.
   manifest_consolidator_duckdb_memory = {
-    "market-data-cefi-legacy"   = "24GB"
+    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
+    # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "24GB"
   }
 
@@ -162,13 +161,11 @@ locals {
     "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
     "execution-defi"        = "execution-store-defi-${var.project_id}"
     "ml-training-artifacts" = "ml-training-artifacts-${var.project_id}"
-    # gas-fees reference bucket (flat name, Group B). Added 2026-06-19 after the
-    # mtds-gas-fees backfill crashed with ManifestConsolidatorStaleError: the
-    # collector writes per-VM shards here + read-preflights via
-    # assert_consolidator_healthy(), but NO consolidator job covered this bucket
-    # → the index was always stale → every gas-fees backfill VM died ~4min in.
-    # Small bucket (~13 _index shards) → default 4vCPU/16Gi/300s is ample.
-    "gas-fees" = "gas-fees-${var.project_id}"
+    # "gas-fees" entry (flat legacy gas-fees-… bucket, added 2026-06-19) REMOVED 2026-07-13 —
+    # the legacy gas-fees-… bucket itself was decommissioned (one of the "14 legacy DeFi
+    # buckets deleted 2026-07-12"); this also retires the per-bucket Cloud Run Job +
+    # Cloud Scheduler cron this map generated (uts-prod-manifest-consolidator-gas-fees[-cron]),
+    # removed directly via gcloud since a real tofu apply is not runnable here.
   }
 }
 

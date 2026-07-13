@@ -24,21 +24,28 @@
 #
 # 2026-07-08 fix (unified-trading-pm/plans/active/issues/
 # sports_trigger_scheduler_cloud_dispatch_broken_2026_07_08.md): the
-# ``cloud_run_job_name`` values below point at the REAL, ALREADY-DEPLOYED
-# per-service Cloud Run Jobs the T+1 batch reconciliation cron
-# (terraform/gcp/t1_batch_scheduler.tf) already fires on a schedule —
-# ``uts-prod-instruments-service-t1-recon``,
-# ``uts-prod-market-tick-data-service-fast-t1-recon``,
-# ``features-sports-service-job`` — NOT a set of scheduler-specific
-# ``sports-trigger-*`` jobs (those were never provisioned; verified via
-# `gcloud run jobs list` returning zero matches for any of them). Each job's
-# container ``command`` is unset (image ENTRYPOINT handles the module
-# invocation) and ``args`` is CLI-flags-only — ``CloudRunBackend.deploy_shard``
-# overrides only ``args`` per execution, so every dispatch here must NOT
-# include a "python -m <module>" prefix (``SportsTriggerScheduler.
-# _strip_python_module_prefix`` handles this). No dedicated ml-service job
-# exists yet — that entry ships with an empty ``cloud_run_job_name`` so the
-# gap fails loudly (a warning log) instead of pointing at a non-existent name.
+# ``cloud_run_job_name`` values below point at REAL, ALREADY-DEPLOYED Cloud Run
+# Jobs, NOT a set of scheduler-specific ``sports-trigger-*`` jobs (those were
+# never provisioned; verified via `gcloud run jobs list` returning zero matches
+# for any of them). Each job's container ``command`` is unset (image
+# ENTRYPOINT handles the module invocation) and ``args`` is CLI-flags-only —
+# ``CloudRunBackend.deploy_shard`` overrides only ``args`` per execution, so
+# every dispatch here must NOT include a "python -m <module>" prefix
+# (``SportsTriggerScheduler._strip_python_module_prefix`` handles this). No
+# dedicated ml-service job exists yet — that entry ships with an empty
+# ``cloud_run_job_name`` so the gap fails loudly (a warning log) instead of
+# pointing at a non-existent name.
+#
+# 2026-07-13 fix (instruments-service SPORTS dispatches OOM'd
+# uts-prod-instruments-service-t1-recon, 4cpu/8Gi — a legacy, RETIRED all-AG
+# job now baked in as a DEFI-only default, per t1_batch_scheduler.tf's own
+# comment): every SPORTS-entity ``instruments-service`` dispatch below now
+# points at ``uts-prod-instruments-service-sports-fixtures`` (8cpu/32Gi,
+# confirmed via `gcloud run jobs describe` — the same job the fixture-proximate
+# 4x-daily cron already uses successfully for the full multi-entity sports
+# fetch). Non-sports dispatches (``uts-prod-market-tick-data-service-fast-t1-recon``,
+# ``features-sports-service-job``) are unaffected — only the misrouted
+# instruments-service SPORTS entries changed.
 
 # Tier 1: Discovery — periodic, not fixture-proximate.
 # Refreshes the fixture calendar and slow-changing reference data on a
@@ -60,14 +67,14 @@ discovery:
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: FIXTURES
       description: Refresh fixture calendar (rolling today-1..today+7)
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: STANDINGS
       description: Refresh league standings
@@ -82,7 +89,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: INJURIES
       description: Refresh injury/suspension data for all leagues
@@ -90,7 +97,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: TRANSFERS
       description: Refresh transfer data (only during transfer windows)
@@ -99,7 +106,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: LEAGUES
       description: Refresh leagues roster (season-boundary only — promotion/relegation)
@@ -108,7 +115,7 @@ reference:
     - service: instruments-service
       operation: instruments
       category: SPORTS
-      cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+      cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
       args:
         --sports-entity: TEAMS
       description: Refresh per-league team roster (season-boundary only)
@@ -132,7 +139,7 @@ pre_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
-          cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+          cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
           args:
             --sports-entity: PREDICTIONS
           description: Pre-match predictions
@@ -159,14 +166,14 @@ pre_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
-          cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+          cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
           args:
             --sports-entity: LINEUPS
           description: Confirmed lineups (when available)
         - service: instruments-service
           operation: instruments
           category: SPORTS
-          cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+          cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
           args:
             --sports-entity: WEATHER
           description: Match-day weather nowcast
@@ -214,7 +221,7 @@ post_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
-          cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+          cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
           args:
             --sports-entity: FIXTURE_STATS
           description: Final match stats (goals, shots, cards, etc.)
@@ -225,7 +232,7 @@ post_match:
         - service: instruments-service
           operation: instruments
           category: SPORTS
-          cloud_run_job_name: "uts-prod-instruments-service-t1-recon"
+          cloud_run_job_name: "uts-prod-instruments-service-sports-fixtures"
           args:
             --sports-entity: XG
           description: Delayed advanced stats (xG from Understat/FootyStats)

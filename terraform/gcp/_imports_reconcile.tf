@@ -43,11 +43,6 @@ import {
 }
 
 import {
-  to = google_storage_bucket.evm_defi
-  id = "central-element-323112/evm-defi-central-element-323112"
-}
-
-import {
   to = google_storage_bucket.features_delta_one_cefi_test
   id = "central-element-323112/features-delta-one-cefi-test-central-element-323112"
 }
@@ -60,11 +55,6 @@ import {
 import {
   to = google_storage_bucket.features_volatility_cefi_test
   id = "central-element-323112/features-volatility-cefi-test-central-element-323112"
-}
-
-import {
-  to = google_storage_bucket.gas_fees
-  id = "central-element-323112/gas-fees-central-element-323112"
 }
 
 import {
@@ -128,11 +118,6 @@ import {
 }
 
 import {
-  to = google_storage_bucket.solana_defi
-  id = "central-element-323112/solana-defi-central-element-323112"
-}
-
-import {
   to = module.alerting_paging_job.google_cloud_run_v2_job.job
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-alerting-paging"
 }
@@ -165,6 +150,11 @@ import {
 import {
   to = module.instruments_cefi_t1_recon_job.google_cloud_run_v2_job.job
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-instruments-service-cefi-t1-recon"
+}
+
+import {
+  to = module.instruments_prediction_t1_recon_job.google_cloud_run_v2_job.job
+  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-instruments-service-prediction-t1-recon"
 }
 
 import {

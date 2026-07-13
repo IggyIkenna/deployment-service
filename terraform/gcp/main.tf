@@ -520,22 +520,12 @@ resource "google_storage_bucket" "market_data_defi" {
 # → `{stem}-prd-<pid>` in prod). C0-PROVISION for defi_manifest_canonicalisation
 # §C — migrate_defi_full_v9_canonical writes oracle/lst/lending/perp/gas data_types
 # to these (dex-pools/dex-swaps already exist). Same shape as market_data_defi.
-resource "google_storage_bucket" "market_data_defi_oracle_prices_prd" {
-  name                        = "oracle-prices-prd-${var.project_id}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_defi_oracle_prices_prd (oracle-prices-prd-…) REMOVED 2026-07-13 — this was one of
+# the "14 legacy DeFi buckets deleted 2026-07-12" that was recreated as an empty shell by an
+# out-of-band `tofu apply` (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this
+# resource block was still declared here after the physical bucket was deleted; confirmed 0
+# objects live, re-deleted via gcloud. Config no longer declares this resource so a future apply
+# will not recreate it again.
 
 resource "google_storage_bucket" "market_data_defi_lst_rates_prd" {
   name                        = "lst-rates-prd-${var.project_id}"
@@ -588,22 +578,12 @@ resource "google_storage_bucket" "market_data_defi_perp_funding_prd" {
   labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "market_data_defi_gas_fees_prd" {
-  name                        = "gas-fees-prd-${var.project_id}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_defi_gas_fees_prd (gas-fees-prd-…) REMOVED 2026-07-13 — this was one of
+# the "14 legacy DeFi buckets deleted 2026-07-12" that was recreated as an empty shell by an
+# out-of-band `tofu apply` (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this
+# resource block was still declared here after the physical bucket was deleted; confirmed 0
+# objects live, re-deleted via gcloud. Config no longer declares this resource so a future apply
+# will not recreate it again.
 
 resource "google_storage_bucket" "market_data_sports" {
   name     = "market-data-tick-sports-${var.project_id}"
@@ -746,23 +726,11 @@ resource "google_storage_bucket" "features_calendar" {
   labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "gas_fees" {
-  name     = "gas-fees-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "gas-fees-reference", "tier" = "group-a" })
-}
+# gas_fees (legacy gas-fees-…, no env suffix) REMOVED 2026-07-13 — one of the "14 legacy DeFi
+# buckets deleted 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
+# (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this resource block was still
+# declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
+# gcloud. Config no longer declares this resource so a future apply will not recreate it again.
 
 resource "google_storage_bucket" "gas_fees_test" {
   name     = "gas-fees-test-${var.project_id}"
@@ -782,23 +750,11 @@ resource "google_storage_bucket" "gas_fees_test" {
   labels = merge(local.common_labels, { "purpose" = "gas-fees-test", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "solana_defi" {
-  name     = "solana-defi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "solana-defi-reference", "tier" = "group-a" })
-}
+# solana_defi (legacy solana-defi-…) REMOVED 2026-07-13 — one of the "14 legacy DeFi buckets
+# deleted 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
+# (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this resource block was still
+# declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
+# gcloud. Config no longer declares this resource so a future apply will not recreate it again.
 
 resource "google_storage_bucket" "solana_defi_test" {
   name     = "solana-defi-test-${var.project_id}"
@@ -818,23 +774,11 @@ resource "google_storage_bucket" "solana_defi_test" {
   labels = merge(local.common_labels, { "purpose" = "solana-defi-test", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "evm_defi" {
-  name     = "evm-defi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "evm-defi-reference", "tier" = "group-a" })
-}
+# evm_defi (legacy evm-defi-…) REMOVED 2026-07-13 — one of the "14 legacy DeFi buckets deleted
+# 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
+# (metageneration=1, creation_time=2026-07-13T00:52:06Z) because this resource block was still
+# declared here after the physical bucket was deleted; confirmed 0 objects live, re-deleted via
+# gcloud. Config no longer declares this resource so a future apply will not recreate it again.
 
 resource "google_storage_bucket" "evm_defi_test" {
   name     = "evm-defi-test-${var.project_id}"
