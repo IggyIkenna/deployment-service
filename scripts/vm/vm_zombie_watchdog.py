@@ -385,11 +385,11 @@ def _backup_vm_logs_before_kill(vm_name: str, zone: str) -> None:
     for forensics. Best-effort — raises on failure but caller should proceed
     with delete anyway (logs are nice-to-have, not a kill blocker).
 
-    Uses the canonical helper paths from unified_trading_library/deployment_registry.py.
+    Uses the canonical helper paths from deployment_service/deployments_registry.py.
     """
     from datetime import datetime
 
-    from unified_trading_library import (
+    from deployment_service.deployments_registry import (
         vm_log_stream_uri,
         vm_run_log_archive_uri,
         vm_serial_console_archive_uri,

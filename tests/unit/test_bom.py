@@ -3,7 +3,7 @@ Unit tests for deployment_service/bom.py — deployment bill-of-materials resolu
 
 Loads the module directly (its module-level imports are stdlib-only) so the
 tests bypass deployment_service/__init__ — same isolation rationale as
-test_deployment_heartbeat_cli.py.
+test_deployments_registry.py.
 """
 
 from __future__ import annotations

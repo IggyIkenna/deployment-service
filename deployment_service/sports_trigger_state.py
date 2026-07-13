@@ -147,7 +147,7 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
 
 
 class SchedulerStateStorage(Protocol):
-    """Tiny storage shim — matches ``InMemoryStorageClient`` from unified_trading_library.deployment_registry."""
+    """Tiny storage shim — matches ``InMemoryStorageClient`` from deployments_registry."""
 
     def upload_string(self, bucket: str, key: str, body: str) -> None: ...
 

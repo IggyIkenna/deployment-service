@@ -23,8 +23,8 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from unified_trading_library import InMemoryStorageClient
 
+from deployment_service.deployments_registry import InMemoryStorageClient
 from deployment_service.sports_trigger_scheduler import SportsTriggerScheduler
 from deployment_service.sports_trigger_state import DEFAULT_STATE_KEY, PeriodicTierState
 

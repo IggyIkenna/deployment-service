@@ -38,24 +38,26 @@ import sys
 from datetime import UTC, datetime
 
 from unified_trading_library import (
-    DEFAULT_BUCKET,
     DEPLOYMENT_COMPLETED,
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
-    DeploymentRegistryEntry,
-    DeploymentsRegistry,
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
     log_event,
     setup_events,
 )
 
 # deployment-service is installed in the VM's tarball venv — importing here
-# gives us the BoM resolver + classification SSOT for free.
+# gives us the registry + GCS adapter for free.
 from deployment_service.bom import resolve_deployment_bom
 from deployment_service.deployment_classification import (
     UnclassifiedDeploymentError,
     umbrella_for_vm_name,
+)
+from deployment_service.deployments_registry import (
+    DEFAULT_BUCKET,
+    DeploymentRegistryEntry,
+    DeploymentsRegistry,
 )
 
 logger = logging.getLogger("deployment_heartbeat")

@@ -14,7 +14,7 @@ Phase 6):
   (``ARG BASE_IMAGE_DIGEST`` — the QG STEP 5.79 FROM-digest ratchet)
 
 Module-level imports are stdlib-only so this file stays standalone-loadable
-(mirrors the direct-load pattern in ``tests/unit/test_deployment_heartbeat_cli.py``,
+(mirrors the direct-load pattern in ``tests/unit/test_deployments_registry.py``,
 which bypasses ``deployment_service/__init__``).
 """
 

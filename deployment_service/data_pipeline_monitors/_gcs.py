@@ -20,7 +20,7 @@ from unified_trading_library import StorageClient
 
 logger = logging.getLogger(__name__)
 
-# Canonical VM live-log paths (mirror unified_trading_library.deployment_registry):
+# Canonical VM live-log paths (mirror deployment_service.deployments_registry):
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/run.log
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/EXIT_STATUS
 RUN_LOG_BLOB = "vm-logs/{vm}/run.log"

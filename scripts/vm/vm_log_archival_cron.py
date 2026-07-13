@@ -26,7 +26,9 @@ import sys
 from datetime import UTC, datetime
 
 from google.cloud import compute_v1
-from unified_trading_library import UnifiedCloudConfig, get_storage_client, upload_to_storage, vm_serial_rolling_uri
+from unified_trading_library import UnifiedCloudConfig, get_storage_client, upload_to_storage
+
+from deployment_service.deployments_registry import vm_serial_rolling_uri
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
