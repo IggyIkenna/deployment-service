@@ -51,6 +51,13 @@ TABLES=""
 DRY_RUN=false
 STATUS_ONLY=false
 FORCE=false
+# Liveness/collision guard override (features_sports_parallel_backfill_vm_name_collision_2026_07_13.md):
+# a --vms 1 gap-fill relaunch always lands on the same freed slot number, which
+# can collide with a DIFFERENT job's live VM that happens to hold that name
+# right now. By default the launcher refuses to delete a RUNNING VM with a
+# fresh run.log; --force-replace overrides that refusal (separate from
+# --force, which controls the unrelated per-date skip-existing bypass).
+FORCE_REPLACE=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
@@ -73,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --vms) NUM_VMS="$2"; shift 2 ;;
     --tables) TABLES="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
+    --force-replace) FORCE_REPLACE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --status) STATUS_ONLY=true; shift ;;
     --zone) ZONE="$2"; shift 2 ;;
@@ -388,6 +396,13 @@ echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
 SHUTDOWN_EOF
 
   echo "  Launching ${VM_NAME} (${CHUNK_START} → ${CHUNK_END}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
+
+  # Collision guard (features_sports_parallel_backfill_vm_name_collision_2026_07_13.md):
+  # a --vms 1 gap-fill relaunch always lands on the SAME name (fss-backfill-vm-N),
+  # which may already be a DIFFERENT job's live, healthy VM. Refuse the delete
+  # below if ${VM_NAME} is RUNNING with a fresh run.log, unless --force-replace.
+  LOG_BASE_DIR="gs://deployment-scripts-${PROJECT_ID}/vm-logs"
+  lc_refuse_if_vm_alive "${VM_NAME}" "${ZONE}" "${PROJECT_ID}" "${LOG_BASE_DIR}" "${FORCE_REPLACE}"
 
   # Delete existing VM if present (from previous run)
   gcloud compute instances delete "${VM_NAME}" \

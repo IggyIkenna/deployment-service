@@ -23,6 +23,13 @@
 #                                            republish when the GCS startup-script
 #                                            the VM's startup-script-url points at
 #                                            is stale vs the local script
+#   lc_gcs_object_age_seconds <gcs_uri>    — seconds since a GCS object's Update time
+#   lc_refuse_if_vm_alive <vm_name> <zone> <project> <log_base_gcs_dir> [force] [max_age_seconds]
+#                                          — refuse to delete a VM of this EXACT name
+#                                            if it's RUNNING with a fresh run.log
+#                                            (a different job's live work landed on
+#                                            a reused name — see
+#                                            features_sports_parallel_backfill_vm_name_collision_2026_07_13.md)
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -96,6 +103,94 @@ Options:
   Inspect: gsutil cat gs://${code_bucket}/vm-logs/${existing}/run.log | tail -50
   Stop:    gcloud compute instances delete ${existing} --zone=${zone} --project=${project} --quiet
   Force:   bash \$0 --force
+EOF
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# lc_gcs_object_age_seconds <gcs_uri>
+# ---------------------------------------------------------------------------
+# Seconds elapsed since <gcs_uri>'s "Update time" (per `gsutil stat`). Prints
+# the integer to stdout; returns non-zero if the object doesn't exist, gsutil
+# is unavailable, or the timestamp can't be parsed. Uses python3 (already a
+# hard dependency everywhere gcloud/gsutil run) for portable RFC-2822 parsing
+# instead of GNU-only `date -d` (this file targets bash 3.2+/macOS too).
+lc_gcs_object_age_seconds() {
+    local gcs_uri="${1:?lc_gcs_object_age_seconds: gcs_uri required}"
+    command -v gsutil >/dev/null 2>&1 || return 1
+    local updated
+    updated="$(gsutil stat "$gcs_uri" 2>/dev/null | sed -n 's/^[[:space:]]*Update time:[[:space:]]*//p')"
+    [[ -n "$updated" ]] || return 1
+    python3 -c "
+import sys, time
+from email.utils import parsedate_to_datetime
+try:
+    ts = parsedate_to_datetime(sys.argv[1]).timestamp()
+    print(int(time.time() - ts))
+except Exception:
+    sys.exit(1)
+" "$updated"
+}
+
+# ---------------------------------------------------------------------------
+# lc_refuse_if_vm_alive <vm_name> <zone> <project> <log_base_gcs_dir> [force] [max_age_seconds]
+# ---------------------------------------------------------------------------
+# Liveness/collision guard for launchers that relaunch onto a REUSED, numbered
+# VM name (e.g. a `--vms 1` gap-fill relaunch always landing on the same freed
+# slot number — the exact footgun that silently deleted a live, unrelated VM's
+# in-progress work: features_sports_parallel_backfill_vm_name_collision_2026_07_13.md).
+#
+# Before an unconditional delete-then-create, this refuses (exit 1) the launch
+# if a VM of this EXACT name is currently RUNNING **and** its durable run.log
+# (written by lc_log_upload_trap_block at <log_base_gcs_dir>/<vm_name>/run.log)
+# was updated within the last <max_age_seconds> (default 300s / 5min) — the
+# signature of LIVE, in-progress work, not a stale leftover from a
+# completed/dead prior run of the SAME logical job. A stopped/terminated VM,
+# or one whose log has gone stale, is treated as safe to delete+relaunch (the
+# case this delete step was originally written for). Fails CLOSED (refuses)
+# when the log's age can't be determined at all — a brand-new VM that hasn't
+# written its first log line yet is exactly the case that must not be killed.
+#
+# Example:
+#   LOG_BASE="gs://deployment-scripts-${PROJECT_ID}/vm-logs"
+#   lc_refuse_if_vm_alive "$VM_NAME" "$ZONE" "$PROJECT_ID" "$LOG_BASE" "$FORCE_REPLACE"
+#   gcloud compute instances delete "$VM_NAME" ... --quiet 2>/dev/null || true
+lc_refuse_if_vm_alive() {
+    local vm_name="${1:?lc_refuse_if_vm_alive: vm_name required}"
+    local zone="${2:?lc_refuse_if_vm_alive: zone required}"
+    local project="${3:?lc_refuse_if_vm_alive: project required}"
+    local log_base="${4:?lc_refuse_if_vm_alive: log_base_gcs_dir required}"
+    local force="${5:-false}"
+    local max_age_seconds="${6:-300}"
+
+    # bash-3.2 safe lowercase (macOS default bash lacks ${var,,}).
+    local force_lc
+    force_lc="$(printf '%s' "$force" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$force_lc" == "true" ]]; then
+        return 0
+    fi
+
+    local status
+    status="$(gcloud compute instances describe "$vm_name" \
+        --zone="$zone" --project="$project" \
+        --format='value(status)' 2>/dev/null || true)"
+    [[ "$status" == "RUNNING" ]] || return 0 # gone / stopped / never existed → safe to replace
+
+    local age
+    age="$(lc_gcs_object_age_seconds "${log_base}/${vm_name}/run.log" 2>/dev/null || true)"
+    if [[ -z "$age" ]] || (( age < max_age_seconds )); then
+        local age_label="unreadable/very-fresh"
+        [[ -n "$age" ]] && age_label="${age}s old"
+        cat >&2 <<EOF
+ERROR: VM '${vm_name}' is RUNNING and its run.log is ${age_label} (< ${max_age_seconds}s) — refusing to delete a
+LIVE VM. This is almost certainly a DIFFERENT job's live work that happens to have landed on this name (the classic
+"--vms 1 relaunch reuses a freed slot number" collision — see
+plans/active/issues/features_sports_parallel_backfill_vm_name_collision_2026_07_13.md).
+
+Options:
+  Inspect: gsutil cat ${log_base}/${vm_name}/run.log | tail -50
+  If genuinely safe to replace: re-run with --force-replace
 EOF
         exit 1
     fi
