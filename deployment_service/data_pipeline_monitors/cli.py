@@ -193,7 +193,9 @@ def _asset_group_for_vm(vm_name: str) -> str:
 def _make_shard_backed_ag_fn(storage_client: StorageClient):
     def _probe(ag: str, blob: str) -> bool:
         try:
-            return storage_client.blob_exists(resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag), blob)
+            return storage_client.blob_exists(
+                resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag), blob
+            )
         except Exception:
             return False
 
@@ -202,7 +204,10 @@ def _make_shard_backed_ag_fn(storage_client: StorageClient):
             return ag
         found = [c for c in ASSET_GROUPS if _probe(c, _PER_VM_SHARD.format(vm=vm_name))]
         return found[0] if len(found) == 1 else ("multi" if found else "unknown")
+
     return _fn
+
+
 # VM-name prefixes that ARE data-pipeline backfill / live-capture VMs (the only
 # ones that emit a PIPELINE_HEARTBEAT + write a per-VM manifest shard). The
 # heartbeat / exit-code sweeps must SKIP infra VMs (zombie-watchdog, orchestrator,
@@ -426,7 +431,19 @@ def _zombie_watchdog() -> ModuleType | None:
     GCP_PROJECT_ID, set in the job env), so the import stays deferred here.
     """
     for name in ("scripts.vm.vm_zombie_watchdog", "vm_zombie_watchdog"):
-        if importlib.util.find_spec(name) is None:
+        try:
+            spec = importlib.util.find_spec(name)
+        except ModuleNotFoundError:
+            # find_spec() imports the PARENT package to resolve a dotted name, so when
+            # `scripts` is importable in the image but `scripts.vm` is absent from the
+            # wheel, find_spec RAISES `No module named 'scripts.vm'` instead of
+            # returning None. Treat that as unavailable and try the next candidate.
+            # (2026-07-13 monitoring-deadman regression: this unguarded raise crashed
+            # EVERY fleet sweep the instant it processed a terminated/stalled VM →
+            # no sentinel written → the out-of-band deadman paged. Same packaging
+            # class as the 2026-06-23 scripts.recovery incident.)
+            continue
+        if spec is None:
             continue
         try:
             return importlib.import_module(name)
@@ -606,7 +623,6 @@ def _consolidator_cloud_run_job(ag: str) -> str:
     KEY #4: a stale ``_index`` is suppressed when a recent SUCCEEDED execution is found.
     """
     return f"{_scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}"
-
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -863,9 +879,23 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
             )
-            _live_shards = live_stream_watcher.build_prediction_live_shards(storage_client)  # DP-LIVE-001/002 shared shard read
-            live_stream_watcher.check_live_stream_stale(storage_client=storage_client, shards=_live_shards, pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
-            live_stream_watcher.check_live_stream_gcs_write_mismatch(storage_client=storage_client, shards=_live_shards, pm_repo_path=pm_repo_path, dry_run=dry_run, miss_tracker=miss_tracker)
+            _live_shards = live_stream_watcher.build_prediction_live_shards(
+                storage_client
+            )  # DP-LIVE-001/002 shared shard read
+            live_stream_watcher.check_live_stream_stale(
+                storage_client=storage_client,
+                shards=_live_shards,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
+            live_stream_watcher.check_live_stream_gcs_write_mismatch(
+                storage_client=storage_client,
+                shards=_live_shards,
+                pm_repo_path=pm_repo_path,
+                dry_run=dry_run,
+                miss_tracker=miss_tracker,
+            )
             # DP-VM-007: stale-image check (stale_cloud_run_image_alert_gap_2026_06_26)
             _svc_map = stale_image_watcher.job_to_service_map()
             stale_image_watcher.check_cloud_run_image_freshness(
