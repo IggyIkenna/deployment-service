@@ -211,6 +211,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     # XG/XG_SHOTS expected_unattempted residual (matchday-aware, closes the
     # forward-poll-enum-to-typing lag).
     _batch("understat-eu-typing-sweep", service="instruments-service", asset_group="sports"),
+    # mdps_odds_horizon_scheduler.tf — daily rolling-window reprocessing of raw
+    # ODDS_API ticks into Tier-1 ML horizon buckets (no prior scheduled driver;
+    # see that file's header).
+    _batch("mdps-odds-horizon-bucket", service="market-data-processing-service", asset_group="sports"),
 )
 
 

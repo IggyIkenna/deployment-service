@@ -17,6 +17,7 @@ locals {
   blrs_image      = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/batch-live-reconciliation-service:latest"
   strategy_image  = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/strategy-service:latest"
   alerting_image  = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/alerting-service:latest"
+  mdps_t1_image   = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-data-processing-service:latest"
 }
 
 # -------------------------------------------------------
@@ -263,6 +264,134 @@ module "strategy_t1_recon_job" {
   labels = {
     "purpose" = "t1-batch-strategy"
     "finding" = "f-41-followup"
+  }
+}
+
+# -------------------------------------------------------
+# Phase 1 (F-41 follow-up, 2026-07-14): market-data-processing-service-t1-recon
+#
+# The uts-prod-market-data-processing-t1-schedule scheduler (t1_batch_scheduler.tf)
+# targets uts-prod-market-data-processing-service-t1-recon but that CRJ was never
+# provisioned (status.code=5 NOT_FOUND on every daily attempt for >=3 days —
+# discovered during the sports_data_sources_canonical_completion_2026_07_13 plan's
+# scheduled-capture audit). Same F-41 class of bug as the strategy job above.
+# Confirmed genuinely missing: `gcloud run jobs describe
+# uts-prod-market-data-processing-service-t1-recon` errors "Cannot find job";
+# no google_cloud_run_v2_job resource anywhere named it prior to this fix. The
+# separate terraform/services/market-data-processing-service/gcp/ Terraform
+# module (its own Cloud Run Job + Workflow) was investigated as a possible prior
+# home for this job — its backend.tf carries an unsubstituted
+# `terraform-state-{project_id}` bucket literal and neither its Cloud Run Job
+# (`market-data-processing-service-job`) nor its Workflow
+# (`market-data-processing-service-daily`) exist in `gcloud run jobs list` /
+# `gcloud workflows list` — that module was never applied to this project
+# (orphaned parallel layout, not the live path); provisioned here instead, per
+# the same co-located job+scheduler pattern as every other t1_batch_services
+# entry.
+#
+# This is general T+1 candle aggregation across ALL asset groups (per
+# t1_batch_scheduler.tf's description: "candle aggregation (depends on MTDS)")
+# — NOT the sports-specific odds_horizon_bucket reprocessing (that gap is
+# addressed separately by mdps_odds_horizon_scheduler.tf's dedicated job/cron,
+# since investigation found this pre-existing scheduler entry was never
+# sports-specific in the first place).
+#
+# No explicit --start-date/--end-date: market-data-processing-service@<pending>
+# self-defaults both to yesterday (T-1 UTC) in cli/main.py's
+# _build_legacy_argv when the caller supplies neither (mirrors every sibling
+# t1-recon job above, none of which pass explicit dates either — ServiceBootstrap
+# accepts an empty date window and the legacy sub-parser's required=True would
+# otherwise hard-crash on it).
+#
+# SKIP_DEPENDENCY_CHECK=true (live-test finding, 2026-07-14): the FIRST real
+# execution (uts-prod-market-data-processing-service-t1-recon-sxbf6) exit(1)'d
+# — `_check_dependencies` hard-failed the WHOLE date because 4 of 5 asset
+# groups (TRADFI/DEFI/SPORTS/PREDICTION) had no upstream MTDS raw_tick_data for
+# yesterday yet (one, PREDICTION, doesn't even have its bucket provisioned:
+# market-data-tick-prediction-prd-* 404s). Root cause: this single combined job
+# processes ALL 5 asset groups at once at 01:00 UTC, but t1_batch_scheduler.tf's
+# OWN documented DAG (file header) splits MTDS's upstream captures into a FAST
+# phase (00:30, sports/defi/prediction/tradfi) and a SLOW CeFi phase (06:00) —
+# i.e. even the "fast" categories aren't guaranteed to have same-day upstream
+# data for every asset group every day (a quiet DeFi/TradFi/Prediction day is
+# normal, not a fault). `fail_on_missing_deps=True` (the default) is the wrong
+# posture for a 5-asset-group combined job. TRIED `--no-fail-on-missing-deps`
+# first (the legacy cli/parser.py flag) — REJECTED: ServiceBootstrap's
+# top-level parser (what the container's ENTRYPOINT actually invokes; see
+# `usage: market-data-processing-service --operation {process} ... --mode
+# {batch,live}` in the exit(2) log) is a DIFFERENT, generic parser that never
+# exposes that legacy flag — only `cli/main.py::_build_legacy_argv`'s bridged
+# subset reaches the internal parser (start/end date, --asset-group,
+# --force, --dry-run, and `SKIP_DEPENDENCY_CHECK` env var -> --skip-
+# dependency-check). Used the SUPPORTED bridge instead: `SKIP_DEPENDENCY_CHECK
+# =true` env var. This fully skips the check (not just downgrades it to a
+# warning) — an acceptable tradeoff for this specific per-day recon job, whose
+# per-category GCS file listing already handles a genuinely-empty category
+# gracefully (returns 0 instrument files -> 0 processed, no crash) once the
+# hard dependency gate is out of the way. Live-verified: re-executed
+# (uts-prod-market-data-processing-service-t1-recon-<3rd exec>) completed
+# successfully.
+# -------------------------------------------------------
+
+module "mdps_t1_recon_job" {
+  source = "../modules/container-job/gcp"
+
+  # Name MUST match t1_batch_services["market-data-processing"].job_name (t1_batch_scheduler.tf)
+  name                  = "${local.env_prefix}-market-data-processing-service-t1-recon"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+  image                 = local.mdps_t1_image
+  cpu                   = "8"
+  # live-test finding #3 (2026-07-14): 16Gi OOM-killed (signal 9) mid-run at
+  # ~9.3GB RSS after loading TradFi's 75336-instrument corpus alone, before even
+  # reaching DeFi/Sports/Prediction in the same process (single-date runs use
+  # --no-subprocess-per-date, so all 5 categories' instrument corpora accumulate
+  # in ONE process — no per-category isolation exists to reclaim memory between
+  # categories the way --subprocess-per-date does between dates). Matched to the
+  # largest PROVEN-safe allocation in this file's own OOM-fix history
+  # (sports_enrichment_provider_scheduler.tf's 8cpu/32Gi, uts-prod-instruments-
+  # service-sports-fixtures) rather than guessing a smaller intermediate value.
+  memory          = "32Gi"
+  timeout_seconds = 7200 # 2h — candle aggregation across CEFI/TRADFI/DEFI/SPORTS/PREDICTION, all timeframes
+  max_retries     = 1
+  parallelism     = 1
+  task_count      = 1
+
+  args = ["--operation", "process", "--mode", "batch"]
+
+  environment_variables = {
+    GCP_PROJECT_ID        = var.project_id
+    DEPLOYMENT_ENV        = var.environment
+    GCS_LOCATION          = var.region
+    PYTHONUNBUFFERED      = "1"
+    SKIP_DEPENDENCY_CHECK = "true"
+    # Live-test finding #2 (2026-07-14): after SKIP_DEPENDENCY_CHECK unblocked the
+    # date-level gate, EVERY category still failed inside _process_one_category
+    # with "No source bucket configured for category=X" — config.py's
+    # get_bucket_for_asset_group() reads PROTOCOL_DATA_SOURCE_BUCKET_{CATEGORY}
+    # directly (a legacy env-var path, not resolve_bucket_name()), and NO .tf in
+    # this repo had ever set it for any category. Values verified live via
+    # `gcloud storage buckets list` (NOT the config.py docstring's stale example
+    # `market-data-tick-cefi-{pid}` — missing the -prd- env tier — nor the
+    # DependencyChecker's own PREDICTION bucket name, which 404s: it looks up
+    # `market-data-tick-prediction-prd-*`, a bucket that was DECOMMISSIONED
+    # 2026-07-12 in favor of the abbreviated `market-data-tick-pred-prd-*` — a
+    # separate, pre-existing latent bug in DependencyChecker tracked as a
+    # follow-up, not fixed here since SKIP_DEPENDENCY_CHECK bypasses that path
+    # entirely for this job).
+    PROTOCOL_DATA_SOURCE_BUCKET_CEFI       = "market-data-tick-cefi-prd-${var.project_id}"
+    PROTOCOL_DATA_SOURCE_BUCKET_TRADFI     = "market-data-tick-tradfi-prd-${var.project_id}"
+    PROTOCOL_DATA_SOURCE_BUCKET_DEFI       = "market-data-tick-defi-prd-${var.project_id}"
+    PROTOCOL_DATA_SOURCE_BUCKET_SPORTS     = "market-data-tick-sports-prd-${var.project_id}"
+    PROTOCOL_DATA_SOURCE_BUCKET_PREDICTION = "market-data-tick-pred-prd-${var.project_id}"
+  }
+
+  service_name = "market-data-processing-service"
+  environment  = var.environment
+  labels = {
+    "purpose" = "t1-batch-mdps"
+    "finding" = "market-data-processing-t1-schedule-not-found-2026-07-14"
   }
 }
 
