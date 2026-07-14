@@ -364,6 +364,26 @@ TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=$(_meta TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT)
 # down for a conservative first smoke wave, then back up once confirmed clean.
 TARDIS_MAX_CONCURRENT_DOWNLOADS=$(_meta TARDIS_MAX_CONCURRENT_DOWNLOADS)
 [[ -n "$TARDIS_MAX_CONCURRENT_DOWNLOADS" ]] && export TARDIS_MAX_CONCURRENT_DOWNLOADS
+# Generic passthrough for ad-hoc `MTDS_*`-prefixed diagnostic env toggles (e.g.
+# MTDS_CEFI_INCLUDE_NON_MVP) that don't warrant their own named _meta() read
+# above — previously a launcher's --metadata=MTDS_...=value was silently
+# dropped unless this script already had a matching hardcoded _meta line
+# (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12 gotcha). The GCE
+# metadata server lists every custom attribute key (one per line) when queried
+# without a specific key name, so auto-export anything in the MTDS_ namespace
+# instead of erroring or requiring a script change per new toggle. Named
+# VM_*/TARDIS_*/etc. keys above stay explicit constructs (self-documenting,
+# easy to grep) — this only covers the ad-hoc MTDS_ namespace.
+for _attr_key in $(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/" 2>/dev/null || echo ""); do
+  case "$_attr_key" in
+    MTDS_*)
+      _attr_val=$(_meta "$_attr_key")
+      [[ -n "$_attr_val" ]] && export "$_attr_key=$_attr_val"
+      ;;
+  esac
+done
+unset _attr_key _attr_val
 log "VM metadata: SERVICE=$VM_SERVICE TASK=$VM_TASK ASSET_GROUP=$VM_ASSET_GROUP PROVIDER=$VM_SPORTS_PROVIDER"
 log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYMENT_ENV=$DEPLOYMENT_ENV"
 
