@@ -158,6 +158,12 @@ METADATA="${METADATA},VM_TASK=mtds-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+# Tardis concurrency lease passthrough (opt-in, mirrors launch-cefi-sharded-backfill.sh):
+# lets checker re-runs of Tardis venues SERIALIZE against production lease-enabled
+# waves instead of 403ing on the single-concurrent-IP key
+# (tardis_concurrent_ip_lockout_2026_07_12.md).
+[[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && METADATA="${METADATA},TARDIS_CONCURRENCY_LEASE=1"
+[[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && METADATA="${METADATA},TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
@@ -170,7 +176,14 @@ METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
 [[ -n "$INSTRUMENT_IDS" ]] && METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
 [[ -n "$SOURCE" ]]     && METADATA="${METADATA},VM_SOURCE=${SOURCE}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
-$TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
+# Test runs also get a relaxed consolidator-staleness budget: -test- buckets have
+# NO standing consolidator cron (the checker force-consolidates them once in
+# Phase-0), so the in-VM assert_consolidator_healthy 120s default budget re-trips
+# minutes later and aborts the leg with ManifestConsolidatorStaleError (the KRX
+# skip-leg "ambiguous" of 2026-07-13; MANIFEST_ALLOW_STALE_FALLBACK does NOT gate
+# that pre-flight assert, only the reader's fallback merge). Test buckets are
+# small, so a 24h budget is safe — mirrors launch-cefi-sharded-backfill.sh.
+$TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true,MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
