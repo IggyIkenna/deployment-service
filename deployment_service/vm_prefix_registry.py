@@ -71,9 +71,14 @@ _INSTR_TRADFI: str = _b("instruments-store", "tradfi")
 _INSTR_SPORTS: str = _b("instruments-store", "sports")
 _INSTR_PRED: str = _b("instruments-store-prediction")
 _FEAT_SPORTS: str = _b("features-sports")
-# lending-indices and scenario-reports are NOT in cloud-providers.yaml SSOT yet;
-# kept as hardcoded strings until they are added.
-_LENDING_INDICES: str = f"lending-indices-{_PROJECT_ID}"
+# scenario-reports is NOT in cloud-providers.yaml SSOT yet; kept as a hardcoded
+# string until it is. lending-indices USED to be a separate hardcoded flat-bucket
+# string here too, but that bucket kind was retired 2026-07-14
+# (bucket_estate_consolidation_to_sub100_2026_07_13.md item C) — the
+# mtds-lending-indices-* launcher's manifest shard has always actually landed in
+# the shared market-data-tick-defi-prd bucket (confirmed live via VM run.log:
+# `_index/per_vm/{vm_name}.parquet` written there, not the flat bucket this
+# constant used to point at), so it now just reuses `_TICK_DEFI` below.
 _SCENARIO_REPORTS: str = f"scenario-reports-{_PROJECT_ID}"
 
 
@@ -304,7 +309,7 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-gas-fees-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-lst-rates-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-vault-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "mtds-lending-indices-": VmPrefixSpec(bucket=_LENDING_INDICES, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "mtds-lending-indices-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # Pyth Hermes archive backfill (Solana SOL/USD pre-2023-10 gap window).
     # Hermes archive starts ~2023-10-01 per UAC ORACLE_COVERAGE_START SSOT
     # (UAC@3adee82 2026-05-08). Pre-2023-10 SOL/USD oracle valuation needed
