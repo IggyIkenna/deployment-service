@@ -207,9 +207,9 @@ def _cli(argv: list[str] | None = None) -> int:
     if command == "status":
         window = maintenance_status(bucket)
         if window is None:
-            print(f"[maintenance-window] {bucket}: no live window — safe to pause/resume freely.")
+            print(f"[maintenance-window] {bucket}: no live window — safe to pause/resume freely.")  # noqa: qg-print — CLI status output, not a service event
             return 0
-        print(
+        print(  # noqa: qg-print — CLI status output, not a service event
             f"[maintenance-window] {bucket}: HELD by {window.locked_by!r} "
             f"(surface={window.surface!r}, reason={window.reason!r}, "
             f"scheduler_jobs={list(window.scheduler_jobs)}, until {window.expires_at}). "
@@ -234,7 +234,7 @@ def _cli(argv: list[str] | None = None) -> int:
                 locked_by=locked_by,
                 ttl_minutes=ttl_minutes,
             )
-            print(f"[maintenance-window] acquired + paused {jobs} until {window.expires_at}")
+            print(f"[maintenance-window] acquired + paused {jobs} until {window.expires_at}")  # noqa: qg-print — CLI status output, not a service event
             return 0
         if command == "resume":
             force: bool = bool(cast("object", args.force))
@@ -244,10 +244,10 @@ def _cli(argv: list[str] | None = None) -> int:
                 locked_by=locked_by,
                 force=force,
             )
-            print(f"[maintenance-window] released + resumed {jobs}")
+            print(f"[maintenance-window] released + resumed {jobs}")  # noqa: qg-print — CLI status output, not a service event
             return 0
     except MaintenanceWindowActiveError as exc:
-        print(f"[maintenance-window] REFUSED: {exc}", file=sys.stderr)
+        print(f"[maintenance-window] REFUSED: {exc}", file=sys.stderr)  # noqa: qg-print — CLI error output, not a service event
         return 1
     return 2
 

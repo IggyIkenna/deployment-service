@@ -76,7 +76,7 @@ class _RecordingAction:
         self.calls.append(job_name)
 
 
-_BUCKET = "instruments-store-sports-prd-central-element-323112"
+_BUCKET = "instruments-store-sports-prd-test-project"
 _JOB = "prd-manifest-consolidator-instruments-sports-cron"
 
 
