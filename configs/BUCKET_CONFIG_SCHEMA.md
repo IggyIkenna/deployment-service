@@ -1,12 +1,26 @@
 # Bucket Configuration Schema
 
-This document describes the configuration schema for `configs/bucket_config.yaml`, which contains all bucket-related configuration extracted from `setup-buckets.py`.
+This document describes the configuration schema for `configs/bucket_config.yaml`.
+
+**Rewritten 2026-07-14** (`bucket_estate_consolidation_to_sub100_2026_07_13.md`
+Deferred #8): `setup-buckets.py` derives every service/data bucket name from the
+canonical `configs/cloud-providers.yaml` matrix via the UTL SSOT resolver
+(`unified_trading_library.resolve_bucket_name`) — mirroring
+`terraform/gcp/canonical_buckets.tf`'s `for_each` derivation. This file is now
+ONLY the registry of genuine, hand-managed infra buckets that fall outside
+that per-kind matrix. The `aws_bucket_mappings`, `test_buckets`, and
+`validation` sections previously documented here were consumed solely by the
+old local resolver (`resolve_bucket_name()` / `get_test_bucket_name()` /
+`convert_to_aws_bucket_name()`) this rewrite deleted, and have been removed
+from both the yaml and this doc.
 
 ## Configuration Structure
 
 ### `defaults`
 
-Default values for cloud providers:
+Default values for cloud providers (region fallback only — `project_id` here
+is a vestigial literal nothing reads; the real project/account ID always comes
+from `--project-id` or the environment):
 
 ```yaml
 defaults:
@@ -17,32 +31,33 @@ defaults:
     region: ap-northeast-1
 ```
 
-### `shared_bucket_services`
+### `shared_bucket_services` / `service_categories`
 
-Services that use shared buckets (no category dimension):
+Not read by `setup-buckets.py` any more (the old dependencies.yaml-driven
+per-service resolver these fed is gone). Kept because
+`system-integration-tests/tests/conftest.py`'s own, separate
+`dependencies.yaml`-driven bucket enumeration (`required_gcs_buckets` fixture)
+still reads them.
 
 ```yaml
 shared_bucket_services:
   - features-calendar-service
-  - features-onchain-service
-  - ml-training-service
-  # ... more services
-```
+  - alerting-service
+  - reconciliation-service
 
-### `service_categories`
-
-Category restrictions and defaults for services:
-
-```yaml
 service_categories:
   restricted_categories:
     volatility: [cefi, tradfi] # No DEFI for volatility
-  default_categories: [cefi, tradfi, defi]
+  default_categories: [cefi, tradfi, defi, sports, prediction]
 ```
 
 ### `infrastructure_buckets`
 
-Bucket definitions for infrastructure services:
+The registry of genuine, hand-managed infra buckets `setup-buckets.py`
+provisions in addition to the canonical `cloud-providers.yaml` matrix
+(terraform-state, deployment-orchestration, build-metadata,
+databento-batch-registry, backtest-results, client-reporting-data, events,
+unified-deployment-state, ...). These never get a test-tier sibling.
 
 ```yaml
 infrastructure_buckets:
@@ -58,20 +73,13 @@ infrastructure_buckets:
       category: ALL
 ```
 
-### `aws_bucket_mappings`
-
-Mapping from GCP template patterns to AWS bucket names:
-
-```yaml
-aws_bucket_mappings:
-  instruments-store: "unified-trading-instruments-{category}-{account_id}"
-  market-data-tick: "unified-trading-market-data-{category}-{account_id}"
-  # ... more mappings
-```
-
 ### `bucket_settings`
 
-Cloud-specific bucket creation settings:
+Cloud-specific bucket creation settings — used ONLY for `infrastructure_buckets`
+entries now (canonical data buckets get hardcoded settings in
+`setup-buckets.py` that mirror `terraform/gcp/canonical_buckets.tf`: STANDARD
+storage class, uniform bucket-level access, no versioning, STANDARD->COLDLINE
+@ 60 days):
 
 ```yaml
 bucket_settings:
@@ -95,52 +103,12 @@ bucket_settings:
     # ... more settings
 ```
 
-### `test_buckets`
-
-Test bucket naming configuration:
-
-```yaml
-test_buckets:
-  naming_pattern: "infix" # insert '-test' before project_id
-  fallback_pattern: "suffix" # append '-test' if project_id not found
-```
-
-### `validation`
-
-Validation rules for bucket configurations:
-
-```yaml
-validation:
-  invalid_combinations:
-    - template_contains: volatility
-      invalid_category: defi
-      reason: "No volatility for DEFI"
-    - template_contains: onchain
-      invalid_category: tradfi
-      reason: "No onchain for TRADFI"
-```
-
 ## Configuration Benefits
 
-1. **Centralized Configuration**: All bucket-related settings in one place
-2. **Environment Agnostic**: Easy to modify for different environments
-3. **Validation**: Built-in validation prevents invalid configurations
-4. **Maintainability**: Clear structure makes updates easier
-5. **Reusability**: Configuration can be shared across tools
+1. **Centralized Configuration**: All genuine infra-bucket settings in one place
+2. **Maintainability**: Clear structure makes updates easier
+3. **Reusability**: Configuration can be shared across tools
 
 ## Template Variables
 
-The following variables are available for use in templates:
-
 - `{project_id}` - GCP project ID or AWS account ID
-- `{category}` - Category (cefi, tradfi, defi)
-- `{category_lower}` - Category in lowercase
-- `{account_id}` - AWS account ID
-
-## Validation Rules
-
-The configuration includes validation rules that prevent invalid combinations:
-
-- No volatility services for DEFI category
-- No onchain services for TRADFI category
-- Required configuration sections must be present

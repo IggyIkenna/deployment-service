@@ -1,8 +1,26 @@
-# Bucket Configuration — SSOT for setup-buckets.py
+# Bucket Configuration — registry of genuine, hand-managed infra buckets.
 #
-# Defines default categories, service restrictions, infrastructure buckets,
-# AWS naming mappings, bucket creation settings, test bucket naming, and
-# validation rules.
+# Rewritten 2026-07-14 (`bucket_estate_consolidation_to_sub100_2026_07_13.md`
+# Deferred #8): `setup-buckets.py` now derives every service/data bucket name
+# from the canonical `cloud-providers.yaml` matrix via the UTL SSOT resolver
+# (`unified_trading_library.resolve_bucket_name`), NOT from this file. This
+# file is ONLY the registry of genuine infra buckets that don't belong in the
+# canonical per-kind matrix (terraform-state, deployment-orchestration,
+# build-metadata, databento-batch-registry, backtest-results,
+# client-reporting-data, events, unified-deployment-state, ...) — the data
+# buckets that used to duplicate cloud-providers.yaml here (eigenlayer-rewards,
+# ml-configs-store, features-volatility-defi + their -test twins) were
+# stripped, along with the dead `aws_bucket_mappings` (superseded by the AWS
+# side of cloud-providers.yaml, which mirrors GCP 1:1) / `test_buckets`
+# (superseded by `deployment_env="test"` resolution) / `validation` (superseded
+# by cloud-providers.yaml's dict shape, which only ever has valid
+# kind+asset_group combinations) sections — all three were consumed solely by
+# the old local resolver this rewrite deleted.
+#
+# `shared_bucket_services` / `service_categories` stay: `setup-buckets.py`
+# doesn't read them any more, but
+# `system-integration-tests/tests/conftest.py`'s own (separate)
+# `dependencies.yaml`-driven bucket enumeration still does.
 #
 # See BUCKET_CONFIG_SCHEMA.md for documentation.
 
@@ -53,19 +71,21 @@ infrastructure_buckets:
     # shared bucket, data gaps backfilled, dedicated buckets retired.
     # liquidations, dex-swaps, oracle-prices REMOVED 2026-07-10 (bucket estate cleanup) —
     # same rationale as solana-defi/evm-defi/lending-indices above.
-    - name_template: "eigenlayer-rewards-{project_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "eigenlayer-rewards-test-{project_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # eigenlayer-rewards + eigenlayer-rewards-test REMOVED 2026-07-14
+    # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #8): this flat,
+    # no-env-tier pair duplicated (and drifted from) cloud-providers.yaml's genuinely
+    # env-tiered `eigenlayer-rewards: eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${pid}`
+    # kind — setup-buckets.py now provisions the canonical env-tiered names via the
+    # UTL resolver directly; this stale flat registration is no longer needed.
     # Infrastructure — shared buckets
-    - name_template: "config-store-{project_id}"
-      service: infrastructure
-      type: config
-      category: ALL
+    # config-store-{project_id} (flat) REMOVED 2026-07-14 (bucket estate consolidation,
+    # [[bucket_estate_consolidation_to_sub100_2026_07_13]]): bucket deleted (all durable
+    # config content was already byte-identical to config-store-prd-{project_id}; the one
+    # unique object was an ephemeral Tardis concurrency-control lease, migrated then
+    # retired). config-store is now env-tiered (config-store-{env}-{project_id}) per
+    # cloud-providers.yaml's canonical `config-store` kind resolved via resolve_bucket_name()
+    # — leaving the flat entry here would let setup-buckets.py/provision-test-buckets.sh/
+    # setup-dev-project.sh silently recreate the retired flat bucket.
     - name_template: "{project_id}-events"
       service: infrastructure
       type: events
@@ -86,15 +106,12 @@ infrastructure_buckets:
       service: strategy-service
       type: results
       category: ALL
-    # ML configs — shared across categories
-    - name_template: "ml-configs-store-{project_id}"
-      service: ml-service
-      type: config
-      category: ALL
-    - name_template: "ml-configs-store-test-{project_id}"
-      service: ml-service
-      type: config_test
-      category: ALL
+    # ml-configs-store + ml-configs-store-test REMOVED 2026-07-14
+    # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #8): this flat,
+    # no-env-tier pair duplicated (and drifted from) cloud-providers.yaml's genuinely
+    # env-tiered `ml-configs-store: ml-configs-store-${DEPLOYMENT_ENV_SHORT}-${pid}`
+    # kind — setup-buckets.py now provisions the canonical env-tiered names via the
+    # UTL resolver directly; this stale flat registration is no longer needed.
     # Deployment state — per-env
     - name_template: "unified-deployment-state-{project_id}"
       service: deployment-service
@@ -110,15 +127,12 @@ infrastructure_buckets:
     # suffix scheme, and cloud-providers.yaml's risk-store-defi flat key, also removed). Real
     # naming is unified_trading_library/config_interface/paths/registry.py PATH_REGISTRY's
     # risk-metrics-store-{pid}. risk-and-exposure-service doesn't exist as a repo.
-    # Volatility defi (was missing from restricted_categories)
-    - name_template: "features-volatility-defi-{project_id}"
-      service: features-volatility-service
-      type: output
-      category: defi
-    - name_template: "features-volatility-defi-test-{project_id}"
-      service: features-volatility-service
-      type: test
-      category: defi
+    # features-volatility-defi + features-volatility-defi-test REMOVED 2026-07-14
+    # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #8): this pair was a pure
+    # duplicate of cloud-providers.yaml's `features-volatility.DEFI` kind (identical literal
+    # name — features-volatility is env-split-rolled-back, so the canonical template already
+    # produces the exact same flat name) — setup-buckets.py now provisions it via the UTL
+    # resolver directly; this redundant registration is no longer needed.
   aws:
     - name_template: "unified-trading-terraform-state-{project_id}"
       service: infrastructure
@@ -132,14 +146,9 @@ infrastructure_buckets:
     # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]).
     # unified-trading-liquidations, unified-trading-dex-swaps, unified-trading-oracle-prices
     # REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP-section removal above.
-    - name_template: "unified-trading-eigenlayer-rewards-{account_id}"
-      service: market-tick-data-service
-      type: reference_data
-      category: defi
-    - name_template: "unified-trading-eigenlayer-rewards-test-{account_id}"
-      service: market-tick-data-service
-      type: reference_data_test
-      category: defi
+    # unified-trading-eigenlayer-rewards + -test REMOVED 2026-07-14 — mirrors the GCP-section
+    # eigenlayer-rewards removal above ([[bucket_estate_consolidation_to_sub100_2026_07_13]]
+    # Deferred #8): duplicated cloud-providers.yaml's env-tiered `eigenlayer-rewards` kind.
     # TradFi reference data — Databento (upstream) + non-DeFi risk-store parity (slot 2 2026-05-19)
     - name_template: "unified-trading-databento-batch-registry-{account_id}"
       service: market-tick-data-service
@@ -152,35 +161,6 @@ infrastructure_buckets:
     # risk-store-{cefi,tradfi,prediction,sports} REMOVED 2026-07-10 (bucket estate cleanup) —
     # mirrors the GCP-section removal above (confirmed zero callers, real naming is UTL
     # PATH_REGISTRY's risk-metrics-store-{pid}).
-
-aws_bucket_mappings:
-  instruments-store: "unified-trading-instruments-{category}-{account_id}"
-  market-data-tick: "unified-trading-market-data-{category}-{account_id}"
-  # market-data-candles retired 2026-04-18: MDPS writes co-located under
-  # market-data-tick-{category}-* in `processed_candles/` subprefix
-  # (see unified-trading-pm/plans/active/data_pipeline_completion_2026_04_18.md Phase 5a).
-  features-delta-one: "unified-trading-features-delta-one-{category}-{account_id}"
-  features-volatility: "unified-trading-features-volatility-{category}-{account_id}"
-  features-onchain: "unified-trading-features-onchain-{category}-{account_id}"
-  features-calendar: "unified-trading-features-calendar-{account_id}"
-  features-sports: "unified-trading-features-sports-{account_id}"
-  features-prediction: "unified-trading-features-prediction-{account_id}"
-  features-cross-instrument: "unified-trading-features-cross-instrument-{category}-{account_id}"
-  execution-store: "unified-trading-execution-{category}-{account_id}"
-  strategy-store: "unified-trading-strategy-{category}-{account_id}"
-  # risk-store, pnl-store, positions-store, solana-defi, evm-defi, lending-indices,
-  # liquidations, dex-swaps, oracle-prices REMOVED 2026-07-10 (bucket estate cleanup,
-  # [[gcs_bucket_estate_cleanup_2026_07_10]]) — confirmed zero resolve_bucket_name() callers
-  # workspace-wide for all of these kinds (code-level finding, applies to both clouds).
-  ml-models-store: "unified-trading-ml-models-{account_id}"
-  ml-predictions-store: "unified-trading-ml-predictions-{account_id}"
-  ml-configs-store: "unified-trading-ml-configs-{account_id}"
-  ml-training-artifacts: "unified-trading-ml-training-artifacts-{account_id}"
-  # gas-fees REMOVED 2026-07-12 (bucket estate cleanup follow-up) — zero callers left.
-  # dex-pools, lst-rates, perp-funding REMOVED 2026-07-13
-  # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]) — readers migrated to the
-  # shared bucket, dedicated buckets retired.
-  eigenlayer-rewards: "unified-trading-eigenlayer-rewards-{account_id}"
 
 bucket_settings:
   gcp:
@@ -205,46 +185,3 @@ bucket_settings:
     tags:
       ManagedBy: setup-buckets
       Project: unified-trading-system
-
-test_buckets:
-  naming_pattern: "infix"
-  fallback_pattern: "suffix"
-
-validation:
-  invalid_combinations:
-    - template_contains: volatility
-      invalid_category: defi
-      reason: "No volatility features for DEFI category"
-    - template_contains: onchain
-      invalid_category: tradfi
-      reason: "No onchain features for TRADFI category"
-    - template_contains: sports
-      invalid_category: cefi
-      reason: "Sports buckets are sports-category only"
-    - template_contains: sports
-      invalid_category: tradfi
-      reason: "Sports buckets are sports-category only"
-    - template_contains: sports
-      invalid_category: defi
-      reason: "Sports buckets are sports-category only"
-    - template_contains: prediction
-      invalid_category: cefi
-      reason: "Prediction buckets are prediction-category only"
-    - template_contains: prediction
-      invalid_category: tradfi
-      reason: "Prediction buckets are prediction-category only"
-    - template_contains: prediction
-      invalid_category: defi
-      reason: "Prediction buckets are prediction-category only"
-    - template_contains: execution-store
-      invalid_category: sports
-      reason: "Execution store is financial categories only"
-    - template_contains: execution-store
-      invalid_category: prediction
-      reason: "Execution store is financial categories only"
-    - template_contains: strategy-store
-      invalid_category: sports
-      reason: "Strategy store is financial categories only"
-    - template_contains: strategy-store
-      invalid_category: prediction
-      reason: "Strategy store is financial categories only"
