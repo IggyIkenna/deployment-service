@@ -35,6 +35,10 @@ ON_DEMAND=false
 # on a distinct key, and the handler round-robins the full pool per request.
 SHARD_INDEX="${SHARD_INDEX:-0}"
 FLEET_VMS="${FLEET_VMS:-1}"
+# --protocols: comma-separated allowlist for dex_swaps_handler.py's
+# --dex-swaps-protocols (nargs='+'), mirrors launch-mtds-dex-pools-backfill-vm.sh
+# / launch-mtds-lending-indices-backfill-vm.sh's VM_*_PROTOCOLS passthrough.
+PROTOCOLS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --preemptible)    shift ;;  # deprecated no-op: SPOT is now the default
     --shard-index)    SHARD_INDEX="$2"; shift 2 ;;
     --fleet-vms)      FLEET_VMS="$2"; shift 2 ;;
+    --protocols)      PROTOCOLS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -136,6 +141,9 @@ METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+if [[ -n "$PROTOCOLS" ]]; then
+  METADATA="${METADATA},VM_DEX_SWAPS_PROTOCOLS=${PROTOCOLS}"
+fi
 if [[ -n "${MTDS_TARBALL_SHA}" ]]; then
   METADATA="${METADATA},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
 fi

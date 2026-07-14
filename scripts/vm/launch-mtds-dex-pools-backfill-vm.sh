@@ -33,6 +33,13 @@ ON_DEMAND=false
 # on a distinct key, and the handler round-robins the full pool per request.
 SHARD_INDEX="${SHARD_INDEX:-0}"
 FLEET_VMS="${FLEET_VMS:-1}"
+# --protocols: comma-separated allowlist for dex_pools_handler.py's
+# --dex-pools-protocols (nargs='+'), same VM_*_PROTOCOLS passthrough pattern
+# as launch-mtds-lending-indices-backfill-vm.sh. Scopes a backfill to specific
+# protocols (e.g. the newly-wired velodrome_v2/trader_joe_v2/uniswap_v4/
+# uniswap_v2, mtds_defi_dex_zero_capture_protocols_2026_07_14) instead of
+# needlessly re-running the full _DEFAULT_PROTOCOLS list across the window.
+PROTOCOLS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --preemptible) shift ;;  # deprecated no-op: SPOT is now the default
     --shard-index) SHARD_INDEX="$2"; shift 2 ;;
     --fleet-vms)   FLEET_VMS="$2"; shift 2 ;;
+    --protocols)   PROTOCOLS="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -131,6 +139,9 @@ METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+if [[ -n "$PROTOCOLS" ]]; then
+  METADATA="${METADATA},VM_DEX_POOLS_PROTOCOLS=${PROTOCOLS}"
+fi
 
 # SPOT by default (--no-restart-on-failure already passed below); --on-demand clears it.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
