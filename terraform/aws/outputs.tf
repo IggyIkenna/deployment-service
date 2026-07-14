@@ -60,3 +60,13 @@ output "sqs_queue_urls" {
     k => q.url
   }
 }
+
+output "deployment_registry_dynamodb_table_name" {
+  description = "Deployment-registry DynamoDB table name (provisioned, inactive until the AWS cutover flips the cloud selector)"
+  value       = aws_dynamodb_table.deployments.name
+}
+
+output "deployment_registry_dynamodb_table_arn" {
+  description = "Deployment-registry DynamoDB table ARN"
+  value       = aws_dynamodb_table.deployments.arn
+}

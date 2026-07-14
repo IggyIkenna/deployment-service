@@ -29,6 +29,16 @@ variable "enable_elasticache" {
   default     = false
 }
 
+variable "deployment_registry_dynamodb_billing_mode" {
+  description = "Billing mode for the deployment-registry DynamoDB table: PAY_PER_REQUEST (on-demand, default) or PROVISIONED (25 WCU/25 RCU free-tier)."
+  type        = string
+  default     = "PAY_PER_REQUEST"
+  validation {
+    condition     = contains(["PAY_PER_REQUEST", "PROVISIONED"], var.deployment_registry_dynamodb_billing_mode)
+    error_message = "deployment_registry_dynamodb_billing_mode must be PAY_PER_REQUEST or PROVISIONED"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # PROTOCOL_* service environment variables
 # These are injected into ECS task definitions at deploy time.
