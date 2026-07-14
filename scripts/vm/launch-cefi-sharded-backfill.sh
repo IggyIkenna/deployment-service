@@ -468,7 +468,16 @@ launch_cefi_shard() {
       _QUEUE_START[$qkey]="$start_date"
       _QUEUE_END[$qkey]="$end_date"
     else
-      _QUEUE_VENUES[$qkey]="${_QUEUE_VENUES[$qkey]} $venue"
+      # A single venue matches this bucket once per (year,group) shard — e.g.
+      # BITGET-FUTURES 2024/2025/2026 all land in the same heavy|trades;book_snapshot_5
+      # bucket. Only widen start/end; do NOT re-append an already-queued venue, or
+      # --venues ends up space-repeated ("BITGET-FUTURES BITGET-FUTURES BITGET-FUTURES")
+      # — a real bug (live-verified 2026-07-14): the repeated venue arg broke MTDS's
+      # active-venue resolution entirely ("No active venues" for every date, 0 rows).
+      case " ${_QUEUE_VENUES[$qkey]} " in
+        *" $venue "*) ;; # already queued — dedup, no-op
+        *) _QUEUE_VENUES[$qkey]="${_QUEUE_VENUES[$qkey]} $venue" ;;
+      esac
       [[ "$start_date" < "${_QUEUE_START[$qkey]}" ]] && _QUEUE_START[$qkey]="$start_date"
       [[ "$end_date" > "${_QUEUE_END[$qkey]}" ]] && _QUEUE_END[$qkey]="$end_date"
     fi
