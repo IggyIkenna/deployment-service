@@ -57,10 +57,21 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
 
         # Scan today and next 3 days for fixtures.
         # Try multiple GCS path patterns — the fixture calendar may be at
-        # the legacy path or the new entity-partitioned path.
+        # the legacy path, the (never-populated) pre-pipeline_mode entity
+        # path, or the CURRENT canonical instruments-service writer shape
+        # (confirmed live via GCS listing 2026-07-14: instruments-service's
+        # sports fixtures writer emits under a ``pipeline_mode=`` segment
+        # with entity name ``fixtures_schedule``, e.g.
+        # ``.../day=2026-07-14/pipeline_mode=batch_api_football/
+        # entity=fixtures_schedule/league=UCL/fixtures_schedule.parquet`` —
+        # NEITHER prior pattern ever matches this, which silently zeroed out
+        # Tier-3/4 fixture-proximate triggers indefinitely; see
+        # unified-trading-pm/plans/active/
+        # sports_data_sources_canonical_completion_2026_07_13.md).
         _fixture_path_patterns = [
             "sports_reference/fixtures/day={date}/",
             "sports_reference/by_date/day={date}/entity=fixtures/",
+            "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/",
         ]
         for day_offset in range(4):
             scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
@@ -95,8 +106,23 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
                         raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
                         df = pd.read_parquet(io.BytesIO(raw))
 
+                        # league_id: prefer the canonical string league key carried
+                        # in the blob's own ``league={KEY}`` path segment (matches
+                        # the manifest-wide league_id convention, e.g. "UCL") over
+                        # api_football's numeric ``af_league_id`` — only used as a
+                        # last-resort fallback when the path carries no such segment
+                        # (e.g. the legacy non-league-partitioned path shape).
+                        _path_league_id = ""
+                        for _seg in blob.name.split("/"):
+                            if _seg.startswith("league="):
+                                _path_league_id = _seg[len("league=") :]
+                                break
+
                         for _, row in df.iterrows():
-                            kickoff_str = str(row.get("kickoff_utc", ""))  # pyright: ignore[reportAny]
+                            # kickoff_utc: legacy writer shape. timestamp: the
+                            # current instruments-service fixtures_schedule shape
+                            # (see the path-pattern comment above).
+                            kickoff_str = str(row.get("kickoff_utc") or row.get("timestamp") or "")  # pyright: ignore[reportAny]
                             if not kickoff_str:
                                 continue
 
@@ -108,13 +134,17 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
                             # Only include fixtures within horizon
                             hours_until = (kickoff - now).total_seconds() / 3600
                             if -2 <= hours_until <= horizon_hours:
+                                _fixture_id = row.get("fixture_id") or row.get("af_fixture_id") or ""
+                                _league_id = _path_league_id or row.get("league_id") or row.get("af_league_id") or ""
+                                _home_team = row.get("home_team") or row.get("af_home_name") or ""
+                                _away_team = row.get("away_team") or row.get("af_away_name") or ""
                                 fixtures.append(
                                     FixtureInfo(
-                                        fixture_id=str(cast(object, row.get("fixture_id", ""))),
-                                        league_id=str(cast(object, row.get("league_id", ""))),
+                                        fixture_id=str(cast(object, _fixture_id)),
+                                        league_id=str(cast(object, _league_id)),
                                         kickoff_utc=kickoff_str,
-                                        home_team=str(cast(object, row.get("home_team", ""))),
-                                        away_team=str(cast(object, row.get("away_team", ""))),
+                                        home_team=str(cast(object, _home_team)),
+                                        away_team=str(cast(object, _away_team)),
                                     )
                                 )
                     except Exception as exc:

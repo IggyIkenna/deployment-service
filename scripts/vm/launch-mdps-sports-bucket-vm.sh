@@ -29,12 +29,23 @@
 # long ranges per Agent 4 note in launch-mdps-backfill-vm.sh).
 #
 # Usage:
-#   bash launch-mdps-sports-bucket-vm.sh <start-date> <end-date> [dry|full|force]
+#   bash launch-mdps-sports-bucket-vm.sh <start-date> <end-date> [dry|full|force] [--on-demand]
 #     dry   — --dry-run, no GCS writes
 #     full  — live writes, manifest pre-flight skip enabled (resume-friendly)
 #     force — live writes, --force (re-bucket even already-bucketed days;
 #             needed once after the 2026-05-05 layout refactor that split
-#             the monolithic bucketed.parquet into per-(league,horizon))
+#             the monolithic bucketed.parquet into per-(league,horizon); also
+#             the only mode that re-attempts a day whose COARSE per-day manifest
+#             key is already `captured` but is still missing some fine-grained
+#             (league_id, timeframe) shards — the coarse pre-flight key has no
+#             league_id/timeframe dimension, so `full` mode would otherwise
+#             skip the whole day and never fill the gap)
+#
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); --on-demand /
+# ON_DEMAND=true forces standard provisioning. SSOT:
+# codex/05-infrastructure/spot-vms-for-backfill.md. (Added 2026-07-14 —
+# this launcher previously had no provisioning flag at all, defaulting to
+# on-demand, a bug per that SSOT's HARD RULE for every backfill launcher.)
 #
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
@@ -45,12 +56,14 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+ON_DEMAND="${ON_DEMAND:-false}"
 
-# Pre-parse --env <val> before positional args.
+# Pre-parse --env / --on-demand before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --on-demand) ON_DEMAND=true; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -127,6 +140,11 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
+# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
+if [[ "$ON_DEMAND" == "true" ]]; then PROVISIONING_FLAGS=""; fi
+echo "  Provisioning: $([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)"
+
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
@@ -135,6 +153,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_GB}GB" \
     --scopes=cloud-platform \
+    ${PROVISIONING_FLAGS} \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
     --labels=purpose=mdps-sports-bucket,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 

@@ -166,75 +166,15 @@ resource "google_storage_bucket" "instruments_cefi" {
   labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
 }
 
-resource "google_storage_bucket" "instruments_tradfi" {
-  name     = "instruments-store-tradfi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
+# resource google_storage_bucket.instruments_tradfi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
+# legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future
+# apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
+# lending-indices-prd precedent (ds@1dd2159).
 
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "instruments_defi" {
-  name     = "instruments-store-defi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
+# resource google_storage_bucket.instruments_defi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
+# legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future
+# apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
+# lending-indices-prd precedent (ds@1dd2159).
 
 resource "google_storage_bucket" "instruments_sports" {
   name     = "instruments-store-sports-${var.project_id}"
@@ -366,59 +306,20 @@ resource "google_storage_bucket" "client_reporting_data" {
 # `google_storage_bucket.canonical["instruments-store-sports-prd-…"]` for_each in
 # canonical_buckets.tf produces; state-mv'd there (bucket itself untouched, still LIVE).
 
-resource "google_storage_bucket" "market_data_cefi" {
-  name     = "market-data-tick-cefi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
+# resource google_storage_bucket.market_data_cefi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
+# legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future
+# apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
+# lending-indices-prd precedent (ds@1dd2159).
 
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# resource google_storage_bucket.market_data_tradfi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
+# legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future
+# apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
+# lending-indices-prd precedent (ds@1dd2159).
 
-resource "google_storage_bucket" "market_data_tradfi" {
-  name     = "market-data-tick-tradfi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
-
-resource "google_storage_bucket" "market_data_defi" {
-  name     = "market-data-tick-defi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# resource google_storage_bucket.market_data_defi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
+# legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future
+# apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
+# lending-indices-prd precedent (ds@1dd2159).
 
 # Dedicated per-type DeFi market-data buckets (canonical-migration targets;
 # cloud-providers.yaml resolves `{stem}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`

@@ -232,16 +232,19 @@ resource "google_cloud_scheduler_job" "defi_collect_cron" {
 # -------------------------------------------------------
 output "defi_collect_job_names" {
   description = "Map of operation → Cloud Run Job name (for `gcloud run jobs execute` smoke tests)."
+  # Iterate the resource's own in-state instances (not local.defi_collect_operations keys) so the
+  # graph still evaluates when an instance is transiently absent from state (e.g. mid `import`).
   value = {
-    for op_key, _ in local.defi_collect_operations :
-    op_key => module.defi_collect_job[op_key].name
+    for op_key, job in module.defi_collect_job :
+    op_key => job.name
   }
 }
 
 output "defi_collect_cron_names" {
   description = "Map of operation → Cloud Scheduler cron name (for `gcloud scheduler jobs run` ad-hoc fires)."
+  # See defi_collect_job_names — iterate in-state instances for partial-state resilience.
   value = {
-    for op_key, _ in local.defi_collect_operations :
-    op_key => google_cloud_scheduler_job.defi_collect_cron[op_key].name
+    for op_key, cron in google_cloud_scheduler_job.defi_collect_cron :
+    op_key => cron.name
   }
 }

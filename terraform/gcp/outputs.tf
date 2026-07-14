@@ -4,10 +4,8 @@
 # GCS Bucket Names
 # =============================================================================
 
-output "market_data_cefi_bucket" {
-  description = "Name of the market data CeFi GCS bucket (raw tick data)"
-  value       = google_storage_bucket.market_data_cefi.name
-}
+# market_data_cefi_bucket output REMOVED 2026-07-14 — its bucket resource was removed (legacy
+# twin mid-async-purge-delete; see main.tf). No consumer references this output.
 
 output "instruments_cefi_bucket" {
   description = "Name of the instruments CeFi GCS bucket"

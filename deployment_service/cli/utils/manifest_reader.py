@@ -62,10 +62,10 @@ BUCKET_TEMPLATES: dict[str, str] = {
     "features-multi-timeframe-service": "features-multi-timeframe-{asset_group_lower}-{project_id}",
     "features-cross-instrument-service": "features-cross-instrument-{asset_group_lower}-{project_id}",
     "features-commodity-service": "features-commodity-{asset_group_lower}-{project_id}",
-    # CORRECT-LOCAL — legacy local template dict; canonical SSOT is
-    # `cloud-providers.yaml` kind="ml-models-store"/"ml-predictions-store". This
-    # dict is consumed only by deployment-service CLI tooling for ad-hoc manifest
-    # reads and consolidates via `resolve_bucket_name()` in a follow-up sweep.
+    # This template is dead for `ml-service` specifically — it's now in
+    # `_SERVICE_TO_CANONICAL_KIND` (2026-07-14) so `_resolve_bucket` always takes
+    # the `resolve_bucket_name(kind="ml-models-store")` branch instead. Kept as a
+    # documented fallback shape only; never read for `ml-service`.
     # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
     "ml-service": "ml-models-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
@@ -92,6 +92,12 @@ _SHARED_BUCKET_SERVICES = {
 _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
     "market-tick-data-service": "market-data",
     "market-data-processing-service": "market-data",
+    # ml-service: the legacy flat `ml-models-store-{project_id}` bucket is a
+    # confirmed deletion candidate (0 unique data vs the canonical prd tier — see
+    # bucket-estate-cleanup plan dated 2026-07-10 §5e + data_completion_to_100_all_ag
+    # 2026-07-14 entry), NOT YET deleted pending redeploy confirmation — resolve via
+    # the canonical kind now so this CLI reader survives that eventual deletion.
+    "ml-service": "ml-models-store",
 }
 
 # MTDS DeFi operations write to additional per-type buckets beyond the main
