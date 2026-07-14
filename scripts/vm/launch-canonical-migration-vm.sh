@@ -17,6 +17,12 @@
 #   bash launch-canonical-migration-vm.sh prediction 2025-03-14 2026-04-18 dry
 #   bash launch-canonical-migration-vm.sh all        2020-01-01 2024-12-31 dry
 #   bash launch-canonical-migration-vm.sh cefi       2020-01-01 2024-12-31 full
+#   # tradfi-cme-options: START_DATE/END_DATE are cosmetic (VM labels only) -- the
+#   # script real-scopes its own day worklist from the manifest via --all-days.
+#   # STAMP is required for --apply (full); pass via MIGRATION_EXTRA_ARGS="--stamp <STAMP>".
+#   bash launch-canonical-migration-vm.sh tradfi-cme-options 2023-05-01 2026-01-30 dry
+#   MIGRATION_EXTRA_ARGS="--stamp $(date -u +%Y%m%dT%H%M%SZ)" \
+#     bash launch-canonical-migration-vm.sh tradfi-cme-options 2023-05-01 2026-01-30 full
 #
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
@@ -71,7 +77,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|prediction|sports|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|prediction|sports|tradfi-cme-options|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -104,6 +110,19 @@ _script_for() {
         # MANIFEST_PER_VM_SHARDS=true is already exported by setup-data-pipeline-vm.sh
         # so manifest writes hit per-VM shards instead of canonical _index.
         sports)     echo "python -m market_tick_data_service.scripts.migrate_sports_canonical --start-date $START_DATE --end-date $END_DATE --workers 16" ;;
+        # TradFi CME options_chain legacy-flat -> canonical bundled migration
+        # (tradfi_cme_options_chain_legacy_layout_2026_07_10.md). A standalone scripts/
+        # one-off, NOT a market_tick_data_service module -- invoked as a plain script
+        # from $WORKSPACE/mtds (setup-data-pipeline-vm.sh's canonical-migration CWD).
+        # Real-scopes its own day worklist from the manifest (--all-days); START_DATE/
+        # END_DATE are unused by the tool itself (kept only for VM label/metadata
+        # consistency with the other categories). DRY-BY-DEFAULT + --apply, same
+        # convention as defi/cefi/tradfi/prediction -- handled in _launch below.
+        # Category name deliberately starts with "tradfi-" so the VM name
+        # (canonical-migration-tradfi-cme-options-<ts>) stays under the ALREADY
+        # registered "canonical-migration-tradfi-" VM_PREFIX_TO_BUCKET prefix
+        # (longest-prefix startswith match) -- no new registry entry needed.
+        tradfi-cme-options) echo "python -u scripts/canonicalize_cme_options_chain_legacy_flat_2026_07_14.py --all-days" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -118,7 +137,7 @@ _launch() {
     # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
     # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
     # are write-by-default + --dry-run.
-    if [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" ]]; then
+    if [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" || "$cat" == "tradfi-cme-options" ]]; then
         [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
     else
         [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -167,7 +186,7 @@ _launch() {
 }
 
 case "$ASSET_GROUP" in
-    cefi|tradfi|defi|prediction|sports) _launch "$ASSET_GROUP" ;;
+    cefi|tradfi|defi|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
