@@ -667,26 +667,44 @@ INSTALL_ARGS_NODEPS=("--no-sources" "--no-deps")
 # deps are the other editables (installed separately), so --no-deps installs the e2e-testing
 # scripts without the unsatisfiable resolution. (fix 2026-06-19 — funding-ensemble paper VM.)
 _SVC_BENCH_NODEPS=(deployment mdps features ml-infer strategy execution pbm pnl risk e2e-testing)
+# strategy-paper / strategy-live / defi-paper: execution-service's transitive betfairlightweight
+# dep pins requests<2.33.0, conflicting with the workspace canonical requests>=2.33.0
+# (CVE-2026-25645) floor. execution-service's OWN pyproject.toml already declares the fix
+# ([tool.uv] override-dependencies = ["requests>=2.33.0,<3.0.0", ...]) — but `uv pip install`
+# (the pip-compatible interface used here, not `uv sync`) does not read project-level [tool.uv]
+# config automatically, so that override was silently never applied, forcing strategy/execution/
+# e2e-testing onto --no-deps (which then also skipped every OTHER real dependency —
+# nautilus-trader, solana, solders, ... — a "found via VM crash" whack-a-mole). Fix (2026-07-13):
+# pass the SAME override explicitly via --overrides so `uv pip install`'s plain resolve respects
+# it too. Verified: a full combined `uv pip install -e deployment-service -e strategy-service
+# -e execution-service -e e2e-testing ... --overrides <this file>` resolves cleanly (252 pkgs,
+# betfairlightweight/nautilus-trader/solana/solders all genuinely present). pbm/pnl/risk stay on
+# --no-deps below (documented separate UAC version-pinning conflict, not re-verified here).
+UV_OVERRIDE_ARGS=()
+if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
+  UV_OVERRIDE_FILE=$(mktemp)
+  echo "requests>=2.33.0,<3.0.0" > "$UV_OVERRIDE_FILE"
+  UV_OVERRIDE_ARGS=("--overrides" "$UV_OVERRIDE_FILE")
+fi
 for dir in "${INSTALLED_DIRS[@]}"; do
   _base="$(basename "$dir")"
   _route_to_nodeps=false
   for _bn in "${_SVC_BENCH_NODEPS[@]}"; do
     if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
   done
-  # Outside synthetic-benchmark / strategy-paper / strategy-live, only
-  # `deployment` historically routes to NODEPS — preserve that by checking
-  # VM_TASK so other VMs aren't affected.
-  # strategy-paper / strategy-live: same reason as synthetic-benchmark —
-  # execution-service's betfairlightweight dep declares requests<2.33.0 which
-  # conflicts with workspace canonical requests>=2.33.0. betfairlightweight is
-  # Betfair-specific and not used in DeFi strategy/execution; --no-deps installs
-  # the service modules without triggering the unsatisfiable conflict.
-  if [[ "$VM_TASK" != "synthetic-benchmark" && \
-        "$VM_TASK" != "strategy-paper" && \
-        "$VM_TASK" != "strategy-live" && \
-        "$VM_TASK" != "defi-paper" && \
-        "$_base" != "deployment" ]]; then
-    _route_to_nodeps=false
+  # Outside synthetic-benchmark, only `deployment` historically routes to NODEPS — preserve that
+  # by checking VM_TASK so other VMs aren't affected. strategy-paper/strategy-live/defi-paper
+  # route pbm/pnl/risk to NODEPS too (separate unverified UAC pinning conflict); strategy/
+  # execution/e2e-testing now go through STD below (--overrides fix, see comment above).
+  if [[ "$VM_TASK" != "synthetic-benchmark" && "$_base" != "deployment" ]]; then
+    if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
+      _route_to_nodeps=false
+      for _bn in pbm pnl risk; do
+        if [[ "$_base" == "$_bn" ]]; then _route_to_nodeps=true; break; fi
+      done
+    else
+      _route_to_nodeps=false
+    fi
   fi
   if $_route_to_nodeps; then
     INSTALL_ARGS_NODEPS+=("-e" "$dir")
@@ -695,7 +713,7 @@ for dir in "${INSTALLED_DIRS[@]}"; do
   fi
 done
 log "  uv pip install ${INSTALL_ARGS_STD[*]}"
-uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
+uv pip install --find-links "$WHEEL_CACHE" "${UV_OVERRIDE_ARGS[@]}" "${INSTALL_ARGS_STD[@]}" 2>&1 | tail -5
 if [[ "${#INSTALL_ARGS_NODEPS[@]}" -gt 2 ]]; then
   log "  uv pip install ${INSTALL_ARGS_NODEPS[*]}"
   uv pip install --find-links "$WHEEL_CACHE" "${INSTALL_ARGS_NODEPS[@]}" 2>&1 | tail -5
@@ -712,26 +730,13 @@ fi
 # the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
-# position_balance_monitor_service.storage.database eagerly imports sqlalchemy
-# at module load time. pbm/pnl/risk are installed --no-deps to skip their UAC
-# version-pinning conflicts; sqlalchemy itself has no such conflict so install
-# it explicitly here. (promote_workflow_may23_cli_path_2026_05_10.md Phase 1)
-#
-# nautilus-trader (execution-service's #1 declared dependency — "Production-grade
-# backtesting system built on NautilusTrader", execution-service/pyproject.toml)
-# is ALSO skipped by execution-service's --no-deps NODEPS routing above (same
-# reason: betfairlightweight's requests<2.33.0 pin makes the full resolve
-# unsatisfiable). Unlike betfairlightweight, nautilus-trader has no such conflict
-# — install it standalone so execution_service.algorithms.impl.adaptive_twap's
-# `from nautilus_trader.config import ExecAlgorithmConfig` (needed by
-# TenderlyExecutionProvider, which every DeFi paper/live run imports) doesn't
-# ModuleNotFoundError. Found 2026-07-13: this was missing since --no-deps
-# routing was introduced (fix landed after strategy-paper/defi-paper's FIRST
-# real successful run past preflight surfaced it).
-if [[ "$VM_TASK" == "strategy-paper" || "$VM_TASK" == "strategy-live" || "$VM_TASK" == "defi-paper" ]]; then
-  log "  uv pip install sqlalchemy plotly 'nautilus-trader>=1.221.0,<2.0.0'  (pbm storage + e2e desired-state HTML + execution algos, strategy VMs only)"
-  uv pip install --find-links "$WHEEL_CACHE" sqlalchemy plotly 'nautilus-trader>=1.221.0,<2.0.0' 2>&1 | tail -5
-fi
+# position_balance_monitor_service.storage.database eagerly imports sqlalchemy at module load
+# time; pbm/pnl/risk still route to --no-deps above (separate unverified UAC pinning conflict).
+# sqlalchemy/plotly/nautilus-trader no longer need an explicit standalone install here (fix
+# 2026-07-13, superseding the two prior interim workarounds landed the same day): strategy-
+# service (declares sqlalchemy + plotly) and execution-service (declares sqlalchemy +
+# nautilus-trader) now install via the STD --overrides path above, in the SAME shared venv PBM
+# lands in, so PBM's sqlalchemy need is satisfied as a byproduct.
 # Use STD args for the wheel-cache step below (deployment-service's
 # heavyweight deps shouldn't be cached either).
 INSTALL_ARGS=("${INSTALL_ARGS_STD[@]}")
