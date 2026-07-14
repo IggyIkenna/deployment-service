@@ -300,7 +300,13 @@ fi
 
 FORCE_FLAG=""
 if $FORCE; then
-  FORCE_FLAG="--no-skip-existing"
+  # BOTH flags are required for a genuine recompute: --no-skip-existing lifts
+  # the GCS-existence skip; --force (passed through to the features-service
+  # CLI by vm_fss_features.sh) lifts the manifest-attempted skip
+  # (_should_skip_attempted) — without it a recompute over manifest-attempted
+  # dates no-ops every date (observed live 2026-07-14: the GW recompute wave
+  # "completed" in ~8 min having skipped 91/91 dates).
+  FORCE_FLAG="--no-skip-existing --force"
 fi
 
 launch_vm() {
