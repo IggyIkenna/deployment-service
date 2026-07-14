@@ -224,6 +224,15 @@ VM_SOURCE=$(_meta VM_SOURCE)
 # full _DEFAULT_PROTOCOLS list. Analogous to VM_SOLANA_PROTOCOLS for
 # solana-defi-backfill. SSOT: launch-mtds-lending-indices-backfill-vm.sh.
 VM_LENDING_PROTOCOLS=$(_meta VM_LENDING_PROTOCOLS)
+# VM_DEX_POOLS_PROTOCOLS / VM_DEX_SWAPS_PROTOCOLS: same allowlist pattern as
+# VM_LENDING_PROTOCOLS, for dex_pools_handler.py --dex-pools-protocols /
+# dex_swaps_handler.py --dex-swaps-protocols. Scopes a backfill to the
+# newly-wired protocols (velodrome_v2/trader_joe_v2/uniswap_v4/uniswap_v2,
+# mtds_defi_dex_zero_capture_protocols_2026_07_14) instead of re-running the
+# full _DEFAULT_PROTOCOLS list (which would needlessly re-check the 9 already
+# fully-captured protocols across the whole backfill window).
+VM_DEX_POOLS_PROTOCOLS=$(_meta VM_DEX_POOLS_PROTOCOLS)
+VM_DEX_SWAPS_PROTOCOLS=$(_meta VM_DEX_SWAPS_PROTOCOLS)
 # VM_DURATION_HOURS: optional run-time cap for services that accept --duration-hours.
 # Used by alerting-quietness-baseline (48h quietness run per Phase 7 of alerting plan).
 VM_DURATION_HOURS=$(_meta VM_DURATION_HOURS)
@@ -1569,6 +1578,8 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_RECOVERY_FIXTURE_IDS" ]] && CLI_ARGS="$CLI_ARGS --recovery-fixture-ids $VM_RECOVERY_FIXTURE_IDS"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
   [[ -n "$VM_LENDING_PROTOCOLS" ]] && CLI_ARGS="$CLI_ARGS --lending-protocols ${VM_LENDING_PROTOCOLS//[,;]/ }"
+  [[ -n "$VM_DEX_POOLS_PROTOCOLS" ]] && CLI_ARGS="$CLI_ARGS --dex-pools-protocols ${VM_DEX_POOLS_PROTOCOLS//[,;]/ }"
+  [[ -n "$VM_DEX_SWAPS_PROTOCOLS" ]] && CLI_ARGS="$CLI_ARGS --dex-swaps-protocols ${VM_DEX_SWAPS_PROTOCOLS//[,;]/ }"
   # CLI expects nargs='+' → space-separated. Metadata values arrive with
   # semicolons (see VM_INSTRUMENT_IDS comment above) to avoid collision with
   # gcloud's comma key-separator. Transform semicolons → spaces. VM_DATA_TYPES
