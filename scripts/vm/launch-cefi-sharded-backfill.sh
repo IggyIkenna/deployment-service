@@ -558,8 +558,19 @@ if [[ "$DRY_RUN" != "1" ]]; then
       fi
     done
   done
-  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" && "$PLANNED_TARDIS_VMS" -gt 2 ]]; then
-    PLANNED_TARDIS_VMS=2
+  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
+    # Queue mode launches at most one VM per (group|data_types) bucket: the heavy bucket
+    # always exists; the light bucket only when a derivatives venue is in VENUES.
+    _QUEUE_BUCKETS=1
+    for venue in $VENUES; do
+      if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
+        _QUEUE_BUCKETS=2
+        break
+      fi
+    done
+    if [[ "$PLANNED_TARDIS_VMS" -gt "$_QUEUE_BUCKETS" ]]; then
+      PLANNED_TARDIS_VMS=$_QUEUE_BUCKETS
+    fi
   fi
   tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
 fi
