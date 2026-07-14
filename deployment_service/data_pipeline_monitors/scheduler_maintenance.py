@@ -43,6 +43,7 @@ import importlib
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from typing import cast
 
 from unified_trading_library import (
     MaintenanceWindow,
@@ -83,11 +84,11 @@ def _make_scheduler_action(method_name: str) -> SchedulerAction:
     """
     project = _project_id()
     scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions — credential-bound SDK, deferred
-    client = scheduler_mod.CloudSchedulerClient()
+    client = scheduler_mod.CloudSchedulerClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
 
     def _act(job_name: str) -> None:
         qualified = f"projects/{project}/locations/{_SCHEDULER_LOCATION}/jobs/{job_name}"
-        getattr(client, method_name)(name=qualified)
+        getattr(client, method_name)(name=qualified)  # pyright: ignore[reportAny] — dynamic SDK method dispatch
 
     return _act
 
@@ -198,14 +199,18 @@ def _cli(argv: list[str] | None = None) -> int:
     p_resume.add_argument("--force", action="store_true", help="Override a foreign live window.")
 
     args = parser.parse_args(argv)
+    # argparse.Namespace attribute access is untyped (reportAny) — cast each field to its
+    # declared shape once here, mirroring cli.py's own args.* handling convention.
+    command: str = str(cast("object", args.command))
+    bucket: str = str(cast("object", args.bucket))
 
-    if args.command == "status":
-        window = maintenance_status(args.bucket)
+    if command == "status":
+        window = maintenance_status(bucket)
         if window is None:
-            print(f"[maintenance-window] {args.bucket}: no live window — safe to pause/resume freely.")
+            print(f"[maintenance-window] {bucket}: no live window — safe to pause/resume freely.")
             return 0
         print(
-            f"[maintenance-window] {args.bucket}: HELD by {window.locked_by!r} "
+            f"[maintenance-window] {bucket}: HELD by {window.locked_by!r} "
             f"(surface={window.surface!r}, reason={window.reason!r}, "
             f"scheduler_jobs={list(window.scheduler_jobs)}, until {window.expires_at}). "
             "Do NOT resume without coordinating with the holder (or pass --force if you are "
@@ -213,26 +218,33 @@ def _cli(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    jobs: list[str] = [str(j) for j in cast("list[object]", args.jobs)]
+    locked_by: str = str(cast("object", args.locked_by))
+
     try:
-        if args.command == "pause":
+        if command == "pause":
+            surface: str = str(cast("object", args.surface))
+            reason: str = str(cast("object", args.reason))
+            ttl_minutes: int = int(cast("object", args.ttl_minutes))
             window = pause_for_maintenance(
-                bucket=args.bucket,
-                surface=args.surface,
-                scheduler_jobs=args.jobs,
-                reason=args.reason,
-                locked_by=args.locked_by,
-                ttl_minutes=args.ttl_minutes,
+                bucket=bucket,
+                surface=surface,
+                scheduler_jobs=jobs,
+                reason=reason,
+                locked_by=locked_by,
+                ttl_minutes=ttl_minutes,
             )
-            print(f"[maintenance-window] acquired + paused {args.jobs} until {window.expires_at}")
+            print(f"[maintenance-window] acquired + paused {jobs} until {window.expires_at}")
             return 0
-        if args.command == "resume":
+        if command == "resume":
+            force: bool = bool(cast("object", args.force))
             resume_after_maintenance(
-                bucket=args.bucket,
-                scheduler_jobs=args.jobs,
-                locked_by=args.locked_by,
-                force=args.force,
+                bucket=bucket,
+                scheduler_jobs=jobs,
+                locked_by=locked_by,
+                force=force,
             )
-            print(f"[maintenance-window] released + resumed {args.jobs}")
+            print(f"[maintenance-window] released + resumed {jobs}")
             return 0
     except MaintenanceWindowActiveError as exc:
         print(f"[maintenance-window] REFUSED: {exc}", file=sys.stderr)
