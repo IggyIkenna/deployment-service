@@ -438,6 +438,12 @@ launch_cefi_shard() {
   # MarketTickDataServiceConfig.tardis_max_concurrent_downloads). Conservative for a
   # first smoke wave (e.g. 4-8), stepped up once the 403 rate is confirmed clean.
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+="|TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+  # STALL_TIMEOUT_SEC passthrough (2026-07-14): a cold lease-ON VM behind long-running
+  # lease holders waits up to TARDIS_CONCURRENCY_LEASE_MAX_WAIT_SECONDS (1800s) emitting
+  # ZERO progress lines — with the stall threshold ALSO 1800s the watchdog kills it at
+  # exactly the fail-open moment (killed 4 VMs on 2026-07-14: 2x deribit spot_pair, 2x
+  # futures-tail queue). For lease-ON launches into a busy fleet set e.g. 3900.
+  [[ -n "${STALL_TIMEOUT_SEC:-}" ]] && meta+="|STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}"
 
   # SINGLE_VM_QUEUE: accumulate this matched shard into its (group,data_types) bucket
   # instead of launching a per-shard VM now — _flush_single_vm_queue launches ONE
@@ -651,6 +657,7 @@ _launch_queued_vm() {
   [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+  [[ -n "${STALL_TIMEOUT_SEC:-}" ]] && meta+=",STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "[DRY-RUN] $vm_name  bucket=$qkey machine=$machine"

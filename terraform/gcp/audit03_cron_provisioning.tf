@@ -233,6 +233,25 @@ module "batch_live_recon_job" {
 # uts-prod-strategy-service-t1-recon but that CRJ was never provisioned.
 # Discovered at slot-6 2026-05-23 during Phase 4 verification (scheduler fires
 # HTTP 404). Provisioned here per defi_collection_scheduler.tf pattern.
+#
+# FIXED 2026-07-14 (recon_bucket_missing_nightly_recon_failing_2026_07_13.md
+# investigation): `local.strategy_image` is strategy-service's Dockerfile image,
+# which deliberately has ENTRYPOINT [] + CMD=["uvicorn", "strategy_service.api.main:app",
+# ...] (it is primarily a live API service). With no `command` override, Cloud
+# Run execs `args` LITERALLY as argv[0] (confirmed via `docker inspect` +
+# local repro: `exec: "--operation": executable file not found in $PATH`) --
+# every daily execution since creation has failed at the OCI level with ZERO
+# application-level logs ("Application failed to start: The container may
+# have exited abnormally", 10/10 executions checked 2026-07-05..07-14, all
+# NonZeroExitCode). `python -m strategy_service --operation backtest --mode
+# batch` IS a valid, tested CLI invocation (strategy_service/__main__.py ->
+# cli/service_entry.py; see tests/unit/cli/test_cli_flag_combinations.py) --
+# it was just never wired as `command` here. NOTE: this fixes the container
+# exec crash only. It does NOT make this job satisfy BLRS stage0's
+# `t1-recon/strategy/{date}/_SUCCESS` poll -- strategy-service has no
+# `--run-tag` concept at all (grep-clean workspace-wide) and no code path
+# anywhere writes a `_SUCCESS` marker under `t1-recon/`; that is a separate,
+# larger, out-of-scope gap (see the issue doc's fix-direction #3 finding).
 # -------------------------------------------------------
 
 module "strategy_t1_recon_job" {
@@ -251,7 +270,8 @@ module "strategy_t1_recon_job" {
   parallelism           = 1
   task_count            = 1
 
-  args = ["--operation", "backtest", "--mode", "batch"]
+  command = ["python", "-m", "strategy_service"]
+  args    = ["--operation", "backtest", "--mode", "batch"]
 
   environment_variables = {
     GCP_PROJECT_ID = var.project_id
