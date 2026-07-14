@@ -82,9 +82,15 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Still opt-in TARDIS_CONCURRENCY_LEASE + a control bucket is recommended as a safety
 # net even in this mode (harmless no-op cost when only one VM is ever running).
 SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-0}"
-declare -A _QUEUE_VENUES  # key="group|data_types" -> space-separated venue list
-declare -A _QUEUE_START   # key -> min matched start_date
-declare -A _QUEUE_END     # key -> max matched end_date
+# LAUNCH_GROUPS: space-separated subset of "heavy light" to launch (default both). Lets
+# an operator/agent fill exactly one free Tardis-cap slot (e.g. LAUNCH_GROUPS="heavy" now,
+# "light" when the next slot frees) instead of being forced into a 2-bucket queue launch.
+# (NOT named GROUPS — that is a bash special variable; assignments to it are silently ignored.)
+LAUNCH_GROUPS="${LAUNCH_GROUPS:-heavy light}"
+_group_selected() { case " $LAUNCH_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+declare -A _QUEUE_VENUES=()  # key="group|data_types" -> space-separated venue list
+declare -A _QUEUE_START=()   # key -> min matched start_date
+declare -A _QUEUE_END=()     # key -> max matched end_date
 
 # Registry-driven machine-sizing (operator 2026-06-23): a memory-heavy venue
 # launches correctly-sized on the FIRST try, NOT via repeated OOM-escalation.
@@ -568,22 +574,28 @@ if [[ "$DRY_RUN" != "1" ]]; then
   for venue in $VENUES; do
     years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
     for year in $years; do
-      _only_matches "$venue" "$year" "heavy" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      # BOTH filters compose (AND): ONLY= exact venue:year:group tokens (peer lane,
+      # a3fafa6) + LAUNCH_GROUPS group-level selection (this lane) — planned count must
+      # mirror the launch loop exactly or the guard mis-counts.
+      _only_matches "$venue" "$year" "heavy" && _group_selected "heavy" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-        _only_matches "$venue" "$year" "light" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+        _only_matches "$venue" "$year" "light" && _group_selected "light" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       fi
     done
   done
   if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
     # Queue mode launches at most one VM per (group|data_types) bucket: the heavy bucket
     # always exists; the light bucket only when a derivatives venue is in VENUES.
-    _QUEUE_BUCKETS=1
-    for venue in $VENUES; do
-      if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-        _QUEUE_BUCKETS=2
-        break
-      fi
-    done
+    _QUEUE_BUCKETS=0
+    _group_selected "heavy" && _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
+    if _group_selected "light"; then
+      for venue in $VENUES; do
+        if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
+          _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
+          break
+        fi
+      done
+    fi
     if [[ "$PLANNED_TARDIS_VMS" -gt "$_QUEUE_BUCKETS" ]]; then
       PLANNED_TARDIS_VMS=$_QUEUE_BUCKETS
     fi
@@ -594,11 +606,13 @@ fi
 for venue in $VENUES; do
   years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
   for year in $years; do
-    launch_cefi_shard "$venue" "$year" "heavy" "$DATA_HEAVY"
-    if [[ "$venue" == "DERIBIT" ]]; then
-      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_DERIBIT"
-    elif _venue_is_derivatives "$venue"; then
-      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_PERPS"
+    _group_selected "heavy" && launch_cefi_shard "$venue" "$year" "heavy" "$DATA_HEAVY"
+    if _group_selected "light"; then
+      if [[ "$venue" == "DERIBIT" ]]; then
+        launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_DERIBIT"
+      elif _venue_is_derivatives "$venue"; then
+        launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_PERPS"
+      fi
     fi
   done
 done
