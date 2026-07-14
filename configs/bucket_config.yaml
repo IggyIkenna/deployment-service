@@ -78,10 +78,14 @@ infrastructure_buckets:
     # kind — setup-buckets.py now provisions the canonical env-tiered names via the
     # UTL resolver directly; this stale flat registration is no longer needed.
     # Infrastructure — shared buckets
-    - name_template: "config-store-{project_id}"
-      service: infrastructure
-      type: config
-      category: ALL
+    # config-store-{project_id} (flat) REMOVED 2026-07-14 (bucket estate consolidation,
+    # [[bucket_estate_consolidation_to_sub100_2026_07_13]]): bucket deleted (all durable
+    # config content was already byte-identical to config-store-prd-{project_id}; the one
+    # unique object was an ephemeral Tardis concurrency-control lease, migrated then
+    # retired). config-store is now env-tiered (config-store-{env}-{project_id}) per
+    # cloud-providers.yaml's canonical `config-store` kind resolved via resolve_bucket_name()
+    # — leaving the flat entry here would let setup-buckets.py/provision-test-buckets.sh/
+    # setup-dev-project.sh silently recreate the retired flat bucket.
     - name_template: "{project_id}-events"
       service: infrastructure
       type: events
