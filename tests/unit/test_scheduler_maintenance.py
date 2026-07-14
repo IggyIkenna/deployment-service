@@ -10,7 +10,7 @@ credentials, no network.
 from __future__ import annotations
 
 import pytest
-from unified_trading_library.maintenance_window import MaintenanceWindowActiveError
+from unified_trading_library import MaintenanceWindowActiveError
 
 from deployment_service.data_pipeline_monitors import scheduler_maintenance as sm
 

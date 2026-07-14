@@ -44,11 +44,12 @@ import logging
 import sys
 from collections.abc import Callable, Sequence
 
-from unified_trading_library import UnifiedCloudConfig, get_storage_client
-from unified_trading_library.maintenance_window import (
+from unified_trading_library import (
     MaintenanceWindow,
     MaintenanceWindowActiveError,
+    UnifiedCloudConfig,
     acquire_maintenance_window,
+    get_storage_client,
     read_maintenance_window,
     release_maintenance_window,
 )
