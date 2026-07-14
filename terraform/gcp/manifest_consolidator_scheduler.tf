@@ -90,13 +90,20 @@ locals {
   # First bump (sports → 600s) was insufficient — observed 'Container terminated
   # on signal 9' mid-merge. Second bump: sports → 900s, plus cefi-market-data
   # added at 600s prophylactically since its shard count is 33x sports'.
+  # 2026-07-14 (mtds_backfill_vm_startup_oom_rc137 issue): market-data-defi's
+  # date-range-chunked incremental merge (the OOM fix — see
+  # CONSOLIDATOR_MERGE_CHUNK_DAYS in unified_trading_library/manifest_consolidator.py)
+  # runs 24-30+ min in production against the real 27.4M-row canonical, well past
+  # the 1800s (30 min) budget every other bucket's typical merge fits inside
+  # comfortably. Live-bumped to 3600s via `gcloud run jobs update` this session
+  # (stopgap, applies to future executions only) — codified here.
   manifest_consolidator_timeouts = {
     "instruments-sports"     = 1800
     "market-data-sports"     = 1800
     "market-data-cefi"       = 1800
     "instruments-cefi"       = 1800
     "instruments-defi"       = 1800
-    "market-data-defi"       = 1800
+    "market-data-defi"       = 3600
     "instruments-tradfi"     = 1800
     "market-data-tradfi"     = 1800
     "instruments-prediction" = 1800
@@ -151,6 +158,25 @@ locals {
     # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "24GB"
     "market-data-defi"          = "24GB"
+  }
+
+  # Cross-cycle lock TTL (CONSOLIDATOR_LOCK_TTL_SECONDS). Code default (300s,
+  # see unified_trading_library/manifest_consolidator.py) is correct for every
+  # bucket whose merge finishes in well under 300s — a genuinely crashed
+  # holder's orphaned lock still clears promptly. market-data-defi's
+  # date-range-chunked merge (the OOM fix) runs 24-30+ min in production,
+  # blowing past 300s by 5-10x: every `*/1` cron tick past the TTL treated the
+  # still-running legitimate cycle as orphaned and started a COMPETING
+  # concurrent merge (observed 3+ simultaneous executions live, 2026-07-14,
+  # each re-downloading the full 27.4M-row canonical — mtds_backfill_vm_startup_oom_rc137).
+  # Set COMFORTABLY ABOVE this bucket's own timeout_seconds override (3600s,
+  # above) — since Cloud Run itself kills any execution that overruns its task
+  # timeout, a lock TTL longer than the task timeout means a "fresh" lock can
+  # ONLY belong to a still-legitimately-running execution, never a livelock;
+  # this structurally eliminates the failure class rather than just widening
+  # the number that caused it.
+  manifest_consolidator_lock_ttl_seconds = {
+    "market-data-defi" = "4200"
   }
 
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
@@ -234,6 +260,9 @@ module "manifest_consolidator_job" {
     },
     contains(keys(local.manifest_consolidator_duckdb_memory), each.key) ? {
       CONSOLIDATOR_DUCKDB_MEMORY_LIMIT = local.manifest_consolidator_duckdb_memory[each.key]
+    } : {},
+    contains(keys(local.manifest_consolidator_lock_ttl_seconds), each.key) ? {
+      CONSOLIDATOR_LOCK_TTL_SECONDS = local.manifest_consolidator_lock_ttl_seconds[each.key]
     } : {},
   )
 
