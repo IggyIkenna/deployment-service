@@ -547,14 +547,30 @@ _venue_is_derivatives() {
 # Planned count mirrors the launch loop below exactly: heavy per (venue, year) + light
 # for derivatives venues. SINGLE_VM_QUEUE=1 collapses the fan-out into at most one VM
 # per (group|data_types) bucket, so cap the estimate at 2 (heavy+light) in that mode.
+# ONLY="venue:year:group ..." narrows the real launch loop (see launch_cefi_shard's own
+# ONLY filter above) — mirror that same per-key match here, else a single-group ONLY
+# scope (e.g. "DERIBIT:2026:heavy") still gets counted as its full heavy+light fan-out,
+# spuriously refusing launches that are safely under cap. Real bug live-verified
+# 2026-07-14 (mvp_backfill_cefi_tick_v10 G4): a DRY_RUN confirmed exactly 1 VM would
+# launch for ONLY="DERIBIT:2026:heavy", yet the guard refused on a phantom 2-planned
+# count (heavy+light) — the launch was safely at cap (2 running + 1 real = 3), not over.
+_only_matches() {
+  local key="${1}:${2}:${3}"
+  [[ -z "${ONLY:-}" ]] && return 0
+  local tok
+  for tok in $ONLY; do
+    [[ "$tok" == "$key" ]] && return 0
+  done
+  return 1
+}
 if [[ "$DRY_RUN" != "1" ]]; then
   PLANNED_TARDIS_VMS=0
   for venue in $VENUES; do
     years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
     for year in $years; do
-      PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      _only_matches "$venue" "$year" "heavy" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-        PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+        _only_matches "$venue" "$year" "light" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       fi
     done
   done
