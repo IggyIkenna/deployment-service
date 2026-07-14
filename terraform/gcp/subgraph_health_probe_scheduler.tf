@@ -60,19 +60,16 @@ resource "google_pubsub_topic_iam_member" "t1_batch_defi_alerts_publisher" {
   member  = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
-# Allow t1_batch SA to read + write fingerprints on the lending-indices
-# bucket. The probe stores its per-cell fingerprints under
-# _index/subgraph_fingerprints/fingerprints.parquet on the same bucket the
-# rich-subgraph collector writes to (no new bucket kind required, per
-# `_resolve_bucket()` in scripts/subgraph_health_probe.py). Without this
-# binding the probe runs to completion but fails at `_write_fingerprints`
-# with a 403 — meaning every run re-alerts on first observation rather
-# than diffing against prior state.
-resource "google_storage_bucket_iam_member" "t1_batch_lending_indices_object_admin" {
-  bucket = "lending-indices-${var.project_id}"
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.t1_batch.email}"
-}
+# resource google_storage_bucket_iam_member.t1_batch_lending_indices_object_admin
+# REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item C): the probe's
+# `_resolve_bucket()` (scripts/subgraph_health_probe.py) now resolves the
+# SAME shared DeFi bucket `lending_indices_handler.py`'s own writer uses
+# (`get_write_bucket_name("market_data", "defi")` → `market-data-tick-defi-prd-{pid}`)
+# instead of the retired dedicated `lending-indices-{pid}` flat bucket, and
+# t1_batch SA already has `roles/storage.objectAdmin` on that shared bucket
+# via `t1_batch_defi_raw_tick_writer` (qg_snapshot_scheduler.tf) — no new
+# binding needed. This binding is TF-unmanaged until the flat bucket itself
+# is deleted (matches the lending-indices-prd precedent, ds@1dd2159).
 
 # -------------------------------------------------------
 # Cloud Run Job — subgraph health probe
@@ -152,7 +149,6 @@ resource "google_cloud_run_v2_job" "subgraph_health_probe" {
   depends_on = [
     google_secret_manager_secret_iam_member.t1_batch_thegraph_api_key_accessor,
     google_pubsub_topic_iam_member.t1_batch_defi_alerts_publisher,
-    google_storage_bucket_iam_member.t1_batch_lending_indices_object_admin,
   ]
 }
 
