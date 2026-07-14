@@ -491,6 +491,13 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-risk-params-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Drift V2 sig-index parallel-walker segments (operator ruling (b) 2026-07-14,
+    # defi_perp_funding_mvp_scope_contradiction_2026_06_29.md): each VM walks Helius
+    # getSignaturesForAddress backwards over one segment of the 2025-01-15→2025-12-23
+    # unindexed gap, flushing (signature, slot, blockTime) parts to
+    # _index/drift_v2_sig_index_parts*/ in the defi tick bucket. Heartbeat-only (None):
+    # the walker writes index parts, not per-VM manifest shards.
+    "mtds-drift-sig-walker-": None,
     # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
     # raydium, phoenix, jito, kamino_lending). Drift + marinade have their
     # own dedicated launchers.
