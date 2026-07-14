@@ -105,6 +105,20 @@ def test_exit_code_none_when_no_durable_signal():
     assert _gcs.read_terminal_exit_code(storage, LOG_BUCKET, "gone-vm") is None
 
 
+def test_exit_code_none_for_running_sentinel_not_misread_as_success():
+    """lc_log_upload_trap_block (launcher_common.sh) stamps EXIT_STATUS="RUNNING"
+    at VM-startup, before the EXIT trap that writes the real rc is installed —
+    a same-named relaunch's mid-run signal, in place until either the trap
+    overwrites it with a real rc or a whole-unit SIGKILL leaves it stuck. A
+    non-integer sentinel must never be misread as the successful rc=0 a STALE
+    prior run could otherwise leave behind (the exact false-success bug this
+    guards against — features_sports_unbounded_memory_early_history_dates
+    issue doc, 2026-07-13)."""
+    vm = "fss-backfill-vm-4"
+    storage = FakeStorage({(LOG_BUCKET, _exit_status_blob(vm)): (b"RUNNING\n", 0.0)})
+    assert _gcs.read_terminal_exit_code(storage, LOG_BUCKET, vm) is None
+
+
 # ── _gcs.recent_log_summary ──────────────────────────────────────────────────
 def test_recent_log_summary_counts_error_lines_and_last_line():
     vm = "defi-recursive-backfill-2026"

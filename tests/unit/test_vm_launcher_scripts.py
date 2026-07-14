@@ -127,6 +127,36 @@ class TestLauncherCommonLibrary:
         assert "exec > >(tee -a" in output
         assert "_lc_final_upload()" in output
 
+    def test_lc_log_upload_trap_block_stamps_running_sentinel_before_trap_install(self, launcher_lib_path: Path):
+        """A RUNNING sentinel must land on EXIT_STATUS before the EXIT trap is
+        installed — this is the fix for a same-named relaunch reading a PRIOR
+        run's stale terminal EXIT_STATUS (e.g. a stale "0") as success when a
+        whole-unit SIGKILL (a fast OOM) kills the script before
+        `_lc_final_upload` ever gets a chance to run (SIGKILL bypasses EXIT
+        traps entirely). See launcher_common.sh's lc_log_upload_trap_block
+        docstring point 4.
+        """
+        vm_name = "test-vm-20240523-120000"
+        result = subprocess.run(
+            ["bash", "-c", f'source "{launcher_lib_path}" && lc_log_upload_trap_block "{vm_name}" "{TEST_PROJECT}"'],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        output = result.stdout
+
+        sentinel_line = 'echo "RUNNING" | gsutil -q cp - "$GCS_EXIT_URI"'
+        assert sentinel_line in output
+        # Must be stamped BEFORE the trap install, so a mid-run whole-unit
+        # kill can never leave a stale prior-run terminal code readable.
+        assert output.index(sentinel_line) < output.index("trap _lc_final_upload EXIT")
+        # Non-numeric — data_pipeline_monitors._gcs.read_terminal_exit_code()
+        # must fail its int() parse on it and fall through to None/unknown,
+        # never misread it as a successful rc=0.
+        with pytest.raises(ValueError):
+            int("RUNNING")
+
 
 class TestTarballFreshnessGuard:
     """Test lc_verify_tarball_freshness — the pre-launch stale-tarball guard.
