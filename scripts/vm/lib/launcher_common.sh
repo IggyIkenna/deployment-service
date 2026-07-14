@@ -670,6 +670,25 @@ lc_verify_setup_script_freshness() {
 #      failed), prints a final marker, stops the streamer, then schedules
 #      `shutdown -h +1` to flush before the VM goes away.
 #
+#   4. BEFORE any of the above, immediately overwrites EXIT_STATUS with a
+#      "RUNNING" sentinel. This closes a false-success gap found 2026-07-13
+#      (features_sports_unbounded_memory_early_history_dates issue doc): a
+#      SIGKILL that takes down the WHOLE systemd unit (wrapper shell + tee +
+#      workload child all at once, e.g. a fast OOM) bypasses bash EXIT traps
+#      entirely — nothing can trap SIGKILL — so `trap _lc_final_upload EXIT`
+#      never runs and the real rc is never written. Without this sentinel, a
+#      relaunch that reuses the same `vm_name` (the norm for backfill shards)
+#      would leave the STALE terminal EXIT_STATUS from that vm_name's PRIOR
+#      run — e.g. an earlier successful "0" — silently masquerading as this
+#      run's result. `RUNNING` is not a valid integer, so
+#      `data_pipeline_monitors._gcs.read_terminal_exit_code()` (the canonical
+#      reader) fails its `int()` parse and correctly falls through to
+#      `None` ("never terminated, never a success") instead of misreading a
+#      stale 0 — matching its own documented contract. The trap itself still
+#      cannot survive a whole-unit SIGKILL (no bash mechanism can), but the
+#      OBSERVABLE terminal signal now can never falsely read "completed" for
+#      a run that never got the chance to finish.
+#
 # Why this exists: inline startup scripts that put `gsutil cp` only at the
 # END of the script body lose ALL logs if anything fails before that line,
 # AND show a FROZEN log for the whole run (no progress visibility) — both
@@ -722,6 +741,11 @@ LC_VM_ASSET_GROUP="${asset_group}"
 LC_VM_TASK="${task}"
 LC_START_EPOCH=\$(date +%s)
 mkdir -p "\$(dirname "\$LOG_LOCAL")" 2>/dev/null || true
+# Stamp a non-terminal RUNNING sentinel FIRST, before anything else — so a
+# same-named relaunch never leaves a PRIOR run's stale terminal EXIT_STATUS
+# (e.g. a stale "0") readable as this run's result if a whole-unit SIGKILL
+# (e.g. a fast OOM) kills this script before the EXIT trap below ever fires.
+echo "RUNNING" | gsutil -q cp - "\$GCS_EXIT_URI" 2>/dev/null || true
 exec > >(tee -a "\$LOG_LOCAL") 2>&1
 echo "=== VM STARTED \$(date -u +'%Y-%m-%dT%H:%M:%SZ') vm=${vm_name} asset_group=${asset_group} task=${task} ==="
 # Continuous streamer: ship the growing log to GCS + write a heartbeat blob
