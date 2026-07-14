@@ -20,6 +20,7 @@ import pytest
 
 from deployment_service.data_pipeline_monitors import (
     _gcs,
+    consolidator_scheduler_watcher,
     escalation,
     exit_code_fleet_monitor,
     heartbeat_stall_watcher,
@@ -1517,6 +1518,49 @@ def test_zombie_watchdog_alive_when_fresh(monkeypatch):
     )
     result = meta_watchers.check_zombie_watchdog_alive(storage_client=storage, log_bucket=LOG_BUCKET)
     assert result.stale is False
+    assert emitted == []
+
+
+# ── DP-WATCHER-003: a non-`-legacy-` consolidator scheduler is PAUSED ────────
+def test_consolidator_scheduler_paused_pages_for_non_legacy_job(monkeypatch):
+    emitted = _capture_emits(monkeypatch)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: ["uts-prod-manifest-consolidator-instruments-sports-cron"],
+        scheduler_state_reader=lambda _job: "PAUSED",
+    )
+    assert paused == ["uts-prod-manifest-consolidator-instruments-sports-cron"]
+    assert any(e[0] == "DP_CONSOLIDATOR_SCHEDULER_PAUSED" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_consolidator_scheduler_paused_skips_legacy_job(monkeypatch):
+    # -legacy- jobs are deliberately deprecated/paused — never page.
+    emitted = _capture_emits(monkeypatch)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: ["uts-prod-manifest-consolidator-market-data-tradfi-legacy-cron"],
+        scheduler_state_reader=lambda _job: "PAUSED",
+    )
+    assert paused == []
+    assert emitted == []
+
+
+def test_consolidator_scheduler_paused_skips_enabled_job(monkeypatch):
+    emitted = _capture_emits(monkeypatch)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: ["uts-prod-manifest-consolidator-market-data-sports-cron"],
+        scheduler_state_reader=lambda _job: "ENABLED",
+    )
+    assert paused == []
+    assert emitted == []
+
+
+def test_consolidator_scheduler_paused_empty_lister_no_page(monkeypatch):
+    # A listing failure (empty list) checks nothing this sweep — never invents jobs.
+    emitted = _capture_emits(monkeypatch)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: [],
+        scheduler_state_reader=lambda _job: "PAUSED",
+    )
+    assert paused == []
     assert emitted == []
 
 

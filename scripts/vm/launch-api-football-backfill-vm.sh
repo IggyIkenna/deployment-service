@@ -103,10 +103,21 @@ REMAINING_DAILY_QUOTA="${REMAINING_DAILY_QUOTA:-}"
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND=false
 
+# --skip-lock: bypass ONLY the singleton lock (deliberate entity-sharded
+# fleet fan-out) WITHOUT setting VM_FORCE on the instrument CLI. --force
+# conflated the two (lock bypass + redo_all): the 2026-07-14 GW re-run wave
+# launched VMs 2-5 with --force just to clear the lock and inadvertently ran
+# them redo_all (presence-skip bypassed → full re-fetch of already-captured
+# fixtures). Over a 91-day window that wasted ~30k calls; over 2020→present
+# it would burn the entire multi-day quota re-fetching present data. Issue:
+# sports_gw_enrichment_false_empty_manifest_and_dropped_rows_2026_07_14.
+SKIP_LOCK=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
+    --skip-lock) SKIP_LOCK=true; shift ;;
     --entity) ENTITY="$2"; shift 2 ;;
     --lookback) LOOKBACK="$2"; shift 2 ;;
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
@@ -154,12 +165,15 @@ EOF
 else
   if [[ $# -ne 2 ]]; then
     cat >&2 <<EOF
-Usage: bash launch-api-football-backfill-vm.sh [--force] [--entity ENTITY] \\
+Usage: bash launch-api-football-backfill-vm.sh [--force] [--skip-lock] [--entity ENTITY] \\
          ( <START_DATE> <END_DATE> | --lookback N --lookahead M [--force-window] )
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
   --lookback N / --lookahead M: rolling window resolved to [today-N..today+M] on the VM at boot (UTC).
   --force-window: disable skip-if-exists for the rolling window (forward-poll overwrite contract).
+  --skip-lock: bypass ONLY the singleton lock (entity-sharded --fleet-vms fan-out) WITHOUT
+               redo_all on the VM. --force = lock bypass + VM_FORCE=true (full re-fetch) — do
+               NOT use --force just to clear the lock on a fleet launch.
   ENTITY (optional): FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS |
                      FIXTURE_LINEUPS | PLAYER_STATS. Omit for all entities.
 
@@ -195,7 +209,11 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 # ── Singleton lock: API-Football rate-limits per-key ──
 # Catches both af-backfill-* (this script) and af-audit-* (truth-set audit
 # launcher) — they share the api_football key and must be mutually exclusive.
-if ! $FORCE; then
+# --skip-lock bypasses ONLY this check (deliberate --fleet-vms fan-out where
+# the registry rate split governs the shared key); --force also bypasses it
+# but ADDITIONALLY sets VM_FORCE=true (redo_all) on the VM — see the flag
+# comment above.
+if ! $FORCE && ! $SKIP_LOCK; then
   EXISTING="$(gcloud compute instances list \
     --filter='(name~"^af-backfill-" OR name~"^af-audit-") AND status=RUNNING' \
     --zones="$ZONE" \

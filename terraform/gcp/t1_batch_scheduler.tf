@@ -63,7 +63,25 @@ locals {
   # Cloud Scheduler job name convention: {env_prefix}-{service}-t1-schedule
   t1_service_account_email = google_service_account.t1_batch.email
 
-  t1_batch_services = {
+  # Sports fixtures + sports features dev-tier retirement (operator ruling 2026-07-14,
+  # bucket_estate_consolidation_to_sub100_2026_07_13.md): the dev tier for THIS pipeline is
+  # decommissioned entirely — instruments-store-sports-dev held no genuinely unique data vs
+  # prod (day-for-day league/entity comparison: prod is a strict superset — deeper entity
+  # coverage (fixture_events/fixture_lineups/fixture_stats/player_stats), ~3x the league
+  # breadth, and identical leagues on the two most recent overlapping capture days; the sole
+  # divergent day was dev's very first successful run after days of failures, not a
+  # sustained unique capture). The sports-features t1-recon target job doesn't exist in ANY
+  # tier (dev or prod) — that scheduler entry was already dead. staging/prod entries for this
+  # same pipeline are UNCHANGED.
+  t1_batch_services_dev_excluded_keys = [
+    "sports-fixtures-6am",
+    "sports-fixtures-noon",
+    "sports-fixtures-6pm",
+    "sports-fixtures-midnight",
+    "features-sports",
+  ]
+
+  t1_batch_services_all = {
     # Per-AG instruments-service producers (FAST phase: 00:00-00:20, staggered 10min)
     # REPLACES the retired all-AG "instruments" 00:00 job (OOM'd at 8cpu/32Gi — signal 9).
     # Sports has its own sports-fixtures jobs; CeFi runs at 06:00 (Tardis lag).
@@ -178,6 +196,13 @@ locals {
       description = "batch-live-reconciliation-service — T+1 orchestrator; polls GCS for upstream data availability"
     }
   }
+
+  # dev tier: drop the sports-fixtures + features-sports entries (see
+  # t1_batch_services_dev_excluded_keys above); staging/prod keep the full map.
+  t1_batch_services = var.environment == "dev" ? {
+    for k, v in local.t1_batch_services_all : k => v
+    if !contains(local.t1_batch_services_dev_excluded_keys, k)
+  } : local.t1_batch_services_all
 }
 
 resource "google_cloud_scheduler_job" "t1_batch_schedule" {

@@ -171,6 +171,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mtds-risk-params-": "launch-mtds-risk-params-backfill-vm.sh",
     "mtds-eigenlayer-rewards-backfill": "launch-mtds-eigenlayer-rewards-backfill-vm.sh",
     "mtds-solana-drift-backfill": "launch-mtds-solana-drift-backfill-vm.sh",
+    # Drift V2 sig-index parallel-walker segments (operator ruling (b) 2026-07-14 —
+    # defi_perp_funding_mvp_scope_contradiction_2026_06_29.md; closes the
+    # 2025-01-15→2025-12-23 unindexed gap G1.5 of mvp_backfill_defi_onchain_v10).
+    "mtds-drift-sig-walker-": "launch-mtds-drift-sig-walker-vm.sh",
     # G1.6 (mvp_backfill_defi_onchain_v10_2026_06_27.md): dedicated ORCA/RAYDIUM/
     # KAMINO dex_pool_state backfill (VM_SOLANA_PROTOCOLS scopes the fan-out).
     "mtds-solana-defi-backfill": "launch-mtds-solana-defi-backfill-vm.sh",

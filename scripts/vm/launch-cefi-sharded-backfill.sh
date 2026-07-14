@@ -82,9 +82,15 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Still opt-in TARDIS_CONCURRENCY_LEASE + a control bucket is recommended as a safety
 # net even in this mode (harmless no-op cost when only one VM is ever running).
 SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-0}"
-declare -A _QUEUE_VENUES  # key="group|data_types" -> space-separated venue list
-declare -A _QUEUE_START   # key -> min matched start_date
-declare -A _QUEUE_END     # key -> max matched end_date
+# LAUNCH_GROUPS: space-separated subset of "heavy light" to launch (default both). Lets
+# an operator/agent fill exactly one free Tardis-cap slot (e.g. LAUNCH_GROUPS="heavy" now,
+# "light" when the next slot frees) instead of being forced into a 2-bucket queue launch.
+# (NOT named GROUPS — that is a bash special variable; assignments to it are silently ignored.)
+LAUNCH_GROUPS="${LAUNCH_GROUPS:-heavy light}"
+_group_selected() { case " $LAUNCH_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+declare -A _QUEUE_VENUES=()  # key="group|data_types" -> space-separated venue list
+declare -A _QUEUE_START=()   # key -> min matched start_date
+declare -A _QUEUE_END=()     # key -> max matched end_date
 
 # Registry-driven machine-sizing (operator 2026-06-23): a memory-heavy venue
 # launches correctly-sized on the FIRST try, NOT via repeated OOM-escalation.
@@ -415,7 +421,7 @@ launch_cefi_shard() {
   # across every venue/group this launcher spawns. Same pattern as
   # launch-mdps-sharded-backfill.sh / launch-sfi-backfill-vm.sh /
   # launch-mtds-gas-fees-backfill-vm.sh. =/space/comma-free (metadata-safe).
-  meta+="|STALL_PROGRESS_REGEX=uploaded"
+  meta+="|STALL_PROGRESS_REGEX=${STALL_PROGRESS_REGEX:-uploaded}"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
   [[ "$FREE_ONLY" == "1" ]] && meta+="|TARDIS_FREE_ONLY=1"
   # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
@@ -547,19 +553,52 @@ _venue_is_derivatives() {
 # Planned count mirrors the launch loop below exactly: heavy per (venue, year) + light
 # for derivatives venues. SINGLE_VM_QUEUE=1 collapses the fan-out into at most one VM
 # per (group|data_types) bucket, so cap the estimate at 2 (heavy+light) in that mode.
+# ONLY="venue:year:group ..." narrows the real launch loop (see launch_cefi_shard's own
+# ONLY filter above) — mirror that same per-key match here, else a single-group ONLY
+# scope (e.g. "DERIBIT:2026:heavy") still gets counted as its full heavy+light fan-out,
+# spuriously refusing launches that are safely under cap. Real bug live-verified
+# 2026-07-14 (mvp_backfill_cefi_tick_v10 G4): a DRY_RUN confirmed exactly 1 VM would
+# launch for ONLY="DERIBIT:2026:heavy", yet the guard refused on a phantom 2-planned
+# count (heavy+light) — the launch was safely at cap (2 running + 1 real = 3), not over.
+_only_matches() {
+  local key="${1}:${2}:${3}"
+  [[ -z "${ONLY:-}" ]] && return 0
+  local tok
+  for tok in $ONLY; do
+    [[ "$tok" == "$key" ]] && return 0
+  done
+  return 1
+}
 if [[ "$DRY_RUN" != "1" ]]; then
   PLANNED_TARDIS_VMS=0
   for venue in $VENUES; do
     years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
     for year in $years; do
-      PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      # BOTH filters compose (AND): ONLY= exact venue:year:group tokens (peer lane,
+      # a3fafa6) + LAUNCH_GROUPS group-level selection (this lane) — planned count must
+      # mirror the launch loop exactly or the guard mis-counts.
+      _only_matches "$venue" "$year" "heavy" && _group_selected "heavy" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-        PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+        _only_matches "$venue" "$year" "light" && _group_selected "light" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
       fi
     done
   done
-  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" && "$PLANNED_TARDIS_VMS" -gt 2 ]]; then
-    PLANNED_TARDIS_VMS=2
+  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
+    # Queue mode launches at most one VM per (group|data_types) bucket: the heavy bucket
+    # always exists; the light bucket only when a derivatives venue is in VENUES.
+    _QUEUE_BUCKETS=0
+    _group_selected "heavy" && _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
+    if _group_selected "light"; then
+      for venue in $VENUES; do
+        if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
+          _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
+          break
+        fi
+      done
+    fi
+    if [[ "$PLANNED_TARDIS_VMS" -gt "$_QUEUE_BUCKETS" ]]; then
+      PLANNED_TARDIS_VMS=$_QUEUE_BUCKETS
+    fi
   fi
   tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
 fi
@@ -567,11 +606,13 @@ fi
 for venue in $VENUES; do
   years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
   for year in $years; do
-    launch_cefi_shard "$venue" "$year" "heavy" "$DATA_HEAVY"
-    if [[ "$venue" == "DERIBIT" ]]; then
-      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_DERIBIT"
-    elif _venue_is_derivatives "$venue"; then
-      launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_PERPS"
+    _group_selected "heavy" && launch_cefi_shard "$venue" "$year" "heavy" "$DATA_HEAVY"
+    if _group_selected "light"; then
+      if [[ "$venue" == "DERIBIT" ]]; then
+        launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_DERIBIT"
+      elif _venue_is_derivatives "$venue"; then
+        launch_cefi_shard "$venue" "$year" "light" "$DATA_LIGHT_PERPS"
+      fi
     fi
   done
 done
@@ -605,7 +646,7 @@ _launch_queued_vm() {
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
   meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
-  meta+=",STALL_PROGRESS_REGEX=uploaded"
+  meta+=",STALL_PROGRESS_REGEX=${STALL_PROGRESS_REGEX:-uploaded}"
   [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
   [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"

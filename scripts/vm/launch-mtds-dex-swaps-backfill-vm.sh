@@ -39,6 +39,11 @@ FLEET_VMS="${FLEET_VMS:-1}"
 # --dex-swaps-protocols (nargs='+'), mirrors launch-mtds-dex-pools-backfill-vm.sh
 # / launch-mtds-lending-indices-backfill-vm.sh's VM_*_PROTOCOLS passthrough.
 PROTOCOLS=""
+# Diagnostic override: keep the VM alive post-crash for SSH/dmesg inspection
+# instead of self-deleting (mtds_backfill_vm_startup_oom_rc137_2026_07_14 issue —
+# every prior rc=137 crash self-deleted before anyone could attach). Default
+# true (self-shutdown) preserves normal backfill behavior for every other caller.
+VM_SHUTDOWN_ON_COMPLETION="${VM_SHUTDOWN_ON_COMPLETION:-true}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -134,7 +139,7 @@ METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
 METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=${VM_SHUTDOWN_ON_COMPLETION}"
 # Part 4: SHARD_INDEX selects this VM's starting TheGraph key (key_number =
 # SHARD_INDEX % 9 + 1); the handler round-robins the full 9-key pool per request.
 METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"

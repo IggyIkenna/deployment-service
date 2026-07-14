@@ -119,15 +119,26 @@ locals {
   # cycle at 16Gi → canonical availability_index.parquet stuck 36h stale despite
   # scheduler firing every minute. market-data-tick-tradfi (1621 shards) was next
   # in line. Bumped both to 8 vCPU / 32Gi. Default stays 4/16 for the rest.
+  #
+  # 2026-07-14 (mtds_backfill_vm_startup_oom_rc137 issue, slot 11): market-data-defi's
+  # container had ALREADY been bumped to 8vCPU/32Gi live (drift — not reflected here)
+  # but CONSOLIDATOR_DUCKDB_MEMORY_LIMIT was left at the code default (8GB) — exactly
+  # the "bumping ONLY the container does nothing" trap described below. DuckDB kept
+  # spilling its incremental merge to tmpfs, blowing past the 32Gi container ceiling
+  # and getting SIGKILLed every cycle (~22s into duckdb_merge_start), orphaning the
+  # CAS lock until the 300s TTL expired and repeating — canonical index frozen ~5h.
+  # Codified the live cpu/memory here + added the matching DuckDB override.
   manifest_consolidator_cpu = {
     # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
     # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "8"
+    "market-data-defi"          = "8"
   }
   manifest_consolidator_memory = {
     # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
     # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "32Gi"
+    "market-data-defi"          = "32Gi"
   }
   # DuckDB's own memory_limit (CONSOLIDATOR_DUCKDB_MEMORY_LIMIT) is deliberately
   # set BELOW the container memory (code default 8GB for the 16Gi tier). Bumping
@@ -139,6 +150,7 @@ locals {
     # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
     # manifest_consolidator_buckets above).
     "market-data-tradfi-legacy" = "24GB"
+    "market-data-defi"          = "24GB"
   }
 
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per

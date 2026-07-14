@@ -172,6 +172,11 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("monitoring-deadman", service="deployment-service"),
     # data_status_rollup_scheduler.tf (cron hits the data-status-rollup-svc /rollup-run endpoint)
     _batch("data-status-rollup", service="deployment-api"),
+    # cost_snapshot_scheduler.tf (12h cron hits the in-service /api/costs/snapshot-run
+    # endpoint; deployment-ui /ops/costs reads the GCS parquet snapshot instead of
+    # querying BigQuery/Athena per request). Plan:
+    # deployment_api_cache_oom_and_ui_latency_remediation_2026_07_13.md § 4b.
+    _batch("cost-snapshot", service="deployment-api"),
     # honest_coverage_scheduler.tf
     _batch("honest-coverage-daily-launcher", service="instruments-service"),
     # instrument_catalogue_scheduler.tf
