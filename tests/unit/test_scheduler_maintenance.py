@@ -197,6 +197,39 @@ class TestResumeAfterMaintenance:
         assert cleared is False
         assert resumer.calls == [_JOB]
 
+    def test_partial_resume_failure_leaves_window_held(self, fake_storage: _FakeStorage):
+        """Regression for the inverted-ordering bug: if ``act(job)`` raises partway through a
+        multi-job resume, the window must stay HELD (not released) — otherwise a concurrent
+        ``--status`` caller would see "clear" while jobs remain paused mid-resume."""
+        job_2 = "prd-manifest-consolidator-market-data-sports-cron"
+        sm.pause_for_maintenance(
+            bucket=_BUCKET,
+            surface="instruments-sports",
+            scheduler_jobs=[_JOB, job_2],
+            reason="CF-8 backfill",
+            locked_by="slot-6",
+            pauser=_RecordingAction(),
+        )
+
+        calls: list[str] = []
+
+        def _flaky_resumer(job_name: str) -> None:
+            calls.append(job_name)
+            if job_name == job_2:
+                raise RuntimeError("simulated Cloud Scheduler API error on job 2 of N")
+
+        with pytest.raises(RuntimeError, match="simulated Cloud Scheduler API error"):
+            sm.resume_after_maintenance(
+                bucket=_BUCKET, scheduler_jobs=[_JOB, job_2], locked_by="slot-6", resumer=_flaky_resumer
+            )
+
+        assert calls == [_JOB, job_2]
+        # The window is still live — a second caller's --status check reflects reality
+        # instead of falsely reading "clear" while job_2 never actually resumed.
+        held = sm.maintenance_status(_BUCKET)
+        assert held is not None
+        assert held.locked_by == "slot-6"
+
 
 @pytest.mark.unit
 class TestMaintenanceStatus:

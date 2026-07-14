@@ -144,21 +144,28 @@ def resume_after_maintenance(
     force: bool = False,
     resumer: SchedulerAction | None = None,
 ) -> bool:
-    """Release the maintenance window THEN resume every named scheduler job.
+    """Resume every named scheduler job THEN release the maintenance window.
 
-    Refuses (raises :class:`MaintenanceWindowActiveError`) when a LIVE window is held by a
-    DIFFERENT caller and ``force`` is not set — this is the enforcement point that stops a
-    second agent (or an operator who checked ``--status`` first) from resuming a cron mid
-    someone else's declared maintenance. Returns whatever
-    :func:`~unified_trading_library.maintenance_window.release_maintenance_window` returns
-    (``True`` iff a window was actually cleared).
+    Order matters (mirrors ``pause_for_maintenance``'s acquire-before-act, inverted): a
+    live window held by someone else is checked FIRST — raises
+    :class:`MaintenanceWindowActiveError` unless ``force`` is set — so an unauthorized caller
+    (or an operator who checked ``--status`` first) never touches a job before being refused.
+    Only once every job has resumed successfully is the window released. If ``act`` raises
+    partway through a multi-job resume, the window is left HELD (not released) and the
+    exception propagates — so a subsequent ``--status`` check still reports the surface as
+    under maintenance instead of falsely reading "clear" while jobs remain paused.
     """
-    cleared = release_maintenance_window(get_storage_client(), bucket, locked_by=locked_by, force=force)
+    existing = read_maintenance_window(get_storage_client(), bucket)
+    if existing is not None and existing.locked_by != locked_by and not force:
+        raise MaintenanceWindowActiveError(
+            f"Cannot resume: maintenance window on {existing.surface!r} is held by "
+            f"{existing.locked_by!r}, not {locked_by!r}. Pass force=True to override."
+        )
     act = resumer or make_scheduler_resumer()
     for job in scheduler_jobs:
         act(job)
         logger.info("Resumed scheduler job %r after maintenance", job)
-    return cleared
+    return release_maintenance_window(get_storage_client(), bucket, locked_by=locked_by, force=force)
 
 
 def maintenance_status(bucket: str) -> MaintenanceWindow | None:
