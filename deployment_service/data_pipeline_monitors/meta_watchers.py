@@ -528,7 +528,12 @@ def _read_attempted_failed_cells(
     except Exception:
         return []
     try:
-        index = pd.read_parquet(io.BytesIO(raw))
+        # Read ONLY the two columns this checker uses. The consolidated _index can be
+        # hundreds of MB compressed (defi ~424MB) and blows past the job's 16Gi limit
+        # when materialised in full (object-dtype strings decompress ~5-10x) — the OOM
+        # that stalled dp-meta-monitor. A parquet missing either column raises here and
+        # is caught below (same graceful empty-read as a schema-less index).
+        index = pd.read_parquet(io.BytesIO(raw), columns=["capture_status", "data_type"])
     except Exception:
         return []
     if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
