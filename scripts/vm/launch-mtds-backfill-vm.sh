@@ -189,6 +189,19 @@ $TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBAC
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
 if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
+# Tardis concurrent-VM cap (operator HARD RULE 2026-07-14): cefi MTDS backfill/pipelinecheck
+# VMs consume the shared Tardis key (single revolving active-IP slot), so they count toward
+# the 3-VM cap alongside the sharded-backfill fleet; the lease does NOT lift the cap. NOTE:
+# this launcher's --force flag means VM_FORCE (data re-fetch), NOT a guard bypass — when the
+# cap refuses, wait for a running Tardis VM to finish (or an operator can bump
+# TARDIS_MAX_CONCURRENT_VMS explicitly).
+# SSOT: unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md
+if [[ "${DRY_RUN:-false}" != "true" && "$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]')" == "cefi" ]]; then
+    # shellcheck source=./tardis-concurrency-guard.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
+    tardis_concurrency_guard 1 "${ZONE}" "${PROJECT_ID}" || exit 1
+fi
+
 echo "Creating VM ${VM_NAME} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
 # shellcheck disable=SC2086
 if [[ "${DRY_RUN:-false}" != "true" ]]; then

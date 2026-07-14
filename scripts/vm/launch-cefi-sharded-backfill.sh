@@ -187,47 +187,22 @@ EOF
   fi
 fi
 
-# ─── Singleton lock: shared Tardis account + project egress NAT ──────────────
-# This launcher fans out across CeFi venues (Tardis). Tardis enforces per-account rate limits that bite
-# under concurrent-VM load — and the Databento path (NASDAQ/NYSE ETFs via
-# launch-tradfi-backfill-vm.sh) is the same shape: the 2026-05-05 silent-drop
-# incident was 7+ MTDS VMs hitting a shared provider account and exhausting
-# the adapter retry budget, which the per-schema loop in download_batch_df
-# masked as "captured" with zero rows.
-#
-# VMs created by this launcher follow the unique shape
-#   {cefi|tradfi}-{venue|instrument}-{year}-{heavy|light}-{RUN_TS}
-# so we lock on the trailing `-{heavy|light}-` segment, which scopes the check
-# to PRIOR sharded-backfill invocations (and never collides with single-shot
-# launchers like `tradfi-bf-*` or `tradfi-instr-*`).
-#
-# Bypass: FORCE=1 bash launch-cefi-sharded-backfill.sh
-if [[ "$FORCE" != "1" && "$DRY_RUN" != "1" ]]; then
-  EXISTING="$(gcloud compute instances list \
-      --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-" AND status=RUNNING' \
-      --zones="$ZONE" \
-      --project="$PROJECT" \
-      --format='value(name)' 2>/dev/null | head -3)"
-  if [[ -n "$EXISTING" ]]; then
-    cat >&2 <<EOF
-ERROR: cefi-sharded-backfill VMs already running in $ZONE:
-$EXISTING
-
-Refusing to launch a duplicate sharded backfill — Tardis rate-limits per-account
-and the project egress NAT is shared. Concurrent runs collide on 429 backoffs;
-the adapter retry budget can exhaust silently (see 2026-05-05 silent-drop
-incident: 1004 MES/BTC/ETH/ES (root, date) pairs lost to this exact pattern
-on the bundled Databento ohlcv_1m;trades CME parent symbology).
-
-Options:
-  Inspect:   gcloud compute instances list --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-"' --zones=$ZONE
-  Tail logs: gsutil cat gs://deployment-scripts-${PROJECT}/vm-logs/<vm-name>/run.log
-  Stop all:  gcloud compute instances list --filter='name~"^(cefi|tradfi)-.*-(heavy|light)-"' --zones=$ZONE --format='value(name)' | xargs -I{} gcloud compute instances delete {} --zone=$ZONE --quiet
-  Force:     FORCE=1 bash $0
-EOF
-    exit 1
-  fi
-fi
+# ─── Tardis concurrent-VM cap (replaces the pre-2026-07-14 blanket singleton lock) ──
+# HARD RULE (operator, 2026-07-14): at most 3 Tardis-consuming VMs at a time, and every
+# launcher counts the existing fleet before creating new ones. Empirical basis (SSOT:
+# unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md):
+# the shared key enforces a single REVOLVING active-IP slot — N=3 grinds at ~50-70%
+# request efficiency, N=6 starved below the stall watchdog and ALL SIX died
+# (2026-07-13T23:15Z wave). The old any-duplicate refusal is superseded: up to 3 total
+# is now allowed. The historical context still applies (shared account + NAT; the
+# 2026-05-05 Databento silent-drop incident was the same over-concurrency shape).
+# The guard itself runs just before the launch loop, where the planned shard count
+# (venue × year × heavy/light fan-out) is computable — see tardis_concurrency_guard.
+# The lease does NOT lift the cap (every surviving multi-VM wave ran lease-ON; the only
+# lease-OFF multi-VM wave collapsed) — enable TARDIS_CONCURRENCY_LEASE=1 for any multi-VM
+# launch. Only FORCE=1 overrides the cap.
+# shellcheck source=./tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
 
 # ─── Per-venue instrument universe = catalogue mvp (cefi_universe_capture_rule) ──
 # 2026-06-23: the hardcoded 9-coin SYMBOLS_<VENUE> lists (+ stale Upbit KRW) are
@@ -567,6 +542,27 @@ _venue_is_derivatives() {
     *) return 1 ;;
   esac
 }
+
+# ─── Tardis 3-VM cap check (see the guard comment block above; lib sourced there) ──
+# Planned count mirrors the launch loop below exactly: heavy per (venue, year) + light
+# for derivatives venues. SINGLE_VM_QUEUE=1 collapses the fan-out into at most one VM
+# per (group|data_types) bucket, so cap the estimate at 2 (heavy+light) in that mode.
+if [[ "$DRY_RUN" != "1" ]]; then
+  PLANNED_TARDIS_VMS=0
+  for venue in $VENUES; do
+    years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
+    for year in $years; do
+      PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
+        PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      fi
+    done
+  done
+  if [[ "${SINGLE_VM_QUEUE:-0}" == "1" && "$PLANNED_TARDIS_VMS" -gt 2 ]]; then
+    PLANNED_TARDIS_VMS=2
+  fi
+  tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
+fi
 
 for venue in $VENUES; do
   years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"

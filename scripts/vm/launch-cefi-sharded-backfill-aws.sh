@@ -62,28 +62,19 @@ lc_aws_validate_env "${DEPLOYMENT_ENV}"
 lc_aws_resolve_account
 S3_CODE_BUCKET="$(lc_aws_code_bucket "${AWS_ACCOUNT_ID}")"
 
-# Singleton lock: shared Tardis account rate-limits under concurrent load.
-if [[ "$FORCE" != "1" && "$DRY_RUN" != "1" ]]; then
-  EXISTING="$(aws ec2 describe-instances \
-    --region "${AWS_REGION}" \
-    --filters \
-      "Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill" \
-      "Name=instance-state-name,Values=running,pending" \
-    --query "Reservations[].Instances[].Tags[?Key=='Name']|[0][0].Value" \
-    --output text 2>/dev/null | head -1 || true)"
-  if [[ -n "$EXISTING" && "$EXISTING" != "None" ]]; then
-    cat >&2 <<EOF
-ERROR: CeFi/TradFi sharded-backfill VMs already running in ${AWS_REGION} (e.g. ${EXISTING}).
-
-Refusing to launch a duplicate sharded backfill — Tardis rate-limits per-account.
-Concurrent runs collide on 429 backoffs; the adapter retry budget can exhaust silently.
-
-Options:
-  Inspect:  aws ec2 describe-instances --filters 'Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill' --region ${AWS_REGION}
-  Force:    FORCE=1 bash $0
-EOF
-    exit 1
-  fi
+# Tardis concurrent-VM cap (operator HARD RULE 2026-07-14, replaces the singleton lock):
+# at most 3 Tardis-consuming VMs at a time ACROSS BOTH CLOUDS (one shared key); the lease
+# does NOT lift the cap. The guard lib counts RUNNING GCP shards + running/pending AWS
+# sharded-backfill instances. This script's static fan-out below is ~83 shards — far above
+# the cap BY DESIGN, so a full-fleet AWS run is now REFUSED: slice it into <=3-VM waves
+# (edit the venue loops) or use an explicit FORCE=1 operator override. Empirical basis
+# (N=3 lease-ON grinds, N=6 lease-OFF collapses):
+# unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md
+# shellcheck source=./tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
+if [[ "$DRY_RUN" != "1" ]]; then
+  # GCP fleet zone/project for the cross-cloud count (the primary Tardis fleet lives there).
+  tardis_concurrency_guard 83 "${GCP_ZONE:-asia-northeast1-c}" "${GCP_PROJECT:-central-element-323112}" || exit 1
 fi
 
 # ── Per-venue symbol universes (identical to GCP counterpart) ──
