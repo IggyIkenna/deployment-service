@@ -421,7 +421,7 @@ launch_cefi_shard() {
   # across every venue/group this launcher spawns. Same pattern as
   # launch-mdps-sharded-backfill.sh / launch-sfi-backfill-vm.sh /
   # launch-mtds-gas-fees-backfill-vm.sh. =/space/comma-free (metadata-safe).
-  meta+="|STALL_PROGRESS_REGEX=uploaded"
+  meta+="|STALL_PROGRESS_REGEX=${STALL_PROGRESS_REGEX:-uploaded}"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
   [[ "$FREE_ONLY" == "1" ]] && meta+="|TARDIS_FREE_ONLY=1"
   # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
@@ -646,7 +646,7 @@ _launch_queued_vm() {
   meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
   meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
-  meta+=",STALL_PROGRESS_REGEX=uploaded"
+  meta+=",STALL_PROGRESS_REGEX=${STALL_PROGRESS_REGEX:-uploaded}"
   [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
   [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
