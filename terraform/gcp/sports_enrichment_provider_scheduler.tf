@@ -96,8 +96,16 @@ module "sports_enrichment_provider_job" {
 
   image = local.sports_enrichment_image
 
-  cpu             = "2"
-  memory          = "8Gi"
+  # Sizing note (revised 2026-07-14, live-verified): the first live test of the
+  # soccer_football_info job at 2cpu/8Gi OOM'd (signal 9) within seconds of
+  # reaching the SOCCER_FOOTBALL_INFO short-circuit — the ~5-6M-row sports
+  # manifest preflight read here needs materially more headroom than the
+  # sibling understat-eu-typing-sweep's 8Gi (that sweep does a narrower typing
+  # pass, not a full provider fetch). Matched to the PROVEN-safe allocation of
+  # the existing uts-prod-instruments-service-sports-fixtures job (8cpu/32Gi),
+  # which reads the identical manifest successfully today.
+  cpu             = "8"
+  memory          = "32Gi"
   timeout_seconds = 1800 # 30 min — single-provider short-circuit fetch, not the full orchestrator
   max_retries     = 0
   parallelism     = 1
