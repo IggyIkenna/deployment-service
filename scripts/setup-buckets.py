@@ -5,48 +5,79 @@
 """
 Setup Storage Buckets for Unified Trading System
 
-This script creates all required storage buckets (GCS or S3) for the Unified Trading
-System. It reads bucket requirements from dependencies.yaml and cloud-providers.yaml.
+This script provisions all required storage buckets (GCS or S3) for the Unified
+Trading System.
+
+Rewritten 2026-07-14 (`bucket_estate_consolidation_to_sub100_2026_07_13.md`
+Deferred #8) onto the canonical resolver:
+
+* Service/data bucket names now come from the UTL SSOT resolver
+  (``unified_trading_library.resolve_bucket_name``) against
+  ``configs/cloud-providers.yaml`` — this script enumerates every
+  ``<cloud>.storage`` kind x asset_group exactly like
+  ``terraform/gcp/canonical_buckets.tf``'s ``for_each`` derivation (same
+  excluded-kinds set: ``audit-records`` / ``manual-audit`` are retention-locked,
+  hand-managed compliance buckets). The pre-canonical ``dependencies.yaml``
+  ``bucket_template`` scheme (``{category_lower}`` placeholders the old local
+  resolver never substituted) is NOT used here any more — ``dependencies.yaml``
+  is untouched because ``deployment_service.dependencies.DependencyLoader``
+  (a genuinely separate consumer) still reads those fields for its own
+  dependency-check machinery.
+* Tiers are ``prd`` + ``test`` only (dev/stg retired per the 2026-07-13
+  ruling). The old ``-test-`` infix string hack (``get_test_bucket_name``) is
+  gone — the test tier is just ``deployment_env="test"`` resolution, the same
+  mechanism as prod.
+* ``configs/bucket_config.yaml`` is now ONLY the registry of genuine
+  hand-managed infra buckets (terraform-state, deployment-orchestration,
+  build-metadata, databento-batch-registry, backtest-results,
+  client-reporting-data, events, unified-deployment-state, ...) — every data
+  bucket that duplicated the canonical cloud-providers.yaml matrix
+  (eigenlayer-rewards, ml-configs-store, features-volatility-defi + their
+  -test twins) was stripped, along with the now-dead ``aws_bucket_mappings``
+  section (superseded by the AWS side of cloud-providers.yaml, which mirrors
+  GCP 1:1 per Phase-1 symmetry).
+* Lifecycle/settings: canonical data buckets get the same creation defaults as
+  ``terraform/gcp/canonical_buckets.tf`` (STANDARD storage class, uniform
+  bucket-level access, no versioning, STANDARD->COLDLINE @ 60 days). Infra
+  buckets keep whatever settings ``bucket_config.yaml``'s ``bucket_settings``
+  section declares (unchanged from before this rewrite).
 
 Features:
 - Idempotent: skips existing buckets
-- Correct settings: versioning, lifecycle rules, labels/tags
 - Multi-cloud: supports both GCP (GCS) and AWS (S3)
-- Reads from configuration files for bucket naming
-- Creates test buckets alongside production buckets (--include-test)
-
-Test Bucket Naming Convention:
-- Pattern: {service-category}-test-{project_id}
-- Example: instruments-store-cefi-test-{project_id}
-- Purpose: Isolated buckets for quality gates, smoke tests, and CI/CD
-- Test buckets should never be used for production data
-- Note: "test" is inserted BEFORE the project_id to match existing buckets
+- Bootstraps a NEW project/account: --project-id substitutes into every
+  resolved template (the UTL resolver reads ${GCP_PROJECT_ID}/${AWS_ACCOUNT_ID}
+  from the process env, so this script sets that env var from --project-id
+  before resolving — the same bridge setup-dev-project.sh already relies on).
 
 Prerequisites:
 - GCP: gcloud auth login (or service account credentials)
 - AWS: aws configure (or IAM role)
 
 Usage:
-    # GCP - create all production buckets
+    # GCP - create all prd-tier buckets
     python setup-buckets.py --cloud gcp
 
-    # GCP - create all buckets including test buckets
+    # GCP - create prd + test tier buckets
     python setup-buckets.py --cloud gcp --include-test
 
-    # GCP - create buckets for specific service (with test buckets)
+    # GCP - only test-tier buckets (never touches prod; infra buckets skipped)
+    python setup-buckets.py --cloud gcp --test-only
+
+    # GCP - buckets for a specific service (best-effort kind-name filter)
     python setup-buckets.py --cloud gcp --service instruments-service --include-test
 
     # GCP - dry run (show what would be created)
     python setup-buckets.py --cloud gcp --include-test --dry-run
 
-    # AWS - create all buckets including test buckets
+    # AWS - create all buckets including test tier
     python setup-buckets.py --cloud aws --include-test
 
     # List all required buckets without creating
     python setup-buckets.py --cloud gcp --include-test --list-only
 
-    # Create only test buckets (skip production)
-    python setup-buckets.py --cloud gcp --test-only
+    # Bootstrap a brand-new GCP project
+    python setup-buckets.py --cloud gcp --include-test --project-id my-new-project
 """
 
 import argparse
@@ -57,14 +88,33 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Final, Literal, cast
 
 sys.path.insert(0, str(Path(__file__).parent))
 import yaml
 from _common import get_aws_account_id, get_aws_region, get_gcs_region, get_project_id
+from unified_trading_library import AssetGroup, resolve_bucket_name
+
+# BucketNamingError isn't re-exported at the unified_trading_library top level (only
+# resolve_bucket_name/AssetGroup are) — narrow, justified exemption from the top-level-only
+# import rule, same mechanism check-import-patterns.py documents for this exact case.
+from unified_trading_library.cloud_interface.bucket_naming import BucketNamingError  # noqa: qg-deep-import
 
 logger = logging.getLogger(__name__)
 # Global configuration holder
 bucket_config = None
+
+# Canonical tiers per the 2026-07-13 bucket-estate-consolidation operator ruling —
+# dev/stg retired, prd + test only. Mirrors terraform/gcp/canonical_buckets.tf's
+# `canonical_tiers` local exactly.
+_CANONICAL_TIERS: Final[tuple[str, ...]] = ("prd", "test")
+
+# Kinds intentionally excluded from the canonical enumeration — same set as
+# terraform/gcp/canonical_buckets.tf's `canonical_excluded_kinds`: retention-locked,
+# hand-managed compliance buckets a generic loop cannot express safely (locked
+# GCS Object Retention / S3 Object Lock policies would force a
+# prevent_destroy-blocked replacement).
+_EXCLUDED_CANONICAL_KINDS: Final[frozenset[str]] = frozenset({"audit-records", "manual-audit"})
 
 
 def get_config_dir() -> Path:
@@ -91,38 +141,50 @@ def load_bucket_config(config_dir: Path) -> dict:
 
 
 def validate_config(config: dict) -> None:
-    """Validate bucket configuration schema."""
-    required_sections = [
-        "defaults",
-        "shared_bucket_services",
-        "service_categories",
-        "infrastructure_buckets",
-        "aws_bucket_mappings",
-        "bucket_settings",
-    ]
+    """Validate bucket configuration schema.
+
+    Only the sections this script actually reads are required.
+    ``bucket_config.yaml`` also carries ``shared_bucket_services`` /
+    ``service_categories`` sections this script no longer consumes (the
+    old dependencies.yaml-driven per-service resolver is gone) — those stay in
+    the file because ``system-integration-tests/tests/conftest.py`` still
+    reads them for its own (separate) bucket enumeration.
+    """
+    required_sections = ["defaults", "infrastructure_buckets", "bucket_settings"]
 
     for section in required_sections:
         if section not in config:
             raise ValueError(f"Missing required config section: {section}")
 
-    # Validate cloud providers in defaults
     if "gcp" not in config["defaults"] or "aws" not in config["defaults"]:
         raise ValueError("Missing gcp/aws sections in defaults")
 
-    # Validate bucket settings for both clouds
     for cloud in ["gcp", "aws"]:
         if cloud not in config["bucket_settings"]:
             raise ValueError(f"Missing {cloud} bucket settings")
 
 
-def get_default_values(cloud: str) -> dict:
-    """Get default values for a cloud provider."""
+def get_default_region(cloud: str) -> str:
+    """Return the default region for `cloud` without requiring a resolvable project/account ID.
+
+    Split out of :func:`get_default_values` (2026-07-14 rewrite) — the
+    ``--project-id``-supplied-but-no-``--region`` path in ``main()`` only ever
+    needed the region half; calling the combined function there forced a
+    ``GCP_PROJECT_ID``/``AWS_ACCOUNT_ID`` env lookup it had no other use for,
+    so bootstrapping a brand-new project via ``--project-id`` alone (no env
+    var also exported) raised even though a region default was available.
+    """
     config = load_bucket_config(get_config_dir())
-    defaults = config["defaults"][cloud]
+    default_region = config["defaults"][cloud]["region"]
+    return get_gcs_region(default_region) if cloud == "gcp" else get_aws_region(default_region)
+
+
+def get_default_values(cloud: str) -> dict:
+    """Get default values (project/account ID + region) for a cloud provider."""
+    region = get_default_region(cloud)
 
     if cloud == "gcp":
-        project_id = get_project_id()
-        return {"project_id": project_id, "region": get_gcs_region(defaults["region"])}
+        return {"project_id": get_project_id(), "region": region}
     else:  # aws
         account_id = get_aws_account_id()
         if not account_id:
@@ -137,289 +199,122 @@ def get_default_values(cloud: str) -> dict:
                     account_id = result.stdout.strip()
             except (OSError, ValueError, RuntimeError) as e:
                 logger.warning("Unexpected error during get default values: %s", e, exc_info=True)
-                pass
         if not account_id:
             raise ValueError(
                 "AWS_ACCOUNT_ID is required when using AWS. "
                 "Set AWS_ACCOUNT_ID or ensure 'aws sts get-caller-identity' succeeds."
             )
-        return {"account_id": account_id, "region": get_aws_region(defaults["region"])}
+        return {"account_id": account_id, "region": region}
 
 
-def get_test_bucket_name(prod_bucket_name: str, project_id: str) -> str:
+def _kind_matches_service_filter(kind: str, service_filter: str) -> bool:
+    """Best-effort ``--service`` narrowing over canonical kind names.
+
+    Kinds are yaml-key granular (e.g. ``instruments-store``, ``market-data``)
+    and are not 1:1 with service names (e.g. ``instruments-service``,
+    ``market-tick-data-service``) — this is a convenience filter, not an exact
+    join. Matches on the service name's first hyphen-stem, e.g.
+    ``--service instruments-service`` -> stem ``instruments`` -> matches
+    ``instruments-store`` / ``instruments-store-prediction``.
     """
-    Generate test bucket name from production bucket name using configuration.
+    stem = service_filter.removesuffix("-service").split("-")[0].lower()
+    return stem in kind.lower()
 
-    Canonical convention (SSOT: ``codex/02-data/per-category-bucket-layouts.md``):
-    insert ``-test-`` between category and project_id. Matches the 77 buckets
-    provisioned by ``provision-test-buckets.sh`` + every consumer path in
-    UTL ``get_write_bucket_name``.
 
-    Fails loud when project_id is missing from the name — the old suffix
-    fallback produced bucket names that don't exist and silently broke
-    adapters (see 2026-04-20 instruments-service CEFI smoke incident).
+def _resolve_canonical_bucket(cloud: str, kind: str, asset_group: str | None, tier: str) -> str | None:
+    """Resolve one (kind, asset_group, tier) triple via the UTL SSOT resolver.
+
+    Returns ``None`` (with a logged warning) on any resolution failure instead
+    of aborting the whole enumeration — one unresolvable kind should not stop
+    every other bucket from being listed/created.
     """
-    config = load_bucket_config(get_config_dir())
-    test_config = config["test_buckets"]
-
-    if test_config["naming_pattern"] != "infix":
-        raise ValueError(
-            f"Unsupported test_buckets.naming_pattern="
-            f"{test_config['naming_pattern']!r} — only 'infix' (middle-test) "
-            f"is canonical."
+    try:
+        return resolve_bucket_name(
+            cloud=cast('Literal["gcp", "aws"]', cloud),
+            kind=kind,
+            asset_group=cast("AssetGroup | None", asset_group),
+            deployment_env=tier,
         )
-    if project_id not in prod_bucket_name:
-        raise ValueError(
-            f"Cannot derive test bucket for {prod_bucket_name!r}: "
-            f"project_id={project_id!r} not in name. Canonical convention "
-            f"inserts `-test-` between category and project_id."
-        )
-    return prod_bucket_name.replace(f"-{project_id}", f"-test-{project_id}")
+    except BucketNamingError as e:
+        logger.warning("Skipping unresolvable bucket kind=%r asset_group=%r tier=%r: %s", kind, asset_group, tier, e)
+        return None
 
 
-def get_all_required_buckets(
+def get_canonical_data_buckets(
     config_dir: Path,
     cloud: str,
-    project_id: str,
-    env: str = "prod",
+    tiers: tuple[str, ...],
     service_filter: str | None = None,
-    include_test: bool = False,
-    test_only: bool = False,
 ) -> list[dict]:
-    """
-    Get all required buckets from dependencies.yaml and cloud-providers.yaml.
+    """Enumerate every canonical service/data bucket for `cloud`.
 
-    Args:
-        config_dir: Path to configs directory
-        cloud: Cloud provider ('gcp' or 'aws')
-        project_id: GCP project ID or AWS account ID
-        service_filter: Optional service name to filter by
-        include_test: If True, include test buckets alongside production
-        test_only: If True, only return test buckets (skip production)
-
-    Returns a list of bucket configurations with:
-    - name: bucket name
-    - service: which service needs it
-    - type: 'output', 'input', 'infrastructure', or 'test'
-    - category: which category it serves
-    - is_test: True if this is a test bucket
+    Mirrors ``terraform/gcp/canonical_buckets.tf``'s derivation: iterate every
+    kind under ``cloud-providers.yaml``'s ``<cloud>.storage`` (excluding the
+    retention-locked/hand-managed kinds in
+    :data:`_EXCLUDED_CANONICAL_KINDS`), flatten per-asset_group dict kinds
+    into one entry per asset_group, and resolve each (kind, asset_group, tier)
+    triple through the UTL resolver. An env-less template (no
+    ``${DEPLOYMENT_ENV_SHORT}`` token — e.g. the Group-B features/ml/strategy/
+    execution kinds per the 2026-05 env-split-rollback note in the yaml)
+    resolves to the IDENTICAL name for every tier and collapses via `seen`;
+    an env-tiered template produces distinct prd/test buckets.
     """
-    deps = load_yaml(config_dir / "dependencies.yaml")
     cloud_config = load_yaml(config_dir / "cloud-providers.yaml")
+    storage_kinds = cloud_config.get(cloud, {}).get("storage", {})
 
-    buckets = []
-    seen_buckets = set()
+    buckets: list[dict] = []
+    seen: set[str] = set()
 
-    services = deps.get("services", {})
-
-    for service_name, service_config in services.items():
-        if service_filter and service_name != service_filter:
+    for kind, entry in storage_kinds.items():
+        if kind in _EXCLUDED_CANONICAL_KINDS:
+            continue
+        if service_filter and not _kind_matches_service_filter(kind, service_filter):
             continue
 
-        # Get output buckets
-        for output in service_config.get("outputs", []):
-            bucket_template = output.get("bucket_template", "")
-            if not bucket_template:
-                continue
+        asset_groups: list[str | None]
+        if isinstance(entry, str):
+            asset_groups = [None]
+        elif isinstance(entry, dict):
+            asset_groups = [str(ag).lower() for ag in entry]
+        else:
+            continue
 
-            # Determine categories for this service
-            categories = get_service_categories(service_name)
+        for asset_group in asset_groups:
+            for tier in tiers:
+                name = _resolve_canonical_bucket(cloud, kind, asset_group, tier)
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                buckets.append(
+                    {
+                        "name": name,
+                        "service": kind,
+                        "type": "data",
+                        "category": (asset_group or "ALL").upper(),
+                        "is_test": tier == "test",
+                        "origin": "canonical",
+                    }
+                )
 
-            # Handle shared bucket services (no category)
-            if not categories:
-                # Shared bucket - resolve without category
-                bucket_name = resolve_bucket_name(bucket_template, "", project_id, cloud, cloud_config, env)
-
-                if bucket_name and bucket_name not in seen_buckets:
-                    # Add production bucket (unless test_only)
-                    if not test_only:
-                        seen_buckets.add(bucket_name)
-                        buckets.append(
-                            {
-                                "name": bucket_name,
-                                "service": service_name,
-                                "type": "output",
-                                "category": "ALL",  # Shared across all categories
-                                "is_test": False,
-                            }
-                        )
-
-                    # Add test bucket (if include_test or test_only)
-                    if include_test or test_only:
-                        test_bucket_name = get_test_bucket_name(bucket_name, project_id)
-                        if test_bucket_name not in seen_buckets:
-                            seen_buckets.add(test_bucket_name)
-                            buckets.append(
-                                {
-                                    "name": test_bucket_name,
-                                    "service": service_name,
-                                    "type": "test",
-                                    "category": "ALL",
-                                    "is_test": True,
-                                }
-                            )
-            else:
-                # Category-specific buckets
-                for category in categories:
-                    bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config, env)
-
-                    if bucket_name and bucket_name not in seen_buckets:
-                        # Add production bucket (unless test_only)
-                        if not test_only:
-                            seen_buckets.add(bucket_name)
-                            buckets.append(
-                                {
-                                    "name": bucket_name,
-                                    "service": service_name,
-                                    "type": "output",
-                                    "category": category.upper(),
-                                    "is_test": False,
-                                }
-                            )
-
-                        # Add test bucket (if include_test or test_only)
-                        if include_test or test_only:
-                            test_bucket_name = get_test_bucket_name(bucket_name, project_id)
-                            if test_bucket_name not in seen_buckets:
-                                seen_buckets.add(test_bucket_name)
-                                buckets.append(
-                                    {
-                                        "name": test_bucket_name,
-                                        "service": service_name,
-                                        "type": "test",
-                                        "category": category.upper(),
-                                        "is_test": True,
-                                    }
-                                )
-
-        # Get input buckets from upstream dependencies
-        for dep in service_config.get("upstream", []):
-            # Support shorthand: upstream: [service-name] or full: [{service: ..., check: ...}]
-            dep_dict = dep if isinstance(dep, dict) else {"service": dep, "check": {}}
-            check = dep_dict.get("check", {})
-            bucket_template = check.get("bucket_template", "")
-            if not bucket_template:
-                continue
-
-            # Check for category restrictions
-            dep_categories = check.get("categories")
-            categories = dep_categories if dep_categories else get_service_categories(service_name)
-
-            for category in categories:
-                bucket_name = resolve_bucket_name(bucket_template, category, project_id, cloud, cloud_config, env)
-
-                if bucket_name and bucket_name not in seen_buckets:
-                    # Add production bucket (unless test_only)
-                    if not test_only:
-                        seen_buckets.add(bucket_name)
-                        buckets.append(
-                            {
-                                "name": bucket_name,
-                                "service": dep_dict.get("service", "unknown"),
-                                "type": "input",
-                                "category": category.upper(),
-                                "is_test": False,
-                            }
-                        )
-
-                    # Add test bucket (if include_test or test_only)
-                    if include_test or test_only:
-                        test_bucket_name = get_test_bucket_name(bucket_name, project_id)
-                        if test_bucket_name not in seen_buckets:
-                            seen_buckets.add(test_bucket_name)
-                            buckets.append(
-                                {
-                                    "name": test_bucket_name,
-                                    "service": dep_dict.get("service", "unknown"),
-                                    "type": "test",
-                                    "category": category.upper(),
-                                    "is_test": True,
-                                }
-                            )
-
-    # Add infrastructure buckets (no test versions for infrastructure)
-    if not test_only:
-        infra_buckets = get_infrastructure_buckets(project_id, cloud, cloud_config)
-        for bucket in infra_buckets:
-            bucket["is_test"] = False
-            if bucket["name"] not in seen_buckets:
-                seen_buckets.add(bucket["name"])
-                buckets.append(bucket)
-
-    return sorted(buckets, key=lambda x: (x.get("is_test", False), x["name"]))
+    return sorted(buckets, key=lambda b: (b["is_test"], b["name"]))
 
 
-def get_service_categories(service_name: str) -> list[str]:
+def get_infrastructure_buckets(project_id: str, cloud: str) -> list[dict]:
+    """Get genuine, hand-managed infrastructure buckets.
+
+    Reads ONLY ``bucket_config.yaml``'s ``infrastructure_buckets`` registry
+    (terraform-state, deployment-orchestration, build-metadata,
+    databento-batch-registry, backtest-results, client-reporting-data, events,
+    unified-deployment-state, ...) — every data bucket that duplicated the
+    canonical ``cloud-providers.yaml`` matrix was stripped from that registry
+    as part of the 2026-07-14 rewrite; those come from
+    :func:`get_canonical_data_buckets` instead. Infra buckets never get a
+    test-tier sibling (unchanged from the pre-rewrite behavior).
     """
-    Get categories supported by a service.
-
-    Returns:
-        - Empty list [] for shared bucket services (no category dimension)
-        - ["cefi", "tradfi"] for volatility service (no DEFI options)
-        - ["cefi", "tradfi", "defi"] for most services
-    """
-    config = load_bucket_config(get_config_dir())
-
-    # Services with SHARED buckets (no category)
-    if service_name in config["shared_bucket_services"]:
-        return []  # No category dimension - uses shared bucket
-
-    # Services with restricted categories
-    restricted = config["service_categories"]["restricted_categories"]
-    for pattern, categories in restricted.items():
-        if pattern in service_name:
-            return categories
-
-    # Default categories for most services
-    return config["service_categories"]["default_categories"]
-
-
-def resolve_bucket_name(
-    template: str, category: str, project_id: str, cloud: str, cloud_config: dict, env: str = "prod"
-) -> str | None:
-    """Resolve a bucket name from template."""
-    cat_lower = category.lower()
-    config = load_bucket_config(get_config_dir())
-
-    # Skip invalid category combinations
-    for rule in config["validation"]["invalid_combinations"]:
-        if rule["template_contains"] in template and cat_lower == rule["invalid_category"]:
-            return None
-
-    if cloud == "gcp":
-        name = template.replace("{asset_group_lower}", cat_lower)
-        name = name.replace("{project_id}", project_id)
-        name = name.replace("{domain}", cat_lower)
-        name = name.replace("{env}", env)
-        return name
-    else:  # aws
-        # Convert GCP naming to AWS naming
-        return convert_to_aws_bucket_name(template, cat_lower, project_id, cloud_config, env)
-
-
-def convert_to_aws_bucket_name(
-    gcp_template: str, category: str, account_id: str, cloud_config: dict, env: str = "prod"
-) -> str:
-    """Convert a GCP bucket template to AWS S3 bucket name."""
-    config = load_bucket_config(get_config_dir())
-    mappings = config["aws_bucket_mappings"]
-
-    # Find matching pattern in mappings
-    for pattern, template in mappings.items():
-        if pattern in gcp_template:
-            return template.replace("{category}", category).replace("{account_id}", account_id).replace("{env}", env)
-
-    # Fallback: replace default project with account_id
-    defaults = config["defaults"]["gcp"]
-    return gcp_template.replace(defaults["project_id"], account_id).replace("{env}", env)
-
-
-def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) -> list[dict]:
-    """Get infrastructure buckets (terraform state, deployment orchestration)."""
     config = load_bucket_config(get_config_dir())
     infra_config = config["infrastructure_buckets"][cloud]
 
-    buckets = []
+    buckets: list[dict] = []
     for bucket_def in infra_config:
         bucket_name = bucket_def["name_template"].replace("{project_id}", project_id)
         buckets.append(
@@ -428,6 +323,8 @@ def get_infrastructure_buckets(project_id: str, cloud: str, cloud_config: dict) 
                 "service": bucket_def["service"],
                 "type": bucket_def["type"],
                 "category": bucket_def["category"],
+                "is_test": False,
+                "origin": "infra",
             }
         )
 
@@ -464,41 +361,66 @@ def create_gcs_bucket(
     bucket_name: str,
     project_id: str,
     region: str,
-    service: str,
+    label_key: str,
     category: str,
     dry_run: bool = False,
     is_test: bool = False,
+    origin: str = "canonical",
 ) -> bool:
-    """
-    Create a GCS bucket with settings from configuration.
-    """
-    config = load_bucket_config(get_config_dir())
-    settings = config["bucket_settings"]["gcp"]
+    """Create a GCS bucket.
 
+    ``origin="canonical"`` (the default): settings mirror
+    ``terraform/gcp/canonical_buckets.tf`` exactly per the 2026-07-13 ruling —
+    STANDARD storage class, uniform bucket-level access, no versioning,
+    STANDARD->COLDLINE @ 60 days.
+    ``origin="infra"``: settings come from ``bucket_config.yaml``'s
+    ``bucket_settings.gcp`` section (unchanged from before this rewrite).
+    """
     if bucket_exists_gcs(bucket_name):
         logger.info(f"  [EXISTS] gs://{bucket_name}")
         return True
 
     bucket_type = "TEST" if is_test else "PROD"
     if dry_run:
-        logger.info(f"  [DRY-RUN] Would create gs://{bucket_name} ({bucket_type})")
+        logger.info(f"  [DRY-RUN] Would create gs://{bucket_name} ({bucket_type}, {origin})")
         return True
 
-    logger.info(f"  [CREATE] gs://{bucket_name} ({bucket_type})")
+    logger.info(f"  [CREATE] gs://{bucket_name} ({bucket_type}, {origin})")
+
+    if origin == "infra":
+        config = load_bucket_config(get_config_dir())
+        settings = config["bucket_settings"]["gcp"]
+        storage_class = settings["storage_class"]
+        uniform_access = settings["uniform_bucket_access"]
+        versioning = settings["versioning"]
+        lifecycle_rule = settings["lifecycle_rules"]["test" if is_test else "production"]
+        lifecycle_days = lifecycle_rule["age_days"]
+        lifecycle_action = lifecycle_rule["action"]
+        lifecycle_storage_class = lifecycle_rule["storage_class"]
+        managed_by = settings["labels"]["managed_by"]
+    else:
+        # Canonical data buckets — mirror terraform/gcp/canonical_buckets.tf's
+        # google_storage_bucket.canonical resource (2026-07-13 ruling).
+        storage_class = "STANDARD"
+        uniform_access = True
+        versioning = False
+        lifecycle_days = 60
+        lifecycle_action = "SetStorageClass"
+        lifecycle_storage_class = "COLDLINE"
+        managed_by = "setup-buckets-canonical"
 
     try:
-        # Create bucket with configured settings
         create_args = [
             "gsutil",
             "mb",
             "-p",
             project_id,
             "-c",
-            settings["storage_class"],
+            storage_class,
             "-l",
             region,
         ]
-        if settings["uniform_bucket_access"]:
+        if uniform_access:
             create_args.extend(["-b", "on"])
         create_args.append(f"gs://{bucket_name}")
 
@@ -507,25 +429,19 @@ def create_gcs_bucket(
             logger.info(f"    ERROR: {result.stderr}")
             return False
 
-        # Enable versioning if configured
-        if settings["versioning"]:
+        if versioning:
             subprocess.run(
                 ["gsutil", "versioning", "set", "on", f"gs://{bucket_name}"],
                 capture_output=True,
                 timeout=30,
             )
 
-        # Set lifecycle rule from configuration
-        lifecycle_type = "test" if is_test else "production"
-        lifecycle_rule = settings["lifecycle_rules"][lifecycle_type]
-        lifecycle_days = lifecycle_rule["age_days"]
-
         lifecycle_config = {
             "rule": [
                 {
                     "action": {
-                        "type": lifecycle_rule["action"],
-                        "storageClass": lifecycle_rule["storage_class"],
+                        "type": lifecycle_action,
+                        "storageClass": lifecycle_storage_class,
                     },
                     "condition": {"age": lifecycle_days},
                 }
@@ -543,10 +459,8 @@ def create_gcs_bucket(
         )
         os.remove(lifecycle_file)
 
-        # Set labels from configuration
-        labels_config = settings["labels"]
-        labels = f"managed-by:{labels_config['managed_by']}"
-        labels += f",service:{service.replace('-', '_')}"
+        labels = f"managed-by:{managed_by}"
+        labels += f",kind:{label_key.replace('-', '_')}"
         if category != "ALL":
             labels += f",category:{category.lower()}"
         labels += f",environment:{'test' if is_test else 'production'}"
@@ -557,7 +471,10 @@ def create_gcs_bucket(
             timeout=30,
         )
 
-        logger.info(f"    OK (versioning=on, lifecycle={lifecycle_days}d->{lifecycle_rule['storage_class']})")
+        logger.info(
+            f"    OK (versioning={'on' if versioning else 'off'}, "
+            f"lifecycle={lifecycle_days}d->{lifecycle_storage_class})"
+        )
         return True
 
     except subprocess.TimeoutExpired:
@@ -578,6 +495,11 @@ def create_s3_bucket(
 ) -> bool:
     """
     Create an S3 bucket with settings from configuration.
+
+    Unchanged from before this rewrite: AWS canonical/data buckets and infra
+    buckets both use ``bucket_config.yaml``'s ``bucket_settings.aws`` section —
+    no AWS-side terraform ruling exists yet to mirror (the 2026-07-13 ruling
+    only re-derives GCP lifecycle settings).
     """
     config = load_bucket_config(get_config_dir())
     settings = config["bucket_settings"]["aws"]
@@ -685,12 +607,10 @@ def main():
     )
     parser.add_argument("--cloud", choices=["gcp", "aws"], required=True, help="Cloud provider")
     parser.add_argument(
-        "--env",
-        choices=["staging", "prod", "development"],
-        default=None,
-        help="Deployment environment for bucket naming (default: DEPLOYMENT_ENV env var or 'prod')",
+        "--service",
+        help="Best-effort filter: only kinds whose name contains this service's hyphen-stem "
+        "(e.g. 'instruments-service' matches 'instruments-store*'). Never filters infra buckets.",
     )
-    parser.add_argument("--service", help="Only create buckets for specific service")
     parser.add_argument("--project-id", help="GCP project ID or AWS account ID")
     parser.add_argument("--region", help="Region for bucket creation")
     parser.add_argument(
@@ -707,25 +627,26 @@ def main():
     parser.add_argument(
         "--include-test",
         action="store_true",
-        help="Include test buckets alongside production buckets (naming: {bucket}-test)",
+        help="Include test-tier buckets alongside prd-tier buckets",
     )
     parser.add_argument(
         "--test-only",
         action="store_true",
-        help="Only create test buckets (skip production buckets)",
+        help="Only create test-tier buckets (skip prd-tier; infra buckets are always skipped in this mode)",
     )
 
     args = parser.parse_args()
 
-    # Resolve env: CLI arg > DEPLOYMENT_ENV env var > default "prod"
-    from deployment_service.deployment_config import DeploymentConfig
-
-    env = args.env or DeploymentConfig().deployment_env
-
-    # Validate mutually exclusive options
-    if args.test_only and not args.include_test:
-        # --test-only implies --include-test behavior
-        pass
+    # Tiers: prd + test only (dev/stg retired 2026-07-13 ruling) — driven purely by
+    # --include-test/--test-only, matching terraform/gcp/canonical_buckets.tf's
+    # fixed `canonical_tiers`. There is no more --env flag: it only ever selected
+    # among the now-retired dev/stg/prod axis and no live caller passed it.
+    if args.test_only:
+        tiers: tuple[str, ...] = ("test",)
+    elif args.include_test:
+        tiers = _CANONICAL_TIERS
+    else:
+        tiers = ("prd",)
 
     # Get config directory
     config_dir = args.config_dir or get_config_dir()
@@ -735,8 +656,8 @@ def main():
 
     # Load and validate bucket configuration
     try:
-        bucket_config = load_bucket_config(config_dir)
-        validate_config(bucket_config)
+        bucket_cfg = load_bucket_config(config_dir)
+        validate_config(bucket_cfg)
     except (FileNotFoundError, ValueError) as e:
         logger.info(f"ERROR: Configuration error: {e}")
         sys.exit(1)
@@ -744,11 +665,7 @@ def main():
     # Get project/account ID and region from configuration or args
     if args.project_id:
         project_id = args.project_id
-        if args.region:
-            region = args.region
-        else:
-            defaults = get_default_values(args.cloud)
-            region = defaults.get("region")
+        region = args.region or get_default_region(args.cloud)
     else:
         defaults = get_default_values(args.cloud)
         project_id = defaults.get("project_id") or defaults.get("account_id")
@@ -762,16 +679,30 @@ def main():
                 logger.info("ERROR: GCP_PROJECT_ID not set")
             sys.exit(1)
 
+    # Bridge --project-id into the process env so the UTL resolver's
+    # ${GCP_PROJECT_ID}/${AWS_ACCOUNT_ID} substitution picks it up — the resolver
+    # is a pure function of (cloud, kind, asset_group) + the process env by
+    # design (see unified_trading_library.cloud_interface.bucket_naming), so
+    # this is the sanctioned way to target a brand-new project/account without
+    # requiring the caller to also export the env var (setup-dev-project.sh
+    # already does both belt-and-braces).
+    if args.cloud == "gcp":
+        os.environ["GCP_PROJECT_ID"] = project_id  # config-bootstrap: bucket-naming resolver bridge
+    else:
+        os.environ["AWS_ACCOUNT_ID"] = project_id  # config-bootstrap: bucket-naming resolver bridge
+
     # Get all required buckets
-    buckets = get_all_required_buckets(
+    canonical_buckets = get_canonical_data_buckets(
         config_dir,
         args.cloud,
-        project_id,
-        env=env,
+        tiers,
         service_filter=args.service,
-        include_test=args.include_test or args.test_only,
-        test_only=args.test_only,
     )
+    # Infra buckets never get a test-tier sibling; --test-only skips them entirely
+    # (unchanged from before this rewrite — provision-test-buckets.sh relies on
+    # this to stay scoped to test-tier data buckets only).
+    infra_buckets = [] if args.test_only else get_infrastructure_buckets(project_id, args.cloud)
+    buckets = canonical_buckets + infra_buckets
 
     if not buckets:
         logger.info("No buckets to create.")
@@ -791,7 +722,7 @@ def main():
     logger.info(f"Region: {region}")
     logger.info(f"Total Buckets: {len(buckets)}")
     if args.include_test or args.test_only:
-        logger.info(f"  - Production: {len(prod_buckets)}")
+        logger.info(f"  - Production (prd): {len(prod_buckets)}")
         logger.info(f"  - Test: {len(test_buckets)}")
     if args.service:
         logger.info(f"Service Filter: {args.service}")
@@ -813,7 +744,7 @@ def main():
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     logger.info(f"  {prefix}{bucket['name']}")
                     logger.info(
-                        f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
+                        f"      Kind: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
                     )
                 logger.info("")
 
@@ -823,7 +754,7 @@ def main():
                 for bucket in test_buckets:
                     prefix = "gs://" if args.cloud == "gcp" else "s3://"
                     logger.info(f"  {prefix}{bucket['name']}")
-                    logger.info(f"      Service: {bucket['service']}, Category: {bucket['category']}")
+                    logger.info(f"      Kind: {bucket['service']}, Category: {bucket['category']}")
                 logger.info("")
         else:
             logger.info("Required buckets:")
@@ -831,9 +762,7 @@ def main():
             for bucket in buckets:
                 prefix = "gs://" if args.cloud == "gcp" else "s3://"
                 logger.info(f"  {prefix}{bucket['name']}")
-                logger.info(
-                    f"      Service: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}"
-                )
+                logger.info(f"      Kind: {bucket['service']}, Type: {bucket['type']}, Category: {bucket['category']}")
             logger.info("")
 
         # Print env var suggestions for services
@@ -844,13 +773,13 @@ def main():
             logger.info("Add these to your .env files or CI/CD configuration:")
             logger.info("")
             for bucket in test_buckets:
-                # Generate env var name from bucket name
-                service_name = bucket["service"].replace("-", "_").upper()
+                # Generate env var name from kind name
+                kind_name = bucket["service"].replace("-", "_").upper()
                 category = bucket["category"]
                 if category != "ALL":
-                    env_var = f"{service_name.replace('_SERVICE', '')}_GCS_BUCKET_{category}_TEST"
+                    env_var = f"{kind_name}_GCS_BUCKET_{category}_TEST"
                 else:
-                    env_var = f"{service_name.replace('_SERVICE', '')}_GCS_BUCKET_TEST"
+                    env_var = f"{kind_name}_GCS_BUCKET_TEST"
                 logger.info(f"  {env_var}={bucket['name']}")
             logger.info("")
 
@@ -888,6 +817,7 @@ def main():
                 bucket["category"],
                 args.dry_run,
                 is_test=is_test,
+                origin=bucket.get("origin", "canonical"),
             )
         else:
             success = create_s3_bucket(
