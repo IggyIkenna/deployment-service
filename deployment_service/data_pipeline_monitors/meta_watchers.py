@@ -13,6 +13,12 @@ GCS artifact each producer leaves behind and alert when it goes stale:
     the watchdog daemon is down (the meta-watcher of the watcher).
   - DP-WATCHER-002 (``DP_CRON_DID_NOT_FIRE``, CRITICAL): a scheduled audit /
     consolidator / digest cron's heartbeat/output artifact missed its window.
+  - DP-WATCHER-003 (``DP_CONSOLIDATOR_SCHEDULER_PAUSED``, CRITICAL): a non-
+    ``-legacy-`` manifest-consolidator Cloud Scheduler job is PAUSED — the inverse
+    of DP-WATCHER-002's pause-awareness (that one suppresses on PAUSED; this one
+    exists specifically for an ACCIDENTAL pause on a job nobody meant to stop).
+    Lives in ``consolidator_scheduler_watcher.py`` (this file is at its 900-line
+    cap) — see ``check_consolidator_scheduler_paused`` there.
   - DP-FETCH-009 (``DP_RUN_MOSTLY_EMPTY``, CRITICAL — event REUSED): per
     (asset_group, data_type), a HIGH ``attempted_failed`` count/ratio in the
     consolidated manifest ``_index``. Closes the gap where a backfill exits 0 /
