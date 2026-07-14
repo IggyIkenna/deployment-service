@@ -203,9 +203,17 @@ METADATA="${METADATA},VM_LIVE_SOURCE=${LIVE_SOURCE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+# Tardis concurrency lease passthrough (opt-in, mirrors launch-cefi-sharded-backfill.sh):
+# lets checker re-runs of Tardis venues SERIALIZE against production lease-enabled
+# waves instead of 403ing on the single-concurrent-IP key
+# (tardis_concurrent_ip_lockout_2026_07_12.md).
+[[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && METADATA="${METADATA},TARDIS_CONCURRENCY_LEASE=1"
+[[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && METADATA="${METADATA},TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
 
 if $TEST_RUN; then
-  METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
+  # 24h consolidator-staleness budget for -test- buckets (no standing cron; the
+  # checker Phase-0-consolidates once) — mirrors launch-mtds-backfill-vm.sh.
+  METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true,MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
   if [[ -n "$MAX_DURATION_SECONDS" ]]; then
     METADATA="${METADATA},VM_MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS}"

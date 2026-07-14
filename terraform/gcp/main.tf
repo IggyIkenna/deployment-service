@@ -441,22 +441,11 @@ resource "google_storage_bucket" "market_data_defi" {
 # cleanup-deleted buckets on 2026-07-12T21:59Z
 # ([[terraform_bucket_estate_drift_resurrection_2026_07_13]]).
 
-resource "google_storage_bucket" "market_data_defi_lending_indices_prd" {
-  name                        = "lending-indices-prd-${var.project_id}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_defi_lending_indices_prd (lending-indices-prd-…) REMOVED 2026-07-14 — bucket
+# is HELD pending Morpho write-target verification then deletion (estate-cleanup §5i /
+# bucket_estate_consolidation W2); state entry already removed. Declaring it here while
+# deletion is pending is the resurrection class this file's header warns about. The live
+# bucket is deliberately TF-unmanaged until its deletion.
 
 # market_data_defi_gas_fees_prd (gas-fees-prd-…) REMOVED 2026-07-13 — this was one of
 # the "14 legacy DeFi buckets deleted 2026-07-12" that was recreated as an empty shell by an

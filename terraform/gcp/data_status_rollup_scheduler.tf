@@ -1,4 +1,4 @@
-# Data-status offline rollup — dedicated Cloud Run Service + */10 cron
+# Data-status offline rollup — dedicated Cloud Run Service + */20 cron
 #
 # Plan: data_status_offline_rollup_2026_05_06.plan +
 #       proper_instrument_catalogue_lifecycle_rollup_2026_06_04.md (fix (e))
@@ -11,13 +11,15 @@
 #   parallelism (verified: ProcessPool fork-pool only shaved 20%).
 #
 #   This file ships the offline-rollup pattern: a worker computes the
-#   full-range coverage for every service every 10 min and writes
+#   full-range coverage for every service every 20 min and writes
 #   ``gs://{pid}-data-status-rollups/{service}/full.json.gz`` (and a
 #   ``.beta.json.gz`` in beta mode). The API endpoint reads the rollup and
 #   slices the user's date window in-memory in <500ms. Latency: 410s → ~200ms.
 #
-# Runtime (CHANGED 2026-06-14 — was a Cloud Run Job)
-#   The worker runs inside a DEDICATED gen1 16Gi scale-to-zero Cloud Run
+# Runtime (CHANGED 2026-06-14 — was a Cloud Run Job; BUMPED 2026-07-13 —
+# 16Gi/4CPU -> 32Gi/8CPU, imperatively, alongside the per-service
+# child-process isolation fix in data_status_rollup_worker.py)
+#   The worker runs inside a DEDICATED gen1 32Gi/8CPU scale-to-zero Cloud Run
 #   SERVICE, triggered via its ``/api/data-status/rollup-run`` endpoint —
 #   NOT a Cloud Run Job. Cloud Run Jobs are gen2-only and the native
 #   cell-grid compute crashes natively on gen2 (see the RETIRED-job note
@@ -26,10 +28,11 @@
 #   bucket, IAM, and the cron that drives it.
 #
 # Schedule
-#   ``*/10 * * * *`` — every 10 minutes. The deployment-api fast-path treats
-#   rollups older than 30 min as stale and falls through to the on-demand
-#   compute, so 2 missed cron cycles still keep the API correct (beta mode
-#   is staleness-exempt — the projected v9 index is read loud-or-nothing).
+#   ``*/20 * * * *`` — every 20 minutes (was 10; see the resource block below
+#   for why). The deployment-api fast-path treats rollups older than 30 min
+#   as stale and falls through to the on-demand compute, so 1 missed cron
+#   cycle still keeps the API correct (beta mode is staleness-exempt — the
+#   projected v9 index is read loud-or-nothing).
 #
 # Service account
 #   * Scheduler invoker: ``t1_batch_sa`` (OIDC; needs run.invoker on the svc)
@@ -102,26 +105,41 @@ resource "google_storage_bucket_iam_member" "data_status_rollups_runtime" {
 # `plans/active/proper_instrument_catalogue_lifecycle_rollup_2026_06_04.md`.
 
 # -------------------------------------------------------
-# Cloud Scheduler cron — every 10 min
+# Cloud Scheduler cron — every 20 min
 # -------------------------------------------------------
 # Triggers the in-service rollup endpoint on the dedicated scale-to-zero
 # rollup SERVICE (gen1; see the RETIRED-job note above for why not a job).
-# 10-min cadence balances freshness vs the cold-start + full-range compute
-# cost (instruments-service all-AG ~8.4Gi / a few minutes). Manifest-
-# consolidator runs every 1 min, so the underlying data is at most 1 min
-# stale before the rollup picks it up; total UI-visible staleness floor is
-# ~10-12 min. The deployment-api fast-path treats rollups older than 30 min
-# as stale (except beta mode, which is staleness-exempt).
+#
+# BUMPED 10min -> 20min + attempt_deadline 600s -> 900s (2026-07-13, see
+# data_status_rollup_worker.py's per-service child-process isolation fix):
+# the Cloud Run service's OWN request timeout is 900s (see the -svc resource,
+# imperatively managed) — LONGER than both the old 10-min cadence and the old
+# 600s attempt_deadline. With MTDS/MDPS now isolated per-service instead of
+# OOM-killing the whole sweep, a single request can legitimately run close to
+# the full 900s working through all _DEFAULT_SERVICES entries (each of
+# MTDS/MDPS burns up to its own child's timeout before failing). At the old
+# 10-min cadence, the NEXT tick routinely fired while the PREVIOUS one was
+# still running in the background (maxScale=1 on the -svc — no concurrent
+# instances), so the new tick got rejected 429/RESOURCE_EXHAUSTED and the
+# in-flight sweep's real progress (e.g. a service succeeding at t+14min) was
+# invisible to the scheduler's own bookkeeping. 20-min cadence + a
+# 900s-matching deadline give one sweep room to actually finish before the
+# next is scheduled. Manifest-consolidator still runs every 1 min, so
+# underlying data is at most 1 min stale before a rollup captures it; total
+# UI-visible staleness floor is now ~20-22 min (was ~10-12 min) — the
+# deployment-api fast-path's 30-min stale threshold still comfortably covers
+# this (except beta mode, which is staleness-exempt).
 resource "google_cloud_scheduler_job" "data_status_rollup_cron" {
   name        = "${local.env_prefix}-data-status-rollup-cron"
   description = "Trigger the in-service data-status rollup endpoint on the dedicated rollup service; deployment-api reads the offline rollup instead of computing on demand."
-  schedule    = "*/10 * * * *"
+  schedule    = "*/20 * * * *"
   time_zone   = "UTC"
   region      = var.region
 
-  # Full-range compute can take several minutes on a cold start — give the
-  # request a long deadline so the scheduler does not time out mid-compute.
-  attempt_deadline = "600s"
+  # Match the Cloud Run service's own 900s request timeout so the scheduler's
+  # bookkeeping doesn't mark an attempt failed while the underlying sweep is
+  # still making real progress in the background.
+  attempt_deadline = "900s"
 
   http_target {
     http_method = "POST"
@@ -137,7 +155,7 @@ resource "google_cloud_scheduler_job" "data_status_rollup_cron" {
     }
   }
 
-  # No retries on failure — the next 10-min cron will pick up where we left
+  # No retries on failure — the next 20-min cron will pick up where we left
   # off (worker is idempotent: each service write is overwrite-by-name).
   # Avoids retry-storm when one service's compute is genuinely broken.
   retry_config {
