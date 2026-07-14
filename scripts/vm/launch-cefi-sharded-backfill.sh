@@ -389,38 +389,38 @@ launch_cefi_shard() {
   local vm_name="cefi-${venue_lower}-${year}-${group}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
-  meta+=",VM_TASK=cefi-backfill"
-  meta+=",VM_SERVICE=market_tick_data_service"
-  meta+=",VM_OPERATION=download"
-  meta+=",VM_ASSET_GROUP=CEFI"
-  meta+=",VM_VENUE=$venue"
-  meta+=",VM_START_DATE=$start_date"
-  meta+=",VM_END_DATE=$end_date"
-  meta+=",VM_DATA_TYPES=$data_types"
+  meta+="|VM_TASK=cefi-backfill"
+  meta+="|VM_SERVICE=market_tick_data_service"
+  meta+="|VM_OPERATION=download"
+  meta+="|VM_ASSET_GROUP=CEFI"
+  meta+="|VM_VENUE=$venue"
+  meta+="|VM_START_DATE=$start_date"
+  meta+="|VM_END_DATE=$end_date"
+  meta+="|VM_DATA_TYPES=$data_types"
   # No VM_INSTRUMENT_IDS by default → MTDS resolves the catalogue-mvp universe
   # from the IS by_date snapshot (perp-gated). Only stamp it on a surgical
   # VM_INSTRUMENT_IDS env-override re-run.
-  [[ -n "$symbols" ]] && meta+=",VM_INSTRUMENT_IDS=$symbols"
-  meta+=",VM_FORCE=${VM_FORCE:-false}"
-  meta+=",DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  [[ -n "$symbols" ]] && meta+="|VM_INSTRUMENT_IDS=$symbols"
+  meta+="|VM_FORCE=${VM_FORCE:-false}"
+  meta+="|DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   # 2026-05-01: opt-in auto-delete after task completion (read by
   # vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
   # RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
-  meta+=",VM_SHUTDOWN_ON_COMPLETION=true"
+  meta+="|VM_SHUTDOWN_ON_COMPLETION=true"
   # CeFi bucket has 34M+ rows (mostly Deribit options) + 1700+ per-VM shards.
   # Without this override ManifestReader falls back to loading all shards when
   # the consolidated availability_index.parquet is >120s old (the default),
   # causing the Python process to OOM-kill at startup (rc=137) on every machine
   # size tested (up to e2-highmem-8 / 64 GB). 86400s (24h) forces the reader to
   # always use the consolidated index instead of the per-VM shard fallback.
-  meta+=",MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+  meta+="|MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
   # Opt-in fail-fast (2026-05-28): when the staleness budget above IS exceeded,
   # UTL read_availability_index raises ManifestConsolidatorStaleError instead of
   # OOM-killing at the per-VM shard merge. Pairs with the shell preflight in
   # setup-data-pipeline-vm.sh (deployment-service@7add531) — preflight catches
   # before Python starts; this catches anything that slips through (e.g. the
   # consolidator goes stale mid-run, not at bootstrap).
-  meta+=",MANIFEST_FAIL_ON_STALE_FALLBACK=true"
+  meta+="|MANIFEST_FAIL_ON_STALE_FALLBACK=true"
   # STALL_PROGRESS_REGEX (cefi_bf_2021_heavy_vm_stalled_2026_07_12 root-cause):
   # without this, vm-exec-with-gcs-tee.sh's stall watchdog falls back to raw
   # LOCAL_LOG byte-growth detection — which the setup-data-pipeline-vm.sh
@@ -440,9 +440,9 @@ launch_cefi_shard() {
   # across every venue/group this launcher spawns. Same pattern as
   # launch-mdps-sharded-backfill.sh / launch-sfi-backfill-vm.sh /
   # launch-mtds-gas-fees-backfill-vm.sh. =/space/comma-free (metadata-safe).
-  meta+=",STALL_PROGRESS_REGEX=uploaded"
+  meta+="|STALL_PROGRESS_REGEX=uploaded"
   # FREE_ONLY=1 → pass TARDIS_FREE_ONLY=1 so TickDataHandler skips paid dates.
-  [[ "$FREE_ONLY" == "1" ]] && meta+=",TARDIS_FREE_ONLY=1"
+  [[ "$FREE_ONLY" == "1" ]] && meta+="|TARDIS_FREE_ONLY=1"
   # Tardis single-concurrent-IP lease (option (a) stopgap, DEFAULT-OFF —
   # tardis_concurrent_ip_lockout_2026_07_12). Opt-in ONLY: set
   # TARDIS_CONCURRENCY_LEASE=1 + TARDIS_CONCURRENCY_LEASE_BUCKET=<control-bucket>
@@ -450,13 +450,13 @@ launch_cefi_shard() {
   # (fixes the concurrent-IP 403 lockout at the cost of ~20-80x slower waves). Left
   # unstamped by default so MTDS's default-False flag keeps waves fully parallel.
   # The bucket MUST be a coordination bucket, NOT a data/manifest-walked bucket.
-  [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
-  [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
+  [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+="|TARDIS_CONCURRENCY_LEASE=1"
+  [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+="|TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
   # tardis_concurrent_ip_lockout_2026_07_12 course-correction: operator-tunable
   # intra-process Tardis download concurrency (default 16 when unset — see
   # MarketTickDataServiceConfig.tardis_max_concurrent_downloads). Conservative for a
   # first smoke wave (e.g. 4-8), stepped up once the 403 rate is confirmed clean.
-  [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+  [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+="|TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
 
   # SINGLE_VM_QUEUE: accumulate this matched shard into its (group,data_types) bucket
   # instead of launching a per-shard VM now — _flush_single_vm_queue launches ONE
@@ -468,7 +468,16 @@ launch_cefi_shard() {
       _QUEUE_START[$qkey]="$start_date"
       _QUEUE_END[$qkey]="$end_date"
     else
-      _QUEUE_VENUES[$qkey]="${_QUEUE_VENUES[$qkey]} $venue"
+      # A single venue matches this bucket once per (year,group) shard — e.g.
+      # BITGET-FUTURES 2024/2025/2026 all land in the same heavy|trades;book_snapshot_5
+      # bucket. Only widen start/end; do NOT re-append an already-queued venue, or
+      # --venues ends up space-repeated ("BITGET-FUTURES BITGET-FUTURES BITGET-FUTURES")
+      # — a real bug (live-verified 2026-07-14): the repeated venue arg broke MTDS's
+      # active-venue resolution entirely ("No active venues" for every date, 0 rows).
+      case " ${_QUEUE_VENUES[$qkey]} " in
+        *" $venue "*) ;; # already queued — dedup, no-op
+        *) _QUEUE_VENUES[$qkey]="${_QUEUE_VENUES[$qkey]} $venue" ;;
+      esac
       [[ "$start_date" < "${_QUEUE_START[$qkey]}" ]] && _QUEUE_START[$qkey]="$start_date"
       [[ "$end_date" > "${_QUEUE_END[$qkey]}" ]] && _QUEUE_END[$qkey]="$end_date"
     fi
@@ -502,12 +511,23 @@ launch_cefi_shard() {
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
 
+    # Real bug (live-verified 2026-07-14): gcloud's default --metadata
+    # delimiter is comma, same as the intra-value separator VM_INSTRUMENT_IDS
+    # needs ("BTCUSDH25,BTCUSDH26,..."). With the default comma delimiter,
+    # gcloud misparses each symbol after the first as its own bare (no "=")
+    # metadata key -> rejects the whole flag -> prints usage help instead of
+    # creating the VM, and (because the create is backgrounded with `&` and
+    # only `| tail -1` is captured) this failure is SILENT: the launcher still
+    # reports "All N VMs launched" with zero VMs actually created. meta is now
+    # built with "|" as the pair-separator (see meta+="|..." above) so a
+    # comma-bearing value like VM_INSTRUMENT_IDS survives intact; the "^|^"
+    # prefix tells gcloud to use "|" as the delimiter instead of ",".
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --boot-disk-size=50GB \
-      --scopes=cloud-platform --metadata="$meta" \
+      --scopes=cloud-platform --metadata="^|^${meta}" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
     _stagger
