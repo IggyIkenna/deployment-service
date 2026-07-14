@@ -106,6 +106,36 @@ infrastructure_buckets:
       service: strategy-service
       type: results
       category: ALL
+    # 5 singleton ops-tooling buckets registered 2026-07-14
+    # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #10): audit found
+    # these live, in-use buckets absent from every registry (invisible to
+    # deployment-ui/cockpit's bucket inventory until someone went looking, not a loud
+    # failure). Simplest-correct fix per the plan: document them here (genuine one-off
+    # ops singletons, not per-asset-group data — don't invent a new yaml-kind scheme
+    # for 5 buckets).
+    - name_template: "{project_id}-honest-coverage"
+      service: deployment-service
+      type: ops_tooling
+      category: ALL
+    - name_template: "{project_id}-phantom-triage"
+      service: instruments-service
+      type: ops_tooling
+      category: ALL
+    - name_template: "{project_id}-rescan-triage"
+      service: deployment-service
+      type: ops_tooling
+      category: ALL
+    - name_template: "{project_id}-benchmark-reports"
+      service: deployment-service
+      type: ops_tooling
+      category: ALL
+    # Live QG snapshot store (unified-trading-pm/scripts/quality_gates/{snapshot,
+    # coverage_snapshot}.sh + check_snapshot_staleness.py) — quality_gates_snapshot/
+    # and coverage_snapshot/ prefixes.
+    - name_template: "{project_id}-deployment-events"
+      service: unified-trading-pm
+      type: observability
+      category: ALL
     # ml-configs-store + ml-configs-store-test REMOVED 2026-07-14
     # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #8): this flat,
     # no-env-tier pair duplicated (and drifted from) cloud-providers.yaml's genuinely

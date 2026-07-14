@@ -370,6 +370,57 @@ class TestDependencyChecking:
         assert len(report.checks) == 1
         assert "skipped" in report.checks[0].message.lower()
 
+    def test_category_lower_template_var_resolves(self, temp_config_dir, mock_env_vars):
+        """bucket_template/path_template using {category_lower} must resolve, not KeyError.
+
+        Regression test for Finding #11 (bucket_estate_consolidation_to_sub100_2026_07_13.md,
+        Deferred #11): dependencies.yaml's on-disk templates use {category_lower} almost
+        everywhere, but check_dependencies() only ever populated asset_group_lower — every
+        such check silently FAILED with "Missing template variable: 'category_lower'"
+        instead of doing a real GCS existence check.
+        """
+        deps_config = {
+            "services": {
+                "upstream-service": {"description": "Upstream", "upstream": []},
+                "downstream-service": {
+                    "description": "Downstream",
+                    "upstream": [
+                        {
+                            "service": "upstream-service",
+                            "required": True,
+                            "check": {
+                                "bucket_template": "instruments-store-{category_lower}-{project_id}",
+                                "path_template": "instrument_availability/by_date/day={date}/instruments.parquet",
+                            },
+                        },
+                    ],
+                },
+            },
+            "execution_order": ["upstream-service", "downstream-service"],
+        }
+        with open(temp_config_dir / "dependencies.yaml", "w") as f:
+            yaml.dump(deps_config, f)
+
+        graph = DependencyGraph(str(temp_config_dir))
+        report = graph.check_dependencies(
+            service="downstream-service",
+            date="2024-01-15",
+            asset_group="CEFI",
+        )
+
+        assert len(report.checks) == 1
+        check = report.checks[0]
+        # The template must resolve to a real GCS path (lowercased asset_group), not
+        # bail out early with a "Missing template variable" message.
+        assert "Missing template variable" not in check.message
+        # project_id comes from the module-level DeploymentConfig() singleton captured at
+        # import time (not this test's monkeypatched env) — read it off the graph itself
+        # instead of hardcoding a value that could drift from that singleton's real state.
+        assert check.checked_path == (
+            f"gs://instruments-store-cefi-{graph.project_id}/"
+            "instrument_availability/by_date/day=2024-01-15/instruments.parquet"
+        )
+
     def test_invalid_transport_for_profile_fails_fast(self, temp_config_dir, mock_env_vars):
         """Invalid topology (in_memory on distributed profile) should raise."""
         deps_config = {

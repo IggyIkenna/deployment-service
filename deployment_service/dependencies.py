@@ -208,9 +208,13 @@ class DependencyGraph:
 
         if asset_group:
             # Legacy path templates use ``category``; SSOT name is ``asset_group``.
+            # dependencies.yaml's on-disk bucket_template/path_template fields use
+            # ``{category_lower}`` (not ``{asset_group_lower}``) almost everywhere, so
+            # both aliases must resolve to the same lowered value.
             vars_dict["category"] = asset_group
             vars_dict["asset_group"] = asset_group
             vars_dict["asset_group_lower"] = asset_group.lower()
+            vars_dict["category_lower"] = asset_group.lower()
 
         if domain:
             vars_dict["domain"] = domain
