@@ -127,6 +127,19 @@ module "sports_enrichment_provider_job" {
     GCP_PROJECT_ID   = var.project_id
     GCS_LOCATION     = var.region
     PYTHONUNBUFFERED = "1"
+    # Per-VM shard manifest writes (2026-07-15, sports_is_index_fixtures_job_
+    # direct_write_328k_row_cut_2026_07_15.md): a direct ManifestWriter
+    # read-modify-write of the canonical ``_index/availability_index.parquet``
+    # races the per-minute consolidator (lost-update — the fixtures job
+    # clobbered 328,292 rows at 2026-07-15T00:49:43Z). Every scheduled writer
+    # MUST write per-VM shards (``_index/per_vm/{VM_NAME}.parquet``) and let
+    # the consolidator merge them — the ONLY sanctioned write path. The live
+    # jobs were updated in place the same day; these entries keep terraform
+    # from reverting that. Mirrors uts-prod-instruments-service-sports-fixtures
+    # (VM_NAME=sports-fixtures-job) + uts-prod-market-tick-data-service-fast-
+    # t1-recon (which always ran per-VM).
+    MANIFEST_PER_VM_SHARDS = "true"
+    VM_NAME                = "sports-enrichment-${each.key}"
   }
 
   service_name = "instruments-service"

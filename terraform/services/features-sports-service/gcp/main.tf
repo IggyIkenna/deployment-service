@@ -19,6 +19,13 @@ provider "google" {
 }
 
 locals {
+  # DEPLOYMENT_ENV_SHORT convention (workspace bucket-name SSOT, `configs/cloud-providers.yaml`
+  # comment header: dev | stg | prd) — this module only ever deploys `environment = "prod"`
+  # (single terraform.tfvars, no dev/staging twin), so the map is defensive rather than
+  # load-bearing today.
+  bucket_env_short_map = { dev = "dev", staging = "stg", prod = "prd" }
+  bucket_env_short     = local.bucket_env_short_map[var.environment]
+
   # Daily fixture-features workflow
   #
   # Window: yesterday (T-1) through T+7 — covers backlog catch-up for the
@@ -202,8 +209,16 @@ module "daily_job" {
     PYTHONUNBUFFERED       = "1"
   }
 
+  # Cutover 2026-07-15 (bucket_estate_consolidation_to_sub100_2026_07_13.md, features-sports
+  # Cutover phase): repointed from the bare flat `features-sports-${var.project_id}` to the
+  # canonical env-tiered bucket the application code actually reads/writes via
+  # `resolve_bucket(kind="features-sports", asset_group="sports")` ->
+  # `cloud-providers.yaml`'s `features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`. The
+  # app never consumes this FUSE mount path directly (no `/mnt/gcs` reads in
+  # features-service; `UCS_SKIP_GCSFUSE_CHECK=1` already skips the FUSE-mount health check
+  # below) — this mount is a from-birth infra convention, not a load-bearing runtime path.
   gcs_volumes = [
-    { name = "features-sports", bucket = "features-sports-${var.project_id}", read_only = false },
+    { name = "features-sports", bucket = "features-sports-${local.bucket_env_short}-${var.project_id}", read_only = false },
   ]
 
   secret_environment_variables = {
