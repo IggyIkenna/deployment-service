@@ -136,6 +136,22 @@ infrastructure_buckets:
       service: unified-trading-pm
       type: observability
       category: ALL
+    # Dedicated personal on-chain cross-sectional-netflow RESEARCH bucket + LIVE
+    # paper-sleeve ledger/state, provisioned 2026-07-15 (operator ruling on
+    # plans/active/issues/features_onchain_bare_bucket_not_asset_group_migratable_2026_07_15.md,
+    # Option A). Relocated here from the bare `features-onchain-{pid}` flat bucket's ONLY
+    # content (`netflow_xsec_research/` — 7 research parquets + a live
+    # `_dune_sleeve_ledger.csv`/`_dune_sleeve_state.json` trading-sleeve harness), which was
+    # never asset-group-classifiable production feature-store data (no by_date=/asset_group=
+    # partitioning) — a genuine one-off ops/research singleton, same class as the 5
+    # ops-tooling buckets above, not per-asset-group data warranting a cloud-providers.yaml
+    # kind. Deliberately NOT named "features-onchain*" so it never gets swept into a future
+    # features-* asset-group migration again. Consumer:
+    # e2e-testing/scripts/onchain/{gcs_sync.py,README.md}.
+    - name_template: "onchain-research-{project_id}"
+      service: e2e-testing
+      type: research
+      category: ALL
     # ml-configs-store + ml-configs-store-test REMOVED 2026-07-14
     # ([[bucket_estate_consolidation_to_sub100_2026_07_13]] Deferred #8): this flat,
     # no-env-tier pair duplicated (and drifted from) cloud-providers.yaml's genuinely
