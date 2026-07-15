@@ -67,6 +67,7 @@ from deployment_service.data_pipeline_monitors.meta_targets import (
     high_attempted_failed_targets as _high_attempted_failed_targets,
 )
 from deployment_service.data_pipeline_monitors.meta_targets import scheduler_env_prefix as _scheduler_env_prefix
+from deployment_service.data_pipeline_monitors.renag_tracker import RenagTracker
 from deployment_service.deployment_classification import (
     UnclassifiedDeploymentError,
     umbrella_for_vm_name,
@@ -705,6 +706,12 @@ def main(argv: list[str] | None = None) -> int:
             # fresh process). Loaded once, shared by all three checkers, persisted at
             # end-of-sweep so the next sweep continues the count.
             miss_tracker = meta_watchers.MissTracker.load(storage_client=storage_client, log_bucket=log_bucket)
+            # Re-nag cooldown (2026-07-15, defense-in-depth for the DP_RUN_MOSTLY_EMPTY
+            # duplicate-alert spam): once check_high_attempted_failed's onset gate
+            # (above) has fired for a cell, this tracker suppresses an identical re-page
+            # every */15 sweep until renag_cooldown_seconds elapses since the last
+            # ACTUAL alert. Loaded/persisted the same way as miss_tracker.
+            renag_tracker = RenagTracker.load(storage_client=storage_client, log_bucket=log_bucket)
             meta_watchers.check_catalogue_freshness(
                 storage_client=storage_client,
                 targets=_catalogue_targets(),
@@ -724,6 +731,7 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
+                renag_tracker=renag_tracker,
             )
             meta_watchers.check_zombie_watchdog_alive(
                 storage_client=storage_client,
@@ -855,7 +863,21 @@ def main(argv: list[str] | None = None) -> int:
             # RESOLVED bookend (alert-lifecycle hardening): emit ✅ for any meta-watcher
             # alert that cleared since the last sweep, so #data-pipeline-alerts reflects
             # closure instead of a permanent RED on a transient stale-then-fresh artifact.
-            meta_watchers.reconcile_resolved(storage_client=storage_client, log_bucket=log_bucket, dry_run=dry_run)
+            # renag_tracker: a cell that TRULY clears here also has its re-nag state
+            # cleared (in-memory), so a LATER re-onset of the SAME cell pages
+            # immediately — MUST persist renag_tracker AFTER this call (below), or the
+            # clear() would be silently lost (each Cloud Run sweep is a fresh process).
+            meta_watchers.reconcile_resolved(
+                storage_client=storage_client,
+                log_bucket=log_bucket,
+                dry_run=dry_run,
+                renag_tracker=renag_tracker,
+            )
+            # Persist the re-nag timestamps so the NEXT sweep continues the cooldown
+            # clock (a cell whose cooldown hasn't elapsed stays suppressed; one that
+            # reconcile_resolved just cleared above is now dropped from the persisted
+            # state too, so a later re-onset is NOT rate-limited by the prior incident).
+            renag_tracker.persist(dry_run=dry_run)
             logger.info("meta sweep complete")
             if not dry_run:
                 _gcs.write_monitor_last_run(storage_client, log_bucket, "meta", ok=True)
