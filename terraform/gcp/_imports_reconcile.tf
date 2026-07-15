@@ -47,10 +47,11 @@ import {
   id = "central-element-323112/features-delta-one-cefi-test-central-element-323112"
 }
 
-import {
-  to = google_storage_bucket.features_sports
-  id = "central-element-323112/features-sports-central-element-323112"
-}
+# import google_storage_bucket.features_sports REMOVED 2026-07-15
+# (features_sports_service_consolidation_deploy_2026_07_15 FinishBucketAndDocs phase): its target
+# resource was removed from main.tf + `tofu state rm`'d and the flat features-sports-{pid} bucket
+# physically deleted, so this import block must go too (an import block whose `to` resource no longer
+# exists in config errors `tofu plan`/`apply`). Canonical features-sports-prd-{pid} is the sole SSOT.
 
 # REMOVED 2026-07-13 (bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0 terraform
 # reconcile — the target resource no longer exists in config, so its import block must go
