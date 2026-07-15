@@ -265,6 +265,20 @@ launch_cefi_shard() {
   local start_date end_date machine
   if [[ "$year" == "2026" ]]; then
     start_date="${year}-01-01"
+    # START_DATE override (2026-07-15): the eu gap is NOT uniform across a year — a by_day
+    # cross-tab of the live manifest showed every month 2019-03..2026-01 at eu=0 and ALL
+    # 2,773,292 open cells inside 2026-02..2026-07. A year-granular launch therefore spends
+    # hours re-walking an already-complete January (measured: 3 VMs launched 20:20Z were still
+    # at 2026-01-01/01-03/01-12 at 21:51Z — 90min, ZERO reachable eu cells in range) before it
+    # can close a single cell. Let the caller aim a wave straight at the gap.
+    # Must be YYYY-MM-DD inside the year being sharded; ignored for other years.
+    if [[ -n "${START_DATE:-}" ]]; then
+      if [[ ! "$START_DATE" =~ ^${year}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "ERROR: START_DATE='$START_DATE' must be YYYY-MM-DD within year $year" >&2
+        return 1
+      fi
+      start_date="$START_DATE"
+    fi
     # Dynamic "yesterday" cutoff (was a hardcoded 2026-05-22 that went stale
     # 52+ days ago, permanently blocking any 2026 launch for a venue whose
     # entire coverage window postdates the hardcode — found 2026-07-13 via
