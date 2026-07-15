@@ -14,8 +14,16 @@ region       = "asia-northeast1"
 gcs_location = "asia-northeast1"
 environment  = "prod"
 
-job_name     = "features-service-sports-job"
-docker_image = "asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading-system/features-service:latest"
+job_name = "features-service-sports-job"
+# Pinned to an explicit digest (not `:latest`) so the Cloud Run job runs a KNOWN, verified image:
+# Cloud Run resolves a tag→digest at job create/update time, so a bare `:latest` silently keeps
+# whatever digest was current at the LAST apply — which is exactly how the job ran the stale broken
+# c204c49d image (execution features-service-sports-job-kk4dv, 2026-07-15, false CONSOLIDATOR_DOWN).
+# This digest = features-service 0.66.0 / commit afbe1ef, built 2026-07-15T19:38Z. VERIFIED in-image
+# (docker run) to contain BOTH fixes: (1) unified_api_contracts.internal resolves cleanly, and
+# (2) UTL c47273c1 lock-aware assert_consolidator_healthy (consolidator_cycle_in_flight short-circuit).
+# On a future features-service rollout, re-pin this to the new verified digest (see plan todo note).
+docker_image = "asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading-system/features-service@sha256:b7fc3d7f7b92fe37edfae592b8c62244ecc46d5598dd4e08571508de08fb3117"
 
 # Reuses the SAME service account as the legacy job (confirmed still active 2026-07-15) —
 # no new IAM surface needed; the SA's only GCS/Secret Manager grants it actually needs
