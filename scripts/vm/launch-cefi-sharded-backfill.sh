@@ -636,7 +636,24 @@ _launch_queued_vm() {
   else
     machine="${MACHINE_TYPE_LIGHT:-e2-highmem-8}"
   fi
-  local vm_name="cefi-queue-${group}-${RUN_TS}"
+  # Scope-encoding name (2026-07-15): the old shape `cefi-queue-{group}-{ts}` made two
+  # DIFFERENTLY-SCOPED queue VMs look identical, and a peer manager reasonably-but-wrongly
+  # killed two non-duplicate heavies as "duplicates" (see mvp_backfill_cefi_tick_v10 tick-10
+  # + the 18:20Z reconciliation). With several managers sharing the 3-VM Tardis cap, the
+  # venue scope MUST be legible from `gcloud compute instances list` alone. Shape:
+  #   cefi-queue-{group}-{firstvenue-short}[-x{N}]-{ts}   (N = total venues in this bucket)
+  # `cefi-queue-` stays the leading prefix, so VM_PREFIX_TO_BUCKET longest-prefix matching
+  # (deployment_service/vm_prefix_registry.py:123) still resolves — verified before shipping.
+  local _vt_n=0 _vt_first="" _vt_v
+  for _vt_v in $venues_str; do
+    _vt_n=$((_vt_n + 1))
+    [[ -z "$_vt_first" ]] && _vt_first="$_vt_v"
+  done
+  local _vt_short
+  _vt_short="$(echo "$_vt_first" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | cut -c1-11)"
+  local _vt_tag="$_vt_short"
+  (( _vt_n > 1 )) && _vt_tag="${_vt_short}-x${_vt_n}"
+  local vm_name="cefi-queue-${group}-${_vt_tag}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
   meta+=",VM_TASK=cefi-backfill"
