@@ -12,10 +12,10 @@ output "instruments_cefi_bucket" {
   value       = google_storage_bucket.instruments_cefi.name
 }
 
-output "features_calendar_bucket" {
-  description = "Name of the features calendar GCS bucket"
-  value       = google_storage_bucket.features_calendar.name
-}
+# features_calendar_bucket output REMOVED 2026-07-15 — its bucket resource was removed
+# (bucket_estate_consolidation Verify+Delete phase, bucketKey=features-calendar; flat
+# features-calendar-{pid} deleted, canonical features-calendar-{env}-{pid} is the sole SSOT).
+# No consumer referenced this output (grep found none).
 
 # ml_models_bucket output REMOVED 2026-07-13 — google_storage_bucket.ml_models (the
 # long-env `-${var.environment}-` resource) was deleted (REMOVE_STALE,
