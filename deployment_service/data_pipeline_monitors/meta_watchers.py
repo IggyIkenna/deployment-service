@@ -56,6 +56,11 @@ from deployment_service.data_pipeline_monitors.escalation import (
     PipelineFinding,
     route_finding,
 )
+from deployment_service.data_pipeline_monitors.renag_tracker import (
+    DEFAULT_RENAG_COOLDOWN_SECONDS,
+    RenagTracker,
+    apply_cooldown,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +111,7 @@ def reconcile_resolved(
     active_blob: str = ACTIVE_DP_ALERTS_BLOB,
     emitted: dict[str, str] | None = None,
     dry_run: bool = False,
+    renag_tracker: RenagTracker | None = None,
 ) -> list[str]:
     """Emit a ``✅ RESOLVED`` INFO bookend for each alert that fired on a PRIOR sweep
     but did NOT re-fire this sweep (the condition cleared), so #data-pipeline-alerts
@@ -118,6 +124,9 @@ def reconcile_resolved(
     falls back to the meta sweep's ``_EMITTED_THIS_SWEEP`` accumulator (populated via
     :func:`_emit`). Returns the resolved keys. Fail toward NO false-resolve: a
     read/parse miss treats the prior set as empty, and the bookend is INFO (never pages).
+
+    ``renag_tracker``: every resolved key also has its re-nag state cleared (no-op if
+    never held) so a LATER re-onset pages immediately.
     """
     prior: dict[str, str] = {}
     raw = _gcs.read_text(storage_client, log_bucket, active_blob)
@@ -135,6 +144,8 @@ def reconcile_resolved(
         event = prior[key]
         label = key.split("::", 1)[1] if "::" in key else key
         logger.info("meta_watchers: RESOLVED %s (%s)", key, event)
+        if renag_tracker is not None:
+            renag_tracker.clear(key)
         if not dry_run:
             log_event(
                 event,
@@ -582,6 +593,8 @@ def check_high_attempted_failed(
     dry_run: bool = False,
     miss_tracker: MissTracker | None = None,
     min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
+    renag_tracker: RenagTracker | None = None,
+    renag_cooldown_seconds: float = DEFAULT_RENAG_COOLDOWN_SECONDS,
 ) -> list[AttemptedFailedCell]:
     """DP-FETCH-009 — page when a ``(asset_group, data_type)`` cell has a HIGH
     ``attempted_failed`` count/ratio in the consolidated manifest ``_index``.
@@ -600,6 +613,10 @@ def check_high_attempted_failed(
     ``min_consecutive`` consecutive sweeps (so a transient consolidator blip during
     a heavy backfill never false-pages); ``None`` ⇒ fire on the first HIGH cell
     (the prior fire-on-first behaviour; keeps back-compat for existing call sites).
+
+    **Re-nag cooldown** (defense-in-depth, see the ``renag_tracker`` module docstring):
+    with ``renag_tracker``, a cell past onset only re-emits once ``renag_cooldown_seconds``
+    has elapsed since its last actual emission. ``None`` ⇒ no cooldown (back-compat).
 
     Reuses the registered ``DP_RUN_MOSTLY_EMPTY`` event (DP-FETCH-007, CRITICAL,
     PAGE_OPERATOR — the closest "a run failed to produce expected data" signal,
@@ -636,6 +653,15 @@ def check_high_attempted_failed(
                     continue
             if not cell.high:
                 continue
+            renag_key = _high_attempted_failed_miss_key(cell.asset_group, cell.data_type)
+            if apply_cooldown(
+                renag_tracker,
+                renag_key,
+                cooldown_seconds=renag_cooldown_seconds,
+                active_sweep=_EMITTED_THIS_SWEEP,
+                event=DP_RUN_MOSTLY_EMPTY,
+            ):
+                continue
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
                 f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
@@ -670,6 +696,8 @@ def check_high_attempted_failed(
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
+            if renag_tracker is not None:
+                renag_tracker.record(renag_key)
     return all_cells
 
 

@@ -28,6 +28,9 @@ from deployment_service.data_pipeline_monitors import (
     meta_watchers,
     stale_image_watcher,
 )
+from deployment_service.data_pipeline_monitors import (
+    renag_tracker as renag_tracker_module,
+)
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
@@ -1495,6 +1498,193 @@ def test_high_attempted_failed_alert_key_matches_miss_key():
         registry_id="DP-FETCH-009",
     )
     assert meta_watchers.alert_key(finding) == meta_watchers._high_attempted_failed_miss_key("sports", "trades")
+
+
+# ── DP-FETCH-009 re-nag cooldown (2026-07-15, defense-in-depth) ──────────────
+# Source-side fix for the DP_RUN_MOSTLY_EMPTY duplicate-alert spam (see
+# plans/active/issues/dp_run_mostly_empty_no_recurring_dedup_2026_07_15.md): past
+# onset, a still-HIGH cell must NOT re-page every */15 sweep — only after
+# ``DEFAULT_RENAG_COOLDOWN_SECONDS`` has elapsed since the LAST actual alert.
+
+
+def test_renagtracker_should_emit_record_clear_semantics():
+    # Low-level contract test (mirrors test_misstracker_load_register_persist_roundtrip):
+    # never-seen key → emit; within cooldown → suppressed; cooldown elapsed → emit
+    # again; cleared key → treated as fresh (never-seen) again.
+    storage = FakeStorage({})
+    t = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    t0 = datetime(2026, 7, 15, 12, 0, 0, tzinfo=UTC)
+    assert t.should_emit("k", cooldown_seconds=1800.0, now=t0) is True  # first-ever
+    t.record("k", now=t0)
+    assert t.should_emit("k", cooldown_seconds=1800.0, now=t0 + timedelta(seconds=100)) is False
+    assert t.should_emit("k", cooldown_seconds=1800.0, now=t0 + timedelta(seconds=1800)) is True
+    t.persist()
+    t2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    assert t2.should_emit("k", cooldown_seconds=1800.0, now=t0 + timedelta(seconds=100)) is False  # round-tripped
+    t2.clear("k")
+    assert t2.should_emit("k", cooldown_seconds=1800.0, now=t0 + timedelta(seconds=100)) is True  # cleared → fresh
+
+
+def test_high_attempted_failed_renag_first_emission_after_onset_fires_immediately(monkeypatch):
+    # (a) Onset (MissTracker, min_consecutive=2) crosses on sweep 2 — the renag
+    # tracker has NEVER recorded this cell's key before, so its first-ever alert
+    # fires on that SAME sweep (no extra cooldown wait stacked on top of onset).
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    meta_watchers.reset_emitted_tracker()
+    # Sweep 1 — below onset threshold → suppressed (both miss + renag agree: no page).
+    miss1 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(
+        storage_client=storage,
+        targets=[_af_target()],
+        miss_tracker=miss1,
+        min_consecutive=2,
+        renag_tracker=renag1,
+    )
+    miss1.persist()
+    renag1.persist()
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+    # Sweep 2 — onset crosses (2nd consecutive HIGH) → fires immediately (renag
+    # tracker's key was never recorded, so should_emit is True on first sight).
+    meta_watchers.reset_emitted_tracker()
+    miss2 = meta_watchers.MissTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(
+        storage_client=storage,
+        targets=[_af_target()],
+        miss_tracker=miss2,
+        min_consecutive=2,
+        renag_tracker=renag2,
+    )
+    miss2.persist()
+    renag2.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_high_attempted_failed_renag_suppresses_within_cooldown(monkeypatch):
+    # (b) A second sweep with the cell still HIGH, well within the cooldown window,
+    # must NOT re-emit — but the cell must still be reported as genuinely high (the
+    # suppression is a Slack-page decision, not a blindness to the condition).
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    key = meta_watchers._high_attempted_failed_miss_key("sports", "trades")
+
+    # Sweep 1 — no miss_tracker (fires on first HIGH) + fresh renag_tracker → pages.
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+    emitted.clear()
+
+    # Sweep 2 — same cell still HIGH, default 1800s cooldown has NOT elapsed → suppressed.
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    cells = meta_watchers.check_high_attempted_failed(
+        storage_client=storage, targets=[_af_target()], renag_tracker=renag2
+    )
+    renag2.persist()
+    assert any(c.data_type == "trades" and c.high for c in cells)  # condition genuinely still HIGH
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)  # but the page is suppressed
+    # Still marked ACTIVE this sweep (cooldown-suppressed != resolved) — reconcile_resolved
+    # must NOT post a false RESOLVED bookend while the cell is genuinely still failing.
+    assert key in meta_watchers._EMITTED_THIS_SWEEP
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_high_attempted_failed_renag_reemits_after_cooldown_elapses(monkeypatch):
+    # (c) Once the cooldown has genuinely elapsed since the LAST actual alert, the
+    # still-HIGH cell re-emits (CRITICAL still pages — this is re-nag, not permanent
+    # silence).
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    key = meta_watchers._high_attempted_failed_miss_key("sports", "trades")
+
+    # Sweep 1 — first-ever emission.
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+    emitted.clear()
+
+    # Back-date the persisted last_alerted_at past the cooldown (simulates a sweep
+    # that runs after DEFAULT_RENAG_COOLDOWN_SECONDS have genuinely elapsed,
+    # without a real sleep in the test).
+    stale_ts = datetime.now(UTC).timestamp() - (renag_tracker_module.DEFAULT_RENAG_COOLDOWN_SECONDS + 60.0)
+    storage.blobs[(LOG_BUCKET, renag_tracker_module.DP_RENAG_TIMESTAMPS_BLOB)] = (
+        json.dumps({key: stale_ts}).encode(),
+        0.0,
+    )
+
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag2)
+    renag2.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_high_attempted_failed_renag_cleared_on_resolve_allows_immediate_fresh_onset(monkeypatch):
+    # (d) After reconcile_resolved posts the RESOLVED bookend for a cell that clears,
+    # a LATER fresh onset on the SAME cell must fire immediately — not blocked by
+    # stale re-nag state left over from the prior incident.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    high_rows = [("trades", "captured")] * 100 + [("trades", "attempted_failed")] * n_failed
+    clean_rows = [("trades", "captured")] * 100
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(high_rows), 0.0)})
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    key = meta_watchers._high_attempted_failed_miss_key("sports", "trades")
+
+    # Sweep 1 — cell HIGH, first-ever emission; reconcile_resolved records it ACTIVE.
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag1)
+    meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+    emitted.clear()
+
+    # Sweep 2 — the condition genuinely CLEARS (index rewritten with only captured
+    # rows) → not high → not emitted → reconcile_resolved sees the key drop out →
+    # posts the RESOLVED bookend AND clears the renag_tracker's last_alerted_at.
+    storage.blobs[(_MD_BUCKET, _AVAIL_INDEX)] = (_index_parquet(clean_rows), 0.0)
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag2)
+    resolved = meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag2)
+    renag2.persist()
+    assert key in resolved
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "INFO" for e in emitted)  # RESOLVED bookend
+    emitted.clear()
+
+    # Sweep 3 — a FRESH onset on the SAME cell moments later. Despite the prior
+    # incident having alerted very recently (well within the cooldown), the cleared
+    # renag state means this is treated as a first-ever emission → fires immediately.
+    storage.blobs[(_MD_BUCKET, _AVAIL_INDEX)] = (_index_parquet(high_rows), 0.0)
+    meta_watchers.reset_emitted_tracker()
+    renag3 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()], renag_tracker=renag3)
+    renag3.persist()
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
 
 
 def test_zombie_watchdog_down_when_census_missing(monkeypatch):
