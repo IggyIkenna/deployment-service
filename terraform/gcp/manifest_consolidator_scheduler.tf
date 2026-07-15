@@ -175,8 +175,33 @@ locals {
   # ONLY belong to a still-legitimately-running execution, never a livelock;
   # this structurally eliminates the failure class rather than just widening
   # the number that caused it.
+  #
+  # 2026-07-14/15 (manifest_consolidator_instruments_sports_intermittent_slow_run):
+  # instruments-sports hits the SAME livelock class as market-data-defi above —
+  # NOT via date-range chunking (sports never chunks), just an ordinary
+  # per-VM-shard-backlog merge occasionally running 6-9 min against the code
+  # default 300s TTL. Confirmed live via Cloud Run execution history + logs
+  # (2026-07-14 23:30-23:49Z): the exact
+  # "clearing stale lock ... age=303.6s > TTL=300.0s" reclaim fired repeatedly
+  # (22:18:38, 22:58:39, 23:22:39Z, ~302-355s ages — i.e. a legitimately
+  # still-running cycle's lock aging past the 300s TTL), each followed by a
+  # run of 4-5 consecutive overlapping executions independently completing in
+  # 6m15s-8m54s instead of the normal ~40s (9tkmn/9xpxf/phq5l/tjcjn/fqwtx/
+  # dksnm/98gpr/29zjz all 6-9min in that one window) — the same
+  # "overlapping-competing-merge" shape as defi, just triggered by ordinary
+  # backlog growth instead of chunking. This starved the features-service
+  # compute VM's 120s consolidator-freshness startup gate, failing 9/9
+  # features-sports gap-fill SPOT VM launches across 3 waves (0/9 success) —
+  # see the issue doc for the full VM-waste accounting. Set to 2400s,
+  # mirroring defi's ~600s-over-timeout headroom pattern against this
+  # bucket's own 1800s timeout_seconds override (above) — comfortably above
+  # every observed real cycle time (max 8m54s = 534s) and structurally above
+  # the task timeout so a "fresh" lock can only mean a still-legitimately-
+  # running execution. Live-bumped via `gcloud run jobs update` (2026-07-15,
+  # applies to future executions only) — codified here.
   manifest_consolidator_lock_ttl_seconds = {
-    "market-data-defi" = "4200"
+    "market-data-defi"   = "4200"
+    "instruments-sports" = "2400"
   }
 
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
