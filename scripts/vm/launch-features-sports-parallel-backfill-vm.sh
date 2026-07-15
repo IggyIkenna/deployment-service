@@ -69,8 +69,13 @@ ON_DEMAND=false
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"
 
-# GCS bucket for staging tarball + logs + progress
-GCS_BUCKET="${GCS_BUCKET:-gs://features-sports-${PROJECT_ID}}"
+# GCS bucket for staging tarball + logs + progress. Cutover 2026-07-15
+# (bucket_estate_consolidation_to_sub100_2026_07_13.md, features-sports Cutover phase):
+# repointed from the bare flat `features-sports-${PROJECT_ID}` to the canonical -prd-
+# bucket (this var only ever backs the ephemeral `_vm_staging/fss_backfill/` scratch
+# prefix below, never the actual feature-data destination, which is resolved separately
+# at runtime via `resolve_bucket(kind="features-sports", ...)`).
+GCS_BUCKET="${GCS_BUCKET:-gs://features-sports-prd-${PROJECT_ID}}"
 GCS_STAGING="${GCS_BUCKET}/_vm_staging/fss_backfill"
 
 while [[ $# -gt 0 ]]; do
