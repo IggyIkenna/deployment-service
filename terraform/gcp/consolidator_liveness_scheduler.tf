@@ -114,3 +114,78 @@ output "consolidator_liveness_cron_name" {
   description = "Cloud Scheduler cron name for the consolidator liveness watchdog."
   value       = google_cloud_scheduler_job.consolidator_liveness_cron.name
 }
+
+# -------------------------------------------------------
+# Cloud Monitoring log-based alert — pages on this watchdog's OWN exit(1)
+# -------------------------------------------------------
+# Issue: plans/active/issues/defi_consolidator_cron_left_paused_2026_07_15.md
+#   The defi consolidator's triggering Cloud Scheduler cron was left PAUSED
+#   for 13.5h (2026-07-14 22:25Z -> 2026-07-15 11:56Z). This watchdog job
+#   correctly logged "N bucket(s) DOWN ... Container called exit(1)" every
+#   2-min cycle for 12+ consecutive hours, and its app-level path
+#   (log_event(CONSOLIDATOR_DOWN) -> lifecycle-events Pub/Sub ->
+#   alerting-service's CONSOLIDATOR_DOWN rule -> PagerDuty/Telegram) is coded
+#   and DID fire per the incident's own logs -- but nothing paged a human, and
+#   there was ALSO zero GCP-native monitoring on this job's own exit code (no
+#   `google_monitoring_alert_policy` anywhere in terraform/gcp/ keyed off
+#   resource.type="cloud_run_job" for this job). So the ONE thing watching the
+#   consolidator (this watchdog) had no independent watcher of its own -- a
+#   violation of the "each layer is independent of the one it watches" design
+#   in codex/05-infrastructure/deployment-observability.md § "Out-of-band
+#   liveness". This alert closes that specific gap: a GCP-native backstop that
+#   does not depend on the app's own Pub/Sub/alerting-service pipeline at all,
+#   so a break anywhere in THAT pipeline (the still-open, unverified half of
+#   this issue's P1 todo) can no longer leave this watchdog's own failures
+#   silent.
+#
+# Channel reuse: the same out-of-band bedrock as the other real (non-toothless)
+# alerts in this file's directory --
+# `google_monitoring_notification_channel.monitoring_deadman_email`
+# (monitoring_deadman_scheduler.tf) -- deliberately NOT a new channel, and
+# deliberately NOT the empty-default `var.cf_audit_alert_notification_channels`
+# pattern in cf_manifest_audit_scheduler.tf (that pattern ships an alert policy
+# that pages no one until a separate workspace-level wiring step happens; this
+# alert must actually page from day one).
+resource "google_monitoring_alert_policy" "consolidator_liveness_watchdog_failed" {
+  display_name = "${local.env_prefix} consolidator-liveness-watchdog — exit(1) (bucket DOWN)"
+  project      = var.project_id
+  combiner     = "OR"
+  enabled      = true
+
+  conditions {
+    display_name = "uts-prod-consolidator-liveness-watchdog logged ERROR (bucket DOWN or execution failed)"
+
+    condition_matched_log {
+      filter = <<-EOT
+        resource.type="cloud_run_job"
+        resource.labels.job_name="${module.consolidator_liveness_job.name}"
+        severity="ERROR"
+      EOT
+
+      label_extractors = {
+        "job_name" = "EXTRACT(resource.labels.job_name)"
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.monitoring_deadman_email.id]
+
+  alert_strategy {
+    notification_rate_limit {
+      # The watchdog cron is */2 min; while a bucket stays DOWN it re-logs
+      # ERROR every cycle. Page promptly on the first occurrence, then at
+      # most once/hour while the condition persists (not every 2 min).
+      period = "3600s"
+    }
+    auto_close = "604800s" # 7 days — auto-close stale incidents
+  }
+
+  documentation {
+    content   = "The consolidator liveness watchdog (uts-prod-consolidator-liveness-watchdog) logged an ERROR -- either a manifest bucket's consolidator heartbeat is stale (CONSOLIDATOR_DOWN) or the watchdog's own Cloud Run execution failed. Check `gcloud scheduler jobs describe uts-prod-manifest-consolidator-market-data-{bucket}-cron --location=asia-northeast1` for a PAUSED cron first (the 2026-07-15 root cause -- a paused scheduler never self-recovers) before assuming a transient consolidator error. Then `gcloud run jobs executions list --job=uts-prod-consolidator-liveness-watchdog --region=asia-northeast1 --limit=5` for the watchdog's own recent runs. SSOTs: codex/05-infrastructure/manifest-consolidator-ssot.md, plans/active/issues/defi_consolidator_cron_left_paused_2026_07_15.md."
+    mime_type = "text/markdown"
+  }
+
+  user_labels = {
+    "purpose" = "consolidator-liveness-watchdog-alert"
+  }
+}
