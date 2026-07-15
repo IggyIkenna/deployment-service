@@ -755,3 +755,19 @@ loop for one bad VM/blob among many.
 | `deadman_poster.py`          | 408                                  | Top-level entrypoint catch; `logger.exception(...)`, exits 0 by design — the deadman cron's own execution-absence is covered by GCP-native Cloud Scheduler alerting (the "bedrock above this watcher", per the inline comment), so this handler intentionally never propagates |
 
 **Resolution path:** None planned — permanent pattern across the fleet-monitoring package.
+
+## 2.21 Broad except Exception — `data_pipeline_monitors/check_vm_cli.py` (same never-raises pattern)
+
+**Date:** 2026-07-15
+**Files:** `deployment_service/data_pipeline_monitors/check_vm_cli.py` (`_shard_bucket_for_vm`)
+**Rule:** `except Exception:` (broad except, 1 occurrence)
+**Status:** JUSTIFIED — identical pattern to §2.19/§2.20, in the new ad-hoc single-VM check CLI
+
+`check_vm_cli.py` (DP-VM-006, `drift_v2_sig_index_program_wide_helius_oom_2026_07_15`) is a companion,
+self-contained CLI to the fleet-monitoring package — an on-demand single-VM liveness check for the manual
+"VM roster + run.log tail" check-in convention. `_shard_bucket_for_vm` mirrors `cli.py`'s own identical
+helper (§2.20 row): a `resolve_bucket_name()` failure (unknown/misclassified asset_group) degrades to
+`None` (no per-VM-shard progress signal for this VM) rather than crashing the whole ad-hoc check — the same
+best-effort-cloud-read tradeoff, narrower in scope to one function.
+
+**Resolution path:** None planned — same permanent pattern as §2.19/§2.20.
