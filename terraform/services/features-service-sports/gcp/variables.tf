@@ -1,0 +1,93 @@
+# Variables for the consolidated features-service sports Terraform configuration
+
+variable "project_id" {
+  description = "GCP Project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "GCP region"
+  type        = string
+  default     = "asia-northeast1"
+}
+
+variable "gcs_location" {
+  description = "GCS location"
+  type        = string
+  default     = "asia-northeast1"
+}
+
+variable "job_name" {
+  description = "Name of the Cloud Run Job"
+  type        = string
+  default     = "features-service-sports-job"
+}
+
+variable "docker_image" {
+  description = "Docker image URL (the consolidated features-service image, not a dedicated per-family image)"
+  type        = string
+}
+
+variable "service_account_email" {
+  description = "Service account email for the job"
+  type        = string
+}
+
+variable "cpu" {
+  description = "CPU allocation"
+  type        = string
+  default     = "2"
+}
+
+variable "memory" {
+  description = "Memory allocation"
+  type        = string
+  default     = "8Gi"
+}
+
+variable "timeout_seconds" {
+  description = "Job timeout in seconds"
+  type        = number
+  default     = 86400
+}
+
+variable "max_retries" {
+  description = "Maximum retry attempts"
+  type        = number
+  default     = 3
+}
+
+variable "environment" {
+  description = "Environment (dev, staging, prod)"
+  type        = string
+  default     = "prod"
+}
+
+variable "workflow_name" {
+  description = "Name of the daily Cloud Workflow"
+  type        = string
+  default     = "features-service-sports-daily"
+}
+
+variable "backfill_workflow_name" {
+  description = "Name of the backfill Cloud Workflow"
+  type        = string
+  default     = "features-service-sports-backfill"
+}
+
+variable "schedule" {
+  description = "Cron schedule (default: 07:00 UTC - one hour after Tier-1 discovery at 06:00 UTC so fixtures rolling window is fresh before fixture_features compute; SAME schedule as the legacy job it replaces)"
+  type        = string
+  default     = "0 7 * * *"
+}
+
+variable "time_zone" {
+  description = "Time zone for the schedule"
+  type        = string
+  default     = "UTC"
+}
+
+variable "scheduler_service_account_email" {
+  description = "Service account for Cloud Scheduler"
+  type        = string
+}
