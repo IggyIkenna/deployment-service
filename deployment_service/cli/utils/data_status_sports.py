@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 _SPORTS_BUCKET_TEMPLATE = "instruments-store-sports-{project_id}"
 _FIXTURES_PREFIX = "sports_reference/by_date/day={date}/entity=fixtures/"
 _FIXTURES_LEGACY_PREFIX = "sports_reference/fixtures/day={date}/"
+# Post-cutover writer shape (2026-07-14+, instruments-service
+# sports_fixtures.py): entity=fixtures split into fixtures_schedule/
+# fixtures_outcomes with NO legacy dual-write. fixtures_schedule alone
+# covers every fixture (played or not) so it's the equivalent presence
+# marker to the old singleton entity=fixtures.
+_FIXTURES_SCHEDULE_PREFIX = (
+    "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/"
+)
 
 
 def _load_fixture_counts_for_date(
@@ -34,16 +42,21 @@ def _load_fixture_counts_for_date(
 ) -> dict[str, int]:
     """Load fixture counts per league for a single date from GCS.
 
-    Scans both new and legacy fixture paths.
+    Scans the legacy singleton, split-entity, and oldest legacy fixture paths.
     Returns mapping of league_id -> fixture_count.
     """
     league_counts: dict[str, int] = defaultdict(int)
 
-    # Try new path first: sports_reference/by_date/day={date}/entity=fixtures/league={id}/
+    # Try legacy singleton path first: sports_reference/by_date/day={date}/entity=fixtures/league={id}/
     new_prefix = _FIXTURES_PREFIX.format(date=date_str)
     _scan_fixture_prefix(cloud_client, bucket_name, new_prefix, league_counts)
 
-    # If nothing found, try legacy path
+    # Post-cutover split-entity path (entity=fixtures_schedule)
+    if not league_counts:
+        schedule_prefix = _FIXTURES_SCHEDULE_PREFIX.format(date=date_str)
+        _scan_fixture_prefix(cloud_client, bucket_name, schedule_prefix, league_counts)
+
+    # If still nothing found, try oldest legacy path
     if not league_counts:
         legacy_prefix = _FIXTURES_LEGACY_PREFIX.format(date=date_str)
         _scan_fixture_prefix(cloud_client, bucket_name, legacy_prefix, league_counts)
@@ -265,6 +278,15 @@ def _check_league_status(
         bucket = cloud_client.client.bucket(bucket_name)
         blobs = list(bucket.list_blobs(prefix=new_prefix, max_results=1))
         has_data = any(b.name.endswith(".parquet") for b in blobs)
+
+        if not has_data:
+            # Post-cutover split-entity path (entity=fixtures_schedule)
+            schedule_prefix = (
+                f"sports_reference/by_date/day={date_str}/"
+                f"pipeline_mode=batch_api_football/entity=fixtures_schedule/league={league_id}/"
+            )
+            schedule_blobs = list(bucket.list_blobs(prefix=schedule_prefix, max_results=1))
+            has_data = any(b.name.endswith(".parquet") for b in schedule_blobs)
 
         if not has_data:
             # Try legacy path
