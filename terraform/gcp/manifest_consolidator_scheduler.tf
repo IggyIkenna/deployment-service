@@ -199,9 +199,24 @@ locals {
   # the task timeout so a "fresh" lock can only mean a still-legitimately-
   # running execution. Live-bumped via `gcloud run jobs update` (2026-07-15,
   # applies to future executions only) — codified here.
+  #
+  # 2026-07-15 (fleet-wide 25-job manifest-consolidator audit, cross-linked from
+  # instruments_sports_manifest_consolidator_lock_livelock_2026_07_15.md +
+  # manifest_consolidator_instruments_sports_intermittent_slow_run_2026_07_14.md):
+  # market-data-cefi hits the SAME TTL-shorter-than-real-merge-duration class as
+  # defi/sports above — directly observed TWO overlapping genuine
+  # `phase=lock_acquired` acquisitions against the 300s code-default TTL (real
+  # merges run 432-510s, i.e. 7.2-8.5min): `l77bf` held 13:12:48-13:20:53Z;
+  # `msp85` acquired 13:17:41Z, only 4m53s into `l77bf`'s still-fresh-but-past-TTL
+  # hold. Set to 1200s, comfortably above every observed real cycle (max 510s)
+  # and above this bucket's own 1800s timeout_seconds (above) with headroom,
+  # mirroring the defi/sports precedent's "TTL > timeout_seconds" structural
+  # guarantee (a "fresh" lock can only mean a still-legitimately-running
+  # execution, never a livelock).
   manifest_consolidator_lock_ttl_seconds = {
     "market-data-defi"   = "4200"
     "instruments-sports" = "2400"
+    "market-data-cefi"   = "1200"
   }
 
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
