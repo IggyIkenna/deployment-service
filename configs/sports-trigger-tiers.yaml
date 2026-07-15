@@ -43,9 +43,18 @@
 # points at ``uts-prod-instruments-service-sports-fixtures`` (8cpu/32Gi,
 # confirmed via `gcloud run jobs describe` — the same job the fixture-proximate
 # 4x-daily cron already uses successfully for the full multi-entity sports
-# fetch). Non-sports dispatches (``uts-prod-market-tick-data-service-fast-t1-recon``,
-# ``features-sports-service-job``) are unaffected — only the misrouted
+# fetch). Other dispatches (``uts-prod-market-tick-data-service-fast-t1-recon``,
+# ``features-service-sports-job``) are unaffected — only the misrouted
 # instruments-service SPORTS entries changed.
+#
+# 2026-07-15 fix (features_sports_service_consolidation_deploy_2026_07_15.md,
+# todo 7 prerequisite): the two ``features-service`` feature-compute entries
+# (features_pre_match, features_post_match) were repointed from the retired
+# legacy ``features-sports-service-job`` to the consolidated
+# ``features-service-sports-job``. The consolidated image's baked entrypoint is
+# the multi-family dispatcher (``python -m features_service``), so the scheduler
+# now injects ``--feature-family sports`` before the family flags — see
+# ``SportsTriggerScheduler._build_cli_cmd`` / ``_MULTI_FAMILY_DISPATCH_SERVICES``.
 
 # Tier 1: Discovery — periodic, not fixture-proximate.
 # Refreshes the fixture calendar and slow-changing reference data on a
@@ -186,7 +195,12 @@ pre_match:
         - service: features-service
           operation: compute
           category: SPORTS
-          cloud_run_job_name: "features-sports-service-job"
+          # Consolidated multi-family job (2026-05-08 features-repo consolidation;
+          # legacy features-sports-service-job retired). Its baked entrypoint is
+          # `python -m features_service` (the multi-family dispatcher), so the
+          # scheduler injects `--feature-family sports` before these flags —
+          # see SportsTriggerScheduler._build_cli_cmd / _MULTI_FAMILY_DISPATCH_SERVICES.
+          cloud_run_job_name: "features-service-sports-job"
           args:
             --tables: fixture_features,odds_features
           description: Compute pre-match features (fixture + odds velocity/CLV/steam) from all collected data
@@ -245,7 +259,9 @@ post_match:
         - service: features-service
           operation: compute
           category: SPORTS
-          cloud_run_job_name: "features-sports-service-job"
+          # Consolidated multi-family job (see features_pre_match note above) —
+          # scheduler injects `--feature-family sports` before these flags.
+          cloud_run_job_name: "features-service-sports-job"
           args:
             --tables: derived_features
           description: Compute post-match derived features (footystats/understat final stats), T+25h after final whistle
