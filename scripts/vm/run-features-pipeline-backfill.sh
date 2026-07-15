@@ -198,7 +198,10 @@ phase_4_downstream() {
     _run "bash ${DEPLOY_VM_DIR}/launch-features-backfill-vm.sh commodity TRADFI ${START_DATE} ${END_DATE} full"
 
     # 4f. calendar — UPSTREAM-INDEPENDENT and ASSET-GROUP-AGNOSTIC. Output goes to
-    # gs://features-calendar-central-element-323112/calendar/{feature_group}/by_date/day=.../features.parquet —
+    # gs://features-calendar-{env}-central-element-323112/calendar/{feature_group}/by_date/day=.../features.parquet
+    # (env-tiered canonical bucket per cloud-providers.yaml; the flat
+    # features-calendar-central-element-323112 bucket was decommissioned 2026-07-15 —
+    # bucket_estate_consolidation_to_sub100_2026_07_13.md) —
     # no asset_group segment in the path. Running per-asset_group races multiple
     # VMs onto the same parquet (last writer wins). Run once with any
     # asset_group token (the CLI's --asset-group flag is required by uniform

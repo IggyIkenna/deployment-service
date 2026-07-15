@@ -394,24 +394,15 @@ resource "google_storage_bucket" "market_data_sports" {
 # terraform will `destroy` the resources below on next apply; the `gcp/main.tf`
 # block that once defined them has been deleted intentionally (no recreation).
 
-# Calendar data is shared across envs (no env suffix)
-resource "google_storage_bucket" "features_calendar" {
-  name     = "features-calendar-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 365 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-calendar", "tier" = "group-a" })
-}
+# resource google_storage_bucket.features_calendar REMOVED 2026-07-15 (bucket_estate_consolidation
+# Verify+Delete phase, bucketKey=features-calendar): flat features-calendar-{pid} bucket had 0 live
+# objects, 0 noncurrent versions, 0 soft-deleted objects (re-confirmed immediately before delete).
+# Canonical features-calendar-{env}-{pid} siblings (env-tiered per cloud-providers.yaml, already
+# `google_storage_bucket.canonical` for_each in canonical_buckets.tf) are the sole SSOT going
+# forward. State entry removed via `terraform state rm` before the physical bucket was deleted
+# (`gcloud storage buckets delete`), so a future apply cannot resurrect it. Matches the
+# instruments_defi / instruments_tradfi / market_data_cefi / market_data_tradfi purge-armed-twin
+# precedent (ds@1dd2159, ds@39fa8c3).
 
 # gas_fees (legacy gas-fees-…, no env suffix) REMOVED 2026-07-13 — one of the "14 legacy DeFi
 # buckets deleted 2026-07-12" that was recreated as an empty shell by an out-of-band `tofu apply`
