@@ -81,6 +81,12 @@ _PER_VM_SHARD = "_index/per_vm/{vm}.parquet"
 # Hard ceiling on the synchronous GCP aggregated_list gRPC call.  60 s leaves
 # ample time for the sweep + sentinel write within the Cloud Run Job timeout.
 _LIST_VMS_TIMEOUT_SECS = 60.0
+# Bounds the Cloud Scheduler get_job/list_jobs RPCs (KEY #2/DP-WATCHER-003). The
+# GAPIC client's default retry policy treats a transient-looking auth/network
+# failure as retryable and can block far longer than this module's documented
+# fail-safe intent (return None/[] promptly) — a real outage should not stall
+# the whole meta sweep. 10s is generous for a single-job describe/list call.
+_SCHEDULER_RPC_TIMEOUT_SECS = 10.0
 # First-seen census for the heartbeat watcher's grace window (vm_name -> ISO ts).
 _FIRST_SEEN_BLOB = "vm-census/heartbeat-first-seen.json"
 
@@ -456,7 +462,7 @@ def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
             return None
         qualified = f"projects/{project}/locations/{location}/jobs/{job_name}"
         try:
-            job = client.get_job(name=qualified)
+            job = client.get_job(name=qualified, timeout=_SCHEDULER_RPC_TIMEOUT_SECS)
             # Job.state is an enum; .name gives "ENABLED"/"PAUSED"/"DISABLED"/...
             return str(getattr(job.state, "name", "") or "") or None
         except Exception as exc:
@@ -494,7 +500,9 @@ def _make_consolidator_scheduler_lister() -> consolidator_scheduler_watcher.Sche
         parent = f"projects/{project}/locations/{location}"
         try:
             names: list[str] = []
-            for job in client.list_jobs(parent=parent):  # pyright: ignore[reportAny] — dynamic SDK page iterator
+            for job in client.list_jobs(  # pyright: ignore[reportAny] — dynamic SDK page iterator
+                parent=parent, timeout=_SCHEDULER_RPC_TIMEOUT_SECS
+            ):
                 full_name = str(getattr(job, "name", "") or "")  # pyright: ignore[reportAny] — dynamic SDK attr
                 short_name = full_name.rsplit("/", 1)[-1]
                 if "manifest-consolidator" in short_name:

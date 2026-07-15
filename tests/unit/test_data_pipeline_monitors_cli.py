@@ -208,6 +208,17 @@ def test_main_meta_mode_dry_run(monkeypatch):
     _stub_main_cloud(monkeypatch)
     monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
     monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "bucket-x")
+    # KEY #2/DP-WATCHER-003 (2026-07-15, google-cloud-scheduler landed as a real
+    # dependency): stub the scheduler-client factories so this dry-run test stays
+    # credential-free — a REAL CloudSchedulerClient() otherwise tries a live RPC
+    # that pytest-socket blocks, and the GAPIC client's default retry policy stalls
+    # past the pytest-timeout window instead of failing fast.
+    monkeypatch.setattr(cli, "_make_scheduler_state_reader", lambda: lambda _job: None)
+    monkeypatch.setattr(cli, "_make_consolidator_scheduler_lister", lambda: lambda: [])
+    # KEY #4 execution-history reader (google-cloud-run, a pre-existing real
+    # dependency) has the identical real-client shape and was never stubbed here
+    # either — stub it too so this test doesn't attempt a live Cloud Run RPC.
+    monkeypatch.setattr(cli, "_make_execution_history_reader", lambda: lambda _job: None)
     rc = cli.main(["--mode", "meta", "--dry-run"])
     assert rc == 0
 
