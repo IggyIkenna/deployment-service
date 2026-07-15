@@ -7,10 +7,12 @@
 #
 # Reuses features-service's own cloudbuild.yaml image (_SERVICE_NAME: features-service,
 # _REGISTRY_REPO: unified-trading-system) — NOT a new per-family image/registry.
-# This is a NEW, distinctly-named job/workflow set (features-service-sports-*) so it can
-# coexist with the legacy `features-sports-service-job` (terraform/services/features-sports-service/)
-# during the retirement window; the legacy resources are torn down in a later plan todo once
-# this job is confirmed healthy end-to-end (avoids a double-fire window).
+# This is a NEW, distinctly-named job/workflow set (features-service-sports-*). It was stood up
+# to coexist with the legacy `features-sports-service-job` during the cutover; the legacy job +
+# its daily/backfill workflows + paused daily-trigger scheduler were RETIRED 2026-07-15 (plan
+# todo 7: `tofu state rm` + `gcloud delete`, all 404-confirmed, legacy dir
+# terraform/services/features-sports-service/ removed) once this job was proven healthy
+# end-to-end (manual exec qsqs4 + scheduled fire 6tm9w both SUCCEEDED) — no double-fire window.
 #
 # Evidence this is safe to build (real, not inferred):
 #   - `docker run --rm --entrypoint python <features-service:latest digest c204c49d...> -c
@@ -50,8 +52,8 @@ provider "google" {
 locals {
   # DEPLOYMENT_ENV_SHORT convention (workspace bucket-name SSOT, `configs/cloud-providers.yaml`
   # comment header: dev | stg | prd) — this module only ever deploys `environment = "prod"`
-  # (single terraform.tfvars, no dev/staging twin), mirrors the legacy
-  # features-sports-service/gcp/main.tf module.
+  # (single terraform.tfvars, no dev/staging twin), mirrors the convention of the
+  # now-retired legacy features-sports-service module.
   bucket_env_short_map = { dev = "dev", staging = "stg", prod = "prd" }
   bucket_env_short     = local.bucket_env_short_map[var.environment]
 
@@ -238,11 +240,20 @@ module "daily_job" {
   # a long-running server, so `command` pins the module invocation and `args` supplies a sane
   # default (every real invocation overrides `args` via the Workflow's containerOverrides
   # above — this default only fires on a bare `gcloud run jobs execute` with no overrides).
+  #
+  # The default carries an explicit `--date`/`--tables` (plan todo P2, 2026-07-15): `--mode
+  # batch` requires a date (features_service/sports/cli/parser.py::_resolve_batch_dates raises
+  # "Batch mode requires --date or both --start-date and --end-date"), so without one a bare
+  # execute crashes on arg-validation before doing any work. 2026-07-14 is a fixed, immutable
+  # historical fixture date (proven non-empty: 14 rows across leagues 129/2/848/874, plan
+  # todo 5 evidence), so a bare smoke-execute is deterministic + cheap + honestly non-empty.
   command = ["python", "-m", "features_service"]
   args = concat(local.dispatch_prefix, [
     "--operation", "compute",
     "--mode", "batch",
     "--asset-group", "SPORTS",
+    "--date", "2026-07-14",
+    "--tables", "fixture_features",
   ])
 
   environment_variables = {
@@ -293,11 +304,12 @@ module "daily_workflow" {
 
   workflow_source = local.workflow_yaml
 
-  # NOTE (deploy-phase, NOT this touch): create with the real schedule so the resource is
-  # correct, but the deploy phase MUST `gcloud scheduler jobs pause ${var.workflow_name}-trigger`
-  # immediately after apply and keep it paused until (a) a manual execution reaches a genuine
-  # SUCCEEDED terminal state and (b) the legacy features-sports-service-daily-trigger is
-  # retired — avoids a double-fire window (both plan todos, not yet done as of this commit).
+  # NOTE (resolved 2026-07-15): this scheduler is now ENABLED. During cutover it was created
+  # then immediately paused until (a) a manual execution reached a genuine SUCCEEDED terminal
+  # state (exec qsqs4) and (b) the legacy features-sports-service-daily-trigger was retired
+  # (plan todo 7, 404-confirmed) — both conditions are met, so there is no double-fire risk and
+  # `gcloud scheduler jobs resume ${var.workflow_name}-trigger` was run (real scheduled fire
+  # 6tm9w SUCCEEDED). Keep this scheduler ENABLED.
   schedule                        = var.schedule
   time_zone                       = var.time_zone
   scheduler_service_account_email = var.scheduler_service_account_email
