@@ -128,6 +128,56 @@ def test_build_cli_cmd_per_fixture(scheduler: SportsTriggerScheduler) -> None:
     assert "--force" not in cmd
 
 
+def test_build_cli_cmd_features_service_injects_feature_family(scheduler: SportsTriggerScheduler) -> None:
+    """Consolidated features-service dispatch gets a leading ``--feature-family sports``.
+
+    The 2026-05-08 features-repo consolidation retired the legacy per-family
+    ``features-sports-service`` image (``command: None``) for
+    ``features-service-sports-job`` running the multi-family dispatcher
+    (``python -m features_service``), which REQUIRES ``--feature-family <fam>``
+    before the family's own flags. The prefix must sit right after the module
+    so ``_strip_python_module_prefix`` (drops only "python -m <module>")
+    preserves it as the leading override arg. Mirrors the exact per-fixture
+    Tier-3 ``features_pre_match`` shape.
+    """
+    cmd = scheduler._build_cli_cmd(
+        service="features-service",
+        operation="compute",
+        asset_group="SPORTS",
+        start_date="2026-07-14",
+        end_date="2026-07-14",
+        extra_args={"--tables": "fixture_features,odds_features"},
+        force=False,
+    )
+    assert cmd.startswith("python -m features_service --feature-family sports ")
+    assert "--operation compute" in cmd
+    assert "--mode batch" in cmd
+    assert "--asset-group SPORTS" in cmd
+    assert "--tables fixture_features,odds_features" in cmd
+    # The family selector survives the Cloud Run args-override strip as the
+    # leading arg the baked dispatcher parses first.
+    stripped = SportsTriggerScheduler._strip_python_module_prefix(cmd)
+    assert stripped[:2] == ["--feature-family", "sports"]
+
+
+def test_build_cli_cmd_single_family_service_no_feature_family(scheduler: SportsTriggerScheduler) -> None:
+    """instruments-service / MTDS (single-family images) must NOT get ``--feature-family``.
+
+    Their baked entrypoint parses ``--operation``/``--mode``/... directly; an
+    unexpected ``--feature-family`` flag would break the dispatch.
+    """
+    cmd = scheduler._build_cli_cmd(
+        service="instruments-service",
+        operation="instruments",
+        asset_group="SPORTS",
+        start_date="2026-07-14",
+        end_date="2026-07-14",
+        extra_args={"--sports-entity": "LINEUPS"},
+        force=False,
+    )
+    assert "--feature-family" not in cmd
+
+
 def test_build_cli_cmd_rolling_window_emits_raw_flags(scheduler: SportsTriggerScheduler) -> None:
     """Rolling-window path emits raw ``--lookback-days``/``--lookahead-days``/``--force-window``.
 

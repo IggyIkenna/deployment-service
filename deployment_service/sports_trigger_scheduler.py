@@ -55,6 +55,19 @@ logger = logging.getLogger(__name__)
 # the ``observed_publish_lag_s`` baseline matches the firing baseline.
 MATCH_END_OFFSET_MIN: int = 105
 
+# Consolidated multi-family services whose baked container ENTRYPOINT is the
+# ``python -m <service>`` dispatcher (``features_service/cli/main.py``), which
+# REQUIRES a leading ``--feature-family <family>`` before the family's own flags
+# and errors ("--feature-family is required") without it. Single-family images
+# (instruments-service, market-tick-data-service) parse ``--operation``/
+# ``--mode``/... directly and must NOT receive this prefix. ``features-service``
+# is the only consolidated image this (sports) scheduler dispatches — after the
+# 2026-05-08 features-repo consolidation the legacy per-family
+# ``features-sports-service`` image (``command: None``) was retired for
+# ``features-service-sports-job`` running the multi-family dispatcher. SSOT:
+# unified-trading-pm/plans/active/features_sports_service_consolidation_deploy_2026_07_15.md
+_MULTI_FAMILY_DISPATCH_SERVICES: frozenset[str] = frozenset({"features-service"})
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -414,9 +427,24 @@ class SportsTriggerScheduler:
           window]``. Used by Tier-1 discovery so instruments-service owns
           the date math (single source of truth; avoids clock-drift
           between scheduler and CLI).
+
+        Consolidated multi-family services (``_MULTI_FAMILY_DISPATCH_SERVICES``,
+        i.e. ``features-service``) additionally get a leading
+        ``--feature-family <asset_group.lower()>`` right after the module —
+        their baked ``python -m features_service`` dispatcher requires it before
+        the family's own flags. Single-family services (instruments-service,
+        market-tick-data-service) are unaffected.
         """
-        parts = [
-            f"python -m {service.replace('-', '_')}",
+        parts = [f"python -m {service.replace('-', '_')}"]
+        if service in _MULTI_FAMILY_DISPATCH_SERVICES:
+            # Consolidated features-service: the image's baked entrypoint is the
+            # multi-family dispatcher, which needs the family selector BEFORE the
+            # family's own flags. asset_group SPORTS -> feature-family "sports"
+            # (the ``features_service/sports`` sub-package). Stays first so
+            # ``_strip_python_module_prefix`` (drops only "python -m <module>")
+            # preserves it as the leading arg the dispatcher parses.
+            parts.append(f"--feature-family {asset_group.lower()}")
+        parts += [
             f"--operation {operation}",
             "--mode batch",
             f"--asset-group {asset_group}",
