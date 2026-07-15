@@ -65,13 +65,25 @@ locals {
   # 16Gi is generous headroom for 16 in-flight equities frames). The slow leg is now the
   # 11.6k-blob GCS read, so `timeout_seconds` is raised 1800→3600 (+ the scheduler
   # attempt_deadline) to give the read room. Bump any other AG here only if its roll-up OOMs.
+  #
+  # prediction bumped 4Gi/cpu2 → 16Gi/cpu4 (2026-07-15, DP_CATALOG_NOT_RUNNING follow-up):
+  # the DAILY incremental job SIGKILLed (signal 9) at the [BISECT-E] monotonic-guard +
+  # promote-write stage on 3 consecutive days (07-13, 07-14, 07-15) — confirmed via live
+  # `gcloud logging read`, both retry attempts hit the identical point each day, no
+  # traceback/CATALOGUE_ROLLUP_FAILED event (process killed externally = OOM signature).
+  # Even though the by_date window itself was empty (0 new rows some days), the merge still
+  # holds the full 2,673,230-row previous catalogue in memory for the guard+promote step —
+  # functionally the same aggregate size as the WEEKLY --mode full job below, which OOM'd at
+  # this SAME 4Gi on its first cycle (2026-07-04, "2.5M-row multi-grain aggregate") and was
+  # already bumped to 16Gi/cpu4. Matching the daily job to its own sibling full-job
+  # provisioning (rather than guessing) — Cloud Run couples CPU/memory (16Gi needs cpu>=4).
   lifecycle_catalogue_asset_groups = {
     cefi   = { bucket = "instruments-store-cefi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
     defi   = { bucket = "instruments-store-defi-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
     tradfi = { bucket = "instruments-store-tradfi-prd-central-element-323112", extra_args = [], memory = "16Gi", cpu = "4" }
     sports = { bucket = "instruments-store-sports-prd-central-element-323112", extra_args = ["--by-date-prefix", "sports_reference/by_date"], memory = "4Gi", cpu = "2" }
     # prediction → flat "pred" short key per cloud-providers.yaml (instruments-store-prediction-… does not exist).
-    prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [], memory = "4Gi", cpu = "2" }
+    prediction = { bucket = "instruments-store-pred-prd-central-element-323112", extra_args = [], memory = "16Gi", cpu = "4" }
   }
 }
 
