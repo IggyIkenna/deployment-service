@@ -470,24 +470,18 @@ resource "google_storage_bucket" "features_delta_one_cefi_test" {
 # env-less for this kind, so it does NOT reach the `-test-` name; kept as its own hand
 # resource). ml/strategy/execution had no live `-test-` twins in this file to preserve.
 
-# Features-sports (dedicated bucket, no env suffix — raw sports features)
-resource "google_storage_bucket" "features_sports" {
-  name     = "features-sports-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-sports", "tier" = "group-a" })
-}
+# resource google_storage_bucket.features_sports REMOVED 2026-07-15 (features_sports_service_
+# consolidation_deploy_2026_07_15 + bucket_estate_consolidation_to_sub100_2026_07_13
+# FinishBucketAndDocs phase, bucketKey=features-sports): the flat, no-env-suffix
+# features-sports-{pid} bucket held 1 real migrated object
+# (sports_features/by_date/day=2020-01-01/feature_group=sfi_progressive/sfi_progressive.parquet,
+# 25,989 B — already copied to the canonical features-sports-prd-{pid} on 2026-07-15) + 2 ephemeral
+# _vm_staging/fss_backfill/* objects; all re-confirmed immediately before delete. The canonical
+# features-sports-prd-{pid} bucket (google_storage_bucket.canonical["features-sports-prd-central-element-323112"]
+# in canonical_buckets.tf — live, GCS-FUSE-mounted by features-service-sports-job) is the sole SSOT
+# going forward. State entry removed via `tofu state rm` BEFORE the physical
+# `gcloud storage buckets delete`, so a future apply cannot resurrect it. Matches the
+# features-calendar / instruments_defi / market_data_cefi purge-armed-twin precedent above.
 
 # features_sports_test / features_calendar_test REMOVED 2026-07-13 as hand resources
 # (double-declare, bucket_estate_consolidation_to_sub100_2026_07_13.md Wave 0) — their
