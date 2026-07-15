@@ -70,6 +70,12 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND="${ON_DEMAND:-false}"
 
+# YEARS: optional space-separated allowlist to skip already-resolved historical
+# year-shards on a re-run (mirrors launch-cefi-sharded-backfill.sh's YEARS=).
+# Empty (default) = every year from VENUE_START_YEAR through CURRENT_YEAR, same
+# as before this override existed.
+YEARS="${YEARS:-}"
+
 # ── Instrument universe ───────────────────────────────────────────────────────
 # BUG #4 (2026-06-22): catalogue-driven universe. The ALL sentinel makes the
 # OnchainPerpBatchHandler enumerate the FULL active perp universe per venue from
@@ -210,6 +216,10 @@ for venue in ${VENUES}; do
     start_year="${VENUE_START_YEAR[$venue]}"
     echo "--- ${venue} (${VENUE_START_DATE[$venue]}→${CURRENT_YEAR}) ---"
     for year in $(seq "$start_year" "$CURRENT_YEAR"); do
+        if [[ -n "$YEARS" ]] && [[ " ${YEARS} " != *" ${year} "* ]]; then
+            echo "[SKIP] ${venue} ${year} (not in YEARS=${YEARS})"
+            continue
+        fi
         launch_shard "$venue" "$year"
     done
     echo ""
