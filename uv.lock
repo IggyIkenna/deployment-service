@@ -3138,7 +3138,7 @@ requires-dist = [
     { name = "databento", specifier = ">=0.32.0,<1.0.0" },
     { name = "duckdb", specifier = ">=1.5.0,<2.0.0" },
     { name = "fakeredis", specifier = ">=2.20.0,<3.0.0" },
-    { name = "fastapi", specifier = ">=0.115.0,<0.138.0" },
+    { name = "fastapi", specifier = ">=0.115.0,<0.137.0" },
     { name = "freezegun", specifier = ">=1.2.2,<2.0.0" },
     { name = "fsspec", specifier = ">=2025.2.0,<2026.0.0" },
     { name = "gcsfs", specifier = ">=2025.5.0,<2026.0.0" },
