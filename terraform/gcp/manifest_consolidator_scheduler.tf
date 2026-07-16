@@ -57,28 +57,16 @@ locals {
     "market-data-defi"       = "market-data-tick-defi-${local.deployment_env_short}-${var.project_id}"
     "market-data-sports"     = "market-data-tick-sports-${local.deployment_env_short}-${var.project_id}"
     "market-data-prediction" = "market-data-tick-pred-${local.deployment_env_short}-${var.project_id}"
-    # Legacy buckets (no env-suffix) — MDPS launch scripts hardcode these names instead of
-    # going through resolve_bucket_name. Added 2026-05-23 after ManifestReader reported
-    # 101554s staleness on tradfi. Root cause: launch-mdps-sharded-backfill.sh line 205
-    # `source_bucket="market-data-tick-${cat}-${PROJECT}"` — no DEPLOYMENT_ENV_SHORT.
-    # QG STEP 5.69 violation: fix tracked in bucket_name_ssot_canonicalisation_2026_05_10.md
-    # Phase 0f. Remove these entries once Phase 0f migrates MDPS to env-tiered buckets.
-    "market-data-tradfi-legacy" = "market-data-tick-tradfi-${var.project_id}"
-    # market-data-{cefi,defi,sports}-legacy REMOVED 2026-07-13 — legacy writers already
-    # drained + repointed to canonical for all three (this decommission's Phase 7 cron-removal
-    # step; the CF-audit + legacy-bucket DELETE gates are separately tracked per-AG in
-    # data_completion_to_100_all_ag_2026_06_21.md and remain OPEN — this only stops
-    # re-consolidating the already-frozen legacy `_index`, it does not touch/delete the
-    # buckets themselves). market-data-prediction-legacy REMOVED 2026-07-12 (prior wave, bucket
-    # since fully deleted — see bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md).
-    # Legacy instruments-store buckets — launch-expected-universe-v2-vm.sh and other IS
-    # scripts use `instruments-store-{category}-${PROJECT}` (no env suffix). Added 2026-05-23
-    # after per-VM shard audit found cefi/tradfi/defi legacy shards with no consolidator_run_at
-    # metadata. setup-data-pipeline-vm.sh covers these while running; crons provide persistence.
-    # Remove once Phase 0f migrates IS scripts to env-tiered bucket names.
-    "instruments-tradfi-legacy" = "instruments-store-tradfi-${var.project_id}"
-    # instruments-{cefi,defi,sports}-legacy REMOVED 2026-07-13 — same decommission as above.
-    # instruments-prediction-legacy REMOVED 2026-07-12 (prior wave).
+    # ALL legacy (no-env-suffix) consolidator entries are now REMOVED — every flat bucket is deleted.
+    # market-data-{cefi,defi,sports}-legacy + instruments-{cefi,defi,sports}-legacy REMOVED 2026-07-13;
+    # {market-data,instruments}-prediction-legacy REMOVED 2026-07-12.
+    # {market-data,instruments}-tradfi-legacy REMOVED 2026-07-16 — both flat buckets
+    # (`market-data-tick-tradfi-${var.project_id}` + `instruments-store-tradfi-${var.project_id}`)
+    # confirmed 404/deleted, both crons already PAUSED, and the last script justification is gone
+    # (launch-expected-universe-v2-vm.sh now builds the env-tiered `instruments-store-{ag}-{env}-{pid}`
+    # name — verified 2026-07-16). The Cloud Run jobs + crons were deleted directly via gcloud (a real
+    # tofu apply is not runnable here). Do NOT re-add: a paused cron pointing at a 404 bucket loud-fails
+    # every cycle if re-enabled.
   }
 
   # Per-category timeout override (seconds). Default 300 covers most categories
@@ -108,11 +96,9 @@ locals {
     "market-data-tradfi"     = 1800
     "instruments-prediction" = 1800
     "market-data-prediction" = 1800
-    # Legacy variants — same headroom as env-tiered equivalents.
-    # {market-data,instruments}-{cefi,defi,sports}-legacy REMOVED 2026-07-13 (orphaned once
-    # their manifest_consolidator_buckets entries were removed above).
-    "market-data-tradfi-legacy" = 1800
-    "instruments-tradfi-legacy" = 1800
+    # Legacy variants REMOVED — {market-data,instruments}-{cefi,defi,sports}-legacy 2026-07-13,
+    # {market-data,instruments}-tradfi-legacy 2026-07-16 (orphaned once their
+    # manifest_consolidator_buckets entries were removed above).
   }
 
   # Per-category memory/cpu override. Default 4 vCPU / 16Gi covers buckets whose
@@ -136,16 +122,14 @@ locals {
   # CAS lock until the 300s TTL expired and repeating — canonical index frozen ~5h.
   # Codified the live cpu/memory here + added the matching DuckDB override.
   manifest_consolidator_cpu = {
-    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
-    # manifest_consolidator_buckets above).
-    "market-data-tradfi-legacy" = "8"
-    "market-data-defi"          = "8"
+    # market-data-cefi-legacy REMOVED 2026-07-13, market-data-tradfi-legacy REMOVED 2026-07-16
+    # (orphaned, entries removed from manifest_consolidator_buckets above).
+    "market-data-defi" = "8"
   }
   manifest_consolidator_memory = {
-    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
-    # manifest_consolidator_buckets above).
-    "market-data-tradfi-legacy" = "32Gi"
-    "market-data-defi"          = "32Gi"
+    # market-data-cefi-legacy REMOVED 2026-07-13, market-data-tradfi-legacy REMOVED 2026-07-16
+    # (orphaned, entries removed from manifest_consolidator_buckets above).
+    "market-data-defi" = "32Gi"
   }
   # DuckDB's own memory_limit (CONSOLIDATOR_DUCKDB_MEMORY_LIMIT) is deliberately
   # set BELOW the container memory (code default 8GB for the 16Gi tier). Bumping
@@ -154,10 +138,9 @@ locals {
   # raise DuckDB to 24GB (leaving ~8GB for Python/IO/tmpfs) so the heavy
   # catch-up merge runs in-memory and completes inside the 90s soft-lock TTL.
   manifest_consolidator_duckdb_memory = {
-    # market-data-cefi-legacy REMOVED 2026-07-13 (orphaned, entry removed from
-    # manifest_consolidator_buckets above).
-    "market-data-tradfi-legacy" = "24GB"
-    "market-data-defi"          = "24GB"
+    # market-data-cefi-legacy REMOVED 2026-07-13, market-data-tradfi-legacy REMOVED 2026-07-16
+    # (orphaned, entries removed from manifest_consolidator_buckets above).
+    "market-data-defi" = "24GB"
   }
 
   # Cross-cycle lock TTL (CONSOLIDATOR_LOCK_TTL_SECONDS). Code default (300s,

@@ -166,18 +166,19 @@ gcp:
     # env-tiered). The existing flat `dex-pools-{pid}` etc. buckets on disk migrate to the
     # env-tiered names in code_freeze Phase 2.6 (2026-05-15→05-19). UCI bucket-resolver +
     # DeFi adapters resolve from this SSOT (no hardcoded fallbacks).
-    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # REMOVED 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]):
     # dex-swaps, evm-defi, solana-defi, lending-indices, oracle-prices, liquidations kinds.
     # Confirmed zero callers workspace-wide for resolve_bucket_name(kind=<these>) — every
     # writer for these DeFi reference-data types resolves get_write_bucket_name("market_data",
     # asset_group="defi") instead (the shared market-data-tick-defi-{env}-{pid} bucket), and no
     # manifest scanner or reader resolves these kinds either. The dedicated per-kind buckets
-    # (flat + every env-tiered variant) were empty and deleted in the same cleanup. Kept:
-    # eigenlayer-rewards (genuinely resolves its own kind, real data). gas-fees REMOVED
+    # (flat + every env-tiered variant) were empty and deleted in the same cleanup. gas-fees REMOVED
     # 2026-07-12 (bucket estate cleanup follow-up) -- its last real caller
     # (data_manifest_handler.py) was fixed to resolve kind="tick-data" instead, leaving
     # zero callers for kind="gas-fees" workspace-wide; both dedicated buckets deleted.
+    # eigenlayer-rewards REMOVED 2026-07-16 — its ONLY caller (eigenlayer_rewards_handler.py) was
+    # repointed to kind="tick-data" (the shared market-data-tick-defi bucket), matching every other
+    # DeFi handler; the 3 dedicated GCP buckets (flat + prd + test) were confirmed EMPTY and deleted.
     # dex-pools + lst-rates + perp-funding REMOVED 2026-07-13
     # ([[defi_dedicated_bucket_shared_migration_2026_07_13]]): every real reader/writer/
     # scanner migrated to kind="tick-data" (the shared market-data-tick-defi bucket), every
@@ -327,14 +328,14 @@ aws:
     features-prediction: "features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     strategy-store-prediction: "strategy-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     execution-store-prediction: "execution-store-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-    # DeFi raw on-chain pools / swaps / events. Mirrors GCP keys 1:1.
-    eigenlayer-rewards: "eigenlayer-rewards-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # REMOVED 2026-07-10 (bucket estate cleanup, [[gcs_bucket_estate_cleanup_2026_07_10]]) —
     # mirrors the GCP-section removal above: dex-swaps, evm-defi, solana-defi, lending-indices,
     # oracle-prices, liquidations. Confirmed zero callers workspace-wide. See the GCP section
     # comment for the full rationale + what was kept and why.
     # gas-fees REMOVED 2026-07-12 (bucket estate cleanup follow-up) -- mirrors the GCP
     # section removal above: last real caller fixed, zero callers left.
+    # eigenlayer-rewards REMOVED 2026-07-16 — mirrors the GCP-section removal above: the only caller
+    # (eigenlayer_rewards_handler.py, GCP-only) was repointed to kind="tick-data"; zero callers left.
     # dex-pools + lst-rates + perp-funding REMOVED 2026-07-13 — mirrors the GCP-section
     # removal above ([[defi_dedicated_bucket_shared_migration_2026_07_13]]).
     # REMOVED 2026-07-10 (bucket estate cleanup): pnl-store-defi, positions-store-defi,
