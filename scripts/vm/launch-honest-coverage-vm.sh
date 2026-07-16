@@ -4,7 +4,7 @@
 # Delete-when: NA
 # Launch a GCE VM that runs the daily honest-coverage measurement (B-018 Phase 8.A).
 #
-# Boots an e2-standard-2 VM in asia-northeast1-c, runs
+# Boots an e2-highmem-4 VM (32 GB) in asia-northeast1-c, runs
 #   instruments-service/scripts/measure_honest_coverage.py --asset-group all
 # then auto-shuts down. Triggered daily at 00:30 UTC by Cloud Scheduler
 # (honest-coverage-daily — creation pending Ikenna for cloudscheduler.jobs.create).
@@ -25,7 +25,11 @@
 #   bash launch-honest-coverage-vm.sh --env staging
 #   bash launch-honest-coverage-vm.sh --dry-run   # print gcloud command, no launch
 #
-# Cost: e2-standard-2 ~5-15 min → < $0.01/day.
+# Cost: e2-highmem-4 (32 GB) ~5-20 min → ~$0.05/day. Right-sized 2026-07-16:
+# e2-standard-2 (8 GB) OOM'd on the growing per-asset-group availability-index
+# parquet reads (measure_honest_coverage._read_parquet_safe swallows the OOM and
+# skips that AG), which silently produced partial (e.g. defi-only) coverage.json
+# files. 32 GB gives headroom for the largest single-AG parquet read.
 #
 # Plan: cross_asset_group_catalogue_audit_2026_05_10.md Phase 2B / B-018 Phase 8.A.
 # Scheduler setup: deployment-service/scripts/vm/setup-honest-coverage-scheduler.sh
@@ -38,7 +42,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-2"
+MACHINE_TYPE="e2-highmem-4"
 BOOT_DISK_GB="50"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false

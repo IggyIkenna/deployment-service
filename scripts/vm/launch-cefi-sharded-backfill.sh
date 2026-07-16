@@ -452,6 +452,13 @@ launch_cefi_shard() {
   # MarketTickDataServiceConfig.tardis_max_concurrent_downloads). Conservative for a
   # first smoke wave (e.g. 4-8), stepped up once the 403 rate is confirmed clean.
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+="|TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+  # book_snapshot_5 has its OWN, much tighter concurrency knob (default 4 —
+  # MarketTickDataServiceConfig.tardis_book_snapshot_max_concurrent). The heavy group is
+  # half book_snapshot_5, so leaving this at 4 caps half the wave regardless of how high
+  # TARDIS_MAX_CONCURRENT_DOWNLOADS goes. Passing it through lets a single-IP VM scale
+  # book5 too (2026-07-16: measured cpu=104%/16vCPU and rss=7.8GB/128GB at the defaults —
+  # i.e. ~93% of the box idle while the run is I/O-bound on stream count).
+  [[ -n "${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" ]] && meta+="|TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT}"
   # STALL_TIMEOUT_SEC passthrough (2026-07-14): a cold lease-ON VM behind long-running
   # lease holders waits up to TARDIS_CONCURRENCY_LEASE_MAX_WAIT_SECONDS (1800s) emitting
   # ZERO progress lines — with the stall threshold ALSO 1800s the watchdog kills it at
@@ -697,6 +704,7 @@ _launch_queued_vm() {
   [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]] && meta+=",TARDIS_CONCURRENCY_LEASE=1"
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
+  [[ -n "${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" ]] && meta+=",TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT}"
   [[ -n "${STALL_TIMEOUT_SEC:-}" ]] && meta+=",STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
