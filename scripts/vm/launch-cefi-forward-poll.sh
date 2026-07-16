@@ -105,6 +105,20 @@ EOF
   fi
 fi
 
+# Tardis concurrent-VM cap (cefi_completion_program_2026_07_15.md, operator-approved
+# 2026-07-16 "Scope the Tardis cap to AUTHENTICATED batch consumers only"): this
+# forward-poll hits the SAME datasets.tardis.dev authenticated path a long-running
+# backfill uses (`tardis-machine-api-key` from Secret Manager), so it contends for
+# the single licensed IP slot. Asymmetric priority — the backfill is the long-lived
+# winner (its own range already covers the days T+1 would fill), so a forward-poll
+# QUEUES/refuses behind a running backfill rather than preempting it (refusing here
+# mirrors every other integration of this guard — none of them block-and-wait).
+# shellcheck source=./tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+  tardis_concurrency_guard 1 "$ZONE" "$PROJECT" || exit 1
+fi
+
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="cefi-fwd-${RUN_TS}"
 
@@ -114,6 +128,9 @@ METADATA="VM_TASK=cefi-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_OPERATION=download"
 METADATA="${METADATA},VM_ASSET_GROUP=CEFI"
+# Self-declaring Tardis-cap model — this launcher ALWAYS opens the AUTHENTICATED
+# datasets.tardis.dev path (tardis-machine-api-key), so it always contends.
+METADATA="${METADATA},VM_TARDIS_CONSUMER=1"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"

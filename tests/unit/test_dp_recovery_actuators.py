@@ -25,7 +25,7 @@ from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
 )
-from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm, vm_prefix
+from scripts.recovery.relaunch_backfill_vm import RelaunchBackfillVm, RelaunchPreemptedVm, vm_prefix
 from scripts.recovery.relaunch_consolidator import RelaunchConsolidator
 from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm
 
@@ -211,6 +211,141 @@ def test_stalled_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch):
     assert launched == []
 
 
+# ── relaunch_preempted_vm (DP_VM_PREEMPTED self-heal, Fix 1) ────────────────
+
+
+def test_preempted_relaunch_replays_captured_launch_env(tmp_path: Path, monkeypatch):
+    """The relaunch subprocess receives the EXACT env captured at VM-creation
+    time (venues/START_DATE/concurrency/lease) — never a blind relaunch onto
+    the launcher's bare defaults."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    captured_env = {"VENUES": "BINANCE-FUTURES BYBIT", "START_DATE": "2026-02-01", "SINGLE_VM_QUEUE": "1"}
+    result = actuator.relaunch(
+        "cefi-queue-heavy-binancefutu-x15-20260716-075338",
+        launcher="launch-cefi-sharded-backfill.sh",
+        asset_group="cefi",
+        launch_env=captured_env,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched == [("launch-cefi-sharded-backfill.sh", captured_env)]
+    # Success is QUIET — INFO only, never CRITICAL (SPOT reclaim is benign/expected).
+    assert any(e[0] == "DP_VM_PREEMPTED" and e[1] == "INFO" and e[2].get("relaunched") for e in emitted)
+    assert not any(e[1] == "CRITICAL" for e in emitted)
+
+
+def test_preempted_relaunch_is_unconditional_on_exit_code(tmp_path: Path, monkeypatch):
+    """Unlike the OOM actuator, the preemption verdict itself is the trigger —
+    there is no exit_code gate (a preempted VM's exit code is whatever SIGTERM
+    produced, not a signal of the failure mode)."""
+    _patch_log_event(monkeypatch)
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=_ok_launcher)
+    result = actuator.relaunch("cefi-fwd-1", launcher="launch-cefi-forward-poll.sh")
+    assert result["status"] == "SUCCEEDED"
+
+
+def test_preempted_relaunch_no_launcher_emits_critical_no_relaunch(tmp_path: Path, monkeypatch):
+    """A preempted VM with no resolvable launcher binding must NOT vanish
+    silently — it self-emits the belt-and-braces CRITICAL alert (Fix 2)."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch("mystery-vm", launcher="")
+    assert result["status"] == "SKIPPED"
+    assert result["reason"] == "no_launcher_binding"
+    assert launched == []
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_preempted_relaunch_guard_refusal_emits_critical_no_relaunch(tmp_path: Path, monkeypatch):
+    """A non-zero exit from the launcher subprocess — e.g. its OWN
+    tardis_concurrency_guard refusing because a live/forward VM holds the
+    single Tardis slot — is a FAILED relaunch, not a silent one."""
+    emitted = _patch_log_event(monkeypatch)
+
+    def refusing_launcher(_name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["bash", _name], returncode=1, stdout="", stderr="ERROR: Tardis concurrent-VM cap would be exceeded"
+        )
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=refusing_launcher)
+    result = actuator.relaunch("cefi-queue-heavy-x-1", launcher="launch-cefi-sharded-backfill.sh")
+    assert result["status"] == "FAILED"
+    assert result["returncode"] == 1
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_preempted_relaunch_launcher_exception_emits_critical_no_relaunch(tmp_path: Path, monkeypatch):
+    emitted = _patch_log_event(monkeypatch)
+
+    def boom_launcher(_name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        raise RuntimeError("subprocess exec failed")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=boom_launcher)
+    result = actuator.relaunch("cefi-queue-heavy-x-1", launcher="launch-cefi-sharded-backfill.sh")
+    assert result["status"] == "FAILED"
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_preempted_relaunch_generous_budget_then_pages(tmp_path: Path, monkeypatch):
+    """The preemption budget is deliberately MUCH higher than OOM's ≤2/day — a
+    SPOT VM can legitimately preempt hourly under the operator's cap-1 regime,
+    so a low budget would defeat the whole point of this actuator by mid-
+    afternoon. Use a tiny max_per_day here to exercise the page path quickly."""
+    emitted = _patch_log_event(monkeypatch)
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path, max_per_day=2, now=lambda: _FIXED_NOW, run_launcher=_ok_launcher
+    )
+    actuator.relaunch("cefi-a", launcher="l.sh")
+    actuator.relaunch("cefi-b", launcher="l.sh")
+    third = actuator.relaunch("cefi-c", launcher="l.sh")  # same vm-prefix "cefi" → budget spent
+    assert third["status"] == "PAGE"
+    assert third["reason"] == "budget_exceeded"
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" and e[2].get("relaunch_budget_exceeded")
+        for e in emitted
+    )
+
+
+def test_preempted_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch("cefi-queue-heavy-x-1", launcher="launch-cefi-sharded-backfill.sh", dry_run=True)
+    assert result["status"] == "DRY_RUN"
+    assert launched == []
+
+
+def test_preempted_relaunch_budget_separate_from_oom_budget(tmp_path: Path, monkeypatch):
+    """The preemption actuator's budget dir is separate from the OOM actuator's
+    — exhausting one must never affect the other (different failure classes,
+    different cadence)."""
+    _patch_log_event(monkeypatch)
+    oom_actuator = RelaunchBackfillVm(budget_dir=tmp_path / "oom", now=lambda: _FIXED_NOW, run_launcher=_ok_launcher)
+    preempt_actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path / "preempt", now=lambda: _FIXED_NOW, run_launcher=_ok_launcher
+    )
+    oom_actuator.relaunch("cefi-a", exit_code=137, launcher="l.sh")
+    oom_actuator.relaunch("cefi-b", exit_code=137, launcher="l.sh")  # OOM budget (2/day) now spent for "cefi"
+    # The preemption actuator for the SAME vm-prefix "cefi" is unaffected.
+    result = preempt_actuator.relaunch("cefi-c", launcher="l.sh")
+    assert result["status"] == "SUCCEEDED"
+
+
 def test_backfill_relaunch_non_oom_skipped(tmp_path: Path, monkeypatch):
     _patch_log_event(monkeypatch)
     launched: list[str] = []
@@ -245,9 +380,7 @@ def test_route_auto_recover_invokes_consolidator_actuator(tmp_path: Path, monkey
             run_job=lambda j, **_: runs.append(j) or "exec",
         )
 
-    monkeypatch.setattr(
-        "scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class
-    )
+    monkeypatch.setattr("scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class)
     finding = PipelineFinding(
         event="CONSOLIDATOR_DOWN",
         severity="CRITICAL",
@@ -441,3 +574,75 @@ def test_route_auto_recover_oom_relaunch_via_finding(tmp_path: Path, monkeypatch
     assert result["effective_tier"] == "auto_recover"
     assert result["recovery"]["recovered"] is True
     assert launched == ["launch-x.sh"]
+
+
+def test_route_auto_recover_preempted_relaunch_via_finding(tmp_path: Path, monkeypatch):
+    """DP_VM_PREEMPTED is wired to relaunch_preempted_vm — a successful relaunch
+    replays details["launch_env"] verbatim and stays auto_recover (no page)."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def preempted_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchPreemptedVm(
+            budget_dir=tmp_path,
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: (
+                launched.append((n, dict(env)))
+                or subprocess.CompletedProcess(args=["bash", n], returncode=0, stdout="ok", stderr="")
+            ),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm", preempted_class)
+    launch_env = {"VENUES": "BINANCE-FUTURES", "START_DATE": "2026-02-01"}
+    finding = PipelineFinding(
+        event="DP_VM_PREEMPTED",
+        severity="INFO",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="vm preempted",
+        details={
+            "vm_name": "cefi-queue-heavy-x-1",
+            "relaunch_launcher": "launch-cefi-sharded-backfill.sh",
+            "asset_group": "cefi",
+            "launch_env": launch_env,
+        },
+        registry_id="DP-VM-007",
+    )
+    result = escalation.route_finding(finding)
+    assert result["effective_tier"] == "auto_recover"
+    assert result["recovery"]["recovered"] is True
+    assert launched == [("launch-cefi-sharded-backfill.sh", launch_env)]
+
+
+def test_route_auto_recover_preempted_relaunch_failure_falls_through(tmp_path: Path, monkeypatch):
+    """A FAILED preemption relaunch (e.g. the launcher's own concurrency guard
+    refusing) falls through to file_issue — the belt-and-braces alert path."""
+    _patch_log_event(monkeypatch)
+
+    def preempted_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchPreemptedVm(
+            budget_dir=tmp_path,
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: subprocess.CompletedProcess(
+                args=["bash", n], returncode=1, stdout="", stderr="guard refused"
+            ),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm", preempted_class)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    finding = PipelineFinding(
+        event="DP_VM_PREEMPTED",
+        severity="INFO",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="vm preempted",
+        details={
+            "vm_name": "cefi-queue-heavy-x-1",
+            "relaunch_launcher": "launch-cefi-sharded-backfill.sh",
+            "asset_group": "cefi",
+        },
+        registry_id="DP-VM-007",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["recovery"]["recovered"] is False
+    assert result["effective_tier"] == "file_issue"
+    assert result["issue_path"] is not None

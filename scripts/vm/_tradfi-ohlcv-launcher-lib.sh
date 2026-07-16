@@ -216,6 +216,57 @@ ohlcv_year_shards() {
     printf '%s' "$out"
 }
 
+# --- Per-venue discovery-floor clamp ----------------------------------------
+# UAC ``VenueMapping.get_instrument_discovery_start`` is the SSOT for the
+# earliest date a (venue, date) shard can produce records. Dates below it are
+# EXPECTED-ABSENT (the archive / IS catalog simply has nothing there), so
+# launching a year-shard entirely below the floor spawns a VM that boots,
+# churns every chunk, captures ZERO rows, self-deletes rc=0, and fires a
+# CRITICAL ``DP_VM_GONE_NO_CAPTURE`` "silent zero" alert. This bit the 2019 CME
+# OHLCV shards (2026-07-16: every date < the CME floor 2020-01-01 hit "No active
+# venues for date=… asset_groups=['TRADFI']" → 0 rows), and the same latent bug
+# hits CBOE (2020-06-01) and NASDAQ/NYSE (2023-04-15). The clamp raises
+# START_FLOOR to the UAC floor so no doomed sub-floor shard is ever created. It
+# only ever RAISES the floor (monotone max), so a deliberately stricter
+# wrapper-set floor (e.g. CBOE 2026-01-01) is preserved. Resolved at launch-time
+# from UAC — never a hardcoded copy (SSOT-in-UAC; supersedes the ad-hoc
+# per-wrapper hardcodes). SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md
+# § "Per-venue genesis / discovery-start floors".
+_OHLCV_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+_OHLCV_PY="${_OHLCV_REPO_ROOT}/.venv/bin/python"
+[[ -x "$_OHLCV_PY" ]] || _OHLCV_PY="python3"
+
+# Echo the UAC instrument-discovery-start floor (YYYY-MM-DD) for a canonical
+# venue, or empty string if none is configured / the lookup fails (fail-open:
+# no clamp, preserving the caller's START_FLOOR).
+ohlcv_venue_discovery_floor() {
+    PYTHONPATH="${_OHLCV_REPO_ROOT}" "$_OHLCV_PY" - "$1" <<'PYEOF' 2>/dev/null || true
+import sys
+
+from unified_api_contracts.registry.venue_mapping import VenueMapping
+
+print(VenueMapping().get_instrument_discovery_start(sys.argv[1]) or "")
+PYEOF
+}
+
+# Echo max(start_floor_iso, venue_discovery_floor). ISO YYYY-MM-DD strings sort
+# lexicographically, so a plain ``[[ a > b ]]`` string compare is a correct date
+# max. When it raises the floor it emits a one-line note to stderr, so a
+# ``--start-floor 2019-01-01`` CME run visibly clips to 2020-01-01 instead of
+# silently launching a no-op VM.
+#   $1 venue        — canonical venue (e.g. CME)
+#   $2 start_floor  — current START_FLOOR (YYYY-MM-DD)
+ohlcv_clamp_floor_to_venue() {
+    local venue="$1" start_floor="$2" vfloor
+    vfloor="$(ohlcv_venue_discovery_floor "$venue")"
+    if [[ -n "$vfloor" && "$vfloor" > "$start_floor" ]]; then
+        echo "Clamped --start-floor ${start_floor} → ${vfloor} (UAC discovery floor for ${venue}; earlier dates are expected-absent — no data)" >&2
+        printf '%s' "$vfloor"
+    else
+        printf '%s' "$start_floor"
+    fi
+}
+
 # Standard arg parser used by each wrapper. Sets globals:
 #   FORCE | DRY_RUN | DEPLOYMENT_ENV | START_FLOOR | FORCE_WINDOW | ONLY_YEAR
 #   | OHLCV_FORCE_RECAPTURE (--force-recapture: stamp VM_FORCE=true → MTDS

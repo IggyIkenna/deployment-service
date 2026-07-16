@@ -128,6 +128,10 @@ fi
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
+# Clamp to CME's UAC discovery floor (2020-01-01): a sub-floor year-shard (e.g.
+# 2019) captures zero and fires a false DP_VM_GONE_NO_CAPTURE alert.
+START_FLOOR="$(ohlcv_clamp_floor_to_venue "CME" "$START_FLOOR")"
+
 YEAR_SHARDS="$(ohlcv_year_shards "${START_FLOOR:0:4}" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_apply_year_filter "$YEAR_SHARDS")"
 IFS=';' read -ra _shards <<< "$YEAR_SHARDS"

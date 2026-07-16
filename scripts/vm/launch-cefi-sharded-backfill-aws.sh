@@ -260,8 +260,13 @@ launch_cefi_shard() {
   local ud_file
   ud_file="$(_make_user_data "${vm_name}" "CEFI" "${venue}" "${start_date}" "${end_date}" "${data_types}" "${symbols}")"
 
+  # Self-declaring Tardis-cap model (cefi_completion_program_2026_07_15.md,
+  # operator-approved 2026-07-16): tag every AWS Tardis-consuming instance the
+  # same way the GCP twin stamps VM_TARDIS_CONSUMER=1 into metadata —
+  # tardis-concurrency-guard.sh's cross-cloud count reads this tag directly
+  # (the legacy purpose-tag match stays as an OR-clause fallback for rollout).
   local EXTRA_TAGS
-  EXTRA_TAGS='[{"Key":"purpose","Value":"cefi-sharded-backfill"},{"Key":"venue","Value":"'"${venue}"'"},{"Key":"year","Value":"'"${year}"'"},{"Key":"group","Value":"'"${group}"'"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"}]'
+  EXTRA_TAGS='[{"Key":"purpose","Value":"cefi-sharded-backfill"},{"Key":"venue","Value":"'"${venue}"'"},{"Key":"year","Value":"'"${year}"'"},{"Key":"group","Value":"'"${group}"'"},{"Key":"cloud","Value":"aws"},{"Key":"env","Value":"'"${DEPLOYMENT_ENV}"'"},{"Key":"VM_TARDIS_CONSUMER","Value":"1"}]'
 
   echo "Launching ${vm_name} (${venue} ${year} ${group})"
   local INSTANCE_ID

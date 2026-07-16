@@ -29,6 +29,12 @@ HEARTBEAT_BLOB = "vm-heartbeat/{vm}.txt"
 # Written by the backfill-VM shutdown-script when GCE triggers a spot preemption.
 # Presence ⇒ the monitor classifies the termination as a benign relaunch (not CRITICAL).
 PREEMPTED_BLOB = "vm-logs/{vm}/PREEMPTED"
+# Written by the LAUNCHER (``lc_write_launch_params`` in
+# ``scripts/vm/lib/launcher_common.sh``) right before ``gcloud compute instances
+# create`` — {"launcher": "<script>", "env": {"K": "V", ...}}. Lets a preemption
+# relaunch reproduce the EXACT venues/START_DATE/concurrency/lease the terminated
+# VM was launched with, instead of falling back to the launcher's bare defaults.
+LAUNCH_PARAMS_BLOB = "vm-logs/{vm}/LAUNCH_PARAMS.json"
 
 # Per-monitor-sweep "last-run" sentinel (the cron-watches-cron + deadman signal).
 # Each fleet-monitor / meta-watcher sweep writes ``vm-census/<mode>-last-run.json``
@@ -490,6 +496,45 @@ def run_log_shows_stall(storage_client: StorageClient, bucket: str, vm_name: str
     if not log:
         return False
     return bool(_STALL_RE.search(log))
+
+
+def read_launch_params(storage_client: StorageClient, bucket: str, vm_name: str) -> dict[str, str] | None:
+    """Read the env vars ``vm_name`` was launched with, from ``LAUNCH_PARAMS.json``.
+
+    Written by the launcher itself (``lc_write_launch_params``) at VM-creation
+    time — this is what lets a SPOT-preemption relaunch reproduce the EXACT
+    venues/START_DATE/concurrency/lease the terminated VM was launched with
+    (never a blind relaunch onto the launcher's bare defaults, which for a
+    launcher like ``launch-cefi-sharded-backfill.sh`` would mean the FULL
+    genesis-to-now venue universe instead of the narrow tail that was actually
+    running).
+
+    Returns ``None`` when the blob is absent/unparseable — an older VM launched
+    before this capture shipped, or a launcher that doesn't call the helper yet
+    (only the cefi/tardis launchers do, as of this writing). The caller falls
+    back to invoking the launcher with only the ambient env; the launcher's own
+    ``tardis_concurrency_guard`` (or equivalent) still gates the relaunch either
+    way — this function only affects WHAT gets relaunched, never whether it's
+    allowed to.
+    """
+    raw = read_text(storage_client, bucket, LAUNCH_PARAMS_BLOB.format(vm=vm_name))
+    if not raw:
+        return None
+    try:
+        loaded = cast("object", json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    data = cast("dict[str, object]", loaded)
+    env_obj = data.get("env")
+    if not isinstance(env_obj, dict):
+        return None
+    out: dict[str, str] = {}
+    for key, value in cast("dict[str, object]", env_obj).items():
+        if isinstance(value, str):
+            out[str(key)] = value
+    return out
 
 
 def is_vm_preempted(storage_client: StorageClient, bucket: str, vm_name: str) -> bool:

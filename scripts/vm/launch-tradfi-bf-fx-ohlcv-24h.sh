@@ -50,6 +50,8 @@ ohlcv_parse_common_args "$@"
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
+# Clamp to FX's UAC discovery floor (2020-01-01) — no doomed sub-floor shard.
+START_FLOOR="$(ohlcv_clamp_floor_to_venue "FX" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_year_shards "${START_FLOOR:0:4}" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_apply_year_filter "$YEAR_SHARDS")"
 IFS=';' read -ra _shards <<< "$YEAR_SHARDS"
