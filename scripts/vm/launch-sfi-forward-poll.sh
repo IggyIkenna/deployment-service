@@ -6,7 +6,7 @@
 #
 # Purpose: ingest SFI reference data (sfi_leagues + progressive_stats) for a given
 # date window. Writes to:
-#   gs://instruments-store-sports-central-element-323112/sports_reference/
+#   gs://instruments-store-sports-prd-central-element-323112/sports_reference/
 #     by_date/day={D}/entity=sfi_leagues/sfi_leagues.parquet
 #     by_date/day={D}/entity=progressive_stats/progressive_stats.parquet
 #
