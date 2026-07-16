@@ -523,12 +523,21 @@ launch_cefi_shard() {
     # built with "|" as the pair-separator (see meta+="|..." above) so a
     # comma-bearing value like VM_INSTRUMENT_IDS survives intact; the "^|^"
     # prefix tells gcloud to use "|" as the delimiter instead of ",".
+    #
+    # cefi_completion_program_2026_07_15.md "SPOT preemption DELETES waves"
+    # finding: this launcher family has NO relaunch mechanism, so a preempted
+    # wave silently vanishes. lc_write_preemption_signal_file is observability
+    # only (marks the shutdown as an expected preemption for fleet monitors,
+    # NOT an auto-relaunch) — the actual relaunch mechanism remains an open
+    # architecture decision (STOP+watchdog vs. a preemption-aware relauncher).
+    lc_write_preemption_signal_file
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
       --boot-disk-size=50GB \
       --scopes=cloud-platform --metadata="^|^${meta}" \
+      --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
       --labels=env="${DEPLOYMENT_ENV}" \
       --project="$PROJECT" --async 2>&1 | tail -1 &
     _stagger
@@ -701,6 +710,10 @@ _launch_queued_vm() {
   echo "Launching QUEUE VM $vm_name (venues: $venues_str; $start_date..$end_date; $data_types)"
   local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
   if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
+  # cefi_completion_program_2026_07_15.md "SPOT preemption DELETES waves"
+  # finding: observability-only preemption marker (see the per-shard launch
+  # path above for the full rationale) — NOT an auto-relaunch.
+  lc_write_preemption_signal_file
   # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --zone="$ZONE" --machine-type="$machine" \
@@ -708,6 +721,7 @@ _launch_queued_vm() {
     --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
     --scopes=cloud-platform --metadata="$meta" \
+    --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
     --labels=env="${DEPLOYMENT_ENV}" \
     --project="$PROJECT" --async 2>&1 | tail -1
 }
