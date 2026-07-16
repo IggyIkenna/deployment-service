@@ -6,8 +6,11 @@
 # the unified MTDS collect-lending-indices CLI.
 #
 # Purpose: re-ingest Aave V3 / Spark / Compound V3 rate indices from The
-# Graph subgraphs for a date window. Writes to:
-#   gs://lending-indices-central-element-323112/
+# Graph subgraphs for a date window. Writes to the SHARED DeFi tick bucket —
+# lending_indices is a data_type WITHIN the overall DeFi manifest, not a dedicated
+# bucket (the old lending-indices-{project} bucket was retired in the 2026-07
+# dedicated->shared migration):
+#   gs://market-data-tick-defi-{env}-{project}/
 #     raw_tick_data/by_date/day={D}/asset_group=defi/venue={V}/...
 #
 # Why this exists: 2026-05-05 schema fix (MTDS commit 2a9b638 / fba1afe)
@@ -189,6 +192,6 @@ echo "VM launched: $VM_NAME"
 echo "Logs:        gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/backfill.log'"
 echo "GCS log:     gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
 echo "Events:      gcloud storage ls gs://${PROJECT}-events/events/market-tick-data-service/$(date -u +%Y-%m-%d)/${VM_NAME}/"
-echo "Manifest:    gsutil cp gs://lending-indices-${PROJECT}/_index/availability_index.parquet /tmp/d.parquet"
+echo "Manifest:    gsutil cp gs://market-data-tick-defi-prd-${PROJECT}/_index/availability_index.parquet /tmp/d.parquet  # shared DeFi manifest (all data_types); filter lending_indices below"
 echo "Inspect:     python -c \"import pandas as pd; df = pd.read_parquet('/tmp/d.parquet'); print(df[df.data_type=='lending_indices']['capture_status'].value_counts())\""
 echo "Delete:      gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"

@@ -6,9 +6,11 @@
 # unified MTDS collect-gas-fees CLI.
 #
 # Purpose: ingest per-block base + priority gas fees for every chain in
-# DEFAULT_GAS_FEE_CHAINS. Writes to:
-#   gs://gas-fees-central-element-323112/raw_tick_data/by_date/day={D}/
-#     asset_group=defi/venue={CHAIN}/chain={CHAIN}/
+# DEFAULT_GAS_FEE_CHAINS. Writes to the SHARED DeFi tick bucket — gas_fees is a
+# data_type WITHIN the overall DeFi manifest, not a dedicated bucket (the old
+# gas-fees-{project} bucket was retired in the 2026-07 dedicated->shared migration):
+#   gs://market-data-tick-defi-{env}-{project}/raw_tick_data/by_date/day={D}/
+#     pipeline_mode=batch_onchain_rpc/asset_group=defi/venue={CHAIN}/chain={CHAIN}/
 #     instrument_type=spot_asset/data_type=gas_fees/...
 #
 # Chain coverage (gas_fee_handler.DEFAULT_GAS_FEE_CHAINS):
@@ -219,7 +221,7 @@ print_poll_hints() {
   echo ""
   echo "Poll completion: gcloud compute instances list --filter='labels.run-id=${run_id} AND status=RUNNING' --zones=${ZONE}"
   echo "GCS logs:        gsutil cat gs://${CODE_BUCKET}/vm-logs/<vm-name>/run.log"
-  echo "Manifest:        gsutil cp gs://gas-fees-central-element-323112/_index/availability_index.parquet /tmp/g.parquet"
+  echo "Manifest:        gsutil cp gs://market-data-tick-defi-prd-central-element-323112/_index/availability_index.parquet /tmp/g.parquet  # shared DeFi manifest (all data_types); filter gas_fees below"
   echo "Inspect:         python -c \"import pandas as pd; df = pd.read_parquet('/tmp/g.parquet'); print(df[df.data_type=='gas_fees'].groupby('chain')['capture_status'].value_counts())\""
 }
 
