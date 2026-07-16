@@ -179,40 +179,24 @@ resource "google_storage_bucket" "instruments_cefi" {
 # apply cannot revert the out-of-band purge lifecycle. State entry already removed. Matches the
 # lending-indices-prd precedent (ds@1dd2159).
 
-resource "google_storage_bucket" "instruments_sports" {
-  name     = "instruments-store-sports-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
+# resource google_storage_bucket.instruments_sports REMOVED 2026-07-16
+# (sports_legacy_bucket_cutover_2026_07_16.md T5.1 — the LAST Group-A legacy twin):
+# the flat no-env bucket `instruments-store-sports-central-element-323112` was PHYSICALLY
+# DELETED at cutover; canonical `instruments-store-sports-prd-…` (owned by the yaml-derived
+# `google_storage_bucket.canonical` for_each, canonical_buckets.tf) is the sole SSOT.
+# State entry removed via `terraform state rm` BEFORE the physical delete — leaving this
+# block declared while the bucket is gone is the DOCUMENTED resurrection class: an
+# out-of-band `tofu apply` on 2026-07-12T21:59Z recreated ~30 cleanup-deleted buckets as
+# empty shells ([[terraform_bucket_estate_drift_resurrection_2026_07_13]]), and :329-343
+# records that exact failure for instruments_cefi. Matches the cefi/tradfi/defi removals
+# (2026-07-14, :172-180 / :309-322) and prediction (2026-07-13).
+# Delete gates that cleared this: T4.1 object-layer accounting closed at 968,927 with
+# UNACCOUNTED = 0 (all 2,078 OR-9 objects dispositioned; 482 legacy-only keys recovered
+# into canonical first) + T5.2 final live-writer re-check (0 objects created since the
+# 08:18:00Z freeze, 0 genuine writes).
+# NOTE: `market_data_sports` (:361 below) is DELIBERATELY RETAINED — that bucket is still
+# blocked on OR-5b and is NOT being deleted; its paired import block
+# (_imports_reconcile.tf:74-77) must stay with it.
 
 # instruments_prediction (legacy instruments-store-prediction-…) REMOVED 2026-07-13 —
 # bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7 L6 decommission:
