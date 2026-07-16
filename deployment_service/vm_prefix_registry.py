@@ -119,7 +119,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-mtds-extended-ohlcv-backfill.sh — EXTENDED-STARKNET 2024-07-26..2025-07-31
     "cefi-lighter-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "cefi-pacifica-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "cefi-queue-": VmPrefixSpec(
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),  # launch-cefi-sharded-backfill.sh SINGLE_VM_QUEUE=1 mode — cefi-queue-{group}-{ts},
@@ -495,17 +494,15 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "mtds-flash-loan-events-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-risk-params-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "mtds-eigenlayer-rewards-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "mtds-solana-drift-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    # Drift V2 sig-index parallel-walker segments (operator ruling (b) 2026-07-14,
-    # defi_perp_funding_mvp_scope_contradiction_2026_06_29.md): each VM walks Helius
-    # getSignaturesForAddress backwards over one segment of the 2025-01-15→2025-12-23
-    # unindexed gap, flushing (signature, slot, blockTime) parts to
-    # _index/drift_v2_sig_index_parts*/ in the defi tick bucket. Heartbeat-only (None):
-    # the walker writes index parts, not per-VM manifest shards.
-    "mtds-drift-sig-walker-": None,
     # Multi-protocol Solana DeFi backfill (marginfi, solend, kamino, orca,
-    # raydium, phoenix, jito, kamino_lending). Drift + marinade have their
-    # own dedicated launchers.
+    # raydium, phoenix, jito, kamino_lending). Marinade has its own dedicated
+    # launcher. (DRIFT removed 2026-07-16 — Solana perp DEX cull, operator ruling.)
+    # DRIFT-SOLANA + PACIFICA-SOLANA VM prefixes REMOVED 2026-07-16 (operator ruling:
+    # kill Drift + every other Solana perp DEX; Jupiter is the only keep and is not
+    # integrated). Removed in lockstep with their launcher_registry entries — this
+    # registry and launcher_registry are invariant-coupled (test_every_watchdog_prefix
+    # _has_a_registry_entry). SSOT: unified-trading-pm/plans/active/issues/
+    # solana_perp_dex_cull_drift_pacifica_2026_07_16.md
     "mtds-solana-defi-backfill": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # CeFi instrument_type partition migrations (one-off cleanup VMs).
     # Heartbeat-only — VM rewrites in-place under the cefi tick bucket
