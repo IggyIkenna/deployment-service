@@ -47,6 +47,8 @@ CFE_INSTRUMENT_IDS="VX.FUT"
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
+# CFE VX routes to the CBOE venue (XCBF.PITCH) — clamp to its UAC discovery floor.
+START_FLOOR="$(ohlcv_clamp_floor_to_venue "CBOE" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_year_shards "${START_FLOOR:0:4}" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_apply_year_filter "$YEAR_SHARDS")"
 IFS=';' read -ra _shards <<< "$YEAR_SHARDS"

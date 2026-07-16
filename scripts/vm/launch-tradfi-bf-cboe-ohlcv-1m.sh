@@ -56,6 +56,11 @@ declare -a CBOE_ROOTS=(
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
+# Belt-and-suspenders: clamp to CBOE's UAC discovery floor (2020-06-01). The
+# 2026-01-01 override above is a deliberate stricter scope and is preserved
+# (the clamp only ever raises the floor); this also protects an explicit
+# `--start-floor` set below the UAC floor.
+START_FLOOR="$(ohlcv_clamp_floor_to_venue "CBOE" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_year_shards "${START_FLOOR:0:4}" "$START_FLOOR")"
 YEAR_SHARDS="$(ohlcv_apply_year_filter "$YEAR_SHARDS")"
 IFS=';' read -ra _shards <<< "$YEAR_SHARDS"
