@@ -3,8 +3,8 @@
 # Lifecycle: permanent
 # Delete-when: NA
 # Launch a dedicated GCE VM to backfill dex_pool_state for the Solana DEX
-# venues ORCA / RAYDIUM / KAMINO — analogous to the dedicated
-# mtds-solana-drift-backfill VM G1 launched for DRIFT perp_funding.
+# venues ORCA / RAYDIUM / KAMINO — analogous to other dedicated per-protocol
+# Solana backfill VMs.
 # (mvp_backfill_defi_onchain_v10_2026_06_27.md G1.6.)
 #
 # Registered prefix: "mtds-solana-defi-backfill" was already listed in
@@ -30,7 +30,7 @@
 # This still resolves every IS-seeded expected_unattempted cell in the
 # manifest (attempted_failed=0 / expected_unattempted=0 target) even though
 # genuine "captured" rows only land for the day the VM is actually running
-# (today) — the same accepted shape as the DRIFT/marginfi/solend Solana legs
+# (today) — the same accepted shape as the marginfi/solend Solana legs
 # already running under this plan.
 #
 # NOTE — dex_pool_swaps is OUT OF SCOPE for this launcher: no code path in
@@ -59,8 +59,8 @@ DRY_RUN=false
 START_DATE="${START_DATE:-2023-01-01}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
 # ORCA/RAYDIUM/KAMINO only per G1.6 scope — phoenix has no working public API
-# (api.phoenix.trade DNS dead) and drift/lending/lst protocols have their own
-# dedicated launchers already (mtds-solana-drift-backfill, jito/marinade).
+# (api.phoenix.trade DNS dead) and lending/lst protocols have their own
+# dedicated launchers already (jito/marinade).
 # ';' separator (not ',') — gcloud --metadata uses ',' as the KEY separator.
 SOLANA_PROTOCOLS="${SOLANA_PROTOCOLS:-kamino;orca;raydium}"
 FORCE=false

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Epic: mtds_mdps_master
 # Lifecycle: campaign
-# Delete-when: HL/ASTER/LIGHTER/PACIFICA/EXTENDED historical backfill complete (denominator
+# Delete-when: HL/ASTER/LIGHTER/EXTENDED historical backfill complete (denominator
 #   holes closed per mvp_backfill_cefi_tick_v10_2026_06_27.md G4 gate)
 #
 # Launch year-sharded backfill VMs for on-chain-perp cefi venues via the generic
 # OnchainPerpBatchHandler (VM_OPERATION=collect-onchain-perp-batch): HYPERLIQUID (S3
-# requester-pays), ASTER (REST), LIGHTER-ZKSYNC / PACIFICA-SOLANA / EXTENDED-STARKNET
-# (native REST via _umi_lighter.py / _umi_pacifica.py / _umi_extended.py in
+# requester-pays), ASTER (REST), LIGHTER-ZKSYNC / EXTENDED-STARKNET
+# (native REST via _umi_lighter.py / _umi_extended.py in
 # umi_tick_provider.py). These venues were previously blocked by an orchestrator defi-strip
 # that misclassified them as DeFi despite their failed cells living in the cefi manifest.
 #
@@ -21,30 +21,27 @@
 #                       auth: aws-hyperliquid-s3 Secret Manager key (EXISTS)
 #   ASTER:              REST API via _fetch_aster_rest (Binance Futures-compatible)
 #   LIGHTER-ZKSYNC:     REST via _umi_lighter.py (zkSync Era)
-#   PACIFICA-SOLANA:    REST via _umi_pacifica.py (Solana)
 #   EXTENDED-STARKNET:  REST via _umi_extended.py (Starknet)
 #
 # Coverage ranges:
 #   HYPERLIQUID:        2023-01-01 → today (30,835 cells, cefi manifest audit 2026-06-21)
 #   ASTER:               2024-01-01 → today (17,675 cells, cefi manifest audit 2026-06-21)
 #   LIGHTER-ZKSYNC:      2024-08-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
-#   PACIFICA-SOLANA:     2025-06-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
 #   EXTENDED-STARKNET:   2024-10-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
 #
-# Data types: trades, derivative_ticker (+ book_snapshot_5 for HL/LIGHTER/PACIFICA/EXTENDED
+# Data types: trades, derivative_ticker (+ book_snapshot_5 for HL/LIGHTER/EXTENDED
 #   — the handler EXCLUDES per-venue live-only/dropped data_types automatically):
 #   - ASTER book_snapshot_5 + liquidations: LIVE-ONLY (Binance-compat WS captures
 #     them going forward) → excluded from the batch universe by the handler.
 #   - HYPERLIQUID liquidations: DROPPED entirely (HL publishes no liq feed anywhere).
 #   SSOT: cefi_hl_aster_batch_data_gaps_2026_06_22.md BUG #4;
-#   cefi_layer1_denominator_gaps_2026_07_03.md 2f (LIGHTER/PACIFICA/EXTENDED share the
+#   cefi_layer1_denominator_gaps_2026_07_03.md 2f (LIGHTER/EXTENDED share the
 #   ASTER live-forward profile at the book5/derivative_ticker/trades grain).
 #
 # VM prefixes (already registered in vm_zombie_watchdog.py VM_PREFIX_TO_BUCKET):
 #   cefi-hyperliquid-  → EPHEMERAL_BATCH → tick-cefi bucket
 #   cefi-aster-        → EPHEMERAL_BATCH → tick-cefi bucket
 #   cefi-lighter-      → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-lighter-zksync-*)
-#   cefi-pacifica-     → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-pacifica-solana-*)
 #   cefi-extended-     → EPHEMERAL_BATCH → tick-cefi bucket (matches cefi-extended-starknet-*)
 #
 # Instrument universe (BUG #4): SYMBOLS=ALL → the OnchainPerpBatchHandler enumerates
@@ -95,7 +92,6 @@ DATA_TYPES="${DATA_TYPES:-trades;book_snapshot_5;derivative_ticker}"
 # HL:                2023-01-01 → today
 # ASTER:             2024-01-01 → today
 # LIGHTER-ZKSYNC:    2024-08-01 → today
-# PACIFICA-SOLANA:   2025-06-01 → today
 # EXTENDED-STARKNET: 2024-10-01 → today
 CURRENT_YEAR=$(date +%Y)
 CUTOFF_DATE="${CUTOFF_DATE:-$(date +%F)}"
@@ -104,7 +100,6 @@ declare -A VENUE_START_YEAR
 VENUE_START_YEAR["HYPERLIQUID"]=2023
 VENUE_START_YEAR["ASTER"]=2024
 VENUE_START_YEAR["LIGHTER-ZKSYNC"]=2024
-VENUE_START_YEAR["PACIFICA-SOLANA"]=2025
 VENUE_START_YEAR["EXTENDED-STARKNET"]=2024
 
 # Precise first-shard start date (UAC VENUE_DATA_TYPE_CAPABILITIES start_date) — the
@@ -114,11 +109,10 @@ declare -A VENUE_START_DATE
 VENUE_START_DATE["HYPERLIQUID"]="2023-01-01"
 VENUE_START_DATE["ASTER"]="2024-01-01"
 VENUE_START_DATE["LIGHTER-ZKSYNC"]="2024-08-01"
-VENUE_START_DATE["PACIFICA-SOLANA"]="2025-06-01"
 VENUE_START_DATE["EXTENDED-STARKNET"]="2024-10-01"
 
 # VENUES to launch — env-overridable so a re-run can target a subset.
-VENUES="${VENUES:-HYPERLIQUID ASTER LIGHTER-ZKSYNC PACIFICA-SOLANA EXTENDED-STARKNET}"
+VENUES="${VENUES:-HYPERLIQUID ASTER LIGHTER-ZKSYNC EXTENDED-STARKNET}"
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 running_jobs=0
@@ -151,7 +145,7 @@ launch_shard() {
 
     local vm_name="${venue_lower//_/-}-${year}-${RUN_TS}"
     # Prepend cefi- prefix to match registered vm_zombie_watchdog.py prefixes:
-    #   cefi-hyperliquid- / cefi-aster- / cefi-lighter- / cefi-pacifica- / cefi-extended-
+    #   cefi-hyperliquid- / cefi-aster- / cefi-lighter- / cefi-extended-
     vm_name="cefi-${vm_name}"
 
     local machine="e2-highmem-8"
@@ -207,7 +201,7 @@ launch_shard() {
 }
 
 # ── Main: launch all year shards ─────────────────────────────────────────────
-echo "=== CeFi on-chain-perp historical backfill launcher (HL/ASTER/LIGHTER/PACIFICA/EXTENDED) ==="
+echo "=== CeFi on-chain-perp historical backfill launcher (HL/ASTER/LIGHTER/EXTENDED) ==="
 echo "    DRY_RUN=${DRY_RUN}  FORCE=${FORCE}  MAX_CONCURRENT=${MAX_CONCURRENT}  VENUES=${VENUES}"
 echo "    RUN_TS=${RUN_TS}"
 echo ""
@@ -229,4 +223,4 @@ done
 wait
 echo ""
 echo "=== All shards dispatched. Verify at T+10min: ==="
-echo "    gcloud compute instances list --project=${PROJECT} --filter='name~^cefi-hyperliquid\\|name~^cefi-aster\\|name~^cefi-lighter\\|name~^cefi-pacifica\\|name~^cefi-extended' --format='table(name,status,zone)'"
+echo "    gcloud compute instances list --project=${PROJECT} --filter='name~^cefi-hyperliquid\\|name~^cefi-aster\\|name~^cefi-lighter\\|name~^cefi-extended' --format='table(name,status,zone)'"

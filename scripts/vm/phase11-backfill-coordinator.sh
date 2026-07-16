@@ -183,7 +183,6 @@ run_defi() {
   run_launcher "launch-mtds-lst-rates-backfill-vm.sh"       "MTDS LST rates (Lido/RocketPool/Coinbase/Jito/Marinade)"
   run_launcher "launch-mtds-gas-fees-backfill-vm.sh"        "MTDS gas fees (Ethereum/Solana)"
   run_launcher "launch-mtds-dex-pools-backfill-vm.sh"       "MTDS DEX pools (Uniswap/Curve/Balancer)"
-  run_launcher "launch-mtds-solana-drift-backfill-vm.sh"    "MTDS Solana Drift"
   run_launcher "launch-mtds-liquidations-backfill-vm.sh"    "MTDS liquidations"
   run_launcher "launch-mtds-vault-share-price-backfill-vm.sh" "MTDS vault share prices"
   maybe_wait "mtds-backfill"

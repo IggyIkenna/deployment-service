@@ -117,7 +117,6 @@ _register "mtds-perp-funding-backfill"     "market-tick-data-service"   "mtds-pe
 _register "mtds-prediction-backfill"       "market-tick-data-service"   "mtds-pred-"               "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
 _register "mtds-pyth-archive-backfill"     "market-tick-data-service"   "mtds-pyth-arch-"          "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
 _register "mtds-pyth-lst-backfill"         "market-tick-data-service"   "mtds-pyth-lst-"           "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
-_register "mtds-solana-drift-backfill"     "market-tick-data-service"   "mtds-sol-drift-"          "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
 _register "mtds-solana-gas-backfill"       "market-tick-data-service"   "mtds-sol-gas-"            "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
 _register "mtds-sports-odds-backfill"      "market-tick-data-service"   "mtds-sports-odds-"        "uts-market-tick-data-service-${DEPLOYMENT_ENV}"
 _register "mtds-vault-share-price-backfill" "market-tick-data-service"  "mtds-vault-"              "uts-market-tick-data-service-${DEPLOYMENT_ENV}"

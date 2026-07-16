@@ -133,7 +133,6 @@ _CAPTURE_LAUNCHER_PREFIXES: Final[tuple[str, ...]] = (
     "cefi-cme-",
     "cefi-extended-",
     "cefi-lighter-",
-    "cefi-pacifica-",
     "cefi-mr-",
     "cefi-fwd-",
     "cefi-ext-bfill-",
