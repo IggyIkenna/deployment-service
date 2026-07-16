@@ -41,6 +41,7 @@ IMPORT_INSIDE_EXCLUDE_GLOBS=("!**/__main__.py" "!**/api/routes/state.py" "!**/ba
 # (missing bucket, network, auth, corrupt parquet) is treated identically as "absent, skip"
 # rather than crashing the CLI display path. Justified in QUALITY_GATE_BYPASS_AUDIT.md §2.18
 # (2026-07-13). §§2.19-2.20: same never-raises pattern across the fleet-monitoring package.
+# §2.21 (2026-07-15): check_vm_cli.py's bucket-resolution helper, same pattern.
 BE_EXCLUDE_GLOBS=(
     "**/cli/utils/manifest_reader.py"
     "**/data_pipeline_monitors/_gcs.py"
@@ -51,6 +52,7 @@ BE_EXCLUDE_GLOBS=(
     "**/data_pipeline_monitors/heartbeat_stall_watcher.py"
     "**/data_pipeline_monitors/meta_watchers.py"
     "**/data_pipeline_monitors/deadman_poster.py"
+    "**/data_pipeline_monitors/check_vm_cli.py"
 )
 # Empty string/dict/list: safe defaults for optional config dict lookups
 EMPTY_STR_EXCLUDE_GLOBS=(--glob "!**/config_loader.py" --glob "!**/shard_calculator.py" --glob "!**/dependencies.py")

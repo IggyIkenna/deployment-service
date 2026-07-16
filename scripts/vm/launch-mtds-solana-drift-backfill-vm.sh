@@ -2,15 +2,21 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Launch GCE VM for Drift S3 historical data backfill (Solana DeFi)
+# Launch GCE VM for Drift historical data backfill (Solana DeFi)
 #
 # Pattern A (canonical tarball) — startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh
 # Converted from inline STARTUP_FILE heredoc (O-1 launcher consolidation, 2026-05-21).
 # Pre-condition: run `bash create-code-tarballs.sh` first (CORE tarballs include MTDS).
-# Handler: VM_TASK=solana-drift-backfill added to setup-data-pipeline-vm.sh same commit.
+# Handler: VM_TASK=solana-drift-backfill in setup-data-pipeline-vm.sh.
 #
-# Downloads Drift's public S3 historical data (orderbook, trades, funding) and
-# writes to GCS as parquet. Default market: SOL-PERP, 180 days back.
+# Migrated 2026-07-16 (issues/drift_helius_path_obsolete_2026_07_15.md): routes to
+# the Velocity Data API ingester (backfill_drift_v2_historical.py) — the legacy
+# Helius sig-index walker path is obsolete (intractable sig/day wall). Downloads
+# Drift funding + trades and writes to GCS as parquet. Default market: SOL-PERP,
+# 180 days back. Machine defaults to e2-highmem-8 (not e2-standard-4) per the
+# manifest-index-read OOM caveat tracked in
+# manifest_index_read_oom_canonical_cache_2026_06_24.md — this handler's RSS
+# climbs sharply during record_captured()/manifest close on smaller machines.
 #
 # Usage:
 #   bash launch-mtds-solana-drift-backfill-vm.sh
@@ -22,7 +28,7 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-8}"
 DRY_RUN=false
 START_DATE="${START_DATE:-$(date -v-180d +%Y-%m-%d 2>/dev/null || date -d '180 days ago' +%Y-%m-%d)}"
 END_DATE="${END_DATE:-$(date +%Y-%m-%d)}"
