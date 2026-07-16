@@ -68,7 +68,6 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "cefi-extended-": "launch-cefi-sharded-backfill.sh",
     "cefi-ext-bfill-": "launch-mtds-extended-ohlcv-backfill.sh",  # VM_PREFIX=cefi-ext-bfill-
     "cefi-lighter-": "launch-cefi-sharded-backfill.sh",
-    "cefi-pacifica-": "launch-cefi-sharded-backfill.sh",
     # SINGLE_VM_QUEUE=1 mode — cefi-queue-{group}-{ts}, one combined multi-venue VM per
     # (group,data_types) bucket instead of per-shard (tardis_concurrent_ip_lockout_2026_07_12
     # course-correction 2026-07-13).
@@ -170,20 +169,14 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mtds-flash-loan-events-": "launch-mtds-flash-loan-events-backfill-vm.sh",
     "mtds-risk-params-": "launch-mtds-risk-params-backfill-vm.sh",
     "mtds-eigenlayer-rewards-backfill": "launch-mtds-eigenlayer-rewards-backfill-vm.sh",
-    # Re-routed to the Velocity Data API ingester 2026-07-16 (ee859e43, main's
-    # migration ruling in issues/drift_helius_path_obsolete_2026_07_15.md) — the
-    # Helius sig-index spend concern that would have justified None here is
-    # resolved, so self-heal auto-relaunch of a stalled backfill is safe again.
-    "mtds-solana-drift-backfill": "launch-mtds-solana-drift-backfill-vm.sh",
-    # Drift V2 sig-index parallel-walker segments — Helius sig-index path ABANDONED
-    # entirely (main ruling, 2026-07-15, Option A): the ~6.4M sig/day walk is
-    # intractable; superseded by the Velocity Data API ingester. Never auto-relaunch.
-    # See issues/drift_helius_path_obsolete_2026_07_15.md (supersedes the operator
-    # ruling (b) 2026-07-14 / defi_perp_funding_mvp_scope_contradiction_2026_06_29.md
-    # gap-closure plan that originally justified this walker).
-    "mtds-drift-sig-walker-": None,
     # G1.6 (mvp_backfill_defi_onchain_v10_2026_06_27.md): dedicated ORCA/RAYDIUM/
     # KAMINO dex_pool_state backfill (VM_SOLANA_PROTOCOLS scopes the fan-out).
+    # DRIFT-SOLANA + PACIFICA-SOLANA launchers REMOVED 2026-07-16 (operator ruling:
+    # kill Drift entirely + every other Solana perp DEX; Jupiter is the only one we
+    # keep and it is not integrated). Drift was hacked 2026-04-01 (~$280M) and
+    # relaunched as Velocity DEX 2026-07-01 with ~$0 TVL. Leaving these mapped let the
+    # self-heal watchdog relaunch a stopped VM and resurrect purged data. SSOT:
+    # unified-trading-pm/plans/active/issues/solana_perp_dex_cull_drift_pacifica_2026_07_16.md
     "mtds-solana-defi-backfill": "launch-mtds-solana-defi-backfill-vm.sh",
     "mtds-migrate-": "launch-cefi-migration-vm.sh",
     # ── MTDS per-AG generic backfill (the Deploy-Missing entry point) ─────
