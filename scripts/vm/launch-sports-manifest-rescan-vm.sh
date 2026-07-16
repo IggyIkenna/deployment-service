@@ -11,7 +11,7 @@
 # joining the ``af_league_id`` numeric column to canonical ``league_id`` via
 # UAC ``get_league_by_api_football_id``, grouping by canonical league, and
 # emitting one v5 manifest row per ``(date, league_id)`` to
-# ``gs://instruments-store-sports-central-element-323112/_index/availability_index.parquet``.
+# ``gs://instruments-store-sports-prd-central-element-323112/_index/availability_index.parquet``.
 #
 # Runs the rescan script committed in
 # ``instruments-service/scripts/rescan_sports_fixtures_canonical.py`` —
@@ -152,7 +152,7 @@ if ! $FORCE; then
       cat >&2 <<EOF
 ERROR: sports-manifest-rescan VM already running in $ZONE: $BLOCKER
 Refusing to launch — concurrent rescans race on the manifest index parquet at
-gs://instruments-store-sports-central-element-323112/_index/availability_index.parquet.
+gs://instruments-store-sports-prd-central-element-323112/_index/availability_index.parquet.
 
 Options:
   Inspect:   gcloud compute ssh $BLOCKER --zone=$ZONE

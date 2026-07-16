@@ -31,7 +31,9 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_instruments_re
   for_each = toset([
     "instruments-store-cefi-central-element-323112",
     "instruments-store-defi-central-element-323112",
-    "instruments-store-sports-central-element-323112",
+    # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
+    # no-env `instruments-store-sports-{project_id}` bucket is DELETED at cutover.
+    "instruments-store-sports-prd-central-element-323112",
     # prediction → SSOT canonical `pred-prd` (per cloud-providers.yaml
     # instruments-store-prediction template resolves to instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-…).
     # The stale `instruments-store-prediction-central-element-323112` literal doesn't exist as a live bucket;
@@ -49,7 +51,9 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_market_data_re
     "market-data-tick-cefi-central-element-323112",
     "market-data-tick-defi-central-element-323112",
     "market-data-tick-tradfi-central-element-323112",
-    "market-data-tick-sports-central-element-323112",
+    # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
+    # no-env `market-data-tick-sports-{project_id}` bucket is DELETED at cutover.
+    "market-data-tick-sports-prd-central-element-323112",
     # prediction → SSOT canonical `pred-prd` (per cloud-providers.yaml).
     "market-data-tick-pred-prd-central-element-323112",
   ])

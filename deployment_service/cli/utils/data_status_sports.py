@@ -15,16 +15,22 @@ from datetime import date, datetime, timedelta
 
 import click
 from unified_api_contracts.sports import is_transfer_window_open
+from unified_trading_library import resolve_bucket_name
 
 from ...cloud_client import CloudClient
-from ...deployment_config import DeploymentConfig
 
 logger = logging.getLogger(__name__)
 
-# Sports fixture bucket and path templates
-_SPORTS_BUCKET_TEMPLATE = "instruments-store-sports-{project_id}"
+# Sports fixture path templates. The bucket is resolved via the cloud-providers.yaml
+# SSOT (``resolve_bucket_name`` → env-tiered ``instruments-store-sports-prd-{pid}``);
+# the legacy no-env ``instruments-store-sports-{pid}`` bucket is DELETED at cutover, so
+# never hardcode it. The probe chain mirrors UAC ``candidate_parquet_paths()``:
+#   1. pipeline_mode-aware canonical path (migrated data),
+#   2. bare ``entity=fixtures`` (pre-migration canonical shape — still present 2018-2025),
+#   3. post-2026-07-14 writer-cutover ``entity=fixtures_schedule`` split,
+#   4. oldest legacy ``sports_reference/fixtures/`` path.
+_FIXTURES_CANONICAL_PREFIX = "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures/"
 _FIXTURES_PREFIX = "sports_reference/by_date/day={date}/entity=fixtures/"
-_FIXTURES_LEGACY_PREFIX = "sports_reference/fixtures/day={date}/"
 # Post-cutover writer shape (2026-07-14+, instruments-service
 # sports_fixtures.py): entity=fixtures split into fixtures_schedule/
 # fixtures_outcomes with NO legacy dual-write. fixtures_schedule alone
@@ -33,6 +39,7 @@ _FIXTURES_LEGACY_PREFIX = "sports_reference/fixtures/day={date}/"
 _FIXTURES_SCHEDULE_PREFIX = (
     "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/"
 )
+_FIXTURES_LEGACY_PREFIX = "sports_reference/fixtures/day={date}/"
 
 
 def _load_fixture_counts_for_date(
@@ -42,21 +49,27 @@ def _load_fixture_counts_for_date(
 ) -> dict[str, int]:
     """Load fixture counts per league for a single date from GCS.
 
-    Scans the legacy singleton, split-entity, and oldest legacy fixture paths.
-    Returns mapping of league_id -> fixture_count.
+    Probes the canonical pipeline_mode-aware fixtures path first, then the bare
+    ``entity=fixtures`` shape, then the post-cutover ``entity=fixtures_schedule``
+    split, then the oldest legacy path. Returns mapping of league_id -> fixture_count.
     """
     league_counts: dict[str, int] = defaultdict(int)
 
-    # Try legacy singleton path first: sports_reference/by_date/day={date}/entity=fixtures/league={id}/
-    new_prefix = _FIXTURES_PREFIX.format(date=date_str)
-    _scan_fixture_prefix(cloud_client, bucket_name, new_prefix, league_counts)
+    # Canonical pipeline_mode-aware fixtures path (migrated data).
+    canonical_prefix = _FIXTURES_CANONICAL_PREFIX.format(date=date_str)
+    _scan_fixture_prefix(cloud_client, bucket_name, canonical_prefix, league_counts)
 
-    # Post-cutover split-entity path (entity=fixtures_schedule)
+    # Bare entity=fixtures (pre-migration canonical shape).
+    if not league_counts:
+        bare_prefix = _FIXTURES_PREFIX.format(date=date_str)
+        _scan_fixture_prefix(cloud_client, bucket_name, bare_prefix, league_counts)
+
+    # Post-cutover split-entity path (entity=fixtures_schedule).
     if not league_counts:
         schedule_prefix = _FIXTURES_SCHEDULE_PREFIX.format(date=date_str)
         _scan_fixture_prefix(cloud_client, bucket_name, schedule_prefix, league_counts)
 
-    # If still nothing found, try oldest legacy path
+    # If still nothing found, try oldest legacy path.
     if not league_counts:
         legacy_prefix = _FIXTURES_LEGACY_PREFIX.format(date=date_str)
         _scan_fixture_prefix(cloud_client, bucket_name, legacy_prefix, league_counts)
@@ -134,9 +147,7 @@ def display_sports_league_breakdown(
     the denominator. Dates with no fixtures for a league are expected absences.
     Transfer window status is also reported for transfer-related data types.
     """
-    deployment_config = DeploymentConfig()
-    project_id = deployment_config.gcp_project_id
-    bucket_name = _SPORTS_BUCKET_TEMPLATE.format(project_id=project_id)
+    bucket_name = resolve_bucket_name(cloud="gcp", kind="instruments-store", asset_group="sports")
 
     cloud_client = CloudClient()
 
@@ -181,11 +192,10 @@ def display_sports_league_breakdown(
     click.echo(f"Found {len(all_leagues)} leagues across {len(all_dates)} dates.")
     click.echo()
 
-    # Now check actual data files per league per date
-    # For instruments-service sports, data lives at:
-    #   sports_reference/by_date/day={date}/entity=fixtures/league={league_id}/
-    # For market-tick-data-service sports:
-    #   raw_tick_data/by_date/day={date}/...
+    # Now check actual data files per league per date. For instruments-service sports,
+    # canonical data lives at:
+    #   sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures/league={league_id}/
+    #   (bare entity=fixtures/ and entity=fixtures_schedule/ are the fallback shapes).
     # We check against the fixture calendar denominator.
 
     click.echo(click.style("Checking data completeness per league...", dim=True))
@@ -271,16 +281,27 @@ def _check_league_status(
         status.expected_fixture_dates.append(date_str)
         status.total_expected += 1
 
-        # Check if fixture data exists in GCS for this league on this date
-        new_prefix = f"sports_reference/by_date/day={date_str}/entity=fixtures/league={league_id}/"
+        # Check if fixture data exists in GCS for this league on this date.
         if cloud_client.client is None:
             continue
         bucket = cloud_client.client.bucket(bucket_name)
-        blobs = list(bucket.list_blobs(prefix=new_prefix, max_results=1))
+
+        # Canonical pipeline_mode-aware fixtures path (migrated data).
+        canonical_prefix = (
+            f"sports_reference/by_date/day={date_str}/"
+            f"pipeline_mode=batch_api_football/entity=fixtures/league={league_id}/"
+        )
+        blobs = list(bucket.list_blobs(prefix=canonical_prefix, max_results=1))
         has_data = any(b.name.endswith(".parquet") for b in blobs)
 
         if not has_data:
-            # Post-cutover split-entity path (entity=fixtures_schedule)
+            # Bare entity=fixtures (pre-migration canonical shape).
+            bare_prefix = f"sports_reference/by_date/day={date_str}/entity=fixtures/league={league_id}/"
+            bare_blobs = list(bucket.list_blobs(prefix=bare_prefix, max_results=1))
+            has_data = any(b.name.endswith(".parquet") for b in bare_blobs)
+
+        if not has_data:
+            # Post-cutover split-entity path (entity=fixtures_schedule).
             schedule_prefix = (
                 f"sports_reference/by_date/day={date_str}/"
                 f"pipeline_mode=batch_api_football/entity=fixtures_schedule/league={league_id}/"
@@ -289,7 +310,7 @@ def _check_league_status(
             has_data = any(b.name.endswith(".parquet") for b in schedule_blobs)
 
         if not has_data:
-            # Try legacy path
+            # Try oldest legacy path.
             legacy_prefix = f"sports_reference/fixtures/day={date_str}/league={league_id}/"
             legacy_blobs = list(bucket.list_blobs(prefix=legacy_prefix, max_results=1))
             has_data = any(b.name.endswith(".parquet") for b in legacy_blobs)

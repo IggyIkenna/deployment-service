@@ -22,7 +22,7 @@
 #        bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15
 #        bash launch-api-football-backfill-vm.sh --entity FIXTURES 2026-04-21 2026-05-31
 #
-# Writes to gs://instruments-store-sports-central-element-323112/
+# Writes to gs://instruments-store-sports-prd-central-element-323112/
 #   sports_reference/by_date/day={D}/entity=fixtures/fixtures.parquet
 # per day in the resolved window (inclusive).
 #

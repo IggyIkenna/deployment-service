@@ -3,9 +3,12 @@
 #             Pub/Sub topics/subscriptions, Secret Manager stubs,
 #             unified-trading service account with least-privilege IAM.
 #
-# Bucket naming follows cloud-providers.yaml two-tier model:
-#   Group A (raw data)    — no env suffix; all envs share prod-level copy
-#   Group B (derived data)— {domain}-{category}-{env}-{project_id}
+# Bucket naming follows the cloud-providers.yaml SSOT — ALL buckets are env-tiered:
+#   {domain}-{category}-{env}-{project_id}  (e.g. instruments-store-sports-prd-…).
+# NOTE: the former "Group A (raw data) — no env suffix; all envs share a prod-level
+# copy" rule was REVERSED by operator direction 2026-05-11 (cloud-providers.yaml
+# Phase 0e). No-env raw-data buckets are being DECOMMISSIONED (last two sports
+# buckets deleted 2026-07-16); never (re)introduce a no-env Group-A bucket.
 #
 # NOTE: Cloud Run Job definitions are intentionally absent here.
 # See ARCHITECTURE.md "Deployment Model" section for rationale.

@@ -46,7 +46,9 @@ resource "google_storage_bucket_iam_member" "catalogue_regen_instruments_reader"
     # reads the tradfi instruments-store parquet too; it was missing from the reader
     # grant (the sibling lifecycle/instrument_catalogue schedulers already cover it).
     "instruments-store-tradfi-central-element-323112",
-    "instruments-store-sports-central-element-323112",
+    # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
+    # no-env `instruments-store-sports-{project_id}` bucket is DELETED at cutover.
+    "instruments-store-sports-prd-central-element-323112",
     # prediction → SSOT canonical `pred-prd` (cloud-providers.yaml
     # instruments-store-prediction resolves to instruments-store-pred-${DEPLOYMENT_ENV_SHORT}-…);
     # the stale `-prediction-` literal doesn't exist as a live bucket, the actual
