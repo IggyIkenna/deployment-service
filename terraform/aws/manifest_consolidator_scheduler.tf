@@ -206,6 +206,41 @@ resource "aws_iam_role_policy_attachment" "manifest_consolidator_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# CloudWatch Logs IAM policy — the ECS/Fargate awslogs log driver calls
+# logs:CreateLogStream + logs:PutLogEvents at container-init, BEFORE any
+# consolidator code runs. unified_trading had no logs:* permissions at all,
+# so every one of the 26 uts-prod-consolidator-* EventBridge-triggered jobs
+# failed 100% of the time with a container-init AccessDeniedException.
+# logs:CreateLogGroup is intentionally NOT included — the container-job/aws
+# module's `create_log_group = true` default already provisions the 26 log
+# groups via this same terraform apply (confirmed: all 26
+# /aws/batch/uts-prod-manifest-consolidator-* groups already exist), so the
+# running container only ever calls CreateLogStream/PutLogEvents.
+# See: unified-trading-pm/plans/active/issues/aws_consolidator_batch_logstream_iam_gap_2026_07_16.md
+data "aws_iam_policy_document" "manifest_consolidator_logs" {
+  statement {
+    sid    = "ManifestConsolidatorCloudWatchLogs"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/batch/uts-prod-manifest-consolidator-*:*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "manifest_consolidator_logs" {
+  name   = "uts-manifest-consolidator-logs-${var.environment}"
+  policy = data.aws_iam_policy_document.manifest_consolidator_logs.json
+}
+
+resource "aws_iam_role_policy_attachment" "manifest_consolidator_logs" {
+  role       = aws_iam_role.unified_trading.name
+  policy_arn = aws_iam_policy.manifest_consolidator_logs.arn
+}
+
 # ---------------------------------------------------------------------------
 # Per-bucket: Batch job definition + EventBridge schedule
 # ---------------------------------------------------------------------------
