@@ -30,6 +30,11 @@
 #                                            (a different job's live work landed on
 #                                            a reused name — see
 #                                            features_sports_parallel_backfill_vm_name_collision_2026_07_13.md)
+#   lc_write_preemption_signal_file        — write a shutdown-script (sets
+#                                            PREEMPTION_SIGNAL_FILE) that marks a
+#                                            SPOT preemption in GCS for fleet
+#                                            monitors; observability only, does
+#                                            NOT relaunch the VM
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -287,6 +292,50 @@ lc_write_startup_file() {
     # shellcheck disable=SC2064
     trap "rm -f '${STARTUP_FILE}'" EXIT
     export STARTUP_FILE
+}
+
+# ---------------------------------------------------------------------------
+# lc_write_preemption_signal_file
+# ---------------------------------------------------------------------------
+# Write a GCE shutdown-script to a mktemp file that, ONLY when the instance
+# metadata server reports preempted=true, writes a "preempted" marker blob to
+# gs://deployment-scripts-<project>/vm-logs/<vm_name>/PREEMPTED. This is an
+# OBSERVABILITY signal only — it does NOT relaunch the VM. Its purpose is so
+# fleet monitors can classify a SPOT preemption as an expected, benign
+# shutdown (worth relaunching) rather than an unexplained DP_VM_GONE_NO_CAPTURE
+# failure. Mirrors the pattern already shipped in
+# launch-transfermarkt-backfill-vm.sh; centralised here so other SPOT
+# launchers (e.g. the cefi/tardis family, which has none today — see
+# cefi_completion_program_2026_07_15.md's "SPOT preemption DELETES waves"
+# finding) can opt in with one line instead of re-deriving the heredoc.
+#
+# Sets PREEMPTION_SIGNAL_FILE and registers EXIT cleanup, same lifecycle
+# contract as lc_write_startup_file. Pass the result to gcloud via:
+#   --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
+#
+# NOTE: gcloud only accepts ONE shutdown-script per instance. A caller that
+# also needs its own shutdown-script cannot use this helper as-is — merge the
+# preemption check into that script instead (see the transfermarkt launcher
+# for the inline pattern).
+lc_write_preemption_signal_file() {
+    PREEMPTION_SIGNAL_FILE="$(mktemp /tmp/preempt-shutdown-XXXX.sh)"
+    cat > "$PREEMPTION_SIGNAL_FILE" <<'PREEMPTION_EOF'
+#!/usr/bin/env bash
+PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED" == "true" ]] || exit 0
+VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
+PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
+[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
+echo "preempted" | gcloud storage cp - \
+  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
+echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+PREEMPTION_EOF
+    # shellcheck disable=SC2064
+    trap "rm -f '${PREEMPTION_SIGNAL_FILE}'" EXIT
+    export PREEMPTION_SIGNAL_FILE
 }
 
 # ---------------------------------------------------------------------------
