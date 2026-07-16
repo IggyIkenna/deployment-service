@@ -158,6 +158,12 @@ METADATA="${METADATA},VM_TASK=mtds-backfill"
 METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
+# Self-declaring Tardis-cap model (cefi_completion_program_2026_07_15.md,
+# operator-approved 2026-07-16): only CEFI rides Tardis through this
+# multi-asset-group launcher (DEFI/TRADFI/SPORTS/PREDICTION don't) — stamp
+# ONLY when --asset-group CEFI so tardis-concurrency-guard.sh's metadata count
+# stays accurate for the other asset groups too.
+[[ "${CATEGORY_LOWER}" == "cefi" ]] && METADATA="${METADATA},VM_TARDIS_CONSUMER=1"
 # Tardis concurrency lease passthrough (opt-in, mirrors launch-cefi-sharded-backfill.sh):
 # lets checker re-runs of Tardis venues SERIALIZE against production lease-enabled
 # waves instead of 403ing on the single-concurrent-IP key

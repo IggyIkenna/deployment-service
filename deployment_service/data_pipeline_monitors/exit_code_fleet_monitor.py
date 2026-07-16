@@ -1,4 +1,4 @@
-"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002).
+"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002 / DP-VM-007).
 
 Closes the self-delete-masks-OOM blind spot (CLAUDE.md 2026-06-22): a batch/live
 VM launched with ``VM_SHUTDOWN_ON_COMPLETION=true`` self-deletes on exit whether
@@ -20,6 +20,16 @@ This monitor is census-diffing + durable-signal-reading:
        - ``DP_VM_EXIT_NONZERO`` (CRITICAL) when ``exit_code != 0`` (incl. 137 OOM).
        - ``DP_VM_GONE_NO_CAPTURE`` (CRITICAL) when the VM drained but captured did
          NOT climb (``exit_code == 0`` but flat captured — the silent-zero class).
+       - ``DP_VM_PREEMPTED`` (INFO, ``auto_recover``) when the durable ``PREEMPTED``
+         signal blob is present (SPOT reclaim) — dispatches a preemption-aware
+         relaunch (``relaunch_backfill_vm.RelaunchPreemptedVm``, replaying the
+         launch-time env captured by ``lc_write_launch_params``) THROUGH the
+         launcher's own ``tardis_concurrency_guard``. Closes the P0 "SPOT
+         preemption DELETES waves and nothing relaunches them" gap
+         (``cefi_completion_program_2026_07_15.md``) — the actuator self-emits a
+         CRITICAL ``DP_VM_PREEMPTED_NO_RELAUNCH`` whenever the relaunch itself
+         fails (no launcher bound / budget exhausted / guard refusal / launcher
+         error), so a preempted backfill can never silently vanish again.
 
 The wake/alert condition is ``exit_code != 0 OR captured did not climb`` — NEVER
 "VM gone ⇒ success".
@@ -182,6 +192,7 @@ def _finding_for(
     asset_group: str,
     relaunch_launcher: str = "",
     umbrella: str = "",
+    launch_env: dict[str, str] | None = None,
 ) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
@@ -192,6 +203,24 @@ def _finding_for(
     actuator skips and the finding falls through to ``file_issue`` (the
     escalation hop guarantees no auto_recover finding is lost). A non-OOM
     non-zero exit stays ``page_operator``.
+
+    A **PREEMPTED** verdict (SPOT reclaim) ALSO routes to ``auto_recover`` — see
+    ``cefi_completion_program_2026_07_15.md`` P0 "Close the SPOT-preemption
+    relaunch gap": today's ``exit_code_fleet_monitor`` only logged an INFO line
+    CLAIMING a relaunch that never actually happened, so a preempted multi-day
+    backfill silently vanished. The ``relaunch_backfill_vm.RelaunchPreemptedVm``
+    actuator re-invokes ``relaunch_launcher`` (unconditional on exit code — the
+    PREEMPTED verdict itself is the trigger, same shape as the STALL actuator),
+    replaying ``launch_env`` (captured at VM-creation time by
+    ``lc_write_launch_params``) so the relaunch reproduces the SAME
+    venues/START_DATE/concurrency/lease — THROUGH the launcher's own
+    ``tardis_concurrency_guard`` (never a blind relaunch). Base severity here is
+    deliberately ``INFO`` (routine/benign — unlike OOM, a SPOT reclaim is
+    expected): the actuator itself self-emits a CRITICAL
+    ``DP_VM_PREEMPTED_NO_RELAUNCH`` on every failure path (no launcher bound /
+    budget exhausted / the guard refusing / the launcher subprocess failing) so
+    the "no relaunch will happen" case is never silent — see
+    ``escalation._recover_preempted_vm``.
     """
     base_details: dict[str, object] = {
         "vm_name": result.vm_name,
@@ -204,6 +233,23 @@ def _finding_for(
         "umbrella": umbrella,
         "cloud": "GCP",
     }
+    if result.verdict is TerminationVerdict.PREEMPTED:
+        preempted_details: dict[str, object] = {**base_details}
+        if relaunch_launcher:
+            preempted_details["relaunch_launcher"] = relaunch_launcher
+        if launch_env:
+            preempted_details["launch_env"] = launch_env
+        return PipelineFinding(
+            event="DP_VM_PREEMPTED",
+            severity="INFO",
+            tier=EscalationTier.AUTO_RECOVER,
+            summary=(
+                f"VM {result.vm_name} preempted (SPOT reclaim) — relaunching through "
+                "the Tardis/launcher concurrency guard"
+            ),
+            details=preempted_details,
+            registry_id="DP-VM-007",
+        )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
         summary = (
@@ -376,6 +422,10 @@ def sweep(
         # so we don't download the run.log for those (keeps the per-tick download
         # count low, mirrors the OOM-fix double-download discipline).
         is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
+        # Only resolve the launch-params replay env when actually preempted (the
+        # only verdict that reads it) — keeps the per-tick GCS read count down,
+        # same discipline as the run.log no-capture-reason gate just below.
+        launch_env = _gcs.read_launch_params(storage_client, log_bucket, name) if is_preempted else None
         needs_reason = (
             not is_preempted
             and not is_live_vm
@@ -400,7 +450,9 @@ def sweep(
 
         if result.verdict is TerminationVerdict.PREEMPTED:
             logger.info(
-                "exit_code_fleet_monitor: %s preempted → SPOT relaunch (benign, no alert)",
+                "exit_code_fleet_monitor: %s preempted (SPOT reclaim) — dispatching a "
+                "preemption-aware relaunch via the auto_recover tier (DP-VM-007); a "
+                "CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH fires only if that relaunch fails",
                 name,
             )
         if is_live_vm and result.verdict is TerminationVerdict.EXPECTED_NO_CAPTURE:
@@ -413,7 +465,11 @@ def sweep(
 
         launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
         finding = _finding_for(
-            result, asset_group=asset_group_for_vm(name), relaunch_launcher=launcher, umbrella=umbrella
+            result,
+            asset_group=asset_group_for_vm(name),
+            relaunch_launcher=launcher,
+            umbrella=umbrella,
+            launch_env=launch_env,
         )
 
         if finding is not None:

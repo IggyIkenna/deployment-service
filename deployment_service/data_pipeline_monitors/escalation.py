@@ -38,6 +38,15 @@ per-action cooldown / budget). Today wired:
     then page_operator; the relaunch is unconditional on exit code, the stall
     verdict is the trigger). A finding carrying no ``relaunch_launcher`` binding
     falls through to ``file_issue``.
+  - ``DP_VM_PREEMPTED`` → ``relaunch_preempted_vm`` (SPOT reclaim; unconditional
+    on exit code, same shape as the STALL actuator) — replays the exact
+    venues/START_DATE/concurrency/lease captured at launch time
+    (``details["launch_env"]``) THROUGH the launcher's own
+    ``tardis_concurrency_guard``, so the cap can never be blindly re-violated.
+    Unlike the other actuators, EVERY failure path here (no launcher / budget
+    spent / guard refusal / launcher error) self-emits a CRITICAL
+    ``DP_VM_PREEMPTED_NO_RELAUNCH`` — a preempted backfill silently vanishing
+    was the exact bug this closes, so it never falls through quietly.
 
 An ``auto_recover`` event with **no** wired actuator (e.g.
 ``DP_SOURCE_RATE_LIMITED`` — a backoff the runtime owns) does NOT silently
@@ -69,12 +78,19 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from http.client import HTTPResponse
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from unified_trading_library import (  # noqa: qg-deep-import
     get_secret_client,
     log_event,
 )
+
+if TYPE_CHECKING:
+    # Static-analysis-only import (never executed at runtime — TYPE_CHECKING is
+    # always False there) so basedpyright can type the dynamically-imported
+    # actuator class below without violating the load-safe-packaging HARD RULE
+    # documented above (scripts.recovery is absent from the packaged wheel).
+    from scripts.recovery.relaunch_backfill_vm import RelaunchPreemptedVm as _RelaunchPreemptedVmType
 
 
 # The Layer-0 recovery actuators live in the top-level ``scripts/recovery/`` dir,
@@ -145,6 +161,14 @@ class PipelineFinding:
 _EVENT_CONSOLIDATOR_DOWN = "CONSOLIDATOR_DOWN"
 _EVENT_VM_EXIT_NONZERO = "DP_VM_EXIT_NONZERO"
 _EVENT_VM_STALL = "DP_VM_STALL"
+# DP_VM_PREEMPTED is deliberately NOT a UTL-exported constant (unlike
+# DP_VM_EXIT_NONZERO/DP_VM_GONE_NO_CAPTURE/DP_VM_STALL) — this fix is scoped to
+# deployment-service only; ``log_event`` takes a plain string, no registry
+# validates it. Mirrors the existing local-string-constant pattern above. Its
+# failure-path sibling ``DP_VM_PREEMPTED_NO_RELAUNCH`` is emitted directly by
+# the actuator (``relaunch_backfill_vm.RelaunchPreemptedVm``), not routed
+# through here, so it has no constant in this module.
+_EVENT_VM_PREEMPTED = "DP_VM_PREEMPTED"
 
 # The PM repo + repository_dispatch event-type that fast-spawns an autonomous
 # worker for a data-pipeline wall (the same fast path CI failures use). The
@@ -168,7 +192,9 @@ _ISSUE_ASSIGNED_VM = "vm-cross-cutting"
 # a VM-lifecycle finding (stall / exit / starvation) → deployment-service. Used
 # to NAME the target repo in the actionable issue todo (so a worker knows where
 # to look). Keyed on the DP_* event family.
-_VM_LIFECYCLE_EVENTS = frozenset({"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN"})
+_VM_LIFECYCLE_EVENTS = frozenset(
+    {"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN", _EVENT_VM_PREEMPTED}
+)
 
 
 def _slugify(text: str) -> str:
@@ -359,6 +385,63 @@ def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str,
     return {"recovered": recovered, "actuator": "relaunch_stalled_vm", "result": result}
 
 
+def _recover_preempted_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover ``DP_VM_PREEMPTED`` → re-launch the SPOT-reclaimed backfill VM.
+
+    Closes the P0 "SPOT-preemption relaunch gap"
+    (``cefi_completion_program_2026_07_15.md``): today a preempted wave was
+    DELETED and nothing relaunched it (exit_code_fleet_monitor only logged an
+    INFO line that falsely claimed a relaunch). Unconditional on exit code — the
+    PREEMPTED verdict itself is the trigger (same shape as ``DP_VM_STALL``'s
+    actuator, not the OOM one). Replays ``details["launch_env"]`` (the exact
+    venues/START_DATE/concurrency/lease captured at VM-creation time by
+    ``lc_write_launch_params``) as the relaunch subprocess's env, so the
+    relaunch reproduces the SAME job the preempted VM was running — THROUGH the
+    launcher's own ``tardis_concurrency_guard`` (sourced inside every
+    Tardis-consuming launcher), never a blind relaunch that could re-create the
+    cap violation.
+
+    Unlike OOM/STALL, EVERY failure path here (no launcher bound / budget
+    exhausted / the guard refusing because e.g. a live/forward VM holds the
+    single Tardis slot / the launcher subprocess erroring) self-emits a
+    CRITICAL ``DP_VM_PREEMPTED_NO_RELAUNCH`` from inside the actuator — a
+    preempted backfill silently vanishing with zero operator signal was the
+    exact bug this closes, so silence on failure is never acceptable here (see
+    ``scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm``).
+    """
+    if not _ACTUATORS_AVAILABLE:
+        return {
+            "recovered": False,
+            "actuator": "relaunch_preempted_vm",
+            "result": {"status": "UNAVAILABLE", "reason": "actuators_not_in_runtime"},
+        }
+    # Dynamic import (NOT a function-level `import` statement) — load-safe
+    # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    # cast to the TYPE_CHECKING-only import above — basedpyright can then type
+    # the actuator properly instead of cascading `Any` from the untyped
+    # importlib.import_module() result (ModuleType has no static member info).
+    _mod = importlib.import_module("scripts.recovery.relaunch_backfill_vm")
+    actuator_cls = cast("type[_RelaunchPreemptedVmType]", _mod.RelaunchPreemptedVm)
+
+    details = finding.details
+    launcher = str(details.get("relaunch_launcher", "")).strip()
+    launch_env_raw = details.get("launch_env")
+    launch_env: dict[str, str] | None = None
+    if isinstance(launch_env_raw, dict):
+        launch_env = {str(k): str(v) for k, v in cast("dict[object, object]", launch_env_raw).items()}
+
+    actuator = actuator_cls()
+    result = actuator.relaunch(
+        str(details.get("vm_name", "")),
+        launcher=launcher,
+        asset_group=str(details.get("asset_group", "")),
+        launch_env=launch_env,
+        dry_run=dry_run,
+    )
+    recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+    return {"recovered": recovered, "actuator": "relaunch_preempted_vm", "result": result}
+
+
 # event-name → actuator dispatch (the auto_recover tier). An auto_recover finding
 # whose event is absent here falls through to file_issue (never a silent no-op).
 # DP_EVENT_LOOP_STARVED is DELIBERATELY absent — a VM that never emits ANY
@@ -368,6 +451,7 @@ _DP_RECOVERY_ACTIONS: dict[str, Callable[..., dict[str, object]]] = {
     _EVENT_CONSOLIDATOR_DOWN: _recover_consolidator,
     _EVENT_VM_EXIT_NONZERO: _recover_backfill_vm,
     _EVENT_VM_STALL: _recover_stalled_vm,
+    _EVENT_VM_PREEMPTED: _recover_preempted_vm,
 }
 
 

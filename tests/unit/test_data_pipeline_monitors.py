@@ -14,7 +14,9 @@ Credential-free + block-network safe: GCS/compute I/O is injected via a fake
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +37,13 @@ from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
 )
+
+# Module-level import (NOT inside a test function) — a test that monkeypatches
+# ``scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm`` must close over
+# THIS original class reference, never re-import the name inside the patched
+# function (that re-import would resolve to the monkeypatched fake itself →
+# infinite recursion).
+from scripts.recovery.relaunch_backfill_vm import RelaunchPreemptedVm as _RelaunchPreemptedVm
 
 
 # ── fakes ────────────────────────────────────────────────────────────────────
@@ -216,9 +225,28 @@ def test_is_vm_preempted_false_when_blob_absent():
     assert _gcs.is_vm_preempted(storage, LOG_BUCKET, "af-backfill-001") is False
 
 
-def test_sweep_preempted_vm_emits_no_critical(monkeypatch):
-    # A spot preemption should produce PREEMPTED verdict and NO CRITICAL alert.
-    vm = "api-football-backfill-20260627"
+def _patch_dp_log_event(monkeypatch) -> list[tuple[str, str, dict]]:
+    """Patch log_event in BOTH modules a PREEMPTED sweep can call it from:
+    escalation's own trailing emit AND the relaunch_preempted_vm actuator's
+    internal emits (success INFO / failure CRITICAL) — same shape as
+    test_dp_recovery_actuators.py's ``_patch_log_event`` helper.
+    """
+    emitted: list[tuple[str, str, dict]] = []
+
+    def _capture(event, severity="INFO", details=None):
+        emitted.append((event, severity, details or {}))
+
+    monkeypatch.setattr("deployment_service.data_pipeline_monitors.escalation.log_event", _capture)
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.log_event", _capture)
+    return emitted
+
+
+def test_sweep_preempted_vm_relaunches_successfully_emits_no_critical(tmp_path: Path, monkeypatch):
+    # A spot preemption with a resolvable launcher that relaunches SUCCESSFULLY
+    # produces the PREEMPTED verdict and NO CRITICAL alert (SPOT reclaim +
+    # auto-recovery is the benign, routine case — Fix 1/2 close the prior gap
+    # where this VM's relaunch was CLAIMED but never actually happened).
+    vm = "cefi-queue-heavy-binancefutu-x15-20260716-075338"
     census = json.dumps({"vms": {vm: 50}}).encode()
     storage = FakeStorage(
         {
@@ -226,22 +254,95 @@ def test_sweep_preempted_vm_emits_no_critical(monkeypatch):
             (LOG_BUCKET, _gcs.EXIT_STATUS_BLOB.format(vm=vm)): (b"1\n", 0.0),  # non-zero from SIGTERM
             # PREEMPTED signal blob written by the VM's shutdown-script
             (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+            # LAUNCH_PARAMS.json captured at VM-creation time (lc_write_launch_params)
+            (LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (
+                json.dumps(
+                    {
+                        "launcher": "launch-cefi-sharded-backfill.sh",
+                        "env": {"VENUES": "BINANCE-FUTURES", "START_DATE": "2026-02-01"},
+                    }
+                ).encode(),
+                0.0,
+            ),
         }
     )
-    emitted: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(
-        "deployment_service.data_pipeline_monitors.escalation.log_event",
-        lambda event, severity="INFO", details=None: emitted.append((event, severity, details or {})),
-    )
+    emitted = _patch_dp_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def fake_run_launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    def fake_preempted_actuator(*_a, **_k):  # noqa: ANN002, ANN003
+        return _RelaunchPreemptedVm(
+            budget_dir=tmp_path, now=lambda: datetime(2026, 7, 16, tzinfo=UTC), run_launcher=fake_run_launcher
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm", fake_preempted_actuator)
     results = exit_code_fleet_monitor.sweep(
         storage_client=storage,
         log_bucket=LOG_BUCKET,
         running_vms=[],
         captured_reader=lambda _vm: 50,  # flat — would otherwise trigger GONE_NO_CAPTURE
-        asset_group_for_vm=lambda _vm: "sports",
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "launch-cefi-sharded-backfill.sh",
     )
     assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
     assert not any(e[1] == "CRITICAL" for e in emitted), f"unexpected CRITICAL alert on preemption: {emitted}"
+    # The relaunch replayed the EXACT captured env — never a blind relaunch.
+    assert launched == [("launch-cefi-sharded-backfill.sh", {"VENUES": "BINANCE-FUTURES", "START_DATE": "2026-02-01"})]
+
+
+def test_sweep_preempted_vm_no_launcher_emits_critical_no_relaunch(monkeypatch):
+    # Fix 2 (belt-and-braces): when NOTHING will relaunch a preempted VM (no
+    # resolvable launcher binding), the sweep must NOT silently vanish it — a
+    # CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH fires instead of the old misleading
+    # INFO-only "SPOT relaunch (benign, no alert)" log.
+    vm = "some-unregistered-preemptible-vm-1"
+    census = json.dumps({"vms": {vm: 50}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    emitted = _patch_dp_log_event(monkeypatch)
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 50,
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",  # no resolvable launcher
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted), (
+        f"expected a CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH when no relaunch can happen: {emitted}"
+    )
+
+
+def test_read_launch_params_round_trip():
+    vm = "cefi-queue-heavy-x-1"
+    payload = json.dumps(
+        {
+            "launcher": "launch-cefi-sharded-backfill.sh",
+            "env": {"VENUES": "BINANCE-FUTURES", "START_DATE": "2026-02-01"},
+        }
+    ).encode()
+    storage = FakeStorage({(LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (payload, 0.0)})
+    out = _gcs.read_launch_params(storage, LOG_BUCKET, vm)
+    assert out == {"VENUES": "BINANCE-FUTURES", "START_DATE": "2026-02-01"}
+
+
+def test_read_launch_params_absent_returns_none():
+    storage = FakeStorage({})
+    assert _gcs.read_launch_params(storage, LOG_BUCKET, "cefi-queue-heavy-x-1") is None
+
+
+def test_read_launch_params_malformed_returns_none():
+    vm = "cefi-queue-heavy-x-1"
+    storage = FakeStorage({(LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (b"not json", 0.0)})
+    assert _gcs.read_launch_params(storage, LOG_BUCKET, vm) is None
 
 
 # ── exit_code_fleet_monitor.sweep end-to-end ────────────────────────────────

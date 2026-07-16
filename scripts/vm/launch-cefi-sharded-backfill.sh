@@ -194,19 +194,19 @@ EOF
 fi
 
 # ─── Tardis concurrent-VM cap (replaces the pre-2026-07-14 blanket singleton lock) ──
-# HARD RULE (operator, 2026-07-14): at most 3 Tardis-consuming VMs at a time, and every
-# launcher counts the existing fleet before creating new ones. Empirical basis (SSOT:
-# unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md):
-# the shared key enforces a single REVOLVING active-IP slot — N=3 grinds at ~50-70%
-# request efficiency, N=6 starved below the stall watchdog and ALL SIX died
-# (2026-07-13T23:15Z wave). The old any-duplicate refusal is superseded: up to 3 total
-# is now allowed. The historical context still applies (shared account + NAT; the
-# 2026-05-05 Databento silent-drop incident was the same over-concurrency shape).
+# HARD RULE (operator, 2026-07-16): at most 1 Tardis-consuming VM at a time (was 3,
+# operator 2026-07-14 — see tardis-concurrency-guard.sh's header for the measured
+# reason the cap dropped: the "N=3 grinds at ~50-70%" reading was calibrated on VMs
+# re-walking already-captured data; in the real gap N=3 produced a mutual-403 storm +
+# 37,212 FALSE attempted_failed rows in 8h). Every launcher counts the existing fleet
+# (by VM_TARDIS_CONSUMER=1 metadata OR the legacy name pattern) before creating new
+# ones — see cefi_completion_program_2026_07_15.md.
 # The guard itself runs just before the launch loop, where the planned shard count
 # (venue × year × heavy/light fan-out) is computable — see tardis_concurrency_guard.
-# The lease does NOT lift the cap (every surviving multi-VM wave ran lease-ON; the only
-# lease-OFF multi-VM wave collapsed) — enable TARDIS_CONCURRENCY_LEASE=1 for any multi-VM
-# launch. Only FORCE=1 overrides the cap.
+# The lease does NOT lift the cap — it AMPLIFIES the storm (fail-open after 1800s
+# means every waiting VM proceeds UNLOCKED at once); TARDIS_CONCURRENCY_LEASE=1 is
+# still recommended as a safety net (harmless no-op cost at N=1). Only FORCE=1
+# overrides the cap.
 # shellcheck source=./tardis-concurrency-guard.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
 
@@ -388,6 +388,12 @@ launch_cefi_shard() {
   meta+="|VM_SERVICE=market_tick_data_service"
   meta+="|VM_OPERATION=download"
   meta+="|VM_ASSET_GROUP=CEFI"
+  # Self-declaring Tardis-cap model (cefi_completion_program_2026_07_15.md,
+  # operator-approved 2026-07-16): every launcher that opens an AUTHENTICATED
+  # Tardis (datasets.tardis.dev) connection stamps this so
+  # tardis-concurrency-guard.sh counts it directly (metadata, not a name
+  # regex it must be kept in sync with). This launcher always contends.
+  meta+="|VM_TARDIS_CONSUMER=1"
   meta+="|VM_VENUE=$venue"
   meta+="|VM_START_DATE=$start_date"
   meta+="|VM_END_DATE=$end_date"
@@ -513,12 +519,6 @@ launch_cefi_shard() {
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
 
-    if [[ "${DRY_RUN:-false}" != "true" ]]; then
-        lc_verify_tarball_freshness "deployment-scripts-${PROJECT}" \
-            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
-            || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-    fi
-
     # Real bug (live-verified 2026-07-14): gcloud's default --metadata
     # delimiter is comma, same as the intra-value separator VM_INSTRUMENT_IDS
     # needs ("BTCUSDH25,BTCUSDH26,..."). With the default comma delimiter,
@@ -531,13 +531,28 @@ launch_cefi_shard() {
     # comma-bearing value like VM_INSTRUMENT_IDS survives intact; the "^|^"
     # prefix tells gcloud to use "|" as the delimiter instead of ",".
     #
-    # cefi_completion_program_2026_07_15.md "SPOT preemption DELETES waves"
-    # finding: this launcher family has NO relaunch mechanism, so a preempted
-    # wave silently vanishes. lc_write_preemption_signal_file is observability
-    # only (marks the shutdown as an expected preemption for fleet monitors,
-    # NOT an auto-relaunch) — the actual relaunch mechanism remains an open
-    # architecture decision (STOP+watchdog vs. a preemption-aware relauncher).
+    # cefi_completion_program_2026_07_15.md P0 "Close the SPOT-preemption
+    # relaunch gap": lc_write_preemption_signal_file marks the shutdown as an
+    # expected preemption for fleet monitors; lc_write_launch_params persists
+    # the EXACT env this shard was launched with (ONLY=<venue>:<year>:<group>
+    # + the concurrency/lease knobs) so exit_code_fleet_monitor's PREEMPTED
+    # auto_recover actuator (relaunch_backfill_vm.RelaunchPreemptedVm) can
+    # re-invoke THIS launcher with the SAME scope on preemption — through this
+    # launcher's own tardis_concurrency_guard above (never a blind relaunch).
     lc_write_preemption_signal_file
+    lc_write_launch_params "$vm_name" "$PROJECT" "launch-cefi-sharded-backfill.sh" \
+        "ONLY=${venue}:${year}:${group}" \
+        "SINGLE_VM_QUEUE=0" \
+        "VM_INSTRUMENT_IDS=${symbols}" \
+        "FREE_ONLY=${FREE_ONLY:-0}" \
+        "TARDIS_CONCURRENCY_LEASE=${TARDIS_CONCURRENCY_LEASE:-}" \
+        "TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" \
+        "TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" \
+        "TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" \
+        "STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC:-}" \
+        "MACHINE_TYPE_HEAVY=${MACHINE_TYPE_HEAVY:-}" \
+        "MACHINE_TYPE_LIGHT=${MACHINE_TYPE_LIGHT:-}" \
+        "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     gcloud compute instances create "$vm_name" \
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
@@ -690,6 +705,9 @@ _launch_queued_vm() {
   meta+=",VM_SERVICE=market_tick_data_service"
   meta+=",VM_OPERATION=download"
   meta+=",VM_ASSET_GROUP=CEFI"
+  # Self-declaring Tardis-cap model (cefi_completion_program_2026_07_15.md,
+  # operator-approved 2026-07-16) — see the per-shard launch path above.
+  meta+=",VM_TARDIS_CONSUMER=1"
   meta+=",VM_VENUE=$venues_str"
   meta+=",VM_START_DATE=$start_date"
   meta+=",VM_END_DATE=$end_date"
@@ -718,10 +736,28 @@ _launch_queued_vm() {
   echo "Launching QUEUE VM $vm_name (venues: $venues_str; $start_date..$end_date; $data_types)"
   local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
   if [[ "${ON_DEMAND:-false}" == "true" ]]; then prov_flags=""; fi
-  # cefi_completion_program_2026_07_15.md "SPOT preemption DELETES waves"
-  # finding: observability-only preemption marker (see the per-shard launch
-  # path above for the full rationale) — NOT an auto-relaunch.
+  # cefi_completion_program_2026_07_15.md P0 "Close the SPOT-preemption
+  # relaunch gap" — see the per-shard launch path above for the full
+  # rationale. This is the mode the production tail-backfill actually runs in
+  # (SINGLE_VM_QUEUE=1, one combined multi-venue VM per group), so an exact
+  # relaunch here MUST reproduce venues_str + the resolved start/end +
+  # LAUNCH_GROUPS scoped to just this ONE bucket (never both heavy+light).
   lc_write_preemption_signal_file
+  lc_write_launch_params "$vm_name" "$PROJECT" "launch-cefi-sharded-backfill.sh" \
+      "VENUES=${venues_str}" \
+      "YEARS=${YEARS_OVERRIDE:-}" \
+      "LAUNCH_GROUPS=${group}" \
+      "SINGLE_VM_QUEUE=1" \
+      "START_DATE=${START_DATE:-}" \
+      "FREE_ONLY=${FREE_ONLY:-0}" \
+      "TARDIS_CONCURRENCY_LEASE=${TARDIS_CONCURRENCY_LEASE:-}" \
+      "TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" \
+      "TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" \
+      "TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" \
+      "STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC:-}" \
+      "MACHINE_TYPE_HEAVY=${MACHINE_TYPE_HEAVY:-}" \
+      "MACHINE_TYPE_LIGHT=${MACHINE_TYPE_LIGHT:-}" \
+      "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   # shellcheck disable=SC2086
   gcloud compute instances create "$vm_name" \
     --zone="$ZONE" --machine-type="$machine" \

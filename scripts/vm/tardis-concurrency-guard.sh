@@ -48,29 +48,88 @@
 # Scale THROUGHPUT with intra-VM concurrency on the one IP (TARDIS_MAX_CONCURRENT_DOWNLOADS,
 # TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT) + SINGLE_VM_QUEUE=1 bundling, NEVER with more VMs.
 TARDIS_MAX_CONCURRENT_VMS="${TARDIS_MAX_CONCURRENT_VMS:-1}"
-# Every VM shape that holds Tardis connections: sharded backfills (heavy/light),
-# SINGLE_VM_QUEUE combined VMs, and mtds cefi backfill/pipelinecheck VMs.
+# Name-pattern FALLBACK (kept for backward-compat during rollout — see the
+# self-declaring metadata model below). Every VM shape that holds Tardis
+# connections: sharded backfills (heavy/light), SINGLE_VM_QUEUE combined VMs,
+# and mtds cefi backfill/pipelinecheck VMs.
 TARDIS_VM_NAME_PATTERN='^(cefi|tradfi)-.*-(heavy|light)-|^cefi-queue-|^mtds-backfill-cefi-'
 
+# Self-declaring metadata model (operator-approved design, 2026-07-16 —
+# cefi_completion_program_2026_07_15.md "Scope the Tardis cap to AUTHENTICATED
+# batch consumers only"): a name-regex can never stay in sync with every
+# Tardis-consuming launcher (83+ launchers), and — proven the hard way — it can
+# ALSO wrongly catch VMs that do NOT hold the licensed slot (live MTDS
+# tardis-machine is an unauthenticated local sidecar; IS Tardis hits public
+# api.tardis.dev metadata; neither contends). So every launcher that opens an
+# AUTHENTICATED Tardis (datasets.tardis.dev) connection now stamps
+# VM_TARDIS_CONSUMER=1 into its VM metadata (GCP) / instance tags (AWS) at
+# create time, and THIS is what the guard counts — the name pattern above stays
+# ONLY as an OR-clause fallback so an already-running VM launched by
+# pre-rollout code (no stamp yet) is still counted while the fleet migrates.
 # Counts RUNNING + PROVISIONING + STAGING (not RUNNING alone). A VM that is still coming up
 # ALREADY holds the single Tardis IP slot (or is about to), so a concurrent launch during that
 # ~40s window must see it. Real incident 2026-07-16T00:58Z: a keeper relaunch (PROVISIONING) and
 # a manual launch fired 40s apart, both passed the RUNNING-only count, and TWO VMs ran = the
 # 403 storm the cap exists to prevent. Widening the status set closes that race at the guard.
-tardis_running_vm_count() { # $1=zone $2=project -> echoes count (GCP + best-effort AWS)
+tardis_running_vm_count() { # $1=zone $2=project -> echoes count (GCP union of name-pattern + VM_TARDIS_CONSUMER=1 metadata, + best-effort AWS)
   local zone="$1" project="$2" gcp=0 aws_n=0
   if command -v gcloud >/dev/null 2>&1; then
-    gcp="$(gcloud compute instances list \
-      --filter="name~\"${TARDIS_VM_NAME_PATTERN}\" AND (status=RUNNING OR status=PROVISIONING OR status=STAGING)" \
-      --zones="$zone" --project="$project" \
-      --format='value(name)' 2>/dev/null | grep -c . || true)"
+    if command -v python3 >/dev/null 2>&1; then
+      # One list call (name + metadata), one union-count pass in python — avoids a
+      # fragile/unsupported `--filter metadata.<key>=<value>` server-side expression
+      # (verified 2026-07-16: GCE's list API rejects that filter shape outright,
+      # "Invalid list filter expression") and avoids double-counting a VM that
+      # matches BOTH the name pattern and the metadata stamp.
+      gcp="$(gcloud compute instances list \
+        --filter='status=RUNNING OR status=PROVISIONING OR status=STAGING' \
+        --zones="$zone" --project="$project" \
+        --format='json(name,metadata.items)' 2>/dev/null | python3 -c '
+import json, re, sys
+
+pattern = re.compile(sys.argv[1])
+try:
+    instances = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError):
+    instances = []
+count = 0
+for inst in instances:
+    name = inst.get("name", "")
+    items = (inst.get("metadata") or {}).get("items") or []
+    stamped = any(
+        item.get("key") == "VM_TARDIS_CONSUMER" and str(item.get("value")) == "1" for item in items
+    )
+    if stamped or pattern.search(name):
+        count += 1
+print(count)
+' "$TARDIS_VM_NAME_PATTERN" 2>/dev/null)"
+      [[ -z "$gcp" ]] && gcp=0
+    else
+      # python3 unavailable — degrade to the name-pattern-only count (best-effort;
+      # a forward-poll/mtds-backfill VM stamped ONLY via metadata would be missed,
+      # but that is strictly no worse than the pre-rollout behavior).
+      echo "WARNING: [tardis-guard] python3 unavailable — counting by VM-name pattern only (metadata-stamped VMs may be undercounted)" >&2
+      gcp="$(gcloud compute instances list \
+        --filter="name~\"${TARDIS_VM_NAME_PATTERN}\" AND (status=RUNNING OR status=PROVISIONING OR status=STAGING)" \
+        --zones="$zone" --project="$project" \
+        --format='value(name)' 2>/dev/null | grep -c . || true)"
+    fi
   fi
   if [[ -n "${AWS_REGION:-}" ]] && command -v aws >/dev/null 2>&1; then
-    aws_n="$(aws ec2 describe-instances --region "${AWS_REGION}" \
-      --filters "Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill" \
-                "Name=instance-state-name,Values=running,pending" \
-      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null \
-      | tr '\t' '\n' | grep -c . || true)"
+    # Union of the legacy purpose-tag match + the new VM_TARDIS_CONSUMER=1 tag
+    # (AWS `--filters` ANDs across different Names, so two calls + a dedup pass
+    # is the union — mirrors the GCP name-pattern-OR-metadata union above).
+    aws_n="$(
+      {
+        aws ec2 describe-instances --region "${AWS_REGION}" \
+          --filters "Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill" \
+                    "Name=instance-state-name,Values=running,pending" \
+          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null
+        aws ec2 describe-instances --region "${AWS_REGION}" \
+          --filters "Name=tag:VM_TARDIS_CONSUMER,Values=1" \
+                    "Name=instance-state-name,Values=running,pending" \
+          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null
+      } | tr '\t' '\n' | sort -u | grep -c . || true
+    )"
   fi
   echo $(( gcp + aws_n ))
 }

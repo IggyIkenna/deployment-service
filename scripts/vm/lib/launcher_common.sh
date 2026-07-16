@@ -35,6 +35,17 @@
 #                                            SPOT preemption in GCS for fleet
 #                                            monitors; observability only, does
 #                                            NOT relaunch the VM
+#   lc_write_launch_params <vm_name> <project> <launcher> <K=V>...
+#                                          — persist the launcher name + the exact
+#                                            env vars this VM was launched with to
+#                                            GCS (LAUNCH_PARAMS.json), so a later
+#                                            preemption-aware relaunch (the
+#                                            exit_code_fleet_monitor auto_recover
+#                                            actuator) can reproduce the SAME
+#                                            venues/START_DATE/concurrency/lease
+#                                            instead of falling back to the
+#                                            launcher's bare defaults. Best-effort
+#                                            (never fails the launch).
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -336,6 +347,64 @@ PREEMPTION_EOF
     # shellcheck disable=SC2064
     trap "rm -f '${PREEMPTION_SIGNAL_FILE}'" EXIT
     export PREEMPTION_SIGNAL_FILE
+}
+
+# ---------------------------------------------------------------------------
+# lc_write_launch_params <vm_name> <project> <launcher> [K=V ...]
+# ---------------------------------------------------------------------------
+# Persist this VM's exact launch parameters to
+# gs://deployment-scripts-<project>/vm-logs/<vm_name>/LAUNCH_PARAMS.json —
+# {"launcher": "<launcher>", "env": {"K": "V", ...}}.
+#
+# Why this exists: closing the SPOT-preemption relaunch gap
+# (cefi_completion_program_2026_07_15.md P0 "Close the SPOT-preemption relaunch
+# gap") requires the relauncher to reproduce the SAME venues/START_DATE/
+# concurrency/lease the preempted VM was launched with — a blind re-invocation
+# of the launcher with only its bare defaults would launch a DIFFERENT (often
+# far bigger, e.g. full-history-since-genesis) job than the one that died.
+# Called by the launcher itself (the local/orchestrator side, NOT a VM-side
+# shutdown-script — unlike lc_write_preemption_signal_file, this runs BEFORE
+# `gcloud compute instances create`/`aws ec2 run-instances`, so it needs no
+# metadata-server round-trip and no 30s-preemption-notice race).
+#
+# Consumed by `deployment_service.data_pipeline_monitors._gcs.read_launch_params`
+# (exit_code_fleet_monitor's PREEMPTED handling) → replayed as the relaunch
+# subprocess's env by `scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm`,
+# which invokes the SAME launcher — so the launcher's OWN
+# tardis_concurrency_guard (sourced inside it) still binds; this helper never
+# bypasses that guard, it only lets the relaunch aim at the right shard.
+#
+# Best-effort: a missing gsutil/python3, or a write failure, only WARNS — it
+# must never fail the launch (the VM being created is the real deliverable; a
+# lost launch-params record just means a future preemption relaunch falls back
+# to the launcher's bare defaults instead of an exact replay).
+#
+# Empty-string values are written verbatim (bash's `${VAR:-}` reads an empty
+# env var the same as unset for every `[[ -n ... ]]`/`[[ "$X" == "1" ]]` guard
+# in these launchers, so persisting "" for an unset optional is safe).
+lc_write_launch_params() {
+    local vm_name="${1:?lc_write_launch_params: vm_name required}"
+    local project="${2:?lc_write_launch_params: project required}"
+    local launcher="${3:?lc_write_launch_params: launcher required}"
+    shift 3
+    if ! command -v gsutil >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: lc_write_launch_params — gsutil/python3 unavailable, skipping (relaunch will use launcher defaults)" >&2
+        return 0
+    fi
+    local uri="gs://$(lc_code_bucket "$project")/vm-logs/${vm_name}/LAUNCH_PARAMS.json"
+    if ! python3 -c '
+import json, sys
+
+launcher = sys.argv[1]
+env = {}
+for pair in sys.argv[2:]:
+    if "=" in pair:
+        key, _, value = pair.partition("=")
+        env[key] = value
+print(json.dumps({"launcher": launcher, "env": env}))
+' "$launcher" "$@" | gsutil -q cp - "$uri" 2>/dev/null; then
+        echo "WARNING: lc_write_launch_params — failed to write ${uri} (best-effort, non-fatal; a preemption relaunch will use launcher defaults)" >&2
+    fi
 }
 
 # ---------------------------------------------------------------------------
