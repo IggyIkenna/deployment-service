@@ -267,11 +267,17 @@ post_match:
           description: Compute post-match derived features (footystats/understat final stats), T+25h after final whistle
 
 # GCS fixture calendar source
-# Primary path: sports_reference/fixtures/day={date}/ (legacy, has historical data)
-# Fallback: instrument_availability/by_date/day={date}/league={league}/venue=API_FOOTBALL_FIXTURES/
-# Future: sports_reference/by_date/day={date}/entity=fixtures/ (new convention, not yet populated)
+# `bucket_template` CANONICALISED 2026-07-16 (sports_legacy_bucket_cutover_2026_07_16.md T5.1):
+# it read `instruments-store-sports-{project_id}` — the flat no-env LEGACY bucket that was
+# physically DELETED at the cutover, i.e. a dangling pointer. Verified DEAD config first:
+# nothing in the workspace parses the `fixture_calendar` key (the live readers resolve their
+# bucket through the SSOT `resolve_bucket_name()` — see deployment_service/catalog.py
+# `_resolve_service_bucket` and cli/utils/data_status_sports.py:150), so this is a
+# declaration-only correction with zero runtime effect. Left as an explicit `-prd-` literal
+# rather than deleted, because the surrounding block still documents the path shapes.
+# Any NEW consumer MUST use resolve_bucket_name(kind="instruments-store", asset_group="sports").
 fixture_calendar:
-  bucket_template: instruments-store-sports-{project_id}
+  bucket_template: instruments-store-sports-prd-{project_id}
   path_templates:
     - sports_reference/fixtures/day={date}/
     - sports_reference/by_date/day={date}/entity=fixtures/
