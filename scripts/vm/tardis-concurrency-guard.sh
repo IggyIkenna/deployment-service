@@ -52,11 +52,16 @@ TARDIS_MAX_CONCURRENT_VMS="${TARDIS_MAX_CONCURRENT_VMS:-1}"
 # SINGLE_VM_QUEUE combined VMs, and mtds cefi backfill/pipelinecheck VMs.
 TARDIS_VM_NAME_PATTERN='^(cefi|tradfi)-.*-(heavy|light)-|^cefi-queue-|^mtds-backfill-cefi-'
 
+# Counts RUNNING + PROVISIONING + STAGING (not RUNNING alone). A VM that is still coming up
+# ALREADY holds the single Tardis IP slot (or is about to), so a concurrent launch during that
+# ~40s window must see it. Real incident 2026-07-16T00:58Z: a keeper relaunch (PROVISIONING) and
+# a manual launch fired 40s apart, both passed the RUNNING-only count, and TWO VMs ran = the
+# 403 storm the cap exists to prevent. Widening the status set closes that race at the guard.
 tardis_running_vm_count() { # $1=zone $2=project -> echoes count (GCP + best-effort AWS)
   local zone="$1" project="$2" gcp=0 aws_n=0
   if command -v gcloud >/dev/null 2>&1; then
     gcp="$(gcloud compute instances list \
-      --filter="name~\"${TARDIS_VM_NAME_PATTERN}\" AND status=RUNNING" \
+      --filter="name~\"${TARDIS_VM_NAME_PATTERN}\" AND (status=RUNNING OR status=PROVISIONING OR status=STAGING)" \
       --zones="$zone" --project="$project" \
       --format='value(name)' 2>/dev/null | grep -c . || true)"
   fi
