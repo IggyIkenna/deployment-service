@@ -28,13 +28,22 @@
 #   bash launch-measure-honest-coverage-vm.sh --env staging          # staging manifests
 #   bash launch-measure-honest-coverage-vm.sh --force                # bypass singleton lock
 #
-# Cost: e2-standard-4 (4 vCPU / 16 GiB) for ~5-15 minutes depending on manifest sizes.
-# Right-sized 2026-06-16 once the column-pruned measure_honest_coverage.py (reads only
-# capture_status/venue/data_type → ~5 GiB peak, validated) propagated into the instruments
-# tarball. History: the per-AG manifest loads (cefi's availability_index ~35.8M rows)
-# OOM-killed (rc=137) even a 32 GiB box pre-pruning → briefly bumped to e2-highmem-8 (64 GiB)
-# as a stopgap; with column-pruning live in the tarball, 16 GiB is comfortable headroom
-# (~5 GiB peak + OS/heartbeat) and bounded as the index grows.
+# Cost: e2-highmem-4 (4 vCPU / 32 GiB) for ~5-15 minutes depending on manifest sizes.
+# THIS is the nightly-cron launcher — Cloud Scheduler `honest-coverage-daily` (00:30 UTC)
+# → Cloud Run Job `honest-coverage-daily-launcher` fetches THIS file from
+# gs://deployment-scripts-central-element-323112/vm/ and runs it (NOT
+# launch-honest-coverage-vm.sh). Re-upload via create-code-tarballs.sh after any edit.
+#
+# Right-sizing history + CURRENT rationale (2026-07-16, plan
+# data_status_page_ux_and_canonicalisation_2026_07_16 P1): the per-AG manifest loads
+# (cefi availability_index ~35.8M rows) OOM-killed even a 32 GiB box PRE the eu-only
+# secondary read; the eu-only pushdown (measure_honest_coverage._read_parquet_eu_only)
+# now bounds the oracle read to ~4.1M eu rows, and a manual e2-highmem-4 (32 GiB) run
+# measured ALL 5 asset groups on 2026-07-16. The 2026-06-16 downsize to e2-standard-4
+# (16 GiB) cited a column-pruned reader that was NEVER shipped (the writer still reads
+# instrument_id/instrument_type) — 16 GiB empirically OOM'd most AGs, so the nightly
+# wrote 1-AG partial coverage.json for weeks. Reverting to the PROVEN 32 GiB. A real
+# column-prune (plan DATA P2) would let this drop back to 16 GiB.
 set -euo pipefail
 
 # shellcheck source=lib/launcher_common.sh
@@ -129,7 +138,7 @@ else
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
-    --machine-type=e2-standard-4 \
+    --machine-type=e2-highmem-4 \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size=50GB \
