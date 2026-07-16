@@ -1416,12 +1416,15 @@ elif [[ "$VM_TASK" == "solana-drift-backfill" ]]; then
   # Velocity Data API ingester (backfill_drift_v2_historical.py,
   # market-tick-data-service@1bd507b4 — includes the pipeline_mode=batch_onchain_rpc
   # fix so writer + manifest partition paths agree). VM_DRIFT_MARKET defaults to
-  # SOL-PERP; VM_DATA_TYPES (';'-separated, gcloud metadata reserves ',' for key
-  # separation) defaults to funding;trades.
+  # SOL-PERP; both it and VM_DATA_TYPES are ';'-separated (gcloud metadata
+  # reserves ',' for key separation) defaults to funding;trades. Plan G1.5
+  # (2026-07-16): the launcher now derives the FULL DRIFT market list, so
+  # VM_DRIFT_MARKET can carry many ';'-joined markets, not just one — convert
+  # to ',' before handing to --markets, same as the data-types conversion.
   VM_DRIFT_MARKET="${VM_DRIFT_MARKET:-$(_meta VM_DRIFT_MARKET)}"
   VM_DRIFT_MARKET="${VM_DRIFT_MARKET:-SOL-PERP}"
   VM_DRIFT_DATA_TYPES="${VM_DATA_TYPES:-funding;trades}"
-  CLI_ARGS="--markets ${VM_DRIFT_MARKET} --data-types ${VM_DRIFT_DATA_TYPES//;/,}"
+  CLI_ARGS="--markets ${VM_DRIFT_MARKET//;/,} --data-types ${VM_DRIFT_DATA_TYPES//;/,}"
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end $VM_END_DATE"
   _launch_with_tee "$VENV/bin/python -m market_tick_data_service.scripts.backfill_drift_v2_historical $CLI_ARGS" "$LOGS/solana-drift-backfill.log"
