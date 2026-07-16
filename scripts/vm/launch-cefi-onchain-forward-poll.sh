@@ -8,7 +8,7 @@
 #
 # Launch forward-poll VMs for on-chain CeFi perp venues.
 #
-# Covers: LIGHTER-ZKSYNC + PACIFICA-SOLANA + EXTENDED-STARKNET + HYPERLIQUID (+ ASTER for parity).
+# Covers: LIGHTER-ZKSYNC + EXTENDED-STARKNET + HYPERLIQUID (+ ASTER for parity).
 # Each venue gets its own singleton-locked VM so one stalled venue never blocks the others.
 #
 # Purpose: ingest perp_funding + trades + book_snapshot_5 for on-chain perp venues.
@@ -39,7 +39,6 @@
 #
 # VM prefix → watchdog registration mapping (all in vm_zombie_watchdog.py VM_PREFIX_TO_BUCKET):
 #   LIGHTER-ZKSYNC     → cefi-lighter-
-#   PACIFICA-SOLANA    → cefi-pacifica-
 #   EXTENDED-STARKNET  → cefi-extended-
 #   HYPERLIQUID        → cefi-hyperliquid-
 #   ASTER              → aster-fwd-  (also has dedicated launch-aster-forward-poll.sh)
@@ -94,10 +93,6 @@ VENUE_PREFIX["LIGHTER-ZKSYNC"]="cefi-lighter-"
 VENUE_DATA_TYPES["LIGHTER-ZKSYNC"]="perp_funding;trades;book_snapshot_5"
 VENUE_INSTRUMENTS["LIGHTER-ZKSYNC"]="BTC;ETH;SOL;HYPE;TON"
 
-VENUE_PREFIX["PACIFICA-SOLANA"]="cefi-pacifica-"
-VENUE_DATA_TYPES["PACIFICA-SOLANA"]="perp_funding;trades;book_snapshot_5"
-VENUE_INSTRUMENTS["PACIFICA-SOLANA"]="BTC;ETH;SOL"
-
 VENUE_PREFIX["EXTENDED-STARKNET"]="cefi-extended-"
 VENUE_DATA_TYPES["EXTENDED-STARKNET"]="perp_funding;trades;book_snapshot_5"
 VENUE_INSTRUMENTS["EXTENDED-STARKNET"]="BTC;ETH;SOL"
@@ -110,7 +105,7 @@ VENUE_PREFIX["ASTER"]="aster-fwd-"
 VENUE_DATA_TYPES["ASTER"]="trades;derivative_ticker"
 VENUE_INSTRUMENTS["ASTER"]="BTC;ETH"
 
-ALL_VENUES=("LIGHTER-ZKSYNC" "PACIFICA-SOLANA" "EXTENDED-STARKNET" "HYPERLIQUID" "ASTER")
+ALL_VENUES=("LIGHTER-ZKSYNC" "EXTENDED-STARKNET" "HYPERLIQUID" "ASTER")
 
 if [[ -n "$SINGLE_VENUE" ]]; then
   if [[ -z "${VENUE_PREFIX[$SINGLE_VENUE]:-}" ]]; then
