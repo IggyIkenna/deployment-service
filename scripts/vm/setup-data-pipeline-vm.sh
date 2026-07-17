@@ -360,8 +360,11 @@ TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=$(_meta TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT)
 # one big VM (one egress IP) can safely run several concurrent (non-book_snapshot_5)
 # Tardis download streams — the 403 lockout is per-IP, not per-connection (see
 # TARDIS_CONCURRENCY_LEASE above). This dials that intra-process concurrency
-# (default 16 — see MarketTickDataServiceConfig.tardis_max_concurrent_downloads)
-# down for a conservative first smoke wave, then back up once confirmed clean.
+# (default 32 — see MarketTickDataServiceConfig.tardis_max_concurrent_downloads)
+# down for a conservative first smoke wave. Do NOT dial it UP past ~32: measured
+# 2026-07-17, Tardis plateaus at ~33 MB/s by 24 streams, so there is no throughput
+# left to win, and each extra in-flight download costs a tardis-parse thread holding
+# an 8 MiB pyarrow block. Leave unset to inherit the 32/8 default.
 TARDIS_MAX_CONCURRENT_DOWNLOADS=$(_meta TARDIS_MAX_CONCURRENT_DOWNLOADS)
 [[ -n "$TARDIS_MAX_CONCURRENT_DOWNLOADS" ]] && export TARDIS_MAX_CONCURRENT_DOWNLOADS
 # Generic passthrough for ad-hoc `MTDS_*`-prefixed diagnostic env toggles (e.g.
