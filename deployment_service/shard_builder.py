@@ -20,12 +20,19 @@ logger = logging.getLogger(__name__)
 
 # Maps service name → list of storage domains (from cloud-providers.yaml) used by that service.
 # Per-asset-group domains (e.g. features-delta-one) require an "asset_group" shard dimension.
-# Shared domains (e.g. ml-models-store) resolve the same bucket regardless of category.
+# Shared domains (e.g. ml-store) resolve the same bucket regardless of category.
+#
+# ml FOLD B (bucket_fold_ml_2026_07_17.md): the three retired ml domains
+# (ml-models-store / ml-configs-store / ml-predictions-store) collapsed onto the
+# SINGLE folded ``ml-store`` bucket. The per-kind separation is now a top-level
+# object-key PREFIX inside that one bucket (models/ | configs/ | predictions/),
+# owned by the ml-service consumers (UTL ModelRegistry prepends models/, etc.), so
+# only ONE storage domain is injected here → ONE ``ML_STORE_GCS_BUCKET`` env var.
 _SERVICE_STORAGE_DOMAINS: dict[str, list[str]] = {
     "features-delta-one-service": ["features-delta-one"],
     "features-volatility-service": ["features-volatility"],
     "features-onchain-service": ["features-onchain"],
-    "ml-service": ["ml-models-store", "ml-configs-store", "ml-predictions-store"],
+    "ml-service": ["ml-store"],
     "strategy-service": ["strategy-store"],
     "execution-services": ["execution-store"],
 }
@@ -229,7 +236,7 @@ def build_storage_env_vars(
       - Per-asset-group domain + group:  {DOMAIN_UPPER}_{ASSET_GROUP}_GCS_BUCKET
           e.g. features-delta-one + CEFI  →  FEATURES_DELTA_ONE_CEFI_GCS_BUCKET
       - Shared domain (no asset group):     {DOMAIN_UPPER}_GCS_BUCKET
-          e.g. ml-models-store           →  ML_MODELS_STORE_GCS_BUCKET
+          e.g. ml-store (folded ml bucket) →  ML_STORE_GCS_BUCKET
 
     Args:
         service: Service name (e.g. "features-delta-one-service")

@@ -2,14 +2,16 @@
 """
 FastAPI route handlers for ML experiment and model browsing.
 
-Provides read-only endpoints for listing experiments from the
-``ml-training-artifacts`` bucket and models from the ``ml-models-store`` bucket.
-Both bucket names are resolved via the canonical SSOT
+Provides read-only endpoints for listing experiments from the model-artifact
+store and models from the model registry. Both resolve the SINGLE folded
+``ml-store`` bucket via the canonical SSOT
 ``unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name``
-(reading ``deployment-service/configs/cloud-providers.yaml``) — see
-Bucket-name SSOT (b+). Local helpers ``_artifacts_bucket()`` / ``_models_bucket()``
-keep delegating through ``get_bucket_name(...)`` for now; the resolver migration is
-tracked under the ml_artefact_path_resolver_consumer_sweep_2026_05_12 issue.
+(ml FOLD B, bucket_fold_ml_2026_07_17.md): kind="ml-artifacts" and
+kind="ml-models-store" both fold through ``_KIND_ALIASES`` → ``ml-store``. The
+per-kind separation is now a top-level object-key PREFIX inside that one bucket
+(``artifacts/`` for the artifact store, ``models/`` for the model registry — matching
+UTL ``CloudModelArtifactStore`` / ``ModelRegistry``), so every blob path below is
+scoped under its fold prefix to stay disjoint.
 """
 
 from __future__ import annotations
@@ -21,7 +23,8 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
-from unified_trading_library import get_bucket_name, get_storage_client
+from unified_trading_library import get_cloud_provider, get_storage_client, resolve_bucket_name
+from unified_trading_library.cloud_interface.bucket_naming import Cloud  # noqa: qg-deep-import
 
 from deployment_service.deployment_config import DeploymentConfig
 
@@ -78,14 +81,28 @@ class ModelMetadataResponse(
 # ---------------------------------------------------------------------------
 
 
+# ml FOLD B object-key prefixes (see module docstring). The bucket is shared;
+# these keep the two folds disjoint within it.
+_ARTIFACTS_PREFIX = "artifacts/"
+_MODELS_PREFIX = "models/"
+
+
 def _artifacts_bucket() -> str:
-    """Return the ml-training-artifacts bucket name."""
-    return get_bucket_name("ml_artifacts", project_id=_config.gcp_project_id)
+    """Return the folded ml-store bucket (artifacts/ fold).
+
+    kind="ml-artifacts" folds to ``ml-store`` via the resolver's ``_KIND_ALIASES``.
+    (Previously ``get_bucket_name("ml_artifacts", ...)`` — a non-existent domain key
+    that built a malformed ``ml_artifacts-{env}-{pid}`` name; ml FOLD B fix.)
+    """
+    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-artifacts")
 
 
 def _models_bucket() -> str:
-    """Return the ml-models-store bucket name."""
-    return get_bucket_name("ml_models", project_id=_config.gcp_project_id)
+    """Return the folded ml-store bucket (models/ fold).
+
+    kind="ml-models-store" folds to ``ml-store`` via the resolver's ``_KIND_ALIASES``.
+    """
+    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-models-store")
 
 
 # ---------------------------------------------------------------------------
@@ -99,11 +116,11 @@ async def list_experiments(limit: int = 100) -> list[ExperimentSummary]:
     bucket = _artifacts_bucket()
     try:
         storage_client = get_storage_client(project_id=_config.gcp_project_id)
-        blobs = storage_client.list_blobs(bucket=bucket, prefix="experiments/")
+        blobs = storage_client.list_blobs(bucket=bucket, prefix=f"{_ARTIFACTS_PREFIX}experiments/")
 
         # Collect unique experiment IDs and whether they have metrics.json
         experiment_map: dict[str, bool] = {}
-        pattern = re.compile(r"^experiments/([^/]+)/")
+        pattern = re.compile(rf"^{_ARTIFACTS_PREFIX}experiments/([^/]+)/")
         for blob in blobs:
             blob_name: str = blob.name if hasattr(blob, "name") else str(blob)
             match = pattern.match(blob_name)
@@ -134,7 +151,7 @@ async def list_experiments(limit: int = 100) -> list[ExperimentSummary]:
 async def get_experiment(experiment_id: str) -> ExperimentDetail:
     """Get experiment details by reading metrics.json from GCS."""
     bucket = _artifacts_bucket()
-    gcs_path = f"experiments/{experiment_id}/metrics.json"
+    gcs_path = f"{_ARTIFACTS_PREFIX}experiments/{experiment_id}/metrics.json"
     try:
         storage_client = get_storage_client(project_id=_config.gcp_project_id)
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
@@ -162,7 +179,9 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
 
         # Try reading the manifest first (faster than scanning)
         try:
-            manifest_bytes = storage_client.download_bytes(bucket=bucket, blob_path="model_registry/manifest.json")
+            manifest_bytes = storage_client.download_bytes(
+                bucket=bucket, blob_path=f"{_MODELS_PREFIX}model_registry/manifest.json"
+            )
             manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))
             manifest: dict[str, object] = manifest_data
             models_dict = manifest.get("models", {})
@@ -185,9 +204,9 @@ async def list_models(limit: int = 100) -> list[ModelSummary]:
             pass  # Fall through to GCS scan
 
         # Fallback: scan model_registry/metadata/ for model IDs
-        blobs = storage_client.list_blobs(bucket=bucket, prefix="model_registry/metadata/")
+        blobs = storage_client.list_blobs(bucket=bucket, prefix=f"{_MODELS_PREFIX}model_registry/metadata/")
         model_ids: set[str] = set()
-        pattern = re.compile(r"^model_registry/metadata/([^/]+)/")
+        pattern = re.compile(rf"^{_MODELS_PREFIX}model_registry/metadata/([^/]+)/")
         for blob in blobs:
             blob_name = blob.name if hasattr(blob, "name") else str(blob)
             match = pattern.match(blob_name)
@@ -226,7 +245,7 @@ async def get_model_metadata(model_id: str, training_period: str | None = None) 
                     detail=f"No training periods found for model '{model_id}'",
                 )
 
-        gcs_path = f"model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
+        gcs_path = f"{_MODELS_PREFIX}model_registry/metadata/{model_id}/training-period-{training_period}/metadata.json"
         raw_bytes = storage_client.download_bytes(bucket=bucket, blob_path=gcs_path)
         metadata_data = cast(dict[str, object], json.loads(raw_bytes.decode("utf-8")))
         metadata: dict[str, object] = metadata_data
@@ -250,7 +269,7 @@ def _resolve_latest_period(
     # Try manifest first
     try:
         manifest_bytes = storage_client.download_bytes(  # pyright: ignore[reportUnknownMemberType]
-            bucket=bucket, blob_path="model_registry/manifest.json"
+            bucket=bucket, blob_path=f"{_MODELS_PREFIX}model_registry/manifest.json"
         )
         manifest_data = cast(dict[str, object], json.loads(manifest_bytes.decode("utf-8")))  # pyright: ignore[reportUnknownMemberType]
         manifest: dict[str, object] = manifest_data
@@ -266,7 +285,7 @@ def _resolve_latest_period(
 
     # Fallback: scan GCS
     try:
-        prefix = f"model_registry/metadata/{model_id}/"
+        prefix = f"{_MODELS_PREFIX}model_registry/metadata/{model_id}/"
         blobs = storage_client.list_blobs(bucket=bucket, prefix=prefix)  # pyright: ignore[reportUnknownMemberType]
         periods: set[str] = set()
         pattern = re.compile(r"training-period-(\d{4}-\d{2})")

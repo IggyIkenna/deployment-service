@@ -461,13 +461,14 @@ class TestBuildStorageEnvVars:
 
     @pytest.mark.unit
     def test_no_category_dimension_uses_shared_bucket_name(self):
-        loader = self._mock_loader("ml-models-store-staging-myproject")
+        loader = self._mock_loader("ml-store-staging-myproject")
         with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
             result = build_storage_env_vars("ml-service", {})
-        # ml-service has three domains; all injected with no category suffix
-        assert "ML_MODELS_STORE_GCS_BUCKET" in result
-        assert "ML_CONFIGS_STORE_GCS_BUCKET" in result
-        assert "ML_PREDICTIONS_STORE_GCS_BUCKET" in result
+        # ml FOLD B (bucket_fold_ml_2026_07_17.md): the three retired ml domains
+        # (ml-models-store / ml-configs-store / ml-predictions-store) collapsed onto the
+        # SINGLE folded `ml-store` bucket → ONE `ML_STORE_GCS_BUCKET` env var (no category
+        # suffix); per-kind separation is now a models/|configs/|predictions/ object-key prefix.
+        assert result == {"ML_STORE_GCS_BUCKET": "ml-store-staging-myproject"}
 
     @pytest.mark.unit
     def test_empty_bucket_name_from_loader_is_skipped(self):
