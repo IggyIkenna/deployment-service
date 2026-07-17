@@ -26,7 +26,7 @@ def _load_wave_launcher() -> ModuleType:
 
     wave_launcher imports unified_trading_library at module level.  We stub it
     in sys.modules before exec so the import resolves to a lightweight mock.
-    This is the same isolation approach used by test_deployments_registry.py.
+    This is the same isolation approach used by test_deployment_heartbeat_cli.py.
     """
     # Build a minimal unified_trading_library stub.
     utl_stub = types.ModuleType("unified_trading_library")

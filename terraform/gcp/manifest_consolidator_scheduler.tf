@@ -212,7 +212,6 @@ locals {
     "features-delta-one-defi"    = "features-delta-one-defi-${var.project_id}"
     "features-volatility-cefi"   = "features-volatility-cefi-${var.project_id}"
     "features-volatility-tradfi" = "features-volatility-tradfi-${var.project_id}"
-    "features-onchain-cefi"      = "features-onchain-cefi-${var.project_id}"
     "features-onchain-defi"      = "features-onchain-defi-${var.project_id}"
     "features-sports"            = "features-sports-${local.deployment_env_short}-${var.project_id}"
     "features-calendar"          = "features-calendar-${local.deployment_env_short}-${var.project_id}"
@@ -222,6 +221,16 @@ locals {
     "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
     "execution-defi"        = "execution-store-defi-${var.project_id}"
     "ml-training-artifacts" = "ml-training-artifacts-${var.project_id}"
+    # "features-onchain-cefi" entry REMOVED 2026-07-17 (asset-group parity sweep) — on-chain metrics
+    # are DeFi-only in every consumer (features_service/onchain/config.py hardcodes
+    # `_ONCHAIN_ASSET_GROUP = "defi"` and get_output_bucket() ignores its asset_group arg;
+    # deployment-api scopes the service to frozenset({"DEFI"})), so no producer could ever fill
+    # `features-onchain-cefi-…`. The bucket held nothing but this consolidator's own `_index/`
+    # artifacts — it was confirmed producer-less and deleted, and its CEFI key is gone from
+    # cloud-providers.yaml (features-service QG STEP 5.93 now enforces that parity). The per-bucket
+    # Cloud Run Job + Cloud Scheduler cron this map generated
+    # (uts-prod-manifest-consolidator-features-onchain-cefi[-cron]) were removed directly via gcloud,
+    # since a real tofu apply is not runnable here. Do NOT re-add: it would loud-fail on a 404 bucket.
     # "gas-fees" entry (flat legacy gas-fees-… bucket, added 2026-06-19) REMOVED 2026-07-13 —
     # the legacy gas-fees-… bucket itself was decommissioned (one of the "14 legacy DeFi
     # buckets deleted 2026-07-12"); this also retires the per-bucket Cloud Run Job +
