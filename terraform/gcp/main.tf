@@ -329,23 +329,14 @@ resource "google_storage_bucket" "client_reporting_data" {
 # objects live, re-deleted via gcloud. Config no longer declares this resource so a future apply
 # will not recreate it again.
 
-resource "google_storage_bucket" "market_data_sports" {
-  name     = "market-data-tick-sports-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "market-data-raw", "tier" = "group-a" })
-}
+# market_data_sports (legacy market-data-tick-sports-…) REMOVED 2026-07-17 —
+# sports_legacy_bucket_cutover_2026_07_16.md OR-5b RESOLVED + T5.4-MDT: the 32-day / 549,392-key
+# canonical↔legacy gap was recovered into canonical (content-verified legacy_only==0 on every gap
+# day, zero loss), the non-raw prefixes were preserved 1:1 to canonical `_legacy_migrated_*`, and
+# the physical bucket was deleted (342,629 object-versions removed; describe ⇒ 404). Removing this
+# resource block + its import (_imports_reconcile.tf) + the state entry so a future apply will not
+# recreate it as an empty shell — the exact failure the comment above documents for the DeFi twins.
+# Canonical market-data-tick-sports-prd-… is the sole SSOT.
 
 # market_data_prediction (legacy market-data-tick-prediction-…) REMOVED 2026-07-13 —
 # bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md Phase 7 L6 decommission:

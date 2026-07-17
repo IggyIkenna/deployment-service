@@ -71,10 +71,9 @@ import {
 #   google_storage_bucket.market_data_tradfi_test         (double-declare — state-mv'd)
 # See scratchpad/tf_state_surgery.sh for the corresponding `state rm` / `state mv` ops.
 
-import {
-  to = google_storage_bucket.market_data_sports
-  id = "central-element-323112/market-data-tick-sports-central-element-323112"
-}
+# google_storage_bucket.market_data_sports import REMOVED 2026-07-17 — the legacy MDT sports bucket
+# is deleted (sports_legacy_bucket_cutover T5.4-MDT / OR-5b RESOLVED); resource block removed from
+# main.tf + state entry removed, so there is nothing to import.
 
 import {
   to = module.alerting_paging_job.google_cloud_run_v2_job.job
