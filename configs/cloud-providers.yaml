@@ -134,6 +134,13 @@ gcp:
     # `ml-artifacts-${GCP_PROJECT_ID}` — added here 2026-05-12 per ml_artefact_path_resolver
     # issue. Migrates with the rest of the env-less GCP buckets in code_freeze Phase 2.6.
     ml-artifacts: "ml-artifacts-${GCP_PROJECT_ID}"
+    # ml-store = FOLDED ml bucket (Fold B — bucket_fold_ml_2026_07_17.md). The five ml
+    # kind-buckets (models / predictions / configs / training-artifacts / artifacts) collapse
+    # into ONE env-tiered bucket; the per-kind separation becomes a top-level object-key PREFIX
+    # (models/ | predictions/ | configs/ | training-artifacts/ | artifacts/). UTL's resolver
+    # `_KIND_ALIASES` maps the five retired consumer kinds → this key. The five keys above are
+    # RETAINED during the soft-transition reader-fallback window and retire at the delete phase.
+    ml-store: "ml-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Unified flat bucket — cross-asset strategies share one bucket (D6 Phase 4, operator decision 2026-05-20).
     # Per-AG per-env split deferred; migration from old per-AG buckets sequenced under mtds_mdps_master Phase 1.
     strategy-store: "strategy-store-${GCP_PROJECT_ID}"
@@ -318,6 +325,8 @@ aws:
     ml-training-artifacts: "ml-training-artifacts-${AWS_ACCOUNT_ID}"
     # NOTE: ml-artifacts env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     ml-artifacts: "ml-artifacts-${AWS_ACCOUNT_ID}"
+    # ml-store = FOLDED ml bucket (Fold B) — mirrors GCP; see the GCP § comment.
+    ml-store: "ml-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Unified flat bucket — mirrors GCP strategy-store consolidation (D6 Phase 4, operator decision 2026-05-20).
     strategy-store: "strategy-store-${AWS_ACCOUNT_ID}"
     strategy-store-test: "strategy-store-test-${AWS_ACCOUNT_ID}"
