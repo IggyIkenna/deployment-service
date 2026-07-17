@@ -53,6 +53,12 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 
+# Tardis concurrent-VM cap (HARD RULE, at most 1 — see the guard's header for the
+# measured reason). Sourced here; enforced just before the Phase 2 launch loop, where
+# the planned VM count is computable.
+# shellcheck source=./tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
+
 # Tardis Machine symbol conventions (verified 2026-05-04 via api.tardis.dev/v1/exchanges/<id>):
 #   bitfinex:              BTCUSD (NO `t` prefix; that's Bitfinex's own REST API convention)
 #   bitfinex-derivatives:  BTCF0:USTF0 (F0 = perp marker, USTF0 = USDT-margined)
@@ -218,6 +224,29 @@ fi
 if $DO_MARKET_TICK; then
     echo ""
     echo "=== Phase 2: market-tick year-shards (heavy/light per venue) ==="
+
+    # ─── Tardis concurrent-VM cap (HARD RULE: operator 2026-07-16, at most 1) ──────────
+    # Phase 2 VMs run `market_tick_data_service --operation download --asset-group CEFI`
+    # against Tardis venues (BITFINEX/BITGET/KRAKEN), so they are Tardis consumers and
+    # MUST be counted. This launcher's venue x year fan-out asks for far more than 1 VM,
+    # so the guard will normally REFUSE here — that is the intended outcome, not a bug:
+    # N>1 on the single Tardis key measured ~94% 403s + 37,212 FALSE attempted_failed
+    # rows (manifest CORRUPTION) + coverage going BACKWARD. To backfill many venues under
+    # the cap, use `launch-cefi-sharded-backfill.sh` with SINGLE_VM_QUEUE=1, which bundles
+    # the shards into ONE VM and scales via TARDIS_MAX_CONCURRENT_DOWNLOADS instead.
+    # Only FORCE=1 (operator override) downgrades refusal to a warning.
+    # Planned count mirrors the launch loop's own symbol filter so the guard sees truth.
+    PLANNED_TARDIS_VMS=0
+    for v in "${VENUES[@]}"; do
+        _sy="${START_BY_VENUE[$v]:0:4}"
+        for year in $(seq "$_sy" "$(date +%Y)"); do
+            [[ -z "$(filter_symbols_for_year "${SYMBOLS_BY_VENUE[$v]}" "$year")" ]] && continue
+            PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+            [[ "${MODE_BY_VENUE[$v]}" == "perps" ]] && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+        done
+    done
+    tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
+
     for v in "${VENUES[@]}"; do
         start_year="${START_BY_VENUE[$v]:0:4}"
         venue_symbols="${SYMBOLS_BY_VENUE[$v]}"
@@ -241,14 +270,14 @@ if $DO_MARKET_TICK; then
             run_ts2="$(date +%Y%m%d-%H%M%S)"
             vm_name="cefi-${v,,}-${year}-heavy-${run_ts2}"
             vm_name="${vm_name//_/-}"
-            md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_HEAVY},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
+            md="VM_TARDIS_CONSUMER=1,VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_HEAVY},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
             create_vm "$vm_name" "$md"
 
             if [[ "$mode" == "perps" ]]; then
                 run_ts3="$(date +%Y%m%d-%H%M%S)"
                 vm_name="cefi-${v,,}-${year}-light-${run_ts3}"
                 vm_name="${vm_name//_/-}"
-                md="VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_LIGHT_PERPS},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
+                md="VM_TARDIS_CONSUMER=1,VM_TASK=cefi-backfill,VM_SERVICE=market_tick_data_service,VM_OPERATION=download,VM_ASSET_GROUP=CEFI,VM_VENUE=${v},VM_START_DATE=${year_start},VM_END_DATE=${year_end},VM_DATA_TYPES=${DATA_LIGHT_PERPS},VM_INSTRUMENT_IDS=${symbols},VM_FORCE=${VM_FORCE:-false},VM_SHUTDOWN_ON_COMPLETION=true"
                 create_vm "$vm_name" "$md"
             fi
         done

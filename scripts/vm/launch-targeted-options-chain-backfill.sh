@@ -41,6 +41,10 @@ set -euo pipefail
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
+
+# Tardis concurrent-VM cap (HARD RULE, at most 1). Enforced before the shard loops.
+# shellcheck source=./tardis-concurrency-guard.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # 2026-05-01: bumped from e2-standard-2 (8GB) to e2-standard-4 (16GB) after
@@ -132,6 +136,9 @@ _launch_shard() {
     meta+=",VM_TASK=cefi-backfill"
     meta+=",VM_SERVICE=market_tick_data_service"
     meta+=",VM_OPERATION=download"
+    # Countable by every other Tardis launcher's guard (union: name pattern OR this tag).
+    # CEFI options_chain venues resolve to the tardis adapter; TRADFI ones do not.
+    [[ "${asset_group}" == "CEFI" ]] && meta+=",VM_TARDIS_CONSUMER=1"
     meta+=",VM_ASSET_GROUP=${asset_group}"
     meta+=",VM_VENUE=${venue}"
     meta+=",VM_START_DATE=${start_date}"
@@ -193,6 +200,19 @@ _launch_shard() {
         sleep 2
     fi
 }
+
+# ─── Tardis concurrent-VM cap (HARD RULE: operator 2026-07-16, at most 1) ─────────────
+# Only the CEFI groups are Tardis consumers: VENUE_TO_ADAPTER_KEY (the SSOT, in
+# unified-api-contracts/registry/venue_adapter_keys.py) maps DERIBIT / DERIBIT-COMBO /
+# OKX -> "tardis", while CME-OPTIONS and CBOE-VIX-OPTIONS are not Tardis venues at all
+# (TradFi is Databento-sourced) — counting those would make every OTHER Tardis launcher
+# refuse for no reason. So: 3 CEFI venues x 7 years (2020..2026) = 21 planned.
+# This fan-out asks for 21 >> the cap, so the guard will REFUSE — intended, not a bug.
+# N>1 on the one Tardis key measured ~94% 403s + 37,212 FALSE attempted_failed rows
+# (manifest CORRUPTION) + coverage going BACKWARD. Use launch-cefi-sharded-backfill.sh
+# with SINGLE_VM_QUEUE=1 to bundle these into ONE VM; FORCE=1 is the operator override.
+PLANNED_TARDIS_VMS=21
+tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
 
 # DERIBIT options_chain: 2020-2026
 for y in 2020 2021 2022 2023 2024 2025 2026; do
