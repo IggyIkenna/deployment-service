@@ -52,25 +52,36 @@ gcp:
     #     `asset_group="sports"` in the per-AG dicts + the dedicated `features-sports` flat key —
     #     deliberate asymmetry, consolidate if it ever bites.
     # NOTE: features-delta-one env-split ROLLED BACK — non-env-split until provisioning lands.
+    # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — sports is not an accepted
+    # delta-one asset_group (cli/parser.py CATEGORIES = CEFI/TRADFI/DEFI/PREDICTION). Bucket
+    # confirmed empty and deleted.
     features-delta-one:
       CEFI: "features-delta-one-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-delta-one-tradfi-${GCP_PROJECT_ID}"
       DEFI: "features-delta-one-defi-${GCP_PROJECT_ID}"
       PREDICTION: "features-delta-one-pred-${GCP_PROJECT_ID}"
-      SPORTS: "features-delta-one-sports-${GCP_PROJECT_ID}"
     # NOTE: features-volatility env-split ROLLED BACK — non-env-split until provisioning lands.
+    # DEFI/PREDICTION/SPORTS keys REMOVED 2026-07-17 (asset-group parity sweep, operator ruling):
+    # there are no DeFi options and no sports options, so volatility surfaces (IV / skew /
+    # term-structure) cannot be computed for them. All three buckets were confirmed empty and
+    # deleted. DEFI was also dropped from volatility/cli/parser.py's ASSET_GROUP_CHOICES in the
+    # same change — it had been an accepted choice, which is what justified provisioning the
+    # bucket in the first place. (The retired bucket_config.yaml `validation.invalid_combinations`
+    # block encoded the same rule by hand as "No volatility for DEFI"; QG STEP 5.104 derives it now.)
     features-volatility:
       CEFI: "features-volatility-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-volatility-tradfi-${GCP_PROJECT_ID}"
-      DEFI: "features-volatility-defi-${GCP_PROJECT_ID}"
-      PREDICTION: "features-volatility-pred-${GCP_PROJECT_ID}"
-      SPORTS: "features-volatility-sports-${GCP_PROJECT_ID}"
-    # features-onchain = on-chain DeFi metrics; per-AG outputs for cefi (assets with on-chain
-    # legs) + defi. The flat `features-onchain-{pid}` ("shared") bucket on disk is legacy — the
-    # config.py `get_output_bucket()` migration resolves onchain to asset_group="defi".
+    # features-onchain = on-chain DeFi metrics, DEFI-ONLY. The flat `features-onchain-{pid}`
+    # ("shared") bucket on disk is legacy — the config.py `get_output_bucket()` migration resolves
+    # onchain to asset_group="defi".
+    # CEFI key REMOVED 2026-07-17 (asset-group parity sweep). The old comment here claimed
+    # "per-AG outputs for cefi (assets with on-chain legs)", but no code ever honoured it:
+    # features_service/onchain/config.py:22 hardcodes `_ONCHAIN_ASSET_GROUP = "defi"` and
+    # `get_output_bucket()` explicitly IGNORES its asset_group argument; deployment-api scopes the
+    # service to frozenset({"DEFI"}); openapi.json documents "features-onchain-service only ships
+    # defi". Bucket held only regenerable consolidator `_index/` artifacts — deleted.
     # NOTE: env-split ROLLED BACK — non-env-split shape until provisioning lands (Phase D above).
     features-onchain:
-      CEFI: "features-onchain-cefi-${GCP_PROJECT_ID}"
       DEFI: "features-onchain-defi-${GCP_PROJECT_ID}"
     # `features-xinstrument` / `features-mtf` are the bucket-template aliases for
     # the long consumer-facing kinds `features-cross-instrument` / `features-multi-timeframe`
@@ -80,17 +91,31 @@ gcp:
     # `features-cross-instrument` config.py migration's `resolve_bucket()` calls — those
     # pass the long consumer kind and the resolver aliases internally.
     # NOTE: features-xinstrument env-split ROLLED BACK — non-env-split until provisioning lands.
+    # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — sports is not an accepted
+    # cross-instrument asset_group (cli/main.py:180 asset_group_choices = CEFI/DEFI/TRADFI/
+    # PREDICTION); bucket was empty and is deleted.
+    # DEFI is KEPT — it is a REAL cross-instrument asset_group (CLI accepts it and
+    # cli/handlers/batch_handler.py `_ingest_delta_one` explicitly serves "CEFI/TRADFI/DEFI").
+    # It is absent from scripts/cross_instrument/smoke_matrix.py's SUPPORTED_ASSET_GROUPS, but
+    # that constant is the SMOKE-TEST COVERAGE list (note ALL_ASSET_GROUPS beside it), NOT the
+    # family's capability — do not use it to justify dropping a kind/asset_group. The empty
+    # `features-xinstrument-defi-*` bucket means DeFi cross-instrument has not been RUN, not that
+    # it is unsupported.
     features-xinstrument:
       CEFI: "features-xinstrument-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-xinstrument-tradfi-${GCP_PROJECT_ID}"
       DEFI: "features-xinstrument-defi-${GCP_PROJECT_ID}"
       PREDICTION: "features-xinstrument-pred-${GCP_PROJECT_ID}"
-      SPORTS: "features-xinstrument-sports-${GCP_PROJECT_ID}"
     # NOTE: features-mtf env-split ROLLED BACK — non-env-split until provisioning lands.
-    # PREDICTION/SPORTS keys REMOVED 2026-07-10 (bucket estate cleanup) — MTF is never
-    # computed for those asset_groups: features-service/scripts/multi_timeframe/smoke_matrix.py:35
-    # SUPPORTED_ASSET_GROUPS = ("CEFI","DEFI","TRADFI") only. Both buckets were confirmed empty
-    # and deleted.
+    # PREDICTION/SPORTS keys REMOVED 2026-07-10 (bucket estate cleanup); both buckets were
+    # confirmed empty and deleted. Outcome CONFIRMED correct by operator ruling 2026-07-17 (MTF is
+    # not computed for prediction markets or sports) — but the original justification cited
+    # scripts/multi_timeframe/smoke_matrix.py's SUPPORTED_ASSET_GROUPS, which is the SMOKE-TEST
+    # COVERAGE list, NOT the family's capability. That reasoning was unsound and left a real bug:
+    # the MTF CLI kept accepting `--asset-group PREDICTION` for a week, so it advertised a shard
+    # that died mid-run on BucketNamingError. Fixed 2026-07-17 by dropping PREDICTION from
+    # multi_timeframe/cli/main.py's asset_group_choices. Do NOT justify a key removal from the
+    # smoke matrix — QG STEP 5.104 holds the yaml to the CLI choices instead.
     features-mtf:
       CEFI: "features-mtf-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-mtf-tradfi-${GCP_PROJECT_ID}"
@@ -250,33 +275,35 @@ aws:
     # Migration: code_freeze_migrate_backfill_sequencing_2026_05_10.md Phase 5.
     # Audit: plans/audit/results/aws_gcp_bucket_symmetry_2026_05_20.csv
     # NOTE: features-delta-one env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP section removal
+    # above; delta-one is never computed for sports.
     features-delta-one:
       CEFI: "features-delta-one-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "features-delta-one-tradfi-${AWS_ACCOUNT_ID}"
       DEFI: "features-delta-one-defi-${AWS_ACCOUNT_ID}"
       PREDICTION: "features-delta-one-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "features-delta-one-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-volatility env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    # DEFI/PREDICTION/SPORTS keys REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP
+    # section removal above; there are no DeFi options and no sports options.
     features-volatility:
       CEFI: "features-volatility-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "features-volatility-tradfi-${AWS_ACCOUNT_ID}"
-      DEFI: "features-volatility-defi-${AWS_ACCOUNT_ID}"
-      PREDICTION: "features-volatility-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "features-volatility-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-onchain env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    # CEFI key REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP section removal
+    # above; on-chain metrics are DEFI-only in every consumer.
     features-onchain:
-      CEFI: "features-onchain-cefi-${AWS_ACCOUNT_ID}"
       DEFI: "features-onchain-defi-${AWS_ACCOUNT_ID}"
     # `features-xinstrument` / `features-mtf` — bucket-template aliases for the long
     # consumer kinds `features-cross-instrument` / `features-multi-timeframe` (see GCP § comment).
     # AWS worst case `features-xinstrument-tradfi-stg-{12-digit}` = 44 chars (≤63).
     # NOTE: features-xinstrument env-split ROLLED BACK — mirrors GCP rollback (Phase D).
+    # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP section removal
+    # above. DEFI is KEPT (a real cross-instrument asset_group) — see the GCP § comment.
     features-xinstrument:
       CEFI: "features-xinstrument-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "features-xinstrument-tradfi-${AWS_ACCOUNT_ID}"
       DEFI: "features-xinstrument-defi-${AWS_ACCOUNT_ID}"
       PREDICTION: "features-xinstrument-pred-${AWS_ACCOUNT_ID}"
-      SPORTS: "features-xinstrument-sports-${AWS_ACCOUNT_ID}"
     # NOTE: features-mtf env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     # PREDICTION/SPORTS keys REMOVED 2026-07-10 (bucket estate cleanup) — mirrors the GCP
     # section removal above; MTF is never computed for those asset_groups.
