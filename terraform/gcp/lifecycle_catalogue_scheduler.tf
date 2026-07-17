@@ -205,23 +205,37 @@ resource "google_cloud_scheduler_job" "lifecycle_catalogue_regen_daily" {
 # a self-widening trailing window (~90s tradfi vs 2h17m full). A retroactive
 # correction to a by_date file OLDER than the window would be invisible to the
 # increment, so a WEEKLY `--mode full` re-aggregation self-heals any drift.
-# by_date-walking AGs only (sports is a manifest single-read — always "full").
+#
+# ALL by_date-walking AGs — which is all five. The previous note here read "sports is a
+# manifest single-read — always full" and excluded it; that was true ONLY for the
+# league-grain manifest projection. Since the 2026-07-09 FTP extension sports also walks
+# sports_reference/by_date for fixture/team/player grain (318,889 blobs full-history),
+# making it the biggest walker here and the AG most in need of this self-heal. Corrected
+# 2026-07-17 — see lifecycle_catalogue_full_extra_args for why sports also needs --since.
 #
 # timeout: the full tradfi walk measured 2h17m (2026-06-29) and grows with
 # history; 21600s (6h) gives ~2.6× headroom. The old "3600 = the Cloud-Run-Jobs
 # ceiling" note was WRONG — Cloud Run Jobs task timeout goes to 24h; 3600s was
 # only ever this file's chosen budget (validated at terraform apply).
 locals {
-  lifecycle_catalogue_full_asset_groups = {
-    for ag, cfg in local.lifecycle_catalogue_asset_groups : ag => cfg if ag != "sports"
-  }
-  # Stagger the weekly full rebuilds (Saturday, one hour apart) so four
-  # whole-corpus GCS walks don't run concurrently.
+  # sports INCLUDED since 2026-07-17. The prior `if ag != "sports"` exclusion rested
+  # on the header's "sports is a manifest single-read — always full" claim, which was
+  # true only while the sports catalogue was league-grain-only (manifest-derived). The
+  # 2026-07-09 FTP extension (build_sports_fixture_team_player_catalogue) made sports a
+  # by_date WALKER — and the largest one we have: 318,889 fixture/team/injuries blobs
+  # over the full 2019→2026 corpus, vs 51,483 for its 400d window (measured 2026-07-17).
+  # So sports was the ONE asset group that needed this block's own stated rationale — "a
+  # retroactive correction to a by_date file OLDER than the window would be invisible to
+  # the increment" — and was the only one excluded from it.
+  lifecycle_catalogue_full_asset_groups = local.lifecycle_catalogue_asset_groups
+  # Stagger the weekly full rebuilds (Saturday, one hour apart) so the whole-corpus GCS
+  # walks don't run concurrently. sports takes the 07:00 slot (after prediction).
   lifecycle_catalogue_full_schedule = {
     cefi       = "0 3 * * 6"
     defi       = "0 4 * * 6"
     tradfi     = "0 5 * * 6"
     prediction = "0 6 * * 6"
+    sports     = "0 7 * * 6"
   }
   # Weekly FULL rebuilds hold the whole-history aggregate in memory — the daily
   # jobs no longer do (incremental window), so the full jobs need their OWN
@@ -234,6 +248,12 @@ locals {
     defi       = "4Gi"
     tradfi     = "16Gi"
     prediction = "16Gi"
+    # sports 4Gi (cefi/defi tier), NOT a 16Gi guess: the full-history walk was measured
+    # locally 2026-07-17 at ~148MB RSS held FLAT across all 318,889 blobs — the
+    # _bounded_parallel_load sliding window keeps peak memory O(max_workers) frames, and
+    # the resulting aggregate (~136k rows) is ~5% of prediction's 2.5M-row aggregate that
+    # actually OOM'd at 4Gi. Bump only if it OOMs (this block's own standing rule).
+    sports = "4Gi"
   }
   # Cloud Run couples CPU and memory (2 CPU caps memory at 8Gi; 16Gi needs 4) —
   # the 16Gi full jobs carry 4 CPU like the tradfi daily.
@@ -242,6 +262,25 @@ locals {
     defi       = "2"
     tradfi     = "4"
     prediction = "4"
+    sports     = "2"
+  }
+  # FULL-job-only extra args, on top of each AG's shared daily extra_args.
+  #
+  # sports MUST carry --since here or this job is a LIE: `--mode full` is a no-op for the
+  # sports FTP roll-up, which is exempt from the generic incremental engine and always
+  # uses its own hardcoded SPORTS_FTP_WINDOW_DAYS=400 trailing window (run_rollup's sports
+  # branch). Without --since, a "full self-heal" would silently re-walk the SAME ~13
+  # months and report success — the exact failure mode that left the catalogue holding one
+  # season (17,064 fixtures) while the raw corpus ran 2019→2026. --since (added
+  # instruments-service@4a795c24) is the only supported way to rebuild the full corpus.
+  #
+  # Cost: ~318,889 blobs. The 6h timeout_seconds below carries it (in-region reference:
+  # the tradfi full walk is 2h17m; ~3h measured from a laptop over transpacific GCS, which
+  # is the pessimistic bound). The DAILY job deliberately does NOT get --since — it stays
+  # on the cheap 400d window and the frozen-tail merge carries the older rows forward, so
+  # the full walk is paid weekly here, never on the 60-min daily budget.
+  lifecycle_catalogue_full_extra_args = {
+    sports = ["--since", "2019-01-01"]
   }
 }
 
@@ -273,6 +312,7 @@ module "lifecycle_catalogue_full_job" {
       "full",
     ],
     each.value.extra_args,
+    lookup(local.lifecycle_catalogue_full_extra_args, each.key, []),
   )
 
   environment_variables = {
