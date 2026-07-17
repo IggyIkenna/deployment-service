@@ -57,6 +57,15 @@ def _resolve_ml_training_artifacts_bucket(project_id: str) -> str:
     return resolve_bucket_name(cloud="gcp", kind="ml-training-artifacts")
 
 
+# ml FOLD B (bucket_fold_ml_2026_07_17.md): the retired `ml-training-artifacts`
+# bucket collapsed onto the single folded `ml-store` bucket (the resolver above
+# folds kind="ml-training-artifacts" → ml-store via `_KIND_ALIASES`). The per-kind
+# separation is now this top-level object-key PREFIX; the migrated on-disk layout is
+# `gs://ml-store-{env}-{pid}/training-artifacts/stage{N}-.../` so every read path below
+# must be scoped under it (matches UTL PATH_REGISTRY `ml_training_artifacts`).
+_TRAINING_ARTIFACTS_PREFIX = "training-artifacts/"
+
+
 # Training periods are quarters, named by end month (e.g., 2021-03 = Q1 2021)
 QUARTERLY_PERIODS = {
     "2021-03": ("2020-01-01", "2021-03-31"),
@@ -198,7 +207,10 @@ def check_stage2_dependencies(
     # `project_id` arg is preserved for callsite back-compat but the resolver reads
     # GCP_PROJECT_ID + DEPLOYMENT_ENV from the process env directly.
     bucket_name = _resolve_ml_training_artifacts_bucket(project_id)
-    stage1_path = f"stage1-preselection/model-{model_id}/training-period-{training_period}/selected_features.json"
+    stage1_path = (
+        f"{_TRAINING_ARTIFACTS_PREFIX}stage1-preselection/model-{model_id}"
+        f"/training-period-{training_period}/selected_features.json"
+    )
 
     logger.info("Checking Stage 1 output: gs://%s/%s", bucket_name, stage1_path)
 
@@ -251,8 +263,14 @@ def check_stage3_dependencies(
     - Stage 1 selected_features.json
     """
     bucket_name = _resolve_ml_training_artifacts_bucket(project_id)
-    stage2_path = f"stage2-hyperparams/model-{model_id}/training-period-{training_period}/best_hyperparams.json"
-    stage1_path = f"stage1-preselection/model-{model_id}/training-period-{training_period}/selected_features.json"
+    stage2_path = (
+        f"{_TRAINING_ARTIFACTS_PREFIX}stage2-hyperparams/model-{model_id}"
+        f"/training-period-{training_period}/best_hyperparams.json"
+    )
+    stage1_path = (
+        f"{_TRAINING_ARTIFACTS_PREFIX}stage1-preselection/model-{model_id}"
+        f"/training-period-{training_period}/selected_features.json"
+    )
 
     logger.info("Checking Stage 2 output: gs://%s/%s", bucket_name, stage2_path)
     logger.info("Checking Stage 1 output: gs://%s/%s", bucket_name, stage1_path)

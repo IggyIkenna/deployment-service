@@ -65,9 +65,11 @@ BUCKET_TEMPLATES: dict[str, str] = {
     # This template is dead for `ml-service` specifically — it's now in
     # `_SERVICE_TO_CANONICAL_KIND` (2026-07-14) so `_resolve_bucket` always takes
     # the `resolve_bucket_name(kind="ml-models-store")` branch instead. Kept as a
-    # documented fallback shape only; never read for `ml-service`.
+    # documented (never-read) fallback shape only. Updated to the folded ml FOLD B
+    # shape (bucket_fold_ml_2026_07_17.md): the retired `ml-models-store-{project_id}`
+    # collapsed into the single `ml-store` bucket.
     # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
-    "ml-service": "ml-models-store-{project_id}",
+    "ml-service": "ml-store-{project_id}",
     "strategy-service": "strategy-store-{project_id}",
     "execution-service": "execution-store-{domain}-{project_id}",
     # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21:
@@ -92,11 +94,13 @@ _SHARED_BUCKET_SERVICES = {
 _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
     "market-tick-data-service": "market-data",
     "market-data-processing-service": "market-data",
-    # ml-service: the legacy flat `ml-models-store-{project_id}` bucket is a
-    # confirmed deletion candidate (0 unique data vs the canonical prd tier — see
-    # bucket-estate-cleanup plan dated 2026-07-10 §5e + data_completion_to_100_all_ag
-    # 2026-07-14 entry), NOT YET deleted pending redeploy confirmation — resolve via
-    # the canonical kind now so this CLI reader survives that eventual deletion.
+    # ml-service: ml FOLD B (bucket_fold_ml_2026_07_17.md) — kind="ml-models-store"
+    # resolves through UTL `resolve_bucket_name` `_KIND_ALIASES` to the SINGLE folded
+    # `ml-store-{env}-{pid}` bucket. The availability manifest is a per-bucket index at
+    # the bucket ROOT (`_index/availability_index.parquet`, no per-prefix index), so the
+    # models/ fold's rows are discriminated on read by the `service_name == "ml-service"`
+    # filter in get_completion / get_manifest_status — predictions/ + configs/ folds are
+    # empty and write no manifest rows, so there is no cross-fold conflation.
     "ml-service": "ml-models-store",
 }
 
