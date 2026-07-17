@@ -206,20 +206,6 @@ TARDIS_CONCURRENCY_LEASE=$(_meta TARDIS_CONCURRENCY_LEASE)
 [[ -n "$TARDIS_CONCURRENCY_LEASE" ]] && export TARDIS_CONCURRENCY_LEASE
 TARDIS_CONCURRENCY_LEASE_BUCKET=$(_meta TARDIS_CONCURRENCY_LEASE_BUCKET)
 [[ -n "$TARDIS_CONCURRENCY_LEASE_BUCKET" ]] && export TARDIS_CONCURRENCY_LEASE_BUCKET
-# Intra-VM Tardis stream concurrency (2026-07-16 — THE fix for a silent throughput
-# collapse). The cefi launcher has stamped these into VM metadata since 2026-07-15,
-# but this script never read them back, so MarketTickDataServiceConfig silently fell
-# back to its defaults (16 downloads / 4 book_snapshot_5) on EVERY VM. Measured
-# symptom: an operator-set TARDIS_MAX_CONCURRENT_DOWNLOADS=128 VM ran at cpu≈104% of
-# 1600% (one core = one stream's worth of parsing) and ~186 shard-fetches/hour — the
-# ramp from 16→64→128 was a NO-OP the whole time. Since N=1 (the Tardis single-IP cap)
-# makes intra-VM concurrency the ONLY throughput lever, this one missing export was
-# capping the entire cefi backfill. Only export when non-empty (empty string breaks
-# Pydantic int parsing, same rule as IS_TEST_RUN above).
-TARDIS_MAX_CONCURRENT_DOWNLOADS=$(_meta TARDIS_MAX_CONCURRENT_DOWNLOADS)
-[[ -n "$TARDIS_MAX_CONCURRENT_DOWNLOADS" ]] && export TARDIS_MAX_CONCURRENT_DOWNLOADS
-TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=$(_meta TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT)
-[[ -n "$TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT" ]] && export TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
