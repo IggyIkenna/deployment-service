@@ -49,7 +49,24 @@ module "mtds_fast_t1_recon_job" {
   # 11 per-operation jobs in defi_collection_scheduler.tf; CeFi delayed → cefi job)
   # Note: --operation download runs TickDataHandler (the correct T+1 batch handler).
   # --operation run was a planned meta-operation that was never implemented.
-  args = ["--operation", "download", "--mode", "batch"]
+  #
+  # --asset-group is MANDATORY (cutover T6.10, 2026-07-17): without it every execution
+  # died with `ValueError: asset_group is required for tick-data bucket resolution` and
+  # collected 0 results — the job had been firing daily at 00:30 into a guaranteed
+  # failure (failedCount=1) since before the sports freeze. UTL `--asset-group` is
+  # nargs="+" with choices=STANDARD_CATEGORIES, which accepts uppercase (see
+  # mtds_cefi_t1_recon_job). NOT cefi (that is mtds_cefi_t1_recon_job); NOT defi (that
+  # is the 11 per-operation jobs in defi_collection_scheduler.tf).
+  #
+  # TRADFI is deliberately EXCLUDED despite the phase description above — it CANNOT
+  # share this invocation. Measured 2026-07-17 (execution …-lx64t, failedCount=1):
+  # adding TRADFI raises `ValueError: --source databento|massive is REQUIRED for a
+  # TradFi OHLCV download (no SOURCE_PRIORITY[0] default — the stamp must reflect the
+  # ACTUAL fetcher's vendor)`. `--source` is ONE per-invocation vendor value, so any
+  # value chosen for TradFi would mis-stamp the sports/prediction legs. TradFi T+1
+  # therefore needs its OWN source-scoped job(s) (--source=databento for CFE/CME-1s,
+  # --source=massive for equities/CME-1m). SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
+  args = ["--operation", "download", "--mode", "batch", "--asset-group", "SPORTS", "PREDICTION"]
 
   environment_variables = {
     GCP_PROJECT_ID         = var.project_id
