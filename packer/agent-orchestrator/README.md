@@ -94,8 +94,8 @@ The AMI is timestamp-named, never overwritten. Rebuild whenever:
 - Node / claude CLI / Ubuntu base AMI gets a security update
 - A new repo gets added to the warm cache
 
-Cost: one m7i.large build run (~$0.20 + EBS snapshot ~few cents/month). AMIs
-linger free; their EBS snapshots are ~$0.05/GB/mo (~$2/mo each at ~30GB).
+Cost: one m7i.large build run (~~$0.20 + EBS snapshot ~few cents/month). AMIs
+linger free; their EBS snapshots are ~$0.05/GB/mo (~~$2/mo each at ~30GB).
 Deregister old AMIs + delete their snapshots quarterly via
 `scripts/aws/cleanup-old-orchestrator-amis.sh` (TBD).
 
@@ -118,6 +118,6 @@ packer/agent-orchestrator/
   the optional `AMI_ID` env var
 - `deployment-service/scripts/vm/lib/aws_ec2_launch_lib.sh::lc_aws_ec2_run` —
   the EC2 RunInstances wrapper that resolves the AMI
-- `codex/05-infrastructure/agent-orchestrator-worker-topology.md` — fleet
+- `codex/12-agent-workflow/agent-orchestrator-single-vm-architecture.md` — topology + dispatch
   topology + bootstrap flow overview
 - `plans/epics/orchestrator_master.md` Phase 9 — epic context
