@@ -209,10 +209,12 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 log() { echo "$(date '+%H:%M:%S') $*"; }
 
 # Core repos always included. deployment-service is in CORE so every VM
-# can import `deployment_service.deployments_registry` from the VM
-# heartbeat helper — without it, no DEPLOYMENT_STARTED/PROGRESS/COMPLETED
-# events reach Pub/Sub or the deployments registry (silent observability
-# loss). See plan Phase 8 and the 2026-04-18 event-streaming audit.
+# can import `deployment_service.bom` + `deployment_service.deployment_classification`
+# from the VM heartbeat helper (the registry itself relocated to UTL
+# 2026-07-13 — unified-trading-library-code covers that half) — without it,
+# no DEPLOYMENT_STARTED/PROGRESS/COMPLETED events reach Pub/Sub or the
+# deployments registry (silent observability loss). See plan Phase 8 and the
+# 2026-04-18 event-streaming audit.
 CORE_REPOS=(
     "unified-api-contracts:unified-api-contracts-code"
     "unified-trading-library:unified-trading-library-code"

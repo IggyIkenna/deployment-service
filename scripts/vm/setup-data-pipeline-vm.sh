@@ -473,8 +473,10 @@ declare -A TARBALL_DIRS=(
 # UEI was folded into unified-trading-library.events 2026-04-17 — removed from
 # here so the stale 0-byte UEI tarball in GCS doesn't hang VM setup.
 # deployment-service-code added 2026-04-18 so deployment_heartbeat.py
-# can import deployment_service.deployments_registry — without it every
-# VM silently drops DEPLOYMENT_STARTED/PROGRESS/COMPLETED events.
+# can import deployment_service.bom + deployment_service.deployment_classification
+# (the registry itself relocated to UTL 2026-07-13 — unified-trading-library-code
+# covers that half) — without it every VM silently drops
+# DEPLOYMENT_STARTED/PROGRESS/COMPLETED events.
 NEEDED_TARBALLS=("unified-api-contracts-code" "unified-trading-library-code" "deployment-service-code")
 # synthetic-benchmark VMs (Phase 5 of mock_data_pipeline_benchmarking_2026_05_10):
 # the harness shells out to all 6 cutover-pipeline service CLIs in subprocess
@@ -668,9 +670,11 @@ log "Installing Python dependencies..."
 # installed in the same call.
 # Two-pass install. deployment-service declares deployment-api + fastapi
 # + functions-framework as hard deps — none of which are needed by the VM
-# heartbeat helper (which only touches deployments_registry.py, stdlib +
-# UTL StorageClient). Install it with --no-deps to avoid a resolve
-# failure that stops the whole VM. Everything else installs normally.
+# heartbeat helper (which only touches deployment_service.bom +
+# deployment_service.deployment_classification, stdlib + UTL StorageClient
+# via unified_trading_library.deployment_registry). Install it with --no-deps
+# to avoid a resolve failure that stops the whole VM. Everything else installs
+# normally.
 #
 # hatch-vcs fallback: tarballs have no .git history; without this env var,
 # hatch-vcs calls setuptools_scm.get_version() which exits non-zero when
@@ -757,9 +761,9 @@ fi
 # (monitor/orchestrator/backends), which transitively needs jinja2 +
 # pyyaml for template rendering in backends/services/vm_config.py and
 # yaml parsing in config_loader.py. Importing the heartbeat helper
-# (`from deployment_service.deployments_registry import ...`) therefore
-# evaluates the parent __init__ and fails without these. Install just
-# the two minimal runtime extras needed by the init chain.
+# (`from deployment_service.bom import ...` / `from deployment_service.deployment_classification
+# import ...`) therefore evaluates the parent __init__ and fails without
+# these. Install just the two minimal runtime extras needed by the init chain.
 log "  uv pip install jinja2 pyyaml  (deployment_service __init__ chain extras)"
 uv pip install --find-links "$WHEEL_CACHE" jinja2 pyyaml 2>&1 | tail -3
 # position_balance_monitor_service.storage.database eagerly imports sqlalchemy at module load

@@ -8,8 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from deployment_service.deployments_registry import vm_serial_rolling_uri
+from unified_trading_library import vm_serial_rolling_uri
 
 # ---------------------------------------------------------------------------
 # Helper: build a minimal mock instance

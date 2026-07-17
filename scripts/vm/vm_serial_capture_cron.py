@@ -13,7 +13,7 @@ Only LONG_LIVED_LIVE and SCHEDULED_RECURRING lifecycle classes are targeted —
 EPHEMERAL_BATCH and EPHEMERAL_EXPERIMENT VMs are short-lived enough that the
 pre-kill hook captures everything relevant.
 
-Archive path (SSOT: deployments_registry.vm_serial_rolling_uri):
+Archive path (SSOT: unified_trading_library.deployment_registry.vm_serial_rolling_uri):
     gs://deployment-scripts-{project}/log-archive/serial-rolling/{YYYYMMDD}/{vm}/serial-console.txt
 
 Idempotency: date is truncated to the calendar day, so reruns on the same day
@@ -32,9 +32,8 @@ from datetime import UTC, datetime
 
 from google.cloud import compute_v1
 from unified_api_contracts.canonical.crosscutting import LifecycleClass, VmPrefixSpec
-from unified_trading_library import UnifiedCloudConfig, storage_exists, upload_to_storage
+from unified_trading_library import UnifiedCloudConfig, storage_exists, upload_to_storage, vm_serial_rolling_uri
 
-from deployment_service.deployments_registry import vm_serial_rolling_uri
 from scripts.vm.vm_zombie_watchdog import VM_PREFIX_TO_BUCKET
 
 _TARGET_LIFECYCLE_CLASSES: frozenset[LifecycleClass] = frozenset(
