@@ -7,8 +7,10 @@
 #
 # Generator script: unified-api-contracts/scripts/generate_instrument_catalogue.py
 #
-# Outputs (written by the generator and uploaded to GCS):
-#   gs://strategy-store-cefi-central-element-323112/catalogue/instrument/
+# Outputs (written by the generator and uploaded to GCS) — CORRECTED 2026-07-17: the unified
+# FLAT strategy-store bucket, per strategy_store_split_brain_2026_07_13.md + the generator's own
+# `strategy_store_bucket()` call. The per-AG `strategy-store-cefi-…` named here previously is 404.
+#   gs://strategy-store-central-element-323112/catalogue/instrument/
 #       instrument-catalogue.json   (drilldown-friendly entries)
 #       instrument-catalogue.md     (human matrix with coverage band emoji)
 #       shard-dynamics.json         (pure static spec dump)
@@ -27,10 +29,20 @@ resource "google_service_account" "instrument_catalogue_regen" {
 }
 
 # Read access to all instruments-store-* buckets (manifest + parquet).
+#
+# EVERY entry is the SSOT canonical `-prd-` name (cloud-providers.yaml `instruments-store` →
+# `instruments-store-{ag}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`), mirroring
+# lifecycle_catalogue_scheduler.tf:81-87. cefi/defi REPOINTED 2026-07-17 off the flat no-env
+# legacy literals, whose buckets were physically DELETED 2026-07-14 (bucket_estate_consolidation
+# W2) — a deletion never propagated to this IAM layer, so both planned `will be created` against
+# a 404 bucket ⇒ the next full prod `tofu apply` would ERROR. generate_instrument_catalogue.py
+# resolves via UAC `bucket_name()` (env defaults "prd"), so only the `-prd-` names are ever read.
+# (No tradfi row: UAC maps (TRADFI, INSTRUMENTS) → None — tradfi's universe is the UAC registry,
+# not a parquet — so this job never reads a tradfi instruments-store bucket.)
 resource "google_storage_bucket_iam_member" "instrument_catalogue_instruments_reader" {
   for_each = toset([
-    "instruments-store-cefi-central-element-323112",
-    "instruments-store-defi-central-element-323112",
+    "instruments-store-cefi-prd-central-element-323112",
+    "instruments-store-defi-prd-central-element-323112",
     # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
     # no-env `instruments-store-sports-{project_id}` bucket is DELETED at cutover.
     "instruments-store-sports-prd-central-element-323112",
@@ -46,13 +58,25 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_instruments_re
 }
 
 # Read access to all market-data-tick-* buckets (manifest probe).
+#
+# EVERY entry is the SSOT canonical `-prd-` name (cloud-providers.yaml `market-data` →
+# `market-data-tick-{ag}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}`). cefi/defi/tradfi REPOINTED
+# 2026-07-17 off the flat no-env legacy literals — those three buckets were physically DELETED
+# 2026-07-14 (bucket_estate_consolidation W2) and the deletion never reached this IAM layer, so
+# each planned `will be created` against a 404 bucket ⇒ the next full prod `tofu apply` would
+# ERROR. The job reads the `-prd-` names at runtime via UAC `bucket_name(kind=MARKET_DATA)`.
 resource "google_storage_bucket_iam_member" "instrument_catalogue_market_data_reader" {
   for_each = toset([
-    "market-data-tick-cefi-central-element-323112",
-    "market-data-tick-defi-central-element-323112",
-    "market-data-tick-tradfi-central-element-323112",
-    # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
-    # no-env `market-data-tick-sports-{project_id}` bucket is DELETED at cutover.
+    "market-data-tick-cefi-prd-central-element-323112",
+    "market-data-tick-defi-prd-central-element-323112",
+    "market-data-tick-tradfi-prd-central-element-323112",
+    # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4).
+    # CORRECTED 2026-07-17: the prior note here claimed the legacy no-env
+    # `market-data-tick-sports-{project_id}` bucket "is DELETED at cutover" — measurably FALSE.
+    # That bucket EXISTS and is DELIBERATELY RETAINED (blocked on OR-5b; 550,062 keys on 32 days
+    # live only there — main.tf keeps its block for exactly this reason). The comment conflated
+    # it with `instruments-store-sports-{project_id}`, which genuinely IS deleted (404). The
+    # `-prd-` repoint itself is correct and unchanged — only the false claim is removed.
     "market-data-tick-sports-prd-central-element-323112",
     # prediction → SSOT canonical `pred-prd` (per cloud-providers.yaml).
     "market-data-tick-pred-prd-central-element-323112",
@@ -63,8 +87,18 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_market_data_re
 }
 
 # Write access to the catalogue artefact bucket.
+#
+# REPOINTED 2026-07-17 — was `strategy-store-cefi-central-element-323112`, which is 404 (deleted
+# out-of-band; confirmed via the elevated Cloud Build SA) and therefore planned `will be created`
+# ⇒ the next full prod `tofu apply` would ERROR. That per-AG name is the documented split-brain
+# drift (strategy_store_split_brain_2026_07_13.md): the operator-ratified 2026-05-20 (D6 Phase 4)
+# SSOT is the unified FLAT `strategy-store-{project_id}` bucket — cloud-providers.yaml kind
+# `strategy-store`, UAC `STRATEGY_STORE_BUCKET_TEMPLATE`. The job agrees: generate_instrument_
+# catalogue.py:565 uploads to `strategy_store_bucket(project_id)` = the flat name, so this SA
+# held NO write grant on the bucket it actually writes to. The sibling
+# catalogue_regen_strategy_store_writer already grants on the flat name — this matches it.
 resource "google_storage_bucket_iam_member" "instrument_catalogue_strategy_store_writer" {
-  bucket = "strategy-store-cefi-central-element-323112"
+  bucket = "strategy-store-central-element-323112"
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.instrument_catalogue_regen.email}"
 }

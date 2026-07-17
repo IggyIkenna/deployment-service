@@ -38,14 +38,29 @@ resource "google_storage_bucket_iam_member" "catalogue_regen_strategy_store_writ
 }
 
 # Read access to all instruments-store-* buckets (real parquet resolver)
+#
+# EVERY entry is the SSOT canonical `-prd-` name — cloud-providers.yaml `instruments-store`
+# resolves to `instruments-store-{ag}-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}` — matching the
+# lifecycle_catalogue_scheduler.tf:81-87 precedent. cefi/defi/tradfi were REPOINTED 2026-07-17:
+# they still carried the flat no-env legacy literals, whose buckets were physically DELETED
+# 2026-07-14 (bucket_estate_consolidation W2). That deletion was never propagated here, so each
+# grant planned `will be created` against a 404 bucket ⇒ the next full prod `tofu apply` would
+# ERROR. The grants also covered nothing real: this job resolves buckets through UAC
+# `bucket_name()`, which defaults env="prd" and can ONLY emit the `-prd-` form.
+# Provenance: terraform_instruments_cefi_armed_resurrection_2026_07_16.md (sibling-sweep todo).
 resource "google_storage_bucket_iam_member" "catalogue_regen_instruments_reader" {
   for_each = toset([
-    "instruments-store-cefi-central-element-323112",
-    "instruments-store-defi-central-element-323112",
+    "instruments-store-cefi-prd-central-element-323112",
+    "instruments-store-defi-prd-central-element-323112",
     # tradfi added (slot-7 2026-06-08) — the regen job's strategy_instruments join
     # reads the tradfi instruments-store parquet too; it was missing from the reader
     # grant (the sibling lifecycle/instrument_catalogue schedulers already cover it).
-    "instruments-store-tradfi-central-element-323112",
+    # DORMANT TODAY (measured 2026-07-17): UAC's per-AG facade maps (TRADFI, INSTRUMENTS) → None,
+    # so the join falls back to venue tokens and never opens this bucket. Repointed rather than
+    # dropped — the canonical bucket EXISTS and holds the tradfi lifecycle catalog.parquet
+    # (lifecycle_catalogue_scheduler.tf:83 writes it), so the grant must already be in place if
+    # the facade gains a real TRADFI template. Dropping it would re-open the 2026-06-08 gap.
+    "instruments-store-tradfi-prd-central-element-323112",
     # sports → SSOT canonical `-prd-` (sports legacy-bucket cutover 2026-07-16 T1.4); the legacy
     # no-env `instruments-store-sports-{project_id}` bucket is DELETED at cutover.
     "instruments-store-sports-prd-central-element-323112",
