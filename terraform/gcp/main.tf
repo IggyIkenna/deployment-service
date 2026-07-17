@@ -134,40 +134,27 @@ locals {
 # Naming: {domain}-{category}-{project_id}
 # =============================================================================
 
-resource "google_storage_bucket" "instruments_cefi" {
-  name     = "instruments-store-cefi-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 90 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  # Bloat fix (2026-06-02): instruments reference data is reproducible. The default 7-day
-  # soft-delete was retaining overwrite shadow copies (sports daily fixtures re-poll churned
-  # ~600 GiB of soft-deletes; cefi/tradfi/defi/prediction were 90-98% bloated too). Disable
-  # soft-delete and bound versioning: delete noncurrent versions >30d old once >=3 newer exist.
-  # SSOT: plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-  lifecycle_rule {
-    condition {
-      days_since_noncurrent_time = 30
-      num_newer_versions         = 3
-    }
-    action {
-      type = "Delete"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "instruments-raw", "tier" = "group-a" })
-}
+# resource google_storage_bucket.instruments_cefi REMOVED 2026-07-17
+# (terraform_instruments_cefi_armed_resurrection_2026_07_16.md — DISARMING an ARMED resurrection):
+# the flat no-env bucket `instruments-store-cefi-central-element-323112` was PHYSICALLY DELETED
+# 2026-07-14 (bucket_estate_consolidation W2 / item E) but — unlike its tradfi/defi/prediction/
+# sports twins — the resource block was left DECLARED here and the prod state entry was left in
+# place. That is the loaded chamber: a real `tofu plan` against terraform/state/prod on
+# 2026-07-16 (Cloud Build ea03c145-25a0-4280-acc3-75a99486ed76) reported
+# `google_storage_bucket.instruments_cefi will be created` as the ONLY bucket-create in the
+# whole plan, so any routine `bootstrap_gcp.sh --env prod` / full apply would have recreated it
+# as an empty shell — the DOCUMENTED failure class that recreated ~30 cleanup-deleted buckets on
+# 2026-07-12T21:59Z ([[terraform_bucket_estate_drift_resurrection_2026_07_13]]) and that :316-343
+# below records verbatim for the DeFi twins. 404 confirmed via the elevated Cloud Build SA
+# (build 0aa821f4-adf2-4ff2-b68d-96d917c4ed1d), not the 403-prone local SA.
+# Canonical `instruments-store-cefi-prd-…` (owned by the yaml-derived
+# `google_storage_bucket.canonical` for_each, canonical_buckets.tf) is the sole SSOT; the flat
+# no-env Group-A name is retired by the 2026-05-11 operator reversal (cloud-providers.yaml:136-140).
+# State entry removed via `tofu state rm google_storage_bucket.instruments_cefi` in the same
+# change. Its `instruments_cefi_bucket` output went with it (outputs.tf; zero consumers — grep).
+# Matches the tradfi/defi removals (2026-07-14, below) and sports (2026-07-16, ds@4637aed).
+# NOTE: `module.instruments_cefi_t1_recon_job` (audit03_cron_provisioning.tf:116) is a DIFFERENT
+# resource — a live Cloud Run job — and its import block (_imports_reconcile.tf:109-112) STAYS.
 
 # resource google_storage_bucket.instruments_tradfi REMOVED 2026-07-14 (bucket_estate_consolidation W2 / item E):
 # legacy flat twin mid-async-purge-delete; TF-unmanaged until the shell is deleted, so a future

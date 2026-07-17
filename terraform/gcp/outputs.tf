@@ -7,10 +7,11 @@
 # market_data_cefi_bucket output REMOVED 2026-07-14 — its bucket resource was removed (legacy
 # twin mid-async-purge-delete; see main.tf). No consumer references this output.
 
-output "instruments_cefi_bucket" {
-  description = "Name of the instruments CeFi GCS bucket"
-  value       = google_storage_bucket.instruments_cefi.name
-}
+# instruments_cefi_bucket output REMOVED 2026-07-17 — its bucket resource was removed
+# (terraform_instruments_cefi_armed_resurrection_2026_07_16.md: the physical bucket was deleted
+# 2026-07-14 while the block stayed declared + in prod state, arming a recreate-as-empty-shell on
+# the next apply; see main.tf). No consumer references this output (grep across all repos: the
+# declaration itself was the only hit). Same shape as the market_data_cefi_bucket removal above.
 
 # features_calendar_bucket output REMOVED 2026-07-15 — its bucket resource was removed
 # (bucket_estate_consolidation Verify+Delete phase, bucketKey=features-calendar; flat
