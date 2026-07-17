@@ -44,10 +44,18 @@ module "honest_coverage_daily_job" {
   # Download the launcher from the code bucket and execute it.
   # The launcher creates the GCE VM which runs measure_honest_coverage.py and
   # self-deletes via VM_SHUTDOWN_ON_COMPLETION=true.
+  #
+  # 2026-07-17: the launcher script gained a `source lib/launcher_common.sh`
+  # dependency (fleet-wide launch-*.sh rollout, deployment-service@b5bd336),
+  # but this job's fetch command was never updated to also download the vm/lib/
+  # directory — it silently failed every run with "No such file or directory"
+  # from the moment the new script was published (2026-07-16) until fixed here.
+  # `gsutil cp -r 'gs://.../vm/lib/*' /tmp/lib/` mirrors the launcher's own
+  # expectation (`source "$(dirname script)/lib/launcher_common.sh"`).
   command = ["/bin/sh"]
   args = [
     "-c",
-    "gsutil cp gs://deployment-scripts-${var.project_id}/vm/launch-measure-honest-coverage-vm.sh /tmp/launcher.sh && chmod +x /tmp/launcher.sh && bash /tmp/launcher.sh",
+    "mkdir -p /tmp/lib && gsutil cp gs://deployment-scripts-${var.project_id}/vm/launch-measure-honest-coverage-vm.sh /tmp/launcher.sh && gsutil -m cp -r 'gs://deployment-scripts-${var.project_id}/vm/lib/*' /tmp/lib/ && chmod +x /tmp/launcher.sh && bash /tmp/launcher.sh",
   ]
 
   environment_variables = {
@@ -59,8 +67,8 @@ module "honest_coverage_daily_job" {
   environment  = var.environment
 
   labels = {
-    "purpose"  = "honest-coverage-cron"
-    "type"     = "daily"
+    "purpose" = "honest-coverage-cron"
+    "type"    = "daily"
   }
 }
 
