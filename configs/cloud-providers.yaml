@@ -155,6 +155,9 @@ gcp:
     # execution FOLD C (bucket_fold_execution_strategy_2026_07_17): folded per-asset_group dict ->
     # one env-tiered bucket; asset_group moves into a top-level object-key prefix ({ag}/execution/...).
     execution-store: "execution-store-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+    # portfolio-state FOLD E (bucket_fold_portfolio_state_2026_07_17) — LAST fold: 6 position/pnl/risk stores
+    # -> ONE env-tiered bucket; per-domain prefixes. archetype-state/position-store-sports RETAINED (soft window).
+    portfolio-state: "portfolio-state-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # Sports venue-balance snapshot store — EOD snapshots written by VenueBalanceTracker.
@@ -339,6 +342,9 @@ aws:
     # execution FOLD C (bucket_fold_execution_strategy_2026_07_17): folded per-asset_group dict ->
     # one env-tiered bucket; asset_group moves into an object-key prefix. Mirrors GCP.
     execution-store: "execution-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+    # portfolio-state FOLD E (bucket_fold_portfolio_state_2026_07_17) — 6 position/pnl/risk stores -> ONE
+    # env-tiered bucket; per-domain prefixes. archetype-state/position-store-sports RETAINED. Mirrors GCP.
+    portfolio-state: "portfolio-state-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Sports pipeline buckets
     features-sports: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # Sports venue-balance snapshot store — mirrors GCP position-store-sports.
