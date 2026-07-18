@@ -91,8 +91,16 @@ Refusing duplicate launch — Alchemy is a shared key; concurrent VMs hit per-IP
 Options:
   Inspect:  gcloud compute instances describe ${EXISTING} --zone=${ZONE} --project=${PROJECT_ID}
   Events:   gsutil ls gs://${PROJECT_ID}-events/events/lending-rate-validation/$(date +%Y-%m-%d)/
-  Stop:     gcloud compute instances delete ${EXISTING} --zone=${ZONE} --project=${PROJECT_ID} --quiet
   Force:    bash $0 --force
+
+CAUTION — do NOT delete ${EXISTING} unless you have confirmed via Inspect
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete ${EXISTING} --zone=${ZONE} --project=${PROJECT_ID} --quiet
 EOF
     exit 1
   fi

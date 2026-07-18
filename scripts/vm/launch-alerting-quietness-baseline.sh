@@ -117,8 +117,16 @@ in the FP-rate analysis, invalidating Phase 7's acceptance criteria.
 Options:
   Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
   Tail log:  gcloud storage cat gs://${PROJECT}-events/events/alerting-service/$(date -u +%Y-%m-%d)/${EXISTING}/hour=*/events.jsonl | tail -50
-  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
   Force:     bash $0 --force --hours ${DURATION_HOURS}
+
+CAUTION — do NOT delete $EXISTING unless you have confirmed via Inspect/Tail
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
 EOF
     exit 1
   fi

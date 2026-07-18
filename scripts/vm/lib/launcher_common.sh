@@ -117,8 +117,16 @@ Refusing duplicate launch (singleton lock).
 
 Options:
   Inspect: gsutil cat gs://${code_bucket}/vm-logs/${existing}/run.log | tail -50
-  Stop:    gcloud compute instances delete ${existing} --zone=${zone} --project=${project} --quiet
   Force:   bash \$0 --force
+
+CAUTION — do NOT delete ${existing} unless you have confirmed via Inspect
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete ${existing} --zone=${zone} --project=${project} --quiet
 EOF
         exit 1
     fi

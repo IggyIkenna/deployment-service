@@ -73,11 +73,18 @@ DRY_RUN=false
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND=false
 
+# Which feature tables to (re-)derive. Defaults to fixture_features for backward
+# compatibility; overridable so a single table can be re-derived without touching
+# the others — e.g. --tables fixture_lineups to replay the lineups normalizer fix
+# (features-service@cf10b931) across history from raw, with ZERO api-football calls.
+TABLES="${TABLES:-fixture_features}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --skip-existing) SKIP_EXISTING=true; shift ;;
+    --tables) TABLES="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
@@ -91,7 +98,7 @@ esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
-Usage: bash launch-features-sports-backfill-vm.sh [--force] [--skip-existing] <START_DATE> <END_DATE>
+Usage: bash launch-features-sports-backfill-vm.sh [--force] [--skip-existing] [--tables CSV] <START_DATE> <END_DATE>
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
 
@@ -127,8 +134,16 @@ ERROR: features-sports backfill VM already running in $ZONE: $EXISTING
 Options:
   Inspect:   gcloud compute ssh $EXISTING --zone=$ZONE
   Tail log:  gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
-  Stop:      gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
   Force:     bash $0 --force ...
+
+CAUTION — do NOT delete $EXISTING unless you have confirmed via Inspect/Tail
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
 EOF
     exit 1
   fi
@@ -141,7 +156,7 @@ VM_NAME="fs-backfill-${RUN_TS}"
 # substitutes `python ` → the per-tarball venv python.
 BACKFILL_CMD="python -m features_service.sports"
 BACKFILL_CMD="${BACKFILL_CMD} --operation compute --mode batch --asset-group SPORTS"
-BACKFILL_CMD="${BACKFILL_CMD} --tables fixture_features"
+BACKFILL_CMD="${BACKFILL_CMD} --tables ${TABLES}"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
 if $SKIP_EXISTING; then
   BACKFILL_CMD="${BACKFILL_CMD} --skip-existing"
