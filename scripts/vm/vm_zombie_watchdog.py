@@ -37,9 +37,26 @@ forever" footgun (5 prefixes silently un-watched in 2026-05-05 alone).
 VM_PREFIX_TO_BUCKET is now a *richer-signal* opt-in: prefixes listed
 below ALSO get checked for per-VM manifest-shard write progress
 (``_index/per_vm/{vm_name}.parquet``), which detects "VM still alive
-+ heartbeating but no useful work happening" failures (network
++ heartbeating but writing NOTHING AT ALL" failures (network
 partitions, hung adapters, etc.). New launchers don't NEED a dict
 entry to be watched — only when the richer signal is desired.
+
+SCOPE LIMIT — this is a LIVENESS watchdog, NOT a correctness one. The
+shard check is an mtime stat on ONE per-VM blob, so it is deliberately
+ENTITY-AGNOSTIC: it cannot tell whether the VM produced the entity it
+was ASKED for. A VM launched ``--entity FIXTURES`` that writes only
+``fixture_lineups``/``fixture_stats``/``fixture_events``/``player_stats``
+keeps this shard mtime fresh and scores ``alive`` — correctly by this
+module's contract, and WRONGLY if read as "useful work happened".
+Measured 2026-07-18: exactly that, for 3.5h, zero ``entity=fixtures``
+written (the write gate ignored ``redo_all``).
+
+Entity-scoping it here is the wrong layer: it would turn a cheap
+metadata stat into a download+parse of every VM's manifest parquet on
+every fleet sweep. "Did the run produce the REQUESTED artifact?" is a
+PER-RUN verification and belongs to whoever launched the job. SSOT:
+``codex/12-agent-workflow/async-wait-and-poll-discipline.md`` §
+"Backfill progress = the TARGET ARTIFACT, entity-scoped".
 
 Daemon opt-out: long-lived VMs without a deadline (manifest-consolidator
 poll loops, sports-scheduler, the watchdog itself, etc.) must label
