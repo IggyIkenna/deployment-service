@@ -207,7 +207,7 @@ create_vm() {
         # w_await 1015ms, CPU 93.5% idle, RAM 115GB free — pure disk starvation, misread for
         # hours as a Tardis quota). Tardis serves .csv.gz so RX is ~5x-amplified on write.
         # 250GB pd-balanced = ~70 MB/s. Enforced by
-        # scripts/quality_gates/check_tardis_vm_disk_provisioning.py — do NOT drop back.
+        # scripts/quality_gates/check_backfill_vm_disk_provisioning.py — do NOT drop back.
         --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
         --labels=purpose=cefi-tier3-fullbackfill,env="${DEPLOYMENT_ENV}" 2>&1 | tail -1

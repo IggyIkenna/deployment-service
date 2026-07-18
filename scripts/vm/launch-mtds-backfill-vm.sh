@@ -39,7 +39,7 @@ START_DATE=""
 END_DATE=""
 TIER=""
 FORCE=false
-CHUNK_SIZE="${CHUNK_SIZE:-7}"
+CHUNK_SIZE="${CHUNK_SIZE:-250}"
 VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
@@ -231,7 +231,13 @@ gcloud compute instances create "${VM_NAME}" \
   # w_await 1015ms, CPU 93.5% idle, RAM 115GB free — pure disk starvation, misread for
   # hours as a Tardis quota). Tardis serves .csv.gz so RX is ~5x-amplified on write.
   # 250GB pd-balanced = ~70 MB/s. Enforced by
-  # scripts/quality_gates/check_tardis_vm_disk_provisioning.py — do NOT drop back.
+  # scripts/quality_gates/check_backfill_vm_disk_provisioning.py — do NOT drop back.
+  # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
+  # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
+  # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
+  # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
+  # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
+  # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-backfill,asset-group=${CATEGORY_LOWER},env=${DEPLOYMENT_ENV}" \
   --metadata="${METADATA}"

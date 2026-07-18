@@ -119,7 +119,13 @@ gcloud compute instances create "${VM_NAME}" \
   ${PROVISIONING_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
+  # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
+  # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
+  # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
+  # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
+  # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
+  # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+  --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-liquidation-events-backfill,env=${DEPLOYMENT_ENV}" \
   --metadata="${METADATA}"
 

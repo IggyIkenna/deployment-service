@@ -23,6 +23,12 @@ set -euo pipefail
 # shellcheck source=lib/launcher_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
+# BOOT_DISK_GB had NO assignment anywhere (not here, not in launcher_common.sh), so
+# --boot-disk-size="${BOOT_DISK_GB}GB" expanded to "GB" and gcloud would reject the
+# launch. Found 2026-07-18 by check_backfill_vm_disk_provisioning.py. 250GB default
+# per the download-heavy disk policy.
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
@@ -100,7 +106,13 @@ for GROUP in cefi defi tradfi sports prediction; do
       --machine-type="$MACHINE" \
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
-      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
+      # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
+      # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
+      # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
+      # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
+      # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+      --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
       --labels=purpose=legacy-bucket-migration,category="${GROUP}",shard="${LABEL}",run-ts="${RUN_TS}" \

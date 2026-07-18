@@ -64,9 +64,9 @@ PROJECT=central-element-323112
 ZONE=asia-northeast1-c
 STARTUP=gs://deployment-scripts-central-element-323112/vm/setup-data-pipeline-vm.sh
 
-DRY_RUN="${DRY_RUN:-0}"
-FORCE="${FORCE:-0}"
-MAX_CONCURRENT="${MAX_CONCURRENT:-15}"
+DRY_RUN="${DRY_RUN:-250}"
+FORCE="${FORCE:-250}"
+MAX_CONCURRENT="${MAX_CONCURRENT:-250}"
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 
@@ -81,7 +81,7 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # ~20-80x wall-clock hit of the TARDIS_CONCURRENCY_LEASE cross-VM serialization stopgap.
 # Still opt-in TARDIS_CONCURRENCY_LEASE + a control bucket is recommended as a safety
 # net even in this mode (harmless no-op cost when only one VM is ever running).
-SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-0}"
+SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-250}"
 
 # ─── Boot disk: pd-balanced 250GB, NOT the old pd-standard 50GB ──────────────
 # Measured 2026-07-18 on cefi-queue-heavy-binancefutu-x17-20260718-165536. The
@@ -143,13 +143,13 @@ PYEOF
 }
 # TARDIS_KEY_CHECK: set to 0 to skip the key-validity probe (e.g. if Secret Manager
 # is inaccessible). Default 1 — always probe so an expired key aborts early.
-TARDIS_KEY_CHECK="${TARDIS_KEY_CHECK:-1}"
+TARDIS_KEY_CHECK="${TARDIS_KEY_CHECK:-250}"
 # FREE_ONLY: set to 1 to launch VMs that only download Tardis free-tier dates
 # (1st of every month + last 7 days rolling window). Useful when the paid key
 # is expired — VMs skip paid dates via TARDIS_FREE_ONLY=1 metadata rather than
 # spinning at 100% CPU on 401 responses. Requires an active (even free-tier) key
 # in Secret Manager so the VM can authenticate at all.
-FREE_ONLY="${FREE_ONLY:-0}"
+FREE_ONLY="${FREE_ONLY:-250}"
 
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
@@ -579,6 +579,12 @@ launch_cefi_shard() {
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
+      # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
+      # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
+      # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
+      # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
+      # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
+      # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
       --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform --metadata="^|^${meta}" \
       --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \

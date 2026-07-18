@@ -198,7 +198,7 @@ _launch_shard() {
               # w_await 1015ms, CPU 93.5% idle, RAM 115GB free — pure disk starvation, misread for
               # hours as a Tardis quota). Tardis serves .csv.gz so RX is ~5x-amplified on write.
               # 250GB pd-balanced = ~70 MB/s. Enforced by
-              # scripts/quality_gates/check_tardis_vm_disk_provisioning.py — do NOT drop back.
+              # scripts/quality_gates/check_backfill_vm_disk_provisioning.py — do NOT drop back.
               --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
               --scopes=cloud-platform --metadata="${meta}" \
               --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
