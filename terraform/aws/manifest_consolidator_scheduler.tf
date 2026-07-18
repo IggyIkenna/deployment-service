@@ -41,7 +41,10 @@ locals {
     "execution-cefi"               = "unified-trading-execution-cefi-${var.aws_account_id}"
     "execution-tradfi"             = "unified-trading-execution-tradfi-${var.aws_account_id}"
     "execution-defi"               = "unified-trading-execution-defi-${var.aws_account_id}"
-    "ml-training-artifacts"        = "unified-trading-ml-training-artifacts-${var.aws_account_id}"
+    # Fold B (bucket_fold_ml_2026_07_17): repointed to the folded env-tiered ml-store bucket
+    # (AWS ml-store-prd-<account>). The prior source unified-trading-ml-training-artifacts-<account>
+    # no longer exists. Category key kept (cosmetic); rename to "ml-store" in closeout.
+    "ml-training-artifacts"        = "ml-store-prd-${var.aws_account_id}"
   }
 
   mtds_ecr_image = "${var.aws_account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/market-tick-data-service:latest"
