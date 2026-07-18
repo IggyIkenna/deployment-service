@@ -195,6 +195,9 @@ done
 cd "\${WORK_DIR}/market-tick-data-service"
 uv venv "\${WORK_DIR}/.venv" --python 3.13
 source "\${WORK_DIR}/.venv/bin/activate"
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install --find-links "\${WHEEL_CACHE}" \${INSTALL_ARGS}
 uv pip install --find-links "\${WHEEL_CACHE}" pandas pyarrow boto3 google-cloud-storage 2>/dev/null || true
 
