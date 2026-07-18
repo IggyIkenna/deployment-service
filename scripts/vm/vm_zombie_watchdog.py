@@ -89,10 +89,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from google.cloud import (
     compute_v1,  # noqa: TID251,RUF100 — zombie watchdog is a standalone VM daemon with direct GCP SDK access; no UTL wrapper for aggregated_list_instances at this scope
 )
+
+if TYPE_CHECKING:
+    # Type-only — _blob_age_minutes needs the raw google.cloud.storage.Bucket
+    # shape (.blob().reload()/.updated), which the UTL GCSBucketHandle wrapper
+    # does not implement. No runtime import (TID251-banned); accessed at
+    # runtime only via storage_client._client.bucket(...), the native client
+    # already embedded in UTL's StorageClient.
+    from google.cloud.storage import Bucket  # noqa: TID251,RUF100 — type-only, see above
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import LifecycleClass
 from unified_trading_library import StorageClient, get_storage_client, upload_to_storage
@@ -332,18 +341,60 @@ def _list_backfill_vms(compute_client: compute_v1.InstancesClient) -> list[tuple
     return [(name, zone) for (name, zone, _) in _list_watchable_vms(compute_client)]
 
 
-def _blob_age_minutes(bucket: storage.Bucket, blob_name: str) -> float | None:  # noqa: F821 — google.cloud.storage type-only ref; not imported at runtime (TID251-banned) and scripts/ is outside the basedpyright scope
-    """Return age in minutes of a blob, or None if missing."""
+def _blob_age_minutes(bucket: Bucket, blob_name: str) -> float | None:
+    """Return age in minutes of a blob, or None if the blob genuinely does not exist.
+
+    ``bucket`` MUST be a raw ``google.cloud.storage.Bucket`` (e.g. via
+    ``storage_client._client.bucket(...)``, the already-authenticated native
+    client the UTL ``StorageClient`` wraps) — NOT the UTL ``GCSBucketHandle``/
+    ``GCSBlobHandle`` wrapper. That wrapper only implements ``.exists()``/
+    ``.size``/``.download_*``; it has no ``.reload()`` and no ``.updated``.
+
+    2026-07-18 incident: a prior version of this function took a
+    ``GCSBucketHandle`` and called ``blob.reload()``/``blob.updated`` against
+    it, which raised ``AttributeError`` on every call — silently swallowed by
+    a bare ``except Exception: return None`` here. The result: heartbeat and
+    shard age ALWAYS returned None regardless of real freshness, so every
+    known-prefix VM older than 30min was unconditionally classified
+    ``zombie_no_heartbeat``. 3 live VMs (``footystats-fwd-20260718-170002``,
+    ``af-backfill-20260718-150353``, ``mtds-dex-pools-backfill``) were really
+    deleted before this was caught. See
+    ``unified-trading-pm/plans/active/issues/zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md``
+    Incident 3.
+
+    Any error other than "blob does not exist" now PROPAGATES — callers must
+    treat an exception here as "cannot determine age" and must NEVER fall
+    through to a zombie/delete verdict on that basis (fail-safe, not
+    fail-silent). See ``_safe_blob_age_minutes``.
+    """
     blob = bucket.blob(blob_name)
-    try:
-        if not blob.exists():
-            return None
-        blob.reload()
-        if blob.updated is None:
-            return None
-        return (datetime.now(UTC) - blob.updated).total_seconds() / 60.0
-    except Exception:
+    if not blob.exists():
         return None
+    blob.reload()
+    if blob.updated is None:
+        return None
+    return (datetime.now(UTC) - blob.updated).total_seconds() / 60.0
+
+
+def _safe_blob_age_minutes(bucket: Bucket, blob_name: str, vm_name: str, what: str) -> tuple[float | None, bool]:
+    """Wrap ``_blob_age_minutes``; returns ``(age_or_None, determined)``.
+
+    ``determined=False`` means the check itself FAILED (permission, network,
+    unexpected API error) — the caller must NOT treat this the same as "blob
+    missing" (that would resurrect the exact false-positive class documented
+    in ``_blob_age_minutes``'s docstring). Logged loudly (not silently) so a
+    real access problem is visible in the daemon's own logs instead of
+    masquerading as every VM being a zombie.
+    """
+    try:
+        return _blob_age_minutes(bucket, blob_name), True
+    except Exception:
+        logger.exception(
+            "blob-age check FAILED for %s (%s) — treating as UNDETERMINED, never zombie on this basis",
+            vm_name,
+            what,
+        )
+        return None, False
 
 
 def _vm_age_minutes(compute_client: compute_v1.InstancesClient, vm_name: str, zone: str) -> float:
@@ -368,7 +419,14 @@ def _evaluate_vm(
 
     heartbeat_stale, shard_stale = _resolve_idle_thresholds(vm_name, heartbeat_stale, shard_stale)
 
-    hb_bucket = storage_client.bucket(HEARTBEAT_BUCKET)
+    # Raw native client (NOT the UTL GCSBucketHandle wrapper — it lacks
+    # .reload()/.updated; see _blob_age_minutes docstring). storage_client is
+    # UTL's StorageClient, whose ._client IS the underlying, already-pool-bumped
+    # google.cloud.storage.Client (see _bump_pool_size(storage_client._client._http)
+    # in main() — same private-attribute access pattern, already precedented
+    # in this file).
+    raw_client = storage_client._client
+    hb_bucket = raw_client.bucket(HEARTBEAT_BUCKET)
 
     # FIRST — check if the workload wrote an EXIT_STATUS file. If yes the
     # workload is finished (cleanly or otherwise). The VM should have
@@ -379,20 +437,31 @@ def _evaluate_vm(
     # Reference incident 2026-05-06: mdps-backfill-cefi-... ran rc=0 then sat
     # RUNNING for 12h (launcher omitted shutdown flag).  This check is the
     # catch-net for that whole class of bug.
-    exit_status_age = _blob_age_minutes(hb_bucket, f"vm-logs/{vm_name}/EXIT_STATUS")
+    exit_status_age, _exit_ok = _safe_blob_age_minutes(
+        hb_bucket, f"vm-logs/{vm_name}/EXIT_STATUS", vm_name, "exit_status"
+    )
     if exit_status_age is not None and exit_status_age > finished_grace:
         return WatchdogVerdict(vm_name, zone, age, None, None, "zombie_finished_not_shutdown")
 
-    hb_age = _blob_age_minutes(hb_bucket, f"vm-heartbeat/{vm_name}.txt")
+    hb_age, hb_ok = _safe_blob_age_minutes(hb_bucket, f"vm-heartbeat/{vm_name}.txt", vm_name, "heartbeat")
 
     shard_age: float | None = None
+    shard_ok = True
     for prefix, spec in VM_PREFIX_TO_BUCKET.items():
         if vm_name.startswith(prefix) and spec and spec.bucket:
-            shard_age = _blob_age_minutes(
-                storage_client.bucket(spec.bucket),
+            shard_age, shard_ok = _safe_blob_age_minutes(
+                raw_client.bucket(spec.bucket),
                 f"_index/per_vm/{vm_name}.parquet",
+                vm_name,
+                "shard",
             )
             break
+
+    if not hb_ok or not shard_ok:
+        # The primary zombie signal could not be DETERMINED (a real check
+        # failure, not a genuine "missing blob"). Fail SAFE: never zombie a
+        # VM we couldn't actually verify. See _safe_blob_age_minutes.
+        return WatchdogVerdict(vm_name, zone, age, hb_age, shard_age, "alive")
 
     # Verdict logic:
     #   Heartbeat is the primary signal — if missing or stale → zombie.

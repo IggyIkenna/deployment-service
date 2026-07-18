@@ -178,6 +178,17 @@ python3.13 -m venv /opt/watchdog-venv
 # Install google-cloud packages + UAC into the Python 3.13 venv.
 /opt/watchdog-venv/bin/pip install --quiet google-cloud-compute google-cloud-storage 2>&1 | tail -3 || true
 
+# hatch-vcs fallback: the code tarballs have no .git history, so
+# setuptools_scm.get_version() fails version-detection at pip
+# metadata-generation time (Incident 5, 2026-07-18 —
+# zombie_watchdog_relaunch_reaped_live_backfills issue doc). Pretend
+# version must be <1.0.0 and >= the highest lower-bound in any
+# cross-package constraint (UAC/UTL pin >=0.33.0/>=0.13.0); 0.99.0
+# satisfies both and matches the value already used by
+# setup-data-pipeline-vm.sh / setup-cefi-live-consolidated-vm.sh /
+# setup-prediction-live-consolidated-vm.sh for the same fallback.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
+
 # Install UAC (needed for VmPrefixSpec + LifecycleClass imports).
 # Use system tar to extract (avoids Python 3.12+ tarfile security filter on symlinks).
 gsutil -q cp "gs://${CODE_BUCKET}/code/unified-api-contracts-code.tar.gz" /tmp/uac.tar.gz 2>&1 || true
@@ -201,14 +212,26 @@ fi
 # deployment-service tarball + export the env override so probing succeeds
 # regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
 # and no zombies get reaped — observed 2026-05-28.
-# NOTE: this only needs the tarball's configs/ dir on disk, not a pip install —
-# _backup_vm_logs_before_kill's registry-path helpers moved to
-# unified_trading_library.deployment_registry 2026-07-13 (UTL is already
-# installed above), so deployment_service no longer needs to be importable here.
+# ALSO pip-install it: the corrected 2026-07-18 finding (Incident 5
+# follow-up) is that vm_zombie_watchdog.py line ~119 still does a
+# MODULE-LEVEL import of VM_PREFIX_TO_BUCKET from
+# deployment_service.vm_prefix_registry — the earlier comment here claiming
+# deployment_service no longer needs to be importable was WRONG (it
+# conflated the _backup_vm_logs_before_kill registry-path helpers, which did
+# move to UTL, with this unrelated top-level import, which never moved).
+# NOT --no-deps: a --no-deps install DOES pip-install successfully but
+# still fails at IMPORT time (Incident 5 follow-up #2, verified via a real
+# end-to-end scratch-venv test) — deployment_service/__init__.py
+# unconditionally imports LiveDeployer -> VMBackend -> VMConfigManager ->
+# jinja2 (and other heavy deps) regardless of which submodule you actually
+# import, so skipping deps just moves the ModuleNotFoundError from
+# unified_api_contracts to jinja2. Full install (already proven end-to-end
+# on a real watchdog VM during the Incident-5 diagnosis) is required.
 gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
 if [[ -f /tmp/dep.tar.gz ]]; then
     mkdir -p /tmp/dep-src
     tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/dep-src 2>&1 | tail -3 || true
 fi
 export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
 

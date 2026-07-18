@@ -74,6 +74,9 @@ _evaluate_terminated_vm = _mod._evaluate_terminated_vm
 _ReapVerdict = _mod.ReapVerdict
 _REAPABLE_LIFECYCLE_CLASSES = _mod.REAPABLE_LIFECYCLE_CLASSES
 _LifecycleClass = _mod.LifecycleClass
+_blob_age_minutes = _mod._blob_age_minutes
+_safe_blob_age_minutes = _mod._safe_blob_age_minutes
+_evaluate_vm = _mod._evaluate_vm
 
 
 # ── prefix registration ───────────────────────────────────────────────────────
@@ -784,3 +787,159 @@ class TestReapableLifecycleClasses:
     def test_persistent_classes_not_reapable(self) -> None:
         assert _LifecycleClass.LONG_LIVED_LIVE not in _REAPABLE_LIFECYCLE_CLASSES
         assert _LifecycleClass.SCHEDULED_RECURRING not in _REAPABLE_LIFECYCLE_CLASSES
+
+
+# ── _blob_age_minutes / _safe_blob_age_minutes regression coverage ───────────
+# 2026-07-18 incident (zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md
+# Incident 3): a prior version called .reload()/.updated against the UTL
+# GCSBucketHandle wrapper, which doesn't implement either — the resulting
+# AttributeError was silently swallowed by a bare except-Exception, so every
+# heartbeat/shard check ALWAYS returned None regardless of real freshness.
+# Net effect: every known-prefix VM older than 30min was unconditionally
+# classified zombie_no_heartbeat. 3 live VMs were really deleted before this
+# was caught. These tests exercise the real function against fake objects
+# shaped like the RAW google.cloud.storage API (the thing the fix now
+# requires) to prove: (1) a fresh blob yields a real age, not None, and (2) a
+# check FAILURE is distinguishable from a genuinely-missing blob and can
+# never itself produce a zombie/delete verdict.
+
+
+class _FakeBlob:
+    def __init__(self, *, exists: bool = True, updated: datetime | None = None, raise_on_reload: bool = False) -> None:
+        self._exists = exists
+        self.updated = updated
+        self._raise_on_reload = raise_on_reload
+
+    def exists(self) -> bool:
+        return self._exists
+
+    def reload(self) -> None:
+        if self._raise_on_reload:
+            # Simulates the exact 2026-07-18 bug: calling .reload() against an
+            # object that doesn't implement it (the UTL GCSBucketHandle wrapper).
+            raise AttributeError("'_FakeBlob' object has no attribute 'reload' (simulated wrapper mismatch)")
+
+
+class _FakeBucket:
+    def __init__(self, blob: _FakeBlob) -> None:
+        self._blob = blob
+
+    def blob(self, name: str) -> _FakeBlob:  # noqa: ARG002 — name unused, single-blob fake
+        return self._blob
+
+
+class _FakeNativeStorageClient:
+    """Mimics the raw google.cloud.storage.Client shape: just .bucket(name)."""
+
+    def __init__(self, bucket: _FakeBucket) -> None:
+        self._bucket = bucket
+
+    def bucket(self, name: str) -> _FakeBucket:  # noqa: ARG002 — name unused, single-bucket fake
+        return self._bucket
+
+
+class _FakeStorageClient:
+    """Mimics UTL's StorageClient shape: exposes ._client, the native raw client."""
+
+    def __init__(self, native_client: _FakeNativeStorageClient) -> None:
+        self._client = native_client
+
+
+class _FakeComputeInstance:
+    def __init__(self, creation_timestamp: str) -> None:
+        self.creation_timestamp = creation_timestamp
+
+
+class _FakeComputeClient:
+    def __init__(self, creation_timestamp: str) -> None:
+        self._creation_timestamp = creation_timestamp
+
+    def get(self, project: str, zone: str, instance: str) -> _FakeComputeInstance:  # noqa: ARG002
+        return _FakeComputeInstance(self._creation_timestamp)
+
+
+class TestBlobAgeMinutes:
+    def test_fresh_blob_returns_real_age_not_none(self) -> None:
+        """Regression: a genuinely fresh blob must yield a real minutes-age, not None."""
+        updated = datetime.now(UTC) - timedelta(minutes=3)
+        bucket = _FakeBucket(_FakeBlob(exists=True, updated=updated))
+        age = _blob_age_minutes(bucket, "vm-heartbeat/some-vm.txt")
+        assert age is not None
+        assert 2.0 < age < 4.0
+
+    def test_missing_blob_returns_none(self) -> None:
+        bucket = _FakeBucket(_FakeBlob(exists=False))
+        assert _blob_age_minutes(bucket, "vm-heartbeat/some-vm.txt") is None
+
+    def test_unexpected_error_propagates_not_swallowed(self) -> None:
+        """The bare except-Exception that caused the incident is gone — a real
+        check failure (e.g. the wrapper-mismatch AttributeError) must raise,
+        not silently return None indistinguishable from "genuinely missing"."""
+        bucket = _FakeBucket(_FakeBlob(exists=True, raise_on_reload=True))
+        with pytest.raises(AttributeError):
+            _blob_age_minutes(bucket, "vm-heartbeat/some-vm.txt")
+
+
+class TestSafeBlobAgeMinutes:
+    def test_success_is_determined_with_real_age(self) -> None:
+        updated = datetime.now(UTC) - timedelta(minutes=5)
+        bucket = _FakeBucket(_FakeBlob(exists=True, updated=updated))
+        age, determined = _safe_blob_age_minutes(bucket, "vm-heartbeat/x.txt", "vm-x", "heartbeat")
+        assert determined is True
+        assert age is not None
+
+    def test_check_failure_is_undetermined_not_missing(self) -> None:
+        """A check FAILURE (determined=False) must be distinguishable from a
+        genuinely-missing blob (age=None, determined=True) — callers must
+        never treat the two the same way (that conflation IS the incident)."""
+        bucket = _FakeBucket(_FakeBlob(exists=True, raise_on_reload=True))
+        age, determined = _safe_blob_age_minutes(bucket, "vm-heartbeat/x.txt", "vm-x", "heartbeat")
+        assert determined is False
+        assert age is None
+
+
+class TestEvaluateVmFailSafeOnUndeterminedAge:
+    def test_undetermined_heartbeat_never_yields_zombie_verdict(self) -> None:
+        """End-to-end regression for the 2026-07-18 incident: a VM old enough
+        to trip zombie_no_heartbeat (age > 30min) whose heartbeat check FAILS
+        (not "missing" — an actual exception, e.g. the wrapper-mismatch bug)
+        must classify 'alive', never a zombie/delete verdict."""
+        old_creation = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        compute_client = _FakeComputeClient(old_creation)
+        native_client = _FakeNativeStorageClient(_FakeBucket(_FakeBlob(exists=True, raise_on_reload=True)))
+        storage_client = _FakeStorageClient(native_client)
+
+        verdict = _evaluate_vm(
+            compute_client,
+            storage_client,
+            "unregistered-prefix-test-vm-20260101",
+            "asia-northeast1-a",
+            min_age=15.0,
+            heartbeat_stale=15.0,
+            shard_stale=120.0,
+            finished_grace=10.0,
+        )
+        assert verdict.verdict == "alive"
+        assert "zombie" not in verdict.verdict
+
+    def test_fresh_heartbeat_still_classifies_alive(self) -> None:
+        """Sanity companion: a genuinely fresh, successfully-checked heartbeat
+        must also classify alive (proves the fix didn't just make everything
+        alive unconditionally — it restores real freshness-based evaluation)."""
+        old_creation = (datetime.now(UTC) - timedelta(minutes=60)).isoformat()
+        compute_client = _FakeComputeClient(old_creation)
+        fresh_updated = datetime.now(UTC) - timedelta(minutes=2)
+        native_client = _FakeNativeStorageClient(_FakeBucket(_FakeBlob(exists=True, updated=fresh_updated)))
+        storage_client = _FakeStorageClient(native_client)
+
+        verdict = _evaluate_vm(
+            compute_client,
+            storage_client,
+            "unregistered-prefix-test-vm-20260101",
+            "asia-northeast1-a",
+            min_age=15.0,
+            heartbeat_stale=15.0,
+            shard_stale=120.0,
+            finished_grace=10.0,
+        )
+        assert verdict.verdict == "alive"
