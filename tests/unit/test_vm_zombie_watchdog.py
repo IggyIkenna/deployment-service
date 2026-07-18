@@ -335,11 +335,14 @@ class TestPerPrefixIdleThresholds:
         assert hb == 30.0
         assert shard == 240.0
 
-    def test_backfill_prefix_gets_shorter_threshold(self) -> None:
-        """Short-job VMs (af-backfill-*) use 60-min shard tolerance vs 120-min global."""
+    def test_backfill_prefix_gets_widened_threshold(self) -> None:
+        """API-football backfill VMs (af-backfill-*) match the 15-min global heartbeat
+        tolerance and use a 180-min shard tolerance vs 120-min global — widened past
+        the old (10.0, 60.0) pair after it caused a live-VM reap false positive
+        (zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md Incident 2)."""
         hb, shard = _resolve_idle_thresholds("af-backfill-20260515-001", self._GLOBAL_HB, self._GLOBAL_SHARD)
-        assert hb == 10.0
-        assert shard == 60.0
+        assert hb == 15.0
+        assert shard == 180.0
 
     def test_unknown_prefix_returns_global(self) -> None:
         """VMs with no matching prefix fall back to the supplied global thresholds."""

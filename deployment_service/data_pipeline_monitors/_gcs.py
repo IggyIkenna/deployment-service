@@ -214,6 +214,38 @@ def heartbeat_blob_age_minutes(storage_client: StorageClient, bucket: str, vm_na
     return blob_age_minutes(storage_client, bucket, HEARTBEAT_BLOB.format(vm=vm_name))
 
 
+def heartbeat_blob_write_epoch(storage_client: StorageClient, bucket: str, vm_name: str) -> float | None:
+    """Return the RAW Unix epoch the heartbeat sidecar last wrote for ``vm_name``.
+
+    Unlike :func:`heartbeat_blob_age_minutes` (age relative to
+    ``datetime.now(UTC)`` — i.e. "how stale is this blob right now"), this returns
+    the write INSTANT itself so a caller can compute age relative to an ARBITRARY
+    reference time. The post-mortem heartbeat-sidecar reliability check
+    (``heartbeat_sidecar_reliability.py``) needs the blob's age AT THE VM's KILL
+    TIME, not at analysis time — the blob (``vm-heartbeat/{vm}.txt``, in the
+    durable ``deployment-scripts-*`` bucket) has no delete lifecycle, so it is
+    still readable long after the VM itself is gone, and its content is frozen at
+    whatever the sidecar last wrote before the VM was deleted.
+
+    Parses the same first-line-epoch shape as the epoch-sidecar branch of
+    :func:`_content_epoch_age_minutes` (``<epoch_seconds>\\n<rc>\\n<status>``).
+    Returns ``None`` when the blob is missing, empty, or its first line isn't a
+    positive integer (e.g. a VM that never ran the sidecar).
+    """
+    raw = read_text(storage_client, bucket, HEARTBEAT_BLOB.format(vm=vm_name))
+    if not raw:
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    first = stripped.splitlines()[0].strip()
+    try:
+        epoch = int(first)
+    except ValueError:
+        return None
+    return float(epoch) if epoch > 0 else None
+
+
 # Leading ISO-ish timestamp on a Python-logging run.log line:
 #   ``2026-06-22 22:07:09,814 INFO ...``  (date + space + HH:MM:SS[,ms])
 _LOG_TS_RE = re.compile(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")

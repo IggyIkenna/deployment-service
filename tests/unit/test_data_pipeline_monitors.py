@@ -930,6 +930,26 @@ def test_heartbeat_blob_age_none_when_blob_absent():
     assert _gcs.heartbeat_blob_age_minutes(FakeStorage({}), LOG_BUCKET, "vm-x") is None
 
 
+def test_heartbeat_blob_write_epoch_returns_raw_epoch():
+    """Unlike heartbeat_blob_age_minutes (age vs now), this returns the write
+    INSTANT itself — the post-mortem reliability check needs age vs an arbitrary
+    kill time, not vs analysis time."""
+    vm = "af-backfill-20260717-151237"
+    epoch = 1752830264  # arbitrary fixed instant
+    storage = FakeStorage({(LOG_BUCKET, _heartbeat_blob(vm)): (f"{epoch}\n-1\nrunning".encode(), None)})
+    assert _gcs.heartbeat_blob_write_epoch(storage, LOG_BUCKET, vm) == float(epoch)
+
+
+def test_heartbeat_blob_write_epoch_none_when_blob_absent():
+    assert _gcs.heartbeat_blob_write_epoch(FakeStorage({}), LOG_BUCKET, "vm-x") is None
+
+
+def test_heartbeat_blob_write_epoch_none_on_non_epoch_first_line():
+    vm = "vm-y"
+    storage = FakeStorage({(LOG_BUCKET, _heartbeat_blob(vm)): (b"{}\n", None)})
+    assert _gcs.heartbeat_blob_write_epoch(storage, LOG_BUCKET, vm) is None
+
+
 def test_run_log_age_from_embedded_timestamp_tail():
     """run.log freshness derives from the LAST embedded `YYYY-MM-DD HH:MM:SS` line
     (last_modified is bare), so a frozen log reads as STALE-by-content."""

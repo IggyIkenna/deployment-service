@@ -204,10 +204,22 @@ PREFIX_IDLE_THRESHOLDS: dict[str, tuple[float, float]] = {
     "aster-fwd-": (30.0, 180.0),
     "sfi-fwd-": (30.0, 180.0),
     "footystats-fwd-": (30.0, 180.0),
-    # Fast API-football backfills: per-league row; tighter threshold
-    "af-backfill-": (10.0, 60.0),
-    "af-audit-": (10.0, 60.0),
-    "af-recover-": (10.0, 60.0),
+    # API-football backfills: per-(entity, fixture_id) chunks, rate-limited to
+    # ~54s inter-call sleeps by real API-Football throttling. A sparse
+    # fixture-day can plausibly push >60min between per-VM manifest-shard
+    # writes even while genuinely alive — the old (10.0, 60.0) pair was
+    # TIGHTER than the 15/120 global default and got 4/5 VMs in a fleet
+    # force-deleted mid-run on 2026-07-18 while actively fetching (heartbeat
+    # blobs were fresh seconds before the kill — this was a shard-staleness
+    # false positive, not a heartbeat one). Heartbeat matches the global
+    # default (the sidecar writes every 60s regardless of API rate limiting,
+    # so it's still a fast true-zombie catch); shard is widened above the
+    # global default for headroom on the documented failure mode. See
+    # unified-trading-pm/plans/active/issues/zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md
+    # Incident 2.
+    "af-backfill-": (15.0, 180.0),
+    "af-audit-": (15.0, 180.0),
+    "af-recover-": (15.0, 180.0),
 }
 
 
