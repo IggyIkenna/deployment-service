@@ -113,7 +113,15 @@ Concurrent rsync against the same source races on the dest write side.
 Use --force to bypass (only if you've manually verified safety).
 
   Inspect: gcloud compute ssh ${EXISTING} --zone=${ZONE}
-  Stop:    gcloud compute instances delete ${EXISTING} --zone=${ZONE} --quiet
+
+CAUTION — do NOT delete ${EXISTING} unless you have confirmed via Inspect
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete ${EXISTING} --zone=${ZONE} --quiet
 EOF
         exit 1
     fi

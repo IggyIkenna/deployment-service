@@ -113,8 +113,16 @@ Refusing to launch a duplicate — api_football rate-limits per-key.
 
 Options:
   Inspect: gcloud compute ssh $EXISTING --zone=$ZONE
-  Stop:    gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
   Force:   bash $0 $TRUTHSET_RUN_TS --force
+
+CAUTION — do NOT delete $EXISTING unless you have confirmed via Inspect/Tail
+above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
 EOF
     exit 1
   fi

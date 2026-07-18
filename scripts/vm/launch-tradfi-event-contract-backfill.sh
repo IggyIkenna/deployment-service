@@ -93,8 +93,16 @@ Refusing to launch a duplicate — Databento rate limits are per-IP.
 Options:
   Inspect:   ~/google-cloud-sdk/bin/gcloud compute ssh $EXISTING --zone=$ZONE --project=$PROJECT
   GCS log:   gsutil cat gs://${CODE_BUCKET}/vm-logs/${EXISTING}/run.log
-  Stop:      ~/google-cloud-sdk/bin/gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
   Force:     bash $0 --force ${START_DATE} ${END_DATE}
+
+CAUTION — do NOT delete $EXISTING unless you have confirmed via Inspect/GCS
+log above that it is genuinely stale. It may be another dispatch's actively
+progressing VM; deleting a live VM destroys hours of in-progress work (see
+zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 2
+correction" — a raw copy-pasteable delete suggestion in this exact refusal
+path is the documented root cause of prior agent-deleted-own-fleet
+incidents). If confirmed stale:
+  ~/google-cloud-sdk/bin/gcloud compute instances delete $EXISTING --zone=$ZONE --quiet
 EOF
     exit 1
   fi
