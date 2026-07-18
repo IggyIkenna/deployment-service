@@ -225,7 +225,14 @@ gcloud compute instances create "${VM_NAME}" \
   ${PROVISIONING_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  --boot-disk-size=50GB \
+  # Tardis-consumer boot disk (measured 2026-07-18): pd-standard 50GB sustains only
+  # ~6 MB/s of writes and its burst credits deplete by CUMULATIVE BYTES WRITTEN, which
+  # throttled the cefi backfill to ~2.4 MB/s after ~7.5GB (iostat: %util 99.94,
+  # w_await 1015ms, CPU 93.5% idle, RAM 115GB free — pure disk starvation, misread for
+  # hours as a Tardis quota). Tardis serves .csv.gz so RX is ~5x-amplified on write.
+  # 250GB pd-balanced = ~70 MB/s. Enforced by
+  # scripts/quality_gates/check_tardis_vm_disk_provisioning.py — do NOT drop back.
+  --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-backfill,asset-group=${CATEGORY_LOWER},env=${DEPLOYMENT_ENV}" \
   --metadata="${METADATA}"
 

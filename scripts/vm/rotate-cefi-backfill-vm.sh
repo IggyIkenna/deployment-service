@@ -21,7 +21,7 @@
 set -uo pipefail
 P="${GCP_PROJECT_ID:-central-element-323112}"; Z=asia-northeast1-c
 DS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CYCLES=0; ROTATE_GB=6.5; FLOOR=4.0; LOW_TICKS=3; DRY=0
+CYCLES=0; ROTATE_GB=6.5; FLOOR=4.0; LOW_TICKS=3; DRY=0; ADOPT_WAIT="${ADOPT_WAIT:-180}"
 while [[ $# -gt 0 ]]; do case "$1" in
   --cycles) CYCLES="$2"; shift 2;;
   --rotate-gb) ROTATE_GB="$2"; shift 2;;
@@ -68,6 +68,22 @@ while :; do
     for _ in $(seq 1 30); do VM=$(_running_vm); [ -n "$VM" ] && break; sleep 10; done
     [ -z "$VM" ] && { echo "  launch failed; retrying next cycle"; sleep 60; continue; }
   fi
+  # HARD cap-1 assertion: more than one live Tardis VM = guaranteed 403 lockout.
+  _n=$(gcloud compute instances list --project="$P" \
+        --filter='(status=RUNNING OR status=PROVISIONING OR status=STAGING)' \
+        --format='value(name)' 2>/dev/null | grep -ciE '^cefi-queue' || true)
+  if [ "${_n:-0}" -gt 1 ]; then
+    echo "  !! ${_n} cefi VMs live — cap-1 VIOLATED (this locks the Tardis account)."
+    echo "  !! keeping the NEWEST, deleting the rest:"
+    gcloud compute instances list --project="$P" \
+      --filter='(status=RUNNING OR status=PROVISIONING OR status=STAGING)' \
+      --format='value(name,creationTimestamp)' 2>/dev/null | grep -iE '^cefi-queue' \
+      | sort -k2 | head -n -1 | awk '{print $1}' | while read -r _extra; do
+        echo "     deleting $_extra"
+        gcloud compute instances delete "$_extra" --zone=$Z --project="$P" --quiet >/dev/null 2>&1
+      done
+    VM=$(_running_vm)
+  fi
   IID=$(gcloud compute instances describe "$VM" --zone=$Z --project="$P" --format='value(id)' 2>/dev/null)
   _meta() { gcloud compute instances describe "$VM" --zone=$Z --project="$P" \
       --format="value(metadata.items.filter(\"key:$1\").extract(\"value\"))" 2>/dev/null \
@@ -98,5 +114,20 @@ while :; do
     gcloud compute instances delete "$VM" --zone=$Z --project="$P" --quiet >/dev/null 2>&1
     for _ in $(seq 1 20); do [ -z "$(_running_vm)" ] && break; sleep 10; done
     echo "  deleted $VM"
+    # A manual delete is INDISTINGUISHABLE from a SPOT preemption: the VM's
+    # shutdown-script emits the preemption signal, and the fleet monitor's
+    # preemption-aware relauncher (scripts/recovery/relaunch_backfill_vm.py) then
+    # replays the launch params. If we launch too, we get TWO VMs with two source
+    # IPs on one Tardis account -> HTTP 403 concurrent-IP-lock, which locked the
+    # account on 2026-07-18 (1181 rejections, zero downloads). So: wait for the
+    # auto-relaunch and ADOPT it rather than racing it.
+    echo "  waiting ${ADOPT_WAIT}s for the auto-relauncher before launching our own..."
+    for _ in $(seq 1 "$((ADOPT_WAIT / 10))"); do
+      sleep 10
+      if [ -n "$(_running_vm)" ]; then
+        echo "  adopted auto-relaunched VM $(_running_vm) — not launching a second one"
+        break
+      fi
+    done
   fi
 done
