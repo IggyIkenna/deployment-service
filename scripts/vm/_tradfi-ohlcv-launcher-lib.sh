@@ -26,7 +26,12 @@ TRADFI_OHLCV_PROJECT="${TRADFI_OHLCV_PROJECT:-central-element-323112}"
 # The per-date footprint itself is the real bug (tiny output, ~15GB transient) — reduce it
 # (memray) + revert to e2-standard-4. SSOT: tradfi_backfill_oom_remediation_2026_06_24.md.
 TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-highmem-4}"
-TRADFI_OHLCV_BOOT_GB="${TRADFI_OHLCV_BOOT_GB:-50}"
+# pd-balanced 250GB: pd-standard throttles sustained writes hard (~0.17 MB/s/GB,
+# measured disk-bound on cefi backfills); pd-balanced is SSD-backed and scales
+# write throughput with size, so a larger balanced disk lifts the download→parquet
+# write ceiling that gated ohlcv_1m throughput. Env-overridable.
+TRADFI_OHLCV_BOOT_GB="${TRADFI_OHLCV_BOOT_GB:-250}"
+TRADFI_OHLCV_BOOT_TYPE="${TRADFI_OHLCV_BOOT_TYPE:-pd-balanced}"
 TRADFI_OHLCV_CODE_BUCKET="${TRADFI_OHLCV_CODE_BUCKET:-deployment-scripts-${TRADFI_OHLCV_PROJECT}}"
 TRADFI_OHLCV_STARTUP="${TRADFI_OHLCV_STARTUP:-gs://${TRADFI_OHLCV_CODE_BUCKET}/vm/setup-data-pipeline-vm.sh}"
 
@@ -71,6 +76,17 @@ TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-databento}"
 # e.g. OHLCV_DATA_TYPES=ohlcv_1s for a 1s-only backfill wave (no 1m re-fetch).
 # Semicolon-delimited (gcloud metadata-safe; startup splits [,;] → spaces).
 TRADFI_OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_1m;ohlcv_1s}"
+
+# Databento concurrency knobs — OPT-IN, DEFAULT EMPTY/UNSET. When set, ohlcv_create_vm
+# stamps the corresponding VM metadata key (VM_BATCH_DATE_CONCURRENCY /
+# DATABENTO_MAX_CONCURRENT_REQUESTS) which setup-data-pipeline-vm.sh turns into
+# (respectively) an MTDS CLI `--batch-date-concurrency` flag and an exported env var.
+# Left unset here → nothing is added to metadata → identical launch behavior to today.
+# TRADFI_OHLCV_BATCH_DATE_CONCURRENCY requires the UTL ServiceCLI `--batch-date-concurrency`
+# change to be deployed first (shipped separately) — do not set it before that lands.
+# SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
+TRADFI_OHLCV_BATCH_DATE_CONCURRENCY="${TRADFI_OHLCV_BATCH_DATE_CONCURRENCY:-}"
+TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT="${TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT:-}"
 
 # Concurrency-cap check: refuse to launch when the count of RUNNING tradfi-bf-*
 # VMs in the zone reaches OHLCV_FLEET_CONCURRENCY_CAP.
@@ -152,6 +168,13 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_NAME=${vm_name_safe}"
     metadata="${metadata},MANIFEST_PER_VM_SHARDS=true"
     metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+    # Databento concurrency knobs — only added when the launcher env opts in
+    # (both default empty/unset, see the TRADFI_OHLCV_BATCH_DATE_CONCURRENCY /
+    # TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT declarations above). Absent → no
+    # metadata key added → setup-data-pipeline-vm.sh's `_meta` read returns empty
+    # → no CLI flag / no env export, identical to today's behavior.
+    [[ -n "$TRADFI_OHLCV_BATCH_DATE_CONCURRENCY" ]] && metadata="${metadata},VM_BATCH_DATE_CONCURRENCY=${TRADFI_OHLCV_BATCH_DATE_CONCURRENCY}"
+    [[ -n "$TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT" ]] && metadata="${metadata},DATABENTO_MAX_CONCURRENT_REQUESTS=${TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT}"
 
     local run_ts
     run_ts="$(date +%Y%m%d-%H%M%S)"
@@ -179,6 +202,7 @@ ohlcv_create_vm() {
             --image-family=ubuntu-2404-lts-amd64 \
             --image-project=ubuntu-os-cloud \
             --boot-disk-size="${TRADFI_OHLCV_BOOT_GB}GB" \
+            --boot-disk-type="${TRADFI_OHLCV_BOOT_TYPE}" \
             --scopes=cloud-platform \
             --metadata="startup-script-url=${TRADFI_OHLCV_STARTUP},${metadata}" \
             --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="$(echo "$vm_venue" | tr '[:upper:]' '[:lower:]')"

@@ -206,6 +206,14 @@ TARDIS_CONCURRENCY_LEASE=$(_meta TARDIS_CONCURRENCY_LEASE)
 [[ -n "$TARDIS_CONCURRENCY_LEASE" ]] && export TARDIS_CONCURRENCY_LEASE
 TARDIS_CONCURRENCY_LEASE_BUCKET=$(_meta TARDIS_CONCURRENCY_LEASE_BUCKET)
 [[ -n "$TARDIS_CONCURRENCY_LEASE_BUCKET" ]] && export TARDIS_CONCURRENCY_LEASE_BUCKET
+# Databento concurrency knobs (opt-in, DEFAULT-OFF) — read by MTDS
+# market_interface/config.py (DatabentoClientConfig validation_alias). Only
+# export when the metadata value is non-empty so an unset value falls through
+# to the config's own default rather than exporting an empty string.
+DATABENTO_MAX_CONCURRENT_REQUESTS=$(_meta DATABENTO_MAX_CONCURRENT_REQUESTS)
+[[ -n "$DATABENTO_MAX_CONCURRENT_REQUESTS" ]] && export DATABENTO_MAX_CONCURRENT_REQUESTS
+DATABENTO_RATE_LIMIT_TARGET_UTILIZATION=$(_meta DATABENTO_RATE_LIMIT_TARGET_UTILIZATION)
+[[ -n "$DATABENTO_RATE_LIMIT_TARGET_UTILIZATION" ]] && export DATABENTO_RATE_LIMIT_TARGET_UTILIZATION
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
@@ -1294,6 +1302,15 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   [[ -n "$VM_SOURCE" ]] && BASE_CLI="$BASE_CLI --source $VM_SOURCE"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+  # --batch-date-concurrency: OPT-IN, DEFAULT-OFF. The flag is a UTL ServiceCLI
+  # addition shipped separately — the deployed UTL on a given tarball may not yet
+  # recognize it, and passing it unconditionally would error "unrecognized
+  # arguments: --batch-date-concurrency N" and abort the whole chunk loop. Only
+  # append when a launch explicitly opts in via VM_BATCH_DATE_CONCURRENCY
+  # metadata (a numeric > 1); absent/empty metadata is a no-op — identical CLI to
+  # today.
+  VM_BATCH_DATE_CONCURRENCY=$(_meta VM_BATCH_DATE_CONCURRENCY)
+  [[ -n "$VM_BATCH_DATE_CONCURRENCY" ]] && BASE_CLI="$BASE_CLI --batch-date-concurrency $VM_BATCH_DATE_CONCURRENCY"
 
   CHUNK_SCRIPT="$WORKSPACE/mtds_chunk_loop.sh"
   cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF

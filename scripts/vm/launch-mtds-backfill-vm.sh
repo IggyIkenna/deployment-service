@@ -40,6 +40,10 @@ END_DATE=""
 TIER=""
 FORCE=false
 CHUNK_SIZE="${CHUNK_SIZE:-250}"
+# Opt-in dates-in-flight per chunk (UTL ServiceCLI --batch-date-concurrency). Empty =
+# serial (today's behavior). Only pass a value once the UTL driver + ServiceCLI flag
+# are deployed (in the code tarball this VM fetches) — an older UTL errors on the flag.
+BATCH_DATE_CONCURRENCY="${BATCH_DATE_CONCURRENCY:-}"
 VM_NAME_OVERRIDE=""
 VENUES=""
 DATA_TYPES=""
@@ -67,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --tier)          TIER="$2"; shift 2 ;;
     --force)         FORCE=true; shift ;;
     --chunk-size)    CHUNK_SIZE="$2"; shift 2 ;;
+    --batch-date-concurrency) BATCH_DATE_CONCURRENCY="$2"; shift 2 ;;
     --machine-type)  MACHINE_TYPE="$2"; shift 2 ;;
     --vm-name)       VM_NAME_OVERRIDE="$2"; shift 2 ;;
     --venues)        VENUES="$2"; shift 2 ;;
@@ -174,6 +179,7 @@ METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
+[[ -n "${BATCH_DATE_CONCURRENCY:-}" ]] && METADATA="${METADATA},VM_BATCH_DATE_CONCURRENCY=${BATCH_DATE_CONCURRENCY}"
 [[ -n "$START_DATE" ]] && METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 [[ -n "$END_DATE" ]]   && METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 [[ -n "$TIER" ]]       && METADATA="${METADATA},VM_TIER=${TIER}"
@@ -225,19 +231,6 @@ gcloud compute instances create "${VM_NAME}" \
   ${PROVISIONING_FLAGS} \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  # Tardis-consumer boot disk (measured 2026-07-18): pd-standard 50GB sustains only
-  # ~6 MB/s of writes and its burst credits deplete by CUMULATIVE BYTES WRITTEN, which
-  # throttled the cefi backfill to ~2.4 MB/s after ~7.5GB (iostat: %util 99.94,
-  # w_await 1015ms, CPU 93.5% idle, RAM 115GB free — pure disk starvation, misread for
-  # hours as a Tardis quota). Tardis serves .csv.gz so RX is ~5x-amplified on write.
-  # 250GB pd-balanced = ~70 MB/s. Enforced by
-  # scripts/quality_gates/check_backfill_vm_disk_provisioning.py — do NOT drop back.
-  # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
-  # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
-  # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
-  # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
-  # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
-  # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-backfill,asset-group=${CATEGORY_LOWER},env=${DEPLOYMENT_ENV}" \
   --metadata="${METADATA}"
