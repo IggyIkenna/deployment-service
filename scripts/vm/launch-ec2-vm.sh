@@ -449,6 +449,20 @@ ls -d \${WORK_DIR}/*/
 cd "\${WORK_DIR}/${SERVICE}"
 uv venv .venv --python python3.13
 source .venv/bin/activate
+
+# hatch-vcs fallback: every service's pyproject.toml [tool.uv.sources] path-
+# overrides unified-api-contracts/unified-trading-library to sibling dirs
+# (../unified-api-contracts, ../unified-trading-library), which DO exist in
+# this tarball layout (COMMON_REPOS packages them as siblings) — so a plain
+# \`uv pip install -e "."\` (no --no-sources here) resolves those overrides
+# and editable-builds them too. Both use hatch-vcs (source = "vcs") and the
+# tarball has no .git history (rsync excludes it), so setuptools-scm's
+# version detection fails at install time without this. 0.99.0 satisfies
+# every cross-package <1.0.0 ceiling + >=0.13.0/>=0.33.0 floor pair — same
+# value already used by setup-data-pipeline-vm.sh / launch-vm-zombie-watchdog.sh
+# (zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md fleet-wide
+# hatch-vcs audit).
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install -e "." -q
 
 # Run the workload
