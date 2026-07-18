@@ -41,10 +41,62 @@ import re
 import sys
 from pathlib import Path
 
-MIN_DISK_GB = 250
+# Required sustained WRITE throughput for a download-heavy VM, in MB/s. Derived from the
+# measured cefi workload: 11.1 MB/s of compressed RX becomes ~67 MB/s of parquet writes
+# (iostat on the validated pd-balanced VM: wkB/s=67199 at %util 14.7).
+TARGET_WRITE_MBPS = 70
+# GCP PD sustained write throughput per provisioned GB. Size is what buys throughput, so the
+# minimum size is TYPE-AWARE: pd-ssd is ~1.7x faster per GB, so it needs fewer GB to clear the
+# same bar. Forcing 250GB of pd-ssd on a 24/7 strategy VM would be pure cost for no gain.
+MBPS_PER_GB = {"pd-balanced": 0.28, "pd-ssd": 0.48, "pd-extreme": 0.48}
+MIN_DISK_GB = 250  # pd-balanced default (70 / 0.28 = 250)
+
+
+def _min_gb_for(disk_type: str) -> int:
+    rate = MBPS_PER_GB.get(disk_type)
+    if rate is None:
+        return MIN_DISK_GB
+    return int(-(-TARGET_WRITE_MBPS // rate) // 10 * 10)  # round up to 10GB
+
+
 SLOW_TYPES = {"pd-standard"}
 VENDOR_MARKERS = ("VM_TARDIS_CONSUMER", "tardis_concurrency_guard", "databento", "DATABENTO")
 NAME_MARKERS = ("backfill", "forward-poll")
+
+# VM_TASK is the DURABLE signal — the filename is not. The 2026-07-18 sweep initially gated
+# on filename alone and missed launch-cefi-massive-rollout.sh (VM_TASK=cefi-backfill, the same
+# Tardis workload that started this investigation), launch-features-vm.sh (features-backfill),
+# launch-mtds-gas-fees-fleet-vm.sh (defi-backfill) and four sports launchers
+# (instruments-backfill). Measured sustained write means over 14 days back this up:
+# expected-universe-v2 12.24 MB/s, features-sports 11.61, mdps-sports-bucket 5.77,
+# sports-v9-migration 5.1-8.6 — all on pd-standard, all doing bulk data work.
+TASK_MARKERS = (
+    "backfill",
+    "migration",
+    "-live",
+    "recon",
+    "rsync",
+    "rescan",
+    "sweep",
+    "seed",
+    "cutover",
+    "training",
+    "replay",
+    "coverage",
+    "converge",
+    "gap-fill",
+    "features",
+    "universe",
+    "stamp",
+    "canon",
+)
+
+
+def _vm_task(text: str) -> str:
+    m = re.search(r"VM_TASK=([a-z0-9-]+)", text)
+    return m.group(1) if m else ""
+
+
 EXEMPT_MARKER = "qg-disk-exempt:"
 
 # AWS launchers use EBS flags, not GCP persistent disks; they are out of scope here
@@ -55,7 +107,8 @@ _SIZE_RE = re.compile(r"--boot-disk-size=[\"']?(?:\$\{BOOT_DISK_SIZE:-)?(\d+)GB"
 # Indirect form: --boot-disk-size="${BOOT_DISK_GB}GB" — resolve the variable's own
 # assignment (either VAR="${VAR:-250}" or a plain VAR="250") from the same file.
 _SIZE_VAR_RE = re.compile(r"--boot-disk-size=[\"']?\$\{([A-Z_]+)(?::-(\d+)(?:GB)?)?\}")
-_VAR_ASSIGN_RE = r'^{var}="(?:\$\{{{var}:-)?(\d+)(?:GB)?\}}?"'
+# Assignments appear quoted, defaulted, or bare: VAR="${VAR:-250}" / VAR="250" / VAR=250
+_VAR_ASSIGN_RE = r'^{var}=(?:"(?:\$\{{{var}:-)?(\d+)(?:GB)?\}}?"|(\d+))'
 
 
 def _resolve_size_gb(text: str) -> int | None:
@@ -70,7 +123,9 @@ def _resolve_size_gb(text: str) -> int | None:
     if inline_default is not None:
         return int(inline_default)
     assign = re.search(_VAR_ASSIGN_RE.format(var=var), text, re.M)
-    return int(assign.group(1)) if assign else None
+    if assign is None:
+        return None
+    return int(assign.group(1) or assign.group(2))
 
 
 _TYPE_RE = re.compile(r"--boot-disk-type=[\"']?(?:\$\{BOOT_DISK_TYPE:-)?([a-z0-9-]+)")
@@ -83,7 +138,12 @@ def _iter_launchers(vm_dir: Path):
         text = path.read_text(encoding="utf-8", errors="replace")
         if EXEMPT_MARKER in text:
             continue
-        gated = any(m in text for m in VENDOR_MARKERS) or any(m in path.name for m in NAME_MARKERS)
+        task = _vm_task(text)
+        gated = (
+            any(m in text for m in VENDOR_MARKERS)
+            or any(m in path.name for m in NAME_MARKERS)
+            or any(m in task for m in TASK_MARKERS)
+        )
         if gated:
             yield path, text
 
@@ -118,14 +178,18 @@ def main() -> int:
                 f"download-heavy VM. Use pd-balanced or pd-ssd."
             )
 
+        disk_type = type_match.group(1) if type_match else "pd-balanced"
+        min_gb = _min_gb_for(disk_type)
         size_gb = _resolve_size_gb(text)
         if size_gb is None:
             failures.append(f"{rel}: could not parse --boot-disk-size")
-        elif size_gb < MIN_DISK_GB:
+        elif size_gb < min_gb:
             failures.append(
-                f"{rel}: boot disk {size_gb}GB < {MIN_DISK_GB}GB minimum — "
-                f"GCP PD throughput scales with SIZE, so a small disk throttles writes "
-                f"regardless of type."
+                f"{rel}: boot disk {size_gb}GB {disk_type} < {min_gb}GB minimum — GCP PD "
+                f"throughput scales with SIZE ({MBPS_PER_GB.get(disk_type, 0.28)} MB/s per GB), "
+                f"so {size_gb}GB sustains only "
+                f"~{size_gb * MBPS_PER_GB.get(disk_type, 0.28):.0f} MB/s of writes vs the "
+                f"{TARGET_WRITE_MBPS} MB/s this workload class needs."
             )
 
     if failures:
@@ -139,7 +203,7 @@ def main() -> int:
 
     print(
         f"✅ Backfill VM disk provisioning: {checked} download-heavy launcher(s) "
-        f"on non-pd-standard disks >= {MIN_DISK_GB}GB"
+        f"on non-pd-standard disks sized for >={TARGET_WRITE_MBPS} MB/s of writes"
     )
     return 0
 

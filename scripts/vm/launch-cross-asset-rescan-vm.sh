@@ -287,7 +287,12 @@ launch_single_vm() {
     ${prov_flags} \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
-    --boot-disk-size=100GB \
+    # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+    # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+    # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+    # disk only 14.7% utilised). Enforced by
+    # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+    --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
     --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",pass="${pass_num}"

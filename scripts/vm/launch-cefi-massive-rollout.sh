@@ -98,7 +98,7 @@ _resolve_machine_type() {
         2>/dev/null || echo "e2-highmem-8"
 }
 MACHINE_TYPE="${MACHINE_TYPE:-$(_resolve_machine_type)}"
-BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 BATCH_SIZE="${BATCH_SIZE:-100}"            # VMs per batch
 BATCH_PAUSE_SEC="${BATCH_PAUSE_SEC:-30}"   # pause between batches for quota recovery
 RETRY_MAX="${RETRY_MAX:-3}"                # retries per VM on transient gcloud errors
@@ -221,7 +221,12 @@ _launch_one() {
                 --project="$PROJECT" --zone="$zone" \
                 --machine-type="$MACHINE_TYPE" \
                 ${prov_flags} \
-                --boot-disk-size="${BOOT_DISK_GB}GB" \
+                # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+                # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+                # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+                # disk only 14.7% utilised). Enforced by
+                # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+                --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
                 --image-family=ubuntu-2404-lts-amd64 \
                 --image-project=ubuntu-os-cloud \
                 --scopes=cloud-platform \
