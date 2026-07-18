@@ -32,10 +32,14 @@
 #   bash launch-mtds-lending-indices-backfill-vm.sh --lending-protocols morpho 2022-01-01 2026-04-14
 #                                                                         # single-protocol scoped run
 #
-# Cost: e2-standard-4 + 50GB. ~5s/day per (protocol × chain) shard.
-# The Graph paginates 1000 items per request; days with >1000 rate-index
-# events take longer. 30-day backfill ~10-15min, full ~3 years × 3 chains
-# × 3 protocols ~3-6hr.
+# Cost: e2-standard-4 + 50GB for windows <=30 days; e2-standard-8 + 50GB for
+# longer windows (span-aware default — see Incident 7 in
+# zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md, a 29h
+# full-history run OOM-killed on the flat 16GB default). Override with
+# MACHINE_TYPE=<type>. ~5s/day per (protocol × chain) shard. The Graph
+# paginates 1000 items per request; days with >1000 rate-index events take
+# longer. 30-day backfill ~10-15min, full ~3 years × 3 chains × 3 protocols
+# ~3-6hr.
 #
 # Singleton lock: refuses to launch if another mtds-lending-indices-* VM
 # is RUNNING in the zone. The Graph API key is shared per-account and
@@ -104,7 +108,19 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# Span-aware machine sizing: a full-history run (multi-year) can hold VM
+# lifetime state for ~1 day (unlike single-day/30-day windows, which finish
+# in minutes) — mtds-lending-indices-20260712-112557 ran ~29h on the flat
+# e2-standard-4/16GB default and was OOM-killed (EXIT_STATUS=137) mid-run.
+# zombie_watchdog_relaunch_reaped_live_backfills_2026_06_23.md "Incident 7".
+# MACHINE_TYPE env var always wins if set explicitly.
+_epoch() { date -d "$1" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$1" +%s; }
+_SPAN_DAYS=$(( ( $(_epoch "$END_DATE") - $(_epoch "$START_DATE") ) / 86400 ))
+_DEFAULT_MACHINE_TYPE="e2-standard-4"
+if [[ $_SPAN_DAYS -gt 30 ]]; then
+    _DEFAULT_MACHINE_TYPE="e2-standard-8"
+fi
+MACHINE_TYPE="${MACHINE_TYPE:-$_DEFAULT_MACHINE_TYPE}"
 BOOT_DISK_GB="50"
 
 if ! $FORCE; then
@@ -142,6 +158,7 @@ VM_NAME="mtds-lending-indices-${RUN_TS}"
 _SCOPE_MSG="${START_DATE}..${END_DATE}"
 [[ -n "$LENDING_PROTOCOLS" ]] && _SCOPE_MSG="${_SCOPE_MSG} (protocols: ${LENDING_PROTOCOLS})"
 echo "Launching $VM_NAME: DeFi lending indices ${_SCOPE_MSG}"
+echo "Machine type: $MACHINE_TYPE (span=${_SPAN_DAYS}d)"
 
 # Pre-launch tarball-freshness guard (see lib/launcher_common.sh). This VM
 # fetches mtds-code (+ core UAC/UTL/deployment-service) — the exact code path
