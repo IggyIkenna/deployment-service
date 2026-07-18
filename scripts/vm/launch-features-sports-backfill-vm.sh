@@ -71,6 +71,14 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 FORCE=false
+# REDO_ALL is deliberately SEPARATE from --force. --force bypasses the same-prefix
+# VM singleton LOCK; --redo-all passes `--force` through to the features CLI so it
+# re-derives dates the manifest already marks captured/empty. Conflating the two is
+# the documented api-football mistake (lock bypass + redo_all in one flag). Without
+# this the launcher CANNOT replay a writer fix over history: measured 2026-07-18, a
+# 2.5h lineups re-derive logged 'SKIP fixture_lineups for <date> - manifest shows
+# prior captured/empty (use --force)' on every date and wrote NOTHING.
+REDO_ALL=false
 SKIP_EXISTING=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 DRY_RUN=false
@@ -89,6 +97,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
+    --redo-all) REDO_ALL=true; shift ;;
     --skip-existing) SKIP_EXISTING=true; shift ;;
     --tables) TABLES="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
@@ -104,7 +113,7 @@ esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
-Usage: bash launch-features-sports-backfill-vm.sh [--force] [--skip-existing] [--tables CSV] <START_DATE> <END_DATE>
+Usage: bash launch-features-sports-backfill-vm.sh [--force] [--redo-all] [--skip-existing] [--tables CSV] <START_DATE> <END_DATE>
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
 
@@ -166,6 +175,9 @@ BACKFILL_CMD="${BACKFILL_CMD} --tables ${TABLES}"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
 if $SKIP_EXISTING; then
   BACKFILL_CMD="${BACKFILL_CMD} --skip-existing"
+fi
+if $REDO_ALL; then
+  BACKFILL_CMD="${BACKFILL_CMD} --force"
 fi
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
