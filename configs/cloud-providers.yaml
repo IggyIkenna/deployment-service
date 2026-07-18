@@ -55,6 +55,14 @@ gcp:
     # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — sports is not an accepted
     # delta-one asset_group (cli/parser.py CATEGORIES = CEFI/TRADFI/DEFI/PREDICTION). Bucket
     # confirmed empty and deleted.
+    # features FOLD A (fold_a_cutover_spec, 2026-07-18): folded per-asset_group key; the 5 retired
+    # per-kind buckets collapse into features-{ag}-${DEPLOYMENT_ENV_SHORT}-{pid}, per-kind → key prefix.
+    features:
+      CEFI: "features-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      TRADFI: "features-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      DEFI: "features-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      PREDICTION: "features-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
+      SPORTS: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     features-delta-one:
       CEFI: "features-delta-one-cefi-${GCP_PROJECT_ID}"
       TRADFI: "features-delta-one-tradfi-${GCP_PROJECT_ID}"
@@ -284,6 +292,13 @@ aws:
     # NOTE: features-delta-one env-split ROLLED BACK — mirrors GCP rollback (Phase D).
     # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP section removal
     # above; delta-one is never computed for sports.
+    # features FOLD A (fold_a_cutover_spec, 2026-07-18): folded per-asset_group key; mirrors GCP.
+    features:
+      CEFI: "features-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      TRADFI: "features-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      DEFI: "features-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      PREDICTION: "features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
+      SPORTS: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     features-delta-one:
       CEFI: "features-delta-one-cefi-${AWS_ACCOUNT_ID}"
       TRADFI: "features-delta-one-tradfi-${AWS_ACCOUNT_ID}"
