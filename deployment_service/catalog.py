@@ -48,6 +48,17 @@ _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
     # `path_template="models/"` (see SERVICE_GCS_CONFIGS) so the listing is scoped to
     # the models/ fold and never conflates with predictions/ or configs/.
     "ml-service": "ml-models-store",
+    # execution-service / strategy-service: bucket FOLD C+D
+    # (bucket_fold_execution_strategy_2026_07_17.md / fold_d_cutover_spec, 2026-07-18).
+    # execution-store folded the per-asset_group buckets into the SINGLE flat
+    # `execution-store-{env}-{pid}` bucket (asset_group is now a top-level object-key
+    # `{ag}/` PREFIX, not a bucket dimension); strategy-store gained the `-{env}-` tier.
+    # Both yaml kinds are flat string templates, so `_resolve_service_bucket` passes
+    # asset_group accepted-but-ignored to `resolve_bucket_name`. Routing here (instead of
+    # the retired per-AG / un-tiered `bucket_template` literals) makes the catalog resolve
+    # the folded canonical buckets and survive legacy-bucket deletion.
+    "execution-service": "execution-store",
+    "strategy-service": "strategy-store",
 }
 
 
@@ -272,14 +283,25 @@ SERVICE_GCS_CONFIGS = {
         "list_prefix": True,
     },
     "strategy-service": {
-        # SHARED bucket - strategy signals span all categories
+        # SHARED bucket - strategy signals span all categories.
+        # `bucket_template` is dead for this service — `strategy-service` is now in
+        # `_SERVICE_TO_CANONICAL_KIND` (bucket FOLD D, fold_d_cutover_spec 2026-07-18) so
+        # `_resolve_service_bucket` always takes the `resolve_bucket_name(kind="strategy-store")`
+        # branch (which adds the `-{env}-` tier). Kept as a documented (never-read) fallback
+        # shape only — the `catalog_service` truthiness check requires it to be present.
         "bucket_template": "strategy-store-{project_id}",
         "path_template": "signals/",
         "dimensions": ["strategy_id", "date"],  # No domain dimension for bucket
         "list_prefix": True,
     },
     "execution-service": {
-        "bucket_template": "execution-store-{domain}-{project_id}",
+        # `bucket_template` is dead for this service — `execution-service` is now in
+        # `_SERVICE_TO_CANONICAL_KIND` (bucket FOLD C, bucket_fold_execution_strategy_2026_07_17.md)
+        # so `_resolve_service_bucket` always takes the `resolve_bucket_name(kind="execution-store")`
+        # branch. Kept as a documented (never-read) fallback shape only, updated to the folded flat
+        # shape: the per-asset_group `{domain}` bucket dimension collapsed into the single
+        # `execution-store` bucket (asset_group is now a top-level object-key `{ag}/` prefix).
+        "bucket_template": "execution-store-{project_id}",
         "path_template": "backtest_results/",
         # Dimensions align with sharding: domain determines bucket,
         # strategy/instruments filter signals

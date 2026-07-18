@@ -70,8 +70,16 @@ BUCKET_TEMPLATES: dict[str, str] = {
     # collapsed into the single `ml-store` bucket.
     # Consolidated from ml-training-service + ml-inference-service (2026-05-20).
     "ml-service": "ml-store-{project_id}",
+    # These templates are dead for `strategy-service` / `execution-service` specifically —
+    # both are now in `_SERVICE_TO_CANONICAL_KIND` (bucket FOLD C+D,
+    # bucket_fold_execution_strategy_2026_07_17.md / fold_d_cutover_spec 2026-07-18) so
+    # `_resolve_bucket` always takes the `resolve_bucket_name` branch instead. Kept as
+    # documented (never-read) fallback shapes only, updated to the folded flat shape:
+    # execution's per-asset_group `{domain}` bucket dimension collapsed into the single
+    # `execution-store` bucket (asset_group is now a top-level object-key `{ag}/` prefix),
+    # and strategy stays flat (it only gained the `-{env}-` tier at resolve time).
     "strategy-service": "strategy-store-{project_id}",
-    "execution-service": "execution-store-{domain}-{project_id}",
+    "execution-service": "execution-store-{project_id}",
     # risk-and-exposure-service + pnl-attribution-service removed 2026-05-21:
     # consolidated into strategy-service (strategy_repo_consolidation_2026_05_19.md)
     "alerting-service": "alerting-service-{project_id}",
@@ -102,6 +110,17 @@ _SERVICE_TO_CANONICAL_KIND: dict[str, str] = {
     # filter in get_completion / get_manifest_status — predictions/ + configs/ folds are
     # empty and write no manifest rows, so there is no cross-fold conflation.
     "ml-service": "ml-models-store",
+    # execution-service / strategy-service: bucket FOLD C+D
+    # (bucket_fold_execution_strategy_2026_07_17.md / fold_d_cutover_spec, 2026-07-18).
+    # execution-store folded the per-asset_group buckets into the SINGLE flat
+    # `execution-store-{env}-{pid}` bucket (asset_group is now a top-level object-key
+    # `{ag}/` PREFIX, not a bucket dimension); strategy-store gained the `-{env}-` tier.
+    # Both yaml kinds are flat string templates, so the asset_group passed by
+    # `_resolve_bucket` is accepted-but-ignored by `resolve_bucket_name`. Routing here
+    # (instead of the retired per-AG / un-tiered `BUCKET_TEMPLATES` literals) makes
+    # data-status read the folded canonical buckets and survive legacy-bucket deletion.
+    "execution-service": "execution-store",
+    "strategy-service": "strategy-store",
 }
 
 # MTDS DeFi operations write to additional per-type buckets beyond the main
