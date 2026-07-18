@@ -276,6 +276,31 @@ _EVENT_VM_PREEMPTED_NO_RELAUNCH = "DP_VM_PREEMPTED_NO_RELAUNCH"
 _MAX_PREEMPTION_RELAUNCHES_PER_DAY: int = 48
 
 
+# Rate-budget keys are DERIVED at launch from the fleet size + live daily quota, so
+# replaying them is replaying a stale share. A VM preempted when it was ALONE carries
+# a full-key budget; relaunching it into a now-crowded fleet re-applies that budget and
+# oversubscribes the shared key — the same "replay stale launch params" root cause as
+# START_DATE (see the force-replay guard above). Measured 2026-07-18: five concurrent
+# api-football VMs each holding a full-budget share produced 61 `rateLimit` FALSE
+# attempted_failed rows in ~30min.
+#
+# Dropping them makes the launcher RE-DERIVE on replay: it now counts the running
+# af-backfill-*/af-audit-* fleet and divides by count+1 (measured, not assumed).
+# REMAINING_DAILY_QUOTA is dropped too — it is a point-in-time reading of the live
+# /status quota and is meaningless hours later.
+_STALE_ON_REPLAY: tuple[str, ...] = (
+    "SPORTS_ADAPTER_RATE_RPM",
+    "SPORTS_ADAPTER_CONCURRENCY",
+    "FLEET_VMS",
+    "REMAINING_DAILY_QUOTA",
+)
+
+
+def _drop_stale_rate_budget(env: dict[str, str]) -> dict[str, str]:
+    """Strip launch-time-derived rate-budget keys so the launcher recomputes them."""
+    return {k: v for k, v in env.items() if k not in _STALE_ON_REPLAY}
+
+
 def _default_preemption_budget_dir() -> Path:
     return Path(tempfile.gettempdir()) / "uts_preempted_relaunch_budget"
 
@@ -443,7 +468,7 @@ class RelaunchPreemptedVm:
             return {**base, "status": "PAGE", "reason": "force_run_not_replayable"}
 
         self._stamp_relaunch(prefix)
-        env = launch_env or {}
+        env = _drop_stale_rate_budget(launch_env or {})
         try:
             result = self._run_launcher(launcher, env=env)
         except Exception as exc:  # launcher/SDK failure → CRITICAL + file_issue fallthrough

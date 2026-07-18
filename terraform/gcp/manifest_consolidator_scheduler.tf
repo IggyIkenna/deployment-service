@@ -215,11 +215,11 @@ locals {
     "features-onchain-defi"      = "features-onchain-defi-${var.project_id}"
     "features-sports"            = "features-sports-${local.deployment_env_short}-${var.project_id}"
     "features-calendar"          = "features-calendar-${local.deployment_env_short}-${var.project_id}"
-    # strategy-store consolidated to a single flat bucket (D6 Phase 4, 2026-05-20)
-    "strategy"              = "strategy-store-${var.project_id}"
-    "execution-cefi"        = "execution-store-cefi-${var.project_id}"
-    "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
-    "execution-defi"        = "execution-store-defi-${var.project_id}"
+    # strategy FOLD D (bucket_fold_execution_strategy_2026_07_17): re-tiered to the env-tiered bucket.
+    "strategy"              = "strategy-store-${local.deployment_env_short}-${var.project_id}"
+    # execution FOLD C: the 3 per-AG execution consolidators collapse into ONE job over the folded
+    # bucket root — a single bucket-root _index/ merged across asset_groups (operator decision 2026-07-18).
+    "execution"             = "execution-store-${local.deployment_env_short}-${var.project_id}"
     # Fold B (bucket_fold_ml_2026_07_17): the 5 ml kind-buckets folded into one env-tiered
     # ml-store; the sole ml consolidator (only ml-training-artifacts ever had one) is repointed
     # to the folded bucket so it never targets a soon-deleted source (idle-bucket loud-fail).

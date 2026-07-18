@@ -703,3 +703,39 @@ def test_preempted_relaunch_still_replays_a_non_force_run(tmp_path: Path, monkey
     )
     assert result["status"] == "SUCCEEDED"
     assert launched == [("launch-cefi-sharded-backfill.sh", env)]
+
+
+def test_preempted_relaunch_drops_stale_rate_budget(tmp_path: Path, monkeypatch):
+    """Rate-budget keys must NOT be replayed — they are launch-time-derived.
+
+    A VM preempted while ALONE carries a full-key budget; replaying that into a now
+    crowded fleet oversubscribes the shared key (measured 2026-07-18: 5 concurrent
+    api-football VMs each holding a full share => 61 rateLimit FALSE failures in 30min).
+    Dropping them forces the launcher to RE-DERIVE from the measured running fleet.
+    """
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "af-backfill-20260718-150353",
+        launcher="launch-api-football-backfill-vm.sh",
+        asset_group="sports",
+        launch_env={
+            "VM_START_DATE": "2019-01-01",
+            "SPORTS_ADAPTER_RATE_RPM": "1200",
+            "SPORTS_ADAPTER_CONCURRENCY": "16",
+            "FLEET_VMS": "1",
+            "REMAINING_DAILY_QUOTA": "450000",
+        },
+    )
+    assert result["status"] == "SUCCEEDED"
+    replayed = launched[0][1]
+    for stale in ("SPORTS_ADAPTER_RATE_RPM", "SPORTS_ADAPTER_CONCURRENCY", "FLEET_VMS", "REMAINING_DAILY_QUOTA"):
+        assert stale not in replayed, f"{stale} must be re-derived on replay, not replayed"
+    # Non-rate params still replay verbatim.
+    assert replayed["VM_START_DATE"] == "2019-01-01"
