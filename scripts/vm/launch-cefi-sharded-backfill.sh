@@ -82,6 +82,28 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Still opt-in TARDIS_CONCURRENCY_LEASE + a control bucket is recommended as a safety
 # net even in this mode (harmless no-op cost when only one VM is ever running).
 SINGLE_VM_QUEUE="${SINGLE_VM_QUEUE:-0}"
+
+# ─── Boot disk: pd-balanced 250GB, NOT the old pd-standard 50GB ──────────────
+# Measured 2026-07-18 on cefi-queue-heavy-binancefutu-x17-20260718-165536. The
+# "Tardis throughput cliff" (12 MB/s for ~7.5GB, then a permanent collapse to
+# ~2.4 MB/s) was NEVER a Tardis quota — it was this boot disk saturating.
+#
+#   iostat on the degraded VM: %util=99.94, w_await=1015ms, aqu-sz=51,
+#   CPU 93.5% idle / 6.2% iowait, RAM 115GB free of 128, disk 11% full.
+#
+# Tardis serves .csv.gz, so ~2.4 MB/s of compressed download becomes ~12 MB/s of
+# decompressed/parquet writes (~5x amplification). A 50GB pd-standard sustains
+# only ~6 MB/s of writes (0.12 MB/s per GB); its burst credits deplete as a
+# function of CUMULATIVE BYTES WRITTEN, which is exactly why the cliff tracked
+# volume (~7.5GB) rather than time, venue, or instrument type — and why a fresh
+# VM (fresh disk, replenished credits) always started fast again.
+#
+# GCP PD throughput scales linearly with size: 250GB pd-balanced = ~70 MB/s of
+# writes, enough to absorb ~14 MB/s of RX with no cliff. Costs ~$25/month
+# prorated (a few dollars for a multi-day backfill).
+#
+# Override per-launch with BOOT_DISK_SIZE / BOOT_DISK_TYPE if a profile needs
+# more; do NOT drop back to pd-standard for any download-heavy VM.
 # LAUNCH_GROUPS: space-separated subset of "heavy light" to launch (default both). Lets
 # an operator/agent fill exactly one free Tardis-cap slot (e.g. LAUNCH_GROUPS="heavy" now,
 # "light" when the next slot frees) instead of being forced into a 2-bucket queue launch.
@@ -557,7 +579,7 @@ launch_cefi_shard() {
       --zone="$ZONE" --machine-type="$machine" \
       ${prov_flags} \
       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-      --boot-disk-size=50GB \
+      --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform --metadata="^|^${meta}" \
       --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
       --labels=env="${DEPLOYMENT_ENV}" \
@@ -763,7 +785,7 @@ _launch_queued_vm() {
     --zone="$ZONE" --machine-type="$machine" \
     ${prov_flags} \
     --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
-    --boot-disk-size=50GB \
+    --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform --metadata="$meta" \
     --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
     --labels=env="${DEPLOYMENT_ENV}" \
