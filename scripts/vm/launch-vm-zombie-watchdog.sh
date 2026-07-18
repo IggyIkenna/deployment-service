@@ -212,21 +212,26 @@ fi
 # deployment-service tarball + export the env override so probing succeeds
 # regardless of cwd. Without this the watchdog crash-loops on BucketNamingError
 # and no zombies get reaped — observed 2026-05-28.
-# ALSO pip-install it (--no-deps): the corrected 2026-07-18 finding
-# (Incident 5 follow-up) is that vm_zombie_watchdog.py line ~119 still does
-# a MODULE-LEVEL import of VM_PREFIX_TO_BUCKET from
+# ALSO pip-install it: the corrected 2026-07-18 finding (Incident 5
+# follow-up) is that vm_zombie_watchdog.py line ~119 still does a
+# MODULE-LEVEL import of VM_PREFIX_TO_BUCKET from
 # deployment_service.vm_prefix_registry — the earlier comment here claiming
 # deployment_service no longer needs to be importable was WRONG (it
 # conflated the _backup_vm_logs_before_kill registry-path helpers, which did
 # move to UTL, with this unrelated top-level import, which never moved).
-# --no-deps skips deployment-service's heavy fastapi/uvicorn/botocore/web3/
-# pytest-family deps, which the watchdog never touches (mirrors
-# setup-data-pipeline-vm.sh's same --no-deps route for this exact package).
+# NOT --no-deps: a --no-deps install DOES pip-install successfully but
+# still fails at IMPORT time (Incident 5 follow-up #2, verified via a real
+# end-to-end scratch-venv test) — deployment_service/__init__.py
+# unconditionally imports LiveDeployer -> VMBackend -> VMConfigManager ->
+# jinja2 (and other heavy deps) regardless of which submodule you actually
+# import, so skipping deps just moves the ModuleNotFoundError from
+# unified_api_contracts to jinja2. Full install (already proven end-to-end
+# on a real watchdog VM during the Incident-5 diagnosis) is required.
 gsutil -q cp "gs://${CODE_BUCKET}/code/deployment-service-code.tar.gz" /tmp/dep.tar.gz 2>&1 || true
 if [[ -f /tmp/dep.tar.gz ]]; then
     mkdir -p /tmp/dep-src
     tar xf /tmp/dep.tar.gz -C /tmp/dep-src --strip-components=1 2>&1 | head -5 || true
-    /opt/watchdog-venv/bin/pip install --quiet --no-deps /tmp/dep-src 2>&1 | tail -3 || true
+    /opt/watchdog-venv/bin/pip install --quiet /tmp/dep-src 2>&1 | tail -3 || true
 fi
 export UNIFIED_TRADING_CLOUD_PROVIDERS_YAML=/tmp/dep-src/configs/cloud-providers.yaml
 
