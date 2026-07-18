@@ -625,6 +625,18 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_INSTR_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # features-sports singleton backfill (launch-features-sports-backfill-vm.sh,
+    # features-service). Previously collided with fs-backfill- above (FootyStats,
+    # instruments-service) — both launchers emitted the same VM_NAME prefix, so
+    # name-based fleet inspection couldn't tell them apart without reading VM
+    # metadata. Split 2026-07-18, see
+    # api_football_backfill_chronological_scan_never_reaches_pending_tail_2026_07_18.md
+    # todo P3. Distinct from fss-backfill-vm- below (the parallel-fanout variant
+    # of the same features-sports backfill).
+    "fts-backfill-": VmPrefixSpec(
+        bucket=_FEAT_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     "af-backfill-": VmPrefixSpec(
         bucket=_INSTR_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,

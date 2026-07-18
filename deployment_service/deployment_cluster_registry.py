@@ -118,6 +118,7 @@ _CAPTURE_LAUNCHER_PREFIXES: Final[tuple[str, ...]] = (
     "features-",
     "fss-backfill-",
     "fs-backfill-",
+    "fts-backfill-",
     # cefi per-venue OHLCV / tick capture + forward-poll
     "cefi-binance-",
     "cefi-bybit-",

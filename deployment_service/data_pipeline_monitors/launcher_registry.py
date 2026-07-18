@@ -204,7 +204,11 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "opt-cme-": "launch-targeted-options-chain-backfill.sh",
     "cme-events-": None,  # CME event-contract — covered by tradfi-event-contract-backfill prefix
     # ── Sports reference-data backfill (per-source launcher prefixes) ─────
-    "fs-backfill-": "launch-footystats-backfill-vm.sh",  # VM_NAME=fs-backfill-${RUN_TS} (also features-sports-backfill)
+    "fs-backfill-": "launch-footystats-backfill-vm.sh",  # VM_NAME=fs-backfill-${RUN_TS}
+    # features-sports singleton backfill — split off the shared fs-backfill-
+    # prefix above 2026-07-18 (was colliding with FootyStats's identical
+    # VM_NAME shape). VM_NAME=fts-backfill-${RUN_TS}.
+    "fts-backfill-": "launch-features-sports-backfill-vm.sh",
     "af-backfill-": "launch-api-football-backfill-vm.sh",
     "af-audit-": "launch-fixtures-truthset-audit-vm.sh",
     "af-recover-": "launch-fixtures-recovery-vm.sh",
