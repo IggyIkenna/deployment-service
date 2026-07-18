@@ -73,11 +73,18 @@ DRY_RUN=false
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND=false
 
+# Which feature tables to (re-)derive. Defaults to fixture_features for backward
+# compatibility; overridable so a single table can be re-derived without touching
+# the others — e.g. --tables fixture_lineups to replay the lineups normalizer fix
+# (features-service@cf10b931) across history from raw, with ZERO api-football calls.
+TABLES="${TABLES:-fixture_features}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --skip-existing) SKIP_EXISTING=true; shift ;;
+    --tables) TABLES="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
@@ -91,7 +98,7 @@ esac
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
-Usage: bash launch-features-sports-backfill-vm.sh [--force] [--skip-existing] <START_DATE> <END_DATE>
+Usage: bash launch-features-sports-backfill-vm.sh [--force] [--skip-existing] [--tables CSV] <START_DATE> <END_DATE>
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
 
@@ -141,7 +148,7 @@ VM_NAME="fs-backfill-${RUN_TS}"
 # substitutes `python ` → the per-tarball venv python.
 BACKFILL_CMD="python -m features_service.sports"
 BACKFILL_CMD="${BACKFILL_CMD} --operation compute --mode batch --asset-group SPORTS"
-BACKFILL_CMD="${BACKFILL_CMD} --tables fixture_features"
+BACKFILL_CMD="${BACKFILL_CMD} --tables ${TABLES}"
 BACKFILL_CMD="${BACKFILL_CMD} --start-date ${START_DATE} --end-date ${END_DATE}"
 if $SKIP_EXISTING; then
   BACKFILL_CMD="${BACKFILL_CMD} --skip-existing"
