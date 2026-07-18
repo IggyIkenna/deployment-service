@@ -409,6 +409,39 @@ class RelaunchPreemptedVm:
                 "max_per_day": self._max_per_day,
             }
 
+        # A ``--force`` / ``redo_all`` run CANNOT be safely replayed. This relauncher
+        # replays the ORIGINAL launch params (including ``VM_START_DATE``), which is
+        # correct for a normal backfill because presence-skip absorbs the redo and the
+        # run resumes naturally. ``--force`` DISABLES that skip by definition, so a
+        # replay restarts the backfill at day one — on every preemption, forever —
+        # burning quota and never converging.
+        #
+        # Measured 2026-07-18 (sports round-FIXTURES; the defect is asset-group
+        # agnostic): ~54 days/hour over a 2,390-day range ⇒ ~44h of runtime, while SPOT
+        # reclaimed the VM after ~10 minutes of real work. A blind replay would have
+        # re-done 2019-01-01..07 indefinitely.
+        #
+        # PAGE loudly rather than loop silently. The operator (or an autonomous loop)
+        # relaunches from ``last_completed_unit + 1``, which makes progress monotonic.
+        # SSOT: ``codex/05-infrastructure/spot-vms-for-backfill.md`` § "Preemption
+        # recovery MUST resume from PROGRESS, never replay START_DATE".
+        if str((launch_env or {}).get("VM_FORCE", "")).strip().lower() == "true":
+            log_event(
+                _EVENT_VM_PREEMPTED_NO_RELAUNCH,
+                severity="CRITICAL",
+                details={
+                    **base,
+                    "recovery_action": "relaunch_preempted_vm",
+                    "force_run_not_replayable": True,
+                    "detail": "preempted VM ran with VM_FORCE=true (redo_all); replaying its original "
+                    "VM_START_DATE would restart the backfill from day one on EVERY preemption because "
+                    "--force disables the presence-skip a normal backfill resumes by. Relaunch from "
+                    "last_completed_unit+1 instead (measure the last completed unit from the TARGET "
+                    "artifact, entity-scoped).",
+                },
+            )
+            return {**base, "status": "PAGE", "reason": "force_run_not_replayable"}
+
         self._stamp_relaunch(prefix)
         env = launch_env or {}
         try:

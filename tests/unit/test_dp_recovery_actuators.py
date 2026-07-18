@@ -646,3 +646,60 @@ def test_route_auto_recover_preempted_relaunch_failure_falls_through(tmp_path: P
     assert result["recovery"]["recovered"] is False
     assert result["effective_tier"] == "file_issue"
     assert result["issue_path"] is not None
+
+
+def test_preempted_relaunch_refuses_to_replay_a_force_run(tmp_path: Path, monkeypatch):
+    """A --force/redo_all run must NOT be replayed — it would restart at day one forever.
+
+    Regression pin (codified 2026-07-18, codex/05-infrastructure/spot-vms-for-backfill.md
+    "Preemption recovery MUST resume from PROGRESS, never replay START_DATE"): this
+    actuator replays the ORIGINAL VM_START_DATE, which is correct only because
+    presence-skip absorbs the redo. --force DISABLES that skip, so replaying restarts
+    the backfill from the beginning on EVERY preemption — burning quota, never
+    converging. Measured: ~54 days/hour over a 2,390-day range, preempted after ~10min.
+    PAGE loudly instead of looping silently.
+    """
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "af-backfill-20260718-150353",
+        launcher="launch-api-football-backfill-vm.sh",
+        asset_group="sports",
+        launch_env={"VM_FORCE": "true", "VM_START_DATE": "2019-01-01", "VM_END_DATE": "2026-07-17"},
+    )
+
+    assert result["status"] == "PAGE"
+    assert result["reason"] == "force_run_not_replayable"
+    # The launcher must NOT have been invoked — a silent infinite restart is the bug.
+    assert launched == []
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" and e[2].get("force_run_not_replayable")
+        for e in emitted
+    )
+
+
+def test_preempted_relaunch_still_replays_a_non_force_run(tmp_path: Path, monkeypatch):
+    """The force guard must not regress the normal (skip-enabled) resume path."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    env = {"VM_FORCE": "false", "VM_START_DATE": "2026-02-01"}
+    result = actuator.relaunch(
+        "cefi-queue-heavy-binancefutu-x15-20260716-075338",
+        launcher="launch-cefi-sharded-backfill.sh",
+        asset_group="cefi",
+        launch_env=env,
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched == [("launch-cefi-sharded-backfill.sh", env)]
