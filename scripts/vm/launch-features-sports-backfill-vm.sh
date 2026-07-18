@@ -47,15 +47,21 @@
 #
 # --skip-existing: skip dates where fixture_features parquet already exists
 #                  in GCS (safe resume after VM restart).
-# --force:         bypass singleton lock (same-prefix fs-backfill-* VM lock).
+# --force:         bypass singleton lock (same-prefix fts-backfill-* VM lock).
 #
-# Singleton lock: refuses to launch if any fs-backfill-* VM is already running
+# Singleton lock: refuses to launch if any fts-backfill-* VM is already running
 # in the zone. features-sports-service batch_handler reads from several GCS
 # buckets concurrently per-date and can pressure the network when many VMs
 # race. One VM per window is sufficient — the bottleneck is pandas joins per
 # day, not network fanout. Pass --force only when you have a genuinely
 # disjoint reason (e.g. two different feature groups / two different
 # non-overlapping date windows).
+#
+# VM-name prefix: fts-backfill- (Features-sports Singleton backfill) — distinct
+# from launch-footystats-backfill-vm.sh's fs-backfill- (a different repo/service
+# that collided on this exact prefix; see
+# api_football_backfill_chronological_scan_never_reaches_pending_tail_2026_07_18.md)
+# and from launch-features-sports-parallel-backfill-vm.sh's fss-backfill-vm-N.
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
 # is propagated to VM metadata so bucket-resolution targets the right env tier.
@@ -121,10 +127,10 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 
-# Singleton lock — prevent duplicate fs-backfill-* VMs in the zone.
+# Singleton lock — prevent duplicate fts-backfill-* VMs in the zone.
 if ! $FORCE; then
   EXISTING="$(gcloud compute instances list \
-    --filter='name~"^fs-backfill-" AND status=RUNNING' \
+    --filter='name~"^fts-backfill-" AND status=RUNNING' \
     --zones="$ZONE" \
     --format='value(name)' 2>/dev/null | head -1)"
   if [[ -n "$EXISTING" ]]; then
@@ -150,7 +156,7 @@ EOF
 fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
-VM_NAME="fs-backfill-${RUN_TS}"
+VM_NAME="fts-backfill-${RUN_TS}"
 
 # Compose the in-VM command. features-backfill branch of setup-data-pipeline-vm.sh
 # substitutes `python ` → the per-tarball venv python.

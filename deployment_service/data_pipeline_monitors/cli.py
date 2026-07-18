@@ -234,6 +234,7 @@ _DATA_VM_PREFIXES = (
     "mtds-",
     "tm-backfill",
     "fs-backfill",
+    "fts-backfill",
     "instruments-",
     "tradfi-bf",
     "tradfi-fwd",
