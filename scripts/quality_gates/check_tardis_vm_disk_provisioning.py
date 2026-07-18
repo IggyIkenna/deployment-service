@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Fail if a Tardis-consuming VM launcher provisions an inadequate boot disk.
+
+Epic: cefi backfill throughput
+Lifecycle: PERMANENT — guards the 2026-07-18 root cause from silently regressing.
+
+WHY (measured 2026-07-18 on cefi-queue-heavy-binancefutu-x17-20260718-165536):
+a ``pd-standard`` 50GB boot disk sustains only ~6 MB/s of writes, and its burst
+credits deplete as a function of CUMULATIVE BYTES WRITTEN. The CeFi backfill
+therefore ran at ~12 MB/s for its first ~7.5GB and then collapsed to ~2.4 MB/s
+permanently. ``iostat`` on the degraded VM: ``%util=99.94``, ``w_await=1015ms``,
+``aqu-sz=51``, CPU 93.5% idle / 6.2% iowait, RAM 115GB free of 128, disk 11% full
+— unambiguous disk starvation, which was misdiagnosed for hours as a Tardis
+account/session/IP quota (there were ZERO HTTP 429s the whole time).
+
+Tardis serves ``.csv.gz``, so download RX is ~5x amplified by the time it is
+decompressed and written as parquet: ~2.4 MB/s of RX is ~12 MB/s of writes. GCP
+persistent-disk throughput scales linearly with size, so the fix is a bigger,
+faster disk: 250GB ``pd-balanced`` = ~70 MB/s of writes, enough to absorb ~14 MB/s
+of RX with no cliff, for ~$25/month prorated.
+
+A launcher counts as a Tardis consumer if it references ``VM_TARDIS_CONSUMER`` or
+``tardis_concurrency_guard``. Such a launcher must provision BOTH an explicit
+non-``pd-standard`` disk type AND at least MIN_DISK_GB. Omitting
+``--boot-disk-type`` entirely is a failure: GCP silently defaults to
+``pd-standard``, which is exactly how this regression happened.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+MIN_DISK_GB = 250
+SLOW_TYPES = {"pd-standard"}
+TARDIS_MARKERS = ("VM_TARDIS_CONSUMER", "tardis_concurrency_guard")
+
+# AWS launchers use EBS flags, not GCP persistent disks; they are out of scope here
+# and are guarded by their own provisioning path.
+SKIP_SUFFIXES = ("-aws.sh",)
+
+_SIZE_RE = re.compile(r"--boot-disk-size=[\"']?(?:\$\{BOOT_DISK_SIZE:-)?(\d+)GB")
+_TYPE_RE = re.compile(r"--boot-disk-type=[\"']?(?:\$\{BOOT_DISK_TYPE:-)?([a-z0-9-]+)")
+
+
+def _iter_launchers(vm_dir: Path):
+    for path in sorted(vm_dir.glob("launch-*.sh")):
+        if path.name.endswith(SKIP_SUFFIXES):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if any(marker in text for marker in TARDIS_MARKERS):
+            yield path, text
+
+
+def main() -> int:
+    vm_dir = Path(__file__).resolve().parents[2] / "scripts" / "vm"
+    if not vm_dir.is_dir():
+        print(f"❌ vm launcher dir not found: {vm_dir}")
+        return 1
+
+    failures: list[str] = []
+    checked = 0
+
+    for path, text in _iter_launchers(vm_dir):
+        # A launcher that never creates an instance (a guard/library) has nothing
+        # to provision.
+        if "--boot-disk-size" not in text:
+            continue
+        checked += 1
+        rel = path.relative_to(vm_dir.parents[1])
+
+        type_match = _TYPE_RE.search(text)
+        if type_match is None:
+            failures.append(
+                f"{rel}: Tardis consumer with NO --boot-disk-type — GCP defaults to "
+                f"pd-standard (~6 MB/s writes at 50GB), which caused the 2026-07-18 "
+                f"throughput collapse. Set --boot-disk-type=pd-balanced."
+            )
+        elif type_match.group(1) in SLOW_TYPES:
+            failures.append(
+                f"{rel}: Tardis consumer on {type_match.group(1)} — too slow for a "
+                f"download-heavy VM. Use pd-balanced or pd-ssd."
+            )
+
+        size_match = _SIZE_RE.search(text)
+        if size_match is None:
+            failures.append(f"{rel}: could not parse --boot-disk-size")
+        elif int(size_match.group(1)) < MIN_DISK_GB:
+            failures.append(
+                f"{rel}: boot disk {size_match.group(1)}GB < {MIN_DISK_GB}GB minimum — "
+                f"GCP PD throughput scales with SIZE, so a small disk throttles writes "
+                f"regardless of type."
+            )
+
+    if failures:
+        print("❌ Tardis VM disk provisioning check FAILED\n")
+        for f in failures:
+            print(f"  • {f}")
+        print("\n  Root cause doc: plans/active/issues/tardis_account_volume_quota_7gb_throughput_cliff_2026_07_18.md")
+        return 1
+
+    print(
+        f"✅ Tardis VM disk provisioning: {checked} Tardis-consuming launcher(s) "
+        f"on non-pd-standard disks >= {MIN_DISK_GB}GB"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

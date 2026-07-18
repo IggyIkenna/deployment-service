@@ -117,3 +117,14 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT}" run_timeout 30 \
     python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_dual_cloud_parity.py" \
     && log_success "Dual-cloud parity: all image-building repos have buildspec.aws.yaml" \
     || log_fail "Dual-cloud parity FAILED — see above for missing repos"
+
+# Tardis-consuming VM launchers must provision a disk that can absorb the download.
+# A pd-standard 50GB boot disk throttled the CeFi backfill to ~2.4 MB/s after ~7.5GB
+# (measured 2026-07-18: %util 99.94, w_await 1015ms, CPU idle, RAM free) and was
+# misdiagnosed for hours as a Tardis quota. SSOT: plans/active/issues/
+# tardis_account_volume_quota_7gb_throughput_cliff_2026_07_18.md
+log_section "[TARDIS-DISK] Tardis VM boot-disk provisioning check"
+run_timeout 30 \
+    python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_tardis_vm_disk_provisioning.py" \
+    && log_success "Tardis VM disks: all Tardis-consuming launchers on adequate disks" \
+    || log_fail "Tardis VM disk provisioning FAILED — see above"
