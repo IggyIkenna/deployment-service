@@ -220,7 +220,11 @@ locals {
     "execution-cefi"        = "execution-store-cefi-${var.project_id}"
     "execution-tradfi"      = "execution-store-tradfi-${var.project_id}"
     "execution-defi"        = "execution-store-defi-${var.project_id}"
-    "ml-training-artifacts" = "ml-training-artifacts-${var.project_id}"
+    # Fold B (bucket_fold_ml_2026_07_17): the 5 ml kind-buckets folded into one env-tiered
+    # ml-store; the sole ml consolidator (only ml-training-artifacts ever had one) is repointed
+    # to the folded bucket so it never targets a soon-deleted source (idle-bucket loud-fail).
+    # Category key kept (cosmetic — the live job name is stable); rename to "ml-store" in closeout.
+    "ml-training-artifacts" = "ml-store-${local.deployment_env_short}-${var.project_id}"
     # "features-onchain-cefi" entry REMOVED 2026-07-17 (asset-group parity sweep) — on-chain metrics
     # are DeFi-only in every consumer (features_service/onchain/config.py hardcodes
     # `_ONCHAIN_ASSET_GROUP = "defi"` and get_output_bucket() ignores its asset_group arg;
