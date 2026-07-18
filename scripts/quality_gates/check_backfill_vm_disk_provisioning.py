@@ -132,7 +132,9 @@ def main() -> int:
         print("❌ Backfill VM disk provisioning check FAILED\n")
         for f in failures:
             print(f"  • {f}")
-        print("\n  Root cause doc: plans/active/issues/tardis_account_volume_quota_7gb_throughput_cliff_2026_07_18.md")
+        print(
+            "\n  Root cause doc: plans/active/issues/backfill_vm_disk_starvation_misdiagnosed_as_tardis_quota_2026_07_18.md"
+        )
         return 1
 
     print(
