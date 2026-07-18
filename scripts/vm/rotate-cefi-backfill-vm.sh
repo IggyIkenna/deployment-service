@@ -53,17 +53,27 @@ print(f'{p[-1]/1e6:.2f}' if p else 0)"
 cycle=0
 while :; do
   cycle=$((cycle+1))
-  [ "$CYCLES" -gt 0 ] && [ "$cycle" -gt "$CYCLES" ] && { echo "reached --cycles $CYCLES; done"; break; }
   VM=$(_running_vm)
   if [ -z "$VM" ]; then
-    echo "[cycle $cycle] launching backfill VM..."
-    [ "$DRY" = 1 ] || ( cd "$DS" && YEARS="${YEARS:-2026}" START_DATE="${START_DATE:-2026-02-05}" \
+    echo "[cycle $cycle] launching backfill VM (start=${R_START:-launcher-default} venues=${R_NVENUES:-launcher-default})..."
+    # Replay the ROTATED VM's own parameters — never hardcoded guesses. YEARS in particular
+    # OVERRIDES the launcher's per-venue year derivation (_venue_years), so forcing a value
+    # would silently narrow the backfill for any venue whose natural range differs. END_DATE
+    # is intentionally NOT replayed: the launcher derives it as "yesterday", which is what we
+    # want on each relaunch. Unset vars fall through to the launcher's own defaults.
+    [ "$DRY" = 1 ] || ( cd "$DS" && \
+        ${R_START:+START_DATE="$R_START"} ${R_VENUES:+VENUES="$R_VENUES"} ${R_YEARS:+YEARS="$R_YEARS"} \
         SINGLE_VM_QUEUE=1 LAUNCH_GROUPS="${LAUNCH_GROUPS:-heavy}" STALL_TIMEOUT_SEC=9000 \
         bash scripts/vm/launch-cefi-sharded-backfill.sh >/dev/null 2>&1 )
     for _ in $(seq 1 30); do VM=$(_running_vm); [ -n "$VM" ] && break; sleep 10; done
     [ -z "$VM" ] && { echo "  launch failed; retrying next cycle"; sleep 60; continue; }
   fi
   IID=$(gcloud compute instances describe "$VM" --zone=$Z --project="$P" --format='value(id)' 2>/dev/null)
+  _meta() { gcloud compute instances describe "$VM" --zone=$Z --project="$P" \
+      --format="value(metadata.items.filter(\"key:$1\").extract(\"value\"))" 2>/dev/null \
+      | tr -d "[]'" ; }
+  R_START="$(_meta VM_START_DATE)"; R_VENUES="$(_meta VM_VENUE)"
+  R_YEARS="$(_meta VM_YEARS)"; R_NVENUES=$(echo "$R_VENUES" | wc -w)
   echo "[cycle $cycle] supervising $VM (rotate at ${ROTATE_GB}GB or ${FLOOR}MB/s x${LOW_TICKS})"
   cum=0; low=0
   while :; do
@@ -79,6 +89,11 @@ while :; do
       low=$((low+1)); [ "$low" -ge "$LOW_TICKS" ] && { echo "  -> rx<${FLOOR}MB/s x${low} — throttled, ROTATING"; break; }
     else low=0; fi
   done
+  if [ "$CYCLES" -gt 0 ] && [ "$cycle" -ge "$CYCLES" ]; then
+    echo "  reached --cycles $CYCLES — exiting WITHOUT deleting; $VM is left RUNNING."
+    echo "  (never exit between delete and relaunch: that strands the backfill with zero VMs)"
+    break
+  fi
   if [ "$DRY" = 1 ]; then echo "  (dry-run: would delete $VM)"; else
     gcloud compute instances delete "$VM" --zone=$Z --project="$P" --quiet >/dev/null 2>&1
     for _ in $(seq 1 20); do [ -z "$(_running_vm)" ] && break; sleep 10; done
