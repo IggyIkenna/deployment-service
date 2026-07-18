@@ -191,7 +191,7 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-8"
-BOOT_DISK_GB="50"
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"
@@ -273,7 +273,12 @@ gcloud compute instances create "$VM_NAME" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
     ${PROVISIONING_FLAGS} \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
+    # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+    # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+    # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+    # disk only 14.7% utilised). Enforced by
+    # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+    --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \

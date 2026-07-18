@@ -122,9 +122,9 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT}" run_timeout 30 \
 # A pd-standard 50GB boot disk throttled the CeFi backfill to ~2.4 MB/s after ~7.5GB
 # (measured 2026-07-18: %util 99.94, w_await 1015ms, CPU idle, RAM free) and was
 # misdiagnosed for hours as a Tardis quota. SSOT: plans/active/issues/
-# tardis_account_volume_quota_7gb_throughput_cliff_2026_07_18.md
-log_section "[TARDIS-DISK] Tardis VM boot-disk provisioning check"
+# backfill_vm_disk_starvation_misdiagnosed_as_tardis_quota_2026_07_18.md
+log_section "[BACKFILL-DISK] Backfill VM boot-disk provisioning check"
 run_timeout 30 \
-    python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_tardis_vm_disk_provisioning.py" \
-    && log_success "Tardis VM disks: all Tardis-consuming launchers on adequate disks" \
-    || log_fail "Tardis VM disk provisioning FAILED — see above"
+    python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_backfill_vm_disk_provisioning.py" \
+    && log_success "Backfill VM disks: all download-heavy launchers on adequate disks" \
+    || log_fail "Backfill VM disk provisioning FAILED — see above"

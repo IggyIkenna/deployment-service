@@ -60,7 +60,7 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$REPO_ROOT/.." && pwd)}"
 # Defaults
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-4}"
-DISK_SIZE="${DISK_SIZE:-50GB}"
+DISK_SIZE="${DISK_SIZE:-150GB}"
 PROJECT_ID="${GCP_PROJECT_ID:-central-element-323112}"
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
@@ -236,6 +236,9 @@ gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
+    # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk
+    # sustains only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB
+    # (2026-07-18). Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
     --boot-disk-size="${DISK_SIZE}" \
     --boot-disk-type=pd-ssd \
     --image-family=ubuntu-2404-lts-amd64 \

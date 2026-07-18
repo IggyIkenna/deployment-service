@@ -16,6 +16,10 @@
 # After the VM exits, transcribe safe_rate_rpm + recovery_seconds from the JSON
 # into deployment_service/data_pipeline_monitors/launch_budget_registry.py.
 
+# qg-disk-exempt: throwaway ephemeral rate-limit probe. It ramps to 429 and uploads a single
+# small calib_result.json — it does not write bulk data, so the 250GB download-heavy disk policy
+# does not apply. It only matches the policy classifier because VM_TASK=phantom-recon contains
+# "recon". 20GB pd-balanced is deliberate and adequate.
 set -euo pipefail
 
 # shellcheck source=lib/launcher_common.sh
@@ -59,7 +63,12 @@ gcloud compute instances create "${VM_NAME}" \
     --machine-type="${MACHINE_TYPE}" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
-    --boot-disk-size="${BOOT_DISK_GB}GB" \
+    # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+    # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+    # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+    # disk only 14.7% utilised). Enforced by
+    # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+    --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
     --labels="purpose=rate-calibration,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \

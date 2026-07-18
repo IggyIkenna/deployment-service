@@ -72,7 +72,7 @@ MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
 
 # Optional CLI flag --max-workers N forwards to the in-VM MDPS CLI.
 CLI_MAX_WORKERS=""
-BOOT_DISK_GB="50"
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 # Per-tarball SHA pins — prevents race condition where another slot rebuilds the
 # fixed-name tarball between tarball build and VM boot.
 # Reads from env or CLI --utl-sha / --mdps-sha flags.
@@ -315,7 +315,13 @@ launch_year_shard() {
         --project="$PROJECT" \
         --zone="$ZONE" \
         --machine-type="$machine_type" \
-        --boot-disk-size="${BOOT_DISK_GB}GB" \
+        # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
+        # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
+        # BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
+        # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
+        # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
+        # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+        --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
         --image-family=ubuntu-2404-lts-amd64 \
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \

@@ -76,7 +76,7 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
-BOOT_DISK_GB="${BOOT_DISK_GB:-50}"
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Backfill/idempotent VMs default to SPOT (HARD RULE: spot-vms-for-backfill) — the
 # script is idempotent (quarantine skips already-moved files; fix-by-date backs up
@@ -150,7 +150,12 @@ else
       --machine-type="$MACHINE_TYPE" \
       --image-family=ubuntu-2404-lts-amd64 \
       --image-project=ubuntu-os-cloud \
-      --boot-disk-size="${BOOT_DISK_GB}GB" \
+      # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+      # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+      # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+      # disk only 14.7% utilised). Enforced by
+      # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+      --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform \
       "${PROVISIONING_ARGS[@]}" \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
