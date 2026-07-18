@@ -97,6 +97,9 @@ DRY_RUN=false
 # out N api-football VMs (--force). REMAINING_DAILY_QUOTA is optional (omit ⇒ the
 # per-minute cap is the only constraint, fine when the day is fresh).
 FLEET_VMS="${FLEET_VMS:-1}"
+# Tracks whether the operator SET the divisor, vs it being the default. When unset we
+# DERIVE it from the measured running fleet (below) instead of assuming this VM is alone.
+FLEET_VMS_EXPLICIT=false
 REMAINING_DAILY_QUOTA="${REMAINING_DAILY_QUOTA:-}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
@@ -123,7 +126,7 @@ while [[ $# -gt 0 ]]; do
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
     --recovery-fixture-ids) RECOVERY_FIXTURE_IDS="$2"; shift 2 ;;
-    --fleet-vms) FLEET_VMS="$2"; shift 2 ;;
+    --fleet-vms) FLEET_VMS="$2"; FLEET_VMS_EXPLICIT=true; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
     *) break ;;
@@ -205,6 +208,27 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+
+# ── Rate-budget divisor from MEASURED concurrency (not an assumption) ──
+# The per-VM throttle is EFFECTIVE_RPM / FLEET_VMS, and FLEET_VMS defaulted to 1 —
+# i.e. every VM assumed it was ALONE unless a human remembered --fleet-vms N. Nothing
+# enforced that promise, so every path that creates concurrency (--force, --skip-lock,
+# a second actor, and especially auto-relaunch, which replays the ORIGINAL env) silently
+# oversubscribed the shared key. Measured 2026-07-18: five concurrent VMs each throttling
+# at a full-budget share produced 61 `rateLimit` FALSE attempted_failed rows in ~30min.
+# We know the ceiling exactly (1200 req/min + 450k/day, ONE quota across all endpoints) —
+# so the divisor must be a MEASURED fact, not a promise. Count first, divide by reality.
+if ! $FLEET_VMS_EXPLICIT; then
+  RUNNING_AF_COUNT="$(gcloud compute instances list \
+    --filter='(name~"^af-backfill-" OR name~"^af-audit-") AND status=RUNNING' \
+    --zones="$ZONE" --format='value(name)' 2>/dev/null | wc -l | tr -d ' ')"
+  RUNNING_AF_COUNT="${RUNNING_AF_COUNT:-0}"
+  if [[ "$RUNNING_AF_COUNT" -gt 0 ]]; then
+    FLEET_VMS=$(( RUNNING_AF_COUNT + 1 ))
+    echo "Rate-budget divisor: ${RUNNING_AF_COUNT} api-football VM(s) already RUNNING → --fleet-vms auto-derived to ${FLEET_VMS} (this VM throttles to 1/${FLEET_VMS} of the key ceiling)." >&2
+    echo "  NOTE: the ${RUNNING_AF_COUNT} EXISTING VM(s) keep the budget they computed at THEIR launch, so the key is still oversubscribed until they finish. Prefer serialising over fanning out." >&2
+  fi
+fi
 
 # ── Singleton lock: API-Football rate-limits per-key ──
 # Catches both af-backfill-* (this script) and af-audit-* (truth-set audit
