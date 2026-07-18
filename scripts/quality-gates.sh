@@ -123,6 +123,16 @@ WORKSPACE_ROOT="${WORKSPACE_ROOT}" run_timeout 30 \
 # (measured 2026-07-18: %util 99.94, w_await 1015ms, CPU idle, RAM free) and was
 # misdiagnosed for hours as a Tardis quota. SSOT: plans/active/issues/
 # backfill_vm_disk_starvation_misdiagnosed_as_tardis_quota_2026_07_18.md
+# A comment between two backslash-continued lines SILENTLY truncates the command — gcloud
+# then runs with no --metadata (a VM with no startup-script does nothing). bash -n and
+# shellcheck both pass on it; this is the only thing that catches it. Root cause: the
+# 2026-07-18 disk sweep broke 11 launchers this way and 3 idle VMs booted.
+log_section "[SH-CONTINUATION] Comment-inside-line-continuation check"
+run_timeout 30 \
+    python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_no_comment_in_line_continuation.py" \
+    && log_success "Line continuations: no comments inside continued commands" \
+    || log_fail "Comment inside a backslash-continued command — see above"
+
 log_section "[BACKFILL-DISK] Backfill VM boot-disk provisioning check"
 run_timeout 30 \
     python3 "${WORKSPACE_ROOT}/deployment-service/scripts/quality_gates/check_backfill_vm_disk_provisioning.py" \

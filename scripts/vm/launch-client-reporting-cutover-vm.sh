@@ -216,15 +216,15 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
+# Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
+# only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
+# 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
+# disk only 14.7% utilised). Enforced by
+# scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
 gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
-    # Data-writing VM: disk sized for sustained writes. A pd-standard 50GB boot disk sustains
-    # only ~6 MB/s and collapsed the CeFi backfill to 2.36 MB/s after ~7.5GB (measured
-    # 2026-07-18; on pd-balanced 250GB the same workload held 11.09 MB/s steady-state with the
-    # disk only 14.7% utilised). Enforced by
-    # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
     --boot-disk-size="${DISK_SIZE}" \
     --boot-disk-type=pd-ssd \
     --image-family=ubuntu-2404-lts-amd64 \
