@@ -201,6 +201,9 @@ gsutil -m -q cp "\$WHEEL_GCS/*.whl" "\$WHEEL_CACHE/" 2>/dev/null || true
 cat > /tmp/uv-overrides.txt <<EOF
 requests>=2.33.0,<3.0.0
 EOF
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install --override /tmp/uv-overrides.txt --find-links "\$WHEEL_CACHE" --index-url https://pypi.org/simple --no-sources \
   -e unified-api-contracts \
   -e unified-trading-library \

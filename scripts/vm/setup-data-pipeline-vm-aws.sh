@@ -166,6 +166,10 @@ for pkg in unified-api-contracts unified-trading-library market-tick-data-servic
             strategy-service execution-service ml-service; do
     [[ -d "$WORKSPACE/$pkg" ]] && INSTALL_ARGS="$INSTALL_ARGS -e $WORKSPACE/$pkg"
 done
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install
+# (matches setup-data-pipeline-vm.sh's GCP-side convention).
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install --find-links "$WHEEL_CACHE" $INSTALL_ARGS
 uv pip install --find-links "$WHEEL_CACHE" pandas pyarrow boto3 2>/dev/null || true
 

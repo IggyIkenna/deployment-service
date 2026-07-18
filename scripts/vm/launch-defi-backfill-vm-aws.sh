@@ -169,6 +169,9 @@ INSTALL_ARGS="--no-sources"
 for pkg in unified-api-contracts unified-trading-library instruments-service deployment-service; do
   [[ -d "\${WORK_DIR}/\${pkg}" ]] && INSTALL_ARGS="\${INSTALL_ARGS} -e \${WORK_DIR}/\${pkg}"
 done
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install --find-links "\${WHEEL_CACHE}" \${INSTALL_ARGS}
 uv pip install --find-links "\${WHEEL_CACHE}" pandas pyarrow boto3 2>/dev/null || true
 

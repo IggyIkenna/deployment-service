@@ -113,6 +113,9 @@ for pkg in \
     INSTALL_ARGS="${INSTALL_ARGS} -e ${WORK_DIR}/${pkg}"
   fi
 done
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
 uv pip install --find-links "$WHEEL_CACHE" ${INSTALL_ARGS}
 
 # Extra runtime deps (GCS, Secret Manager for API keys)

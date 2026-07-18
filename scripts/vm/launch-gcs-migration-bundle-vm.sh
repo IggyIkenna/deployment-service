@@ -149,6 +149,10 @@ mkdir -p "\${WHEEL_CACHE}"
 gsutil -m -q cp "\${WHEEL_GCS}/*.whl" "\${WHEEL_CACHE}/" 2>/dev/null || true
 uv pip install --find-links "\${WHEEL_CACHE}" pyarrow gcsfs google-cloud-storage
 
+# Tarballs have no .git history, so hatch-vcs/setuptools-scm can't detect a
+# version for UAC/UTL — pretend-version unblocks the editable install.
+export SETUPTOOLS_SCM_PRETEND_VERSION="0.99.0"
+
 # Install UAC
 echo "=== Installing UAC ==="
 gcloud storage cp "gs://deployment-scripts-${PROJECT_ID}/code/unified-api-contracts-code.tar.gz" "\${WORK_DIR}/uac.tar.gz"
