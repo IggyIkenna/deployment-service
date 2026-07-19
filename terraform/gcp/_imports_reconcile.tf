@@ -42,10 +42,10 @@ import {
   id = "central-element-323112/trading-audit-records-prd-central-element-323112"
 }
 
-import {
-  to = google_storage_bucket.features_delta_one_cefi_test
-  id = "central-element-323112/features-delta-one-cefi-test-central-element-323112"
-}
+# import google_storage_bucket.features_delta_one_cefi_test REMOVED 2026-07-19 (Wave-3 alias-sunset /
+# terraform-drift reconciliation): its target resource was removed from main.tf + the
+# features-delta-one-cefi-test bucket physically deleted (features-delta-one folded into features-{ag}),
+# so this import block must go too (an import whose `to` resource no longer exists errors tofu plan/apply).
 
 # import google_storage_bucket.features_sports REMOVED 2026-07-15
 # (features_sports_service_consolidation_deploy_2026_07_15 FinishBucketAndDocs phase): its target
