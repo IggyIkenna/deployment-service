@@ -214,6 +214,14 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
     last_progress_size=0
     last_change_epoch=$(date +%s)
     iteration=0
+    # SPOT-preemption resume checkpoint tracking (independent of STALL_PROGRESS_REGEX):
+    # scan appended bytes for the latest VM_PROGRESS marker (emitted by UTL
+    # record_captured as the backfill day-frontier advances) and persist it to
+    # PROGRESS.json, so a preemption relaunch resumes from the last completed date
+    # instead of replaying START_DATE from genesis. SSOT:
+    # codex/05-infrastructure/spot-vms-for-backfill.md.
+    last_marker_scan_size=0
+    last_progress_marker=""
     while kill -0 "$CMD_PID" 2>/dev/null; do
         iteration=$((iteration + 1))
         sleep "$STALL_POLL_SEC"
@@ -221,6 +229,23 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
         now=$(date +%s)
         cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null)
         cur_size=${cur_size:-0}
+        # Persist the latest SPOT resume checkpoint (best-effort). Scans ONLY the
+        # bytes appended since the last check (bounded; never re-greps a multi-GB log).
+        # A marker fires ~once per day-advance, so this uploads rarely.
+        if [[ "$cur_size" -gt "$last_marker_scan_size" ]]; then
+            _marker=$(tail -c "+$((last_marker_scan_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                | grep -aoE '\[\[VM_PROGRESS\]\] last_completed_date=[0-9]{4}-[0-9]{2}-[0-9]{2} monotonic=(true|false)' \
+                | tail -1)
+            last_marker_scan_size=$cur_size
+            if [[ -n "$_marker" && "$_marker" != "$last_progress_marker" ]]; then
+                last_progress_marker="$_marker"
+                _lcd="${_marker#*last_completed_date=}"; _lcd="${_lcd%% *}"
+                _mono="${_marker##*monotonic=}"
+                printf '{"last_completed_date":"%s","monotonic":%s,"vm_name":"%s","updated":"%s"}\n' \
+                    "$_lcd" "$_mono" "$VM_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    | gsutil -q cp - "${GCS_DIR}/PROGRESS.json" 2>/dev/null || true
+            fi
+        fi
         if [[ -n "$STALL_PROGRESS_REGEX" ]]; then
             # Progress-marker mode: reset ONLY on a real progress line, scanning just
             # the bytes appended since the last check (bounded). Raw growth WITHOUT a

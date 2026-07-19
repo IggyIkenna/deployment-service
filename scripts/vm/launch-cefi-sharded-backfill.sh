@@ -751,6 +751,10 @@ _launch_queued_vm() {
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
   [[ -n "${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" ]] && meta+=",TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT}"
   [[ -n "${TARDIS_MAX_INFLIGHT_TASKS:-}" ]] && meta+=",TARDIS_MAX_INFLIGHT_TASKS=${TARDIS_MAX_INFLIGHT_TASKS}"
+  # VM_NUM_WORKERS: multi-process-per-VM fan-out (2026-07-19). Default unset => 1 process
+  # (unchanged). >1 runs N download processes on this ONE VM, each a disjoint venue slice
+  # with a distinct VM_NAME-pK manifest shard — cap-1-safe (cap-1 counts VMs, not processes).
+  [[ -n "${VM_NUM_WORKERS:-}" ]] && meta+=",VM_NUM_WORKERS=${VM_NUM_WORKERS}"
   [[ -n "${STALL_TIMEOUT_SEC:-}" ]] && meta+=",STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
