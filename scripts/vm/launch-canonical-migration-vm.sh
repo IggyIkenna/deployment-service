@@ -77,7 +77,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|prediction|sports|tradfi-cme-options|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -123,6 +123,29 @@ _script_for() {
         # registered "canonical-migration-tradfi-" VM_PREFIX_TO_BUCKET prefix
         # (longest-prefix startswith match) -- no new registry entry needed.
         tradfi-cme-options) echo "python -u scripts/canonicalize_cme_options_chain_legacy_flat_2026_07_14.py --all-days" ;;
+        # DeFi R3 per-instrument split (migrate_defi_batch_to_per_instrument @ market-tick-data-service).
+        # Splits the historical {venue}_{chain}_{ts} + {data_type}_{ts} (oracle_prices/gas_fees) bundled
+        # batches into canonical per-instrument {sanitize_defi_symbol(symbol)}.parquet leaves, retiring each
+        # source to _migrated_* (recoverable — NOT deleted; --delete-old is deliberately never passed here).
+        # IDEMPOTENT: already-split leaves + _migrated_* + _index/_needs_attribution markers are skipped, so
+        # a re-run (e.g. after a SPOT preemption) resumes cleanly. CHUNKED per-year (--start-date/--end-date)
+        # so each chunk's progress is visible in the run.log and resumable; the script's OWN pre-apply gate
+        # dry-measures + LOGS each chunk's needs_attribution ratio and REFUSES to write a chunk whose
+        # unattributable fraction exceeds --max-needs-attribution-ratio (0.5 default). The loop RECORDS per-
+        # chunk rc and continues (a single bad year never abandons the good ones), then — only on a clean
+        # all-chunk migration in full mode — chains rebuild_defi_manifest over the whole range so the manifest
+        # re-derives per-instrument instrument_id=stem. DRY-BY-DEFAULT (no --apply) + --apply for full; the
+        # rebuild mirrors the mode (--dry-run in dry). Flag-append + MIGRATION_EXTRA_ARGS are SUPPRESSED for
+        # this category in _launch (the command is a self-contained compound loop, not a single invocation).
+        # Only a single literal 'python ' token appears per python module (the loop reuses one venv python
+        # after setup-data-pipeline-vm.sh's first-occurrence replacement; the venv is `source`-activated so
+        # the second module also resolves to it). Year list overridable via MIGRATION_YEARS; workers via WORKERS.
+        defi-per-instrument)
+            local _apply=""; [[ "$MODE" == "full" ]] && _apply=" --apply"
+            local _rbdry=""; [[ "$MODE" != "full" ]] && _rbdry=" --dry-run"
+            local _bkt="market-data-tick-defi-prd-central-element-323112"
+            local _yrs="${MIGRATION_YEARS:-2020 2021 2022 2023 2024 2025 2026}"
+            printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -ne 0 ] && rc_all=1; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -137,20 +160,28 @@ _launch() {
     # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
     # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
     # are write-by-default + --dry-run.
-    if [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" || "$cat" == "tradfi-cme-options" ]]; then
+    if [[ "$cat" == "defi-per-instrument" ]]; then
+        : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
+          # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
+          # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
+    elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" || "$cat" == "tradfi-cme-options" ]]; then
         [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
     else
         [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
     fi
     # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
     # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
-    [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    [[ "$cat" != "defi-per-instrument" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
     md="${md},VM_SERVICE=market_tick_data_service"
     md="${md},VM_OPERATION=migrate-${cat}"
-    md="${md},VM_ASSET_GROUP=$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
+    # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
+    local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
+    [[ "$cat" == "defi-per-instrument" ]] && _ag="DEFI"
+    md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_MIGRATION_CMD=${cmd}"
@@ -186,7 +217,7 @@ _launch() {
 }
 
 case "$ASSET_GROUP" in
-    cefi|tradfi|defi|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
+    cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
