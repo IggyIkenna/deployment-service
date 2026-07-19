@@ -242,6 +242,18 @@ resource "google_bigquery_table" "feature_external" {
   }
 
   depends_on = [google_bigquery_dataset.feature_external]
+
+  # BQ provider read-back quirk (2026-07-19): for EXTERNAL tables the top-level
+  # `require_partition_filter` IS written and persisted (verified live via
+  # `bq show`: requirePartitionFilter=true), but the provider's refresh mis-reads
+  # it as false — producing a perpetual phantom `false -> true` plan diff that no
+  # apply ever settles. The ACTUAL cost guardrail is enforced by
+  # `external_data_configuration.hive_partitioning_options.require_partition_filter`
+  # (above), which the provider reads correctly (no diff). Ignore the phantom so
+  # `terraform plan` stays clean; the top-level value remains `true` in config.
+  lifecycle {
+    ignore_changes = [require_partition_filter]
+  }
 }
 
 # -------------------------------------------------------
