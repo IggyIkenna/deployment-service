@@ -217,6 +217,14 @@ DATABENTO_RATE_LIMIT_TARGET_UTILIZATION=$(_meta DATABENTO_RATE_LIMIT_TARGET_UTIL
 VM_STRATEGY=$(_meta VM_STRATEGY)
 VM_PIPELINE_MODE=$(_meta VM_PIPELINE_MODE)
 VM_DATA_TYPES=$(_meta VM_DATA_TYPES)
+# VM_NUM_WORKERS: multi-process-per-VM Tardis downloader (2026-07-19). Default 1 =
+# today's single process, byte-identical. >1 fans the CeFi batch download out into N
+# processes on THIS one VM, each with a DISJOINT --venues slice and a DISTINCT
+# VM_NAME=<vm>-pK manifest shard. cap-1 governs VMs/IPs not processes, and a 2nd
+# process was measured opening 24 more Tardis sockets (38 total) — so N processes
+# multiply the ~15-socket-per-process fetch ceiling that pins single-process at ~13
+# MB/s. SSOT: plans/active/issues/backfill_vm_disk_starvation_misdiagnosed_as_tardis_quota_2026_07_18.md
+VM_NUM_WORKERS=$(_meta VM_NUM_WORKERS 1)
 # VM_SOURCE: operator free-switch --source (databento|massive) for TradFi OHLCV
 # downloads (2026-06-19). The MTDS TickDataHandler REQUIRES --source for a TradFi
 # OHLCV run (provenance-ambiguous massive-vs-databento legs) — it selects the
@@ -1593,8 +1601,35 @@ elif [ -n "$VM_TASK" ]; then
   # Use VM_MODE_LIVE (set by live launchers via VM_MODE metadata) when present;
   # fall back to batch for all historical/backfill launchers.
   _MODE="${VM_MODE_LIVE:-batch}"
+  # Multi-process fan-out gate (TIGHT: only a batch MTDS download with VM_NUM_WORKERS>1
+  # and >=2 venues). Nothing else in this shared generic branch is affected, and the
+  # default VM_NUM_WORKERS=1 makes this a no-op for every existing launcher.
+  _FANOUT=0; _NW=1
+  if [[ "$VM_SERVICE" == "market_tick_data_service" && "$_OP" == "download" && "$_MODE" == "batch" && "${VM_NUM_WORKERS:-1}" -gt 1 && -n "$VM_VENUE" ]]; then
+    _NVEN=$(echo $VM_VENUE | wc -w)
+    # Ceiling on workers (default 4, override VM_MAX_WORKERS). Aggregate sockets = N x
+    # per-process (~15) and RAM = N x ~7-8GB, and per-process Tardis caps are NOT divided
+    # by N — so an unbounded N would silently approach the ~100-200 socket 403 band and
+    # 128GB RAM. N=2-3 is the measured sweet spot (38-57 sockets); 4 leaves headroom.
+    _MAXW="${VM_MAX_WORKERS:-4}"
+    _NW=$(( VM_NUM_WORKERS < _NVEN ? VM_NUM_WORKERS : _NVEN ))
+    if [[ "$_NW" -gt "$_MAXW" ]]; then
+      log "cefi fan-out: clamping workers $_NW -> $_MAXW (VM_MAX_WORKERS; keeps aggregate sockets/RAM in the safe band)"
+      _NW="$_MAXW"
+    fi
+    if [[ "$_NW" -gt 1 ]]; then
+      _FANOUT=1
+      log "cefi fan-out: $_NW worker process(es) over $_NVEN venues (VM_NUM_WORKERS=$VM_NUM_WORKERS)"
+      # Fan-out + the single-IP Tardis LEASE is a footgun: each process is a distinct lease
+      # holder, so one wins and the other N-1 block up to 1800s then fail-open — a ~30min
+      # startup stall per extra worker, for zero benefit (a single IP never 403s itself).
+      if [[ "${TARDIS_CONCURRENCY_LEASE:-}" == "1" ]]; then
+        log "cefi fan-out WARNING: TARDIS_CONCURRENCY_LEASE=1 with $_NW workers — the N processes will SERIALISE on the single-IP lease (~1800s stall each). The lease is redundant on one VM; leave it OFF for fan-out."
+      fi
+    fi
+  fi
   CLI_ARGS="--operation $_OP --mode $_MODE --asset-group $VM_ASSET_GROUP"
-  [[ -n "$VM_VENUE" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"
+  [[ -n "$VM_VENUE" && "$_FANOUT" != "1" ]] && CLI_ARGS="$CLI_ARGS --venues $VM_VENUE"  # fan-out: per-worker --venues added below
   [[ -n "$VM_START_DATE" ]] && CLI_ARGS="$CLI_ARGS --start-date $VM_START_DATE"
   [[ -n "$VM_END_DATE" ]] && CLI_ARGS="$CLI_ARGS --end-date $VM_END_DATE"
   [[ -n "$VM_LOOKBACK_DAYS" ]] && CLI_ARGS="$CLI_ARGS --lookback-days $VM_LOOKBACK_DAYS"
@@ -1628,7 +1663,40 @@ elif [ -n "$VM_TASK" ]; then
   [[ -n "$VM_MAX_DURATION_SECONDS" ]] && CLI_ARGS="$CLI_ARGS --max-duration-seconds $VM_MAX_DURATION_SECONDS"
   _LAUNCH_LOG="$LOGS/backfill.log"
   [[ "${VM_OPERATION:-}" == "live_websocket" ]] && _LAUNCH_LOG="$LOGS/live.log"
-  _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$_LAUNCH_LOG"
+  if [[ "$_FANOUT" == "1" ]]; then
+    # Write a self-contained fan-out supervisor and hand it to _launch_with_tee as the SINGLE
+    # cmd. The tee wrapper waits on this one PID; the supervisor backgrounds N workers, waits
+    # each, ORs their REAL exit codes and exit $AGG — so a dead worker propagates FAILED
+    # rather than a false COMPLETED self-delete (the `|| true` BUG-4 in the mtds-backfill loop
+    # must NOT be copied here). Each worker gets VM_NAME=<vm>-pK (distinct manifest shard,
+    # load-bearing — a shared VM_NAME would clobber the per-VM shard) and a disjoint
+    # round-robin --venues slice (round-robin separates the -SPOT/-FUTURES pairs so the big
+    # BINANCE-FUTURES/BINANCE-SPOT land in different groups). Workers write to the SHARED
+    # stdout so their 'uploaded' lines still reset the tee wrapper's stall watchdog.
+    _FANOUT_SCRIPT="$WORKSPACE/cefi_fanout.sh"
+    {
+      echo '#!/usr/bin/env bash'
+      echo 'set -uo pipefail  # NOT -e: a false `[[ rc -ne 0 ]] &&` must not exit the supervisor'
+      echo 'PIDS=()'
+      for (( _k=0; _k<_NW; _k++ )); do
+        _slice=""; _i=0
+        for _v in $VM_VENUE; do (( _i % _NW == _k )) && _slice="$_slice $_v"; _i=$((_i+1)); done
+        _slice="${_slice# }"
+        [[ -z "$_slice" ]] && continue
+        printf 'echo "[fanout] worker %s (VM_NAME=%s-p%s) venues: %s"\n' "$_k" "$VM_NAME_SELF" "$_k" "$_slice"
+        printf 'VM_NAME="%s-p%s" "%s" -m "%s" %s --venues %s &\n' "$VM_NAME_SELF" "$_k" "$VENV/bin/python" "$VM_SERVICE" "$CLI_ARGS" "$_slice"
+        echo 'PIDS+=($!)'
+      done
+      echo 'AGG=0'
+      echo 'for _pid in "${PIDS[@]}"; do wait "$_pid"; _rc=$?; echo "[fanout] pid=$_pid rc=$_rc"; [[ $_rc -ne 0 ]] && AGG=$_rc; done'
+      echo 'echo "[fanout] all ${#PIDS[@]} worker(s) done aggregate_rc=$AGG"'
+      echo 'exit $AGG'
+    } > "$_FANOUT_SCRIPT"
+    chmod +x "$_FANOUT_SCRIPT"
+    _launch_with_tee "bash $_FANOUT_SCRIPT" "$_LAUNCH_LOG"
+  else
+    _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$_LAUNCH_LOG"
+  fi
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"
 fi
