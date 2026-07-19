@@ -487,6 +487,10 @@ launch_cefi_shard() {
   # book5 too (2026-07-16: measured cpu=104%/16vCPU and rss=7.8GB/128GB at the defaults —
   # i.e. ~93% of the box idle while the run is I/O-bound on stream count).
   [[ -n "${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" ]] && meta+="|TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT}"
+  # TARDIS_MAX_INFLIGHT_TASKS decouples the non-book runner's task slots from the fetch
+  # semaphore (MTDS 2026-07-19): tasks queue AT the fetch cap so it stays saturated while
+  # parse+upload stays bounded by the executors. Must exceed TARDIS_MAX_CONCURRENT_DOWNLOADS.
+  [[ -n "${TARDIS_MAX_INFLIGHT_TASKS:-}" ]] && meta+="|TARDIS_MAX_INFLIGHT_TASKS=${TARDIS_MAX_INFLIGHT_TASKS}"
   # STALL_TIMEOUT_SEC passthrough (2026-07-14): a cold lease-ON VM behind long-running
   # lease holders waits up to TARDIS_CONCURRENCY_LEASE_MAX_WAIT_SECONDS (1800s) emitting
   # ZERO progress lines — with the stall threshold ALSO 1800s the watchdog kills it at
@@ -571,6 +575,7 @@ launch_cefi_shard() {
         "TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" \
         "TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" \
         "TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" \
+        "TARDIS_MAX_INFLIGHT_TASKS=${TARDIS_MAX_INFLIGHT_TASKS:-}" \
         "STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC:-}" \
         "MACHINE_TYPE_HEAVY=${MACHINE_TYPE_HEAVY:-}" \
         "MACHINE_TYPE_LIGHT=${MACHINE_TYPE_LIGHT:-}" \
@@ -745,6 +750,7 @@ _launch_queued_vm() {
   [[ -n "${TARDIS_CONCURRENCY_LEASE_BUCKET:-}" ]] && meta+=",TARDIS_CONCURRENCY_LEASE_BUCKET=${TARDIS_CONCURRENCY_LEASE_BUCKET}"
   [[ -n "${TARDIS_MAX_CONCURRENT_DOWNLOADS:-}" ]] && meta+=",TARDIS_MAX_CONCURRENT_DOWNLOADS=${TARDIS_MAX_CONCURRENT_DOWNLOADS}"
   [[ -n "${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT:-}" ]] && meta+=",TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT=${TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT}"
+  [[ -n "${TARDIS_MAX_INFLIGHT_TASKS:-}" ]] && meta+=",TARDIS_MAX_INFLIGHT_TASKS=${TARDIS_MAX_INFLIGHT_TASKS}"
   [[ -n "${STALL_TIMEOUT_SEC:-}" ]] && meta+=",STALL_TIMEOUT_SEC=${STALL_TIMEOUT_SEC}"
 
   if [[ "$DRY_RUN" == "1" ]]; then
