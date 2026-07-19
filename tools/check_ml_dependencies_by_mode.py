@@ -54,12 +54,13 @@ def _resolve_ml_training_artifacts_bucket(project_id: str) -> str:
     via ``cloud-providers.yaml``. Bucket-name SSOT (b+) — never inline f-string.
     """
     del project_id  # resolver pulls from env; arg kept for back-compat
-    return resolve_bucket_name(cloud="gcp", kind="ml-training-artifacts")
+    return resolve_bucket_name(cloud="gcp", kind="ml-store")
 
 
 # ml FOLD B (bucket_fold_ml_2026_07_17.md): the retired `ml-training-artifacts`
 # bucket collapsed onto the single folded `ml-store` bucket (the resolver above
-# folds kind="ml-training-artifacts" → ml-store via `_KIND_ALIASES`). The per-kind
+# resolves kind="ml-store" directly; the ml-training-artifacts alias was retired
+# 2026-07-19). The per-kind
 # separation is now this top-level object-key PREFIX; the migrated on-disk layout is
 # `gs://ml-store-{env}-{pid}/training-artifacts/stage{N}-.../` so every read path below
 # must be scoped under it (matches UTL PATH_REGISTRY `ml_training_artifacts`).
