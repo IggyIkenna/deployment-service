@@ -1,7 +1,7 @@
 # Catalogue regeneration — nightly Cloud Scheduler trigger
 #
 # Regenerates the four catalogue artefacts on GCS:
-#   gs://strategy-store-central-element-323112/catalogue/{
+#   gs://strategy-store-prd-central-element-323112/catalogue/{
 #     envelope.md, envelope.json, availability.json, strategy_instruments.json
 #   }
 #
@@ -32,7 +32,7 @@ resource "google_service_account" "catalogue_regen" {
 }
 
 resource "google_storage_bucket_iam_member" "catalogue_regen_strategy_store_writer" {
-  bucket = "strategy-store-central-element-323112"
+  bucket = "strategy-store-prd-central-element-323112"
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.catalogue_regen.email}"
 }
@@ -83,7 +83,7 @@ resource "google_storage_bucket_iam_member" "catalogue_regen_instruments_reader"
 # role binding scoped via condition, but storage.objectViewer at bucket level
 # is acceptable since the rest of the bucket is non-sensitive catalogue data.
 resource "google_storage_bucket_iam_member" "ui_runtime_catalogue_reader" {
-  bucket = "strategy-store-central-element-323112"
+  bucket = "strategy-store-prd-central-element-323112"
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
 }

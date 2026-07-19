@@ -10,7 +10,7 @@
 # Outputs (written by the generator and uploaded to GCS) — CORRECTED 2026-07-17: the unified
 # FLAT strategy-store bucket, per strategy_store_split_brain_2026_07_13.md + the generator's own
 # `strategy_store_bucket()` call. The per-AG `strategy-store-cefi-…` named here previously is 404.
-#   gs://strategy-store-central-element-323112/catalogue/instrument/
+#   gs://strategy-store-prd-central-element-323112/catalogue/instrument/
 #       instrument-catalogue.json   (drilldown-friendly entries)
 #       instrument-catalogue.md     (human matrix with coverage band emoji)
 #       shard-dynamics.json         (pure static spec dump)
@@ -98,7 +98,7 @@ resource "google_storage_bucket_iam_member" "instrument_catalogue_market_data_re
 # held NO write grant on the bucket it actually writes to. The sibling
 # catalogue_regen_strategy_store_writer already grants on the flat name — this matches it.
 resource "google_storage_bucket_iam_member" "instrument_catalogue_strategy_store_writer" {
-  bucket = "strategy-store-central-element-323112"
+  bucket = "strategy-store-prd-central-element-323112"
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.instrument_catalogue_regen.email}"
 }

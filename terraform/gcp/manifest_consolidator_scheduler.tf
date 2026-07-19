@@ -207,19 +207,22 @@ locals {
   # Exception: features-sports + features-calendar remain env-tiered per yaml SSOT.
   # Re-enable env-split when bucket_env_split_rollout_2026_06.md Phase 1 provisions + migrates.)
   manifest_consolidator_buckets_extended = {
-    "features-delta-one-cefi"    = "features-delta-one-cefi-${var.project_id}"
-    "features-delta-one-tradfi"  = "features-delta-one-tradfi-${var.project_id}"
-    "features-delta-one-defi"    = "features-delta-one-defi-${var.project_id}"
-    "features-volatility-cefi"   = "features-volatility-cefi-${var.project_id}"
-    "features-volatility-tradfi" = "features-volatility-tradfi-${var.project_id}"
-    "features-onchain-defi"      = "features-onchain-defi-${var.project_id}"
-    "features-sports"            = "features-sports-${local.deployment_env_short}-${var.project_id}"
-    "features-calendar"          = "features-calendar-${local.deployment_env_short}-${var.project_id}"
+    # features FOLD A (bucket_fold_features_2026_07_17) + Wave-3 terraform reconcile 2026-07-19: the
+    # retired per-kind feature consolidators (delta-one/volatility/onchain × asset_group) targeted the
+    # now-DELETED per-kind buckets. They collapse into ONE per-asset_group consolidator over the folded
+    # features-{ag}-{env} bucket — per-kind data lives under delta_one/|volatility/|onchain/|xinstrument/
+    # |mtf/ object-key prefixes inside it, so a single consolidator merges the whole bucket's
+    # _index/per_vm shards. N→3 (cefi/defi/tradfi; sports + calendar are separate entries below).
+    "features-cefi"     = "features-cefi-${local.deployment_env_short}-${var.project_id}"
+    "features-defi"     = "features-defi-${local.deployment_env_short}-${var.project_id}"
+    "features-tradfi"   = "features-tradfi-${local.deployment_env_short}-${var.project_id}"
+    "features-sports"   = "features-sports-${local.deployment_env_short}-${var.project_id}"
+    "features-calendar" = "features-calendar-${local.deployment_env_short}-${var.project_id}"
     # strategy FOLD D (bucket_fold_execution_strategy_2026_07_17): re-tiered to the env-tiered bucket.
-    "strategy"              = "strategy-store-${local.deployment_env_short}-${var.project_id}"
+    "strategy" = "strategy-store-${local.deployment_env_short}-${var.project_id}"
     # execution FOLD C: the 3 per-AG execution consolidators collapse into ONE job over the folded
     # bucket root — a single bucket-root _index/ merged across asset_groups (operator decision 2026-07-18).
-    "execution"             = "execution-store-${local.deployment_env_short}-${var.project_id}"
+    "execution" = "execution-store-${local.deployment_env_short}-${var.project_id}"
     # Fold B (bucket_fold_ml_2026_07_17): the 5 ml kind-buckets folded into one env-tiered
     # ml-store; the sole ml consolidator (only ml-training-artifacts ever had one) is repointed
     # to the folded bucket so it never targets a soon-deleted source (idle-bucket loud-fail).

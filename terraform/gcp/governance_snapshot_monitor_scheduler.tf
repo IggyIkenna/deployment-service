@@ -36,12 +36,14 @@ module "governance_snapshot_monitor_job" {
   region                = var.region
   service_account_email = google_service_account.unified_trading.email
   image                 = local.snapshot_monitor_image
-  cpu                   = "0.5"
-  memory                = "512Mi"
-  timeout_seconds       = 120
-  max_retries           = 1
-  parallelism           = 1
-  task_count            = 1
+  # gen2 execution env (cpu always-allocated/unthrottled) rejects total cpu < 1; 0.5 was
+  # a create-blocking config bug (job never deployed). 1 vCPU is the gen2 floor. 2026-07-19.
+  cpu             = "1"
+  memory          = "512Mi"
+  timeout_seconds = 120
+  max_retries     = 1
+  parallelism     = 1
+  task_count      = 1
 
   args = ["--operation", "monitor-snapshot-governance", "--mode", "batch", "--asset-group", "defi"]
 

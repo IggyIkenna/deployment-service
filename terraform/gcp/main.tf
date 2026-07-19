@@ -404,24 +404,8 @@ resource "google_storage_bucket" "client_reporting_data" {
 # `features-delta-one-{ag}-{pid}` (env-less, per cloud-providers.yaml) lives in
 # canonical_buckets.tf.
 
-# Test buckets for features-delta-one (30-day lifecycle)
-resource "google_storage_bucket" "features_delta_one_cefi_test" {
-  name     = "features-delta-one-cefi-test-${var.project_id}"
-  project  = var.project_id
-  location = var.region
-
-  uniform_bucket_level_access = true
-  force_destroy               = false
-  versioning { enabled = true }
-  lifecycle_rule {
-    condition { age = 30 }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-  labels = merge(local.common_labels, { "purpose" = "features-delta-one-test", "tier" = "group-b" })
-}
+# Test bucket for features-delta-one REMOVED 2026-07-19 (Wave-3 alias-sunset / terraform-drift
+# reconciliation): features-delta-one folded into features-{ag}; the -test- bucket was deleted.
 
 # features_delta_one_{tradfi,defi,sports,prediction}_test, features_volatility_
 # {cefi,tradfi,defi,sports,prediction}[_test], features_onchain_{cefi,defi}, ml_
