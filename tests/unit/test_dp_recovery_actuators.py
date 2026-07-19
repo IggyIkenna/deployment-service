@@ -330,6 +330,130 @@ def test_preempted_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch
     assert launched == []
 
 
+# ── progress-checkpoint resume (the SPOT day-one-replay durable fix) ─────────
+
+
+def test_preempted_relaunch_resumes_from_monotonic_checkpoint(tmp_path: Path, monkeypatch):
+    """A monotonic PROGRESS checkpoint overrides START_DATE to the last completed
+    date, so the relaunch resumes from the frontier instead of replaying the
+    original START_DATE from genesis. SSOT: spot-vms-for-backfill.md."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "cefi-bf-x",
+        launcher="launch-cefi-sharded-backfill.sh",
+        launch_env={"VENUES": "BINANCE-FUTURES", "START_DATE": "2019-01-01"},
+        checkpoint={"last_completed_date": "2026-02-15", "monotonic": "true"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    # START_DATE overridden to the checkpoint frontier (NOT the original genesis);
+    # the rest of the captured scope is preserved.
+    assert launched[0][1]["START_DATE"] == "2026-02-15"
+    assert launched[0][1]["VENUES"] == "BINANCE-FUTURES"
+    assert any(
+        e[0] == "DP_VM_PREEMPTED" and e[1] == "INFO" and e[2].get("resume_from_checkpoint") == "2026-02-15"
+        for e in emitted
+    )
+
+
+def test_preempted_relaunch_force_run_with_checkpoint_auto_resumes(tmp_path: Path, monkeypatch):
+    """A --force / redo_all run (VM_FORCE=true) that left a monotonic checkpoint
+    RESUMES from the frontier — force no longer dead-ends at PAGE. This is the
+    core "resume properly" fix: force disables presence-skip, so without the
+    checkpoint a replay would restart at day one forever."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "sports-bf-fixtures",
+        launcher="launch-features-sports-backfill-vm.sh",
+        launch_env={"VM_FORCE": "true", "START_DATE": "2019-01-01"},
+        checkpoint={"last_completed_date": "2024-06-30", "monotonic": "true"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["START_DATE"] == "2024-06-30"  # resumed, not replayed from genesis
+
+
+def test_preempted_relaunch_force_run_no_checkpoint_pages(tmp_path: Path, monkeypatch):
+    """A --force run with NO checkpoint cannot be safely replayed (day-one loop)
+    nor safely skipped — it PAGEs loudly. (This guard only fires once VM_FORCE is
+    persisted into launch_env — which the launcher rollout does.)"""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch(
+        "sports-bf-fixtures",
+        launcher="launch-features-sports-backfill-vm.sh",
+        launch_env={"VM_FORCE": "true", "START_DATE": "2019-01-01"},
+    )
+    assert result["status"] == "PAGE"
+    assert result["reason"] == "force_run_not_replayable"
+    assert launched == []
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" and e[2].get("force_run_not_replayable")
+        for e in emitted
+    )
+
+
+def test_preempted_relaunch_force_run_non_monotonic_checkpoint_pages(tmp_path: Path, monkeypatch):
+    """A non-monotonic checkpoint (dates recorded out of order — venue-outer
+    iteration) is NOT a safe skip-ahead point: undone dates sit behind the max.
+    A --force run with such a checkpoint PAGEs rather than risk dropping them."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch(
+        "mtds-bf-multivenue",
+        launcher="launch-mtds-backfill-vm.sh",
+        launch_env={"VM_FORCE": "true", "START_DATE": "2019-01-01"},
+        checkpoint={"last_completed_date": "2024-06-30", "monotonic": "false"},
+    )
+    assert result["status"] == "PAGE"
+    assert result["reason"] == "force_run_not_replayable"
+    assert launched == []
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_preempted_relaunch_non_force_no_checkpoint_replays_verbatim(tmp_path: Path, monkeypatch):
+    """A normal (non-force) run with no checkpoint keeps today's behavior — a
+    verbatim replay of the captured launch env (presence-skip resumes it). No
+    START_DATE override, no PAGE."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "cefi-bf-x",
+        launcher="launch-cefi-sharded-backfill.sh",
+        launch_env={"START_DATE": "2026-02-01", "VENUES": "BYBIT"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["START_DATE"] == "2026-02-01"  # unchanged — verbatim replay
+
+
 def test_preempted_relaunch_budget_separate_from_oom_budget(tmp_path: Path, monkeypatch):
     """The preemption actuator's budget dir is separate from the OOM actuator's
     — exhausting one must never affect the other (different failure classes,

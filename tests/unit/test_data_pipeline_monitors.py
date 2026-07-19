@@ -132,6 +132,63 @@ def test_exit_code_none_for_running_sentinel_not_misread_as_success():
     assert _gcs.read_terminal_exit_code(storage, LOG_BUCKET, vm) is None
 
 
+# ── _gcs.read_progress_checkpoint (SPOT preemption resume checkpoint) ─────────
+
+
+def _progress_blob(vm: str) -> str:
+    return _gcs.PROGRESS_BLOB.format(vm=vm)
+
+
+def test_read_progress_checkpoint_monotonic():
+    vm = "cefi-bf-1"
+    blob = json.dumps({"last_completed_date": "2026-02-15", "monotonic": True, "vm_name": vm}).encode()
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (blob, 0.0)})
+    assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) == {
+        "last_completed_date": "2026-02-15",
+        "monotonic": "true",
+    }
+
+
+def test_read_progress_checkpoint_non_monotonic():
+    vm = "mtds-bf-1"
+    blob = json.dumps({"last_completed_date": "2026-02-15", "monotonic": False}).encode()
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (blob, 0.0)})
+    got = _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm)
+    assert got is not None and got["monotonic"] == "false"
+
+
+def test_read_progress_checkpoint_absent_monotonic_fails_safe_false():
+    """A checkpoint missing the monotonic flag fails safe → 'false' (no skip-ahead)."""
+    vm = "old-bf-1"
+    blob = json.dumps({"last_completed_date": "2026-02-15"}).encode()
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (blob, 0.0)})
+    got = _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm)
+    assert got is not None and got["monotonic"] == "false"
+
+
+def test_read_progress_checkpoint_missing_blob_is_none():
+    assert _gcs.read_progress_checkpoint(FakeStorage({}), LOG_BUCKET, "gone-vm") is None
+
+
+def test_read_progress_checkpoint_malformed_json_is_none():
+    vm = "bad-json"
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (b"{not json", 0.0)})
+    assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) is None
+
+
+def test_read_progress_checkpoint_invalid_date_is_none():
+    vm = "bad-date"
+    blob = json.dumps({"last_completed_date": "not-a-date", "monotonic": True}).encode()
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (blob, 0.0)})
+    assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) is None
+
+
+def test_read_progress_checkpoint_non_dict_is_none():
+    vm = "list-blob"
+    storage = FakeStorage({(LOG_BUCKET, _progress_blob(vm)): (b'["a", "b"]', 0.0)})
+    assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) is None
+
+
 # ── _gcs.recent_log_summary ──────────────────────────────────────────────────
 def test_recent_log_summary_counts_error_lines_and_last_line():
     vm = "defi-recursive-backfill-2026"

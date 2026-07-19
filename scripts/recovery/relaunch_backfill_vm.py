@@ -352,13 +352,21 @@ class RelaunchPreemptedVm:
         self._now = now or (lambda: datetime.now(UTC))
         self._run_launcher = run_launcher or _default_run_launcher
 
-    def dry_run_plan(self, vm_name: str, *, launcher: str, launch_env: dict[str, str] | None) -> dict[str, object]:
+    def dry_run_plan(
+        self,
+        vm_name: str,
+        *,
+        launcher: str,
+        launch_env: dict[str, str] | None,
+        checkpoint: dict[str, str] | None = None,
+    ) -> dict[str, object]:
         return {
             "action": "relaunch_preempted_vm",
             "vm_name": vm_name,
             "vm_prefix": vm_prefix(vm_name),
             "launcher": launcher,
             "launch_env": launch_env or {},
+            "progress_checkpoint": checkpoint or {},
             "effect": "re-run the backfill launcher with the captured launch params (streams durable logs + registers heartbeat)",
         }
 
@@ -369,6 +377,7 @@ class RelaunchPreemptedVm:
         launcher: str,
         asset_group: str = "",
         launch_env: dict[str, str] | None = None,
+        checkpoint: dict[str, str] | None = None,
         dry_run: bool = False,
     ) -> dict[str, object]:
         """Re-launch the preempted backfill, budget-bounded. Never raises.
@@ -408,7 +417,11 @@ class RelaunchPreemptedVm:
             }
 
         if dry_run:
-            return {**base, "status": "DRY_RUN", **self.dry_run_plan(vm_name, launcher=launcher, launch_env=launch_env)}
+            return {
+                **base,
+                "status": "DRY_RUN",
+                **self.dry_run_plan(vm_name, launcher=launcher, launch_env=launch_env, checkpoint=checkpoint),
+            }
 
         count_today = self._relaunches_today(prefix)
         if count_today >= self._max_per_day:
@@ -434,23 +447,56 @@ class RelaunchPreemptedVm:
                 "max_per_day": self._max_per_day,
             }
 
-        # A ``--force`` / ``redo_all`` run CANNOT be safely replayed. This relauncher
-        # replays the ORIGINAL launch params (including ``VM_START_DATE``), which is
-        # correct for a normal backfill because presence-skip absorbs the redo and the
-        # run resumes naturally. ``--force`` DISABLES that skip by definition, so a
-        # replay restarts the backfill at day one — on every preemption, forever —
-        # burning quota and never converging.
+        # ── Progress-checkpoint resume — the durable fix for the SPOT day-one-replay
+        # bug. If the VM wrote a PROGRESS.json checkpoint as it completed days (UTL
+        # ``record_vm_progress`` -> ``ManifestWriter.record_captured``), RESUME from its
+        # frontier instead of replaying the terminated VM's original START_DATE.
         #
-        # Measured 2026-07-18 (sports round-FIXTURES; the defect is asset-group
-        # agnostic): ~54 days/hour over a 2,390-day range ⇒ ~44h of runtime, while SPOT
-        # reclaimed the VM after ~10 minutes of real work. A blind replay would have
-        # re-done 2019-01-01..07 indefinitely.
+        # This is what makes a ``--force`` / ``redo_all`` run recover correctly:
+        # ``--force`` DISABLES presence-skip, so a plain replay of the original
+        # START_DATE restarts the backfill at day one on EVERY preemption — forever
+        # (measured 2026-07-18: ~54 days/hour over a 2,390-day range => ~44h runtime,
+        # SPOT reclaim after ~10 min => re-doing 2019-01-01.. indefinitely). Overriding
+        # START_DATE to the last recorded date makes progress monotonic.
         #
-        # PAGE loudly rather than loop silently. The operator (or an autonomous loop)
-        # relaunches from ``last_completed_unit + 1``, which makes progress monotonic.
+        # SAFETY: only skip START_DATE forward when the checkpoint frontier is
+        # ``monotonic`` (the run recorded dates in chronological order, so every date
+        # BEFORE the frontier is complete — resuming from it redoes at most the last,
+        # possibly-partial day and skips nothing). A NON-monotonic run (venue-outer
+        # iteration) has undone dates behind its max, so moving START_DATE up would
+        # DROP them; for that case (and when there is no checkpoint at all) a
+        # ``--force`` run PAGEs loudly rather than risk a silent gap.
         # SSOT: ``codex/05-infrastructure/spot-vms-for-backfill.md`` § "Preemption
         # recovery MUST resume from PROGRESS, never replay START_DATE".
-        if str((launch_env or {}).get("VM_FORCE", "")).strip().lower() == "true":
+        env = dict(launch_env or {})
+        force = str(env.get("VM_FORCE", "")).strip().lower() == "true"
+        resume_date = ""
+        if checkpoint is not None:
+            monotonic = str(checkpoint.get("monotonic", "false")).strip().lower() == "true"
+            last = str(checkpoint.get("last_completed_date", "")).strip()
+            if last and monotonic:
+                resume_date = last
+
+        if resume_date:
+            # The persisted date key is ``START_DATE`` (what lc_write_launch_params
+            # writes + the child launcher reads), NOT ``VM_START_DATE`` (a
+            # gcloud-metadata-only alias). Resume verbatim from the frontier — the
+            # writer records the max date SEEN (the possibly-partial current day), so
+            # redoing that one day guarantees no skip.
+            env["START_DATE"] = resume_date
+            log_event(
+                _EVENT_VM_PREEMPTED,
+                severity="INFO",
+                details={
+                    **base,
+                    "recovery_action": "relaunch_preempted_vm",
+                    "resume_from_checkpoint": resume_date,
+                    "force_run": force,
+                    "detail": "resuming from the monotonic PROGRESS checkpoint frontier instead of "
+                    "replaying the original START_DATE",
+                },
+            )
+        elif force:
             log_event(
                 _EVENT_VM_PREEMPTED_NO_RELAUNCH,
                 severity="CRITICAL",
@@ -458,17 +504,17 @@ class RelaunchPreemptedVm:
                     **base,
                     "recovery_action": "relaunch_preempted_vm",
                     "force_run_not_replayable": True,
-                    "detail": "preempted VM ran with VM_FORCE=true (redo_all); replaying its original "
-                    "VM_START_DATE would restart the backfill from day one on EVERY preemption because "
-                    "--force disables the presence-skip a normal backfill resumes by. Relaunch from "
-                    "last_completed_unit+1 instead (measure the last completed unit from the TARGET "
-                    "artifact, entity-scoped).",
+                    "detail": "preempted VM ran with VM_FORCE=true (redo_all) and left no monotonic "
+                    "PROGRESS checkpoint; replaying its original START_DATE would restart the backfill "
+                    "from day one on EVERY preemption because --force disables the presence-skip a normal "
+                    "backfill resumes by. Relaunch from last_completed_unit+1 (measure from the TARGET "
+                    "artifact, entity-scoped) or ensure the run emits record_vm_progress checkpoints.",
                 },
             )
             return {**base, "status": "PAGE", "reason": "force_run_not_replayable"}
 
         self._stamp_relaunch(prefix)
-        env = _drop_stale_rate_budget(launch_env or {})
+        env = _drop_stale_rate_budget(env)
         try:
             result = self._run_launcher(launcher, env=env)
         except Exception as exc:  # launcher/SDK failure → CRITICAL + file_issue fallthrough

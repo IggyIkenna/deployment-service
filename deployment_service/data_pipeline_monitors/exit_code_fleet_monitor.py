@@ -193,6 +193,7 @@ def _finding_for(
     relaunch_launcher: str = "",
     umbrella: str = "",
     launch_env: dict[str, str] | None = None,
+    progress_checkpoint: dict[str, str] | None = None,
 ) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
@@ -239,6 +240,11 @@ def _finding_for(
             preempted_details["relaunch_launcher"] = relaunch_launcher
         if launch_env:
             preempted_details["launch_env"] = launch_env
+        # The VM's own resume checkpoint (PROGRESS.json) — lets the actuator RESUME
+        # from the last completed date instead of replaying START_DATE from genesis
+        # (the force-run day-one-replay fix). Absent for a run that never emitted it.
+        if progress_checkpoint:
+            preempted_details["progress_checkpoint"] = progress_checkpoint
         return PipelineFinding(
             event="DP_VM_PREEMPTED",
             severity="INFO",
@@ -426,6 +432,10 @@ def sweep(
         # only verdict that reads it) — keeps the per-tick GCS read count down,
         # same discipline as the run.log no-capture-reason gate just below.
         launch_env = _gcs.read_launch_params(storage_client, log_bucket, name) if is_preempted else None
+        # The VM's own PROGRESS.json resume checkpoint — same preempted-only gate as
+        # launch_env (one extra GCS read only on the verdict that consumes it). Lets
+        # the relaunch RESUME from last_completed_date instead of replaying START_DATE.
+        progress_checkpoint = _gcs.read_progress_checkpoint(storage_client, log_bucket, name) if is_preempted else None
         needs_reason = (
             not is_preempted
             and not is_live_vm
@@ -470,6 +480,7 @@ def sweep(
             relaunch_launcher=launcher,
             umbrella=umbrella,
             launch_env=launch_env,
+            progress_checkpoint=progress_checkpoint,
         )
 
         if finding is not None:

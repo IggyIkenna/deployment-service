@@ -429,6 +429,13 @@ def _recover_preempted_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     launch_env: dict[str, str] | None = None
     if isinstance(launch_env_raw, dict):
         launch_env = {str(k): str(v) for k, v in cast("dict[object, object]", launch_env_raw).items()}
+    # The VM's own resume checkpoint (PROGRESS.json, read by the sweep). Threaded
+    # through so RelaunchPreemptedVm can override START_DATE to the last completed
+    # date instead of replaying it from genesis — the force-run day-one-replay fix.
+    checkpoint_raw = details.get("progress_checkpoint")
+    checkpoint: dict[str, str] | None = None
+    if isinstance(checkpoint_raw, dict):
+        checkpoint = {str(k): str(v) for k, v in cast("dict[object, object]", checkpoint_raw).items()}
 
     actuator = actuator_cls()
     result = actuator.relaunch(
@@ -436,6 +443,7 @@ def _recover_preempted_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[st
         launcher=launcher,
         asset_group=str(details.get("asset_group", "")),
         launch_env=launch_env,
+        checkpoint=checkpoint,
         dry_run=dry_run,
     )
     recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
