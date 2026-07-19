@@ -35,6 +35,17 @@ PREEMPTED_BLOB = "vm-logs/{vm}/PREEMPTED"
 # relaunch reproduce the EXACT venues/START_DATE/concurrency/lease the terminated
 # VM was launched with, instead of falling back to the launcher's bare defaults.
 LAUNCH_PARAMS_BLOB = "vm-logs/{vm}/LAUNCH_PARAMS.json"
+# Written by the VM's OWN run loop (UTL ``record_vm_progress`` hooked into
+# ``ManifestWriter.record_captured``) as each day's shards land — the durable
+# progress checkpoint that lets a SPOT-preemption relaunch RESUME from the last
+# completed date instead of replaying the original START_DATE from genesis. This
+# closes the force-run day-one-replay bug (``spot-vms-for-backfill.md`` §
+# "Preemption recovery MUST resume from PROGRESS"): ``{"last_completed_date":
+# "YYYY-MM-DD", "monotonic": true, "vm_name": "...", "updated": "<iso>"}``.
+# ``monotonic=false`` means the run recorded dates out of order (venue-outer
+# iteration) so the single global frontier is NOT a safe skip-ahead point — the
+# reader only overrides START_DATE when monotonic (see read_progress_checkpoint).
+PROGRESS_BLOB = "vm-logs/{vm}/PROGRESS.json"
 
 # Per-monitor-sweep "last-run" sentinel (the cron-watches-cron + deadman signal).
 # Each fleet-monitor / meta-watcher sweep writes ``vm-census/<mode>-last-run.json``
@@ -567,6 +578,52 @@ def read_launch_params(storage_client: StorageClient, bucket: str, vm_name: str)
         if isinstance(value, str):
             out[str(key)] = value
     return out
+
+
+# A resume checkpoint's ``last_completed_date`` must be a bare ISO calendar date.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def read_progress_checkpoint(storage_client: StorageClient, bucket: str, vm_name: str) -> dict[str, str] | None:
+    """Read the resume checkpoint ``vm_name`` wrote as it completed each day.
+
+    Written by the VM's own run loop (UTL ``record_vm_progress`` hooked into
+    ``ManifestWriter.record_captured``) to ``PROGRESS.json`` — the durable fix for
+    the SPOT-preemption day-one-replay bug (``spot-vms-for-backfill.md`` §
+    "Preemption recovery MUST resume from PROGRESS, never replay START_DATE"). A
+    preemption relaunch reads this and RESUMES from ``last_completed_date`` instead
+    of replaying the terminated VM's original ``START_DATE`` (which, for a
+    ``--force`` run whose presence-skip is disabled, restarts the backfill at day
+    one on every preemption — forever).
+
+    Returns ``{"last_completed_date": "YYYY-MM-DD", "monotonic": "true"|"false"}``
+    or ``None`` when the blob is absent/unparseable or carries no valid ISO date —
+    an older VM, a pipeline that never emits the checkpoint, or a run that never
+    completed a day. The caller then falls back to today's behavior (force → PAGE,
+    non-force → verbatim replay). Never raises.
+
+    ``monotonic`` is normalised to the string ``"true"`` ONLY when the blob's value
+    is explicitly ``true``; anything else (a non-monotonic run, or an absent flag)
+    becomes ``"false"`` so the relauncher fails safe — it will NOT skip START_DATE
+    forward on a run whose recorded dates were out of order (which would drop the
+    undone dates behind the frontier).
+    """
+    raw = read_text(storage_client, bucket, PROGRESS_BLOB.format(vm=vm_name))
+    if not raw:
+        return None
+    try:
+        loaded = cast("object", json.loads(raw))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(loaded, dict):
+        return None
+    data = cast("dict[str, object]", loaded)
+    last = data.get("last_completed_date")
+    if not isinstance(last, str) or not _ISO_DATE_RE.match(last.strip()):
+        return None
+    mono = data.get("monotonic")
+    monotonic = mono is True or str(mono).strip().lower() == "true"
+    return {"last_completed_date": last.strip(), "monotonic": "true" if monotonic else "false"}
 
 
 def is_vm_preempted(storage_client: StorageClient, bucket: str, vm_name: str) -> bool:
