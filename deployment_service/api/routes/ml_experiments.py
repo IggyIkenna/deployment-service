@@ -94,7 +94,7 @@ def _artifacts_bucket() -> str:
     (Previously ``get_bucket_name("ml_artifacts", ...)`` — a non-existent domain key
     that built a malformed ``ml_artifacts-{env}-{pid}`` name; ml FOLD B fix.)
     """
-    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-artifacts")
+    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-store")
 
 
 def _models_bucket() -> str:
@@ -102,7 +102,7 @@ def _models_bucket() -> str:
 
     kind="ml-models-store" folds to ``ml-store`` via the resolver's ``_KIND_ALIASES``.
     """
-    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-models-store")
+    return resolve_bucket_name(cloud=cast(Cloud, get_cloud_provider()), kind="ml-store")
 
 
 # ---------------------------------------------------------------------------
