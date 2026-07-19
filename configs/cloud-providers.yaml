@@ -52,17 +52,15 @@ gcp:
     #     `asset_group="sports"` in the per-AG dicts + the dedicated `features-sports` flat key —
     #     deliberate asymmetry, consolidate if it ever bites.
     # NOTE: features-delta-one env-split ROLLED BACK — non-env-split until provisioning lands.
-    # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — sports is not an accepted
-    # delta-one asset_group (cli/parser.py CATEGORIES = CEFI/TRADFI/DEFI/PREDICTION). Bucket
-    # confirmed empty and deleted.
     # features FOLD A (fold_a_cutover_spec, 2026-07-18): folded per-asset_group key; the 5 retired
     # per-kind buckets collapse into features-{ag}-${DEPLOYMENT_ENV_SHORT}-{pid}, per-kind → key prefix.
+    # SPORTS key removed twice — no folded family ever accepted it: 2026-07-17 sweep (old delta-one
+    # dict), 2026-07-19 (fold-A reintroduced it; features_service_qg_red_asset_group_parity_stale_kind_mapping_2026_07_19.md).
     features:
       CEFI: "features-cefi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
       TRADFI: "features-tradfi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
       DEFI: "features-defi-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
       PREDICTION: "features-pred-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
-      SPORTS: "features-sports-${DEPLOYMENT_ENV_SHORT}-${GCP_PROJECT_ID}"
     # ml-store = FOLDED ml bucket (Fold B — bucket_fold_ml_2026_07_17.md). The five ml
     # kind-buckets (models / predictions / configs / training-artifacts / artifacts) collapse
     # into ONE env-tiered bucket; the per-kind separation becomes a top-level object-key PREFIX
@@ -195,12 +193,12 @@ aws:
     # SPORTS key REMOVED 2026-07-17 (asset-group parity sweep) — mirrors the GCP section removal
     # above; delta-one is never computed for sports.
     # features FOLD A (fold_a_cutover_spec, 2026-07-18): folded per-asset_group key; mirrors GCP.
+    # SPORTS key REMOVED 2026-07-19 — mirrors the GCP section removal above.
     features:
       CEFI: "features-cefi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
       TRADFI: "features-tradfi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
       DEFI: "features-defi-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
       PREDICTION: "features-pred-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
-      SPORTS: "features-sports-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # ml-store = FOLDED ml bucket (Fold B) — mirrors GCP; see the GCP § comment.
     ml-store: "ml-store-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # strategy FOLD D (bucket_fold_execution_strategy_2026_07_17): already-flat bucket gains its env tier;
