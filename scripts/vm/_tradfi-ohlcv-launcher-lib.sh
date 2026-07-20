@@ -77,16 +77,61 @@ TRADFI_OHLCV_SOURCE="${OHLCV_SOURCE:-databento}"
 # Semicolon-delimited (gcloud metadata-safe; startup splits [,;] → spaces).
 TRADFI_OHLCV_DATA_TYPES="${OHLCV_DATA_TYPES:-ohlcv_1m;ohlcv_1s}"
 
-# Databento concurrency knobs — OPT-IN, DEFAULT EMPTY/UNSET. When set, ohlcv_create_vm
-# stamps the corresponding VM metadata key (VM_BATCH_DATE_CONCURRENCY /
-# DATABENTO_MAX_CONCURRENT_REQUESTS) which setup-data-pipeline-vm.sh turns into
-# (respectively) an MTDS CLI `--batch-date-concurrency` flag and an exported env var.
-# Left unset here → nothing is added to metadata → identical launch behavior to today.
-# TRADFI_OHLCV_BATCH_DATE_CONCURRENCY requires the UTL ServiceCLI `--batch-date-concurrency`
-# change to be deployed first (shipped separately) — do not set it before that lands.
+# Databento concurrency knobs.
+#
+# TRADFI_OHLCV_BATCH_DATE_CONCURRENCY is now ON BY DEFAULT for databento-sourced
+# launches (2026-07-20). It was shipped opt-in/default-OFF pending the UTL
+# ServiceCLI `--batch-date-concurrency` rollout; that landed (utl@7b4ed95d +
+# dep@ac5d166), was MEASURED at **1.56x** on a real Databento VM (16 vCPU
+# e2-highmem-16, 6 heavy CME roots, Jan-2024: serial 27.3 min vs conc=20
+# 17.5 min for the same 820,639 rows; serial CPU idle 18/56 samples vs
+# concurrent 0/36 — the date-fanout overlaps one date's fetch latency with
+# another's parse/write), and then was never turned on, so every tradfi OHLCV
+# backfill has been running SERIAL and leaving that 1.56x on the table.
+#
+# The default is DERIVED FROM THE MACHINE, not a flat constant, because the win
+# scales with vCPU: the same change measured only ~4% on a 4-vCPU/1-root run
+# (20-way fanout was CPU-bound there). `ohlcv_default_date_concurrency` scales
+# ~1.25 dates-in-flight per vCPU (the measured 16 vCPU → 20 ratio) and CAPS at
+# the Databento effective per-IP budget.
+#
+# Explicitly setting TRADFI_OHLCV_BATCH_DATE_CONCURRENCY overrides the derived
+# default; setting it to 1 restores fully-serial behavior.
+#
+# NOT applied to non-databento launches (FX → Yahoo daily): the per-IP budget
+# below is a Databento limit and Yahoo has its own, much tighter, throttle.
 # SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
 TRADFI_OHLCV_BATCH_DATE_CONCURRENCY="${TRADFI_OHLCV_BATCH_DATE_CONCURRENCY:-}"
 TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT="${TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT:-}"
+
+# Databento's documented per-IP limits are 100 concurrent connections / 100
+# timeseries req/s, applied at 0.8 target utilization by
+# `DatabentoIPRateLimiter` (market_tick_data_service .../databento_key_cache.py)
+# → 80 effective. The limits are per-IP and NOT per-key, and every backfill VM
+# is created with its own ephemeral external IP, so this budget is PER VM — it
+# is NOT a fleet-wide budget and is therefore NOT the Tardis-style storm risk
+# (which shares one IP). The fleet cap below stays a separate, courtesy limit.
+OHLCV_DATABENTO_PER_IP_BUDGET="${OHLCV_DATABENTO_PER_IP_BUDGET:-80}"
+
+# Echo the default `--batch-date-concurrency` for this launch, or "" when the
+# lever does not apply (non-databento source). Scales with the machine's vCPU
+# count (parsed off the trailing number of the GCE machine type, e.g.
+# e2-highmem-4 → 4) at ~1.25 dates in flight per vCPU, clamped to
+# [2, OHLCV_DATABENTO_PER_IP_BUDGET]. Machine types with no trailing vCPU count
+# (e2-micro / e2-small) assume vcpu=2.
+#
+# Worked examples: e2-highmem-4 (the default) → 5; e2-highmem-16 → 20, which
+# exactly reproduces the configuration the 1.56x was measured on;
+# e2-standard-96 → 80, clamped by the per-IP budget.
+ohlcv_default_date_concurrency() {
+    [[ "$TRADFI_OHLCV_SOURCE" == "databento" ]] || { printf '%s' ""; return 0; }
+    local vcpu="${TRADFI_OHLCV_MACHINE##*-}"
+    [[ "$vcpu" =~ ^[0-9]+$ ]] || vcpu=2
+    local conc=$(( (vcpu * 125 + 99) / 100 ))
+    (( conc < 2 )) && conc=2
+    (( conc > OHLCV_DATABENTO_PER_IP_BUDGET )) && conc="$OHLCV_DATABENTO_PER_IP_BUDGET"
+    printf '%s' "$conc"
+}
 
 # Concurrency-cap check: refuse to launch when the count of RUNNING tradfi-bf-*
 # VMs in the zone reaches OHLCV_FLEET_CONCURRENCY_CAP.
@@ -168,12 +213,18 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_NAME=${vm_name_safe}"
     metadata="${metadata},MANIFEST_PER_VM_SHARDS=true"
     metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
-    # Databento concurrency knobs — only added when the launcher env opts in
-    # (both default empty/unset, see the TRADFI_OHLCV_BATCH_DATE_CONCURRENCY /
-    # TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT declarations above). Absent → no
-    # metadata key added → setup-data-pipeline-vm.sh's `_meta` read returns empty
-    # → no CLI flag / no env export, identical to today's behavior.
-    [[ -n "$TRADFI_OHLCV_BATCH_DATE_CONCURRENCY" ]] && metadata="${metadata},VM_BATCH_DATE_CONCURRENCY=${TRADFI_OHLCV_BATCH_DATE_CONCURRENCY}"
+    # Date-concurrency (the measured 1.56x lever). Explicit env wins; otherwise
+    # the machine-derived default applies to databento-sourced launches and is
+    # empty for FX/Yahoo (see ohlcv_default_date_concurrency above). Resolved
+    # HERE, at create time, so a wrapper that overrides TRADFI_OHLCV_MACHINE or
+    # TRADFI_OHLCV_SOURCE *after* sourcing this lib (FX does exactly that) is
+    # still read correctly.
+    local date_concurrency="${TRADFI_OHLCV_BATCH_DATE_CONCURRENCY:-$(ohlcv_default_date_concurrency)}"
+    [[ -n "$date_concurrency" ]] && metadata="${metadata},VM_BATCH_DATE_CONCURRENCY=${date_concurrency}"
+    # DATABENTO_MAX_CONCURRENT_REQUESTS stays opt-in: the MTDS config default is
+    # already 100 (market_interface/config.py), which is above every derived
+    # date-concurrency above, so the client-side asyncio semaphore never
+    # throttles below the date fan-out and needs no launcher override.
     [[ -n "$TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT" ]] && metadata="${metadata},DATABENTO_MAX_CONCURRENT_REQUESTS=${TRADFI_OHLCV_DATABENTO_MAX_CONCURRENT}"
 
     local run_ts
