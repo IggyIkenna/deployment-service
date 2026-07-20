@@ -14,10 +14,10 @@
 locals {
   # Images follow the same naming convention as mtds_image in defi_collection_scheduler.tf.
   # Single :latest tag — Cloud Build promotes per cloudbuild.yaml push step.
-  blrs_image      = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/batch-live-reconciliation-service:latest"
-  strategy_image  = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/strategy-service:latest"
-  alerting_image  = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/alerting-service:latest"
-  mdps_t1_image   = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-data-processing-service:latest"
+  blrs_image     = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/batch-live-reconciliation-service:latest"
+  strategy_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/strategy-service:latest"
+  alerting_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/alerting-service:latest"
+  mdps_t1_image  = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-data-processing-service:latest"
 }
 
 # -------------------------------------------------------
@@ -39,7 +39,7 @@ module "mtds_fast_t1_recon_job" {
   service_account_email = google_service_account.unified_trading.email
   image                 = local.mtds_image
   cpu                   = "2"
-  memory                = "8Gi"  # 4Gi OOM-killed on 2026-05-22; 8Gi verified SUCCEEDED
+  memory                = "8Gi" # 4Gi OOM-killed on 2026-05-22; 8Gi verified SUCCEEDED
   timeout_seconds       = 3600
   max_retries           = 1
   parallelism           = 1
@@ -64,8 +64,10 @@ module "mtds_fast_t1_recon_job" {
   # TradFi OHLCV download (no SOURCE_PRIORITY[0] default — the stamp must reflect the
   # ACTUAL fetcher's vendor)`. `--source` is ONE per-invocation vendor value, so any
   # value chosen for TradFi would mis-stamp the sports/prediction legs. TradFi T+1
-  # therefore needs its OWN source-scoped job(s) (--source=databento for CFE/CME-1s,
-  # --source=massive for equities/CME-1m). SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
+  # therefore needs its OWN source-scoped job — see mtds_tradfi_databento_t1_recon_job
+  # below (--source=databento now covers ALL tradfi tick/chain venues; the historical
+  # "|massive" in the quoted error is gone — Massive routing was removed 2026-07-19,
+  # CLI --source is choices=["databento"]). SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
   args = ["--operation", "download", "--mode", "batch", "--asset-group", "SPORTS", "PREDICTION"]
 
   environment_variables = {
@@ -94,7 +96,7 @@ module "mtds_cefi_t1_recon_job" {
   image                 = local.mtds_image
   cpu                   = "4"
   memory                = "8Gi"
-  timeout_seconds       = 7200  # 2h — Tardis data can be large for daily CeFi ticks
+  timeout_seconds       = 7200 # 2h — Tardis data can be large for daily CeFi ticks
   max_retries           = 1
   parallelism           = 1
   task_count            = 1
@@ -113,9 +115,83 @@ module "mtds_cefi_t1_recon_job" {
   service_name = "market-tick-data-service"
   environment  = var.environment
   labels = {
-    "purpose"      = "t1-batch-cefi"
-    "finding"      = "f-41"
-    "data-source"  = "tardis"
+    "purpose"     = "t1-batch-cefi"
+    "finding"     = "f-41"
+    "data-source" = "tardis"
+  }
+}
+
+# -------------------------------------------------------
+# tradfi_t1_no_working_mtds_job_2026_07_17.md: TradFi T+1 forward-fill had NO
+# working MTDS job. mtds_fast_t1_recon_job above deliberately EXCLUDES TRADFI
+# (its comment explains why: --source is a single per-invocation value and
+# would mis-stamp the shared SPORTS/PREDICTION legs). TradFi OHLCV needs its
+# OWN source-scoped job — the single databento job below.
+#
+# Databento is now the SOLE tradfi tick/chain source. Massive (formerly
+# Polygon.io) routing was REMOVED 2026-07-19 (operator ruling: Databento =
+# batch source-of-truth, Yahoo = daily candles) — the MTDS CLI --source is
+# `choices=["databento"]` (cli/main.py), the umi_tick_provider fails closed on
+# any non-databento --source, and any manifest write carrying source='massive'
+# now raises (2026-07-20 write-side hard-reject). So the pre-removal dual-vendor
+# plan (a separate --source=massive job) is DROPPED: a single --source=databento
+# job covers everything Massive ever served plus more — equities (DBEQ.BASIC),
+# CME futures (GLBX.MDP3), CBOE/VX (XCBF.PITCH, which Massive never carried) —
+# on BOTH ohlcv_1m and ohlcv_1s (ohlcv_1s was always databento-only). Dropping
+# the massive job therefore leaves ZERO coverage gap. SSOT:
+# codex/02-data/tradfi-databento-sourcing-ssot.md.
+#
+# No --venues filter needed: ICE/KRX/FX are Yahoo-routed (ohlcv_24h-only, no
+# databento SOURCE_PRIORITY registration) and silently no-op on this
+# --data-types set (--data-types ohlcv_1m/1s intersects to an EMPTY list for
+# them — a benign per-venue no-op, not a crash, confirmed by the real
+# 2026-06-23 FX incident the _tradfi-ohlcv-launcher-lib.sh comment documents).
+# ICE/KRX/FX T+1 (Yahoo, venue-fixed, no --source) is a separate, smaller gap
+# tracked as a follow-up todo in tradfi_consolidated_closeout_2026_07_18.md.
+# -------------------------------------------------------
+
+module "mtds_tradfi_databento_t1_recon_job" {
+  source = "../modules/container-job/gcp"
+
+  # Name MUST match t1_batch_services["market-tick-data-tradfi-databento"].job_name
+  name                  = "${local.env_prefix}-market-tick-data-service-tradfi-databento-t1-recon"
+  project_id            = var.project_id
+  region                = var.region
+  service_account_email = google_service_account.unified_trading.email
+  image                 = local.mtds_image
+  cpu                   = "2"
+  memory                = "8Gi" # mirrors mtds_fast_t1_recon_job (4Gi OOM-killed 2026-05-22; 8Gi verified SUCCEEDED)
+  timeout_seconds       = 3600
+  max_retries           = 1
+  parallelism           = 1
+  task_count            = 1
+
+  # Databento is the SOLE tradfi tick/chain source (Massive routing removed
+  # 2026-07-19) and is capable for every venue this job touches
+  # (CME/NASDAQ/NYSE/CBOE) on BOTH ohlcv_1m and ohlcv_1s (CME's
+  # mbp_10/trades/tbbo restoration is a separate, deliberately-gated item —
+  # tradfi_unreachable_databento_data_types_mbp10_ohlcv_coarse_calendar_2026_07_15.md
+  # — not yet live, so those data_types aren't requested here). No --venues
+  # filter needed: ICE/KRX/FX (Yahoo-only) silently no-op on this --data-types
+  # set (see header comment).
+  args = [
+    "--operation", "download", "--mode", "batch", "--asset-group", "TRADFI",
+    "--source", "databento", "--data-types", "ohlcv_1m", "ohlcv_1s",
+  ]
+
+  environment_variables = {
+    GCP_PROJECT_ID         = var.project_id
+    DEPLOYMENT_ENV         = var.environment
+    CLOUD_PROVIDER         = "gcp"
+    MANIFEST_PER_VM_SHARDS = "true"
+  }
+
+  service_name = "market-tick-data-service"
+  environment  = var.environment
+  labels = {
+    "purpose"     = "t1-batch-tradfi"
+    "finding"     = "tradfi-t1-no-working-mtds-job-2026-07-17"
+    "data-source" = "databento"
   }
 }
 
@@ -221,7 +297,7 @@ module "batch_live_recon_job" {
   image                 = local.blrs_image
   cpu                   = "2"
   memory                = "4Gi"
-  timeout_seconds       = 7200  # 2h — polls GCS for upstream availability before reconciling
+  timeout_seconds       = 7200 # 2h — polls GCS for upstream availability before reconciling
   max_retries           = 1
   parallelism           = 1
   task_count            = 1
@@ -282,7 +358,7 @@ module "strategy_t1_recon_job" {
   image                 = local.strategy_image
   cpu                   = "4"
   memory                = "8Gi"
-  timeout_seconds       = 7200  # 2h — reads T+1 ML output, writes strategy signals
+  timeout_seconds       = 7200 # 2h — reads T+1 ML output, writes strategy signals
   max_retries           = 1
   parallelism           = 1
   task_count            = 1
@@ -451,8 +527,8 @@ module "mtds_paper_smoke_job" {
   image                 = local.strategy_image
   cpu                   = "2"
   memory                = "4Gi"
-  timeout_seconds       = 3600  # 1h — single-day backtest; typically 5-15 min
-  max_retries           = 0     # No retry — failure = signal that pipeline is broken
+  timeout_seconds       = 3600 # 1h — single-day backtest; typically 5-15 min
+  max_retries           = 0    # No retry — failure = signal that pipeline is broken
   parallelism           = 1
   task_count            = 1
 
@@ -483,7 +559,7 @@ module "mtds_paper_smoke_job" {
 resource "google_cloud_scheduler_job" "mtds_paper_smoke_cron" {
   name        = "${local.env_prefix}-mtds-paper-smoke-cron"
   description = "Backtest-fidelity gate — runs a 1-day carry_staked_basis backtest smoke after T+1 pipeline completes."
-  schedule    = "30 5 * * *"  # 05:30 UTC daily; slow phase finishes by 05:00
+  schedule    = "30 5 * * *" # 05:30 UTC daily; slow phase finishes by 05:00
   time_zone   = "UTC"
   region      = var.region
 
@@ -528,8 +604,8 @@ module "mtds_scenario_matrix_job" {
   service_account_email = google_service_account.unified_trading.email
   image                 = local.strategy_image
   cpu                   = "4"
-  memory                = "8Gi"  # Scenario matrix runs multiple overlays; higher memory for parallelism
-  timeout_seconds       = 10800  # 3h — full scenario matrix for carry_staked_basis
+  memory                = "8Gi" # Scenario matrix runs multiple overlays; higher memory for parallelism
+  timeout_seconds       = 10800 # 3h — full scenario matrix for carry_staked_basis
   max_retries           = 0
   parallelism           = 1
   task_count            = 1
@@ -559,7 +635,7 @@ module "mtds_scenario_matrix_job" {
 resource "google_cloud_scheduler_job" "mtds_scenario_matrix_cron" {
   name        = "${local.env_prefix}-mtds-scenario-matrix-cron"
   description = "Scenario-regression gate — runs carry_staked_basis scenario matrix (incl. depeg kill-switch test)."
-  schedule    = "0 8 * * *"  # 08:00 UTC daily
+  schedule    = "0 8 * * *" # 08:00 UTC daily
   time_zone   = "UTC"
   region      = var.region
 
@@ -605,7 +681,7 @@ module "alerting_paging_job" {
   image                 = local.alerting_image
   cpu                   = "1"
   memory                = "1Gi"
-  timeout_seconds       = 3300  # 55 min; scheduler re-fires at top of next hour
+  timeout_seconds       = 3300 # 55 min; scheduler re-fires at top of next hour
   max_retries           = 1
   parallelism           = 1
   task_count            = 1
@@ -640,7 +716,7 @@ module "alerting_paging_job" {
 resource "google_cloud_scheduler_job" "alerting_paging_cron" {
   name        = "${local.env_prefix}-alerting-paging-cron"
   description = "Live-trading P&L + position-breach paging — runs alerting-service subscriber for 55 min every hour."
-  schedule    = "0 * * * *"  # every hour on the hour
+  schedule    = "0 * * * *" # every hour on the hour
   time_zone   = "UTC"
   region      = var.region
 
