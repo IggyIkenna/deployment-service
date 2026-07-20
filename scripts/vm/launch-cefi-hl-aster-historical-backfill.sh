@@ -73,6 +73,24 @@ ON_DEMAND="${ON_DEMAND:-false}"
 # as before this override existed.
 YEARS="${YEARS:-}"
 
+# ── Finer-than-year sharding (2026-07-20) ─────────────────────────────────────
+# The VM startup loop runs ONE subprocess PER DAY (bootstrap + 428k-row catalogue
+# reload each day ≈ 22s/day fixed cost), so a coarse year-shard VM is throughput-
+# bound at ~1 day / ~34s regardless of data volume. HL requester-pays S3 is NOT
+# rate-limited (exempt from the Tardis 1-VM cap), so the fix is to parallelize:
+#   SHARD_DAYS=N          → sub-divide each year-shard into N-day date-range VMs
+#                           (empty = legacy one-VM-per-year behaviour, unchanged).
+#   OVERRIDE_START_DATE=  → clamp every shard's start UP to this (skip empty
+#                           pre-data days, e.g. HL trades only exist 2025-05-25+).
+#   OVERRIDE_END_DATE=    → clamp every shard's end DOWN to this.
+# Example (full HL trades universe in ~30min instead of ~3.5h on one VM):
+#   VENUES=HYPERLIQUID DATA_TYPES=trades FORCE=true SYMBOLS=ALL \
+#   YEARS="2025 2026" SHARD_DAYS=21 OVERRIDE_START_DATE=2025-05-25 \
+#   bash scripts/vm/launch-cefi-hl-aster-historical-backfill.sh
+SHARD_DAYS="${SHARD_DAYS:-}"
+OVERRIDE_START_DATE="${OVERRIDE_START_DATE:-}"
+OVERRIDE_END_DATE="${OVERRIDE_END_DATE:-}"
+
 # ── Instrument universe ───────────────────────────────────────────────────────
 # BUG #4 (2026-06-22): catalogue-driven universe. The ALL sentinel makes the
 # OnchainPerpBatchHandler enumerate the FULL active perp universe per venue from
@@ -124,29 +142,18 @@ wait_for_slot() {
     done
 }
 
-launch_shard() {
+# Launch ONE backfill VM for an explicit [start_date, end_date] window.
+# tag → VM-name suffix (year for legacy year-shards, YYYYMMDD for finer ranges).
+_launch_vm() {
     local venue="$1"
-    local year="$2"
+    local start_date="$2"
+    local end_date="$3"
+    local tag="$4"
     local venue_lower="${venue,,}"
-    local start_date="${year}-01-01"
-    local end_date
 
-    # First shard year for this venue starts at its real capability start_date
-    # (not Jan-1) so the VM doesn't request pre-source-coverage dates.
-    if [[ "$year" -eq "${VENUE_START_YEAR[$venue]}" ]]; then
-        start_date="${VENUE_START_DATE[$venue]}"
-    fi
-
-    if [[ "$year" -ge "$CURRENT_YEAR" ]]; then
-        end_date="$CUTOFF_DATE"
-    else
-        end_date="${year}-12-31"
-    fi
-
-    local vm_name="${venue_lower//_/-}-${year}-${RUN_TS}"
-    # Prepend cefi- prefix to match registered vm_zombie_watchdog.py prefixes:
+    # cefi- prefix matches registered vm_zombie_watchdog.py prefixes:
     #   cefi-hyperliquid- / cefi-aster- / cefi-lighter- / cefi-extended-
-    vm_name="cefi-${vm_name}"
+    local vm_name="cefi-${venue_lower//_/-}-${tag}-${RUN_TS}"
 
     local machine="e2-highmem-8"
 
@@ -198,6 +205,54 @@ launch_shard() {
         --project="${PROJECT}" \
         --async 2>&1 | tail -1 &
     running_jobs=$((running_jobs + 1))
+}
+
+# Resolve a year into its [start,end] window, apply the OVERRIDE clamps, then
+# launch either one VM for the whole year (legacy) or SHARD_DAYS-day range VMs.
+launch_shard() {
+    local venue="$1"
+    local year="$2"
+    local start_date="${year}-01-01"
+    local end_date
+
+    # First shard year for this venue starts at its real capability start_date
+    # (not Jan-1) so the VM doesn't request pre-source-coverage dates.
+    if [[ "$year" -eq "${VENUE_START_YEAR[$venue]}" ]]; then
+        start_date="${VENUE_START_DATE[$venue]}"
+    fi
+
+    if [[ "$year" -ge "$CURRENT_YEAR" ]]; then
+        end_date="$CUTOFF_DATE"
+    else
+        end_date="${year}-12-31"
+    fi
+
+    # Clamp to the real-data window (ISO YYYY-MM-DD compares correctly as strings).
+    if [[ -n "$OVERRIDE_START_DATE" && "$start_date" < "$OVERRIDE_START_DATE" ]]; then
+        start_date="$OVERRIDE_START_DATE"
+    fi
+    if [[ -n "$OVERRIDE_END_DATE" && "$end_date" > "$OVERRIDE_END_DATE" ]]; then
+        end_date="$OVERRIDE_END_DATE"
+    fi
+    if [[ "$start_date" > "$end_date" ]]; then
+        echo "[SKIP] ${venue} ${year} (outside override window ${OVERRIDE_START_DATE:-∅}→${OVERRIDE_END_DATE:-∅})"
+        return
+    fi
+
+    # Legacy: one VM per year.
+    if [[ -z "$SHARD_DAYS" ]]; then
+        _launch_vm "$venue" "$start_date" "$end_date" "$year"
+        return
+    fi
+
+    # Finer: sub-divide [start_date, end_date] into SHARD_DAYS-day range VMs so
+    # the per-day-bootstrap-bound throughput is parallelised across many VMs.
+    local chunk_start="$start_date" chunk_end
+    while [[ ! "$chunk_start" > "$end_date" ]]; do
+        chunk_end=$(python3 -c "import datetime as d,sys; s=d.date.fromisoformat(sys.argv[1]); e=d.date.fromisoformat(sys.argv[3]); print(min(s+d.timedelta(days=int(sys.argv[2])-1), e).isoformat())" "$chunk_start" "$SHARD_DAYS" "$end_date")
+        _launch_vm "$venue" "$chunk_start" "$chunk_end" "${chunk_start//-/}"
+        chunk_start=$(python3 -c "import datetime as d,sys; print((d.date.fromisoformat(sys.argv[1])+d.timedelta(days=1)).isoformat())" "$chunk_end")
+    done
 }
 
 # ── Main: launch all year shards ─────────────────────────────────────────────
