@@ -327,6 +327,16 @@ echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
 echo ""
 echo "Post-backfill manifest rebuild (one per features bucket):"
-echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('features-${FAMILY_DASHED}-${ASSET_GROUP_LOWER}-central-element-323112', \\"
-echo "      service_name='features-service', prefix='features/by_date')\""
+# Bucket + prefix are RESOLVED, never string-interpolated. The previous hint built
+# 'features-{family}-{ag}-central-element-323112' and hardcoded prefix 'features/by_date':
+# for sports that is 'features-sports-sports-...' (404 — the real bucket is
+# 'features-sports-prd-...') under a prefix that does not exist (real:
+# 'sports_features/by_date'). Copy-pasting it ran a manifest rebuild against nothing.
+# Fixed 2026-07-20; same class as the stale features tarball bucket hint.
+# Bucket-naming SSOT: codex/05-infrastructure/bucket-isolation-model.md.
+echo "  python -c \"from unified_trading_library import resolve_bucket_name; \\"
+echo "    from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
+echo "    rebuild_manifest_from_canonical_paths( \\"
+echo "      resolve_bucket_name(cloud='gcp', kind='features', asset_group='${ASSET_GROUP_LOWER}'), \\"
+echo "      service_name='features-service')\""
+echo "  (do NOT hardcode a prefix — sports is 'sports_features/by_date', not 'features/by_date')"
