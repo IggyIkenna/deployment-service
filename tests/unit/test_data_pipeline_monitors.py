@@ -2504,6 +2504,35 @@ def test_catalogue_targets_use_env_short_bucket_and_prod_prefix(monkeypatch):
     assert by_label["prediction"].bucket == "instruments-store-prediction-pred-prd-pid"
 
 
+# ── DP-FETCH-009 / consolidator-cron: prediction is NOT silently dropped ──────
+def test_high_attempted_failed_targets_include_prediction_via_flat_key(monkeypatch):
+    """``prediction`` has NO per-AG ``market-data`` bucket — it is a dedicated
+    flat ``market-data-tick-prediction`` kind. The per-AG call RAISES for it, and
+    the ``except Exception: continue`` in the target builder would then SILENTLY
+    drop prediction from the high-attempted_failed sweep (DP-FETCH-009). Resolve
+    it via the flat key instead so it stays monitored (mirrors the catalogue
+    ``_INSTRUMENTS_STORE_KIND_OVERRIDE`` path)."""
+    from deployment_service.data_pipeline_monitors import meta_targets
+
+    def _fake_resolve(*, cloud: str, kind: str, asset_group: str | None = None) -> str:
+        if kind == "market-data":
+            if asset_group == "prediction":
+                # Mirrors reality: no per-asset_group market-data bucket for prediction.
+                raise ValueError("no market-data bucket for asset_group=prediction")
+            return f"market-data-{asset_group}-prd-pid"
+        if kind == "market-data-tick-prediction":
+            assert asset_group is None  # flat key takes NO asset_group
+            return "market-data-tick-prediction-prd-pid"
+        raise AssertionError(f"unexpected kind {kind}")
+
+    monkeypatch.setattr(meta_targets, "resolve_bucket_name", _fake_resolve)
+    by_label = {t.label: t for t in meta_targets.high_attempted_failed_targets()}
+    # All five asset_groups present — prediction is NOT dropped.
+    assert set(by_label) == set(meta_targets.ASSET_GROUPS)
+    assert by_label["prediction"].bucket == "market-data-tick-prediction-prd-pid"
+    assert by_label["cefi"].bucket == "market-data-cefi-prd-pid"
+
+
 def test_catalogue_absent_alert_shows_probed_path(monkeypatch):
     target = meta_watchers.FreshnessTarget(
         bucket="instruments-store-sports-prd-pid",

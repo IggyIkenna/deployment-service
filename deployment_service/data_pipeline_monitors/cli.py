@@ -66,6 +66,7 @@ from deployment_service.data_pipeline_monitors.meta_targets import (
 from deployment_service.data_pipeline_monitors.meta_targets import (
     high_attempted_failed_targets as _high_attempted_failed_targets,
 )
+from deployment_service.data_pipeline_monitors.meta_targets import market_data_bucket as _market_data_bucket
 from deployment_service.data_pipeline_monitors.meta_targets import scheduler_env_prefix as _scheduler_env_prefix
 from deployment_service.data_pipeline_monitors.renag_tracker import RenagTracker
 from deployment_service.deployment_classification import (
@@ -759,7 +760,12 @@ def main(argv: list[str] | None = None) -> int:
             cron_targets: list[meta_watchers.FreshnessTarget] = []
             for ag in ASSET_GROUPS:
                 try:
-                    bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
+                    # prediction has NO per-AG market-data entry — it is a flat
+                    # ``market-data-tick-prediction`` bucket; the per-AG call would
+                    # RAISE and the except below would silently drop it from the
+                    # consolidator-cron freshness sweep. ``market_data_bucket`` honours
+                    # the flat prediction key (mirrors high_attempted_failed_targets).
+                    bucket = _market_data_bucket(ag)
                 except Exception:
                     continue
                 cron_targets.append(

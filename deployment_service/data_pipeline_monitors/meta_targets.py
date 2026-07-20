@@ -31,6 +31,31 @@ _CATALOGUE_FILENAME = "catalog.parquet"
 # ``instruments-store`` dict), mirroring build_instrument_catalogue's resolver.
 _INSTRUMENTS_STORE_KIND_OVERRIDE: dict[str, str] = {"prediction": "instruments-store-prediction"}
 
+# Same shape for the market-data buckets: ``prediction`` has NO per-AG
+# ``market-data`` entry — it is a dedicated FLAT kind (``market-data-tick-prediction``,
+# live-writing). ``resolve_bucket_name(kind="market-data", asset_group="prediction")``
+# RAISES, and the ``except Exception: continue`` in the target builders below would
+# then silently DROP prediction — leaving it unmonitored for the high-attempted_failed
+# check (DP-FETCH-009) and the consolidator-cron freshness check. Resolve it via its
+# flat key (no asset_group arg), mirroring the ``_INSTRUMENTS_STORE_KIND_OVERRIDE``
+# catalogue path above.
+_MARKET_DATA_KIND_OVERRIDE: dict[str, str] = {"prediction": "market-data-tick-prediction"}
+
+
+def market_data_bucket(ag: str) -> str:
+    """Resolve the market-data bucket for ``ag``, honouring the flat prediction key.
+
+    ``prediction`` has no per-asset_group ``market-data`` entry (it is a dedicated
+    flat ``market-data-tick-prediction`` bucket), so it is resolved with NO
+    asset_group arg; the other four asset_groups use the per-AG call. Raises
+    (propagated to the caller's per-target ``try``) only for a genuinely
+    unresolvable bucket, never for the prediction shape.
+    """
+    override = _MARKET_DATA_KIND_OVERRIDE.get(ag)
+    if override is not None:
+        return resolve_bucket_name(cloud="gcp", kind=override)
+    return resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
+
 
 def _deployment_env_long() -> str:
     """The LONG env name used as the catalogue blob prefix (default ``prod``).
@@ -88,7 +113,7 @@ def high_attempted_failed_targets() -> list[meta_watchers.FreshnessTarget]:
     targets: list[meta_watchers.FreshnessTarget] = []
     for ag in ASSET_GROUPS:
         try:
-            bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
+            bucket = market_data_bucket(ag)
         except Exception:
             continue
         targets.append(
