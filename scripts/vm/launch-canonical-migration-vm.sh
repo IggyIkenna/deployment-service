@@ -43,6 +43,15 @@
 #   # ...or one specific shard on its own VM (targeted relaunch):
 #   SHARD_OF=20 SHARD_INDEX=3 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
 #
+#   # GATED MASSIVE PURGE (TRADFI_PURGE_MASSIVE_ONLY=1) — destructive, operator-authorized only.
+#   # Runs the migrate pass ALONE over an enumeration grep-filtered to pipeline_mode=batch_massive,
+#   # so non-massive objects are not in the input and zero-collateral holds BY CONSTRUCTION. Does NOT
+#   # run rebundle/recover (they canonicalize NON-massive data — already complete). The sentinel is
+#   # pulled from GCS onto the VM because the tool resolves it with Path(...).is_file() VM-side.
+#   # NOTE: MIGRATION_EXTRA_ARGS is REJECTED for cat=tradfi (compound &&-chain would silently drop it).
+#   TRADFI_PURGE_MASSIVE_ONLY=1 SHARD_OF=20 MTDS_TARBALL_SHA=<sha> \
+#     bash launch-canonical-migration-vm.sh tradfi 2020-01-01 2026-01-30 full
+#
 #   # tradfi-catalogue-canon (2026-07-20): the instruments-service Phase-B `-USD@LIN` catalogue
 #   # canonicalization full sweep over the per-day
 #   # `instrument_availability/by_date/day=*/venue=*/instruments.parquet` corpus (~27.1k files).
@@ -193,6 +202,39 @@ _tradfi_content_migration_cmd() {
     printf '%s' "mkdir -p ${mapd} && gcloud storage ls -r \"${walk}\" > ${enum} && echo TRADFI_ENUM_LINES=\$(wc -l < ${enum}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} && python -u -m ${base}.rebundle_tradfi_chains_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/rebundle_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && python -u -m ${base}.recover_tradfi_garbage_underlying_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/recovery_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the GATED massive-purge command (TRADFI_PURGE_MASSIVE_ONLY=1).
+#
+# Deliberately NOT `full` mode. The canonical content migration is COMPLETE (99.65% canonical, 0 orphan
+# — plan tick-25); re-running it is neither authorized nor needed. The ONLY authorized destructive
+# action is deleting `pipeline_mode=batch_massive` objects (operator ruling 2026-07-20,
+# accepted-permanent-loss, unified-trading-pm@1cc566db6).
+#
+# ZERO-COLLATERAL BY CONSTRUCTION: the enumeration is grep-filtered to `pipeline_mode=batch_massive`
+# BEFORE the tool sees it, so non-massive objects are not in the input at all — there is no code path
+# by which a batch_databento or _quarantine/ object can be touched. That is strictly stronger than a
+# post-hoc count check. (Measured 2026-07-20: `massive + databento == total_parquet` on every sampled
+# day, so the filter is exact and total.) Only the migrate pass runs — NOT rebundle/recover, which
+# exist to canonicalize NON-massive data and would move objects this purge must leave alone.
+#
+# The sentinel is resolved by the tool with `Path(...).is_file()` ON THE VM, so it is pulled from GCS
+# rather than inlined (its text contains commas; --metadata is comma-delimited).
+_tradfi_massive_purge_cmd() {
+    local vm_name="$1"
+    local base="market_tick_data_service.scripts"
+    local sh="--shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}"
+    local work="/home/ikennaigboaka/workspace/tradfi-canonical-migration"
+    local enum="${work}/enumeration.txt"
+    local enum_m="${work}/enumeration_massive.txt"
+    local sent="${work}/massive_purge_authorization.sentinel"
+    local mapd="${work}/mappings"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-tradfi/${RUN_TS}/${vm_name}/mappings/"
+    local walk="gs://${TRADFI_TICK_BUCKET}/raw_tick_data/**"
+    local sent_gs="${MASSIVE_SENTINEL_GS:-gs://${CODE_BUCKET}/canonical-migration-tradfi/sentinels/massive_purge_authorization_2026_07_20.sentinel}"
+    local limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag="--limit ${LIMIT}"
+    printf '%s' "mkdir -p ${mapd} && gcloud storage cp ${sent_gs} ${sent} && gcloud storage ls -r \"${walk}\" > ${enum} && grep 'pipeline_mode=batch_massive' ${enum} > ${enum_m} && echo TRADFI_MASSIVE_ENUM_LINES=\$(wc -l < ${enum_m}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 --apply --enumeration ${enum_m} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} --purge-massive --massive-backfill-verified ${sent} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
 # Build the tradfi catalogue `-USD@LIN` canonicalization command (instruments-service one-off).
 # Emitted COMMA-FREE (gcloud --metadata is comma-delimited) as a single `cd ... && python ...` chain:
 # the shared canonical-migration dispatch in setup-data-pipeline-vm.sh cds to $WORKSPACE/mtds, so the
@@ -291,9 +333,25 @@ _launch() {
     local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
     local cmd
     if [[ "$cat" == "tradfi" ]]; then
-        # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
-        # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
-        cmd="$(_tradfi_content_migration_cmd "$vm_name")"
+        # MIGRATION_EXTRA_ARGS is NOT appendable here: this category emits a compound `&&` chain, so a
+        # trailing append would land on the final `gcloud storage cp` rather than the python pass — the
+        # flags would be silently DISCARDED. That silent drop previously turned an intended gated
+        # massive-purge into "purge nothing + migrate the whole estate" (caught pre-flight 2026-07-20).
+        # A flag that vanishes is worse than one that errors, so FAIL LOUDLY instead of dropping it.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for category 'tradfi' — it emits a" >&2
+            echo "       multi-pass compound command and the flags would be silently discarded." >&2
+            echo "       For the gated massive purge use: TRADFI_PURGE_MASSIVE_ONLY=1" >&2
+            return 1
+        fi
+        if [[ -n "${TRADFI_PURGE_MASSIVE_ONLY:-}" ]]; then
+            # GATED massive-only purge over a batch_massive-filtered enumeration (migrate pass only).
+            cmd="$(_tradfi_massive_purge_cmd "$vm_name")"
+        else
+            # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
+            # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
+            cmd="$(_tradfi_content_migration_cmd "$vm_name")"
+        fi
     elif [[ "$cat" == "tradfi-catalogue-canon" ]]; then
         # Self-contained `cd ... && python ...` chain; --apply is embedded per-MODE by the builder,
         # so the generic --apply/--dry-run append below is deliberately bypassed (same reason as
