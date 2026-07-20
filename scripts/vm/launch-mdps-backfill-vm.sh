@@ -131,6 +131,19 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
+# ── Auto-pin UAC to the current LDR-tip tarball (P0 contract-propagation fix) ──
+# This launcher pins UTL/MDPS into VM metadata but historically NOT UAC, so a UAC
+# schema/contract change was never version-pinned at launch and the VM fell to the
+# unpinned floating pull — a stale contract could reach a service VM even with a
+# correct current tarball (plans/active/issues/mdps_vm_stale_uac_contract_propagation_2026_07_20.md).
+# Resolve the sha of the UAC tarball that WILL actually be installed (the floating
+# manifest's commit_sha, emitted only when its @<sha> pair provably exists) and pin
+# it — determinism + retention-exemption + setup's per-tarball manifest-sha assert.
+# An operator-exported UAC_TARBALL_SHA always wins (explicit pin).
+if [[ -z "${UAC_TARBALL_SHA:-}" ]]; then
+    UAC_TARBALL_SHA="$(lc_resolve_tarball_sha "$CODE_BUCKET" unified-api-contracts)"
+fi
+
 # Filter pass-through (added 2026-05-28 for filter-pushdown canary verification —
 # see unified-trading-pm/plans/active/mdps_filter_pushdown_memory_audit_and_fix_2026_05_28.md
 # Phase 3). Unset by default → no behavior change for existing callers; when
@@ -274,6 +287,7 @@ _launch() {
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+    [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
     [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
     # Durable pin registry — instance metadata dies with the instance; this
     # record is what survives into the preemption-relaunch window and what
@@ -282,6 +296,7 @@ _launch() {
     # the sweep fail closed on genuinely unknown VMs without blocking forever.
     lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-mdps-backfill-vm.sh" \
         "UTL_TARBALL_SHA=${UTL_TARBALL_SHA:-}" \
+        "UAC_TARBALL_SHA=${UAC_TARBALL_SHA:-}" \
         "MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA:-}"
     [[ -n "$FILTER_DATA_TYPES" ]] && md="${md},VM_DATA_TYPES=${FILTER_DATA_TYPES// /;}"
     [[ -n "$FILTER_VENUES" ]] && md="${md},VM_VENUES=${FILTER_VENUES// /;}"

@@ -50,14 +50,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _VM_SCRIPTS = _REPO_ROOT / "scripts" / "vm"
 _LAUNCHER_COMMON = _VM_SCRIPTS / "lib" / "launcher_common.sh"
 
-# The five launchers that record a *_TARBALL_SHA pin. Established by
+# The launchers that record a *_TARBALL_SHA pin. Established by
 # `grep -rl TARBALL_SHA scripts/vm/` minus the CONSUMER (setup-data-pipeline-vm.sh).
+# launch-mdps-backfill-vm.sh + launch-features-vm.sh auto-pin UAC_TARBALL_SHA to the
+# current LDR-tip tarball (P0 mdps_vm_stale_uac_contract_propagation_2026_07_20) — the
+# contract package was previously left floating on service VMs.
 PINNING_LAUNCHERS = (
     "launch-canonical-migration-vm.sh",
     "launch-legacy-bucket-migration-sharded.sh",
     "launch-mdps-backfill-vm.sh",
     "launch-mdps-sharded-backfill.sh",
     "launch-mtds-dex-swaps-backfill-vm.sh",
+    "launch-features-vm.sh",
 )
 
 
@@ -200,10 +204,27 @@ class TestRealLauncherOutputShape:
 
     @pytest.mark.parametrize("launcher", PINNING_LAUNCHERS)
     def test_every_pinning_launcher_writes_a_durable_pin_record(self, launcher: str) -> None:
-        """Leg B must be wired into all five, or the dead-VM window stays open."""
+        """Leg B must be wired into every pinning launcher, or the dead-VM window stays open."""
         source = (_VM_SCRIPTS / launcher).read_text()
 
         assert "lc_write_tarball_pin_record" in source, f"{launcher} pins a tarball but records nothing durable"
+
+    @pytest.mark.parametrize("launcher", ["launch-mdps-backfill-vm.sh", "launch-features-vm.sh"])
+    def test_service_launchers_pin_uac_into_metadata_and_record(self, launcher: str) -> None:
+        """P0 mdps_vm_stale_uac_contract_propagation_2026_07_20: service VMs must
+        version-pin UAC (the contract package) exactly like UTL/MDPS — into VM metadata
+        AND the durable pin record — resolving it via lc_resolve_tarball_sha when the
+        operator did not pin it explicitly. A floating UAC is how a stale contract
+        reached a service VM despite a correct current tarball."""
+        source = (_VM_SCRIPTS / launcher).read_text()
+
+        assert "lc_resolve_tarball_sha" in source, f"{launcher} does not auto-resolve the current UAC tarball sha"
+        assert "UAC_TARBALL_SHA=${UAC_TARBALL_SHA}" in source, (
+            f"{launcher} does not stamp UAC_TARBALL_SHA into VM metadata"
+        )
+        assert '"UAC_TARBALL_SHA=${UAC_TARBALL_SHA:-}"' in source, (
+            f"{launcher} does not record UAC in the durable pin record"
+        )
 
     @pytest.mark.parametrize("launcher", PINNING_LAUNCHERS)
     def test_launcher_pin_keys_are_all_known_to_the_extractor(self, launcher: str) -> None:
