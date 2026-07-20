@@ -23,6 +23,13 @@ under single-file naming — that is stale.)  Scheduling follow-up (daily Cloud
 Scheduler + Cloud Run Job, `--keep 5`):
 `plans/active/issues/deployment_scripts_bucket_softdelete_log_churn_2026_06_01.md`.
 
+**Pin-aware (2026-07-20)**: mode 1 NEVER deletes a `@sha` tarball that a running
+— or still relaunch-eligible — VM is pinned to, regardless of how far it has aged
+down the mtime ranking, and it deletes each tarball together with its sibling
+`.manifest.json` so an orphan manifest (a pin that resolves to deleted code) can
+no longer be minted. If the in-use pin set cannot be determined the run
+FAILS CLOSED and deletes nothing. See `deployment_service.vm.tarball_pins`.
+
 SSOT: codex/05-infrastructure/vm-tarball-deployment.md
 
 Usage:
@@ -42,7 +49,17 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
 
+from unified_trading_library import get_storage_client
 from unified_trading_library.cloud_interface import gcs_delete_object  # noqa: qg-deep-import
+
+from deployment_service.vm.gcp_instance_lister import list_running_vm_names_strict
+from deployment_service.vm.tarball_pins import (
+    DEFAULT_PIN_GRACE_DAYS,
+    InUsePinsUnavailableError,
+    TarballPin,
+    collect_in_use_pins,
+    is_pin_protected,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -52,13 +69,17 @@ _GCS_LS_DATE = re.compile(r"^\s*\d+\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(
 # Tarball filename patterns:
 #   sha-versioned:  <service>@<sha>.tar.gz  OR  <service>-code-<sha>.tar.gz
 #   simple:         <service>-code.tar.gz  (no sha — single-version per service)
-_SHA_PATTERN = re.compile(r"^(.+?)(?:@[a-f0-9]+|-code-[a-f0-9]+)\.tar\.gz$")
+_SHA_PATTERN = re.compile(r"^(.+?)(?:@([a-f0-9]+)|-code-([a-f0-9]+))\.tar\.gz$")
 _SIMPLE_PATTERN = re.compile(r"^(.+?)-code\.tar\.gz$")
+
+_TARBALL_SUFFIX = ".tar.gz"
+_MANIFEST_SUFFIX = ".manifest.json"
 
 
 class TarballEntry(TypedDict):
     gcs_path: str
     service: str
+    sha: str
     mtime: datetime
     has_sha: bool
 
@@ -94,12 +115,13 @@ def _parse_tarballs(prefix: str) -> list[TarballEntry]:
         sha_m = _SHA_PATTERN.match(filename)
         if sha_m:
             service = sha_m.group(1)
-            entries.append(TarballEntry(gcs_path=gcs_path, service=service, mtime=mtime, has_sha=True))
+            sha = sha_m.group(2) or sha_m.group(3) or ""
+            entries.append(TarballEntry(gcs_path=gcs_path, service=service, sha=sha, mtime=mtime, has_sha=True))
             continue
         simple_m = _SIMPLE_PATTERN.match(filename)
         if simple_m:
             service = simple_m.group(1)
-            entries.append(TarballEntry(gcs_path=gcs_path, service=service, mtime=mtime, has_sha=False))
+            entries.append(TarballEntry(gcs_path=gcs_path, service=service, sha="", mtime=mtime, has_sha=False))
     return entries
 
 
@@ -116,8 +138,51 @@ def _delete_object(gcs_path: str, dry_run: bool) -> bool:
         return False
 
 
-def cleanup_name_versioned(bucket: str, keep: int, dry_run: bool) -> dict[str, int]:
-    """Delete old SHA-versioned tarballs; keep N most recent per service."""
+def _manifest_path_for(tarball_gcs_path: str) -> str:
+    """The sibling ``...@<sha>.manifest.json`` path for a ``...@<sha>.tar.gz``."""
+    return tarball_gcs_path[: -len(_TARBALL_SUFFIX)] + _MANIFEST_SUFFIX
+
+
+def _delete_tarball_pair(gcs_path: str, dry_run: bool) -> bool:
+    """Delete a tarball together with its sibling manifest. Returns tarball success.
+
+    **Deletion ORDER is load-bearing: the manifest goes FIRST.** The two objects
+    must share a fate, and if the pair-delete is interrupted between the two
+    calls, the surviving state must be the SAFE one:
+
+    - manifest deleted, tarball survives -> a pin that no longer resolves at all.
+      ``setup-data-pipeline-vm.sh`` refuses it loudly ("cannot verify
+      provenance") and nothing runs un-asserted code. Recoverable.
+    - tarball deleted, manifest survives -> an **orphan manifest**: a pin that
+      still RESOLVES but whose code is gone. This is the exact 2026-07-20 failure
+      shape, and it is silent until a relaunch detonates on it.
+
+    The old code could only ever produce the second state, because
+    ``_parse_tarballs`` filters out everything not ending ``.tar.gz`` — manifests
+    were structurally invisible to the sweep, so every run minted orphans.
+    """
+    manifest_path = _manifest_path_for(gcs_path)
+    _delete_object(manifest_path, dry_run)
+    return _delete_object(gcs_path, dry_run)
+
+
+def cleanup_name_versioned(
+    bucket: str,
+    keep: int,
+    dry_run: bool,
+    *,
+    pins: frozenset[TarballPin] = frozenset(),
+) -> dict[str, int]:
+    """Delete old SHA-versioned tarballs; keep N most recent per service.
+
+    ``pins`` is the in-use protected set (see
+    :func:`deployment_service.vm.tarball_pins.collect_in_use_pins`). Protection
+    is **orthogonal to ``keep``**: a pinned tarball is retained no matter how far
+    it has fallen down the mtime ranking. That orthogonality is the property the
+    incident needed — ``unified-api-contracts`` is the highest-velocity repo in
+    the fleet, so at ``--keep 5`` any fleet outliving 5 UAC pushes was GUARANTEED
+    to lose its pin, deterministically rather than unluckily.
+    """
     entries = _parse_tarballs(f"gs://{bucket}/code/")
 
     # Only process SHA-versioned entries — single-version files are untouched
@@ -134,23 +199,47 @@ def cleanup_name_versioned(bucket: str, keep: int, dry_run: bool) -> dict[str, i
     for service, service_entries in sorted(by_service.items()):
         sorted_entries = sorted(service_entries, key=lambda e: e["mtime"], reverse=True)
         to_keep = sorted_entries[:keep]
-        to_delete = sorted_entries[keep:]
+        candidates = sorted_entries[keep:]
+        to_delete = [e for e in candidates if not is_pin_protected(service, e["sha"], pins)]
+        protected = len(candidates) - len(to_delete)
+        if protected:
+            logger.info(
+                "service=%s: %d aged-out tarball(s) PRESERVED — pinned by a running/relaunchable VM",
+                service,
+                protected,
+            )
         if not to_delete:
             logger.info("service=%s: %d tarballs, %d to keep, 0 to delete", service, len(sorted_entries), keep)
             continue
         logger.info(
-            "service=%s: %d tarballs, keeping %d most recent, deleting %d",
+            "service=%s: %d tarballs, keeping %d most recent (+%d pinned), deleting %d",
             service,
             len(sorted_entries),
             len(to_keep),
+            protected,
             len(to_delete),
         )
         count = 0
         for entry in to_delete:
-            if _delete_object(entry["gcs_path"], dry_run):
+            if _delete_tarball_pair(entry["gcs_path"], dry_run):
                 count += 1
         deleted[service] = count
     return deleted
+
+
+def collect_pins_for_project(project: str, bucket: str, *, grace_days: int) -> frozenset[TarballPin]:
+    """Build the in-use protected pin set, or raise ``InUsePinsUnavailableError``.
+
+    Fail-closed by construction: a compute-API failure propagates (via
+    ``list_running_vm_names_strict``) instead of degrading to an empty
+    "nothing is running" set that would authorise deleting every live pin.
+    """
+    try:
+        running = list_running_vm_names_strict(project)
+    except Exception as exc:
+        raise InUsePinsUnavailableError(f"listing RUNNING instances in {project} failed: {exc!r}") from exc
+    storage_client = get_storage_client()
+    return frozenset(collect_in_use_pins(storage_client, bucket, running_vm_names=running, grace_days=grace_days))
 
 
 def cleanup_noncurrent_versions(bucket: str, max_age_days: int, dry_run: bool) -> int:
@@ -199,6 +288,15 @@ def main(argv: list[str]) -> int:
         help="Max age (days) for noncurrent versions before deletion (--noncurrent mode)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Report but do not delete")
+    parser.add_argument(
+        "--pin-grace-days",
+        type=int,
+        default=DEFAULT_PIN_GRACE_DAYS,
+        help=(
+            "Protect tarballs pinned by any VM launched within this many days, even if that VM is no "
+            "longer running (covers SPOT-preemption relaunch of an already-deleted instance)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     project: str = cast(str, args.project)
@@ -207,6 +305,7 @@ def main(argv: list[str]) -> int:
     max_age_days: int = cast(int, args.max_age_days)
     dry_run: bool = cast(bool, args.dry_run)
     noncurrent: bool = cast(bool, args.noncurrent)
+    pin_grace_days: int = cast(int, args.pin_grace_days)
 
     logger.info(
         "bucket=gs://%s  dry_run=%s  mode=%s", bucket, dry_run, "noncurrent" if noncurrent else "name-versioned"
@@ -216,7 +315,17 @@ def main(argv: list[str]) -> int:
         deleted = cleanup_noncurrent_versions(bucket, max_age_days, dry_run)
         logger.info("noncurrent cleanup complete: %d version(s) deleted", deleted)
     else:
-        deleted_by_service = cleanup_name_versioned(bucket, keep, dry_run)
+        # FAIL-CLOSED: never delete SHA-pinned tarballs against an unknown or
+        # partial view of what is running. Retention blocked for a day costs
+        # storage; reaping a live pin silently bricks a whole fleet's relaunch
+        # path (2026-07-20).
+        try:
+            pins = collect_pins_for_project(project, bucket, grace_days=pin_grace_days)
+        except InUsePinsUnavailableError as exc:
+            logger.error("FAIL-CLOSED: could not determine in-use tarball pins (%s) — deleting NOTHING this run", exc)
+            return 1
+        logger.info("in-use pin protection: %d pinned tarball(s) exempt from retention", len(pins))
+        deleted_by_service = cleanup_name_versioned(bucket, keep, dry_run, pins=pins)
         total = sum(deleted_by_service.values())
         logger.info(
             "name-versioned cleanup complete: %d service(s) processed, %d tarball(s) deleted",

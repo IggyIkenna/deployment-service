@@ -32,8 +32,15 @@ _mod = _load_module()
 _parse_tarballs = _mod._parse_tarballs  # type: ignore[attr-defined]
 _cleanup_name_versioned = _mod.cleanup_name_versioned  # type: ignore[attr-defined]
 _cleanup_noncurrent = _mod.cleanup_noncurrent_versions  # type: ignore[attr-defined]
+_delete_tarball_pair = _mod._delete_tarball_pair  # type: ignore[attr-defined]
+_collect_pins_for_project = _mod.collect_pins_for_project  # type: ignore[attr-defined]
 _main = _mod.main  # type: ignore[attr-defined]
 TarballEntry = _mod.TarballEntry  # type: ignore[attr-defined]
+
+from deployment_service.vm.tarball_pins import (  # noqa: E402
+    InUsePinsUnavailableError,
+    TarballPin,
+)
 
 
 def _make_ls_l_row(gcs_path: str, age_hours: float = 1.0) -> tuple[datetime, str]:
@@ -77,6 +84,7 @@ class TestCleanupNameVersioned:
             {
                 "gcs_path": f"gs://bucket/code/{service}@sha{i}.tar.gz",
                 "service": service,
+                "sha": f"sha{i}",
                 "mtime": datetime.now(UTC) - timedelta(hours=h),
                 "has_sha": True,
             }
@@ -88,7 +96,7 @@ class TestCleanupNameVersioned:
 
         with (
             patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
-            patch("cleanup_old_tarballs._delete_object") as mock_del,
+            patch("cleanup_old_tarballs._delete_tarball_pair", return_value=True) as mock_del,
         ):
             result = _cleanup_name_versioned("bucket", keep=3, dry_run=True)
 
@@ -106,7 +114,7 @@ class TestCleanupNameVersioned:
         ]
         with (
             patch("cleanup_old_tarballs._parse_tarballs", return_value=simple_entries),
-            patch("cleanup_old_tarballs._delete_object") as mock_del,
+            patch("cleanup_old_tarballs._delete_tarball_pair") as mock_del,
         ):
             result = _cleanup_name_versioned("bucket", keep=3, dry_run=True)
 
@@ -118,12 +126,93 @@ class TestCleanupNameVersioned:
 
         with (
             patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
-            patch("cleanup_old_tarballs._delete_object") as mock_del,
+            patch("cleanup_old_tarballs._delete_tarball_pair") as mock_del,
         ):
             result = _cleanup_name_versioned("bucket", keep=5, dry_run=True)
 
         assert "svc-b" not in result
         mock_del.assert_not_called()
+
+    # ── Pin-aware retention — the 2026-07-20 regression guards ──────────────
+
+    def test_pinned_and_running_tarball_is_preserved(self) -> None:
+        """A pinned tarball survives even when it has aged far past --keep.
+
+        This is THE incident: at --keep 5 a high-velocity repo like UAC evicts a
+        long-running fleet's pin within days, purely on mtime rank.
+        """
+        entries = self._make_entries("unified-api-contracts-code", [1, 5, 10, 20, 40, 80])
+        # sha5 is the OLDEST (80h) — dead last in the ranking, and pinned.
+        pins = frozenset({TarballPin(tarball_name="unified-api-contracts-code", sha="sha5")})
+
+        # Baseline: with no pins the aged-out trio (incl. sha5) IS deleted.
+        with (
+            patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
+            patch("cleanup_old_tarballs._delete_tarball_pair", return_value=True) as mock_baseline,
+        ):
+            baseline = _cleanup_name_versioned("bucket", keep=3, dry_run=True)
+        baseline_paths = [c.args[0] for c in mock_baseline.call_args_list]
+        assert baseline["unified-api-contracts-code"] == 3
+        assert any("@sha5.tar.gz" in p for p in baseline_paths), "baseline must reproduce the incident"
+
+        # With the pin present, that same tarball is exempt.
+        with (
+            patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
+            patch("cleanup_old_tarballs._delete_tarball_pair", return_value=True) as mock_del,
+        ):
+            result_pinned = _cleanup_name_versioned("bucket", keep=3, dry_run=True, pins=pins)
+
+        assert result_pinned["unified-api-contracts-code"] == 2, "the pinned tarball is exempt"
+        deleted_paths = [c.args[0] for c in mock_del.call_args_list]
+        assert not any("@sha5.tar.gz" in p for p in deleted_paths), "pinned tarball must never be deleted"
+
+    def test_pin_match_is_prefix_tolerant(self) -> None:
+        """A short recorded sha still protects the full-length object (and vice versa)."""
+        entries = self._make_entries("svc-a", [1, 5, 10, 20])
+        entries[3]["sha"] = "acd8714c811027910cc18e730f8b38a6deef7822"  # type: ignore[index]
+        pins = frozenset({TarballPin(tarball_name="svc-a", sha="acd8714c")})  # 8-char pin
+
+        with (
+            patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
+            patch("cleanup_old_tarballs._delete_tarball_pair", return_value=True) as mock_del,
+        ):
+            result = _cleanup_name_versioned("bucket", keep=3, dry_run=True, pins=pins)
+
+        assert result == {} or result.get("svc-a", 0) == 0
+        mock_del.assert_not_called()
+
+    def test_unpinned_and_old_is_still_deleted(self) -> None:
+        """Protection must not become a blanket amnesty — retention still works."""
+        entries = self._make_entries("svc-a", [1, 5, 10, 20, 40])
+        pins = frozenset({TarballPin(tarball_name="other-svc-code", sha="sha4")})  # different service
+
+        with (
+            patch("cleanup_old_tarballs._parse_tarballs", return_value=entries),
+            patch("cleanup_old_tarballs._delete_tarball_pair", return_value=True) as mock_del,
+        ):
+            result = _cleanup_name_versioned("bucket", keep=3, dry_run=True, pins=pins)
+
+        assert result["svc-a"] == 2
+        assert mock_del.call_count == 2
+
+
+class TestTarballManifestPairDeletion:
+    def test_manifest_deleted_together_with_tarball_manifest_first(self) -> None:
+        """Tarball + sibling manifest share a fate, and the manifest goes FIRST.
+
+        Order matters: interrupting after the tarball would leave an ORPHAN
+        MANIFEST — a pin that still resolves but whose code is gone, which is the
+        silent failure shape that bricked the fleet.
+        """
+        with patch("cleanup_old_tarballs._delete_object", return_value=True) as mock_del:
+            ok = _delete_tarball_pair("gs://bucket/code/uac-code@abc123.tar.gz", dry_run=True)
+
+        assert ok
+        deleted = [c.args[0] for c in mock_del.call_args_list]
+        assert deleted == [
+            "gs://bucket/code/uac-code@abc123.manifest.json",
+            "gs://bucket/code/uac-code@abc123.tar.gz",
+        ]
 
 
 class TestCleanupNoncurrentVersions:
@@ -176,6 +265,7 @@ class TestCleanupNoncurrentVersions:
 class TestMainArgParser:
     def test_dry_run_name_versioned(self) -> None:
         with (
+            patch("cleanup_old_tarballs.collect_pins_for_project", return_value=frozenset()),
             patch("cleanup_old_tarballs.cleanup_name_versioned", return_value={}) as mock_fn,
             patch("cleanup_old_tarballs.cleanup_noncurrent_versions") as mock_nc,
         ):
@@ -198,7 +288,47 @@ class TestMainArgParser:
         mock_fn.assert_not_called()
 
     def test_default_bucket_derived_from_project(self) -> None:
-        with patch("cleanup_old_tarballs.cleanup_name_versioned", return_value={}) as mock_fn:
+        with (
+            patch("cleanup_old_tarballs.collect_pins_for_project", return_value=frozenset()),
+            patch("cleanup_old_tarballs.cleanup_name_versioned", return_value={}) as mock_fn,
+        ):
             _main(["--project", "my-proj-123", "--dry-run"])
         bucket_arg = mock_fn.call_args[0][0]
         assert bucket_arg == "deployment-scripts-my-proj-123"
+
+    def test_pins_are_passed_through_to_the_sweep(self) -> None:
+        pins = frozenset({TarballPin(tarball_name="uac-code", sha="abc123")})
+        with (
+            patch("cleanup_old_tarballs.collect_pins_for_project", return_value=pins),
+            patch("cleanup_old_tarballs.cleanup_name_versioned", return_value={}) as mock_fn,
+        ):
+            rc = _main(["--project", "my-proj", "--dry-run"])
+        assert rc == 0
+        assert mock_fn.call_args.kwargs["pins"] == pins
+
+    def test_fails_closed_and_deletes_nothing_when_pins_unknown(self) -> None:
+        """If live state can't be read, delete NOTHING — never assume "nothing runs"."""
+        with (
+            patch(
+                "cleanup_old_tarballs.collect_pins_for_project",
+                side_effect=InUsePinsUnavailableError("compute API down"),
+            ),
+            patch("cleanup_old_tarballs.cleanup_name_versioned") as mock_fn,
+        ):
+            rc = _main(["--project", "my-proj"])
+        assert rc == 1, "a non-zero exit surfaces the skipped sweep"
+        mock_fn.assert_not_called()
+
+
+class TestCollectPinsForProject:
+    def test_compute_api_failure_raises_rather_than_returning_empty(self) -> None:
+        """The fail-closed contract: an API error must NOT look like "no VMs running"."""
+        with patch(
+            "cleanup_old_tarballs.list_running_vm_names_strict",
+            side_effect=RuntimeError("403"),
+        ):
+            try:
+                _collect_pins_for_project("proj", "bucket", grace_days=14)
+            except InUsePinsUnavailableError:
+                return
+        raise AssertionError("expected InUsePinsUnavailableError")
