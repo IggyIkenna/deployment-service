@@ -201,10 +201,29 @@ _tradfi_content_migration_cmd() {
 # `python ` substring, so the rewrite lands on the intended token.
 # GCP_PROJECT_ID/DEPLOYMENT_ENV are exported by setup-data-pipeline-vm.sh already, but are ALSO set
 # inline here: without them resolve_bucket_name() raises BucketNamingError and the sweep dies instantly.
+# PROCESS-level sharding is REQUIRED for throughput here, not a tuning nicety: the per-row
+# canonicalization is pure Python and GIL-bound, so --workers alone saturates ~1.3 cores however high
+# it is set. MEASURED 2026-07-20 on an in-region e2-standard-16 with --workers 64: 130% of 1600% CPU,
+# 86% idle, ~1.0 files/s => ~7.4h for the 27.1k-file sweep — i.e. no better than the cross-region
+# laptop run, because GCS latency was never the bottleneck. CANON_SHARDS (default 16) forks one
+# PROCESS per shard over a disjoint stride partition (proven disjoint+exhaustive: sum(shards)==27100,
+# all-unique) and waits, propagating a non-zero rc if ANY shard fails.
 _catalogue_canon_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
-    printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u scripts/canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py --by-day${apply_flag} --by-day-full-sweep --workers ${WORKERS:-64}"
+    local shards="${CANON_SHARDS:-16}"
+    local per_worker="${WORKERS:-8}"
+    local script="scripts/canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py"
+    if [[ "$shards" -le 1 ]]; then
+        printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker}"
+        return
+    fi
+    # `\$` / `\"` stay LITERAL in the gcloud metadata value (the VM's bash evaluates them); launcher
+    # locals expand host-side. Comma-free throughout (gcloud --metadata is comma-delimited).
+    # rc is collected with a per-PID `wait` (NOT `wait $(jobs -p)`, which returns only the LAST
+    # job's status — VERIFIED 2026-07-20: with shard 1 exiting 7 and shard 2 exiting 0 that form
+    # reports rc_all=0, silently green-lighting a partially-failed sweep).
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && export GCP_PROJECT_ID=${PROJECT} && export DEPLOYMENT_ENV=${DEPLOYMENT_ENV} && rc_all=0; pids=\"\"; for i in \$(seq 0 \$((${shards}-1))); do python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker} --shard-of ${shards} --shard-index \${i} > /tmp/canon_shard\${i}.log 2>&1 & pids=\"\${pids} \$!\"; done; for p in \${pids}; do wait \${p} || rc_all=1; done; for i in \$(seq 0 \$((${shards}-1))); do echo \"=== SHARD \${i} tail ===\"; tail -6 /tmp/canon_shard\${i}.log; done; echo \"=== CANON ALL-SHARDS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}"
 }
 
 _script_for() {
