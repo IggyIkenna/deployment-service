@@ -179,17 +179,29 @@ def check_instruments_venue_coverage(
                     "error": result["error"],
                 }
             else:
-                found = result["found_venues"]
+                found = _cast(set[str], result["found_venues"])
 
-                # UAC VenueMapping is the SSOT for venue start dates.
-                # For each found venue, check if it should exist on this date.
-                # Use ``get_instrument_discovery_start`` so venues with a
-                # discovery-API gap narrower than the market-data archive
-                # (e.g. HYPERLIQUID 2023-11-01) clip correctly.
-                expected_for_date = set()
-                for venue in found:
+                # Derive the expectation from the CONFIG venue set (threaded
+                # through as ``expected_venues``), NOT from ``found``. Computing
+                # the expectation from ``found`` made ``missing_venues`` empty by
+                # construction (missing = expected - found where expected ⊆ found),
+                # so this smoke could NEVER report a missing venue — it always
+                # rendered "100% complete" even when a venue's adapter failed and
+                # its directory was absent. That silent-pass defeats the whole
+                # point of the check (catch a venue API failure early).
+                #
+                # UAC VenueMapping is the SSOT for venue start dates. Clip each
+                # CONFIG-expected venue by ``get_instrument_discovery_start`` so a
+                # venue whose discovery-API history is narrower than the config
+                # category start (e.g. HYPERLIQUID 2023-11-01) is not expected —
+                # and thus not false-flagged missing — before it can exist. A
+                # venue with no UAC discovery start is left unclipped (expected on
+                # every in-range date) so an unmapped venue over-reports (loud)
+                # rather than silently disappearing.
+                expected_for_date: set[str] = set()
+                for venue in expected_venues:
                     uac_start = _venue_mapping.get_instrument_discovery_start(venue)
-                    if uac_start and date_str >= uac_start:
+                    if uac_start is None or date_str >= uac_start:
                         expected_for_date.add(venue)
 
                 missing = expected_for_date - found

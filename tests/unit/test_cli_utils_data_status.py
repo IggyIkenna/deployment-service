@@ -1262,3 +1262,88 @@ class TestCheckInstrumentsVenueCoverage:
         captured = capsys.readouterr()
         # Should get at least a header
         assert "instruments-service" in captured.out or "CEFI" in captured.out
+
+    @pytest.mark.unit
+    def test_missing_config_venue_is_reported_not_empty_by_construction(self):
+        """Regression: ``missing_venues`` must be derived from the CONFIG expected
+        set, NOT from ``found``. Deriving it from ``found`` made ``missing`` empty
+        by construction (expected ⊆ found), so a venue whose adapter FAILED (its
+        directory absent) was never flagged — the smoke always rendered "100%
+        complete". Here DERIBIT is configured but absent from ``found`` and MUST
+        surface as missing.
+        """
+        captured_results: dict[str, object] = {}
+
+        def _capture(results, output, start_date, end_date):
+            captured_results["results"] = results
+
+        class _FakeVenueMapping:
+            def get_instrument_discovery_start(self, venue: str) -> str:
+                # Both venues in-range for the test date (no clip applies).
+                return "2020-01-01"
+
+        with (
+            patch("deployment_service.cli.utils.data_status_venue_utils.ConfigLoader") as MockCL,
+            patch("deployment_service.cli.utils.data_status_venue_utils.gcsfs.GCSFileSystem"),
+            patch("deployment_service.cli.utils.data_status_venue_utils.ThreadPoolExecutor") as MockTPE,
+            patch(
+                "deployment_service.cli.utils.data_status_venue_utils.VenueMapping",
+                _FakeVenueMapping,
+            ),
+            patch(
+                "deployment_service.cli.utils.data_status_venue_utils.format_venue_coverage_results",
+                _capture,
+            ),
+        ):
+            mock_loader = MagicMock()
+            mock_loader.load_expected_start_dates.return_value = {
+                "instruments-service": {
+                    "CEFI": {
+                        "category_start": "2024-01-01",
+                        "venues": {"BINANCE": "2024-01-01", "DERIBIT": "2024-01-01"},
+                    }
+                }
+            }
+            MockCL.return_value = mock_loader
+
+            mock_executor = MagicMock()
+            MockTPE.return_value.__enter__ = MagicMock(return_value=mock_executor)
+            MockTPE.return_value.__exit__ = MagicMock(return_value=False)
+
+            from concurrent.futures import Future
+
+            future: Future[object] = Future()
+            future.set_result(
+                {
+                    "date": "2024-01-01",
+                    "cat": "CEFI",
+                    # DERIBIT's adapter "failed" — its venue= directory is absent.
+                    "found_venues": {"BINANCE"},
+                    "error": None,
+                }
+            )
+            mock_executor.submit.return_value = future
+
+            with patch(
+                "deployment_service.cli.utils.data_status_venue_utils.as_completed",
+                return_value=iter([future]),
+            ):
+                from deployment_service.cli.utils.data_status_venue_utils import (
+                    check_instruments_venue_coverage,
+                )
+
+                check_instruments_venue_coverage(
+                    start_date=datetime(2024, 1, 1),
+                    end_date=datetime(2024, 1, 1),
+                    asset_group=("CEFI",),
+                    output="tree",
+                    config_dir="/fake/configs",
+                )
+
+        results = captured_results["results"]
+        cell = results["CEFI"]["2024-01-01"]
+        assert cell["found_venues"] == {"BINANCE"}
+        # Expectation comes from CONFIG (both venues), clipped by discovery start.
+        assert cell["expected_venues"] == {"BINANCE", "DERIBIT"}
+        # Core regression: DERIBIT is flagged missing (was {} before the fix).
+        assert cell["missing_venues"] == {"DERIBIT"}
