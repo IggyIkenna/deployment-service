@@ -12,7 +12,6 @@
 #
 # Usage:
 #   bash launch-canonical-migration-vm.sh cefi       2020-01-01 2024-12-31 dry
-#   bash launch-canonical-migration-vm.sh tradfi     2023-01-01 2024-12-31 dry
 #   bash launch-canonical-migration-vm.sh defi       2023-01-01 2024-12-31 dry
 #   bash launch-canonical-migration-vm.sh prediction 2025-03-14 2026-04-18 dry
 #   bash launch-canonical-migration-vm.sh all        2020-01-01 2024-12-31 dry
@@ -24,14 +23,42 @@
 #   MIGRATION_EXTRA_ARGS="--stamp $(date -u +%Y%m%dT%H%M%SZ)" \
 #     bash launch-canonical-migration-vm.sh tradfi-cme-options 2023-05-01 2026-01-30 full
 #
+#   # tradfi (2026-07 orphan-proof content migration): START_DATE/END_DATE are cosmetic
+#   # (VM labels only). Each VM does a FRESH single-walk of the CURRENT tradfi tick bucket on the VM
+#   # then runs, IN ORDER, the three shipped passes over that ONE snapshot:
+#   #   1. migrate_tradfi_canonical_2026_07  (1:1 copy->verify->delete executor)
+#   #   2. rebundle_tradfi_chains_2026_07    (per-contract options_chain -> per-root bundle REDUCE)
+#   #   3. recover_tradfi_garbage_underlying_2026_07 (garbage-underlying recover-or-quarantine)
+#   # dry  -> all three --dry-run; mapping TSVs staged to GCS for review; NO GCS mutations.
+#   # full -> all three --apply (rebundle+recover get --quarantine; migrate stays gate-free BY DESIGN so
+#   #         the three passes remain a disjoint content-class partition over one snapshot). Massive-purge
+#   #         is DELIBERATELY OFF (separate operator-gated step). SSOT:
+#   #         plans/active/issues/tradfi_canonical_path_migration_design_2026_07_19.md
+#   # DRY-RUN canary on ONE VM (whole-corpus walk, --apply first 200 objects/pass):
+#   SHARD_OF=1 LIMIT=200 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
+#   # ...or a single-day --apply canary:
+#   CANARY_DAY=2024-01-15 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
+#   # FULL sharded fan-out across N=20 VMs (each partitions by --shard-of/--shard-index; no overlap):
+#   SHARD_OF=20 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
+#   # ...or one specific shard on its own VM (targeted relaunch):
+#   SHARD_OF=20 SHARD_INDEX=3 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
 # Env overrides:
-#   MACHINE_TYPE=e2-standard-16  larger VM (default e2-standard-8; tradfi full-range OOM'd on -8, needs 64GB)
+#   MACHINE_TYPE=e2-standard-16  larger VM (default e2-standard-8; the 2026-07 tradfi content passes STREAM
+#                                the enumeration in bounded-memory chunks, so e2-standard-8 is fine)
 #   WORKERS=24                   migrator concurrency (tradfi default 24; other AGs keep their per-AG default)
 #   ON_DEMAND=true               opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
 #   BOOT_DISK_GB=50              boot disk size
+#   # tradfi content-migration (2026-07) only:
+#   SHARD_OF=20                  total shard count; >1 with SHARD_INDEX unset FANS OUT N sharded VMs
+#   SHARD_INDEX=3                launch exactly this shard on ONE VM (canary / targeted relaunch)
+#   LIMIT=200                    process only the first N (post-shard) objects PER PASS (canary scope)
+#   CANARY_DAY=2024-01-15        narrow the fresh walk to one day= prefix (single-day canary scope)
+#   TRADFI_TICK_BUCKET=<name>    override the resolved tradfi tick bucket (default:
+#                                market-data-tick-tradfi-<prd|stg|dev>-<project>, == resolve_bucket_name)
 #
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
@@ -89,17 +116,72 @@ esac
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 
+# ── tradfi content-migration (2026-07) sharding + scope knobs ──────────────────────────────────────
+# SHARD_INDEX_EXPLICIT records whether the operator PINNED a single shard (launch just that VM) vs left
+# it unset (SHARD_OF>1 then FANS OUT one VM per shard). Captured before the :- default masks the distinction.
+SHARD_INDEX_EXPLICIT="${SHARD_INDEX+set}"
+SHARD_OF="${SHARD_OF:-1}"
+SHARD_INDEX="${SHARD_INDEX:-0}"
+LIMIT="${LIMIT:-0}"
+CANARY_DAY="${CANARY_DAY:-}"
+# TradFi tick bucket (env-tiered). Bash formula == resolve_bucket_name(cloud=gcp, kind=tick-data,
+# asset_group=tradfi) — VERIFIED market-data-tick-tradfi-prd-central-element-323112 for prod — and is
+# the SAME shape setup-data-pipeline-vm.sh constructs (line ~1166). Baked host-side into a COMMA-FREE
+# VM_MIGRATION_CMD (gcloud --metadata is comma-delimited; a resolve_bucket_name(...) one-liner has commas).
+case "$DEPLOYMENT_ENV" in
+    prod)    _ENV_SHORT="prd" ;;
+    staging) _ENV_SHORT="stg" ;;
+    *)       _ENV_SHORT="$DEPLOYMENT_ENV" ;;
+esac
+TRADFI_TICK_BUCKET="${TRADFI_TICK_BUCKET:-market-data-tick-tradfi-${_ENV_SHORT}-${PROJECT}}"
+
+# Build the tradfi 2026-07 content-migration command: ONE fresh single-walk on the VM -> enumeration,
+# then the three shipped passes IN ORDER over that ONE snapshot, then stage the mapping TSVs to GCS.
+# Emitted as a single COMMA-FREE compound `&&` chain (see TRADFI_TICK_BUCKET note). The FIRST `python `
+# is venv-rewritten by setup-data-pipeline-vm.sh's canonical-migration handler; the rebundle+recover
+# `python` resolve via the venv activated on PATH (proven by the sports-v9 two-phase launcher).
+# migrate runs GATE-FREE (no --quarantine/--content-repair/--purge-massive): it then LEAVES massive
+# (PURGE_REFUSED_GATED), garbage-underlying (QUARANTINE_REFUSED_GATED), content-repair
+# (CONTENT_REPAIR_DEFERRED) and per-contract chains (A_SKIP) IN PLACE, so passes 2/3 (which own those
+# classes) still see them in the shared snapshot. rebundle+recover take --quarantine in full mode.
+_tradfi_content_migration_cmd() {
+    local vm_name="$1"
+    local mode_flag quar_flag limit_flag walk
+    if [[ "$MODE" == "full" ]]; then
+        mode_flag="--apply"
+        quar_flag="--quarantine"
+    else
+        mode_flag="--dry-run"
+        quar_flag=""
+    fi
+    limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag="--limit ${LIMIT}"
+    # CANARY_DAY narrows to one day= prefix; else the whole raw corpus. Scoping to raw_tick_data/
+    # EXCLUDES the top-level _quarantine/_content_repair/_index sidecars so a resume re-walk is idempotent.
+    if [[ -n "${CANARY_DAY:-}" ]]; then
+        walk="gs://${TRADFI_TICK_BUCKET}/raw_tick_data/by_date/day=${CANARY_DAY}/**"
+    else
+        walk="gs://${TRADFI_TICK_BUCKET}/raw_tick_data/**"
+    fi
+    local base="market_tick_data_service.scripts"
+    local sh="--shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}"
+    local work="/home/ikennaigboaka/workspace/tradfi-canonical-migration"
+    local enum="${work}/enumeration.txt"
+    local mapd="${work}/mappings"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-tradfi/${RUN_TS}/${vm_name}/mappings/"
+    # `\$(...)` + `\"` stay LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
+    # launcher locals expand host-side. No commas anywhere in the emitted string.
+    printf '%s' "mkdir -p ${mapd} && gcloud storage ls -r \"${walk}\" > ${enum} && echo TRADFI_ENUM_LINES=\$(wc -l < ${enum}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} && python -u -m ${base}.rebundle_tradfi_chains_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/rebundle_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && python -u -m ${base}.recover_tradfi_garbage_underlying_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/recovery_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
         # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
         cefi)       echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
-        # TradFi v9: 3-layout-aware path canonicaliser (L-hive pipeline_mode insert + L-hyphen pseudo-hive parse +
-        # candles; overlap dedup). DRY-BY-DEFAULT + --apply (same convention as the defi/cefi/prediction v9 tools).
-        # --workers default 24 (NOT 64): workers=64 on 2026-06-29 thrashed the GCS connection pool (SSL
-        # UNEXPECTED_EOF + pool-full) and OOM-killed on the full range. Run PER-YEAR (--start/--end) on
-        # e2-standard-16 (MACHINE_TYPE) to bound the up-front object-list accumulation. D3.
-        tradfi)     echo "python -u -m market_tick_data_service.scripts.migrate_tradfi_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-24}" ;;
+        # TradFi: REPOINTED 2026-07-19 to the orphan-proof CONTENT migration (fresh walk -> executor ->
+        # rebundle -> recovery). The old day-walking migrate_tradfi_to_v9_canonical is superseded; the
+        # tradfi command is built by _tradfi_content_migration_cmd() (needs vm_name), handled in _launch.
         defi)       echo "python -u -m market_tick_data_service.scripts.migrate_defi_full_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 96" ;;
         # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
         # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
@@ -155,23 +237,30 @@ _launch() {
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
-    local cmd; cmd="$(_script_for "$cat")"
-    [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
-    # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
-    # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
-    # are write-by-default + --dry-run.
-    if [[ "$cat" == "defi-per-instrument" ]]; then
-        : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
-          # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
-          # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
-    elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi" || "$cat" == "tradfi-cme-options" ]]; then
-        [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
+    local cmd
+    if [[ "$cat" == "tradfi" ]]; then
+        # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
+        # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
+        cmd="$(_tradfi_content_migration_cmd "$vm_name")"
     else
-        [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
+        cmd="$(_script_for "$cat")"
+        [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
+        # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
+        # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
+        # are write-by-default + --dry-run.
+        if [[ "$cat" == "defi-per-instrument" ]]; then
+            : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
+              # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
+              # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
+        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" ]]; then
+            [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
+        else
+            [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
+        fi
+        # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
+        # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
+        [[ "$cat" != "defi-per-instrument" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     fi
-    # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
-    # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
-    [[ "$cat" != "defi-per-instrument" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
@@ -217,7 +306,21 @@ _launch() {
 }
 
 case "$ASSET_GROUP" in
-    cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
+    tradfi)
+        # tradfi content migration: SHARD_OF>1 with SHARD_INDEX UNSET fans out one VM per shard
+        # (canonical-migration-tradfi-<ts>-shard<i>of<N>, all under the registered prefix, disjoint work).
+        # A pinned SHARD_INDEX (or SHARD_OF=1) launches exactly one VM (canary / targeted relaunch).
+        if [[ "$SHARD_OF" -gt 1 && -z "$SHARD_INDEX_EXPLICIT" ]]; then
+            for ((_i = 0; _i < SHARD_OF; _i++)); do
+                SHARD_INDEX="$_i"
+                VM_NAME_SUFFIX="shard${_i}of${SHARD_OF}"
+                _launch tradfi
+            done
+        else
+            _launch tradfi
+        fi
+        ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
