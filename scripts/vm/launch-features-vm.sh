@@ -208,6 +208,18 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="e2-standard-8"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
+# ── Auto-pin UAC to the current LDR-tip tarball (P0 contract-propagation fix) ──
+# Features VMs install UAC as a sibling but historically pinned NO code tarball, so
+# a UAC schema/contract change was never version-pinned at launch and the VM fell to
+# the unpinned floating pull — a stale contract could reach a features VM even with a
+# correct current tarball (plans/active/issues/mdps_vm_stale_uac_contract_propagation_2026_07_20.md).
+# Resolve the sha of the UAC tarball that WILL actually be installed (the floating
+# manifest's commit_sha, emitted only when its @<sha> pair provably exists) and pin
+# it. An operator-exported UAC_TARBALL_SHA always wins (explicit pin).
+if [[ -z "${UAC_TARBALL_SHA:-}" ]]; then
+    UAC_TARBALL_SHA="$(lc_resolve_tarball_sha "$CODE_BUCKET" unified-api-contracts)"
+fi
+
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"
 FAMILY_DASHED="$(echo "$FEATURE_FAMILY" | tr '_' '-')"
@@ -297,6 +309,17 @@ MD="${MD},VM_NAME=${VM_NAME}"
 MD="${MD},MANIFEST_PER_VM_SHARDS=true"
 # Auto-delete on completion (read by vm-exec-with-gcs-tee.sh:253):
 MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
+# Version-pin UAC into VM metadata (P0 contract-propagation fix) — setup reads
+# UAC_TARBALL_SHA and pulls the exact SHA-pinned unified-api-contracts tarball.
+[[ -n "${UAC_TARBALL_SHA:-}" ]] && MD="${MD},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
+
+# Durable pin registry — instance metadata dies with the instance; this record is
+# what survives into the preemption-relaunch window and exempts the pinned UAC
+# tarball from the nightly retention sweep (lc_write_tarball_pin_record /
+# deployment_service.vm.tarball_pins). UTL is recorded as a deliberate float.
+lc_write_tarball_pin_record "$VM_NAME" "$PROJECT" "launch-features-vm.sh" \
+    "UTL_TARBALL_SHA=${UTL_TARBALL_SHA:-}" \
+    "UAC_TARBALL_SHA=${UAC_TARBALL_SHA:-}"
 
 # ---------- launch ----------
 # shellcheck disable=SC2086

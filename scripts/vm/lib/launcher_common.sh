@@ -533,6 +533,56 @@ lc_tarball_name_for_repo() {
 }
 
 # ---------------------------------------------------------------------------
+# lc_resolve_tarball_sha <code_bucket> <repo>
+# ---------------------------------------------------------------------------
+# Echo the commit_sha of the CURRENTLY-DEPLOYED (floating) code tarball for
+# <repo> — but ONLY when its SHA-pinned copy provably resolves, i.e. both
+# gs://<bucket>/code/<tarball>@<sha>.tar.gz AND its .manifest.json exist. Echoes
+# nothing (and returns 0) on any failure, so a caller's `${VAR:-$(...)}` default
+# degrades to "leave it floating" (today's behaviour) rather than pinning a SHA
+# that would brick boot at setup-data-pipeline-vm.sh's "refusing floating
+# fallback" hard-fail.
+#
+# Why the floating MANIFEST's sha (not the local clone HEAD): create-code-tarballs.sh
+# writes <tarball>.tar.gz, <tarball>.manifest.json AND <tarball>@<sha>.{tar.gz,manifest.json}
+# in the SAME run, so the floating manifest's commit_sha is exactly the sha whose
+# @<sha> pair exists in the bucket — the freshest code that will ACTUALLY be
+# installed. Pinning HEAD instead can name a sha that was never tarballed → a
+# guaranteed boot failure. This reads the SAME manifest.json lc_verify_tarball_freshness
+# compares against.
+#
+# Purpose: close the launcher half of
+# plans/active/issues/mdps_vm_stale_uac_contract_propagation_2026_07_20.md — the
+# service launchers pin UTL/MDPS but NOT UAC, so a UAC schema/contract change is
+# not version-pinned into VM metadata and the VM falls to the unpinned floating
+# pull. An auto-resolved UAC pin makes the contract deterministic, exempts the
+# tarball from the retention sweep for the VM's life (tarball_pins.py), and lets
+# setup's per-tarball manifest-sha self-verify run for UAC.
+lc_resolve_tarball_sha() {
+    local code_bucket="${1:?lc_resolve_tarball_sha: code_bucket required}"
+    local repo="${2:?lc_resolve_tarball_sha: repo required}"
+    command -v gsutil >/dev/null 2>&1 || return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    local tarball manifest_uri manifest_tmp sha
+    tarball="$(lc_tarball_name_for_repo "$repo")"
+    manifest_uri="gs://${code_bucket}/code/${tarball}.manifest.json"
+    manifest_tmp="$(mktemp /tmp/lc-resolve-XXXX.json)"
+    if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
+        rm -f "$manifest_tmp"
+        return 0
+    fi
+    sha="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('commit_sha',''))" "$manifest_tmp" 2>/dev/null || echo "")"
+    rm -f "$manifest_tmp"
+    [[ -n "$sha" ]] || return 0
+    # Only emit the pin if the @<sha> tarball AND its manifest BOTH exist — setup
+    # refuses a pinned tarball whose manifest is absent ("cannot verify
+    # provenance") just as hard as a missing tarball.
+    gsutil -q stat "gs://${code_bucket}/code/${tarball}@${sha}.tar.gz" >/dev/null 2>&1 || return 0
+    gsutil -q stat "gs://${code_bucket}/code/${tarball}@${sha}.manifest.json" >/dev/null 2>&1 || return 0
+    printf '%s' "$sha"
+}
+
+# ---------------------------------------------------------------------------
 # lc_verify_tarball_freshness <code_bucket> <repo> [repo2 ...]
 # ---------------------------------------------------------------------------
 # PRE-LAUNCH guard against the silent-stale-tarball class of bug: a VM boots and

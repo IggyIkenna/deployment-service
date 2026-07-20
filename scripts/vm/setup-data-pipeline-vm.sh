@@ -743,6 +743,45 @@ WHEEL_CACHE="/tmp/wheel-cache"
 WHEEL_GCS="gs://${CODE_BUCKET}/wheels/py313-linux-x86_64"
 mkdir -p "$WHEEL_CACHE"
 
+# ── Internal-package wheel-cache poisoning fix (P0 — contract propagation) ──
+# The GCS wheel cache exists ONLY to skip recompiling SLOW EXTERNAL deps (web3,
+# pandas, pyarrow, ... — the C-extension builds). It must NEVER serve an INTERNAL
+# workspace package (unified_api_contracts / unified_trading_library / the service
+# packages): those hold a STATIC 0.x.y version across commits (SETUPTOOLS_SCM_PRETEND_VERSION
+# below pins them to 0.99.0), so a wheel built at an OLD sha satisfies the version
+# constraint and SHADOWS the "-e, always fresh" editable install — a same-version
+# contract change (e.g. a UAC nullable_ohlcv flip) then never reaches the VM. That
+# is the exact silent, correctness-critical deployment gap in
+# plans/active/issues/mdps_vm_stale_uac_contract_propagation_2026_07_20.md. Compute
+# the internal packages' normalized wheel prefixes from the editable dirs we install
+# (plus the two contract anchors as a hard safety net) and purge any matching wheel
+# from the find-links dir so the editable SOURCE is the only source for them.
+# EXTERNAL wheels are untouched — the cache still does its job for the slow builds.
+_wheel_dist() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -s '._-' '_'; }
+INTERNAL_WHEEL_NAMES=" $(_wheel_dist unified-api-contracts) $(_wheel_dist unified-trading-library) "
+for _idir in "${INSTALLED_DIRS[@]}"; do
+  _ipn=$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb")).get("project",{}).get("name",""))' "$_idir/pyproject.toml" 2>/dev/null || true)
+  [[ -n "$_ipn" ]] && INTERNAL_WHEEL_NAMES="${INTERNAL_WHEEL_NAMES}$(_wheel_dist "$_ipn") "
+done
+log "Internal packages excluded from wheel cache:${INTERNAL_WHEEL_NAMES}"
+_purge_internal_wheels() {
+  # Delete any internal-package wheel from the given dir so the editable source
+  # (not a stale same-version cached wheel) is authoritative. No-op on external
+  # wheels and on an empty dir.
+  local _wdir="$1" _whl _wbase _wdist _removed=0
+  [[ -d "$_wdir" ]] || return 0
+  for _whl in "$_wdir"/*.whl; do
+    [[ -e "$_whl" ]] || continue
+    _wbase="$(basename "$_whl")"
+    _wdist="$(_wheel_dist "${_wbase%%-*}")"
+    case "$INTERNAL_WHEEL_NAMES" in
+      *" $_wdist "*) rm -f "$_whl"; _removed=$((_removed + 1)) ;;
+    esac
+  done
+  [[ "$_removed" -gt 0 ]] && log "  purged $_removed internal-package wheel(s) from $(basename "$_wdir") (editable source is authoritative)"
+  return 0
+}
+
 # Try to download cached wheels
 if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   log "Downloading cached wheels from GCS..."
@@ -754,6 +793,9 @@ if gsutil -q ls "$WHEEL_GCS/" >/dev/null 2>&1; then
   WHEEL_COUNT=$(ls "$WHEEL_CACHE"/*.whl 2>/dev/null | wc -l)
   log "Downloaded $WHEEL_COUNT cached wheels"
 fi
+# Remediate an already-poisoned cache: drop internal-package wheels BEFORE the
+# editable install below so the find-links dir can never shadow the fresh source.
+_purge_internal_wheels "$WHEEL_CACHE"
 
 log "Installing Python dependencies..."
 # --no-sources: ignore [tool.uv.sources] in pyproject.toml which points to
@@ -876,6 +918,10 @@ if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
   log "Caching compiled wheels to GCS..."
   # Build wheels for all installed packages (captures compiled C extensions)
   uv pip wheel --wheel-dir "$WHEEL_CACHE" "${INSTALL_ARGS[@]}" -q 2>/dev/null || true
+  # `uv pip wheel` also builds wheels for the -e internal packages — never upload
+  # those (they would re-poison the cache with a static-version stale wheel that
+  # shadows a future contract change). Purge them again before the upload glob.
+  _purge_internal_wheels "$WHEEL_CACHE"
   # timeout-guard the upload too — this is the exact step that deadlocked and
   # left 3 CeFi VMs hung at boot (gsutil -m parallel-upload hang). Bounded so
   # the workload still launches even if the cache refresh wedges.
@@ -885,6 +931,30 @@ if [[ "$NEW_WHEELS" -gt 0 ]] || [[ ! -f "$WHEEL_CACHE/.uploaded" ]]; then
 fi
 
 python -c 'from unified_api_contracts.sports import LEAGUE_REGISTRY; print(f"UAC OK: {len(LEAGUE_REGISTRY)} leagues")'
+
+# ── Contract-freshness assertion (P0 — mdps_vm_stale_uac_contract_propagation_2026_07_20) ──
+# The unified_api_contracts just verified importable MUST resolve from the editable
+# tarball source under $WORKSPACE, NOT from a wheel in the venv site-packages. A
+# site-packages resolution means the GCS wheel cache shadowed the "-e, always fresh"
+# install — the exact stale-contract propagation bug (a VM validated market-data
+# writes against a STALE non-nullable deriv_ohlcv schema even though LDR AND the
+# current UAC tarball both carried nullable_ohlcv=True). Fail LOUD so a stale
+# contract can never again validate silently. UAC is a core tarball (always installed
+# editable), so this is unconditional. When UAC_TARBALL_SHA was pinned, the per-tarball
+# manifest-sha self-verify in step 4 already asserted the tarball's provenance; this
+# closes the remaining gap between "correct tarball on disk" and "correct code imported".
+_uac_file=$(python -c 'import unified_api_contracts as m; print(m.__file__ or "")' 2>/dev/null || echo "")
+log "  unified_api_contracts.__file__ = ${_uac_file:-<none>}"
+case "$_uac_file" in
+  "$WORKSPACE"/*)
+    log "  UAC contract source OK: editable install under $WORKSPACE (not a shadowing cached wheel)" ;;
+  *)
+    log "ERROR: unified_api_contracts resolved from '${_uac_file:-<none>}', NOT the editable source under $WORKSPACE."
+    log "ERROR: a cached wheel shadowed the editable install — the VM would validate against a STALE contract schema"
+    log "ERROR: (mdps_vm_stale_uac_contract_propagation_2026_07_20). Refusing to run on an unverified contract."
+    exit 1 ;;
+esac
+
 # Verify whichever service is installed
 python -c 'import market_tick_data_service; print("MTDS OK")' 2>/dev/null || true
 python -c 'import instruments_service; print("instruments-service OK")' 2>/dev/null || true
