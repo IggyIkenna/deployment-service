@@ -37,7 +37,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import cast
 
 import pandas as pd
@@ -51,6 +51,10 @@ from unified_trading_library.events import (  # noqa: qg-deep-import
 )
 
 from deployment_service.data_pipeline_monitors import _gcs
+from deployment_service.data_pipeline_monitors._miss_tracker import (
+    DEFAULT_MIN_CONSECUTIVE_MISSES,
+    MissTracker,
+)
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
@@ -181,8 +185,6 @@ def reconcile_resolved(
 # keyed IDENTICALLY to ``_alert_key`` so the counter, the emitted-set and the RESOLVED
 # bookend all agree on one alert identity. A fresh (or suppressed-by-design) probe resets
 # its key to 0, so only a SUSTAINED stale condition pages — a self-resolving blip never does.
-DP_MISS_COUNTERS_BLOB = "vm-census/dp-miss-counters.json"
-DEFAULT_MIN_CONSECUTIVE_MISSES = 2  # meta sweep is */15 → 2 misses = ~30m sustained before paging
 
 
 def _catalogue_miss_key(target: FreshnessTarget) -> str:
@@ -235,67 +237,6 @@ def _high_attempted_failed_miss_key(asset_group: str, data_type: str) -> str:
     EXACTLY (``event::<asset_group>/<data_type>``), so the counter, the emitted-set and
     the RESOLVED bookend all agree on one identity per (ag, data_type) cell."""
     return f"{DP_RUN_MOSTLY_EMPTY}::{_high_attempted_failed_cell_label(asset_group, data_type)}"
-
-
-@dataclass(frozen=True)
-class MissTracker:
-    """Cross-sweep consecutive-miss counter, GCS-persisted. ``register(key, stale=...)``
-    increments on a genuine (unsuppressed) stale probe and resets to 0 on a fresh or
-    suppressed-by-design probe; an alert fires only once the count reaches the
-    threshold. ``load`` at sweep start, ``persist`` at sweep end. Injected so the
-    checkers stay pure + credential-free; the cli wires the real GCS-backed instance."""
-
-    storage_client: StorageClient
-    log_bucket: str
-    blob: str = DP_MISS_COUNTERS_BLOB
-    _counts: dict[str, int] = field(default_factory=dict)
-
-    @classmethod
-    def load(
-        cls,
-        *,
-        storage_client: StorageClient,
-        log_bucket: str,
-        blob: str = DP_MISS_COUNTERS_BLOB,
-    ) -> MissTracker:
-        """Read the persisted counters. Fail toward NO false-suppress: a read/parse
-        miss treats every counter as 0 (so a sustained-stale condition still pages
-        after ``min_consecutive`` fresh sweeps of accumulation, never silently never)."""
-        counts: dict[str, int] = {}
-        raw = _gcs.read_text(storage_client, log_bucket, blob)
-        if raw:
-            try:
-                loaded = cast("object", json.loads(raw))
-                if isinstance(loaded, dict):
-                    parsed = cast("dict[str, object]", loaded)
-                    counts = {str(k): int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
-            except (ValueError, TypeError):
-                counts = {}
-        return cls(storage_client=storage_client, log_bucket=log_bucket, blob=blob, _counts=counts)
-
-    def register(self, key: str, *, stale: bool) -> int:
-        """Increment ``key``'s consecutive-miss count on a stale probe, reset to 0 on
-        a fresh/suppressed one. Returns the new count (0 when reset)."""
-        if stale:
-            new = self._counts.get(key, 0) + 1
-            self._counts[key] = new
-            return new
-        self._counts.pop(key, None)
-        return 0
-
-    def persist(self, *, dry_run: bool = False) -> None:
-        """Write the updated counters back to GCS (no-op on dry_run)."""
-        if dry_run:
-            return
-        try:
-            self.storage_client.upload_bytes(
-                self.log_bucket,
-                self.blob,
-                json.dumps(self._counts, sort_keys=True).encode("utf-8"),
-                content_type="application/json",
-            )
-        except Exception as exc:
-            logger.warning("MissTracker.persist failed: %s", exc)
 
 
 # The fleet-monitor / meta-watcher sweeps + their cadence (minutes). Each writes a

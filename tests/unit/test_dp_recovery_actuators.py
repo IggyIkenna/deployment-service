@@ -863,3 +863,199 @@ def test_preempted_relaunch_drops_stale_rate_budget(tmp_path: Path, monkeypatch)
         assert stale not in replayed, f"{stale} must be re-derived on replay, not replayed"
     # Non-rate params still replay verbatim.
     assert replayed["VM_START_DATE"] == "2019-01-01"
+
+
+# ── Code-tarball pin re-resolution on relaunch (2026-07-20 outage) ──────────
+#
+# The retention sweep reaped a pinned `@sha.tar.gz` out from under a running
+# migration fleet, so every relaunch died at setup ("refusing floating fallback")
+# and self-deleted. Retention is now pin-aware, but a relaunch must ALSO survive
+# a pin that was already reaped — loudly, never by degrading to floating.
+
+
+def _pin_launcher(sink: list[tuple[str, dict[str, str]]]):
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        sink.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    return launcher
+
+
+def test_preempted_relaunch_repins_missing_tarball_and_logs_loudly(tmp_path: Path, monkeypatch):
+    """A reaped pin is re-pinned to the newest available SHA + a CRITICAL audit line."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: "newsha456" if requested == "deadsha123" else requested,
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-1",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={"UAC_TARBALL_SHA": "deadsha123", "START_DATE": "2019-01-01"},
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    # The launcher receives the RE-PINNED sha — never an unset/empty value, which
+    # every `[[ -n ... ]]` guard would read as a floating pull.
+    assert launched[0][1]["UAC_TARBALL_SHA"] == "newsha456"
+    repin_events = [e for e in emitted if e[0] == "DP_VM_TARBALL_REPINNED"]
+    assert len(repin_events) == 1, "the code-identity change must be announced exactly once"
+    assert repin_events[0][1] == "CRITICAL", "an unannounced code-identity swap is the failure mode"
+    assert repin_events[0][2]["old_sha"] == "deadsha123"
+    assert repin_events[0][2]["new_sha"] == "newsha456"
+
+
+def test_preempted_relaunch_intact_pin_is_untouched_and_silent(tmp_path: Path, monkeypatch):
+    """The common case: pin resolves, nothing is re-pinned, no audit noise."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: requested,
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-2",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={"UAC_TARBALL_SHA": "livesha", "UTL_TARBALL_SHA": "utlsha"},
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["UAC_TARBALL_SHA"] == "livesha"
+    assert launched[0][1]["UTL_TARBALL_SHA"] == "utlsha"
+    assert not [e for e in emitted if e[0] == "DP_VM_TARBALL_REPINNED"]
+
+
+def test_preempted_relaunch_pages_when_no_pin_resolves_never_floats(tmp_path: Path, monkeypatch):
+    """No surviving pinned pair => PAGE. Degrading to the floating tarball is banned."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: None,
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-3",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={"UAC_TARBALL_SHA": "deadsha123"},
+    )
+
+    assert result["status"] == "PAGE"
+    assert result["reason"] == "tarball_pin_unresolvable"
+    assert not launched, "must not launch onto un-asserted floating code"
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" and "UAC_TARBALL_SHA" in str(e[2]) for e in emitted
+    )
+
+
+def test_preempted_relaunch_without_pins_never_calls_the_resolver(tmp_path: Path, monkeypatch):
+    """Unpinned fleets keep their existing behaviour — no new GCS dependency."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def boom(tarball: str, requested: str) -> str | None:
+        raise AssertionError("resolver must not run when no pin is recorded")
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=boom,
+    )
+    result = actuator.relaunch(
+        "cefi-bf-unpinned",
+        launcher="launch-cefi-sharded-backfill.sh",
+        launch_env={"VENUES": "BINANCE-FUTURES"},
+    )
+    assert result["status"] == "SUCCEEDED"
+
+
+# ── The re-pin actuator reads pins from the AUTHORITATIVE REGISTRY ───────────
+# The v1 actuator re-resolved pins out of `launch_env` (LAUNCH_PARAMS.json). No
+# pinning launcher writes that blob, so the loop body never executed once in
+# production: it looked implemented and did nothing. These tests drive the
+# registry path explicitly, and the first one FAILS on the v1 code.
+
+
+def test_preempted_relaunch_reads_pins_from_the_durable_registry(tmp_path: Path, monkeypatch):
+    """launch_env carries NO pins — exactly the production shape — yet the pin is found."""
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: "newsha456" if requested == "deadsha123" else requested,
+        # what collect_pins_for_vm() returns for this VM from TARBALL_PINS.json
+        load_vm_pins=lambda vm: {"UAC_TARBALL_SHA": "deadsha123"},
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-9",
+        launcher="launch-canonical-migration-vm.sh",
+        # NOTE: no *_TARBALL_SHA here. This is what LAUNCH_PARAMS.json really looks like.
+        launch_env={"START_DATE": "2019-01-01"},
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["UAC_TARBALL_SHA"] == "newsha456", (
+        "v1 regression: with no pin in launch_env the actuator re-resolved nothing at all"
+    )
+    repins = [e for e in emitted if e[0] == "DP_VM_TARBALL_REPINNED"]
+    assert len(repins) == 1 and repins[0][1] == "CRITICAL"
+
+
+def test_launch_env_pin_wins_over_the_registry(tmp_path: Path, monkeypatch):
+    """The captured launch env is the more specific record where it has a value."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: requested,
+        load_vm_pins=lambda vm: {"UAC_TARBALL_SHA": "from-registry"},
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-10",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={"UAC_TARBALL_SHA": "from-launch-env"},
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["UAC_TARBALL_SHA"] == "from-launch-env"
+
+
+def test_registry_read_failure_degrades_to_launch_env_never_raises(tmp_path: Path, monkeypatch):
+    """A registry blip must not turn a recoverable preemption into a crash."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def boom(vm: str) -> dict[str, str]:
+        raise RuntimeError("GCS 503")
+
+    actuator = RelaunchPreemptedVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=_pin_launcher(launched),
+        resolve_pin=lambda tarball, requested: requested,
+        load_vm_pins=boom,
+    )
+    result = actuator.relaunch(
+        "canonical-migration-cefi-11",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={"UAC_TARBALL_SHA": "livesha"},
+    )
+
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["UAC_TARBALL_SHA"] == "livesha"

@@ -51,8 +51,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from unified_trading_library import log_event
+from unified_trading_library import UnifiedCloudConfig, get_storage_client, log_event
 from unified_trading_library.events import DP_VM_EXIT_NONZERO  # noqa: qg-deep-import
+
+from deployment_service.vm.tarball_pins import (
+    TARBALL_SHA_ENV_TO_NAME,
+    collect_pins_for_vm,
+    resolve_available_pin,
+)
 
 logger = logging.getLogger("recovery.relaunch_backfill_vm")
 
@@ -301,6 +307,42 @@ def _drop_stale_rate_budget(env: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in env.items() if k not in _STALE_ON_REPLAY}
 
 
+# A code-tarball SHA pin is the OPPOSITE of a stale-on-replay key: it must SURVIVE
+# the replay verbatim, and be re-resolved ONLY when the pinned object is proven
+# missing. Never add ``*_TARBALL_SHA`` to ``_STALE_ON_REPLAY`` — dropping it makes
+# the launcher's ``[[ -n ... ]]`` guard fall through to a FLOATING pull, i.e. the
+# exact silent code-identity degrade this re-pin path exists to prevent.
+_EVENT_VM_TARBALL_REPINNED = "DP_VM_TARBALL_REPINNED"
+
+
+def _default_resolve_pin(tarball_name: str, requested_sha: str) -> str | None:
+    """Resolve a pin against the live code bucket (see ``tarball_pins``)."""
+    project = getattr(UnifiedCloudConfig(), "gcp_project_id", "") or ""
+    if not project:
+        return None
+    return resolve_available_pin(get_storage_client(), f"deployment-scripts-{project}", tarball_name, requested_sha)
+
+
+def _default_load_vm_pins(vm_name: str) -> dict[str, str]:
+    """Read ``vm_name``'s recorded tarball pins from the authoritative registry.
+
+    This exists because ``launch_env`` (``LAUNCH_PARAMS.json``) is NOT where the
+    pins are. The launchers that pin and the launcher that writes LAUNCH_PARAMS
+    are disjoint sets, so re-resolving pins from ``launch_env`` alone re-resolved
+    an empty dict every time — the actuator looked implemented and did nothing.
+    ``collect_pins_for_vm`` reads the same durable ``TARBALL_PINS.json`` registry
+    the retention sweep protects against, which is the one source that still
+    exists once the instance (and its metadata) is gone — precisely the state a
+    preemption relaunch operates in.
+    """
+    project = getattr(UnifiedCloudConfig(), "gcp_project_id", "") or ""
+    if not project:
+        return {}
+    name_to_env = {name: key for key, name in TARBALL_SHA_ENV_TO_NAME.items()}
+    pins = collect_pins_for_vm(get_storage_client(), f"deployment-scripts-{project}", vm_name)
+    return {name_to_env[pin.tarball_name]: pin.sha for pin in pins if pin.tarball_name in name_to_env}
+
+
 def _default_preemption_budget_dir() -> Path:
     return Path(tempfile.gettempdir()) / "uts_preempted_relaunch_budget"
 
@@ -346,11 +388,69 @@ class RelaunchPreemptedVm:
         max_per_day: int = _MAX_PREEMPTION_RELAUNCHES_PER_DAY,
         now: Callable[[], datetime] | None = None,
         run_launcher: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+        resolve_pin: Callable[[str, str], str | None] | None = None,
+        load_vm_pins: Callable[[str], dict[str, str]] | None = None,
     ) -> None:
         self._budget_dir = budget_dir or _default_preemption_budget_dir()
         self._max_per_day = max_per_day
         self._now = now or (lambda: datetime.now(UTC))
         self._run_launcher = run_launcher or _default_run_launcher
+        self._resolve_pin = resolve_pin or _default_resolve_pin
+        self._load_vm_pins = load_vm_pins or _default_load_vm_pins
+
+    def _merge_recorded_pins(self, vm_name: str, env: dict[str, str]) -> dict[str, str]:
+        """Fill in ``*_TARBALL_SHA`` keys the captured launch env does not carry.
+
+        ``launch_env`` wins where it HAS a value (it is the more specific record);
+        the registry supplies everything it lacks — which, for all five pinning
+        launchers, is every pin there is.
+        """
+        merged = dict(env)
+        try:
+            recorded = self._load_vm_pins(vm_name)
+        except Exception as exc:
+            logger.warning("could not read recorded tarball pins for %s: %s", vm_name, exc)
+            return merged
+        for env_key, sha in recorded.items():
+            if not merged.get(env_key, "").strip():
+                merged[env_key] = sha
+        if recorded:
+            logger.info("merged %d recorded tarball pin(s) for %s from the durable registry", len(recorded), vm_name)
+        return merged
+
+    def _resolve_tarball_pins(self, env: dict[str, str]) -> tuple[dict[str, str], list[dict[str, str]], list[str]]:
+        """Re-resolve every ``*_TARBALL_SHA`` pin against what actually EXISTS.
+
+        Returns ``(env, repins, unresolved)``. A pin whose object is intact is
+        left untouched. A pin whose ``.tar.gz`` is gone is re-pointed at the
+        newest COMPLETE pair so the caller can re-pin LOUDLY. A pin with no
+        surviving candidate lands in ``unresolved`` — the caller PAGEs and must
+        NOT unset the key: an empty value is indistinguishable from an absent one
+        to the launcher, and both mean a silent floating pull.
+        """
+        updated = dict(env)
+        repins: list[dict[str, str]] = []
+        unresolved: list[str] = []
+        for env_key, tarball_name in TARBALL_SHA_ENV_TO_NAME.items():
+            requested = env.get(env_key, "").strip()
+            if not requested:
+                continue
+            try:
+                available = self._resolve_pin(tarball_name, requested)
+            except Exception as exc:
+                logger.warning("tarball pin resolution failed for %s: %s", tarball_name, exc)
+                unresolved.append(env_key)
+                continue
+            if available == requested:
+                continue
+            if not available:
+                unresolved.append(env_key)
+                continue
+            updated[env_key] = available
+            repins.append(
+                {"env_key": env_key, "tarball_name": tarball_name, "old_sha": requested, "new_sha": available}
+            )
+        return updated, repins, unresolved
 
     def dry_run_plan(
         self,
@@ -512,6 +612,63 @@ class RelaunchPreemptedVm:
                 },
             )
             return {**base, "status": "PAGE", "reason": "force_run_not_replayable"}
+
+        # ── Code-tarball pin re-resolution. A pinned tarball can be REAPED out from
+        # under a long-running fleet by the daily retention sweep (the 2026-07-20
+        # cefi-migration outage: `cleanup_old_tarballs.py --keep 5` ranks purely on
+        # mtime, so a fleet outliving 5 pushes of a high-velocity repo like UAC lost
+        # its pin, and every relaunch then died at setup with "refusing floating
+        # fallback" + self-delete — silently). Retention is now pin-aware
+        # (`deployment_service.vm.tarball_pins`), but a pin reaped BEFORE that
+        # shipped, or one aged past the grace window, still has to be recoverable.
+        #
+        # So: re-point a dead pin at the newest COMPLETE (tarball+manifest) pair and
+        # say so LOUDLY — the code identity of the relaunch changed, which is an
+        # actionable operator signal, not a lifecycle event. If nothing resolves we
+        # PAGE rather than degrade: `setup-data-pipeline-vm.sh`'s refusal of a
+        # floating fallback is CORRECT and is deliberately preserved here.
+        #
+        # The pins are read from the DURABLE REGISTRY first, not from `env`:
+        # `launch_env` comes from LAUNCH_PARAMS.json, which no pinning launcher
+        # writes, so resolving straight from `env` re-resolved nothing at all.
+        env = self._merge_recorded_pins(vm_name, env)
+        env, repins, unresolved_pins = self._resolve_tarball_pins(env)
+        for repin in repins:
+            log_event(
+                _EVENT_VM_TARBALL_REPINNED,
+                severity="CRITICAL",
+                details={
+                    **base,
+                    **repin,
+                    "recovery_action": "relaunch_preempted_vm",
+                    "detail": (
+                        f"pinned tarball {repin['tarball_name']}@{repin['old_sha'][:12]} no longer exists "
+                        f"(reaped by retention?) — RE-PINNED to {repin['new_sha'][:12]}. The relaunch runs "
+                        "DIFFERENT code than the preempted VM did; verify this is acceptable for the "
+                        "in-flight migration, and rebuild the original sha via create-code-tarballs.sh if not."
+                    ),
+                },
+            )
+        if unresolved_pins:
+            log_event(
+                _EVENT_VM_PREEMPTED_NO_RELAUNCH,
+                severity="CRITICAL",
+                details={
+                    **base,
+                    "recovery_action": "relaunch_preempted_vm",
+                    "unresolved_tarball_pins": ",".join(sorted(unresolved_pins)),
+                    "detail": "the VM's pinned code tarball(s) are GONE and no SHA-pinned replacement with a "
+                    "complete tarball+manifest pair exists. Refusing to relaunch onto the floating tarball "
+                    "(un-asserted code against a half-migrated corpus is a data-correctness hazard). Rebuild "
+                    "the pin with create-code-tarballs.sh, then re-run this relaunch.",
+                },
+            )
+            return {
+                **base,
+                "status": "PAGE",
+                "reason": "tarball_pin_unresolvable",
+                "unresolved_tarball_pins": ",".join(sorted(unresolved_pins)),
+            }
 
         self._stamp_relaunch(prefix)
         env = _drop_stale_rate_budget(env)

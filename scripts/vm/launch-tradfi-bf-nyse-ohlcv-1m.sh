@@ -70,22 +70,35 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
-for shard in "${_shards[@]}"; do
-    start="${shard%%:*}"
-    end="${shard##*:}"
-    year="${start:0:4}"
-    run_ts="$(date +%Y%m%d-%H%M%S)"
-    vm_name="tradfi-bf-nyse-ohlcv-1m-${year}-${run_ts}"
-    ohlcv_create_vm "$vm_name" "NYSE" "$start" "$end" "$TICKER_LIST" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
-done
+# Shard by (ticker-group x year), not by year alone — see
+# `ohlcv_split_ticker_groups` in the lib for the rationale (equity was the
+# tradfi backfill critical path at ~30k cells on a single VM) and for why more
+# VMs is SAFE here (per-IP Databento budget, one ephemeral IP per VM).
+TICKER_GROUPS_OUT="$(ohlcv_split_ticker_groups "$TICKER_LIST" "$OHLCV_TICKER_GROUPS")"
+group_count="$(printf '%s\n' "$TICKER_GROUPS_OUT" | grep -c .)"
+echo "Sharding $ticker_count tickers into $group_count group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
+
+while IFS='|' read -r gidx gfirst glast gtickers; do
+    [[ -z "$gidx" ]] && continue
+    gtag="$(printf 'g%02d' "$gidx")"
+    for shard in "${_shards[@]}"; do
+        start="${shard%%:*}"
+        end="${shard##*:}"
+        year="${start:0:4}"
+        run_ts="$(date +%Y%m%d-%H%M%S)"
+        vm_name="tradfi-bf-nyse-ohlcv-1m-${gtag}-${year}-${run_ts}"
+        echo "  ${gtag} (${gfirst}..${glast}) ${year}"
+        ohlcv_create_vm "$vm_name" "NYSE" "$start" "$end" "$gtickers" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+    done
+done <<< "$TICKER_GROUPS_OUT"
 
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
-    echo "DRY-RUN: NYSE OHLCV-1m year-shards (${START_FLOOR}..today)"
+    echo "DRY-RUN: NYSE OHLCV-1m (ticker-group x year) shards (${START_FLOOR}..today)"
     echo "=========================================="
 else
-    echo "NYSE OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
+    echo "NYSE OHLCV-1m (ticker-group x year) shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
     echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='NYSE')&(df.data_type=='ohlcv_1m')].groupby('capture_status').size())\""

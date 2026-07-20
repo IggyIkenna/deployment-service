@@ -135,6 +135,19 @@ locals {
       job_name    = "${local.env_prefix}-market-tick-data-service-cefi-t1-recon"
       description = "MTDS T+1 CEFI — Tardis tick data (available ~6h after midnight)"
     }
+    # tradfi_t1_no_working_mtds_job_2026_07_17.md: market-tick-data-fast above
+    # deliberately EXCLUDES TRADFI (--source is one-per-invocation; can't share
+    # with SPORTS/PREDICTION). This source-scoped databento job fills that gap —
+    # staggered 5min after the fast phase so it doesn't contend for the shared
+    # Databento API rate limits at the exact same tick. Databento is the SOLE
+    # tradfi tick/chain source (Massive routing removed 2026-07-19), so no
+    # separate massive job — a single --source=databento job has zero coverage
+    # gap. SSOT: codex/02-data/tradfi-databento-sourcing-ssot.md.
+    "market-tick-data-tradfi-databento" = {
+      schedule    = "35 0 * * *"
+      job_name    = "${local.env_prefix}-market-tick-data-service-tradfi-databento-t1-recon"
+      description = "MTDS T+1 TRADFI (databento) — CME/NASDAQ/NYSE/CBOE ohlcv_1m+ohlcv_1s (Databento T+1 available at midnight)"
+    }
     "execution-config-snapshot" = {
       schedule    = "30 0 * * *"
       job_name    = "${local.env_prefix}-execution-service-config-snapshot"

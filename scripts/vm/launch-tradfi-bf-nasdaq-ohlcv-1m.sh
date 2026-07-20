@@ -2,7 +2,7 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Launch NASDAQ OHLCV-1m backfill VMs (one per year-shard).
+# Launch NASDAQ OHLCV-1m backfill VMs (one per (ticker-group, year) shard).
 #
 # Universe: SP500_TICKERS + NASDAQ_TICKERS + ETF_TICKERS from
 # `unified_api_contracts.registry.tradfi_ticker_universe`. MTDS adapter
@@ -11,12 +11,18 @@
 # split between NASDAQ-listed vs NYSE-listed is intentionally not encoded
 # client-side; let the venue dataset arbitrate).
 #
-# Window: 2019-01-01 → today by default. Override with `--start-floor`.
-# Per-VM shard isolation: VM_NAME + MANIFEST_PER_VM_SHARDS=true.
+# Window: 2019-01-01 → today by default (clamped to the 2023-04-15 XNAS
+# discovery floor). Override with `--start-floor`.
+#
+# Sharding: (ticker-group x year). `--ticker-groups N` (default 5) splits the
+# sorted ticker universe into N contiguous groups, so the default fan-out is
+# ~5 groups x ~4 years = ~20 VMs instead of 4. Per-VM shard isolation:
+# VM_NAME + MANIFEST_PER_VM_SHARDS=true.
 #
 # Usage:
 #   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --dry-run
 #   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh
+#   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --ticker-groups 10   # finer shards
 #
 # SSOT: tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6.
 set -euo pipefail
@@ -68,22 +74,36 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
-for shard in "${_shards[@]}"; do
-    start="${shard%%:*}"
-    end="${shard##*:}"
-    year="${start:0:4}"
-    run_ts="$(date +%Y%m%d-%H%M%S)"
-    vm_name="tradfi-bf-nasdaq-ohlcv-1m-${year}-${run_ts}"
-    ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$TICKER_LIST" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
-done
+# Shard by (ticker-group x year), not by year alone. One VM per year carried
+# ALL ~622 tickers, putting ~30,106 cells on the longest NASDAQ VM and making
+# equity — not CME — the tradfi backfill critical path. See
+# `ohlcv_split_ticker_groups` in the lib for the full rationale and for why
+# more VMs is SAFE here (per-IP Databento budget, one ephemeral IP per VM).
+TICKER_GROUPS_OUT="$(ohlcv_split_ticker_groups "$TICKER_LIST" "$OHLCV_TICKER_GROUPS")"
+group_count="$(printf '%s\n' "$TICKER_GROUPS_OUT" | grep -c .)"
+echo "Sharding $ticker_count tickers into $group_count group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
+
+while IFS='|' read -r gidx gfirst glast gtickers; do
+    [[ -z "$gidx" ]] && continue
+    gtag="$(printf 'g%02d' "$gidx")"
+    for shard in "${_shards[@]}"; do
+        start="${shard%%:*}"
+        end="${shard##*:}"
+        year="${start:0:4}"
+        run_ts="$(date +%Y%m%d-%H%M%S)"
+        vm_name="tradfi-bf-nasdaq-ohlcv-1m-${gtag}-${year}-${run_ts}"
+        echo "  ${gtag} (${gfirst}..${glast}) ${year}"
+        ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$gtickers" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+    done
+done <<< "$TICKER_GROUPS_OUT"
 
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
-    echo "DRY-RUN: NASDAQ OHLCV-1m year-shards (${START_FLOOR}..today)"
+    echo "DRY-RUN: NASDAQ OHLCV-1m (ticker-group x year) shards (${START_FLOOR}..today)"
     echo "=========================================="
 else
-    echo "NASDAQ OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
+    echo "NASDAQ OHLCV-1m (ticker-group x year) shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
     echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='NASDAQ')&(df.data_type=='ohlcv_1m')].groupby('capture_status').size())\""

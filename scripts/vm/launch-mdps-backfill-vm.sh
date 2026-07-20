@@ -95,6 +95,12 @@ FORCE_REPROCESS="${FORCE:-false}"
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND=false
+# Deterministic VM-name override (--vm-name). Empty by default → the auto RUN_TS
+# name (line ~173). Set by the pipeline-e2e-check driver so the shared UTL
+# launch_vm_and_wait engine can poll a known gs://.../vm-logs/<vm>/ path. The
+# override MUST still prefix-match a registered VM_PREFIX_TO_BUCKET entry
+# (mdps-backfill-<cat>-...), so the driver names it mdps-backfill-<cat>-pipelinecheck-<ts>.
+VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
 
 # Pre-parse --env, --source-bucket, --force, and narrow-scope filter flags before positional args.
 POSITIONAL=()
@@ -106,6 +112,7 @@ while [[ $# -gt 0 ]]; do
         --venues) FILTER_VENUES="$2"; shift 2 ;;
         --instrument-ids) FILTER_INSTRUMENT_IDS="$2"; shift 2 ;;
         --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
+        --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
         --force) FORCE_REPROCESS="true"; shift ;;
         --on-demand)   ON_DEMAND=true; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
@@ -170,7 +177,12 @@ _launch() {
     if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
         bucket_suffix="-$(echo "$SOURCE_BUCKET_OVERRIDE" | sed 's/-central-element-323112//' | sed "s/^market-data-tick-${cat}/main/" | sed 's/-central-element-323112//' | cut -c1-16 | tr '_' '-')"
     fi
+    # --vm-name override wins (single-category launches only — the `all` fan-out
+    # must NOT set it or the 5 sequential launches would collide on one name).
     local vm_name="mdps-backfill-${cat}${bucket_suffix}-${RUN_TS}"
+    if [[ -n "$VM_NAME_OVERRIDE" ]]; then
+        vm_name="$VM_NAME_OVERRIDE"
+    fi
 
     # MDPS CLI quirk: service uses ServiceBootstrap at the top level (which
     # requires --operation and --mode) BUT has add_asset_group_arg=False, so
@@ -263,6 +275,14 @@ _launch() {
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
+    # Durable pin registry — instance metadata dies with the instance; this
+    # record is what survives into the preemption-relaunch window and what
+    # exempts these tarballs from the nightly retention sweep. An unset SHA is
+    # recorded as a DELIBERATE float (not a pin to nothing), which is what lets
+    # the sweep fail closed on genuinely unknown VMs without blocking forever.
+    lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-mdps-backfill-vm.sh" \
+        "UTL_TARBALL_SHA=${UTL_TARBALL_SHA:-}" \
+        "MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA:-}"
     [[ -n "$FILTER_DATA_TYPES" ]] && md="${md},VM_DATA_TYPES=${FILTER_DATA_TYPES// /;}"
     [[ -n "$FILTER_VENUES" ]] && md="${md},VM_VENUES=${FILTER_VENUES// /;}"
     [[ -n "$FILTER_INSTRUMENT_IDS" ]] && md="${md},VM_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS// /;}"

@@ -104,6 +104,18 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
 ON_DEMAND=false
+# pipeline-e2e-check hooks (added 2026-07-20, mirror launch-mtds-backfill-vm.sh):
+#   --vm-name <name>       deterministic VM name so the shared UTL launch_vm_and_wait
+#                          engine can poll gs://.../vm-logs/<vm>/ (must prefix-match the
+#                          registered "features-" VM_PREFIX_TO_BUCKET entry).
+#   --sink-bucket <b>      route feature OUTPUT to a -test- bucket without mutating prod:
+#                          bakes IS_TEST_RUN=true + PROTOCOL_DATA_SINK_BUCKET_{AG}=<b> into
+#                          VM_BACKFILL_CMD (the caller resolves <b> via resolve_bucket_name
+#                          kind=features deployment_env=test — keeps bucket logic in Python).
+#   --source-bucket <b>    route feature INPUT reads to <b> (PROTOCOL_DATA_SOURCE_BUCKET).
+VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
+TEST_SINK_BUCKET=""
+TEST_SOURCE_BUCKET=""
 
 print_usage() {
     cat <<'EOF'
@@ -143,6 +155,9 @@ while [[ $# -gt 0 ]]; do
         --operation)      OPERATION="${2:-}";      shift 2 ;;
         --launch-mode)    LAUNCH_MODE="${2:-}";    shift 2 ;;
         --env)            DEPLOYMENT_ENV="${2:-}"; shift 2 ;;
+        --vm-name)        VM_NAME_OVERRIDE="${2:-}"; shift 2 ;;
+        --sink-bucket)    TEST_SINK_BUCKET="${2:-}"; shift 2 ;;
+        --source-bucket)  TEST_SOURCE_BUCKET="${2:-}"; shift 2 ;;
         --on-demand)      ON_DEMAND=true; shift ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; print_usage; exit 2 ;;
@@ -197,6 +212,11 @@ RUN_TS="$(date +%Y%m%d-%H%M%S)"
 ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"
 FAMILY_DASHED="$(echo "$FEATURE_FAMILY" | tr '_' '-')"
 VM_NAME="features-${FAMILY_DASHED}-${ASSET_GROUP_LOWER}-${RUN_TS}"
+# --vm-name override wins (pipeline-e2e-check driver supplies a deterministic name
+# that still prefix-matches the registered "features-" VM_PREFIX_TO_BUCKET entry).
+if [[ -n "$VM_NAME_OVERRIDE" ]]; then
+    VM_NAME="$VM_NAME_OVERRIDE"
+fi
 
 # ---------- assemble service CLI command ----------
 CMD="python -m features_service --feature-family ${FEATURE_FAMILY}"
@@ -231,6 +251,24 @@ fi
 
 if [[ "$LAUNCH_MODE" == "dry" ]]; then
     CMD="$CMD --dry-run"
+fi
+
+# pipeline-e2e-check -test- routing: prepend env vars to VM_BACKFILL_CMD so the
+# feature writer/reader isolate to the -test- bucket without mutating prod. The VM
+# runs VM_BACKFILL_CMD verbatim via `bash -c` (setup-data-pipeline-vm.sh substitutes
+# only the FIRST `python ` → `$VENV/bin/python `), so a leading `KEY=val ...` env
+# prefix is honoured. Feature writer resolves the sink via get_data_sink(routing_key=
+# ag.lower()) which reads PROTOCOL_DATA_SINK_BUCKET_{AG_UPPER}; input via
+# PROTOCOL_DATA_SOURCE_BUCKET. AG-keyed + base fallback both set (calendar=GLOBAL).
+if [[ -n "$TEST_SINK_BUCKET" || -n "$TEST_SOURCE_BUCKET" ]]; then
+    ENV_PREFIX="IS_TEST_RUN=true"
+    if [[ -n "$TEST_SINK_BUCKET" ]]; then
+        ENV_PREFIX="$ENV_PREFIX PROTOCOL_DATA_SINK_BUCKET_${ASSET_GROUP}=${TEST_SINK_BUCKET} PROTOCOL_DATA_SINK_BUCKET=${TEST_SINK_BUCKET}"
+    fi
+    if [[ -n "$TEST_SOURCE_BUCKET" ]]; then
+        ENV_PREFIX="$ENV_PREFIX PROTOCOL_DATA_SOURCE_BUCKET=${TEST_SOURCE_BUCKET}"
+    fi
+    CMD="${ENV_PREFIX} ${CMD}"
 fi
 
 # SPOT by default for batch backfill (idempotent → ~60-91% cheaper); --on-demand /
@@ -289,6 +327,16 @@ echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
 echo ""
 echo "Post-backfill manifest rebuild (one per features bucket):"
-echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('features-${FAMILY_DASHED}-${ASSET_GROUP_LOWER}-central-element-323112', \\"
-echo "      service_name='features-service', prefix='features/by_date')\""
+# Bucket + prefix are RESOLVED, never string-interpolated. The previous hint built
+# 'features-{family}-{ag}-central-element-323112' and hardcoded prefix 'features/by_date':
+# for sports that is 'features-sports-sports-...' (404 — the real bucket is
+# 'features-sports-prd-...') under a prefix that does not exist (real:
+# 'sports_features/by_date'). Copy-pasting it ran a manifest rebuild against nothing.
+# Fixed 2026-07-20; same class as the stale features tarball bucket hint.
+# Bucket-naming SSOT: codex/05-infrastructure/bucket-isolation-model.md.
+echo "  python -c \"from unified_trading_library import resolve_bucket_name; \\"
+echo "    from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
+echo "    rebuild_manifest_from_canonical_paths( \\"
+echo "      resolve_bucket_name(cloud='gcp', kind='features', asset_group='${ASSET_GROUP_LOWER}'), \\"
+echo "      service_name='features-service')\""
+echo "  (do NOT hardcode a prefix — sports is 'sports_features/by_date', not 'features/by_date')"

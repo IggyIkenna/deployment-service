@@ -43,6 +43,32 @@
 #   # ...or one specific shard on its own VM (targeted relaunch):
 #   SHARD_OF=20 SHARD_INDEX=3 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
 #
+#   # GATED MASSIVE PURGE (TRADFI_PURGE_MASSIVE_ONLY=1) — destructive, operator-authorized only.
+#   # Runs the migrate pass ALONE over an enumeration grep-filtered to pipeline_mode=batch_massive,
+#   # so non-massive objects are not in the input and zero-collateral holds BY CONSTRUCTION. Does NOT
+#   # run rebundle/recover (they canonicalize NON-massive data — already complete). The sentinel is
+#   # pulled from GCS onto the VM because the tool resolves it with Path(...).is_file() VM-side.
+#   # NOTE: MIGRATION_EXTRA_ARGS is REJECTED for cat=tradfi (compound &&-chain would silently drop it).
+#   TRADFI_PURGE_MASSIVE_ONLY=1 SHARD_OF=20 MTDS_TARBALL_SHA=<sha> \
+#     bash launch-canonical-migration-vm.sh tradfi 2020-01-01 2026-01-30 full
+#
+#   # tradfi-catalogue-canon (2026-07-20): the instruments-service Phase-B `-USD@LIN` catalogue
+#   # canonicalization full sweep over the per-day
+#   # `instrument_availability/by_date/day=*/venue=*/instruments.parquet` corpus (~27.1k files).
+#   # START_DATE/END_DATE are cosmetic (VM labels only) -- the script lists its own worklist from
+#   # the instruments-store-tradfi bucket. IN-REGION ONLY: a laptop run measured 1.6k/27.1k files
+#   # in ~14 min and DECELERATING (cross-region GCS round-trip latency; the same pattern killed an
+#   # earlier attempt at ~83% via socket exhaustion), so this category exists to move it onto a
+#   # same-zone VM. Runs from $WORKSPACE/instruments (NOT mtds) -- hence VM_SERVICE=instruments_service
+#   # so setup-data-pipeline-vm.sh stages instruments-service-code; the compound `cd ... && python`
+#   # command re-homes the CWD inside the shared canonical-migration dispatch (which cds to mtds).
+#   # Category name deliberately starts with "tradfi-" so the VM name stays under the ALREADY
+#   # registered "canonical-migration-tradfi-" VM_PREFIX_TO_BUCKET prefix -- no new registry entry.
+#   # NOTE: after a full sweep the operator MUST re-run build_instrument_catalogue.py --asset-group
+#   # tradfi (the roll-up producer) or the next scheduled roll-up silently reverts catalog.parquet.
+#   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 dry
+#   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -89,6 +115,8 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+# Must match setup-data-pipeline-vm.sh's WORKSPACE (where the staged repo trees land).
+VM_WORKSPACE="/home/ikennaigboaka/workspace"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 # MACHINE_TYPE override (default e2-standard-8). TradFi v9 migration needs e2-standard-16
 # (64GB): the 2026-06-29 full-range run OOM-killed on e2-standard-8. Per-year chunking +
@@ -104,7 +132,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -174,6 +202,72 @@ _tradfi_content_migration_cmd() {
     printf '%s' "mkdir -p ${mapd} && gcloud storage ls -r \"${walk}\" > ${enum} && echo TRADFI_ENUM_LINES=\$(wc -l < ${enum}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} && python -u -m ${base}.rebundle_tradfi_chains_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/rebundle_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && python -u -m ${base}.recover_tradfi_garbage_underlying_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/recovery_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the GATED massive-purge command (TRADFI_PURGE_MASSIVE_ONLY=1).
+#
+# Deliberately NOT `full` mode. The canonical content migration is COMPLETE (99.65% canonical, 0 orphan
+# — plan tick-25); re-running it is neither authorized nor needed. The ONLY authorized destructive
+# action is deleting `pipeline_mode=batch_massive` objects (operator ruling 2026-07-20,
+# accepted-permanent-loss, unified-trading-pm@1cc566db6).
+#
+# ZERO-COLLATERAL BY CONSTRUCTION: the enumeration is grep-filtered to `pipeline_mode=batch_massive`
+# BEFORE the tool sees it, so non-massive objects are not in the input at all — there is no code path
+# by which a batch_databento or _quarantine/ object can be touched. That is strictly stronger than a
+# post-hoc count check. (Measured 2026-07-20: `massive + databento == total_parquet` on every sampled
+# day, so the filter is exact and total.) Only the migrate pass runs — NOT rebundle/recover, which
+# exist to canonicalize NON-massive data and would move objects this purge must leave alone.
+#
+# The sentinel is resolved by the tool with `Path(...).is_file()` ON THE VM, so it is pulled from GCS
+# rather than inlined (its text contains commas; --metadata is comma-delimited).
+_tradfi_massive_purge_cmd() {
+    local vm_name="$1"
+    local base="market_tick_data_service.scripts"
+    local sh="--shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}"
+    local work="/home/ikennaigboaka/workspace/tradfi-canonical-migration"
+    local enum="${work}/enumeration.txt"
+    local enum_m="${work}/enumeration_massive.txt"
+    local sent="${work}/massive_purge_authorization.sentinel"
+    local mapd="${work}/mappings"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-tradfi/${RUN_TS}/${vm_name}/mappings/"
+    local walk="gs://${TRADFI_TICK_BUCKET}/raw_tick_data/**"
+    local sent_gs="${MASSIVE_SENTINEL_GS:-gs://${CODE_BUCKET}/canonical-migration-tradfi/sentinels/massive_purge_authorization_2026_07_20.sentinel}"
+    local limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag="--limit ${LIMIT}"
+    printf '%s' "mkdir -p ${mapd} && gcloud storage cp ${sent_gs} ${sent} && gcloud storage ls -r \"${walk}\" > ${enum} && grep 'pipeline_mode=batch_massive' ${enum} > ${enum_m} && echo TRADFI_MASSIVE_ENUM_LINES=\$(wc -l < ${enum_m}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 --apply --enumeration ${enum_m} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} --purge-massive --massive-backfill-verified ${sent} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
+# Build the tradfi catalogue `-USD@LIN` canonicalization command (instruments-service one-off).
+# Emitted COMMA-FREE (gcloud --metadata is comma-delimited) as a single `cd ... && python ...` chain:
+# the shared canonical-migration dispatch in setup-data-pipeline-vm.sh cds to $WORKSPACE/mtds, so the
+# leading `cd` re-homes into the staged instruments-service tree. The FIRST literal `python ` token is
+# venv-rewritten by that dispatch ($VENV/bin/python) -- the `cd` path and the script name contain no
+# `python ` substring, so the rewrite lands on the intended token.
+# GCP_PROJECT_ID/DEPLOYMENT_ENV are exported by setup-data-pipeline-vm.sh already, but are ALSO set
+# inline here: without them resolve_bucket_name() raises BucketNamingError and the sweep dies instantly.
+# PROCESS-level sharding is REQUIRED for throughput here, not a tuning nicety: the per-row
+# canonicalization is pure Python and GIL-bound, so --workers alone saturates ~1.3 cores however high
+# it is set. MEASURED 2026-07-20 on an in-region e2-standard-16 with --workers 64: 130% of 1600% CPU,
+# 86% idle, ~1.0 files/s => ~7.4h for the 27.1k-file sweep — i.e. no better than the cross-region
+# laptop run, because GCS latency was never the bottleneck. CANON_SHARDS (default 16) forks one
+# PROCESS per shard over a disjoint stride partition (proven disjoint+exhaustive: sum(shards)==27100,
+# all-unique) and waits, propagating a non-zero rc if ANY shard fails.
+_catalogue_canon_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    local shards="${CANON_SHARDS:-16}"
+    local per_worker="${WORKERS:-8}"
+    local script="scripts/canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py"
+    if [[ "$shards" -le 1 ]]; then
+        printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker}"
+        return
+    fi
+    # `\$` / `\"` stay LITERAL in the gcloud metadata value (the VM's bash evaluates them); launcher
+    # locals expand host-side. Comma-free throughout (gcloud --metadata is comma-delimited).
+    # rc is collected with a per-PID `wait` (NOT `wait $(jobs -p)`, which returns only the LAST
+    # job's status — VERIFIED 2026-07-20: with shard 1 exiting 7 and shard 2 exiting 0 that form
+    # reports rc_all=0, silently green-lighting a partially-failed sweep).
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && export GCP_PROJECT_ID=${PROJECT} && export DEPLOYMENT_ENV=${DEPLOYMENT_ENV} && rc_all=0; pids=\"\"; for i in \$(seq 0 \$((${shards}-1))); do python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker} --shard-of ${shards} --shard-index \${i} > /tmp/canon_shard\${i}.log 2>&1 & pids=\"\${pids} \$!\"; done; for p in \${pids}; do wait \${p} || rc_all=1; done; for i in \$(seq 0 \$((${shards}-1))); do echo \"=== SHARD \${i} tail ===\"; tail -6 /tmp/canon_shard\${i}.log; done; echo \"=== CANON ALL-SHARDS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
@@ -239,9 +333,31 @@ _launch() {
     local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
     local cmd
     if [[ "$cat" == "tradfi" ]]; then
-        # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
-        # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
-        cmd="$(_tradfi_content_migration_cmd "$vm_name")"
+        # MIGRATION_EXTRA_ARGS is NOT appendable here: this category emits a compound `&&` chain, so a
+        # trailing append would land on the final `gcloud storage cp` rather than the python pass — the
+        # flags would be silently DISCARDED. That silent drop previously turned an intended gated
+        # massive-purge into "purge nothing + migrate the whole estate" (caught pre-flight 2026-07-20).
+        # A flag that vanishes is worse than one that errors, so FAIL LOUDLY instead of dropping it.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for category 'tradfi' — it emits a" >&2
+            echo "       multi-pass compound command and the flags would be silently discarded." >&2
+            echo "       For the gated massive purge use: TRADFI_PURGE_MASSIVE_ONLY=1" >&2
+            return 1
+        fi
+        if [[ -n "${TRADFI_PURGE_MASSIVE_ONLY:-}" ]]; then
+            # GATED massive-only purge over a batch_massive-filtered enumeration (migrate pass only).
+            cmd="$(_tradfi_massive_purge_cmd "$vm_name")"
+        else
+            # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
+            # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
+            cmd="$(_tradfi_content_migration_cmd "$vm_name")"
+        fi
+    elif [[ "$cat" == "tradfi-catalogue-canon" ]]; then
+        # Self-contained `cd ... && python ...` chain; --apply is embedded per-MODE by the builder,
+        # so the generic --apply/--dry-run append below is deliberately bypassed (same reason as
+        # the tradfi content-migration branch).
+        cmd="$(_catalogue_canon_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -264,12 +380,19 @@ _launch() {
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
-    md="${md},VM_SERVICE=market_tick_data_service"
+    # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
+    # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
+    local _svc="market_tick_data_service"
+    [[ "$cat" == "tradfi-catalogue-canon" ]] && _svc="instruments_service"
+    md="${md},VM_SERVICE=${_svc}"
     md="${md},VM_OPERATION=migrate-${cat}"
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == "defi-per-instrument" ]] && _ag="DEFI"
+    # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
+    # dashboards classify this VM with the rest of tradfi.
+    [[ "$cat" == "tradfi-catalogue-canon" ]] && _ag="TRADFI"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -280,13 +403,39 @@ _launch() {
     # SHA-pin the code tarballs so the VM provably runs the intended commit (race-proof
     # via setup-data-pipeline-vm.sh authoritative pinned pull). Pass the SHAs in the env
     # at launch: UAC_TARBALL_SHA / UTL_TARBALL_SHA / MTDS_TARBALL_SHA. Unset = floating pull.
-    [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
-    [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
-    [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+    #
+    # These gates read the AMBIENT SHELL ENV. That is a genuine foot-gun: forget
+    # to export one and the VM floats onto whatever the tarball is at boot, with
+    # no signal anywhere that the pin you thought you set was never applied.
+    # A floating migration VM is not merely non-reproducible — it can run
+    # different code against a half-migrated corpus than the VMs it is sharded
+    # alongside. So every repo is ANNOUNCED here, pinned or not, and the unpinned
+    # case is a visible WARNING rather than silence.
+    _pin_summary=""
+    for _pin_key in UAC_TARBALL_SHA UTL_TARBALL_SHA MTDS_TARBALL_SHA; do
+        eval "_pin_val=\"\${${_pin_key}:-}\""
+        if [[ -n "${_pin_val}" ]]; then
+            md="${md},${_pin_key}=${_pin_val}"
+            echo "  PIN  ${_pin_key}=${_pin_val:0:12}"
+        else
+            echo "  WARNING: ${_pin_key} is UNSET — ${vm_name} will pull the FLOATING tarball for this repo." >&2
+            echo "           Export ${_pin_key}=<sha> before launch to pin it (recorded as a deliberate float otherwise)." >&2
+        fi
+        _pin_summary="${_pin_summary} ${_pin_key}=${_pin_val}"
+    done
+
+    # Durable pin registry (Leg B): survives this instance's deletion, which is
+    # exactly the window a preemption relaunch has to recover from. Written
+    # BEFORE instance creation so a VM can never exist without a record.
+    # shellcheck disable=SC2086
+    lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-canonical-migration-vm.sh" ${_pin_summary}
 
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
-        lc_verify_tarball_freshness "$CODE_BUCKET" \
-            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
+        # catalogue-canon runs instruments-service code and never touches MTDS.
+        local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
 
@@ -320,7 +469,7 @@ case "$ASSET_GROUP" in
             _launch tradfi
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

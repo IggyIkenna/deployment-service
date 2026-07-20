@@ -94,6 +94,13 @@ for GROUP in cefi defi tradfi sports prediction; do
     MD="${MD},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
     MD="${MD},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     MD="${MD},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+    # Durable pin registry — instance metadata (above) dies with the instance;
+    # this record is what a preemption relaunch reads AFTER the VM is gone, and
+    # what stops the nightly retention sweep reaping these three tarballs.
+    lc_write_tarball_pin_record "$VM_NAME" "$PROJECT" "launch-legacy-bucket-migration-sharded.sh" \
+        "UAC_TARBALL_SHA=${UAC_TARBALL_SHA}" \
+        "UTL_TARBALL_SHA=${UTL_TARBALL_SHA}" \
+        "MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
         lc_verify_tarball_freshness "$CODE_BUCKET" \
             market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
