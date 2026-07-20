@@ -113,6 +113,13 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "mdps-tradfi-": "launch-mdps-sharded-backfill.sh",
     "mdps-defi-": "launch-mdps-sharded-backfill.sh",
     "mdps-prediction-": "launch-mdps-sharded-backfill.sh",
+    # Registered 2026-07-20 alongside the matching vm_prefix_registry row. The
+    # sharded launcher's DEFAULT asset-group set includes sports, so it emits
+    # mdps-sports-{year}-{ts}; without this binding a preempted/OOM'd sports shard
+    # fell through to file_issue with no relaunch. Distinct from the longer
+    # "mdps-sports-bucket-" prefix (launch-mdps-sports-bucket-vm.sh), which still
+    # wins longest-prefix match for its own VMs.
+    "mdps-sports-": "launch-mdps-sharded-backfill.sh",
     # ── MDPS per-AG backfill (mdps-backfill-{ag}) ─────────────────────────
     "mdps-backfill-cefi-": "launch-mdps-backfill-vm.sh",
     "mdps-backfill-tradfi-": "launch-mdps-backfill-vm.sh",

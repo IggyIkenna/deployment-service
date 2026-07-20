@@ -275,6 +275,23 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # launch-mdps-sharded-backfill.sh's default asset-group set INCLUDES sports
+    # (SPORTS_YEARS 2020-2026, SKIP_DEPENDENCY_CHECK=true) and it emits
+    # mdps-sports-{year}-{ts} — but this prefix was MISSING until 2026-07-20, so a
+    # sports MDPS shard got only the watchdog's heartbeat-only fallback (no per-VM
+    # manifest-shard progress signal) and — because launcher_registry keys are a
+    # superset of this dict — NO relaunch binding at all, so a preempted sports
+    # shard fell through to file_issue instead of being auto-recovered.
+    # NOT covered by "mdps-sports-bucket-" below — that is a different launcher
+    # (launch-mdps-sports-bucket-vm.sh) and, being LONGER, still wins the
+    # longest-prefix match for its own VMs. Sports is genuinely in scope for the
+    # sharded launcher (it carries sports-specific STALL_TIMEOUT_SEC=7200 +
+    # STALL_PROGRESS_REGEX verified against a live mdps-sports run.log), so the fix
+    # is to register it, not to drop sports from the launcher defaults.
+    "mdps-sports-": VmPrefixSpec(
+        bucket=_TICK_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # ------------------------------------------------------------------
     # MDPS per-AG backfill (launch-mdps-backfill-vm.sh emits
     # mdps-backfill-{ag}-{ts}, distinct from the sharded prefix above).

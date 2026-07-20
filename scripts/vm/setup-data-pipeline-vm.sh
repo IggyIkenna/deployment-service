@@ -101,6 +101,83 @@ EOF
 systemctl daemon-reexec 2>/dev/null || log "WARNING: systemctl daemon-reexec failed (non-fatal)"
 log "File descriptor limit: $(ulimit -n) (systemd default raised to 65536)"
 
+# ── 0b. SPOT-preemption signal (FLEET-WIDE seam) ──
+# Writes gs://<CODE_BUCKET>/vm-logs/<vm>/PREEMPTED when — and ONLY when — the
+# metadata server reports instance/preempted=true. That blob is the AUTHORITATIVE
+# trigger for the whole preemption auto-recovery chain, which is otherwise inert:
+#   _gcs.is_vm_preempted -> classify_terminated_vm(preempted=True) -> PREEMPTED
+#   -> DP_VM_PREEMPTED (AUTO_RECOVER) -> escalation._recover_preempted_vm
+#   -> RelaunchPreemptedVm (replays LAUNCH_PARAMS.json, resuming START_DATE from
+#      the monotonic PROGRESS.json checkpoint the tee-wrapper writes).
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md § "Preemption recovery
+# MUST resume from PROGRESS, never replay START_DATE".
+#
+# WHY HERE and not per-launcher (2026-07-20): that codex section claims the signal
+# is "wired fleet-wide via scripts/vm/lib/launcher_common.sh", but
+# lc_write_preemption_signal_file was only ever CALLED by launch-cefi-sharded-backfill.sh
+# (+8 launchers with an inline copy). MEASURED: 57 launchers pass
+# --provisioning-model=SPOT and 47 of them wrote no PREEMPTED blob at all, so a
+# preempted VM was classified EXIT_NONZERO/GONE_NO_CAPTURE and PAGED a human
+# instead of auto-relaunching. All 47 share THIS script as their startup-script-url,
+# so installing the signal here fixes every one of them — and every future launcher —
+# with no per-launcher edit. Same shared-seam reasoning that made the PROGRESS.json
+# writer fleet-wide via vm-exec-with-gcs-tee.sh.
+#
+# This is the SAME contract, not a second mechanism: identical blob path, identical
+# "preempted" payload, identical preempted=true gate as
+# launcher_common.sh::lc_write_preemption_signal_file. A launcher that ALSO attaches
+# its own metadata shutdown-script keeps working — both write the same object with
+# the same content, so the two are idempotent, not competing. (gcloud accepts only
+# ONE metadata shutdown-script per instance, which is exactly why this seam is a
+# systemd unit instead: it composes instead of colliding.)
+#
+# Unit shape mirrors Google's own google-shutdown-scripts.service (ExecStart=/bin/true
+# + RemainAfterExit + ExecStop), so it runs during the shutdown transaction while the
+# network is still up — inside GCE's ~30s preemption notice.
+log "Installing SPOT-preemption signal shutdown unit..."
+cat > /usr/local/sbin/uts-preemption-signal.sh <<'PREEMPT_SIGNAL_EOF'
+#!/usr/bin/env bash
+# Emit the durable PREEMPTED marker iff this shutdown IS a SPOT reclaim.
+# Best-effort by construction: never block or fail a shutdown.
+PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
+[[ "$PREEMPTED" == "true" ]] || exit 0
+VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
+PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
+  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
+[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
+echo "preempted" | gcloud storage cp - \
+  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
+echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+PREEMPT_SIGNAL_EOF
+chmod +x /usr/local/sbin/uts-preemption-signal.sh
+cat > /etc/systemd/system/uts-preemption-signal.service <<'PREEMPT_UNIT_EOF'
+[Unit]
+Description=UTS SPOT-preemption signal (writes vm-logs/<vm>/PREEMPTED on GCE reclaim)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+ExecStart=/bin/true
+ExecStop=/usr/local/sbin/uts-preemption-signal.sh
+# Bounded: the GCE preemption notice is ~30s. Never hang a shutdown past it.
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target
+PREEMPT_UNIT_EOF
+# Non-fatal: a VM without this signal degrades to today's behaviour (a preemption
+# PAGEs instead of auto-relaunching) — it must never brick setup under `set -e`.
+systemctl daemon-reload 2>/dev/null || log "WARNING: systemctl daemon-reload failed (non-fatal)"
+if systemctl enable --now uts-preemption-signal.service 2>/dev/null; then
+  log "SPOT-preemption signal unit active (preempted VMs will auto-relaunch via RelaunchPreemptedVm)"
+else
+  log "WARNING: could not enable uts-preemption-signal.service — a preemption will PAGE, not auto-relaunch"
+fi
+
 # ── 1. System packages + Python 3.13 via uv (deadsnakes PPA was unreliable) ──
 log "Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
