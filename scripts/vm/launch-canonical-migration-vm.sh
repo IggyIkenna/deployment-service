@@ -43,6 +43,23 @@
 #   # ...or one specific shard on its own VM (targeted relaunch):
 #   SHARD_OF=20 SHARD_INDEX=3 bash launch-canonical-migration-vm.sh tradfi 2023-01-01 2026-01-30 full
 #
+#   # tradfi-catalogue-canon (2026-07-20): the instruments-service Phase-B `-USD@LIN` catalogue
+#   # canonicalization full sweep over the per-day
+#   # `instrument_availability/by_date/day=*/venue=*/instruments.parquet` corpus (~27.1k files).
+#   # START_DATE/END_DATE are cosmetic (VM labels only) -- the script lists its own worklist from
+#   # the instruments-store-tradfi bucket. IN-REGION ONLY: a laptop run measured 1.6k/27.1k files
+#   # in ~14 min and DECELERATING (cross-region GCS round-trip latency; the same pattern killed an
+#   # earlier attempt at ~83% via socket exhaustion), so this category exists to move it onto a
+#   # same-zone VM. Runs from $WORKSPACE/instruments (NOT mtds) -- hence VM_SERVICE=instruments_service
+#   # so setup-data-pipeline-vm.sh stages instruments-service-code; the compound `cd ... && python`
+#   # command re-homes the CWD inside the shared canonical-migration dispatch (which cds to mtds).
+#   # Category name deliberately starts with "tradfi-" so the VM name stays under the ALREADY
+#   # registered "canonical-migration-tradfi-" VM_PREFIX_TO_BUCKET prefix -- no new registry entry.
+#   # NOTE: after a full sweep the operator MUST re-run build_instrument_catalogue.py --asset-group
+#   # tradfi (the roll-up producer) or the next scheduled roll-up silently reverts catalog.parquet.
+#   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 dry
+#   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -89,6 +106,8 @@ MODE="${4:-dry}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+# Must match setup-data-pipeline-vm.sh's WORKSPACE (where the staged repo trees land).
+VM_WORKSPACE="/home/ikennaigboaka/workspace"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 # MACHINE_TYPE override (default e2-standard-8). TradFi v9 migration needs e2-standard-16
 # (64GB): the 2026-06-29 full-range run OOM-killed on e2-standard-8. Per-year chunking +
@@ -104,7 +123,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -172,6 +191,20 @@ _tradfi_content_migration_cmd() {
     # `\$(...)` + `\"` stay LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
     # launcher locals expand host-side. No commas anywhere in the emitted string.
     printf '%s' "mkdir -p ${mapd} && gcloud storage ls -r \"${walk}\" > ${enum} && echo TRADFI_ENUM_LINES=\$(wc -l < ${enum}) && python -u -m ${base}.migrate_tradfi_canonical_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/migrate_mapping.tsv ${sh} ${limit_flag} --workers ${WORKERS:-24} && python -u -m ${base}.rebundle_tradfi_chains_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/rebundle_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && python -u -m ${base}.recover_tradfi_garbage_underlying_2026_07 ${mode_flag} --enumeration ${enum} --out ${mapd}/recovery_mapping.tsv ${sh} ${limit_flag} ${quar_flag} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
+# Build the tradfi catalogue `-USD@LIN` canonicalization command (instruments-service one-off).
+# Emitted COMMA-FREE (gcloud --metadata is comma-delimited) as a single `cd ... && python ...` chain:
+# the shared canonical-migration dispatch in setup-data-pipeline-vm.sh cds to $WORKSPACE/mtds, so the
+# leading `cd` re-homes into the staged instruments-service tree. The FIRST literal `python ` token is
+# venv-rewritten by that dispatch ($VENV/bin/python) -- the `cd` path and the script name contain no
+# `python ` substring, so the rewrite lands on the intended token.
+# GCP_PROJECT_ID/DEPLOYMENT_ENV are exported by setup-data-pipeline-vm.sh already, but are ALSO set
+# inline here: without them resolve_bucket_name() raises BucketNamingError and the sweep dies instantly.
+_catalogue_canon_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u scripts/canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py --by-day${apply_flag} --by-day-full-sweep --workers ${WORKERS:-64}"
 }
 
 _script_for() {
@@ -242,6 +275,12 @@ _launch() {
         # tradfi = the 2026-07 content migration: multi-pass compound command (mode flags + --quarantine
         # embedded per-pass inside the builder, so it is NOT subject to the generic single --apply append).
         cmd="$(_tradfi_content_migration_cmd "$vm_name")"
+    elif [[ "$cat" == "tradfi-catalogue-canon" ]]; then
+        # Self-contained `cd ... && python ...` chain; --apply is embedded per-MODE by the builder,
+        # so the generic --apply/--dry-run append below is deliberately bypassed (same reason as
+        # the tradfi content-migration branch).
+        cmd="$(_catalogue_canon_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -264,12 +303,19 @@ _launch() {
 
     echo "Launching $vm_name — $cmd"
     local md="VM_TASK=canonical-migration"
-    md="${md},VM_SERVICE=market_tick_data_service"
+    # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
+    # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
+    local _svc="market_tick_data_service"
+    [[ "$cat" == "tradfi-catalogue-canon" ]] && _svc="instruments_service"
+    md="${md},VM_SERVICE=${_svc}"
     md="${md},VM_OPERATION=migrate-${cat}"
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == "defi-per-instrument" ]] && _ag="DEFI"
+    # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
+    # dashboards classify this VM with the rest of tradfi.
+    [[ "$cat" == "tradfi-catalogue-canon" ]] && _ag="TRADFI"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -285,8 +331,11 @@ _launch() {
     [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
 
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
-        lc_verify_tarball_freshness "$CODE_BUCKET" \
-            market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
+        # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
+        # catalogue-canon runs instruments-service code and never touches MTDS.
+        local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
 
@@ -320,7 +369,7 @@ case "$ASSET_GROUP" in
             _launch tradfi
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
