@@ -143,6 +143,11 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("batch-live-smoke-matrix-daily", service="e2e-testing"),
     # catalogue_regen_scheduler.tf (cron hits the `catalogue-regen` container job)
     _batch("catalogue-regen-nightly", service="instruments-service"),
+    # defi_removal_probe_scheduler.tf — daily on-chain removal probe (Option B truth-gate):
+    # reads the defi catalog.parquet, confirms each pool/token CONTRACT is gone on-chain
+    # (eth_getCode==0x) and writes _cache/defi_removals.json → build_instrument_catalogue
+    # sets delisted_at. Only positively-confirmed removals; never re-creates a false delist.
+    _batch("defi-removal-probe", service="instruments-service", asset_group="defi"),
     # cf_manifest_audit_scheduler.tf
     _batch("cf-manifest-audit", service="manifest-consolidator"),
     # client_reporting_scheduler.tf (jobs created at runtime by backends/cloud_run.py)
