@@ -141,10 +141,43 @@ ohlcv_default_date_concurrency() {
 # Empirically, 18 tradfi-bf-* VMs ran concurrently without triggering 429s
 # (instruments_foundation_completeness_2026_06_24.md — "killed the 18 RUNNING
 # tradfi-bf-* OHLCV backfills"). A singleton (cap=1) serialises the whole fleet
-# for no safety reason. Cap=20 is the minimum safe floor above the empirical
-# 18-VM high-water mark, well within the 100-connection hard limit.
-# Override: OHLCV_FLEET_CONCURRENCY_CAP=N (env) to raise/lower at call time.
-OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-20}"
+# for no safety reason.
+#
+# THIS IS A COURTESY CAP, NOT A SAFETY CAP — and it is emphatically NOT the
+# Tardis situation. The Databento limits above are PER-IP, and `ohlcv_create_vm`
+# gives every VM its own ephemeral external IP (no --no-address, no shared NAT),
+# so the 100-connection / 100-req-s budget is spent PER VM. Adding VMs adds
+# budget; it does not divide a shared one. Do NOT apply Tardis-style cap-1
+# reasoning here (Tardis shares ONE IP — see CLAUDE.md § Tardis cap).
+#
+# Raised 20 → 60 (2026-07-20) for the equity ticker-group re-shard: NASDAQ and
+# NYSE now fan out to (ticker-group x year) instead of one VM per year, so the
+# equity fleet alone is ~2 venues x 5 groups x 4 years = ~40 VMs, and 20 would
+# refuse the second venue mid-rollout. 60 leaves headroom for a concurrent
+# CME/ICE/CFE wave. Override: OHLCV_FLEET_CONCURRENCY_CAP=N (env).
+OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-60}"
+
+# Stall-watchdog progress marker (metadata-safe: no '=', space or comma).
+#
+# Without this, vm-exec-with-gcs-tee.sh falls back to raw LOCAL_LOG byte-growth
+# detection, which the setup-data-pipeline-vm.sh vm-life-emitter defeats forever:
+# its own `PIPELINE_HEARTBEAT` line every 60s keeps the log "growing" even when
+# the real worker is fully hung, so the 30-min stall timer never fires. That is
+# exactly how a cefi VM hung for 7+ days undetected
+# (cefi_bf_2021_heavy_vm_stalled_2026_07_12). cefi / mdps / sfi / gas-fees all
+# set this; tradfi was the last family still on the weak fallback.
+#
+# Markers verified EMPIRICALLY against a real tradfi databento run
+# (gs://deployment-scripts-.../vm-logs/tradfi-bf-nasdaq-ohlcv-1m-2024-20260719-112444/run.log):
+#   "StreamingParquetWriter: uploaded …/AAPL.parquet (N rows, …)"  — per-shard finalize
+#   "DatabentoAdapter: streamed chunk DBEQ.BASIC/ohlcv_1m — N rows"  — per-chunk fetch
+# Both are needed: `uploaded` alone would false-trip during a long fetch phase on
+# a heavy CME expiry date that streams for >30 min before its first write.
+TRADFI_OHLCV_STALL_PROGRESS_REGEX="${TRADFI_OHLCV_STALL_PROGRESS_REGEX:-uploaded|streamed}"
+
+# Default number of (ticker-group x year) shards per equity venue. See
+# `ohlcv_split_ticker_groups` for why equity venues shard by ticker-group.
+OHLCV_TICKER_GROUPS="${OHLCV_TICKER_GROUPS:-5}"
 
 ohlcv_check_singleton_lock() {
     local force="${1:-false}"
@@ -213,6 +246,10 @@ ohlcv_create_vm() {
     metadata="${metadata},VM_NAME=${vm_name_safe}"
     metadata="${metadata},MANIFEST_PER_VM_SHARDS=true"
     metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+    # Real per-shard progress marker for the stall watchdog — without it the
+    # PIPELINE_HEARTBEAT noise makes a hung VM look alive forever (see
+    # TRADFI_OHLCV_STALL_PROGRESS_REGEX above).
+    metadata="${metadata},STALL_PROGRESS_REGEX=${TRADFI_OHLCV_STALL_PROGRESS_REGEX}"
     # Date-concurrency (the measured 1.56x lever). Explicit env wins; otherwise
     # the machine-derived default applies to databento-sourced launches and is
     # empty for FX/Yahoo (see ohlcv_default_date_concurrency above). Resolved
@@ -291,6 +328,61 @@ ohlcv_year_shards() {
     printf '%s' "$out"
 }
 
+# --- Equity ticker-group sharding -------------------------------------------
+# WHY equity venues shard by (ticker-group x year), not by year alone.
+#
+# CME shards 47 roots x 7 years (~329 VMs) and is embarrassingly parallel. The
+# equity venues did NOT: one VM per YEAR carried ALL ~622 tickers, so 207,856
+# equity cells (46% of all remaining tradfi work) compressed onto ~4 year-shards
+# per venue. The single longest NASDAQ VM carried ~30,106 cells = a 12.5-33 hr
+# critical path, and THAT — not the vendor, not the fleet cap — was the binding
+# constraint on the tradfi MVP backfill ETA.
+#
+# Splitting the sorted ticker universe into N contiguous groups multiplies the
+# shard count by N (5 groups x 4 years = ~20 VMs/venue vs 4) and divides the
+# critical path by ~N. This is SAFE to scale because the Databento budget is
+# per-IP and every VM has its own IP (see OHLCV_FLEET_CONCURRENCY_CAP above) —
+# more VMs buy more rate-limit budget rather than contending for one.
+#
+# CONTIGUOUS (not round-robin) grouping is deliberate: ohlcv row-count per
+# ticker per day is bounded by the session minute count (~390) and is roughly
+# uniform across tickers, so equal-COUNT groups are already load-balanced, and
+# contiguity keeps a VM's scope human-readable ("g02 = BKNG..DIS") for resume
+# and triage. Per-VM manifest shard isolation (VM_NAME + MANIFEST_PER_VM_SHARDS)
+# already makes each group independently resumable.
+#
+# Echoes one group per line: "<1-based index>|<first-ticker>|<last-ticker>|<semicolon-joined tickers>"
+#   $1 ticker_list — semicolon-delimited, ALREADY SORTED by the caller
+#   $2 groups      — desired group count (clamped to [1, ticker_count])
+ohlcv_split_ticker_groups() {
+    local list="$1" groups="$2"
+    local all=()
+    IFS=';' read -ra all <<< "$list"
+    local total="${#all[@]}"
+    (( total == 0 )) && return 0
+    [[ "$groups" =~ ^[0-9]+$ ]] || groups=1
+    (( groups < 1 )) && groups=1
+    (( groups > total )) && groups="$total"
+
+    local base=$(( total / groups ))
+    local rem=$(( total % groups ))
+    local idx=0 g i size chunk first last
+    for (( g = 0; g < groups; g++ )); do
+        size="$base"
+        # Spread the remainder over the first `rem` groups so sizes differ by
+        # at most 1 — never a fat tail group.
+        (( g < rem )) && size=$(( size + 1 ))
+        chunk=""; first=""; last=""
+        for (( i = 0; i < size; i++ )); do
+            [[ -z "$first" ]] && first="${all[idx]}"
+            last="${all[idx]}"
+            chunk="${chunk}${chunk:+;}${all[idx]}"
+            idx=$(( idx + 1 ))
+        done
+        printf '%s|%s|%s|%s\n' "$(( g + 1 ))" "$first" "$last" "$chunk"
+    done
+}
+
 # --- Per-venue discovery-floor clamp ----------------------------------------
 # UAC ``VenueMapping.get_instrument_discovery_start`` is the SSOT for the
 # earliest date a (venue, date) shard can produce records. Dates below it are
@@ -364,13 +456,14 @@ ohlcv_parse_common_args() {
             --env)              DEPLOYMENT_ENV="$2"; shift 2 ;;
             --start-floor)      START_FLOOR="$2"; shift 2 ;;
             --year)             ONLY_YEAR="$2"; shift 2 ;;
+            --ticker-groups)    OHLCV_TICKER_GROUPS="$2"; shift 2 ;;
             --help|-h)
                 grep '^#' "${BASH_SOURCE[1]}" | head -40
                 exit 0
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--ticker-groups N] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac
@@ -383,6 +476,10 @@ ohlcv_parse_common_args() {
 
     if [[ -n "$ONLY_YEAR" ]] && ! [[ "$ONLY_YEAR" =~ ^[0-9]{4}$ ]]; then
         echo "ERROR: --year must be a 4-digit year (got: $ONLY_YEAR)" >&2; exit 1
+    fi
+
+    if ! [[ "$OHLCV_TICKER_GROUPS" =~ ^[0-9]+$ ]] || (( OHLCV_TICKER_GROUPS < 1 )); then
+        echo "ERROR: --ticker-groups must be a positive integer (got: $OHLCV_TICKER_GROUPS)" >&2; exit 1
     fi
 }
 
