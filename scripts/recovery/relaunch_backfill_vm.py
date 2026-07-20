@@ -54,7 +54,11 @@ from typing import cast
 from unified_trading_library import UnifiedCloudConfig, get_storage_client, log_event
 from unified_trading_library.events import DP_VM_EXIT_NONZERO  # noqa: qg-deep-import
 
-from deployment_service.vm.tarball_pins import TARBALL_SHA_ENV_TO_NAME, resolve_available_pin
+from deployment_service.vm.tarball_pins import (
+    TARBALL_SHA_ENV_TO_NAME,
+    collect_pins_for_vm,
+    resolve_available_pin,
+)
 
 logger = logging.getLogger("recovery.relaunch_backfill_vm")
 
@@ -319,6 +323,26 @@ def _default_resolve_pin(tarball_name: str, requested_sha: str) -> str | None:
     return resolve_available_pin(get_storage_client(), f"deployment-scripts-{project}", tarball_name, requested_sha)
 
 
+def _default_load_vm_pins(vm_name: str) -> dict[str, str]:
+    """Read ``vm_name``'s recorded tarball pins from the authoritative registry.
+
+    This exists because ``launch_env`` (``LAUNCH_PARAMS.json``) is NOT where the
+    pins are. The launchers that pin and the launcher that writes LAUNCH_PARAMS
+    are disjoint sets, so re-resolving pins from ``launch_env`` alone re-resolved
+    an empty dict every time — the actuator looked implemented and did nothing.
+    ``collect_pins_for_vm`` reads the same durable ``TARBALL_PINS.json`` registry
+    the retention sweep protects against, which is the one source that still
+    exists once the instance (and its metadata) is gone — precisely the state a
+    preemption relaunch operates in.
+    """
+    project = getattr(UnifiedCloudConfig(), "gcp_project_id", "") or ""
+    if not project:
+        return {}
+    name_to_env = {name: key for key, name in TARBALL_SHA_ENV_TO_NAME.items()}
+    pins = collect_pins_for_vm(get_storage_client(), f"deployment-scripts-{project}", vm_name)
+    return {name_to_env[pin.tarball_name]: pin.sha for pin in pins if pin.tarball_name in name_to_env}
+
+
 def _default_preemption_budget_dir() -> Path:
     return Path(tempfile.gettempdir()) / "uts_preempted_relaunch_budget"
 
@@ -365,12 +389,34 @@ class RelaunchPreemptedVm:
         now: Callable[[], datetime] | None = None,
         run_launcher: Callable[..., subprocess.CompletedProcess[str]] | None = None,
         resolve_pin: Callable[[str, str], str | None] | None = None,
+        load_vm_pins: Callable[[str], dict[str, str]] | None = None,
     ) -> None:
         self._budget_dir = budget_dir or _default_preemption_budget_dir()
         self._max_per_day = max_per_day
         self._now = now or (lambda: datetime.now(UTC))
         self._run_launcher = run_launcher or _default_run_launcher
         self._resolve_pin = resolve_pin or _default_resolve_pin
+        self._load_vm_pins = load_vm_pins or _default_load_vm_pins
+
+    def _merge_recorded_pins(self, vm_name: str, env: dict[str, str]) -> dict[str, str]:
+        """Fill in ``*_TARBALL_SHA`` keys the captured launch env does not carry.
+
+        ``launch_env`` wins where it HAS a value (it is the more specific record);
+        the registry supplies everything it lacks — which, for all five pinning
+        launchers, is every pin there is.
+        """
+        merged = dict(env)
+        try:
+            recorded = self._load_vm_pins(vm_name)
+        except Exception as exc:
+            logger.warning("could not read recorded tarball pins for %s: %s", vm_name, exc)
+            return merged
+        for env_key, sha in recorded.items():
+            if not merged.get(env_key, "").strip():
+                merged[env_key] = sha
+        if recorded:
+            logger.info("merged %d recorded tarball pin(s) for %s from the durable registry", len(recorded), vm_name)
+        return merged
 
     def _resolve_tarball_pins(self, env: dict[str, str]) -> tuple[dict[str, str], list[dict[str, str]], list[str]]:
         """Re-resolve every ``*_TARBALL_SHA`` pin against what actually EXISTS.
@@ -581,6 +627,11 @@ class RelaunchPreemptedVm:
         # actionable operator signal, not a lifecycle event. If nothing resolves we
         # PAGE rather than degrade: `setup-data-pipeline-vm.sh`'s refusal of a
         # floating fallback is CORRECT and is deliberately preserved here.
+        #
+        # The pins are read from the DURABLE REGISTRY first, not from `env`:
+        # `launch_env` comes from LAUNCH_PARAMS.json, which no pinning launcher
+        # writes, so resolving straight from `env` re-resolved nothing at all.
+        env = self._merge_recorded_pins(vm_name, env)
         env, repins, unresolved_pins = self._resolve_tarball_pins(env)
         for repin in repins:
             log_event(

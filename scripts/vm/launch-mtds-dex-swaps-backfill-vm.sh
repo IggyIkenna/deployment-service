@@ -156,6 +156,14 @@ if [[ -n "${UTL_TARBALL_SHA}" ]]; then
   METADATA="${METADATA},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
 fi
 
+# Durable pin registry — instance metadata (above) covers this VM only while it
+# RUNS. The record below is what the retention sweep and a preemption relaunch
+# read once the instance is gone, which is exactly the state the 2026-07-20
+# incident left every VM in.
+lc_write_tarball_pin_record "$VM_NAME" "$PROJECT_ID" "launch-mtds-dex-swaps-backfill-vm.sh" \
+  "MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}" \
+  "UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
 if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi

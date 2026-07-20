@@ -46,6 +46,14 @@
 #                                            instead of falling back to the
 #                                            launcher's bare defaults. Best-effort
 #                                            (never fails the launch).
+#   lc_write_tarball_pin_record <vm_name> <project> <launcher> <K=V>...
+#                                          — persist this VM's *_TARBALL_SHA code
+#                                            pins to GCS (TARBALL_PINS.json) so the
+#                                            retention sweep never reaps a tarball a
+#                                            live/relaunchable VM needs, and so a
+#                                            preemption relaunch can still find the
+#                                            pin AFTER the instance (and its
+#                                            metadata) is gone. Best-effort.
 #
 # Usage:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -412,6 +420,82 @@ for pair in sys.argv[2:]:
 print(json.dumps({"launcher": launcher, "env": env}))
 ' "$launcher" "$@" | gsutil -q cp - "$uri" 2>/dev/null; then
         echo "WARNING: lc_write_launch_params — failed to write ${uri} (best-effort, non-fatal; a preemption relaunch will use launcher defaults)" >&2
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# lc_write_tarball_pin_record <vm_name> <project> <launcher> [K=V ...]
+# ---------------------------------------------------------------------------
+# Persist this VM's SHA code-tarball pins to
+# gs://deployment-scripts-<project>/vm-logs/<vm_name>/TARBALL_PINS.json —
+# {"launcher": "...", "vm_name": "...", "written_at": "<iso8601 UTC>",
+#  "pins": {"UAC_TARBALL_SHA": "<sha>", ...}, "floating": ["UTL_TARBALL_SHA"]}
+#
+# Why this exists, given the pins are ALREADY on the instance as GCE metadata
+# (which the retention sweep now reads — see the UTL `metadata` passthrough):
+# instance metadata dies WITH the instance. The 2026-07-20 incident is precisely
+# the window where the VM no longer exists — SPOT-preempted, or self-deleted
+# after a failed setup — and `RelaunchPreemptedVm` still needs the exact tarball
+# it was pinned to. Metadata covers RUNNING VMs (day-one, no launcher rollout);
+# this record covers the DEAD-but-relaunchable ones. Neither alone closes the
+# incident; the protected set is the UNION.
+#
+# `floating` is not decoration: it is the explicit, machine-readable assertion
+# that a repo was left unpinned ON PURPOSE. The retention sweep fails CLOSED on
+# a running pinning-launcher VM it can find no record for, so a launcher that
+# silently floats would otherwise be indistinguishable from one whose record
+# failed to write — and the sweep would block forever. Recording the intent is
+# what keeps fail-closed affordable.
+#
+# TTL/grace: consumers only honour a record whose object mtime is inside the
+# retention grace window (`DEFAULT_PIN_GRACE_DAYS`, 14d) — the registry is
+# bounded by that window plus the code bucket's own lifecycle rules, so it
+# cannot grow without limit. A VM idle longer than the grace window is past any
+# realistic relaunch horizon.
+#
+# Best-effort, exactly like lc_write_launch_params: a write failure WARNs and
+# never fails the launch. The VM being created is the deliverable; a lost record
+# degrades to metadata-only protection (still correct while the VM runs).
+lc_write_tarball_pin_record() {
+    local vm_name="${1:?lc_write_tarball_pin_record: vm_name required}"
+    local project="${2:?lc_write_tarball_pin_record: project required}"
+    local launcher="${3:?lc_write_tarball_pin_record: launcher required}"
+    shift 3
+    if ! command -v gsutil >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: lc_write_tarball_pin_record — gsutil/python3 unavailable, skipping (retention falls back to instance metadata only)" >&2
+        return 0
+    fi
+    local uri="gs://$(lc_code_bucket "$project")/vm-logs/${vm_name}/TARBALL_PINS.json"
+    if ! python3 -c '
+import datetime, json, sys
+
+launcher, vm_name = sys.argv[1], sys.argv[2]
+pins, floating = {}, []
+for pair in sys.argv[3:]:
+    if "=" not in pair:
+        continue
+    key, _, value = pair.partition("=")
+    value = value.strip()
+    # An empty value is NOT a pin. Every `[[ -n ... ]]` guard in these launchers
+    # treats "" and unset identically, and both mean a floating pull — so record
+    # it as a deliberate float rather than a pin to nothing.
+    if value:
+        pins[key] = value
+    else:
+        floating.append(key)
+print(
+    json.dumps(
+        {
+            "launcher": launcher,
+            "vm_name": vm_name,
+            "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "pins": pins,
+            "floating": floating,
+        }
+    )
+)
+' "$launcher" "$vm_name" "$@" | gsutil -q cp - "$uri" 2>/dev/null; then
+        echo "WARNING: lc_write_tarball_pin_record — failed to write ${uri} (best-effort, non-fatal; retention falls back to instance metadata for as long as this VM runs)" >&2
     fi
 }
 

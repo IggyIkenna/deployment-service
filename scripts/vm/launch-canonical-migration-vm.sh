@@ -345,9 +345,32 @@ _launch() {
     # SHA-pin the code tarballs so the VM provably runs the intended commit (race-proof
     # via setup-data-pipeline-vm.sh authoritative pinned pull). Pass the SHAs in the env
     # at launch: UAC_TARBALL_SHA / UTL_TARBALL_SHA / MTDS_TARBALL_SHA. Unset = floating pull.
-    [[ -n "${UAC_TARBALL_SHA:-}" ]]  && md="${md},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
-    [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
-    [[ -n "${MTDS_TARBALL_SHA:-}" ]] && md="${md},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+    #
+    # These gates read the AMBIENT SHELL ENV. That is a genuine foot-gun: forget
+    # to export one and the VM floats onto whatever the tarball is at boot, with
+    # no signal anywhere that the pin you thought you set was never applied.
+    # A floating migration VM is not merely non-reproducible — it can run
+    # different code against a half-migrated corpus than the VMs it is sharded
+    # alongside. So every repo is ANNOUNCED here, pinned or not, and the unpinned
+    # case is a visible WARNING rather than silence.
+    _pin_summary=""
+    for _pin_key in UAC_TARBALL_SHA UTL_TARBALL_SHA MTDS_TARBALL_SHA; do
+        eval "_pin_val=\"\${${_pin_key}:-}\""
+        if [[ -n "${_pin_val}" ]]; then
+            md="${md},${_pin_key}=${_pin_val}"
+            echo "  PIN  ${_pin_key}=${_pin_val:0:12}"
+        else
+            echo "  WARNING: ${_pin_key} is UNSET — ${vm_name} will pull the FLOATING tarball for this repo." >&2
+            echo "           Export ${_pin_key}=<sha> before launch to pin it (recorded as a deliberate float otherwise)." >&2
+        fi
+        _pin_summary="${_pin_summary} ${_pin_key}=${_pin_val}"
+    done
+
+    # Durable pin registry (Leg B): survives this instance's deletion, which is
+    # exactly the window a preemption relaunch has to recover from. Written
+    # BEFORE instance creation so a VM can never exist without a record.
+    # shellcheck disable=SC2086
+    lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-canonical-migration-vm.sh" ${_pin_summary}
 
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:

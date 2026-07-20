@@ -275,6 +275,14 @@ _launch() {
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
     [[ -n "${MDPS_TARBALL_SHA:-}" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA}"
+    # Durable pin registry — instance metadata dies with the instance; this
+    # record is what survives into the preemption-relaunch window and what
+    # exempts these tarballs from the nightly retention sweep. An unset SHA is
+    # recorded as a DELIBERATE float (not a pin to nothing), which is what lets
+    # the sweep fail closed on genuinely unknown VMs without blocking forever.
+    lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-mdps-backfill-vm.sh" \
+        "UTL_TARBALL_SHA=${UTL_TARBALL_SHA:-}" \
+        "MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA:-}"
     [[ -n "$FILTER_DATA_TYPES" ]] && md="${md},VM_DATA_TYPES=${FILTER_DATA_TYPES// /;}"
     [[ -n "$FILTER_VENUES" ]] && md="${md},VM_VENUES=${FILTER_VENUES// /;}"
     [[ -n "$FILTER_INSTRUMENT_IDS" ]] && md="${md},VM_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS// /;}"

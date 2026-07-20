@@ -50,14 +50,16 @@ from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
 
 from unified_trading_library import get_storage_client
-from unified_trading_library.cloud_interface import gcs_delete_object  # noqa: qg-deep-import
+from unified_trading_library.cloud_interface import gcs_delete_object, gcs_describe_object  # noqa: qg-deep-import
 
-from deployment_service.vm.gcp_instance_lister import list_running_vm_names_strict
+from deployment_service.vm.gcp_instance_lister import list_running_instances_strict
 from deployment_service.vm.tarball_pins import (
+    CODE_PREFIX,
     DEFAULT_PIN_GRACE_DAYS,
     InUsePinsUnavailableError,
     TarballPin,
     collect_in_use_pins,
+    find_orphan_manifests,
     is_pin_protected,
 )
 
@@ -125,10 +127,26 @@ def _parse_tarballs(prefix: str) -> list[TarballEntry]:
     return entries
 
 
-def _delete_object(gcs_path: str, dry_run: bool) -> bool:
+def _delete_object(gcs_path: str, dry_run: bool, *, missing_ok: bool = False) -> bool:
+    """Delete one object. Returns True on success (or an accepted absence).
+
+    ``missing_ok`` exists for the manifest half of a pair delete: a tarball that
+    never had a manifest is not a failure, and must not block its tarball's
+    deletion forever. It is checked EXPLICITLY (describe-then-delete) rather than
+    by swallowing the delete's exception, so a real permission/transport error
+    still reports False and still aborts the pair.
+    """
     if dry_run:
         logger.info("[DRY-RUN] would delete %s", gcs_path)
         return True
+    if missing_ok:
+        try:
+            if gcs_describe_object(gcs_path) is None:
+                logger.info("no object to delete at %s (nothing to do)", gcs_path)
+                return True
+        except Exception as exc:
+            logger.warning("could not stat %s: %s", gcs_path, exc)
+            return False
     try:
         gcs_delete_object(gcs_path)
         logger.info("deleted %s", gcs_path)
@@ -146,24 +164,73 @@ def _manifest_path_for(tarball_gcs_path: str) -> str:
 def _delete_tarball_pair(gcs_path: str, dry_run: bool) -> bool:
     """Delete a tarball together with its sibling manifest. Returns tarball success.
 
-    **Deletion ORDER is load-bearing: the manifest goes FIRST.** The two objects
-    must share a fate, and if the pair-delete is interrupted between the two
-    calls, the surviving state must be the SAFE one:
+    **Deletion order is load-bearing, and so is ABORTING on a partial failure.**
+    The two objects must share a fate. Of the two possible half-states:
 
-    - manifest deleted, tarball survives -> a pin that no longer resolves at all.
-      ``setup-data-pipeline-vm.sh`` refuses it loudly ("cannot verify
-      provenance") and nothing runs un-asserted code. Recoverable.
     - tarball deleted, manifest survives -> an **orphan manifest**: a pin that
       still RESOLVES but whose code is gone. This is the exact 2026-07-20 failure
       shape, and it is silent until a relaunch detonates on it.
+    - manifest deleted, tarball survives -> a pin that no longer resolves at all.
+      ``setup-data-pipeline-vm.sh`` refuses it loudly ("cannot verify
+      provenance"). Loud, but still a broken pin.
 
-    The old code could only ever produce the second state, because
+    So the manifest goes FIRST **and its result is checked**: if it does not
+    delete, we do NOT proceed to the tarball, and the pair is left COMPLETE and
+    untouched — the only genuinely safe outcome. Retention deferred to tomorrow
+    costs storage; either half-state costs a fleet.
+
+    The old code could only ever produce the orphan state, because
     ``_parse_tarballs`` filters out everything not ending ``.tar.gz`` — manifests
-    were structurally invisible to the sweep, so every run minted orphans.
+    were structurally invisible to the sweep, so every run minted orphans — and
+    because it DISCARDED the manifest delete's return value entirely.
     """
     manifest_path = _manifest_path_for(gcs_path)
-    _delete_object(manifest_path, dry_run)
+    if not _delete_object(manifest_path, dry_run, missing_ok=True):
+        logger.error(
+            "ABORTING pair delete for %s — its manifest (%s) could not be deleted. "
+            "Leaving the COMPLETE pair intact rather than minting an orphan manifest.",
+            gcs_path,
+            manifest_path,
+        )
+        return False
     return _delete_object(gcs_path, dry_run)
+
+
+def reap_orphan_manifests(bucket: str, dry_run: bool, *, pins: frozenset[TarballPin]) -> int:
+    """Delete ``@sha`` manifests whose tarball is provably gone. Returns the count.
+
+    Cleans up the residue the incident ALREADY minted — every pre-fix sweep left
+    one behind per deleted tarball. An orphan manifest is not inert: it is a pin
+    that still resolves, so it makes a dead code identity look alive.
+
+    Deliberately conservative. A manifest is reaped only when (a) a single
+    whole-prefix listing shows no sibling tarball — never a per-object probe that
+    could race a concurrent upload mid-rebuild, where the manifest lands before
+    the tarball — and (b) nothing in the protected pin set claims it. (b) matters
+    because a pinned-but-missing tarball is a live incident under repair, and the
+    manifest is the only surviving evidence of which sha was wanted.
+    """
+    storage_client = get_storage_client()
+    orphans = find_orphan_manifests(storage_client, bucket)
+    if not orphans:
+        logger.info("orphan-manifest reap: none found under gs://%s/%s", bucket, CODE_PREFIX)
+        return 0
+
+    reaped = 0
+    for object_name in orphans:
+        stem = object_name[: -len(_MANIFEST_SUFFIX)][len(CODE_PREFIX) :]
+        service, _, sha = stem.partition("@")
+        if is_pin_protected(service, sha, pins):
+            logger.warning(
+                "orphan manifest %s is PINNED by a live/relaunchable VM — NOT reaping. "
+                "Its tarball is missing: that pin needs re-pinning, not evidence removal.",
+                object_name,
+            )
+            continue
+        logger.info("orphan manifest (tarball absent, unpinned): %s", object_name)
+        if _delete_object(f"gs://{bucket}/{object_name}", dry_run):
+            reaped += 1
+    return reaped
 
 
 def cleanup_name_versioned(
@@ -231,15 +298,18 @@ def collect_pins_for_project(project: str, bucket: str, *, grace_days: int) -> f
     """Build the in-use protected pin set, or raise ``InUsePinsUnavailableError``.
 
     Fail-closed by construction: a compute-API failure propagates (via
-    ``list_running_vm_names_strict``) instead of degrading to an empty
+    ``list_running_instances_strict``) instead of degrading to an empty
     "nothing is running" set that would authorise deleting every live pin.
+
+    Instances are passed WHOLE, not as bare names — their ``metadata`` is where
+    the pins live, and reducing to names here is what made the first fix inert.
     """
     try:
-        running = list_running_vm_names_strict(project)
+        running = list_running_instances_strict(project)
     except Exception as exc:
         raise InUsePinsUnavailableError(f"listing RUNNING instances in {project} failed: {exc!r}") from exc
     storage_client = get_storage_client()
-    return frozenset(collect_in_use_pins(storage_client, bucket, running_vm_names=running, grace_days=grace_days))
+    return frozenset(collect_in_use_pins(storage_client, bucket, running_instances=running, grace_days=grace_days))
 
 
 def cleanup_noncurrent_versions(bucket: str, max_age_days: int, dry_run: bool) -> int:
@@ -297,6 +367,14 @@ def main(argv: list[str]) -> int:
             "longer running (covers SPOT-preemption relaunch of an already-deleted instance)"
         ),
     )
+    parser.add_argument(
+        "--reap-orphan-manifests",
+        action="store_true",
+        help=(
+            "Also delete @sha manifests whose tarball is provably absent (the residue every "
+            "pre-2026-07-20 sweep minted). Never touches a manifest claimed by the in-use pin set"
+        ),
+    )
     args = parser.parse_args(argv)
 
     project: str = cast(str, args.project)
@@ -306,6 +384,7 @@ def main(argv: list[str]) -> int:
     dry_run: bool = cast(bool, args.dry_run)
     noncurrent: bool = cast(bool, args.noncurrent)
     pin_grace_days: int = cast(int, args.pin_grace_days)
+    reap_orphans: bool = cast(bool, args.reap_orphan_manifests)
 
     logger.info(
         "bucket=gs://%s  dry_run=%s  mode=%s", bucket, dry_run, "noncurrent" if noncurrent else "name-versioned"
@@ -332,6 +411,9 @@ def main(argv: list[str]) -> int:
             len(deleted_by_service),
             total,
         )
+        if reap_orphans:
+            reaped = reap_orphan_manifests(bucket, dry_run, pins=pins)
+            logger.info("orphan-manifest reap complete: %d manifest(s) deleted", reaped)
     return 0
 
 

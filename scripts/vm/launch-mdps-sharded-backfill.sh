@@ -44,6 +44,9 @@
 # --source-bucket-override market-data-tick-defi-central-element-323112.
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
@@ -292,6 +295,13 @@ launch_year_shard() {
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "$UTL_TARBALL_SHA_PIN" ]] && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}"
     [[ -n "$MDPS_TARBALL_SHA_PIN" ]] && md="${md},MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA_PIN}"
+    # Durable pin registry — see lc_write_tarball_pin_record. This launcher fans
+    # out one VM per asset_group × YEAR, so a single run can hold a pin across
+    # dozens of long-lived VMs; losing that pin to the mtime-ranked sweep bricks
+    # the relaunch of every one of them at once.
+    lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-mdps-sharded-backfill.sh" \
+        "UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}" \
+        "MDPS_TARBALL_SHA=${MDPS_TARBALL_SHA_PIN}"
     # Sports MDPS processes long empty-date stretches (no betting events) that
     # produce no log output, triggering the stall watchdog at the default 1800s.
     # 7200s = 2h gives enough headroom for a full year's empty-season gap
