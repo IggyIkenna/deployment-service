@@ -192,6 +192,14 @@ gcp:
     # so resolve_bucket_name() resolves the SAME bucket the writer already uses, no migration.
     # Added deployment_alerts_ingestion_completeness_2026_07_20.md todo 3 (deployment-api ingest).
     alerting-service: "alerting-service-${GCP_PROJECT_ID}"
+    # Shared CI/CD event + alert ledger bucket (cicd/alerts/{date}/alerts.jsonl,
+    # cicd/events/{repo}/{date}/events.jsonl). Literal name (no project-id/env substitution) —
+    # written by GitHub Actions workflows across every repo via the `vars.CICD_EVENTS_BUCKET`
+    # repo variable, whose fallback default is this same literal (notify-slack.yml,
+    # .github/actions/persist-event), not per-project-provisioned. GCP-only (no AWS mirror —
+    # the ledger only lives in GCS). Added deployment_alerts_ingestion_completeness_2026_07_20.md
+    # todo 5 (QG 5.69 hardcoded-bucket fix).
+    cicd-events: "unified-trading-cicd-events"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
