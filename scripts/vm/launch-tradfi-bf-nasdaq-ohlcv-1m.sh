@@ -31,6 +31,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
+# Extract optional --only-group <N> (1-based ticker-group index) before the
+# common parser — allows resuming a cap-stopped fan-out (e.g. g03-g05 after the
+# fleet cap halted the initial run at g02) WITHOUT re-launching running groups.
+ONLY_GROUP=""
+_remaining_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --only-group) ONLY_GROUP="$2"; shift 2 ;;
+        *)            _remaining_args+=("$1"); shift ;;
+    esac
+done
+set -- "${_remaining_args[@]+"${_remaining_args[@]}"}"
+
 ohlcv_parse_common_args "$@"
 
 # Clamp START_FLOOR to NASDAQ's UAC discovery floor (2023-04-15). Databento
@@ -80,6 +93,14 @@ fi
 # `ohlcv_split_ticker_groups` in the lib for the full rationale and for why
 # more VMs is SAFE here (per-IP Databento budget, one ephemeral IP per VM).
 TICKER_GROUPS_OUT="$(ohlcv_split_ticker_groups "$TICKER_LIST" "$OHLCV_TICKER_GROUPS")"
+if [[ -n "$ONLY_GROUP" ]]; then
+    TICKER_GROUPS_OUT="$(printf '%s\n' "$TICKER_GROUPS_OUT" | awk -F'|' -v g="$ONLY_GROUP" '$1==g')"
+    if [[ -z "$TICKER_GROUPS_OUT" ]]; then
+        echo "ERROR: --only-group '$ONLY_GROUP' matched no group (valid 1..${OHLCV_TICKER_GROUPS})" >&2
+        exit 1
+    fi
+    echo "Filtered to ticker-group ${ONLY_GROUP} (--only-group)."
+fi
 group_count="$(printf '%s\n' "$TICKER_GROUPS_OUT" | grep -c .)"
 echo "Sharding $ticker_count tickers into $group_count group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
 
