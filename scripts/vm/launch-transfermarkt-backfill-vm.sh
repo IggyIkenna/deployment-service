@@ -207,6 +207,15 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=TRANSFERMARKT"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# instruments-store-sports-prd's consolidator merges 5M+ row shards in
+# 400-460s (measured 2026-07-21) — over 3x the reader's default 120s
+# staleness budget, so a legitimate steady-state merge cycle can trip
+# ManifestConsolidatorStaleError on this backfill mid-run (see
+# plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md).
+# Mirrors launch-cefi-sharded-backfill.sh / launch-mtds-backfill-vm.sh: trust
+# the consolidated index for the run instead of hard-failing a shard on a
+# transient (but now routine) staleness window.
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
