@@ -515,6 +515,106 @@ class TestPersistZombieAlert:
             _persist_zombie_alert("vm-a", "zombie_stale_heartbeat", "m")  # must not raise
 
 
+class TestReapTerminatedVmsPersistsOnActualReap:
+    """_reap_terminated_vms() wiring (deployment_alerts_ingestion_completeness_2026_07_20.md todo 7,
+    item (g)) — a confirmed reap must actually CALL _persist_zombie_alert(alert_class="reap_terminated"),
+    not just prove the persist helper works in isolation (TestPersistZombieAlert above)."""
+
+    def _make_reap_verdict(self, vm_name: str = "af-backfill-20260721") -> object:
+        from unified_api_contracts import LifecycleClass
+
+        return _mod.ReapVerdict(
+            vm_name=vm_name,
+            zone="asia-northeast1-c",
+            stopped_age_min=180.0,
+            lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+            verdict="reap",
+        )
+
+    def test_a_successful_kill_persists_a_reap_terminated_alert(self) -> None:
+        from unittest.mock import patch
+
+        verdict = self._make_reap_verdict()
+        with (
+            patch.object(
+                _mod, "_list_terminated_vms", return_value=[("af-backfill-20260721", "asia-northeast1-c", "", {})]
+            ),
+            patch.object(_mod, "_evaluate_terminated_vm", return_value=verdict),
+            patch.object(_mod, "_kill_vm", return_value=True),
+            patch.object(_mod, "_persist_zombie_alert") as mock_persist,
+        ):
+            reaped = _mod._reap_terminated_vms(compute_client=None, reap_after_min=120.0, dry_run=False, workers=1)
+
+        assert reaped == 1
+        mock_persist.assert_called_once()
+        call_args = mock_persist.call_args[0]
+        assert call_args[0] == "af-backfill-20260721"
+        assert call_args[1] == "reap_terminated"
+
+    def test_dry_run_never_persists_or_kills(self) -> None:
+        from unittest.mock import patch
+
+        verdict = self._make_reap_verdict()
+        with (
+            patch.object(
+                _mod, "_list_terminated_vms", return_value=[("af-backfill-20260721", "asia-northeast1-c", "", {})]
+            ),
+            patch.object(_mod, "_evaluate_terminated_vm", return_value=verdict),
+            patch.object(_mod, "_kill_vm") as mock_kill,
+            patch.object(_mod, "_persist_zombie_alert") as mock_persist,
+        ):
+            reaped = _mod._reap_terminated_vms(compute_client=None, reap_after_min=120.0, dry_run=True, workers=1)
+
+        assert reaped == 0
+        mock_kill.assert_not_called()
+        mock_persist.assert_not_called()
+
+    def test_a_failed_kill_does_not_persist_an_alert(self) -> None:
+        from unittest.mock import patch
+
+        verdict = self._make_reap_verdict()
+        with (
+            patch.object(
+                _mod, "_list_terminated_vms", return_value=[("af-backfill-20260721", "asia-northeast1-c", "", {})]
+            ),
+            patch.object(_mod, "_evaluate_terminated_vm", return_value=verdict),
+            patch.object(_mod, "_kill_vm", return_value=False),
+            patch.object(_mod, "_persist_zombie_alert") as mock_persist,
+        ):
+            reaped = _mod._reap_terminated_vms(compute_client=None, reap_after_min=120.0, dry_run=False, workers=1)
+
+        assert reaped == 0
+        mock_persist.assert_not_called()
+
+    def test_a_kept_verdict_is_never_reaped_or_persisted(self) -> None:
+        from unittest.mock import patch
+
+        from unified_api_contracts import LifecycleClass
+
+        kept = _mod.ReapVerdict(
+            vm_name="strategy-live-cefi-20260620",
+            zone="asia-northeast1-c",
+            stopped_age_min=5.0,
+            lifecycle_class=LifecycleClass.LONG_LIVED_LIVE,
+            verdict="keep_not_ephemeral",
+        )
+        with (
+            patch.object(
+                _mod,
+                "_list_terminated_vms",
+                return_value=[("strategy-live-cefi-20260620", "asia-northeast1-c", "", {})],
+            ),
+            patch.object(_mod, "_evaluate_terminated_vm", return_value=kept),
+            patch.object(_mod, "_kill_vm") as mock_kill,
+            patch.object(_mod, "_persist_zombie_alert") as mock_persist,
+        ):
+            reaped = _mod._reap_terminated_vms(compute_client=None, reap_after_min=120.0, dry_run=False, workers=1)
+
+        assert reaped == 0
+        mock_kill.assert_not_called()
+        mock_persist.assert_not_called()
+
+
 # ── --notify-url CLI argument ─────────────────────────────────────────────────
 
 
