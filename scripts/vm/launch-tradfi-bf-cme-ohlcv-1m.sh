@@ -60,19 +60,19 @@ declare -a CME_ROOTS=(
     "6N|6N.FUT;6N.OPT"
     "6S|6S.FUT;6S.OPT"
     "6Z|6Z.FUT;6Z.OPT"
-    "BTC|BTC.FUT;BTC.OPT"
+    "BTC|BTC.FUT"  # crypto: FUTURES-ONLY (operator 2026-07-21 "no cme option for btc and eth"); options intentionally excluded
     "CL|CL.FUT;CL.OPT"
     "CT|CT.FUT;CT.OPT"
     "ES|ES.FUT;ES.OPT"
-    "ETH|ETH.FUT;ETH.OPT"
+    "ETH|ETH.FUT"  # crypto: FUTURES-ONLY (operator 2026-07-21 "no cme option for btc and eth"); options intentionally excluded
     "GC|GC.FUT;GC.OPT"
     "HE|HE.FUT;HE.OPT"
     "HG|HG.FUT;HG.OPT"
     "HO|HO.FUT;HO.OPT"
     "LE|LE.FUT;LE.OPT"
-    "MBT|MBT.FUT;MBT.OPT"
+    "MBT|MBT.FUT"  # micro-crypto: FUTURES-ONLY (operator 2026-07-21 "no cme option for btc and eth")
     "MES|MES.FUT;MES.OPT"
-    "MET|MET.FUT;MET.OPT"
+    "MET|MET.FUT"  # micro-crypto: FUTURES-ONLY (operator 2026-07-21 "no cme option for btc and eth")
     "NG|NG.FUT;NG.OPT"
     "NKD|NKD.FUT;NKD.OPT"
     "NQ|NQ.FUT;NQ.OPT"

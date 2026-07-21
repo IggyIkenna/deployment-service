@@ -1,4 +1,4 @@
-"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002 / DP-VM-007).
+"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002 / DP-VM-007 / DP-VM-008).
 
 Closes the self-delete-masks-OOM blind spot (CLAUDE.md 2026-06-22): a batch/live
 VM launched with ``VM_SHUTDOWN_ON_COMPLETION=true`` self-deletes on exit whether
@@ -30,9 +30,18 @@ This monitor is census-diffing + durable-signal-reading:
          CRITICAL ``DP_VM_PREEMPTED_NO_RELAUNCH`` whenever the relaunch itself
          fails (no launcher bound / budget exhausted / guard refusal / launcher
          error), so a preempted backfill can never silently vanish again.
+       - ``DP_VM_PARTIAL_UNCONFIRMED`` (WARN, ``auto_recover``) when captured
+         climbed but NO durable terminal marker was ever written (``exit_code is
+         None`` — neither an ``EXIT_STATUS`` blob nor a ``command exited rc=<n>``
+         ``run.log`` line). Closes the "a VM force-killed mid-run with real
+         partial progress is indistinguishable from CLEAN" gap
+         (``exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md``
+         — 2 ``af-backfill-*`` shards sat dead ~22h with zero self-heal because
+         this exact shape resolved to CLEAN and fired nothing). Reuses the SAME
+         checkpoint-resume relaunch actuator as PREEMPTED.
 
-The wake/alert condition is ``exit_code != 0 OR captured did not climb`` — NEVER
-"VM gone ⇒ success".
+The wake/alert condition is ``exit_code != 0 OR captured did not climb OR (captured
+climbed with NO durable terminal marker)`` — NEVER "VM gone ⇒ success".
 
 **LIVE/LONG_LIVED_LIVE exemption (2026-06-27, incident: 17 false-fire CRITICAL storm
 on ``mtds-live-cefi-*`` consolidation)**: for LIVE VMs (``umbrella == "live"``) the
@@ -87,7 +96,10 @@ class TerminationVerdict(StrEnum):
     GONE_NO_CAPTURE = "gone_no_capture"  # DP-VM-002 — genuine silent zero → ALERT
     RATE_LIMITED = "rate_limited"  # flat captured but run.log shows a 429/throttle → backoff-retry
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
-    CLEAN = "clean"  # exit 0 + captured climbed → healthy completion
+    CLEAN = (
+        "clean"  # exit 0 + captured climbed → healthy completion (CONFIRMED — a durable terminal marker was observed)
+    )
+    PARTIAL_UNCONFIRMED = "partial_unconfirmed"  # exit_code is None (no durable terminal marker at all) + captured climbed — ambiguous: might be a genuine completion whose terminal write raced the VM's teardown, might be a premature kill with real partial progress. Auto-recover-routed (self-heals via the SAME resume-from-checkpoint relaunch as PREEMPTED) so it is never silently indistinguishable from CLEAN.
     UNKNOWN = "unknown"  # no durable exit code AND no captured signal
     PREEMPTED = "preempted"  # GCE spot preemption → benign relaunch, NO alert (INFO only)
 
@@ -130,7 +142,20 @@ def classify_terminated_vm(
           by the VM's shutdown-script is the authoritative "this was benign" signal —
           checked BEFORE exit_code so a preempted VM never false-fires DP-VM-001.
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
-      - captured CLIMBED                              → CLEAN (work landed)
+      - captured CLIMBED + ``exit_code == 0``         → CLEAN (a durable terminal marker CONFIRMS the completion)
+      - captured CLIMBED + ``exit_code is None``      → PARTIAL_UNCONFIRMED (DP-VM-008)
+          A VM with NO durable terminal marker at all (no ``EXIT_STATUS`` blob, no
+          ``command exited rc=<n>`` line in ``run.log``) is indistinguishable, from
+          this signal alone, between "finished but the terminal write raced the
+          VM's teardown" and "force-killed mid-run with real partial progress" (a
+          SPOT preemption whose ``PREEMPTED`` marker never got written is one
+          instance of the latter, but NOT the only one — see
+          ``exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md``).
+          Blindly resolving this to CLEAN was the exact bug that incident hit: no
+          alert, no relaunch, no operator signal that anything was ambiguous. Routes
+          to ``auto_recover`` (the SAME resume-from-``PROGRESS.json``-checkpoint
+          relaunch actuator as PREEMPTED) so a genuine partial run self-heals AND a
+          truly-finished run is at worst harmlessly re-verified — never silent.
       - ``is_live_vm == True`` + captured FLAT        → EXPECTED_NO_CAPTURE (no alert)
           A LIVE/LONG_LIVED_LIVE VM's manifest ``captured`` count is the INSTRUMENT
           COUNT (~15, stable by design) — it does NOT climb like a batch
@@ -151,12 +176,16 @@ def classify_terminated_vm(
             (no benign signal → genuine silent zero: auth fail / 0-universe /
             unexpected empty — STILL ALERTS, the operator guardrail)
 
-    Both ``exit_code == 0`` and ``exit_code is None`` follow the captured/reason
-    split: a None exit code is no longer a blanket fail-safe to GONE_NO_CAPTURE —
-    a benign run.log reason (PROGRESS / HONEST_ABSENCE / RATE_LIMITED) overrides
-    it, so a self-deleting VM that honestly recorded absence no longer false-fires.
-    A None exit code with a SILENT reason still alerts (never infer success from
-    "the VM is gone" + no evidence of work).
+    On the FLAT-captured path, both ``exit_code == 0`` and ``exit_code is None``
+    follow the captured/reason split: a None exit code is no longer a blanket
+    fail-safe to GONE_NO_CAPTURE — a benign run.log reason (PROGRESS /
+    HONEST_ABSENCE / RATE_LIMITED) overrides it, so a self-deleting VM that
+    honestly recorded absence no longer false-fires. A None exit code with a
+    SILENT reason still alerts (never infer success from "the VM is gone" + no
+    evidence of work). On the CLIMBED path, ``exit_code is None`` is treated
+    DIFFERENTLY from ``exit_code == 0`` (see PARTIAL_UNCONFIRMED above) — a
+    climbing captured count is real work, but without a durable terminal marker
+    it is evidence of PROGRESS, not evidence of COMPLETION.
     """
     climbed = captured_after > captured_before
     if preempted:
@@ -164,7 +193,8 @@ def classify_terminated_vm(
     elif exit_code is not None and exit_code != 0:
         verdict = TerminationVerdict.EXIT_NONZERO
     elif climbed:
-        verdict = TerminationVerdict.CLEAN
+        # exit_code is guaranteed 0 or None here (nonzero already routed above).
+        verdict = TerminationVerdict.CLEAN if exit_code == 0 else TerminationVerdict.PARTIAL_UNCONFIRMED
     elif is_live_vm:
         # LIVE VMs: captured is the instrument count (~15, stable). Flat is benign.
         # Live capture health is owned by live_stream_watcher.py DP-LIVE-001/002.
@@ -255,6 +285,33 @@ def _finding_for(
             ),
             details=preempted_details,
             registry_id="DP-VM-007",
+        )
+    if result.verdict is TerminationVerdict.PARTIAL_UNCONFIRMED:
+        # Same relaunch shape as PREEMPTED (reuses the checkpoint-resume actuator —
+        # see escalation._recover_preempted_vm) since either it IS a premature kill
+        # with real partial progress (self-heals the same way) or it was actually
+        # a clean finish whose terminal-marker write raced teardown (a harmless
+        # extra pass; the launcher's own presence-skip logic makes a re-run of an
+        # already-complete range a fast no-op, not duplicate work).
+        partial_details: dict[str, object] = {**base_details}
+        if relaunch_launcher:
+            partial_details["relaunch_launcher"] = relaunch_launcher
+        if launch_env:
+            partial_details["launch_env"] = launch_env
+        if progress_checkpoint:
+            partial_details["progress_checkpoint"] = progress_checkpoint
+        return PipelineFinding(
+            event="DP_VM_PARTIAL_UNCONFIRMED",
+            severity="WARN",
+            tier=EscalationTier.AUTO_RECOVER,
+            summary=(
+                f"VM {result.vm_name} terminated with NO durable exit marker (exit_code=None) "
+                f"but captured climbed ({result.captured_before} → {result.captured_after}) — "
+                "cannot confirm this was a clean finish vs. a premature kill with partial "
+                "progress; resuming from checkpoint to be safe"
+            ),
+            details=partial_details,
+            registry_id="DP-VM-008",
         )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
@@ -428,14 +485,22 @@ def sweep(
         # so we don't download the run.log for those (keeps the per-tick download
         # count low, mirrors the OOM-fix double-download discipline).
         is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
-        # Only resolve the launch-params replay env when actually preempted (the
-        # only verdict that reads it) — keeps the per-tick GCS read count down,
-        # same discipline as the run.log no-capture-reason gate just below.
-        launch_env = _gcs.read_launch_params(storage_client, log_bucket, name) if is_preempted else None
-        # The VM's own PROGRESS.json resume checkpoint — same preempted-only gate as
-        # launch_env (one extra GCS read only on the verdict that consumes it). Lets
-        # the relaunch RESUME from last_completed_date instead of replaying START_DATE.
-        progress_checkpoint = _gcs.read_progress_checkpoint(storage_client, log_bucket, name) if is_preempted else None
+        # A terminated VM with NO durable exit marker AND climbing captured is the
+        # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
+        # SAME relaunch-replay env as PREEMPTED. Resolve the gate here (mirrors the
+        # verdict's own precedence: nonzero-exit already routes elsewhere, so this
+        # is exactly "would resolve PARTIAL_UNCONFIRMED").
+        needs_relaunch_env = is_preempted or (exit_code is None and captured_after > captured_before)
+        # Only resolve the launch-params replay env when the verdict actually reads
+        # it (PREEMPTED or PARTIAL_UNCONFIRMED) — keeps the per-tick GCS read count
+        # down, same discipline as the run.log no-capture-reason gate just below.
+        launch_env = _gcs.read_launch_params(storage_client, log_bucket, name) if needs_relaunch_env else None
+        # The VM's own PROGRESS.json resume checkpoint — same gate as launch_env
+        # (one extra GCS read only on a verdict that consumes it). Lets the
+        # relaunch RESUME from last_completed_date instead of replaying START_DATE.
+        progress_checkpoint = (
+            _gcs.read_progress_checkpoint(storage_client, log_bucket, name) if needs_relaunch_env else None
+        )
         needs_reason = (
             not is_preempted
             and not is_live_vm
@@ -464,6 +529,15 @@ def sweep(
                 "preemption-aware relaunch via the auto_recover tier (DP-VM-007); a "
                 "CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH fires only if that relaunch fails",
                 name,
+            )
+        if result.verdict is TerminationVerdict.PARTIAL_UNCONFIRMED:
+            logger.warning(
+                "exit_code_fleet_monitor: %s terminated with NO durable exit marker but "
+                "captured climbed (%d->%d) — cannot confirm CLEAN vs premature kill; "
+                "dispatching a checkpoint-resume relaunch via the auto_recover tier (DP-VM-008)",
+                name,
+                result.captured_before,
+                result.captured_after,
             )
         if is_live_vm and result.verdict is TerminationVerdict.EXPECTED_NO_CAPTURE:
             logger.info(

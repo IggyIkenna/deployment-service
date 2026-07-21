@@ -169,6 +169,12 @@ _EVENT_VM_STALL = "DP_VM_STALL"
 # the actuator (``relaunch_backfill_vm.RelaunchPreemptedVm``), not routed
 # through here, so it has no constant in this module.
 _EVENT_VM_PREEMPTED = "DP_VM_PREEMPTED"
+# DP_VM_PARTIAL_UNCONFIRMED (DP-VM-008) — same local-string-constant pattern as
+# DP_VM_PREEMPTED. Fires when a terminated VM has NO durable exit marker
+# (exit_code is None) but its captured count climbed — ambiguous between "really
+# finished, the terminal write raced teardown" and "premature kill with real
+# partial progress" (exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md).
+_EVENT_VM_PARTIAL_UNCONFIRMED = "DP_VM_PARTIAL_UNCONFIRMED"
 
 # The PM repo + repository_dispatch event-type that fast-spawns an autonomous
 # worker for a data-pipeline wall (the same fast path CI failures use). The
@@ -193,7 +199,14 @@ _ISSUE_ASSIGNED_VM = "vm-cross-cutting"
 # to NAME the target repo in the actionable issue todo (so a worker knows where
 # to look). Keyed on the DP_* event family.
 _VM_LIFECYCLE_EVENTS = frozenset(
-    {"DP_VM_STALL", "DP_VM_EXIT_NONZERO", "DP_EVENT_LOOP_STARVED", "CONSOLIDATOR_DOWN", _EVENT_VM_PREEMPTED}
+    {
+        "DP_VM_STALL",
+        "DP_VM_EXIT_NONZERO",
+        "DP_EVENT_LOOP_STARVED",
+        "CONSOLIDATOR_DOWN",
+        _EVENT_VM_PREEMPTED,
+        _EVENT_VM_PARTIAL_UNCONFIRMED,
+    }
 )
 
 
@@ -388,6 +401,17 @@ def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str,
 def _recover_preempted_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
     """Auto-recover ``DP_VM_PREEMPTED`` → re-launch the SPOT-reclaimed backfill VM.
 
+    Also wired (see ``_DP_RECOVERY_ACTIONS`` below) as the actuator for
+    ``DP_VM_PARTIAL_UNCONFIRMED`` (DP-VM-008) — a terminated VM with NO durable
+    exit marker but climbing captured, which needs the exact same
+    checkpoint-resume relaunch (read ``details["launch_env"]`` /
+    ``details["progress_checkpoint"]`` unconditionally, replay through the
+    launcher's own concurrency guard). The only user-visible artifact of this
+    reuse is that a failed PARTIAL_UNCONFIRMED relaunch also self-emits
+    ``DP_VM_PREEMPTED_NO_RELAUNCH`` (not a distinctly-named event) — acceptable
+    since both mean the identical thing operationally ("the relaunch this
+    verdict needed did not happen").
+
     Closes the P0 "SPOT-preemption relaunch gap"
     (``cefi_completion_program_2026_07_15.md``): today a preempted wave was
     DELETED and nothing relaunched it (exit_code_fleet_monitor only logged an
@@ -460,6 +484,8 @@ _DP_RECOVERY_ACTIONS: dict[str, Callable[..., dict[str, object]]] = {
     _EVENT_VM_EXIT_NONZERO: _recover_backfill_vm,
     _EVENT_VM_STALL: _recover_stalled_vm,
     _EVENT_VM_PREEMPTED: _recover_preempted_vm,
+    # Reuses the PREEMPTED actuator — see its docstring for why.
+    _EVENT_VM_PARTIAL_UNCONFIRMED: _recover_preempted_vm,
 }
 
 

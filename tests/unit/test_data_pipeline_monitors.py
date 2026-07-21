@@ -254,6 +254,31 @@ def test_classify_unknown_exit_flat_is_failsafe_gone_no_capture():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.GONE_NO_CAPTURE
 
 
+# ── PARTIAL_UNCONFIRMED (DP-VM-008) — the premature-kill-vs-CLEAN ambiguity ───
+# exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md: a VM
+# force-deleted mid-run with real partial progress (no durable exit marker EVER
+# written) was indistinguishable from a genuinely-finished run — silently
+# resolved to CLEAN, no alert, no relaunch, ~22h of total silence.
+
+
+def test_classify_partial_unconfirmed_when_exit_none_and_climb():
+    # The exact incident shape: no durable exit marker (force-deleted mid-run,
+    # PREEMPTED marker never written) but real partial progress landed.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "af-backfill-20260719-180520", exit_code=None, captured_before=0, captured_after=340
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PARTIAL_UNCONFIRMED
+
+
+def test_classify_clean_still_requires_confirmed_exit0_not_just_climb():
+    # A confirmed exit_code=0 (a durable terminal marker WAS observed) stays
+    # CLEAN — only the exit_code IS None case is downgraded to unconfirmed.
+    res = exit_code_fleet_monitor.classify_terminated_vm(
+        "af-backfill-clean-run", exit_code=0, captured_before=0, captured_after=340
+    )
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.CLEAN
+
+
 def test_classify_preempted_overrides_exit_nonzero():
     # A spot preemption sends SIGTERM → non-zero exit, but PREEMPTED flag takes
     # priority so no DP_VM_EXIT_NONZERO false-fires.
@@ -375,6 +400,79 @@ def test_sweep_preempted_vm_no_launcher_emits_critical_no_relaunch(monkeypatch):
     assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
     assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted), (
         f"expected a CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH when no relaunch can happen: {emitted}"
+    )
+
+
+def test_sweep_partial_unconfirmed_vm_relaunches_successfully_emits_warn_not_critical(tmp_path: Path, monkeypatch):
+    # The reproduction of exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md:
+    # NO EXIT_STATUS blob, NO rc= line in run.log, NO PREEMPTED marker — but
+    # captured climbed (real partial progress before a force-delete). Before the
+    # fix this silently resolved CLEAN; now it must fire WARN (not CRITICAL) and
+    # dispatch the SAME checkpoint-resume relaunch as PREEMPTED.
+    vm = "af-backfill-20260719-180520"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (
+                json.dumps(
+                    {
+                        "launcher": "launch-apifootball-backfill.sh",
+                        "env": {"START_DATE": "2015-01-01", "END_DATE": "2026-07-19"},
+                    }
+                ).encode(),
+                0.0,
+            ),
+        }
+    )
+    emitted = _patch_dp_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def fake_run_launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    def fake_preempted_actuator(*_a, **_k):  # noqa: ANN002, ANN003
+        return _RelaunchPreemptedVm(
+            budget_dir=tmp_path, now=lambda: datetime(2026, 7, 21, tzinfo=UTC), run_launcher=fake_run_launcher
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchPreemptedVm", fake_preempted_actuator)
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 340,  # climbed from 0 — real partial progress
+        asset_group_for_vm=lambda _vm: "sports",
+        launcher_for_vm=lambda _vm: "launch-apifootball-backfill.sh",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PARTIAL_UNCONFIRMED
+    assert not any(e[1] == "CRITICAL" for e in emitted), f"unexpected CRITICAL alert: {emitted}"
+    assert any(e[0] == "DP_VM_PARTIAL_UNCONFIRMED" and e[1] == "WARN" for e in emitted), (
+        f"expected a WARN DP_VM_PARTIAL_UNCONFIRMED — this ambiguous case must never be silent: {emitted}"
+    )
+    # The relaunch replayed the captured launch env — never a blind relaunch.
+    assert launched == [("launch-apifootball-backfill.sh", {"START_DATE": "2015-01-01", "END_DATE": "2026-07-19"})]
+
+
+def test_sweep_partial_unconfirmed_vm_no_launcher_emits_critical_no_relaunch(monkeypatch):
+    # Belt-and-braces (mirrors the PREEMPTED no-launcher case): if nothing CAN
+    # relaunch a PARTIAL_UNCONFIRMED VM, that must page — never a silent no-op.
+    vm = "some-unregistered-backfill-vm-1"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage({(LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0)})
+    emitted = _patch_dp_log_event(monkeypatch)
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 340,
+        asset_group_for_vm=lambda _vm: "sports",
+        launcher_for_vm=lambda _vm: "",  # no resolvable launcher
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PARTIAL_UNCONFIRMED
+    assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted), (
+        f"expected a CRITICAL no-relaunch page when nothing can relaunch: {emitted}"
     )
 
 
