@@ -50,6 +50,7 @@ from unified_trading_library import (
     get_storage_client,
     run_lifecycle,
     setup_events,
+    vm_run_log_final_uri,
 )
 
 from deployment_service.bom import resolve_deployment_bom
@@ -392,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
             storage_client=storage_client,
             local_log=pathlib.Path(local_log_str),
             remote_log_uri=log_uri,
+            final_log_uri=vm_run_log_final_uri(vm_name, project_id=config.gcp_project_id or None),
             signals=signals,
             started_event=DEPLOYMENT_STARTED,
             progress_event=DEPLOYMENT_PROGRESS,

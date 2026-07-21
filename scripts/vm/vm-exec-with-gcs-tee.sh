@@ -98,6 +98,11 @@ fi
 LOCAL_LOG="/tmp/vm-exec-$$.log"
 GCS_DIR="$(dirname "$GCS_LOG_URI")"
 EXIT_STATUS_URI="${GCS_DIR}/EXIT_STATUS"
+# Durable final-snapshot path (writer-side decision 1, deployment_ui_vm_log_viewer
+# plan) — same bucket as GCS_LOG_URI, fixed deterministic key, no date, no TTL.
+# Must match unified_trading_library.deployment_registry.vm_run_log_final_uri().
+GCS_LOG_BUCKET="$(echo "$GCS_LOG_URI" | sed -E 's#^gs://([^/]+)/.*#\1#')"
+FINAL_LOG_URI="gs://${GCS_LOG_BUCKET}/log-archive/final/${VM_NAME:-$(hostname)}/run.log"
 PID_FILE="/tmp/vm-exec-$$.pid"
 EXIT_STATUS_FILE="/tmp/vm-exec-$$.exit_status"
 STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
@@ -337,6 +342,11 @@ fi
 # daemon already uploaded (it just re-uploads the same bytes).
 gsutil -q cp "$LOCAL_LOG" "$GCS_LOG_URI" 2>/dev/null || true
 echo "$RC" | gsutil -q cp - "$EXIT_STATUS_URI" 2>/dev/null || true
+# Durable final snapshot fallback — same belt-and-braces reasoning as above:
+# a hard-killed daemon (SIGKILL after the 30s grace window) never reaches
+# HeartbeatDaemon._write_final_log_snapshot(), so this SIGKILL path is the
+# only remaining writer of the durable final copy for that VM.
+gsutil -q cp "$LOCAL_LOG" "$FINAL_LOG_URI" 2>/dev/null || true
 
 FINAL_STATUS="completed"
 [[ "$RC" -ne 0 ]] && FINAL_STATUS="failed"
