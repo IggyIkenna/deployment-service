@@ -111,6 +111,10 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=FOOTYSTATS"
 [[ -n "$SPORTS_ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${SPORTS_ENTITY}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# instruments-store-sports-prd's consolidator merge cycle regularly takes
+# 400-460s (>3x the reader's 120s default) — see
+# plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
