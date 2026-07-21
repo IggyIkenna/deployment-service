@@ -760,11 +760,7 @@ def main(argv: list[str] | None = None) -> int:
             cron_targets: list[meta_watchers.FreshnessTarget] = []
             for ag in ASSET_GROUPS:
                 try:
-                    # prediction has NO per-AG market-data entry — it is a flat
-                    # ``market-data-tick-prediction`` bucket; the per-AG call would
-                    # RAISE and the except below would silently drop it from the
-                    # consolidator-cron freshness sweep. ``market_data_bucket`` honours
-                    # the flat prediction key (mirrors high_attempted_failed_targets).
+                    # honours the flat prediction bucket (see market_data_bucket docstring)
                     bucket = _market_data_bucket(ag)
                 except Exception:
                     continue
