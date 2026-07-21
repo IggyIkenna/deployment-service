@@ -372,6 +372,10 @@ METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# instruments-store-sports-prd's consolidator merge cycle regularly takes
+# 400-460s (>3x the reader's 120s default) — see
+# plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 # Stamp the allocated rate-budget so the VM's adapter throttles at exactly its
 # fleet share (setup-data-pipeline-vm.sh exports → typed config → adapter).
 [[ -n "$PER_VM_RPM" ]] && METADATA="${METADATA},SPORTS_ADAPTER_RATE_RPM=${PER_VM_RPM}"

@@ -263,6 +263,10 @@ launch_one_vm() {
   $FORCE && metadata="${metadata},VM_FORCE=true"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+  # instruments-store-sports-prd's consolidator merge cycle regularly takes
+  # 400-460s (>3x the reader's 120s default) — see
+  # plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
+  metadata="${metadata},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
   # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P1): `league` appears in
   # every per-date line ("league mapping cache hit for date=…" + "Fetched N leagues"), so the stall
   # timer resets each date the worker advances — an empty-match date still resets it, but the

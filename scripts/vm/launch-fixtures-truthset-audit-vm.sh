@@ -154,6 +154,10 @@ METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_MIGRATION_CMD=${AUDIT_CMD}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# instruments-store-sports-prd's consolidator merge cycle regularly takes
+# 400-460s (>3x the reader's 120s default) — see
+# plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
+METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 

@@ -189,6 +189,10 @@ launch_vm() {
   metadata="${metadata},VM_MIGRATION_CMD=${rescan_cmd}"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
+  # instruments-store-sports-prd's consolidator merge cycle regularly takes
+  # 400-460s (>3x the reader's 120s default) — see
+  # plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
+  metadata="${metadata},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
   local labels="purpose=sports-manifest-rescan,env=${DEPLOYMENT_ENV},run-id=${run_id_label}"
   if [[ -n "$chunk_label" ]]; then
