@@ -71,6 +71,11 @@ _INSTR_TRADFI: str = _b("instruments-store", "tradfi")
 _INSTR_SPORTS: str = _b("instruments-store", "sports")
 _INSTR_PRED: str = _b("instruments-store-prediction")
 _FEAT_SPORTS: str = _b("features-sports")
+# Tier-2 per-datapoint id+schema validation RESULTS bucket. FLAT kind (no
+# asset_group axis, no env tier — mirrors defi-validation; audit results are
+# environment-neutral), so all 5 datapoint-validation-{ag}- prefixes resolve to
+# the same bucket. SSOT: codex/02-data/reconciliation-census-and-compute-tiers.md § 3.3.
+_DATAPOINT_VALIDATION: str = _b("datapoint-validation")
 # scenario-reports is NOT in cloud-providers.yaml SSOT yet; kept as a hardcoded
 # string until it is. lending-indices USED to be a separate hardcoded flat-bucket
 # string here too, but that bucket kind was retired 2026-07-14
@@ -569,6 +574,32 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # launch-manifest-recon-all-vm.sh.
     # ------------------------------------------------------------------
     "manifest-recon-": None,
+    # ------------------------------------------------------------------
+    # Tier-2 per-datapoint id+schema validation (launch-datapoint-validation-vm.sh).
+    # ONE sanctioned single-walk per (asset_group, campaign) — reads the corpus,
+    # writes a RESULTS manifest (never data) to the flat datapoint-validation
+    # results bucket via MANIFEST_PER_VM_SHARDS=true (_index/per_vm/{vm}.parquet).
+    # Real VmPrefixSpec (not heartbeat-None) so the fleet monitor keys on
+    # results-row write-progress (the 2026-07-18 entity-agnostic blind spot).
+    # SPOT + presence-skip idempotent → standard preemption relaunch.
+    # Singleton-locked per AG. Launcher + launcher_registry entries land in todo 32.
+    # SSOT: codex/02-data/reconciliation-census-and-compute-tiers.md § 3.
+    # ------------------------------------------------------------------
+    "datapoint-validation-cefi-": VmPrefixSpec(
+        bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "datapoint-validation-defi-": VmPrefixSpec(
+        bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "datapoint-validation-tradfi-": VmPrefixSpec(
+        bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "datapoint-validation-sports-": VmPrefixSpec(
+        bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
+    "datapoint-validation-prediction-": VmPrefixSpec(
+        bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
