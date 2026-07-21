@@ -16,7 +16,7 @@
 #   CeFi:       2020-01-01 → 2026-04-18
 #   TradFi:     2020-01-01 → 2026-04-18 (1m pass-through + re-aggregated higher)
 #   DeFi:       2020-01-01 → 2026-04-18
-#   Sports:     2019-01-01 → 2026-04-18
+#   Sports:     2020-06-06 → 2026-04-18 (2020-06 DATA FLOOR — codex/02-data/sports-2020-06-data-floor.md)
 #   Prediction: 2025-03-14 → 2026-04-18 (Polymarket only)
 #
 # Operational safety:
@@ -30,7 +30,7 @@
 #   bash launch-mdps-backfill-vm.sh cefi       2020-01-01 2026-04-18 dry
 #   bash launch-mdps-backfill-vm.sh tradfi     2020-01-01 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh defi       2020-01-01 2026-04-18 full
-#   bash launch-mdps-backfill-vm.sh sports     2019-01-01 2026-04-18 full
+#   bash launch-mdps-backfill-vm.sh sports     2020-06-06 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
 #

@@ -55,11 +55,12 @@ esac
 
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 
-# 3 VM date-split ranges
+# VM date-split ranges — clamped to the 2020-06 DATA FLOOR (operator ruling 2026-07-21):
+# sports odds start 2020-06-06, so pre-floor reference backfill is fabrication-by-construction
+# and the entirely-pre-floor windows (2014-2016, 2017-2020-05-31) are REMOVED; the boundary
+# window starts at the floor. SSOT: codex/02-data/sports-2020-06-data-floor.md.
 VM_CONFIGS=(
-  "sports-ref-v3-e1|2014-01-01|2016-12-31"
-  "sports-ref-v3-e2|2017-01-01|2020-05-31"
-  "sports-ref-v3-1|2020-06-01|2022-05-31"
+  "sports-ref-v3-1|2020-06-06|2022-05-31"
   "sports-ref-v3-2|2022-06-01|2024-05-31"
   "sports-ref-v3-3|2024-06-01|2026-04-10"
 )
