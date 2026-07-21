@@ -1752,6 +1752,25 @@ elif [[ "$VM_TASK" == "prediction-arb-detect" ]]; then
   [[ -n "$_ARB_THRESH" ]] && ARB_ARGS="$ARB_ARGS --entry-threshold $_ARB_THRESH"
   cd "$WORKSPACE/features" || { log "ERROR: $WORKSPACE/features missing — features-service tarball not extracted"; exit 1; }
   _launch_with_tee "$VENV/bin/python -m features_service.cross_instrument $ARB_ARGS" "$LOGS/arb-detect.log"
+elif [[ "$VM_TASK" == "datapoint-validation" ]]; then
+  # Tier-2 per-datapoint validation (id + schema) — launch-datapoint-validation-vm.sh
+  # prepares the correct validate_datapoint_schema_id.py invocation in VM_BACKFILL_CMD.
+  # Found 2026-07-21 (first real launch-run): this VM_TASK had NO dispatch branch here,
+  # so it fell through to the generic `elif [ -n "$VM_TASK" ]` fallback below, which built
+  # `--operation datapoint-validation` literally — instruments-service's CLI has no such
+  # --operation choice (only `instruments`), an immediate argparse crash (rc=2) before any
+  # validation ever ran. Same root-cause class as the 2026-07-12 sports-v9-migration and
+  # 2026-07-13 defi-paper VM_TASK gaps above — a new launcher's VM_TASK needs its own
+  # dispatch branch here even when all it does is run VM_BACKFILL_CMD as-is.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing — instruments-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/datapoint-validation.log"
+  else
+    log "ERROR: datapoint-validation task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.
