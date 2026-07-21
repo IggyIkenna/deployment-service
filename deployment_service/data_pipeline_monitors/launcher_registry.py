@@ -196,15 +196,16 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # ── Read-only reconciliation / audit VMs (never a relaunch target) ────
     "defi-phantom-recon-": None,  # read-only phantom audit
     "manifest-recon-": None,  # read-only all-reconciler dry-run
-    # Tier-2 per-datapoint id+schema validation (VM_PREFIX_TO_BUCKET parity, todo 31).
-    # None until todo 32 lands launch-datapoint-validation-vm.sh, then flip these to
-    # that filename (SPOT + presence-skip idempotent → auto-relaunchable). The registry
-    # entry MUST have a launcher_registry entry (test_every_watchdog_prefix_has_a_registry_entry).
-    "datapoint-validation-cefi-": None,  # launcher lands in todo 32
-    "datapoint-validation-defi-": None,  # launcher lands in todo 32
-    "datapoint-validation-tradfi-": None,  # launcher lands in todo 32
-    "datapoint-validation-sports-": None,  # launcher lands in todo 32
-    "datapoint-validation-prediction-": None,  # launcher lands in todo 32
+    # Tier-2 per-datapoint id+schema validation (VM_PREFIX_TO_BUCKET parity, todo 31/32).
+    # SPOT + presence-skip idempotent → auto-relaunchable: a preempted VM resumes the
+    # SAME (asset_group, campaign) from measured progress (LAUNCH_PARAMS.json), the
+    # presence-skip loop re-covers the frontier. The registry entry MUST have a
+    # launcher_registry entry (test_every_watchdog_prefix_has_a_registry_entry).
+    "datapoint-validation-cefi-": "launch-datapoint-validation-vm.sh",
+    "datapoint-validation-defi-": "launch-datapoint-validation-vm.sh",
+    "datapoint-validation-tradfi-": "launch-datapoint-validation-vm.sh",
+    "datapoint-validation-sports-": "launch-datapoint-validation-vm.sh",
+    "datapoint-validation-prediction-": "launch-datapoint-validation-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
