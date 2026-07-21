@@ -139,6 +139,15 @@ BACKFILL_CMD="${BACKFILL_CMD} --asset-group ${ASSET_GROUP}"
 BACKFILL_CMD="${BACKFILL_CMD} --campaign-id ${CAMPAIGN_ID}"
 BACKFILL_CMD="${BACKFILL_CMD} --vm-name ${VM_NAME}"
 BACKFILL_CMD="${BACKFILL_CMD} --env ${DEPLOYMENT_ENV}"
+# Found 2026-07-21: the default --flush-every=500 re-uploads the SAME per-VM results
+# object frequently enough on a fast-validating asset_group (cefi) to exceed GCS's
+# per-object mutation rate limit (429 rateLimitExceeded on
+# _index/per_vm/{vm_name}.parquet — GCS caps sustained writes to ONE object, not a
+# project-wide quota). Allow a launch-time override so large/fast AGs can flush less
+# often; leave the script default (500) for small AGs where the failure was not seen.
+if [[ -n "${FLUSH_EVERY:-}" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} --flush-every ${FLUSH_EVERY}"
+fi
 
 METADATA="VM_TASK=datapoint-validation"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
