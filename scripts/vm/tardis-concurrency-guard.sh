@@ -28,13 +28,40 @@
 #     the aws CLI is available — both clouds share the ONE Tardis key);
 #   - refuses when existing + planned > TARDIS_MAX_CONCURRENT_VMS (default 1),
 #     lease or no lease (the cap is the operator's hard rule);
+#   - FAILS CLOSED: if the fleet cannot be enumerated (gcloud/python3/aws missing,
+#     an API/auth error, unparseable output) the guard REFUSES rather than reading
+#     the failure as "0 running" (see the fail-closed block below);
 #   - warns (but proceeds) when launching under the cap WITHOUT the lease enabled;
 #   - FORCE=1 downgrades refusal to a warning (operator override, matches the
 #     launchers' existing FORCE semantics).
 #
-# Usage (from a launcher):
+# Usage (from a launcher) — BOTH calls are mandatory:
 #   source "$(dirname "$0")/tardis-concurrency-guard.sh"
-#   tardis_concurrency_guard "<planned_vm_count>" "<zone>" "<project>"   # exits 1 on refusal
+#   tardis_concurrency_guard "<planned_vm_count>" "<zone>" "<project>"   # pre-flight, exits 1 on refusal
+#   ...then immediately before EVERY `gcloud compute instances create` of a Tardis VM:
+#   tardis_guard_reserve_slot "<zone>" "<project>" "<vm_name>"           # exits 1 on refusal
+#
+# WHY the second call exists (the 2026-07-20 latent-breach fix). The pre-flight
+# count is an ESTIMATE the launcher derives by mirroring its own launch loop, and
+# an estimate can silently drift from reality. It DID: launch-cefi-sharded-backfill.sh
+# in SINGLE_VM_QUEUE=1 mode buckets shards by "group|data_types", and DERIBIT's light
+# group (DATA_LIGHT_DERIBIT, carrying options_chain) is a DIFFERENT data_types string
+# from every other derivatives venue's (DATA_LIGHT_PERPS, carrying liquidations) — so
+# a DERIBIT+perp-venue light launch produces TWO buckets = TWO VMs, while the estimator
+# clamped the planned count to ONE (it counted "light" once and broke at the first
+# derivatives venue). Measured 2026-07-20 with LAUNCH_GROUPS="light"
+# VENUES="DERIBIT BINANCE-FUTURES": guard saw "0 running + 1 planned = 1 <= cap 1 OK",
+# then the flush created 2 Tardis VMs. Cap-1 breached with the guard reporting green.
+# tardis_guard_reserve_slot binds the cap to ACTUAL VM CREATION instead of to a
+# predicted count, so no naming scheme, bundling shape, or future estimator drift can
+# evade it — the launcher can only create as many Tardis VMs as it can reserve slots for.
+#
+# CAP-EXEMPT venues: HYPERLIQUID / ASTER / LIGHTER-ZKSYNC / EXTENDED-STARKNET do NOT
+# fetch from datasets.tardis.dev (S3 requester-pays + venue REST), so their launcher
+# (launch-cefi-hl-aster-historical-backfill.sh) neither sources this guard nor stamps
+# VM_TARDIS_CONSUMER=1, and its VM names (cefi-<venue>-<year|YYYYMMDD>-<ts>) do not
+# match TARDIS_VM_NAME_PATTERN. Do NOT add the guard there and do NOT widen the name
+# pattern to catch them — over-restricting them starves work that never contends.
 
 # CAP = 1 (operator, 2026-07-16). Was 3 (operator 2026-07-14) — that figure was calibrated
 # on the WRONG regime: the 3-VM wave it was measured against was re-walking already-captured
@@ -71,26 +98,57 @@ TARDIS_VM_NAME_PATTERN='^(cefi|tradfi)-.*-(heavy|light)-|^cefi-queue-|^mtds-back
 # ~40s window must see it. Real incident 2026-07-16T00:58Z: a keeper relaunch (PROVISIONING) and
 # a manual launch fired 40s apart, both passed the RUNNING-only count, and TWO VMs ran = the
 # 403 storm the cap exists to prevent. Widening the status set closes that race at the guard.
-tardis_running_vm_count() { # $1=zone $2=project -> echoes count (GCP union of name-pattern + VM_TARDIS_CONSUMER=1 metadata, + best-effort AWS)
-  local zone="$1" project="$2" gcp=0 aws_n=0
-  if command -v gcloud >/dev/null 2>&1; then
-    if command -v python3 >/dev/null 2>&1; then
-      # One list call (name + metadata), one union-count pass in python — avoids a
-      # fragile/unsupported `--filter metadata.<key>=<value>` server-side expression
-      # (verified 2026-07-16: GCE's list API rejects that filter shape outright,
-      # "Invalid list filter expression") and avoids double-counting a VM that
-      # matches BOTH the name pattern and the metadata stamp.
-      gcp="$(gcloud compute instances list \
-        --filter='status=RUNNING OR status=PROVISIONING OR status=STAGING' \
-        --zones="$zone" --project="$project" \
-        --format='json(name,metadata.items)' 2>/dev/null | python3 -c '
+# FAIL-CLOSED CONTRACT (2026-07-20). This function returns NON-ZERO and echoes
+# nothing when it cannot determine the count. Every "could not enumerate" path used
+# to collapse to 0 (`2>/dev/null` everywhere + `[[ -z "$gcp" ]] && gcp=0` + a skipped
+# branch when gcloud was absent), which made the guard report "OK: 0 running" and wave
+# every launch through at exactly the moment the environment was broken — expired ADC,
+# a compute API error, a quota error, or a gcloud/python3 that isn't on PATH. A safety
+# control that disappears when its probe fails is not a safety control. Callers MUST
+# treat a non-zero return as REFUSE (tardis_concurrency_guard and
+# tardis_guard_reserve_slot both do; FORCE=1 remains the operator override).
+#
+# TARDIS_GUARD_SKIP_AWS=1 is the documented escape hatch for a GCP-only launch on a
+# host that exports AWS_REGION but has no aws CLI — it narrows the count to GCP
+# deliberately instead of silently.
+tardis_running_vm_count() { # $1=zone $2=project -> echoes count (GCP union of name-pattern + VM_TARDIS_CONSUMER=1 metadata, + AWS); returns 1 if undeterminable
+  local zone="$1" project="$2" gcp=0 aws_n=0 raw rc
+  if ! command -v gcloud >/dev/null 2>&1; then
+    echo "ERROR: [tardis-guard] gcloud not found on PATH — cannot enumerate the Tardis fleet (fail-closed)." >&2
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    # Previously this degraded to a name-pattern-only count. That silently drops every
+    # VM that declares itself ONLY via VM_TARDIS_CONSUMER=1 metadata (forward-poll,
+    # mtds-backfill, targeted options-chain), i.e. it undercounts the exact self-declaring
+    # model the cap now relies on. Undercounting the Tardis cap is the failure mode that
+    # corrupts the manifest — refuse instead.
+    echo "ERROR: [tardis-guard] python3 not found on PATH — cannot evaluate the VM_TARDIS_CONSUMER metadata stamp, and a name-pattern-only count undercounts metadata-declared VMs (fail-closed)." >&2
+    return 1
+  fi
+  # One list call (name + metadata), one union-count pass in python — avoids a
+  # fragile/unsupported `--filter metadata.<key>=<value>` server-side expression
+  # (verified 2026-07-16: GCE's list API rejects that filter shape outright,
+  # "Invalid list filter expression") and avoids double-counting a VM that
+  # matches BOTH the name pattern and the metadata stamp.
+  raw="$(gcloud compute instances list \
+    --filter='status=RUNNING OR status=PROVISIONING OR status=STAGING' \
+    --zones="$zone" --project="$project" \
+    --format='json(name,metadata.items)' 2>&1)"
+  rc=$?
+  if (( rc != 0 )); then
+    echo "ERROR: [tardis-guard] 'gcloud compute instances list' failed (exit ${rc}) for zone=${zone} project=${project} — fail-closed. gcloud said: ${raw}" >&2
+    return 1
+  fi
+  gcp="$(printf '%s' "$raw" | python3 -c '
 import json, re, sys
 
 pattern = re.compile(sys.argv[1])
 try:
     instances = json.load(sys.stdin)
-except (json.JSONDecodeError, ValueError):
-    instances = []
+except (json.JSONDecodeError, ValueError) as exc:
+    sys.stderr.write("unparseable gcloud JSON: %s\n" % exc)
+    raise SystemExit(1)
 count = 0
 for inst in instances:
     name = inst.get("name", "")
@@ -101,43 +159,130 @@ for inst in instances:
     if stamped or pattern.search(name):
         count += 1
 print(count)
-' "$TARDIS_VM_NAME_PATTERN" 2>/dev/null)"
-      [[ -z "$gcp" ]] && gcp=0
-    else
-      # python3 unavailable — degrade to the name-pattern-only count (best-effort;
-      # a forward-poll/mtds-backfill VM stamped ONLY via metadata would be missed,
-      # but that is strictly no worse than the pre-rollout behavior).
-      echo "WARNING: [tardis-guard] python3 unavailable — counting by VM-name pattern only (metadata-stamped VMs may be undercounted)" >&2
-      gcp="$(gcloud compute instances list \
-        --filter="name~\"${TARDIS_VM_NAME_PATTERN}\" AND (status=RUNNING OR status=PROVISIONING OR status=STAGING)" \
-        --zones="$zone" --project="$project" \
-        --format='value(name)' 2>/dev/null | grep -c . || true)"
-    fi
+' "$TARDIS_VM_NAME_PATTERN")" || {
+    echo "ERROR: [tardis-guard] could not parse the gcloud instance list — fail-closed." >&2
+    return 1
+  }
+  if [[ -z "$gcp" ]]; then
+    echo "ERROR: [tardis-guard] empty count from the instance-list parse — fail-closed." >&2
+    return 1
   fi
-  if [[ -n "${AWS_REGION:-}" ]] && command -v aws >/dev/null 2>&1; then
+  if [[ -n "${AWS_REGION:-}" && "${TARDIS_GUARD_SKIP_AWS:-0}" != "1" ]]; then
+    # Both clouds share the ONE Tardis key, so an unreadable AWS side means an
+    # unknown total — refuse rather than count the GCP side alone.
+    if ! command -v aws >/dev/null 2>&1; then
+      echo "ERROR: [tardis-guard] AWS_REGION=${AWS_REGION} is set but the aws CLI is not on PATH — the AWS half of the shared-key fleet is unknowable (fail-closed). Set TARDIS_GUARD_SKIP_AWS=1 to deliberately count GCP only." >&2
+      return 1
+    fi
     # Union of the legacy purpose-tag match + the new VM_TARDIS_CONSUMER=1 tag
     # (AWS `--filters` ANDs across different Names, so two calls + a dedup pass
     # is the union — mirrors the GCP name-pattern-OR-metadata union above).
-    aws_n="$(
-      {
-        aws ec2 describe-instances --region "${AWS_REGION}" \
-          --filters "Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill" \
-                    "Name=instance-state-name,Values=running,pending" \
-          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null
-        aws ec2 describe-instances --region "${AWS_REGION}" \
-          --filters "Name=tag:VM_TARDIS_CONSUMER,Values=1" \
-                    "Name=instance-state-name,Values=running,pending" \
-          --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null
-      } | tr '\t' '\n' | sort -u | grep -c . || true
-    )"
+    local aws_legacy aws_stamped
+    aws_legacy="$(aws ec2 describe-instances --region "${AWS_REGION}" \
+      --filters "Name=tag:purpose,Values=cefi-sharded-backfill,tradfi-sharded-backfill" \
+                "Name=instance-state-name,Values=running,pending" \
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>&1)" || {
+      echo "ERROR: [tardis-guard] AWS describe-instances (purpose tag) failed — fail-closed. aws said: ${aws_legacy}" >&2
+      return 1
+    }
+    aws_stamped="$(aws ec2 describe-instances --region "${AWS_REGION}" \
+      --filters "Name=tag:VM_TARDIS_CONSUMER,Values=1" \
+                "Name=instance-state-name,Values=running,pending" \
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>&1)" || {
+      echo "ERROR: [tardis-guard] AWS describe-instances (VM_TARDIS_CONSUMER tag) failed — fail-closed. aws said: ${aws_stamped}" >&2
+      return 1
+    }
+    aws_n="$(printf '%s\n%s\n' "$aws_legacy" "$aws_stamped" | tr '\t' '\n' | sed '/^[[:space:]]*$/d' | sort -u | grep -c . || true)"
+    [[ -z "$aws_n" ]] && aws_n=0
   fi
   echo $(( gcp + aws_n ))
+}
+
+# In-process slot accounting for tardis_guard_reserve_slot (see the header). The
+# baseline is the fleet count observed by the FIRST guard/reserve call in this process;
+# TARDIS_SLOTS_RESERVED counts what this process has since committed to creating.
+TARDIS_SLOTS_RESERVED=0
+TARDIS_GUARD_BASELINE=""
+
+# tardis_guard_reserve_slot <zone> <project> [label] — call immediately before EVERY
+# `gcloud compute instances create` / `aws ec2 run-instances` of a Tardis-consuming VM.
+# Returns 0 (and books a slot) when the VM is within cap, non-zero when it is not.
+#
+# The effective occupancy is max(live_recount, baseline + reserved_this_process):
+#   - `baseline + reserved` is authoritative right after a create, because a VM launched
+#     with `--async` is not reliably visible in `instances list` yet — counting live alone
+#     would let the very next reserve re-use the slot we just took (this is the same
+#     ~40s visibility race that the RUNNING+PROVISIONING+STAGING status widening was
+#     added for on 2026-07-16, now closed on the launcher side too);
+#   - `live_recount` is authoritative when ANOTHER process launched meanwhile, which
+#     `baseline + reserved` cannot see.
+# Taking the max means whichever signal shows more contention wins — the conservative
+# direction, and the only one that cannot silently over-launch.
+tardis_guard_reserve_slot() { # $1=zone $2=project [$3=label]
+  local zone="$1" project="$2" label="${3:-<unnamed-vm>}"
+  local live baseline effective total
+  if ! live="$(tardis_running_vm_count "$zone" "$project")"; then
+    if [[ "${FORCE:-0}" == "1" ]]; then
+      echo "[tardis-guard] WARN: could not enumerate the Tardis fleet before creating '${label}', but FORCE=1 — proceeding on operator override." >&2
+      TARDIS_SLOTS_RESERVED=$(( TARDIS_SLOTS_RESERVED + 1 ))
+      return 0
+    fi
+    echo "ERROR: [tardis-guard] REFUSING to create '${label}': the running Tardis VM count could not be determined (see the error above). Fail-closed — an unknown count is treated as over-cap. Operator override: FORCE=1." >&2
+    return 1
+  fi
+  baseline="${TARDIS_GUARD_BASELINE:-$live}"
+  TARDIS_GUARD_BASELINE="$baseline"
+  effective=$(( baseline + TARDIS_SLOTS_RESERVED ))
+  (( live > effective )) && effective="$live"
+  total=$(( effective + 1 ))
+  if (( total <= TARDIS_MAX_CONCURRENT_VMS )); then
+    TARDIS_SLOTS_RESERVED=$(( TARDIS_SLOTS_RESERVED + 1 ))
+    echo "[tardis-guard] slot reserved for '${label}' (${total}/${TARDIS_MAX_CONCURRENT_VMS} Tardis VMs; ${TARDIS_SLOTS_RESERVED} created by this launcher)"
+    return 0
+  fi
+  if [[ "${FORCE:-0}" == "1" ]]; then
+    echo "[tardis-guard] WARN: creating '${label}' would put ${total} Tardis VMs over cap ${TARDIS_MAX_CONCURRENT_VMS}, but FORCE=1 — proceeding on operator override." >&2
+    TARDIS_SLOTS_RESERVED=$(( TARDIS_SLOTS_RESERVED + 1 ))
+    return 0
+  fi
+  cat >&2 <<EOF
+ERROR: [tardis-guard] REFUSING to create Tardis VM '${label}' — it would be number ${total}, over the cap of ${TARDIS_MAX_CONCURRENT_VMS}.
+
+This check runs at ACTUAL VM-CREATION time, so it fires even when the launcher's
+pre-flight planned-count estimate said otherwise (that estimate has been wrong before:
+the SINGLE_VM_QUEUE DERIBIT-options_chain bucket split — see this file's header).
+Occupancy: baseline=${baseline} live=${live} reserved_by_this_launcher=${TARDIS_SLOTS_RESERVED}.
+
+Any VMs this launcher already created remain running and are within cap. Re-run the
+remaining scope once they finish. DO NOT scale by adding VMs — scale on the ONE IP
+(SINGLE_VM_QUEUE=1, TARDIS_MAX_CONCURRENT_DOWNLOADS, TARDIS_BOOK_SNAPSHOT_MAX_CONCURRENT).
+Operator override: FORCE=1 (accepts the 403-storm + false-attempted_failed-row risk).
+EOF
+  return 1
 }
 
 tardis_concurrency_guard() { # $1=planned_vm_count $2=zone $3=project
   local planned="$1" zone="$2" project="$3"
   local existing total
-  existing="$(tardis_running_vm_count "$zone" "$project")"
+  if ! existing="$(tardis_running_vm_count "$zone" "$project")"; then
+    if [[ "${FORCE:-0}" == "1" ]]; then
+      echo "[tardis-guard] WARN: could not enumerate the running Tardis fleet, but FORCE=1 — proceeding on operator override." >&2
+      return 0
+    fi
+    cat >&2 <<EOF
+ERROR: [tardis-guard] REFUSING to launch: the number of running Tardis VMs could not be
+determined (see the error above). Fail-closed by design — an unknown count is treated as
+over-cap, because reading a broken probe as "0 running" is what lets an unbounded wave
+through at exactly the moment the environment is broken.
+
+Fix the probe, then re-run:
+  gcloud auth application-default login      # expired / missing ADC
+  gcloud compute instances list --zones=$zone --project=$project   # confirm it returns
+Operator override: FORCE=1 (launches WITHOUT knowing the current fleet size).
+EOF
+    return 1
+  fi
+  TARDIS_GUARD_BASELINE="$existing"
   total=$(( existing + planned ))
   if (( total <= TARDIS_MAX_CONCURRENT_VMS )); then
     echo "[tardis-guard] OK: $existing running + $planned planned = $total <= cap $TARDIS_MAX_CONCURRENT_VMS"

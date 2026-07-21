@@ -532,6 +532,12 @@ launch_cefi_shard() {
     echo "          symbols=${symbols:-<catalogue-mvp universe (no VM_INSTRUMENT_IDS)>}"
     echo "          metadata=$meta"
   else
+    # Cap enforcement at ACTUAL creation time (2026-07-20) — see the queue-flush path
+    # for the rationale. Non-queue mode fans out one VM per (venue,year,group) shard,
+    # so this is where an un-bundled wave is held to the cap regardless of what the
+    # pre-flight estimate said.
+    tardis_guard_reserve_slot "$ZONE" "$PROJECT" "$vm_name" || exit 1
+
     echo "Launching $vm_name ($venue $year $group)"
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
     local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
@@ -649,34 +655,45 @@ _only_matches() {
 }
 if [[ "$DRY_RUN" != "1" ]]; then
   PLANNED_TARDIS_VMS=0
+  # Queue-mode bucket keys, derived EXACTLY as launch_cefi_shard derives them
+  # ("${group}|${data_types}"), so the planned count equals the number of VMs the
+  # flush will create BY CONSTRUCTION rather than by a hand-maintained formula.
+  declare -A _PLANNED_BUCKETS=()
   for venue in $VENUES; do
     years="${YEARS_OVERRIDE:-$(_venue_years "$venue")}"
     for year in $years; do
       # BOTH filters compose (AND): ONLY= exact venue:year:group tokens (peer lane,
       # a3fafa6) + LAUNCH_GROUPS group-level selection (this lane) — planned count must
       # mirror the launch loop exactly or the guard mis-counts.
-      _only_matches "$venue" "$year" "heavy" && _group_selected "heavy" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
-      if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-        _only_matches "$venue" "$year" "light" && _group_selected "light" && PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+      if _only_matches "$venue" "$year" "heavy" && _group_selected "heavy"; then
+        PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+        _PLANNED_BUCKETS["heavy|${DATA_HEAVY}"]=1
+      fi
+      if _only_matches "$venue" "$year" "light" && _group_selected "light"; then
+        # Mirror the launch loop's DERIBIT-vs-other-derivatives branch below. DERIBIT's
+        # light data_types (options_chain) differ from the perp venues' (liquidations),
+        # so a DERIBIT+perp light launch is TWO buckets = TWO VMs, not one.
+        if [[ "$venue" == "DERIBIT" ]]; then
+          PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+          _PLANNED_BUCKETS["light|${DATA_LIGHT_DERIBIT}"]=1
+        elif _venue_is_derivatives "$venue"; then
+          PLANNED_TARDIS_VMS=$((PLANNED_TARDIS_VMS + 1))
+          _PLANNED_BUCKETS["light|${DATA_LIGHT_PERPS}"]=1
+        fi
       fi
     done
   done
   if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then
-    # Queue mode launches at most one VM per (group|data_types) bucket: the heavy bucket
-    # always exists; the light bucket only when a derivatives venue is in VENUES.
-    _QUEUE_BUCKETS=0
-    _group_selected "heavy" && _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
-    if _group_selected "light"; then
-      for venue in $VENUES; do
-        if [[ "$venue" == "DERIBIT" ]] || _venue_is_derivatives "$venue"; then
-          _QUEUE_BUCKETS=$((_QUEUE_BUCKETS + 1))
-          break
-        fi
-      done
-    fi
-    if [[ "$PLANNED_TARDIS_VMS" -gt "$_QUEUE_BUCKETS" ]]; then
-      PLANNED_TARDIS_VMS=$_QUEUE_BUCKETS
-    fi
+    # Queue mode launches exactly ONE VM per distinct (group|data_types) bucket.
+    #
+    # The previous formula ("1 for heavy + 1 if any derivatives venue is present")
+    # UNDERCOUNTED the DERIBIT case and clamped a correct planned count DOWN to it:
+    # measured 2026-07-20 with LAUNCH_GROUPS="light" VENUES="DERIBIT BINANCE-FUTURES",
+    # the real fan-out is 2 buckets (light|...options_chain... + light|...liquidations...)
+    # but the clamp reported 1, so the guard passed at cap 1 and TWO Tardis VMs were
+    # created — the exact N>1 regime that produced ~94% 403s and 37,212 FALSE
+    # attempted_failed rows. Counting the real key set removes the formula entirely.
+    PLANNED_TARDIS_VMS=${#_PLANNED_BUCKETS[@]}
   fi
   tardis_concurrency_guard "$PLANNED_TARDIS_VMS" "$ZONE" "$PROJECT" || exit 1
 fi
@@ -764,6 +781,13 @@ _launch_queued_vm() {
     echo "          metadata=$meta"
     return 0
   fi
+
+  # Cap enforcement at ACTUAL creation time (2026-07-20). The pre-flight
+  # tardis_concurrency_guard above works off a planned-count estimate; this books a
+  # real slot per VM so no bundling shape or estimator drift can create an
+  # over-cap Tardis VM. Refusal aborts the launcher — buckets already flushed stay
+  # running (they are within cap) and the operator re-runs the remaining scope.
+  tardis_guard_reserve_slot "$ZONE" "$PROJECT" "$vm_name" || exit 1
 
   echo "Launching QUEUE VM $vm_name (venues: $venues_str; $start_date..$end_date; $data_types)"
   local prov_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
