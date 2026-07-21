@@ -139,17 +139,33 @@ cat > /usr/local/sbin/uts-preemption-signal.sh <<'PREEMPT_SIGNAL_EOF'
 #!/usr/bin/env bash
 # Emit the durable PREEMPTED marker iff this shutdown IS a SPOT reclaim.
 # Best-effort by construction: never block or fail a shutdown.
-PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+#
+# Bounded retry (2026-07-21, exit_code_fleet_monitor_clean_misclassifies_premature_kill
+# item 2): --instance-termination-action=DELETE does not shorten the guest's preemption
+# window vs STOP (GCE runs the same ACPI-soft-off shutdown sequence before either
+# outcome; DELETE only changes what happens to the instance AFTER the guest has already
+# shut down) — confirmed against GCE preemption-handling docs, so TimeoutStopSec=25 is
+# not structurally raced by the termination action. The real remaining risk is a single
+# flaky `gcloud storage cp` (DNS hiccup, transient 5xx) silently dropping the marker with
+# no retry. Every network call below is now `--max-time`-capped and the write itself
+# retries once, so the worst case (3 metadata curls @2s + 2 write attempts @7s) is ~20s
+# — comfortably inside the 25s budget with slack for script/systemd overhead.
+PREEMPTED=$(curl -sf --max-time 2 -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
 [[ "$PREEMPTED" == "true" ]] || exit 0
-VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
+VM_NAME=$(curl -sf --max-time 2 -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
-PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
+PROJECT=$(curl -sf --max-time 2 -H 'Metadata-Flavor: Google' \
   'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
 [[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
-echo "preempted" | gcloud storage cp - \
-  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
-echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+MARKER_URI="gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED"
+if echo "preempted" | timeout 7 gcloud storage cp - "$MARKER_URI" --quiet 2>/dev/null; then
+  echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
+elif echo "preempted" | timeout 7 gcloud storage cp - "$MARKER_URI" --quiet 2>/dev/null; then
+  echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME} (retry succeeded)" >&2
+else
+  echo "[preemption-shutdown] FAILED to write PREEMPTED signal for ${VM_NAME} after 2 attempts — will fall through to PARTIAL_UNCONFIRMED, not silent CLEAN" >&2
+fi
 PREEMPT_SIGNAL_EOF
 chmod +x /usr/local/sbin/uts-preemption-signal.sh
 cat > /etc/systemd/system/uts-preemption-signal.service <<'PREEMPT_UNIT_EOF'
