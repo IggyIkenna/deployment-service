@@ -86,6 +86,7 @@ import json
 import logging
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -104,7 +105,13 @@ if TYPE_CHECKING:
     from google.cloud.storage import Bucket  # noqa: TID251,RUF100 — type-only, see above
 from requests.adapters import HTTPAdapter
 from unified_api_contracts import LifecycleClass
-from unified_trading_library import StorageClient, get_storage_client, upload_to_storage
+from unified_trading_library import (
+    BucketNamingError,
+    StorageClient,
+    get_storage_client,
+    resolve_bucket_name,
+    upload_to_storage,
+)
 from unified_trading_library.cloud_interface import (  # noqa: qg-deep-import (gcs_copy_object not in UTL top-level; root import raises ImportError at runtime)
     gcs_copy_object,
 )
@@ -718,6 +725,16 @@ def _reap_terminated_vms(
                 if fut.result():
                     reaped += 1
                     logger.warning("REAPED %s (%s) lifecycle=%s", v.vm_name, v.zone, v.lifecycle_class)
+                    lifecycle_label = v.lifecycle_class.value if v.lifecycle_class is not None else "UNKNOWN"
+                    stopped_label = (
+                        f"stopped {v.stopped_age_min:.0f}min ago" if v.stopped_age_min is not None else "stopped"
+                    )
+                    _persist_zombie_alert(
+                        v.vm_name,
+                        "reap_terminated",
+                        f"Terminated-VM reaper deleted abandoned {v.vm_name} ({v.zone}), "
+                        f"lifecycle={lifecycle_label}, {stopped_label}",
+                    )
     logger.info("terminated-reaper complete: reaped %d/%d", reaped, len(reapable))
     return reaped
 
@@ -757,6 +774,44 @@ def _write_census_snapshot(
         )
     except Exception as exc:
         logger.warning("census snapshot write failed (non-blocking): %s", exc)
+
+
+def _persist_zombie_alert(vm_name: str, alert_class: str, message: str) -> None:
+    """Persist one confirmed reap event to the shared alert ledger — best-effort, never raises.
+
+    deployment_alerts_ingestion_completeness_2026_07_20.md todo 7: this watchdog previously fired
+    a raw Slack webhook (``_send_zombie_notification``) with no durable record — the reap history
+    vanished once the message scrolled off Slack. Mirrors deployment-api's
+    ``deployments_inventory.py::_persist_alert`` row shape exactly (same bucket, ``event_type``,
+    one-object-per-alert convention) so ``_repo_ci_alerts.py``'s existing reader picks these up
+    with ZERO reader-side changes — no read, no merge, no lock, same race-free pattern as the
+    sibling writer. ``severity`` is intentionally omitted: the normalised schema's
+    ``zombie_watchdog`` plane has no severity concept (VM-scoped, not a paging-tier axis — see
+    ``FIELD_COVERAGE`` in ``unified_api_contracts.alerting``), so this never fabricates one.
+    ``vm_name`` is written at the top level (not nested) — ``_parse_line``'s
+    ``deployment_target`` extraction reads ``vm_name``/``deployment_id`` off the row directly.
+    """
+    try:
+        bucket = resolve_bucket_name(cloud="gcp", kind="cicd-events")
+        date = datetime.now(UTC).strftime("%Y-%m-%d")
+        blob_path = f"cicd/alerts/{date}/{uuid.uuid4().hex}.jsonl"
+        row: dict[str, object] = {
+            "event_type": "slack_alert",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "repo": "deployment-service",
+            "workflow_name": f"zombie-watchdog-{vm_name}",
+            "severity": None,
+            "conclusion": None,
+            "message": message,
+            "run_url": "",
+            "dedup_key": f"zombie-watchdog-{vm_name}-{alert_class}",
+            "alert_class": alert_class,
+            "vm_name": vm_name,
+        }
+        line = json.dumps(row)
+        upload_to_storage(bucket, blob_path, (line + "\n").encode("utf-8"), content_type="application/jsonl")
+    except (BucketNamingError, OSError, ValueError, RuntimeError) as exc:
+        logger.warning("zombie-watchdog: alert-ledger persist failed for %s (%s): %s", vm_name, alert_class, exc)
 
 
 def main(argv: list[str]) -> int:
@@ -881,6 +936,11 @@ def main(argv: list[str]) -> int:
             if _kill_vm(compute_client, v.vm_name, v.zone):
                 killed += 1
                 logger.warning("KILLED %s (%s) reason=%s", v.vm_name, v.zone, v.verdict)
+                _persist_zombie_alert(
+                    v.vm_name,
+                    v.verdict,
+                    f"Zombie watchdog killed {v.vm_name} ({v.zone}) after {v.age_minutes:.0f}min — {v.verdict}",
+                )
         logger.info("watchdog complete: killed %d/%d zombies", killed, len(zombies))
 
     # Second pass: reap abandoned ephemeral TERMINATED VMs (the RUNNING-VM passes

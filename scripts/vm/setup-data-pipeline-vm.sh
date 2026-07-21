@@ -1459,8 +1459,34 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   VM_TIER=$(_meta VM_TIER "")
   [[ -n "$VM_TIER" ]] && log "mtds-backfill architecture tier (informational only, not a CLI flag): $VM_TIER"
 
-  BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
-  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  # DeFi fix (data_pipeline_check_mtds_cannot_fetch_defi_2026_07_20.md): the
+  # generic `op=download` orchestrator DELIBERATELY skips all 98 DeFi venues
+  # ("use collect-* handlers") — DeFi is instrument/subgraph-driven, not a
+  # Tardis-style bulk download, so a DeFi `mtds-backfill` shard fetched NOTHING
+  # (0 rows, every cell no_parquet) regardless of day/venue. Scope this branch
+  # ONLY to VM_ASSET_GROUP=defi (case-insensitive) — every other asset_group
+  # (cefi/tradfi/sports/prediction) falls through to the untouched `else` below,
+  # byte-identical to the prior single-branch behavior. Solana-protocol venues
+  # route to collect-solana-defi (--solana-protocols, lowercased, mirrors the
+  # existing VM_TASK=solana-defi-backfill branch incl. --solana-lending-backfill
+  # for historical-date support); everything else is EVM DeFi → collect-evm-defi
+  # (--venues, same generic flag the non-DeFi path already uses).
+  _AG_LOWER_MTDS=$(echo "${VM_ASSET_GROUP:-}" | tr '[:upper:]' '[:lower:]')
+  if [[ "$_AG_LOWER_MTDS" == "defi" ]]; then
+    case "${VM_VENUE^^}" in
+      ORCA | RAYDIUM | KAMINO | PHOENIX | METEORA | LIFINITY | MARINADE | JITO | SOLEND | MARGINFI | SANCTUM | SOLBLAZE | JITORESTAKING)
+        BASE_CLI="--operation collect-solana-defi --mode batch --asset-group $VM_ASSET_GROUP --solana-lending-backfill"
+        [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --solana-protocols ${VM_VENUE,,}"
+        ;;
+      *)
+        BASE_CLI="--operation collect-evm-defi --mode batch --asset-group $VM_ASSET_GROUP"
+        [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+        ;;
+    esac
+  else
+    BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
+    [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  fi
   # NOTE: VM_TIER is NOT a CLI flag — the MTDS download CLI has no `--tier` option
   # (argparse rejects it: "unrecognized arguments: --tier 1"). "Tier" is an
   # ARCHITECTURE label only (e.g. sports Tier-1 = Odds API), selected by the
@@ -1726,6 +1752,25 @@ elif [[ "$VM_TASK" == "prediction-arb-detect" ]]; then
   [[ -n "$_ARB_THRESH" ]] && ARB_ARGS="$ARB_ARGS --entry-threshold $_ARB_THRESH"
   cd "$WORKSPACE/features" || { log "ERROR: $WORKSPACE/features missing — features-service tarball not extracted"; exit 1; }
   _launch_with_tee "$VENV/bin/python -m features_service.cross_instrument $ARB_ARGS" "$LOGS/arb-detect.log"
+elif [[ "$VM_TASK" == "datapoint-validation" ]]; then
+  # Tier-2 per-datapoint validation (id + schema) — launch-datapoint-validation-vm.sh
+  # prepares the correct validate_datapoint_schema_id.py invocation in VM_BACKFILL_CMD.
+  # Found 2026-07-21 (first real launch-run): this VM_TASK had NO dispatch branch here,
+  # so it fell through to the generic `elif [ -n "$VM_TASK" ]` fallback below, which built
+  # `--operation datapoint-validation` literally — instruments-service's CLI has no such
+  # --operation choice (only `instruments`), an immediate argparse crash (rc=2) before any
+  # validation ever ran. Same root-cause class as the 2026-07-12 sports-v9-migration and
+  # 2026-07-13 defi-paper VM_TASK gaps above — a new launcher's VM_TASK needs its own
+  # dispatch branch here even when all it does is run VM_BACKFILL_CMD as-is.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing — instruments-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/datapoint-validation.log"
+  else
+    log "ERROR: datapoint-validation task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.

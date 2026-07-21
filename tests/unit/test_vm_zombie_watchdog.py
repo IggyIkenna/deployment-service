@@ -77,6 +77,7 @@ _LifecycleClass = _mod.LifecycleClass
 _blob_age_minutes = _mod._blob_age_minutes
 _safe_blob_age_minutes = _mod._safe_blob_age_minutes
 _evaluate_vm = _mod._evaluate_vm
+_persist_zombie_alert = _mod._persist_zombie_alert
 
 
 # ── prefix registration ───────────────────────────────────────────────────────
@@ -435,6 +436,83 @@ class TestZombieNotification:
         assert captured_data, "urlopen was not called"
         payload = json.loads(captured_data[0].decode())
         assert "2" in payload.get("text", ""), "Payload text must mention zombie count"
+
+
+# ── reap-persistence (deployment_alerts_ingestion_completeness_2026_07_20.md todo 7) ──────────
+
+
+class TestPersistZombieAlert:
+    """_persist_zombie_alert() writes a durable ledger row so reap history survives on the page —
+    previously only the ephemeral Slack webhook fired (line 247's _send_zombie_notification)."""
+
+    def test_writes_one_object_conforming_to_the_shared_reader_shape(self) -> None:
+        import json
+        from unittest.mock import patch
+
+        captured: dict[str, object] = {}
+
+        def fake_upload(bucket: str, path: str, data: bytes, **_kwargs: object) -> None:
+            captured["bucket"] = bucket
+            captured["path"] = path
+            captured["row"] = json.loads(data.decode().strip())
+
+        with (
+            patch.object(_mod, "resolve_bucket_name", return_value="unified-trading-cicd-events"),
+            patch.object(_mod, "upload_to_storage", side_effect=fake_upload),
+        ):
+            _persist_zombie_alert("af-backfill-20260721", "zombie_stale_heartbeat", "killed after 90min")
+
+        assert captured["bucket"] == "unified-trading-cicd-events"
+        assert str(captured["path"]).startswith("cicd/alerts/")
+        assert str(captured["path"]).endswith(".jsonl")
+        row = captured["row"]
+        assert isinstance(row, dict)
+        # Matches _repo_ci_alerts.py::_parse_line's "slack_alert" shape exactly, one object per call.
+        assert row["event_type"] == "slack_alert"
+        assert row["repo"] == "deployment-service"
+        assert row["alert_class"] == "zombie_stale_heartbeat"
+        assert row["message"] == "killed after 90min"
+        # deployment_target extraction reads top-level vm_name/deployment_id, not a nested dict.
+        assert row["vm_name"] == "af-backfill-20260721"
+        # ZOMBIE_WATCHDOG plane has no severity concept per FIELD_COVERAGE — never fabricated.
+        assert row["severity"] is None
+
+    def test_two_calls_land_at_two_distinct_objects(self) -> None:
+        """One-object-per-alert — no shared-filename read-modify-write race."""
+        from unittest.mock import patch
+
+        paths: list[str] = []
+
+        def fake_upload(bucket: str, path: str, data: bytes, **_kwargs: object) -> None:
+            paths.append(path)
+
+        with (
+            patch.object(_mod, "resolve_bucket_name", return_value="unified-trading-cicd-events"),
+            patch.object(_mod, "upload_to_storage", side_effect=fake_upload),
+        ):
+            _persist_zombie_alert("vm-a", "zombie_stale_heartbeat", "m1")
+            _persist_zombie_alert("vm-a", "zombie_stale_heartbeat", "m2")
+
+        assert len(paths) == 2
+        assert paths[0] != paths[1]
+
+    def test_bucket_resolution_failure_is_best_effort(self) -> None:
+        """A resolution failure must not raise — persistence is best-effort, never a kill blocker."""
+        from unittest.mock import patch
+
+        from unified_trading_library import BucketNamingError
+
+        with patch.object(_mod, "resolve_bucket_name", side_effect=BucketNamingError("no yaml entry")):
+            _persist_zombie_alert("vm-a", "zombie_stale_heartbeat", "m")  # must not raise
+
+    def test_upload_failure_is_best_effort(self) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch.object(_mod, "resolve_bucket_name", return_value="unified-trading-cicd-events"),
+            patch.object(_mod, "upload_to_storage", side_effect=OSError("network down")),
+        ):
+            _persist_zombie_alert("vm-a", "zombie_stale_heartbeat", "m")  # must not raise
 
 
 # ── --notify-url CLI argument ─────────────────────────────────────────────────
