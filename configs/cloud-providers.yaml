@@ -200,6 +200,12 @@ gcp:
     # the ledger only lives in GCS). Added deployment_alerts_ingestion_completeness_2026_07_20.md
     # todo 5 (QG 5.69 hardcoded-bucket fix).
     cicd-events: "unified-trading-cicd-events"
+    # KillSwitchBus arm/disarm append-only parquet audit log
+    # ({date}/{event_id}.parquet, unified_trading_library/kill_switch/audit_log.py
+    # ParquetAuditLogWriter). GCP-only (no AWS mirror -- the canonical writer path is
+    # gs://{pid}-kill-switch-audit-log/ only). Added
+    # deployment_alerts_ingestion_completeness_2026_07_20.md todo 9 (read-only projection).
+    kill-switch-audit-log: "${GCP_PROJECT_ID}-kill-switch-audit-log"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
