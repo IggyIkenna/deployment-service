@@ -196,6 +196,15 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # ── Read-only reconciliation / audit VMs (never a relaunch target) ────
     "defi-phantom-recon-": None,  # read-only phantom audit
     "manifest-recon-": None,  # read-only all-reconciler dry-run
+    # Tier-2 per-datapoint id+schema validation (VM_PREFIX_TO_BUCKET parity, todo 31).
+    # None until todo 32 lands launch-datapoint-validation-vm.sh, then flip these to
+    # that filename (SPOT + presence-skip idempotent → auto-relaunchable). The registry
+    # entry MUST have a launcher_registry entry (test_every_watchdog_prefix_has_a_registry_entry).
+    "datapoint-validation-cefi-": None,  # launcher lands in todo 32
+    "datapoint-validation-defi-": None,  # launcher lands in todo 32
+    "datapoint-validation-tradfi-": None,  # launcher lands in todo 32
+    "datapoint-validation-sports-": None,  # launcher lands in todo 32
+    "datapoint-validation-prediction-": None,  # launcher lands in todo 32
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",

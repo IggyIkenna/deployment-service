@@ -177,6 +177,15 @@ gcp:
     # Launchers: launch-aave-lending-rate-validation-vm.sh + launch-amm-golden-fixture-validation-vm.sh
     # Added 2026-05-13 (V2 VM-orchestration — defi_simulation_realism_2026_05_10.md Phase 2 + 3C).
     defi-validation: "${GCP_PROJECT_ID}-defi-validation"
+    # Tier-2 reconciliation per-datapoint id+schema validation RESULTS index.
+    # ONE sanctioned single-walk per (asset_group, campaign) writes a results
+    # MANIFEST here (never the data). Flat (no env tier) — mirrors defi-validation:
+    # audit results are environment-neutral. Path pattern:
+    #   gs://{pid}-datapoint-validation/results/{asset_group}/campaign={ts}/_index/...
+    #   per-VM shards under campaign={ts}/vm={VM_NAME}/
+    # Launcher: launch-datapoint-validation-vm.sh; read by /data-pipeline-reconciliation.
+    # SSOT: codex/02-data/reconciliation-census-and-compute-tiers.md § 3.3. Added 2026-07-21.
+    datapoint-validation: "${GCP_PROJECT_ID}-datapoint-validation"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -265,6 +274,8 @@ aws:
     audit-records: "trading-audit-records-${DEPLOYMENT_ENV_SHORT}-${AWS_ACCOUNT_ID}"
     # DeFi execution validation results — env-less mirrors GCP ${GCP_PROJECT_ID}-defi-validation.
     defi-validation: "unified-trading-defi-validation-${AWS_ACCOUNT_ID}"
+    # Reconciliation datapoint-validation results — env-less mirrors GCP ${GCP_PROJECT_ID}-datapoint-validation.
+    datapoint-validation: "unified-trading-datapoint-validation-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
