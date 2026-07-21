@@ -55,6 +55,15 @@ from deployment_service.data_pipeline_monitors import (
 )
 from deployment_service.data_pipeline_monitors.escalation import PipelineFinding
 from deployment_service.data_pipeline_monitors.launcher_registry import resolve_launcher_for_vm
+from deployment_service.data_pipeline_monitors.meta_readers import (
+    make_consolidator_scheduler_lister as _make_consolidator_scheduler_lister,
+)
+from deployment_service.data_pipeline_monitors.meta_readers import (
+    make_execution_history_reader as _make_execution_history_reader,
+)
+from deployment_service.data_pipeline_monitors.meta_readers import (
+    make_scheduler_state_reader as _make_scheduler_state_reader,
+)
 from deployment_service.data_pipeline_monitors.meta_targets import ASSET_GROUPS
 from deployment_service.data_pipeline_monitors.meta_targets import catalogue_targets as _catalogue_targets
 from deployment_service.data_pipeline_monitors.meta_targets import (
@@ -82,12 +91,6 @@ _PER_VM_SHARD = "_index/per_vm/{vm}.parquet"
 # Hard ceiling on the synchronous GCP aggregated_list gRPC call.  60 s leaves
 # ample time for the sweep + sentinel write within the Cloud Run Job timeout.
 _LIST_VMS_TIMEOUT_SECS = 60.0
-# Bounds the Cloud Scheduler get_job/list_jobs RPCs (KEY #2/DP-WATCHER-003). The
-# GAPIC client's default retry policy treats a transient-looking auth/network
-# failure as retryable and can block far longer than this module's documented
-# fail-safe intent (return None/[] promptly) — a real outage should not stall
-# the whole meta sweep. 10s is generous for a single-job describe/list call.
-_SCHEDULER_RPC_TIMEOUT_SECS = 10.0
 # First-seen census for the heartbeat watcher's grace window (vm_name -> ISO ts).
 _FIRST_SEEN_BLOB = "vm-census/heartbeat-first-seen.json"
 
@@ -436,130 +439,6 @@ def _kill_stalled_vm(vm_name: str, zone: str) -> bool:
     except Exception as exc:
         logger.warning("auto-kill: failed to delete stalled VM %s in %s: %s", vm_name, zone, exc)
         return False
-
-
-def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
-    """Return ``job_name -> "ENABLED"|"PAUSED"|... | None`` via Cloud Scheduler.
-
-    PAUSE-AWARE meta-watcher input (KEY #2): a scheduler PAUSED-by-design during
-    the manual-backfill campaign should NOT fire DP_CRON_DID_NOT_FIRE. The
-    google.cloud.scheduler_v1 client is deferred-imported here (the credential-bound
-    surface) — NOT at module top — mirroring the ``vm_zombie_watchdog`` deferral, so
-    the watcher modules stay import-safe + credential-free. A lookup error / missing
-    client returns ``None`` (UNKNOWN → the watcher does NOT suppress, the fail-safe
-    direction). The job's short name is resolved to the fully-qualified
-    ``projects/{p}/locations/{loc}/jobs/{name}`` path.
-    """
-    project = _project_id()
-    location = "asia-northeast1"  # the fleet's canonical region (all schedulers + GCS)
-    try:
-        scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions — credential-bound SDK, deferred
-        client = scheduler_mod.CloudSchedulerClient()
-    except Exception as exc:
-        logger.info("scheduler-state reader unavailable (pause-awareness off, alerts fail-safe-on): %s", exc)
-        return lambda _job: None
-
-    def _read(job_name: str) -> str | None:
-        if not project or not job_name:
-            return None
-        qualified = f"projects/{project}/locations/{location}/jobs/{job_name}"
-        try:
-            job = client.get_job(name=qualified, timeout=_SCHEDULER_RPC_TIMEOUT_SECS)
-            # Job.state is an enum; .name gives "ENABLED"/"PAUSED"/"DISABLED"/...
-            return str(getattr(job.state, "name", "") or "") or None
-        except Exception as exc:
-            # NotFound / permission / transient → UNKNOWN; the watcher does not
-            # suppress on None (a genuinely-missing scheduler still alerts).
-            logger.info("scheduler-state lookup for %s → unknown: %s", job_name, exc)
-            return None
-
-    return _read
-
-
-def _make_consolidator_scheduler_lister() -> consolidator_scheduler_watcher.SchedulerJobLister:
-    """Return ``() -> every manifest-consolidator scheduler job's short name``.
-
-    Lists the fleet's Cloud Scheduler jobs LIVE and filters to
-    ``manifest-consolidator`` in the name, rather than reconstructing names from a
-    per-asset_group/kind list (which drifts — ``manifest_consolidator_buckets`` in
-    ``manifest_consolidator_scheduler.tf`` has 10+ market-data/instruments keys plus
-    legacy variants). Deferred-import, mirrors ``_make_scheduler_state_reader``. An
-    error / missing client returns an empty list (fail toward checking nothing
-    this sweep, never toward inventing job names).
-    """
-    project = _project_id()
-    location = "asia-northeast1"  # the fleet's canonical region (all schedulers + GCS)
-    try:
-        scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions — credential-bound SDK, deferred
-        client = scheduler_mod.CloudSchedulerClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
-    except Exception as exc:
-        logger.info("consolidator-scheduler lister unavailable (DP-WATCHER-003 off this sweep): %s", exc)
-        return lambda: []
-
-    def _list() -> list[str]:
-        if not project:
-            return []
-        parent = f"projects/{project}/locations/{location}"
-        try:
-            names: list[str] = []
-            for job in client.list_jobs(  # pyright: ignore[reportAny] — dynamic SDK page iterator
-                parent=parent, timeout=_SCHEDULER_RPC_TIMEOUT_SECS
-            ):
-                full_name = str(getattr(job, "name", "") or "")  # pyright: ignore[reportAny] — dynamic SDK attr
-                short_name = full_name.rsplit("/", 1)[-1]
-                if "manifest-consolidator" in short_name:
-                    names.append(short_name)
-            return names
-        except Exception as exc:
-            logger.info("consolidator-scheduler list_jobs failed → skipping DP-WATCHER-003 this sweep: %s", exc)
-            return []
-
-    return _list
-
-
-def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
-    """Return ``job_stem -> minutes since last SUCCEEDED Cloud Run execution | None``.
-
-    KEY #4: suppresses DP_CRON_DID_NOT_FIRE when execution history shows a recent
-    success (vs lagging GCS sentinel). Deferred-import; errors return ``None``.
-    """
-    project = _project_id()
-    location = "asia-northeast1"  # the fleet's canonical region (all Cloud Run jobs)
-    env_prefix = _scheduler_env_prefix()
-    try:
-        run_mod = importlib.import_module("google.cloud.run_v2")  # noqa: imports-inside-functions — credential-bound SDK, deferred
-        client = run_mod.ExecutionsClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
-    except Exception as exc:
-        logger.info("execution-history reader unavailable (KEY#4 cross-check off, alerts fail-safe-on): %s", exc)
-        return lambda _job: None
-
-    def _read(job_stem: str) -> float | None:
-        if not project or not job_stem:
-            return None
-        job_name = f"{env_prefix}-{job_stem}" if env_prefix else job_stem
-        parent = f"projects/{project}/locations/{location}/jobs/{job_name}"
-        try:
-            youngest_age: float | None = None
-            for execution in client.list_executions(parent=parent):  # pyright: ignore[reportAny] — dynamic SDK page iterator
-                # A SUCCEEDED execution has a non-zero succeeded_count + a
-                # completion_time. Take the most RECENT completion across successes.
-                if int(getattr(execution, "succeeded_count", 0) or 0) <= 0:  # pyright: ignore[reportAny] — dynamic SDK attr
-                    continue
-                completion = getattr(execution, "completion_time", None)  # pyright: ignore[reportAny] — dynamic SDK attr
-                if completion is None:
-                    continue
-                completed_dt = completion if isinstance(completion, datetime) else completion.ToDatetime(tzinfo=UTC)  # pyright: ignore[reportAny] — protobuf Timestamp
-                age_min = (datetime.now(UTC) - completed_dt).total_seconds() / 60.0
-                if youngest_age is None or age_min < youngest_age:
-                    youngest_age = age_min
-            return youngest_age
-        except Exception as exc:
-            # NotFound / permission / transient → UNKNOWN; the watcher does not
-            # suppress on None (a genuinely-dead job still alerts).
-            logger.info("execution-history lookup for %s → unknown: %s", job_name, exc)
-            return None
-
-    return _read
 
 
 def main(argv: list[str] | None = None) -> int:
