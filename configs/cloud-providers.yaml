@@ -186,6 +186,12 @@ gcp:
     # Launcher: launch-datapoint-validation-vm.sh; read by /data-pipeline-reconciliation.
     # SSOT: codex/02-data/reconciliation-census-and-compute-tiers.md § 3.3. Added 2026-07-21.
     datapoint-validation: "${GCP_PROJECT_ID}-datapoint-validation"
+    # alerting-service's own alert-history/config/cooldown-state store
+    # (alerting/history/, alerting/configs/, alerting/state/). Flat (no env tier) — mirrors
+    # alerting-service's private `_bucket_name()` template exactly (`alerting-service-{project_id}`)
+    # so resolve_bucket_name() resolves the SAME bucket the writer already uses, no migration.
+    # Added deployment_alerts_ingestion_completeness_2026_07_20.md todo 3 (deployment-api ingest).
+    alerting-service: "alerting-service-${GCP_PROJECT_ID}"
   container_registry:
     url_pattern: "{region}-docker.pkg.dev/${GCP_PROJECT_ID}/{repository}:{tag}"
     default_tag: "latest"
@@ -276,6 +282,8 @@ aws:
     defi-validation: "unified-trading-defi-validation-${AWS_ACCOUNT_ID}"
     # Reconciliation datapoint-validation results — env-less mirrors GCP ${GCP_PROJECT_ID}-datapoint-validation.
     datapoint-validation: "unified-trading-datapoint-validation-${AWS_ACCOUNT_ID}"
+    # alerting-service's alert-history store — mirrors GCP alerting-service kind (2026-07-21).
+    alerting-service: "alerting-service-${AWS_ACCOUNT_ID}"
   container_registry:
     url_pattern: "{account_id}.dkr.ecr.{region}.amazonaws.com/{repository}:{tag}"
     default_tag: "latest"
