@@ -121,6 +121,36 @@ def test_main_constructs_daemon_with_deployment_events() -> None:
     assert call_kwargs["upload_max_staleness_sec"] == 90
 
 
+def test_main_wires_final_log_uri() -> None:
+    """HeartbeatDaemon is constructed with final_log_uri = vm_run_log_final_uri(name, project)
+    (writer-side decision 1, deployment_ui_vm_log_viewer plan) — the durable one-shot
+    completion snapshot, distinct from the interval-uploaded remote_log_uri.
+    """
+    import deployment_service.vm.heartbeat_cli as hc
+
+    daemon_mock = MagicMock()
+    daemon_mock.run.return_value = 0
+    daemon_ctor = MagicMock(return_value=daemon_mock)
+
+    @contextmanager
+    def _fake_run_lifecycle(**_: Any):
+        yield
+
+    with (
+        patch.dict("os.environ", {"GCP_PROJECT_ID": "test-project"}),
+        patch("deployment_service.vm.heartbeat_cli.setup_events"),
+        patch("deployment_service.vm.heartbeat_cli.PubSubEventSink"),
+        patch("deployment_service.vm.heartbeat_cli.run_lifecycle", _fake_run_lifecycle),
+        patch("deployment_service.vm.heartbeat_cli.HeartbeatDaemon", daemon_ctor),
+        patch("deployment_service.vm.heartbeat_cli.DeploymentsRegistry"),
+        patch("deployment_service.vm.heartbeat_cli.get_storage_client"),
+    ):
+        hc.main(_REQUIRED_ARGV)
+
+    call_kwargs = daemon_ctor.call_args.kwargs
+    assert call_kwargs["final_log_uri"] == "gs://deployment-scripts-test-project/log-archive/final/test-vm-001/run.log"
+
+
 def test_main_wires_host_metrics_sampler() -> None:
     """HeartbeatDaemon is constructed with a HostMetricsSampler (D.1 vector, 2026-07-09)."""
     from unified_trading_library import HostMetricsSampler
