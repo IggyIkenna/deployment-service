@@ -1771,6 +1771,22 @@ elif [[ "$VM_TASK" == "datapoint-validation" ]]; then
   else
     log "ERROR: datapoint-validation task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "orphan-sweep" ]]; then
+  # GCS→manifest orphan sweep — launch-orphan-sweep-vm.sh prepares the correct
+  # migration_orphan_sweep.py invocation in VM_BACKFILL_CMD (same VM_BACKFILL_CMD
+  # dispatch shape as datapoint-validation above). Found 2026-07-22 (first real
+  # launch-run, all 4 asset_groups): this VM_TASK had NO dispatch branch here either
+  # — same root-cause class as the datapoint-validation gap one block up (all 4 VMs
+  # crashed rc=2 within ~3 minutes on the generic `--operation orphan-sweep` fallback).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing — instruments-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/orphan-sweep.log"
+  else
+    log "ERROR: orphan-sweep task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.
