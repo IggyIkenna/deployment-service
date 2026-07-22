@@ -371,7 +371,7 @@ _script_for() {
         # passed via MIGRATION_EXTRA_ARGS (this is a simple single-invocation category, not a compound
         # chain, so the generic append at the bottom of _launch works — see that function's comment on
         # why compound-chain categories like "tradfi"/"defi-per-instrument" must suppress it instead).
-        tradfi-content-rewrite) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
+        tradfi-cid) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
         # TradFi manifest USD@LIN in-place CAS re-stamp (2026-07-18/22) — a whole-index read-mutate-write
         # against the live `_index/availability_index.parquet`. From an off-region caller (laptop) the
         # ~90s round-trip (download+transform+backup-snapshot-upload+CAS-upload, 3x ~115MB transfers)
@@ -484,7 +484,7 @@ _launch() {
             : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
               # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
-        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-content-rewrite" || "$cat" == "tradfi-manifest-cas" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-manifest-cas" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -599,7 +599,7 @@ case "$ASSET_GROUP" in
             _launch tradfi
         fi
         ;;
-    tradfi-content-rewrite)
+    tradfi-cid)
         # Per-object worklist (859,121 rows measured 2026-07-21) -- shard fan-out mirrors the "tradfi"
         # category above. SHARD_OF>1 with SHARD_INDEX unset fans one VM per shard; a pinned SHARD_INDEX
         # (or SHARD_OF=1) launches exactly one VM (canary / targeted relaunch).
@@ -607,10 +607,10 @@ case "$ASSET_GROUP" in
             for ((_i = 0; _i < SHARD_OF; _i++)); do
                 SHARD_INDEX="$_i"
                 VM_NAME_SUFFIX="shard${_i}of${SHARD_OF}"
-                MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS} --shard-of ${SHARD_OF} --shard-index ${_i} --workers ${WORKERS:-32}" _launch tradfi-content-rewrite
+                MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS} --shard-of ${SHARD_OF} --shard-index ${_i} --workers ${WORKERS:-32}" _launch tradfi-cid
             done
         else
-            MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-content-rewrite
+            MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-cid
         fi
         ;;
     cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
