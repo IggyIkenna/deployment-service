@@ -105,7 +105,21 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# cefi default bumped to e2-highmem-8 (2026-07-22): cefi's consolidated
+# availability_index.parquet is the largest of any asset_group's (most venues,
+# longest history) and `_load_manifested_cells()` reads it whole into memory
+# (single `download_bytes` + `pd.read_parquet(BytesIO(...))`, no streaming) before
+# the walk even starts. Two real launches on the default e2-standard-4 (16GB)
+# produced ZERO log/heartbeat output for 30-40+ minutes each -- a signature that
+# matches the confirmed OOM precedent in launch-expected-universe-v2-vm.sh (a
+# 63.9M-row defi run OOM-killed on e2-standard-4, fixed via e2-standard-16) more
+# than a GCS/network flake. defi/tradfi/prediction measurably ran fine on
+# e2-standard-4 (the separate throughput-decay bug they hit is a workers-based
+# concurrency fix, not a memory one -- see migration_orphan_sweep_performance_decay_2026_07_22.md).
+case "$ASSET_GROUP" in
+    cefi) MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-8}" ;;
+    *)    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}" ;;
+esac
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Backfill/idempotent VMs default to SPOT (HARD RULE: spot-vms-for-backfill) -- the
