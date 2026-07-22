@@ -364,6 +364,14 @@ _script_for() {
         # Prediction v9: bespoke legacy(market-data-tick-prediction)→canonical(pred-prd) consolidator.
         # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
         prediction) echo "python -u -m market_tick_data_service.scripts.migrate_prediction_to_pred_prd_v9 --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
+        # TradFi parquet-CONTENT instrument_id rewrite (2026-07-21/22) — the genuinely-new content-level
+        # pass the 2026-07-20 path migration never did (that one only ever moved bytes, never read/rewrote
+        # the parquet's own instrument_id column). DRY-BY-DEFAULT + --apply (same convention as
+        # cefi/defi/prediction), handled in _launch below. --stamp/--shard-of/--shard-index/--workers are
+        # passed via MIGRATION_EXTRA_ARGS (this is a simple single-invocation category, not a compound
+        # chain, so the generic append at the bottom of _launch works — see that function's comment on
+        # why compound-chain categories like "tradfi"/"defi-per-instrument" must suppress it instead).
+        tradfi-content-rewrite) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -463,7 +471,7 @@ _launch() {
             : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
               # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
-        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-content-rewrite" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
