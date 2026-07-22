@@ -372,6 +372,19 @@ _script_for() {
         # chain, so the generic append at the bottom of _launch works — see that function's comment on
         # why compound-chain categories like "tradfi"/"defi-per-instrument" must suppress it instead).
         tradfi-content-rewrite) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
+        # TradFi manifest USD@LIN in-place CAS re-stamp (2026-07-18/22) — a whole-index read-mutate-write
+        # against the live `_index/availability_index.parquet`. From an off-region caller (laptop) the
+        # ~90s round-trip (download+transform+backup-snapshot-upload+CAS-upload, 3x ~115MB transfers)
+        # EXCEEDS the manifest consolidator's 60s cron cycle, so the CAS precondition is mathematically
+        # guaranteed to lose the race every time (the window contains at least one consolidator tick
+        # regardless of phase) -- measured live 2026-07-22, 5 consecutive off-region attempts all
+        # ABORTED-SAFE (no partial write, by design, just wasted cycles). An in-region (asia-northeast1)
+        # VM's much faster GCS round-trip should shrink the window under 60s and let the CAS actually
+        # land. DRY-BY-DEFAULT + --apply (same convention), handled in _launch below;
+        # `--in-place-cas` is baked in here (not optional -- the additive mode's dedup-key duplication
+        # caveat is exactly what this category exists to avoid). MIGRATION_EXTRA_ARGS is not meaningful
+        # for this tool (no --shard-of/--workers -- it's a single whole-index pass, not per-object).
+        tradfi-manifest-cas) echo "python -u scripts/migrate_tradfi_manifest_usd_lin_2026_07_18.py --in-place-cas" ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -471,7 +484,7 @@ _launch() {
             : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
               # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
-        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-content-rewrite" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-content-rewrite" || "$cat" == "tradfi-manifest-cas" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
