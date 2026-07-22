@@ -373,18 +373,22 @@ _script_for() {
         # why compound-chain categories like "tradfi"/"defi-per-instrument" must suppress it instead).
         tradfi-cid) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
         # TradFi manifest USD@LIN in-place CAS re-stamp (2026-07-18/22) — a whole-index read-mutate-write
-        # against the live `_index/availability_index.parquet`. From an off-region caller (laptop) the
-        # ~90s round-trip (download+transform+backup-snapshot-upload+CAS-upload, 3x ~115MB transfers)
-        # EXCEEDS the manifest consolidator's 60s cron cycle, so the CAS precondition is mathematically
-        # guaranteed to lose the race every time (the window contains at least one consolidator tick
-        # regardless of phase) -- measured live 2026-07-22, 5 consecutive off-region attempts all
-        # ABORTED-SAFE (no partial write, by design, just wasted cycles). An in-region (asia-northeast1)
-        # VM's much faster GCS round-trip should shrink the window under 60s and let the CAS actually
-        # land. DRY-BY-DEFAULT + --apply (same convention), handled in _launch below;
-        # `--in-place-cas` is baked in here (not optional -- the additive mode's dedup-key duplication
-        # caveat is exactly what this category exists to avoid). MIGRATION_EXTRA_ARGS is not meaningful
-        # for this tool (no --shard-of/--workers -- it's a single whole-index pass, not per-object).
-        tradfi-manifest-cas) echo "python -u scripts/migrate_tradfi_manifest_usd_lin_2026_07_18.py --in-place-cas" ;;
+        # against the live `_index/availability_index.parquet`. Even from an IN-REGION (asia-northeast1)
+        # VM the ~23s round-trip (download+transform+backup-snapshot-upload+CAS-upload) still lost the
+        # CAS race against the manifest consolidator's 60s cron TWICE in a row (measured live 2026-07-22;
+        # an off-region laptop caller's ~90s window loses it EVERY time, mathematically guaranteed, since
+        # the window then exceeds the cycle period). Retries in a bash loop WITHIN the same VM boot (never
+        # a fresh VM per attempt — that wastes ~90s of boot/tarball-fetch overhead per retry for no
+        # benefit) up to 8 times with a short jittered sleep between attempts, so different attempts land
+        # at different phases relative to the consolidator's tick. DRY-BY-DEFAULT + --apply (same
+        # convention), handled in _launch below; `--in-place-cas` is baked in (not optional -- the
+        # additive mode's dedup-key duplication caveat is exactly what this category exists to avoid).
+        # MIGRATION_EXTRA_ARGS is not meaningful for this tool (no --shard-of/--workers -- a single
+        # whole-index pass, not per-object) so the generic append below is harmless if set (unused).
+        tradfi-manifest-cas)
+            local _applyflag=""; [[ "$MODE" == "full" ]] && _applyflag=" --apply"
+            printf '%s' "rc=1; for attempt in 1 2 3 4 5 6 7 8; do echo \"=== CAS attempt \${attempt}/8 START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u scripts/migrate_tradfi_manifest_usd_lin_2026_07_18.py --in-place-cas${_applyflag}; rc=\$?; echo \"=== CAS attempt \${attempt}/8 DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -eq 0 ] && break; sleep \$(( (RANDOM % 20) + 5 )); done; echo \"=== CAS FINAL rc=\${rc} after up to 8 attempts ===\"; exit \${rc}"
+            ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -480,11 +484,12 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" ]]; then
-            : # apply/dry + the chained rebuild are baked into the per-year loop by _script_for ($MODE);
-              # a --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; if … fi` string is a syntax
-              # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed here.
-        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-manifest-cas" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" ]]; then
+            : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
+              # tradfi-manifest-cas (mirrors defi-per-instrument's per-year loop) -- a --apply/--dry-run/
+              # EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax error, so BOTH the
+              # flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed for both categories.
+        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
