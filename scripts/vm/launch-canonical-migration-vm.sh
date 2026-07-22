@@ -185,7 +185,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -536,6 +536,22 @@ _script_for() {
             local _bkt="market-data-tick-defi-prd-central-element-323112"
             local _yrs="${MIGRATION_YEARS:-2020 2021 2022 2023 2024 2025 2026}"
             printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -ne 0 ] && rc_all=1; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
+        # DeFi R3 per-instrument split, SINGLE date-range scope — one VM per QUARTER for a parallel fan-out
+        # (wall-time = the slowest quarter, not the sum). Same migrate_defi_batch_to_per_instrument tool as
+        # defi-per-instrument, but scoped to the positional <start-date>..<end-date> for ONE quarter with NO
+        # internal year-loop and NO chained rebuild — rebuild_defi_manifest is run ONCE over the whole corpus
+        # after every quarter-VM reaches terminal. Disjoint quarters ⇒ disjoint day partitions ⇒ no leaf /
+        # _needs_attribution write races, safe to parallelize. Idempotent (done cells' sources are already
+        # _migrated_*, invisible to the walk → fast skip). DRY-BY-DEFAULT + --apply appended by the flag block
+        # below (a single-command category, exactly like defi/tradfi). Distinct VM names via VM_NAME_SUFFIX.
+        defi-pi-range)
+            echo "python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-16}" ;;
+        # DeFi manifest rebuild ONLY (rebuild_defi_manifest) over the whole corpus — the post-migration step
+        # run ONCE after every per-quarter migrate VM is terminal. Re-derives per-instrument instrument_id=stem
+        # from the actual leaves. Write-by-default (falls to the else branch → dry appends --dry-run, full
+        # writes). START_DATE/END_DATE positional args scope the rebuild (pass the whole corpus range).
+        defi-rebuild)
+            echo "python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE" ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -638,7 +654,7 @@ _launch() {
               # tradfi-manifest-cas (mirrors defi-per-instrument's per-year loop) -- a --apply/--dry-run/
               # EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax error, so BOTH the
               # flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed for both categories.
-        elif [[ "$cat" == "defi" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -663,7 +679,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -818,7 +834,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
