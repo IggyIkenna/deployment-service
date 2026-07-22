@@ -1140,5 +1140,183 @@ class TestTarballFreshnessGuardCoverage:
         assert self.GUARD_TOKEN in converted
 
 
+class TestCanonicalMigrationVmRelaunch:
+    """SPOT-preemption relaunch support for launch-canonical-migration-vm.sh (adversarial review
+    2026-07-22, HIGH finding): VM_NAME_OVERRIDE + RESUME_* env fallbacks + lc_write_launch_params,
+    cloned from launch-mdps-backfill-vm.sh's already-working mechanism. Root cause closed: a
+    SPOT-preempted canonical-migration-* VM's checkpoint blob is keyed on VM_NAME
+    (`vm-logs/{VM_NAME}/MIGRATION_PROGRESS-shard{N}.json`), but RelaunchPreemptedVm re-invokes the
+    launcher with ZERO positional CLI args and a fresh RUN_TS would mint a DIFFERENT vm_name every
+    time -- so the checkpoint the preempted VM wrote could never be found, and the bare re-invocation
+    also used to hit the launcher's own positional-arg usage-error `exit 2` (no ASSET_GROUP/START_DATE/
+    END_DATE at all). These tests never touch real GCS/GCE — gcloud/gsutil are mocked shell functions.
+    """
+
+    LAUNCHER = "scripts/vm/launch-canonical-migration-vm.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _mock_preamble(self, capture_dir: Path, gcloud_log: Path) -> str:
+        # gcloud: no-op success; every "instances create <name> ..." call is appended to gcloud_log so
+        # tests can assert exactly how many VMs were created (fan-out vs single relaunch) and under
+        # which name. gsutil: only `-q cp - <uri>` (lc_write_launch_params / lc_write_tarball_pin_record's
+        # actual mechanism) is intercepted -- stdin is captured to `<capture_dir>/<basename(uri)>` so a
+        # test can read back the exact JSON that would have been persisted to GCS; every other gsutil
+        # invocation (freshness checks etc.) is a harmless no-op. python3 is left REAL so
+        # lc_write_launch_params's own JSON-building one-liner runs for real, just piped into our mock.
+        return f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        echo "$4" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{
+    if [[ "$1 $2 $3" == "-q cp -" ]]; then
+        local uri="$4"
+        cat > "{capture_dir}/$(basename "$uri")"
+        return 0
+    fi
+    return 0
+}}
+export -f gsutil
+'''
+
+    def _run(
+        self, launcher_path: Path, args: list[str], env_extra: dict[str, str], tmp_path: Path
+    ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+        capture_dir = tmp_path / "gsutil_captures"
+        capture_dir.mkdir()
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble(capture_dir, gcloud_log) + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DRY_RUN": "true", **env_extra},
+        )
+        return result, capture_dir, gcloud_log
+
+    def test_vm_name_override_flag_pins_the_created_vm_name(self, launcher_path: Path, tmp_path: Path) -> None:
+        result, _capture_dir, gcloud_log = self._run(
+            launcher_path,
+            ["--vm-name", "canonical-migration-cefi-pinned-test", "cefi", "2020-01-01", "2026-01-01", "dry"],
+            {},
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert gcloud_log.exists()
+        created_names = gcloud_log.read_text().split()
+        assert created_names == ["canonical-migration-cefi-pinned-test"]
+
+    def test_vm_name_override_env_var_pins_the_created_vm_name(self, launcher_path: Path, tmp_path: Path) -> None:
+        result, _capture_dir, gcloud_log = self._run(
+            launcher_path,
+            ["cefi", "2020-01-01", "2026-01-01", "dry"],
+            {"VM_NAME_OVERRIDE": "canonical-migration-cefi-env-pinned-test"},
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert gcloud_log.read_text().split() == ["canonical-migration-cefi-env-pinned-test"]
+
+    def test_resume_env_fallback_avoids_the_positional_arg_usage_error(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """The exact bug the review found: RelaunchPreemptedVm re-invokes the launcher with ZERO
+        positional args, only RESUME_* env vars. Before this fix that always hit `exit 2`."""
+        result, _capture_dir, gcloud_log = self._run(
+            launcher_path,
+            [],  # zero positional args -- exactly what RelaunchPreemptedVm's subprocess.run does
+            {
+                "VM_NAME_OVERRIDE": "canonical-migration-cefi-relaunch-test",
+                "RESUME_ASSET_GROUP": "cefi",
+                "RESUME_START_DATE": "2020-01-01",
+                "RESUME_END_DATE": "2026-01-01",
+                "RESUME_MODE": "full",
+            },
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert result.returncode != 2, "must not hit the positional-arg usage error on a bare relaunch"
+        assert gcloud_log.read_text().split() == ["canonical-migration-cefi-relaunch-test"]
+
+    def test_launch_params_persist_vm_name_and_resume_fields_for_relaunch(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """lc_write_launch_params must be called with everything a future relaunch needs to reproduce
+        this EXACT VM: its own name (so the checkpoint blob is found) and RESUME_* positional-arg
+        equivalents (so a bare re-invocation doesn't hit the usage-error exit 2)."""
+        import json
+
+        result, capture_dir, _gcloud_log = self._run(
+            launcher_path, ["cefi", "2020-01-01", "2026-01-01", "full"], {}, tmp_path
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        params_file = capture_dir / "LAUNCH_PARAMS.json"
+        assert params_file.exists(), "lc_write_launch_params must have been called"
+        payload = json.loads(params_file.read_text())
+        assert payload["launcher"] == "launch-canonical-migration-vm.sh"
+        env = payload["env"]
+        assert env["RESUME_ASSET_GROUP"] == "cefi"
+        assert env["RESUME_START_DATE"] == "2020-01-01"
+        assert env["RESUME_END_DATE"] == "2026-01-01"
+        assert env["RESUME_MODE"] == "full"
+        # VM_NAME_OVERRIDE must equal THIS VM's own auto-generated name (not pinned in this test) --
+        # proof the persisted override will reproduce the SAME name on a future relaunch.
+        assert env["VM_NAME_OVERRIDE"].startswith("canonical-migration-cefi-")
+
+    def test_relaunch_of_a_pinned_shard_does_not_re_trigger_the_fan_out_loop(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """The tradfi category fans out SHARD_OF VMs (one per shard) when SHARD_INDEX is left unset. A
+        relaunch of ONE preempted shard VM must target exactly that one shard again -- never
+        re-trigger the N-VM fan-out just because SHARD_OF>1 (SHARD_INDEX_EXPLICIT must be honored via
+        RESUME_SHARD_INDEX, not just the raw SHARD_INDEX env var a fresh original launch would use)."""
+        result, _capture_dir, gcloud_log = self._run(
+            launcher_path,
+            [],
+            {
+                "VM_NAME_OVERRIDE": "canonical-migration-tradfi-shard3-relaunch-test",
+                "RESUME_ASSET_GROUP": "tradfi",
+                "RESUME_START_DATE": "2020-01-01",
+                "RESUME_END_DATE": "2026-01-01",
+                "RESUME_MODE": "full",
+                "RESUME_SHARD_OF": "20",
+                "RESUME_SHARD_INDEX": "3",
+            },
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        created = gcloud_log.read_text().split()
+        # Exactly ONE VM created (the pinned relaunch), never a 20-VM fan-out.
+        assert created == ["canonical-migration-tradfi-shard3-relaunch-test"], (
+            f"relaunch must target exactly the one preempted shard, got: {created}"
+        )
+
+    def test_fresh_tradfi_launch_without_resume_still_fans_out_normally(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """Regression guard for the fix above: an ORIGINAL (non-relaunch) tradfi launch with SHARD_OF>1
+        and no SHARD_INDEX pinned must still fan out one VM per shard -- the RESUME_SHARD_INDEX fallback
+        must never suppress a genuine fresh fan-out."""
+        result, _capture_dir, gcloud_log = self._run(
+            launcher_path,
+            ["tradfi", "2020-01-01", "2026-01-01", "dry"],
+            {"SHARD_OF": "3"},
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        created = gcloud_log.read_text().split()
+        assert len(created) == 3, f"expected a 3-VM fan-out, got: {created}"
+
+    def test_syntax_valid(self, launcher_path: Path) -> None:
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

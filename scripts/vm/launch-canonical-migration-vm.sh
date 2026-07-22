@@ -95,6 +95,13 @@
 #   WORKERS=24                   migrator concurrency (tradfi default 24; other AGs keep their per-AG default)
 #   ON_DEMAND=true               opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
 #   BOOT_DISK_GB=50              boot disk size
+#   VM_NAME_OVERRIDE=<name>      (or --vm-name <name>) pin the created VM's name instead of the
+#                                auto RUN_TS name — single-category launches ONLY (never with `all` /
+#                                a SHARD_OF>1 fan-out, which would collide every VM onto one name).
+#                                Set automatically by a SPOT-preemption relaunch (RelaunchPreemptedVm,
+#                                via lc_write_launch_params) so the checkpoint blob path
+#                                migrate_candle_canonical_2026_07.py writes to under the ORIGINAL
+#                                vm_name is still found after relaunch.
 #   # tradfi content-migration (2026-07) only:
 #   SHARD_OF=20                  total shard count; >1 with SHARD_INDEX unset FANS OUT N sharded VMs
 #   SHARD_INDEX=3                launch exactly this shard on ONE VM (canary / targeted relaunch)
@@ -114,21 +121,38 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Deterministic VM-name override (--vm-name / VM_NAME_OVERRIDE), same mechanism as
+# launch-mdps-backfill-vm.sh: empty by default -> the auto RUN_TS name below. Set by
+# RelaunchPreemptedVm (via the LAUNCH_PARAMS.json env lc_write_launch_params persists) so a
+# SPOT-preempted canonical-migration-* VM relaunches under the SAME vm_name -- this migration's
+# checkpoint blob path is `vm-logs/{VM_NAME}/MIGRATION_PROGRESS-shard{N}.json` (adversarial review
+# 2026-07-22, HIGH finding: without this, a relaunch's fresh RUN_TS-based name can never find the
+# checkpoint the preempted VM wrote, so the shard silently restarts from line 0 every preemption).
+# Single-category launches only -- the `all` fan-out and the tradfi/tradfi-cid sharded fan-out loops
+# must NOT have this set (each launches N VMs from ONE invocation; setting it would collide every
+# shard onto one name), which holds in practice since a relaunch always targets exactly one VM.
+VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
 
-# Pre-parse --env <val> before positional args.
+# Pre-parse --env / --vm-name <val> before positional args.
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
     case "${1:-}" in
         --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+        --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
 done
 set -- "${POSITIONAL[@]:-}"
 
-ASSET_GROUP="${1:-}"
-START_DATE="${2:-}"
-END_DATE="${3:-}"
-MODE="${4:-dry}"  # dry | full
+# RESUME_* env fallbacks (SPOT-preemption relaunch support, adversarial review 2026-07-22 HIGH
+# finding, mirroring launch-mdps-backfill-vm.sh's already-working pattern): RelaunchPreemptedVm
+# re-invokes this launcher with ZERO CLI args, only the env lc_write_launch_params captured -- without
+# this fallback a bare re-invocation hits the positional-arg usage-error `exit 2` the review found
+# (the relaunch previously had no way to succeed at all). Explicit positional args always win.
+ASSET_GROUP="${1:-${RESUME_ASSET_GROUP:-}}"
+START_DATE="${2:-${RESUME_START_DATE:-}}"
+END_DATE="${3:-${RESUME_END_DATE:-}}"
+MODE="${4:-${RESUME_MODE:-dry}}"  # dry | full
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
@@ -176,9 +200,12 @@ RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
 # ── tradfi content-migration (2026-07) sharding + scope knobs ──────────────────────────────────────
 # SHARD_INDEX_EXPLICIT records whether the operator PINNED a single shard (launch just that VM) vs left
 # it unset (SHARD_OF>1 then FANS OUT one VM per shard). Captured before the :- default masks the distinction.
-SHARD_INDEX_EXPLICIT="${SHARD_INDEX+set}"
-SHARD_OF="${SHARD_OF:-1}"
-SHARD_INDEX="${SHARD_INDEX:-0}"
+# Also treated as "explicit" when RESUME_SHARD_INDEX is present (a SPOT-preemption relaunch of one
+# specific shard's VM, per the RESUME_* fallback above) -- a relaunch must NEVER re-trigger the N-VM
+# fan-out loop just because SHARD_OF>1; it must target exactly the one shard that was preempted.
+SHARD_INDEX_EXPLICIT="${SHARD_INDEX+set}${RESUME_SHARD_INDEX:+set}"
+SHARD_OF="${SHARD_OF:-${RESUME_SHARD_OF:-1}}"
+SHARD_INDEX="${SHARD_INDEX:-${RESUME_SHARD_INDEX:-0}}"
 LIMIT="${LIMIT:-0}"
 CANARY_DAY="${CANARY_DAY:-}"
 # TradFi tick bucket (env-tiered). Bash formula == resolve_bucket_name(cloud=gcp, kind=tick-data,
@@ -440,6 +467,10 @@ _launch() {
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
+    # --vm-name/VM_NAME_OVERRIDE wins (single-category relaunch only -- see the top-of-file comment).
+    if [[ -n "$VM_NAME_OVERRIDE" ]]; then
+        vm_name="$VM_NAME_OVERRIDE"
+    fi
     local cmd
     if [[ "$cat" == "tradfi" ]]; then
         # MIGRATION_EXTRA_ARGS is NOT appendable here: this category emits a compound `&&` chain, so a
@@ -563,6 +594,26 @@ _launch() {
     # BEFORE instance creation so a VM can never exist without a record.
     # shellcheck disable=SC2086
     lc_write_tarball_pin_record "$vm_name" "$PROJECT" "launch-canonical-migration-vm.sh" ${_pin_summary}
+
+    # SPOT-preemption relaunch support (adversarial review 2026-07-22, HIGH finding): persist THIS
+    # VM's exact category/window/shard plus its OWN vm_name, mirroring launch-mdps-backfill-vm.sh's
+    # already-working mechanism, so exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+    # (RelaunchPreemptedVm) reproduces the SAME shard under the SAME name (the checkpoint blob path
+    # migrate_candle_canonical_2026_07.py writes to is keyed on VM_NAME) instead of hitting the
+    # usage-error `exit 2` / a colliding-name/fanned-out relaunch. `cat` is THIS specific concrete
+    # category (never the outer `all`/tradfi-fan-out `$ASSET_GROUP`), and SHARD_OF/SHARD_INDEX are
+    # THIS VM's own (per-shard, inside the fan-out loops) values -- so relaunching a single shard VM
+    # can never re-trigger a multi-VM fan-out (see the SHARD_INDEX_EXPLICIT comment above). Best-effort
+    # (never fails the launch).
+    lc_write_launch_params "$vm_name" "$PROJECT" "launch-canonical-migration-vm.sh" \
+        "VM_NAME_OVERRIDE=${vm_name}" \
+        "RESUME_ASSET_GROUP=${cat}" \
+        "RESUME_START_DATE=${START_DATE}" \
+        "RESUME_END_DATE=${END_DATE}" \
+        "RESUME_MODE=${MODE}" \
+        "RESUME_SHARD_OF=${SHARD_OF}" \
+        "RESUME_SHARD_INDEX=${SHARD_INDEX}" \
+        "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
