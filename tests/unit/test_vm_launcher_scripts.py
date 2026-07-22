@@ -1192,12 +1192,18 @@ export -f gsutil
         capture_dir = tmp_path / "gsutil_captures"
         capture_dir.mkdir()
         gcloud_log = tmp_path / "gcloud_create_calls.log"
+        # No DRY_RUN=true here (deliberately, 2026-07-22): the launcher's own DRY_RUN flag now
+        # genuinely skips the `gcloud compute instances create` call (fixed after a candle-apply
+        # adversarial self-test proved DRY_RUN=true previously did NOT gate it at all, silently
+        # creating a real VM on every "preview" invocation across every category). These tests need
+        # the create call to actually run so `gcloud_log` observes it -- infra safety here comes
+        # entirely from the mocked `gcloud`/`gsutil` shell functions above, never from DRY_RUN.
         script = self._mock_preamble(capture_dir, gcloud_log) + f'\nbash "{launcher_path}" {" ".join(args)}\n'
         result = subprocess.run(
             ["bash", "-c", script],
             capture_output=True,
             text=True,
-            env={**os.environ, "DRY_RUN": "true", **env_extra},
+            env={**os.environ, **env_extra},
         )
         return result, capture_dir, gcloud_log
 
@@ -1316,6 +1322,106 @@ export -f gsutil
     def test_syntax_valid(self, launcher_path: Path) -> None:
         result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+
+class TestCandleApplyCategory:
+    """The `<ag>-candle-apply` category (2026-07-22, P7): the REAL --apply migration+purge pass over
+    one asset_group's processed_candles/ corpus, distinct from `<ag>-candle-census` (always --dry-run,
+    no reachable --apply). Found + fixed by adversarial self-testing before any real VM touched
+    production: (1) DRY_RUN=true never actually gated `gcloud compute instances create` for ANY
+    category (fixed at the shared _launch() level); (2) the shard-suffixed vm_name for the longer
+    candle-apply category names overflowed GCE's 63-char instance-name limit; (3) fixing (2)
+    introduced an unbound-variable crash under `set -u` for the non-sharded (single-VM) launch path,
+    since $VM_NAME_SUFFIX is only ever set inside the shard fan-out loop."""
+
+    LAUNCHER = TestCanonicalMigrationVmRelaunch.LAUNCHER
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _run(
+        self, launcher_path: Path, args: list[str], env_extra: dict[str, str], tmp_path: Path
+    ) -> tuple[subprocess.CompletedProcess[str], Path]:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        echo "$4" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, **env_extra})
+        return result, gcloud_log
+
+    def test_non_sharded_dry_mode_does_not_crash_and_emits_dry_run(self, launcher_path: Path, tmp_path: Path) -> None:
+        """Regression guard for finding (3): a plain single-VM candle-apply launch (no SHARD_OF set,
+        so $VM_NAME_SUFFIX is never assigned) must not hit `set -u`'s unbound-variable crash."""
+        result, gcloud_log = self._run(
+            launcher_path, ["cefi-candle-apply", "2020-01-01", "2026-07-22", "dry"], {}, tmp_path
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "unbound variable" not in result.stderr
+        assert gcloud_log.read_text().strip().startswith("canonical-migration-cefi-cdlap-")
+        assert " --dry-run --enumeration" in result.stdout
+        assert " --apply --enumeration" not in result.stdout
+        assert "--quarantine" not in result.stdout
+
+    def test_non_sharded_full_mode_emits_apply_and_gates(self, launcher_path: Path, tmp_path: Path) -> None:
+        result, _gcloud_log = self._run(
+            launcher_path, ["defi-candle-apply", "2020-01-01", "2026-07-22", "full"], {}, tmp_path
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert " --apply --enumeration" in result.stdout
+        assert "--quarantine" in result.stdout
+        assert "--content-repair" in result.stdout
+        # NOT " --dry-run --enumeration" (the actual flag-in-context) -- generic "Mode: full (dry =
+        # --dry-run; full = live writes)" label text elsewhere always contains the bare substring.
+        assert " --dry-run --enumeration" not in result.stdout
+        # "purge" is the operator's own word for this step (migration+purge) -- both gates ON by
+        # default in full mode, not a follow-up flag.
+
+    def test_sharded_fan_out_creates_one_vm_per_shard_under_the_length_budget(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """Regression guard for finding (2): SHARD_OF>1 must fan out N distinct VMs, every name
+        <=63 chars (GCE's hard limit) -- proven on the LONGEST asset_group category name
+        (prediction-candle-apply) with a 2-digit shard count, the worst case that originally
+        overflowed with `Invalid value for field 'resource.name'`."""
+        result, gcloud_log = self._run(
+            launcher_path,
+            ["prediction-candle-apply", "2020-01-01", "2026-07-22", "full"],
+            {"SHARD_OF": "20"},
+            tmp_path,
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        created = gcloud_log.read_text().split()
+        assert len(created) == 20, f"expected a 20-VM fan-out, got {len(created)}: {created}"
+        assert len(set(created)) == 20, "shard VM names must all be distinct"
+        for name in created:
+            assert len(name) <= 63, f"'{name}' is {len(name)} chars, exceeds GCE's 63-char limit"
+            assert name.startswith("canonical-migration-prediction-"), name
+
+    def test_bucket_resolves_correctly_per_asset_group(self, launcher_path: Path, tmp_path: Path) -> None:
+        """Regression guard mirroring the candle-census fix (prediction's real bucket abbreviation is
+        'pred', not 'prediction') -- candle-apply must resolve the SAME bucket, not silently census
+        against a nonexistent bucket."""
+        result, _gcloud_log = self._run(
+            launcher_path, ["prediction-candle-apply", "2020-01-01", "2026-07-22", "dry"], {}, tmp_path
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        # No hardcoded prod project ID here (QG-banned in tests) -- the venue-specific bucket prefix
+        # alone proves the "pred" (not "prediction") resolution, regardless of which project the
+        # launcher's own PROJECT constant resolves to.
+        assert "market-data-tick-pred-prd-" in result.stdout
+        assert "/processed_candles" in result.stdout
+        assert "market-data-tick-prediction-" not in result.stdout
 
 
 if __name__ == "__main__":

@@ -86,6 +86,18 @@
 #   # registry entry needed.
 #   bash launch-canonical-migration-vm.sh cefi-candle-census 2020-01-01 2026-07-22 dry
 #
+#   # candle-apply (2026-07-22, P7 -- the REAL migration+purge): same corpus/wiring as candle-census
+#   # (fresh single-walk -> migrate_candle_canonical_2026_07.py) but $MODE is honored for real: dry ->
+#   # --dry-run reclassify-only canary; full -> --apply --quarantine --content-repair (real
+#   # copy->verify->delete against production). Shardable via SHARD_OF/SHARD_INDEX exactly like the
+#   # tradfi content-migration category. Sequence per the operator ruling: defi -> prediction -> cefi
+#   # -> tradfi (tradfi LAST, ~99% id-canonicalisation). ALWAYS run dry first per AG to confirm the
+#   # disposition counts before full.
+#   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 dry
+#   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 full
+#   # sharded fan-out across N=8 VMs for a large corpus (e.g. tradfi):
+#   SHARD_OF=8 bash launch-canonical-migration-vm.sh tradfi-candle-apply 2020-01-01 2026-07-22 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -173,7 +185,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -398,6 +410,53 @@ _candle_census_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_CENSUS_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py --dry-run --enumeration ${enum} --out ${out} --workers ${WORKERS:-16} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the candle-apply command (2026-07-22, P7): the REAL migration+purge pass over ONE
+# asset_group's processed_candles/ corpus, following the P0 census + the candle_feature_canonical_
+# path_divergence_2026_07_20 issue doc's todos 12/14/17/18 (resume checkpoint + classifier fixes,
+# all shipped mdps@efa559a/6b9ee49 before this category was built). ONE fresh single-walk on the VM
+# -> enumeration (write-contention-free: the pre-migration drain already stopped every VM that
+# writes to this asset_group's candles/manifest), then ONE migrate_candle_canonical_2026_07.py pass,
+# then stage the mapping TSV + reconcile report to GCS. Unlike *-candle-census (always --dry-run, no
+# reachable --apply), THIS category reads $MODE for real: full -> --apply --quarantine
+# --content-repair (the actual copy->verify->delete migration+purge against production -- "purge" is
+# the operator's own word for this step, hence both gates ON, not left to a follow-up flag); dry ->
+# --dry-run (a fresh reclassify-only run, e.g. to re-verify the census disposition counts against the
+# corpus before committing to --apply on that AG). Sharded like the tradfi content-migration category
+# (--shard-of/--shard-index baked directly from the globals below) -- NOT routed through
+# MIGRATION_EXTRA_ARGS, since this emits a compound `&&` chain and a trailing append would silently
+# land on the final `gcloud storage cp` rather than the python pass (same reason as the tradfi/
+# candle-census branches).
+_candle_apply_cmd() {
+    local ag="$1"       # cefi | defi | tradfi | prediction
+    local vm_name="$2"
+    local bucket
+    case "$ag" in
+        cefi)       bucket="market-data-tick-cefi-${_ENV_SHORT}-${PROJECT}" ;;
+        defi)       bucket="market-data-tick-defi-${_ENV_SHORT}-${PROJECT}" ;;
+        tradfi)     bucket="${TRADFI_TICK_BUCKET}" ;;
+        prediction) bucket="market-data-tick-pred-${_ENV_SHORT}-${PROJECT}" ;;
+    esac
+    local mode_flag gate_flags
+    if [[ "$MODE" == "full" ]]; then
+        mode_flag="--apply"
+        gate_flags=" --quarantine --content-repair"
+    else
+        mode_flag="--dry-run"
+        gate_flags=""
+    fi
+    local sh="--shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}"
+    local limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag=" --limit ${LIMIT}"
+    local work="/home/ikennaigboaka/workspace/candle-apply-${ag}"
+    local enum="${work}/enumeration.txt"
+    local mapd="${work}/mappings"
+    local out="${mapd}/candle_apply_mapping.tsv"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-candle-apply/${RUN_TS}/${vm_name}/"
+    # `\$(...)` stays LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
+    # launcher locals expand host-side. No commas anywhere in the emitted string.
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
@@ -485,10 +544,34 @@ _launch() {
     local cat="$1"
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
-    local vm_name="canonical-migration-${cat}-${RUN_TS}${VM_NAME_SUFFIX:+-${VM_NAME_SUFFIX}}"
+    # BUG FOUND 2026-07-22 (candle-apply adversarial self-test, SHARD_OF=3 preview): "<ag>-candle-apply"
+    # combined with a shard suffix overflows GCE's 63-char instance-name limit for the longer asset_group
+    # names (measured worst case, 2-digit shard count: prediction-candle-apply -> 71 chars; GCE rejected
+    # the create call with "Invalid value for field 'resource.name'"). Abbreviate ONLY the vm_name token
+    # (never $cat itself, which everything else -- dispatch, tarball checks, _ag derivation -- keys off)
+    # for *-candle-apply so the name stays comfortably under budget (measured worst case with this fix,
+    # 2-digit shard: prediction-cdlap -> 60 chars) while the vm_name still starts with the registered
+    # "canonical-migration-<ag>-" prefix (longest-prefix-startswith match in VM_PREFIX_TO_BUCKET).
+    local _vm_name_cat="$cat"
+    local _shard_suffix="${VM_NAME_SUFFIX:-}"
+    if [[ "$cat" == *-candle-apply ]]; then
+        _vm_name_cat="${cat%-candle-apply}-cdlap"
+        # Shorten "shard{i}of{N}" -> "s{i}of{N}" too (saves 4 more chars) — same info, tighter budget.
+        # Operates on the already nounset-safe local (not $VM_NAME_SUFFIX directly, which crashes
+        # under `set -u` when unset for a non-sharded single-VM candle-apply launch).
+        _shard_suffix="${_shard_suffix/#shard/s}"
+    fi
+    local vm_name="canonical-migration-${_vm_name_cat}-${RUN_TS}${_shard_suffix:+-${_shard_suffix}}"
     # --vm-name/VM_NAME_OVERRIDE wins (single-category relaunch only -- see the top-of-file comment).
     if [[ -n "$VM_NAME_OVERRIDE" ]]; then
         vm_name="$VM_NAME_OVERRIDE"
+    fi
+    # Defense in depth: GCE instance names must be <=63 chars. Fail LOUDLY here (before any GCS/gcloud
+    # side effect) rather than let `gcloud compute instances create` reject it deep inside the launch
+    # sequence with a cryptic regex error, which is what originally surfaced this bug.
+    if [[ ${#vm_name} -gt 63 ]]; then
+        echo "ERROR: computed vm_name '${vm_name}' is ${#vm_name} chars, exceeds GCE's 63-char limit." >&2
+        return 1
     fi
     local cmd
     if [[ "$cat" == "tradfi" ]]; then
@@ -533,6 +616,17 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_census_cmd "${cat%-candle-census}" "$vm_name")"
+    elif [[ "$cat" == *-candle-apply ]]; then
+        # Candle apply (2026-07-22, P7): self-contained `cd ... && gcloud ... && python <mode> ...`
+        # chain; $MODE IS honored here (unlike candle-census) -- the generic --apply/--dry-run append
+        # below is still bypassed since mode/gates are embedded by the builder (same reason as the
+        # tradfi/candle-census branches).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for candle-apply categories -- they" >&2
+            echo "       emit a compound && chain and the flags would be silently discarded." >&2
+            return 1
+        fi
+        cmd="$(_candle_apply_cmd "${cat%-candle-apply}" "$vm_name")"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -560,9 +654,10 @@ _launch() {
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _svc="instruments_service"
-    # candle-census runs migrate_candle_canonical_2026_07.py which lives in market-data-processing-
-    # service, not MTDS -- so it needs that tarball staged instead (see _candle_census_cmd comment).
-    [[ "$cat" == *-candle-census ]] && _svc="market_data_processing_service"
+    # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
+    # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
+    # _candle_census_cmd / _candle_apply_cmd comments).
+    [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _svc="market_data_processing_service"
     md="${md},VM_SERVICE=${_svc}"
     md="${md},VM_OPERATION=migrate-${cat}"
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
@@ -572,10 +667,11 @@ _launch() {
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
-    # candle-census category names are "<ag>-candle-census" -- strip the suffix to recover the real
-    # asset group so dashboards/heartbeat classify these VMs with the rest of that asset group instead
-    # of a novel "<AG>-CANDLE-CENSUS" bucket.
+    # candle-census / candle-apply category names are "<ag>-candle-census"/"<ag>-candle-apply" --
+    # strip the suffix to recover the real asset group so dashboards/heartbeat classify these VMs
+    # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
+    [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -644,9 +740,22 @@ _launch() {
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == *-candle-census ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+    fi
+
+    # BUG FOUND 2026-07-22 (candle-apply adversarial self-test — SHARD_OF=3 preview): DRY_RUN=true
+    # previously gated ONLY lc_verify_tarball_freshness above; this actual `gcloud compute instances
+    # create` call ran UNCONDITIONALLY regardless of DRY_RUN for every category, always. A
+    # DRY_RUN=true "preview" therefore silently created a REAL VM every time it was used (proven live:
+    # a defi-candle-apply dry-mode preview created + ran `canonical-migration-defi-candle-apply-
+    # 20260722-162220` for real — harmless only because that specific preview also happened to pass
+    # `dry` as the migration MODE; a `full`-mode preview would have created a REAL --apply VM). Fixed:
+    # DRY_RUN=true now genuinely skips VM creation, printing what would have been created instead.
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        echo "  DRY_RUN=true — NOT creating $vm_name (preview only)."
+        return 0
     fi
 
     gcloud compute instances create "$vm_name" \
@@ -691,6 +800,22 @@ case "$ASSET_GROUP" in
             done
         else
             MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-cid
+        fi
+        ;;
+    cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply)
+        # candle-apply (2026-07-22, P7): shard fan-out mirrors "tradfi"/"tradfi-cid" above --
+        # SHARD_OF>1 with SHARD_INDEX unset fans one VM per shard; a pinned SHARD_INDEX (or
+        # SHARD_OF=1) launches exactly one VM (canary / targeted relaunch). Shard args are baked
+        # directly into _candle_apply_cmd() from the global SHARD_OF/SHARD_INDEX (not routed through
+        # MIGRATION_EXTRA_ARGS -- see that function's comment).
+        if [[ "$SHARD_OF" -gt 1 && -z "$SHARD_INDEX_EXPLICIT" ]]; then
+            for ((_i = 0; _i < SHARD_OF; _i++)); do
+                SHARD_INDEX="$_i"
+                VM_NAME_SUFFIX="shard${_i}of${SHARD_OF}"
+                _launch "$ASSET_GROUP"
+            done
+        else
+            _launch "$ASSET_GROUP"
         fi
         ;;
     cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
