@@ -601,6 +601,30 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_DATAPOINT_VALIDATION, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),
     # ------------------------------------------------------------------
+    # GCS→manifest orphan sweep (launch-orphan-sweep-vm.sh) — runs
+    # instruments-service/scripts/migration_orphan_sweep.py --asset-group <ag> for
+    # REAL (not --dry-run; the tool is read-only regardless — it classifies every
+    # object A/B/C/C2/D/E and writes ONE audit parquet, never deletes/patches GCS).
+    # ONE single full-corpus walk per asset_group, UNLIKE the Tier-2 datapoint-
+    # validator above: it writes a FIXED per-AG report path
+    # (_index/audit/orphan_sweep_{ag}.parquet, inside the AG's OWN market-data tick
+    # bucket — not a separate flat results bucket) rather than a per-VM shard, so
+    # bucket=None here is correct (heartbeat-only) — pointing bucket at the tick
+    # bucket would make the fleet monitor look for a `_index/per_vm/{vm}.parquet`
+    # this tool never writes, false-STALL/zombie-classifying a healthy VM.
+    # EPHEMERAL_BATCH matches the datapoint-validation spec's lifecycle_class
+    # convention for deployment-ui Monitor-tab grouping. Singleton-locked per
+    # asset_group. Sports is EXCLUDED (its own migration_orphan_sweep_sports.py,
+    # run separately, not via this launcher).
+    # SSOT: codex/02-data/reconciliation-census-and-compute-tiers.md § 3;
+    # unified-trading-pm/plans/active/issues/estate_orphan_assessment_2026_07_21.md
+    # todo 3.
+    # ------------------------------------------------------------------
+    "orphan-sweep-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "orphan-sweep-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "orphan-sweep-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "orphan-sweep-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom

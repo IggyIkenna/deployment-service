@@ -120,10 +120,16 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${POSITIONAL[@]:-}"
 
-ASSET_GROUP="${1:-}"
-START_DATE="${2:-}"
-END_DATE="${3:-}"
-MODE="${4:-dry}"  # dry | full
+# RESUME_* env fallbacks (SPOT-preemption relaunch support,
+# cefi_completion_program_2026_07_15.md P0 "Close the SPOT-preemption relaunch
+# gap"): RelaunchPreemptedVm re-invokes this launcher with ZERO CLI args, only
+# the env lc_write_launch_params captured — without a fallback here a bare
+# re-invocation hits the positional-arg usage error below. Explicit positional
+# args always win.
+ASSET_GROUP="${1:-${RESUME_ASSET_GROUP:-}}"
+START_DATE="${2:-${RESUME_START_DATE:-}}"
+END_DATE="${3:-${RESUME_END_DATE:-}}"
+MODE="${4:-${RESUME_MODE:-dry}}"  # dry | full
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -309,6 +315,26 @@ _launch() {
             market-data-processing-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
+
+    # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+    # "Close the SPOT-preemption relaunch gap"): persist the EXACT category/window
+    # this VM was launched with (via the RESUME_* env fallback above) plus the
+    # SAME vm_name (so a relaunch keeps writing to this shard's PROGRESS.json
+    # checkpoint trail) and the existing MDPS_* narrow-scope overrides, so
+    # exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+    # (relaunch_backfill_vm.RelaunchPreemptedVm) reproduces the SAME shard
+    # instead of hitting the usage error / a blind default. Best-effort.
+    lc_write_launch_params "$vm_name" "$PROJECT" "launch-mdps-backfill-vm.sh" \
+        "VM_NAME_OVERRIDE=${vm_name}" \
+        "RESUME_ASSET_GROUP=${cat}" \
+        "RESUME_START_DATE=${START_DATE}" \
+        "RESUME_END_DATE=${END_DATE}" \
+        "RESUME_MODE=${MODE}" \
+        "FORCE=${FORCE_REPROCESS}" \
+        "MDPS_DATA_TYPES=${FILTER_DATA_TYPES:-$MDPS_DATA_TYPES_OVERRIDE}" \
+        "MDPS_VENUES=${FILTER_VENUES:-$MDPS_VENUES_OVERRIDE}" \
+        "MDPS_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS:-$MDPS_INSTRUMENT_IDS_OVERRIDE}" \
+        "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
     # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
     # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE

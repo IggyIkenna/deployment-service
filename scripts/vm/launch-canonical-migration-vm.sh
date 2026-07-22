@@ -69,6 +69,23 @@
 #   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 dry
 #   bash launch-canonical-migration-vm.sh tradfi-catalogue-canon 2023-01-01 2026-01-30 full
 #
+#   # candle-census (2026-07-22): READ-ONLY dry-run census of ONE asset_group's processed_candles/
+#   # corpus (cefi | defi | tradfi | prediction -- sports is OUT OF SCOPE, its candles live under a
+#   # disjoint processed/ root, not processed_candles/). Each VM does a FRESH single-walk gcloud
+#   # listing scoped ONLY to gs://<bucket>/processed_candles/** (never raw_tick_data/, never the
+#   # bucket root), then runs migrate_candle_canonical_2026_07.py --dry-run (NEVER --apply -- this
+#   # category has NO reachable --apply path; $MODE is deliberately IGNORED, it always emits
+#   # --dry-run regardless of dry|full) against that enumeration, producing a mapping TSV + reconcile
+#   # report, then stages both to gs://${CODE_BUCKET}/canonical-migration-candle-census/. Runs from
+#   # $WORKSPACE/mdps (market-data-processing-service) -- the compound `cd ... && gcloud ... &&
+#   # python ...` command re-homes the CWD inside the shared canonical-migration dispatch (which cds
+#   # to mtds), matching _catalogue_canon_cmd()'s re-homing trick for instruments-service.
+#   # START_DATE/END_DATE are cosmetic (VM label only) -- the script scopes its own worklist from the
+#   # enumeration. Category names deliberately start with the asset_group token so the VM name stays
+#   # under the ALREADY registered "canonical-migration-<ag>-" VM_PREFIX_TO_BUCKET prefix -- no new
+#   # registry entry needed.
+#   bash launch-canonical-migration-vm.sh cefi-candle-census 2020-01-01 2026-07-22 dry
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -132,7 +149,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -140,6 +157,18 @@ case "$DEPLOYMENT_ENV" in
     prod|staging|dev) ;;
     *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+
+# SECURITY: WORKERS is substituted host-side into compound `&&`-chain command strings that are
+# executed VM-side via `bash -c "$VM_MIGRATION_CMD"` under --scopes=cloud-platform (broad GCP
+# creds). Because the substitution happens BEFORE that string ever reaches a shell, an unvalidated
+# value containing shell metacharacters (e.g. `16; gcloud storage rm -r gs://...`) is executed as
+# arbitrary shell syntax on the VM, not merely passed as a --workers argument. Validate as a bare
+# positive integer HERE, before any _*_cmd() builder can embed it, so every category (candle-census
+# included) is covered by one gate. (Adversarial review 2026-07-22, HIGH finding.)
+if [[ -n "${WORKERS:-}" && ! "${WORKERS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: WORKERS must be a positive integer (got: '${WORKERS}')" >&2
+    exit 1
+fi
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 RUN_TS_LABEL="$(date +%Y%m%d-%H%M%S)"
@@ -162,6 +191,16 @@ case "$DEPLOYMENT_ENV" in
     *)       _ENV_SHORT="$DEPLOYMENT_ENV" ;;
 esac
 TRADFI_TICK_BUCKET="${TRADFI_TICK_BUCKET:-market-data-tick-tradfi-${_ENV_SHORT}-${PROJECT}}"
+# SECURITY: TRADFI_TICK_BUCKET is embedded unquoted-in-effect inside double-quoted `gcloud storage
+# ls -r "gs://${bucket}/..."` segments of the same VM-side `bash -c`-executed compound strings as
+# WORKERS above -- an embedded `"` breaks the intended quoting and `;`/`&&`/backticks are a second,
+# independently-reachable injection point. Validate as a bare GCS bucket name (RFC-compliant subset)
+# before it can be embedded anywhere. (Adversarial review 2026-07-22, MEDIUM finding — closed here
+# rather than left as a TODO since it is the same one-line validation shape as the WORKERS gate.)
+if [[ ! "${TRADFI_TICK_BUCKET}" =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]]; then
+    echo "ERROR: TRADFI_TICK_BUCKET must be a valid GCS bucket name (got: '${TRADFI_TICK_BUCKET}')" >&2
+    exit 1
+fi
 
 # Build the tradfi 2026-07 content-migration command: ONE fresh single-walk on the VM -> enumeration,
 # then the three shipped passes IN ORDER over that ONE snapshot, then stage the mapping TSVs to GCS.
@@ -268,6 +307,51 @@ _catalogue_canon_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/instruments && export GCP_PROJECT_ID=${PROJECT} && export DEPLOYMENT_ENV=${DEPLOYMENT_ENV} && rc_all=0; pids=\"\"; for i in \$(seq 0 \$((${shards}-1))); do python -u ${script} --by-day${apply_flag} --by-day-full-sweep --workers ${per_worker} --shard-of ${shards} --shard-index \${i} > /tmp/canon_shard\${i}.log 2>&1 & pids=\"\${pids} \$!\"; done; for p in \${pids}; do wait \${p} || rc_all=1; done; for i in \$(seq 0 \$((${shards}-1))); do echo \"=== SHARD \${i} tail ===\"; tail -6 /tmp/canon_shard\${i}.log; done; echo \"=== CANON ALL-SHARDS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}"
 }
 
+# Build the candle-census command (2026-07-22): a READ-ONLY dry-run census of ONE asset_group's
+# processed_candles/ corpus. ONE fresh single-walk on the VM -> enumeration, then ONE dry-run pass
+# of migrate_candle_canonical_2026_07.py over that snapshot, then stage the mapping TSV + reconcile
+# report to GCS. Emitted as a single COMMA-FREE compound `&&` chain (gcloud --metadata is comma-
+# delimited; see TRADFI_TICK_BUCKET note above). The dispatcher (setup-data-pipeline-vm.sh) ALWAYS
+# `cd`s to $WORKSPACE/mtds for VM_TASK=canonical-migration regardless of VM_SERVICE, so the leading
+# `cd ${VM_WORKSPACE}/mdps` re-homes into the staged market-data-processing-service tree (matching
+# _catalogue_canon_cmd()'s re-homing trick for instruments-service). The migration script lives at
+# scripts/ (not inside the installed package), so it is invoked as a PLAIN SCRIPT
+# (`python -u scripts/migrate_candle_canonical_2026_07.py`), NOT `-m` -- the FIRST literal `python `
+# token in the whole command is that invocation (cd/gcloud/echo/mkdir contain no `python ` substring),
+# so setup-data-pipeline-vm.sh's venv string-replace lands on the intended token.
+#
+# HARD: $MODE is DELIBERATELY IGNORED here -- this category always emits --dry-run regardless of
+# dry|full, so it has NO reachable code path to --apply, ever. --dry-run is the script's own default
+# anyway (mutually exclusive with --apply per its argparse group), but it is passed explicitly so the
+# "this launcher category can never apply" invariant is visible in the emitted command.
+#
+# Scoped ONLY to gs://<bucket>/processed_candles/** for the ONE requested asset_group -- never
+# raw_tick_data/, never the bucket root, never more than one asset_group per VM/command.
+_candle_census_cmd() {
+    local ag="$1"       # cefi | defi | tradfi | prediction
+    local vm_name="$2"
+    local bucket
+    case "$ag" in
+        cefi)       bucket="market-data-tick-cefi-${_ENV_SHORT}-${PROJECT}" ;;
+        defi)       bucket="market-data-tick-defi-${_ENV_SHORT}-${PROJECT}" ;;
+        tradfi)     bucket="${TRADFI_TICK_BUCKET}" ;;
+        # CRITICAL fix (adversarial review 2026-07-22): prediction's real bucket abbreviation is
+        # "pred", NOT "prediction" -- the bucket is market-data-tick-pred-<env>-<project>
+        # (verified via resolve_bucket_name / vm_prefix_registry.py's _TICK_PRED and
+        # configs/cloud-providers.yaml). The "prediction" spelling used here previously does not
+        # exist (404 BucketNotFoundException), so the category produced zero census output.
+        prediction) bucket="market-data-tick-pred-${_ENV_SHORT}-${PROJECT}" ;;
+    esac
+    local work="/home/ikennaigboaka/workspace/candle-census-${ag}"
+    local enum="${work}/enumeration.txt"
+    local mapd="${work}/mappings"
+    local out="${mapd}/candle_census_mapping.tsv"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-candle-census/${RUN_TS}/${vm_name}/"
+    # `\$(...)` stays LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
+    # launcher locals expand host-side. No commas anywhere in the emitted string.
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_CENSUS_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py --dry-run --enumeration ${enum} --out ${out} --workers ${WORKERS:-16} && gcloud storage cp -r ${mapd}/ ${stage}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
@@ -358,6 +442,17 @@ _launch() {
         # the tradfi content-migration branch).
         cmd="$(_catalogue_canon_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == *-candle-census ]]; then
+        # Candle census (2026-07-22): self-contained `cd ... && gcloud ... && python --dry-run ...`
+        # chain; $MODE is deliberately IGNORED (see _candle_census_cmd comment -- always --dry-run,
+        # no reachable --apply path) -- the generic --apply/--dry-run append below is bypassed, same
+        # reason as the other compound-chain branches (tradfi / tradfi-catalogue-canon).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for candle-census categories -- they" >&2
+            echo "       emit a compound && chain and the flags would be silently discarded." >&2
+            return 1
+        fi
+        cmd="$(_candle_census_cmd "${cat%-candle-census}" "$vm_name")"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -384,6 +479,9 @@ _launch() {
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
     [[ "$cat" == "tradfi-catalogue-canon" ]] && _svc="instruments_service"
+    # candle-census runs migrate_candle_canonical_2026_07.py which lives in market-data-processing-
+    # service, not MTDS -- so it needs that tarball staged instead (see _candle_census_cmd comment).
+    [[ "$cat" == *-candle-census ]] && _svc="market_data_processing_service"
     md="${md},VM_SERVICE=${_svc}"
     md="${md},VM_OPERATION=migrate-${cat}"
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
@@ -393,10 +491,20 @@ _launch() {
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" ]] && _ag="TRADFI"
+    # candle-census category names are "<ag>-candle-census" -- strip the suffix to recover the real
+    # asset group so dashboards/heartbeat classify these VMs with the rest of that asset group instead
+    # of a novel "<AG>-CANDLE-CENSUS" bucket.
+    [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_MIGRATION_CMD=${cmd}"
+    # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
+    # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),
+    # but it is still echoed verbatim into VM_MIGRATION_MODE metadata and the "mode=" GCE label
+    # below. An operator passing "full" gets a VM labeled mode=full that only ever dry-runs -- not a
+    # mutation risk, but misleading for fleet dashboards filtering on mode=full to find write-mode
+    # runs. Fix: hardcode VM_MIGRATION_MODE/label to "dry" for *-candle-census regardless of $MODE.
     md="${md},VM_MIGRATION_MODE=${MODE}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
@@ -412,7 +520,7 @@ _launch() {
     # alongside. So every repo is ANNOUNCED here, pinned or not, and the unpinned
     # case is a visible WARNING rather than silence.
     _pin_summary=""
-    for _pin_key in UAC_TARBALL_SHA UTL_TARBALL_SHA MTDS_TARBALL_SHA; do
+    for _pin_key in UAC_TARBALL_SHA UTL_TARBALL_SHA MTDS_TARBALL_SHA MDPS_TARBALL_SHA; do
         eval "_pin_val=\"\${${_pin_key}:-}\""
         if [[ -n "${_pin_val}" ]]; then
             md="${md},${_pin_key}=${_pin_val}"
@@ -435,6 +543,7 @@ _launch() {
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == "tradfi-catalogue-canon" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == *-candle-census ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
@@ -469,7 +578,7 @@ case "$ASSET_GROUP" in
             _launch tradfi
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

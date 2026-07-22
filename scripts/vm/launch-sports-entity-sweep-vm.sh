@@ -34,10 +34,19 @@ PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"
 DRY_RUN=false
-SINGLE_ENTITY=""
+# SINGLE_ENTITY env fallback (SPOT-preemption relaunch support): a bare
+# re-invocation (RelaunchPreemptedVm passes ZERO CLI args, only the env
+# lc_write_launch_params captured) must scope back down to the ONE entity that
+# was preempted — otherwise it would re-launch all 17 entity VMs. --entity
+# always wins over the env value.
+SINGLE_ENTITY="${SINGLE_ENTITY:-}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 TODAY="$(date +%F)"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --env)          DEPLOYMENT_ENV="$2"; shift 2 ;;
     --chunk-days)   CHUNK_DAYS="$2"; shift 2 ;;
+    --on-demand)    ON_DEMAND=true; shift ;;
     -h|--help)
       echo "Usage: $0 [--dry-run] [--entity <ENTITY>] [--project ID] [--zone Z] [--env prod|staging|dev]"
       exit 0 ;;
@@ -157,10 +167,27 @@ launch_vm() {
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
   fi
 
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+  # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+  # "Close the SPOT-preemption relaunch gap"): persist the ONE entity this VM
+  # covers so exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+  # (relaunch_backfill_vm.RelaunchPreemptedVm) re-invokes THIS launcher scoped
+  # to just this entity (via the SINGLE_ENTITY env fallback above) instead of
+  # re-launching all 17 entity VMs. Best-effort, non-fatal.
+  lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-sports-entity-sweep-vm.sh" \
+      "SINGLE_ENTITY=${VM_SPORTS_ENTITY}" \
+      "CHUNK_DAYS=${CHUNK_DAYS}" \
+      "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+
+  # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
+    ${PROVISIONING_FLAGS} \
     --scopes=cloud-platform \
     --no-restart-on-failure \
     --image-family=ubuntu-2404-lts-amd64 \
