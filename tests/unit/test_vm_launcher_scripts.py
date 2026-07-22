@@ -1324,6 +1324,153 @@ export -f gsutil
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
 
+class TestDefiLaunchersSpotPreemptionContract:
+    """SPOT preemption contract for the two DeFi backfill launchers
+    (defi_mvp_backfill_optimization_ready_2026_07_20.md defect #2 — "Both DeFi
+    launchers MISS the SPOT preemption contract"). Before this fix,
+    launch-defi-backfill-vm.sh + launch-mtds-solana-defi-backfill-vm.sh had ZERO
+    lc_write_preemption_signal_file / lc_write_launch_params calls (unlike
+    launch-cefi-sharded-backfill.sh:568-589, which has 6), so a SPOT preemption
+    relaunched blind onto the launcher's bare defaults instead of the exact
+    scope the terminated VM was running. These tests never touch real GCS/GCE —
+    gcloud/gsutil are mocked shell functions (same harness as
+    TestCanonicalMigrationVmRelaunch above)."""
+
+    DEFI_LAUNCHER = "scripts/vm/launch-defi-backfill-vm.sh"
+    SOLANA_LAUNCHER = "scripts/vm/launch-mtds-solana-defi-backfill-vm.sh"
+
+    def _mock_preamble(self, capture_dir: Path, gcloud_log: Path) -> str:
+        # gcloud: no-op success; every "compute instances create" call's FULL
+        # argument list is appended to gcloud_log (unlike the vm-name-only "$4"
+        # capture in TestCanonicalMigrationVmRelaunch) so a test can grep for
+        # --metadata-from-file=shutdown-script=... on the same line. "compute
+        # instances list" (the Solana launcher's already-running guard) falls
+        # through the else branch and returns nothing, i.e. EXISTING="" — the
+        # guard's normal not-already-running path. gsutil: only `-q cp -`
+        # (lc_write_launch_params's actual mechanism) is intercepted, stdin
+        # captured to <capture_dir>/<basename(uri)>; every other gsutil call
+        # (freshness checks, etc.) is a harmless no-op.
+        return f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{
+    if [[ "$1 $2 $3" == "-q cp -" ]]; then
+        local uri="$4"
+        cat > "{capture_dir}/$(basename "$uri")"
+        return 0
+    fi
+    return 0
+}}
+export -f gsutil
+'''
+
+    def _run(
+        self, launcher: str, args: list[str], env_extra: dict[str, str], tmp_path: Path
+    ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+        launcher_path = Path(__file__).parent.parent.parent / launcher
+        capture_dir = tmp_path / "gsutil_captures"
+        capture_dir.mkdir()
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble(capture_dir, gcloud_log) + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, **env_extra},
+        )
+        return result, capture_dir, gcloud_log
+
+    # ── launch-defi-backfill-vm.sh ──────────────────────────────────────────
+
+    def test_defi_launcher_writes_launch_params_with_replayable_scope(self, tmp_path: Path) -> None:
+        result, capture_dir, _gcloud_log = self._run(self.DEFI_LAUNCHER, [], {}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        params_file = capture_dir / "LAUNCH_PARAMS.json"
+        assert params_file.exists(), "lc_write_launch_params must have been called"
+        import json
+
+        payload = json.loads(params_file.read_text())
+        assert payload["launcher"] == "launch-defi-backfill-vm.sh"
+        env = payload["env"]
+        assert env["START_DATE"] == "2020-01-01"
+        assert env["END_DATE"] == "2026-04-04"
+        assert env["CHUNK_DAYS"] == "250"
+        assert env["VM_FORCE"] == "false"
+
+    def test_defi_launcher_persists_force_true_when_force_flag_passed(self, tmp_path: Path) -> None:
+        result, capture_dir, _gcloud_log = self._run(self.DEFI_LAUNCHER, ["--force"], {}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        import json
+
+        payload = json.loads((capture_dir / "LAUNCH_PARAMS.json").read_text())
+        assert payload["env"]["VM_FORCE"] == "true"
+
+    def test_defi_launcher_gcloud_create_carries_preemption_shutdown_script(self, tmp_path: Path) -> None:
+        result, _capture_dir, gcloud_log = self._run(self.DEFI_LAUNCHER, [], {}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert gcloud_log.exists()
+        call = gcloud_log.read_text()
+        assert "--metadata-from-file=shutdown-script=" in call
+
+    def test_defi_launcher_respects_inherited_start_date_env(self, tmp_path: Path) -> None:
+        """The checkpoint-resume fix: START_DATE must be READ from an inherited env
+        (RelaunchPreemptedVm sets env["START_DATE"]=<frontier>), not clobbered by
+        the launcher's own hardcoded default."""
+        result, capture_dir, _gcloud_log = self._run(self.DEFI_LAUNCHER, [], {"START_DATE": "2025-06-01"}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        import json
+
+        payload = json.loads((capture_dir / "LAUNCH_PARAMS.json").read_text())
+        assert payload["env"]["START_DATE"] == "2025-06-01"
+
+    # ── launch-mtds-solana-defi-backfill-vm.sh ──────────────────────────────
+
+    def test_solana_launcher_writes_launch_params_with_replayable_scope(self, tmp_path: Path) -> None:
+        result, capture_dir, _gcloud_log = self._run(self.SOLANA_LAUNCHER, [], {}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        params_file = capture_dir / "LAUNCH_PARAMS.json"
+        assert params_file.exists(), "lc_write_launch_params must have been called"
+        import json
+
+        payload = json.loads(params_file.read_text())
+        assert payload["launcher"] == "launch-mtds-solana-defi-backfill-vm.sh"
+        env = payload["env"]
+        assert env["START_DATE"] == "2023-01-01"
+        assert env["SOLANA_PROTOCOLS"] == "kamino;orca;raydium"
+
+    def test_solana_launcher_gcloud_create_carries_preemption_shutdown_script(self, tmp_path: Path) -> None:
+        result, _capture_dir, gcloud_log = self._run(self.SOLANA_LAUNCHER, [], {}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert gcloud_log.exists()
+        assert "--metadata-from-file=shutdown-script=" in gcloud_log.read_text()
+
+    def test_solana_launcher_respects_inherited_start_date_env(self, tmp_path: Path) -> None:
+        """Regression guard: this launcher already read ${START_DATE:-...} before
+        this fix — confirm the new lc_write_launch_params call round-trips it."""
+        result, capture_dir, _gcloud_log = self._run(self.SOLANA_LAUNCHER, [], {"START_DATE": "2025-06-01"}, tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        import json
+
+        payload = json.loads((capture_dir / "LAUNCH_PARAMS.json").read_text())
+        assert payload["env"]["START_DATE"] == "2025-06-01"
+
+    def test_defi_launcher_syntax_valid(self) -> None:
+        launcher_path = Path(__file__).parent.parent.parent / self.DEFI_LAUNCHER
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+    def test_solana_launcher_syntax_valid(self) -> None:
+        launcher_path = Path(__file__).parent.parent.parent / self.SOLANA_LAUNCHER
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+
 class TestCandleApplyCategory:
     """The `<ag>-candle-apply` category (2026-07-22, P7): the REAL --apply migration+purge pass over
     one asset_group's processed_candles/ corpus, distinct from `<ag>-candle-census` (always --dry-run,

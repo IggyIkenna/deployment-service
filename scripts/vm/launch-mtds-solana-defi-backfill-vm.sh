@@ -161,6 +161,24 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
+# SPOT preemption contract (defi_mvp_backfill_optimization_ready_2026_07_20.md
+# defect #2 — "Both DeFi launchers MISS the SPOT preemption contract"; mirrors
+# launch-cefi-sharded-backfill.sh:568-589). lc_write_preemption_signal_file
+# marks a SPOT shutdown as an expected preemption for fleet monitors (instead
+# of an unexplained DP_VM_GONE_NO_CAPTURE); lc_write_launch_params persists
+# the exact scope this VM was launched with (START_DATE/END_DATE already read
+# from env above, so a checkpoint-resumed relaunch's overridden START_DATE
+# round-trips) so exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+# (RelaunchPreemptedVm) can re-invoke this launcher with the SAME
+# protocols/date-window instead of a blind relaunch onto the launcher's bare
+# defaults.
+lc_write_preemption_signal_file
+lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-mtds-solana-defi-backfill-vm.sh" \
+    "START_DATE=${START_DATE}" \
+    "END_DATE=${END_DATE}" \
+    "SOLANA_PROTOCOLS=${SOLANA_PROTOCOLS}" \
+    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
@@ -172,7 +190,8 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-solana-defi-backfill,env=${DEPLOYMENT_ENV}" \
-  --metadata="${METADATA}"
+  --metadata="${METADATA}" \
+  --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
 
 echo ""
 echo "  VM created: ${VM_NAME}"

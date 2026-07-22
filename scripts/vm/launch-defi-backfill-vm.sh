@@ -62,8 +62,16 @@ esac
 
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 VM_NAME="instr-backfill-defi-targeted"
-START_DATE="2020-01-01"
-END_DATE="2026-04-04"
+# Read from an inherited env (not just the hardcoded default) so a SPOT
+# preemption relaunch can override the frontier via RelaunchPreemptedVm's
+# PROGRESS-checkpoint resume (env["START_DATE"] = last_completed_date) —
+# mirrors launch-mtds-solana-defi-backfill-vm.sh, which already does this.
+# Without this read, a plain `START_DATE="2020-01-01"` assignment clobbers
+# any inherited value and the checkpoint-resume override would be silently
+# discarded on every relaunch. SSOT: codex/05-infrastructure/spot-vms-for-backfill.md
+# § "Preemption recovery MUST resume from PROGRESS, never replay START_DATE".
+START_DATE="${START_DATE:-2020-01-01}"
+END_DATE="${END_DATE:-2026-04-04}"
 
 # Apply CLI overrides. Suffix VM name with end-date to avoid singleton collision.
 if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
@@ -133,6 +141,23 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
+# SPOT preemption contract (defi_mvp_backfill_optimization_ready_2026_07_20.md
+# defect #2 — "Both DeFi launchers MISS the SPOT preemption contract"; mirrors
+# launch-cefi-sharded-backfill.sh:568-589). lc_write_preemption_signal_file
+# marks a SPOT shutdown as an expected preemption for fleet monitors (instead
+# of an unexplained DP_VM_GONE_NO_CAPTURE); lc_write_launch_params persists
+# the exact scope this VM was launched with so exit_code_fleet_monitor's
+# PREEMPTED auto_recover actuator (RelaunchPreemptedVm) can re-invoke this
+# launcher with the SAME START_DATE/END_DATE/CHUNK_DAYS/force instead of a
+# blind relaunch onto the launcher's bare (full genesis-to-now) defaults.
+lc_write_preemption_signal_file
+lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-defi-backfill-vm.sh" \
+    "START_DATE=${START_DATE}" \
+    "END_DATE=${END_DATE}" \
+    "CHUNK_DAYS=${CHUNK_DAYS}" \
+    "VM_FORCE=$($FORCE && echo true || echo false)" \
+    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
@@ -144,7 +169,8 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=defi-instruments-backfill,asset-group=defi,env=${DEPLOYMENT_ENV}" \
-  --metadata="${METADATA}"
+  --metadata="${METADATA}" \
+  --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
 echo "  VM ${VM_NAME} created."
 echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
 
