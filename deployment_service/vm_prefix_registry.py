@@ -625,6 +625,20 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "orphan-sweep-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "orphan-sweep-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # Class-E orphan record_captured backfill (launch-backfill-orphan-e-vm.sh) — runs
+    # instruments-service/scripts/backfill_orphan_class_e.py --asset-group <ag> --apply,
+    # reading the durable orphan_sweep_{ag}.parquet report the sweep above already wrote.
+    # Sibling of orphan-sweep-* (same bucket=None heartbeat-only reasoning: this tool
+    # writes a FIXED per-AG report path, not a per-VM shard). Singleton-locked per
+    # asset_group. Sports is EXCLUDED (its own backfill_orphan_class_e_sports.py).
+    # SSOT: unified-trading-pm/plans/active/issues/estate_orphan_assessment_2026_07_21.md
+    # todo 3b.
+    # ------------------------------------------------------------------
+    "backfill-orphan-e-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-orphan-e-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-orphan-e-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-orphan-e-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom

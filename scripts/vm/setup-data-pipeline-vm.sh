@@ -1787,6 +1787,21 @@ elif [[ "$VM_TASK" == "orphan-sweep" ]]; then
   else
     log "ERROR: orphan-sweep task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "backfill-orphan-e" ]]; then
+  # class-E orphan record_captured backfill — launch-backfill-orphan-e-vm.sh prepares
+  # the correct backfill_orphan_class_e.py invocation in VM_BACKFILL_CMD (same
+  # VM_BACKFILL_CMD dispatch shape as orphan-sweep above — sibling launcher, added
+  # 2026-07-22 so this VM_TASK gets its OWN branch from day one rather than repeating
+  # the recurring no-dispatch-branch bug class documented on orphan-sweep above).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/instruments" || { log "ERROR: $WORKSPACE/instruments missing — instruments-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/backfill-orphan-e.log"
+  else
+    log "ERROR: backfill-orphan-e task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.
