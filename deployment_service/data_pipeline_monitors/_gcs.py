@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -19,6 +21,85 @@ from typing import cast
 from unified_trading_library import StorageClient
 
 logger = logging.getLogger(__name__)
+
+# Bounded wait for a single GCS SDK call inside a per-VM fleet-sweep hot loop.
+#
+# **Why not simply pass a caller-supplied ``timeout=`` straight to the SDK
+# call?** The UTL ``StorageClient`` abstraction
+# (``unified_trading_library.cloud_interface.abstractions.StorageClient``,
+# implemented by ``GCSStorageClient`` in ``cloud_interface/providers/gcp.py``)
+# does NOT expose a ``timeout`` kwarg on ``blob_exists``/``download_bytes`` to
+# callers — the GCP provider hardcodes its OWN internal timeout
+# (``download_bytes`` -> ``blob.download_as_bytes(timeout=600, ...)``;
+# ``blob_exists`` -> ``blob.exists()`` with no override at all, whatever the
+# native SDK's own default is). Read directly from source before writing this
+# fix (dp_exit_code_monitor_cron_dead_2026_07_23.md's suggested "just pass
+# timeout=" assumed a kwarg this interface does not actually expose). Note
+# too that ``download_bytes``'s hardcoded 600s ALONE already exceeds this
+# Cloud Run job's own 300s ``timeoutSeconds`` budget, so even that call's
+# eventual internal timeout could never fire before Cloud Run kills the whole
+# task first. Extending the shared UTL interface to accept a caller-supplied
+# timeout would be the ideal long-term fix but is a cross-repo change to a T1
+# shared library, out of this single-repo fix's scope.
+#
+# So this helper bounds the call from the CALLER side instead, on a plain
+# ``threading.Thread(daemon=True)`` — the same bounded-wait /
+# abandon-and-log MECHANISM already shipped THIS WEEK for the identical
+# untimed-GCS-read failure class in market-tick-data-service
+# (mtds_defi_migration_cell_stall_untimed_gcs_read_2026_07_22.md), adapted
+# from that fix's N-way ``ThreadPoolExecutor`` poll down to a single-call
+# join (this file has one blocking call per invocation, not a fan-out).
+# Deliberately a raw daemon ``Thread`` rather than a
+# ``concurrent.futures.ThreadPoolExecutor``: an executor's worker is joined
+# by a process-wide ``atexit`` hook at interpreter shutdown REGARDLESS of
+# ``shutdown(wait=False)`` on that one pool instance — the exact gotcha the
+# MTDS fix above had to separately work around with an explicit
+# ``os._exit()``. A plain daemon thread is never joined by anything, so an
+# abandoned one can never block this process's exit.
+DEFAULT_GCS_CALL_TIMEOUT_SECONDS = 30.0
+
+
+def _call_with_timeout[T](
+    fn: Callable[[], T],
+    *,
+    timeout_seconds: float,
+    op_label: str,
+) -> T:
+    """Run ``fn`` on a daemon thread, bounded to ``timeout_seconds``.
+
+    Raises ``TimeoutError`` — logged as a distinct WARNING here, BEFORE
+    raising, so a wedged blob is diagnosable rather than silently folding
+    into the same "not found" outcome a genuinely-absent blob produces —
+    when ``fn`` has not completed within the bound. Re-raises whatever ``fn``
+    itself raised on a normal (non-timeout) failure, unchanged, so a caller
+    that already wraps this in a broad ``except Exception`` (e.g.
+    :func:`read_text`) sees no behavior change on that path.
+    """
+    result: list[T] = []
+    error: list[Exception] = []
+
+    def _runner() -> None:
+        try:
+            result.append(fn())
+        except Exception as exc:
+            error.append(exc)
+
+    thread = threading.Thread(target=_runner, name=f"gcs-timeout:{op_label}", daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        logger.warning(
+            "_gcs: %s exceeded the %.0fs bounded-call timeout — abandoning the stalled GCS "
+            "call (the thread is left running as a daemon so it can never block process exit) "
+            "and treating this call as failed",
+            op_label,
+            timeout_seconds,
+        )
+        raise TimeoutError(f"{op_label} exceeded {timeout_seconds:.0f}s")
+    if error:
+        raise error[0]
+    return result[0]
+
 
 # Canonical VM live-log paths (mirror unified_trading_library.deployment_registry):
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/run.log
@@ -383,15 +464,45 @@ def run_log_signals(storage_client: StorageClient, bucket: str, vm_name: str) ->
     return RunLogSignals(pipeline_heartbeat_age_min=hb_age, run_log_age_min=log_age)
 
 
-def read_text(storage_client: StorageClient, bucket: str, blob_path: str) -> str | None:
+def read_text(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> str | None:
     """Download a blob as UTF-8 text, or ``None`` if missing/unreadable.
 
-    Never raises — a missing blob (the VM never wrote it) reads as ``None``.
+    Never raises — a missing blob (the VM never wrote it) reads as ``None``,
+    and so does a genuine read error.
+
+    **Bounded** (2026-07-23, dp_exit_code_monitor_cron_dead_2026_07_23.md):
+    each underlying GCS call (``blob_exists`` / ``download_bytes``) is
+    wrapped in :func:`_call_with_timeout`, so a wedged/stalled connection on
+    ONE blob fails fast (``timeout_seconds``, default
+    :data:`DEFAULT_GCS_CALL_TIMEOUT_SECONDS` = 30s) instead of hanging the
+    caller's entire per-VM fleet-sweep loop past its own Cloud Run job
+    timeout — the confirmed failure mode that hung
+    ``uts-prod-dp-exit-code-monitor`` on every execution for ~83h straight.
+    A timeout is logged as a distinct WARNING (inside the helper, before this
+    function folds it into the same ``None`` "unreadable" outcome every
+    other read failure already produces) — never silently swallowed, so a
+    future occurrence is diagnosable from the Cloud Run logs.
     """
     try:
-        if not storage_client.blob_exists(bucket, blob_path):
+        exists = _call_with_timeout(
+            lambda: storage_client.blob_exists(bucket, blob_path),
+            timeout_seconds=timeout_seconds,
+            op_label=f"blob_exists({bucket}/{blob_path})",
+        )
+        if not exists:
             return None
-        return storage_client.download_bytes(bucket, blob_path).decode("utf-8", errors="replace")
+        raw = _call_with_timeout(
+            lambda: storage_client.download_bytes(bucket, blob_path),
+            timeout_seconds=timeout_seconds,
+            op_label=f"download_bytes({bucket}/{blob_path})",
+        )
+        return raw.decode("utf-8", errors="replace")
     except Exception:
         return None
 
@@ -626,7 +737,13 @@ def read_progress_checkpoint(storage_client: StorageClient, bucket: str, vm_name
     return {"last_completed_date": last.strip(), "monotonic": "true" if monotonic else "false"}
 
 
-def is_vm_preempted(storage_client: StorageClient, bucket: str, vm_name: str) -> bool:
+def is_vm_preempted(
+    storage_client: StorageClient,
+    bucket: str,
+    vm_name: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> bool:
     """True when the PREEMPTED signal blob exists for ``vm_name``.
 
     A spot backfill VM writes ``vm-logs/{vm}/PREEMPTED`` in its shutdown-script when
@@ -636,9 +753,19 @@ def is_vm_preempted(storage_client: StorageClient, bucket: str, vm_name: str) ->
     ``DP_VM_GONE_NO_CAPTURE`` CRITICAL should fire. Never raises (a read error
     conservatively returns ``False`` so the monitor falls through to the normal
     classification path).
+
+    **Bounded** (2026-07-23, same fix as :func:`read_text`): this is a sibling
+    ``blob_exists`` call in ``exit_code_fleet_monitor.sweep()``'s own per-VM
+    hot loop that does NOT funnel through ``read_text`` — a wedged connection
+    here would hang the sweep exactly the same way, so it gets the identical
+    :func:`_call_with_timeout` bound + distinct-WARNING-on-timeout logging.
     """
     try:
-        return storage_client.blob_exists(bucket, PREEMPTED_BLOB.format(vm=vm_name))
+        return _call_with_timeout(
+            lambda: storage_client.blob_exists(bucket, PREEMPTED_BLOB.format(vm=vm_name)),
+            timeout_seconds=timeout_seconds,
+            op_label=f"blob_exists({bucket}/{PREEMPTED_BLOB.format(vm=vm_name)})",
+        )
     except Exception:
         return False
 

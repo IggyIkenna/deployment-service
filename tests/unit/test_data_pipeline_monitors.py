@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -130,6 +132,109 @@ def test_exit_code_none_for_running_sentinel_not_misread_as_success():
     vm = "fss-backfill-vm-4"
     storage = FakeStorage({(LOG_BUCKET, _exit_status_blob(vm)): (b"RUNNING\n", 0.0)})
     assert _gcs.read_terminal_exit_code(storage, LOG_BUCKET, vm) is None
+
+
+# ── _gcs bounded-read timeout (2026-07-23, dp_exit_code_monitor_cron_dead_2026_07_23.md) ──
+# Proves a wedged/stalled GCS call fails FAST instead of hanging the caller forever — the
+# confirmed failure mode that hung uts-prod-dp-exit-code-monitor's whole 5-minute sweep on
+# every execution for ~83h straight. Each test uses a genuinely-blocking fake call
+# (threading.Event that is never set) + a SHORT test timeout, so the assertion is on real
+# bounded-wait behavior (elapsed time), not just that a timeout parameter exists.
+class _StallingStorage:
+    """StorageClient stand-in whose blob_exists/download_bytes block forever
+    (until the daemon thread is abandoned) — simulates a wedged GCS connection."""
+
+    def blob_exists(self, bucket: str, path: str) -> bool:
+        threading.Event().wait()  # never set -> blocks until the process exits
+        return True  # pragma: no cover - unreachable within the test's bound
+
+    def download_bytes(self, bucket: str, path: str) -> bytes:
+        threading.Event().wait()
+        return b""  # pragma: no cover - unreachable within the test's bound
+
+
+class _ExistsButHangsOnDownload:
+    """blob_exists returns instantly; download_bytes is the one that stalls —
+    proves BOTH underlying calls in read_text are independently bounded."""
+
+    def blob_exists(self, bucket: str, path: str) -> bool:
+        return True
+
+    def download_bytes(self, bucket: str, path: str) -> bytes:
+        threading.Event().wait()
+        return b""  # pragma: no cover - unreachable within the test's bound
+
+
+def test_call_with_timeout_returns_promptly_and_logs_distinctly_on_stall(caplog):
+    def _hang() -> str:
+        threading.Event().wait()
+        return "unreachable"  # pragma: no cover
+
+    start = time.monotonic()
+    with caplog.at_level("WARNING", logger="deployment_service.data_pipeline_monitors._gcs"):
+        with pytest.raises(TimeoutError):
+            _gcs._call_with_timeout(_hang, timeout_seconds=0.2, op_label="test-op")
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0  # bounded, not hung — proves the wrapper actually returns
+    assert any("test-op" in rec.message and "exceeded" in rec.message for rec in caplog.records)
+
+
+def test_read_text_returns_none_promptly_when_blob_exists_stalls():
+    storage = _StallingStorage()
+    start = time.monotonic()
+    result = _gcs.read_text(storage, LOG_BUCKET, "vm-logs/wedged/run.log", timeout_seconds=0.2)
+    elapsed = time.monotonic() - start
+    assert result is None  # matches read_text's existing not-found/unreadable semantics
+    assert elapsed < 5.0
+
+
+def test_read_text_returns_none_promptly_when_download_bytes_stalls():
+    storage = _ExistsButHangsOnDownload()
+    start = time.monotonic()
+    result = _gcs.read_text(storage, LOG_BUCKET, "vm-logs/wedged/run.log", timeout_seconds=0.2)
+    elapsed = time.monotonic() - start
+    assert result is None
+    assert elapsed < 5.0
+
+
+def test_read_text_timeout_logged_distinctly_not_silently_swallowed(caplog):
+    # A timeout must be diagnosable in the Cloud Run logs, not fold silently into the
+    # SAME "None" outcome a genuinely-absent blob produces with zero trace.
+    storage = _StallingStorage()
+    with caplog.at_level("WARNING", logger="deployment_service.data_pipeline_monitors._gcs"):
+        result = _gcs.read_text(storage, LOG_BUCKET, "vm-logs/wedged/run.log", timeout_seconds=0.2)
+    assert result is None
+    assert any("exceeded" in rec.message and "bounded-call timeout" in rec.message for rec in caplog.records)
+
+
+def test_read_text_unaffected_on_the_happy_path():
+    # Regression guard: the bounded-wait wrapper must not change ordinary behavior.
+    vm = "healthy-vm"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (b"hello world", 0.0)})
+    assert _gcs.read_text(storage, LOG_BUCKET, _run_log_blob(vm), timeout_seconds=5.0) == "hello world"
+
+
+def test_read_text_missing_blob_still_returns_none_fast():
+    # A genuinely-absent blob (the common case) must stay instant, not accidentally
+    # route through the timeout path.
+    storage = FakeStorage({})
+    start = time.monotonic()
+    result = _gcs.read_text(storage, LOG_BUCKET, "vm-logs/never-existed/run.log", timeout_seconds=5.0)
+    elapsed = time.monotonic() - start
+    assert result is None
+    assert elapsed < 1.0
+
+
+def test_is_vm_preempted_returns_false_promptly_on_stall():
+    # is_vm_preempted is a sibling untimed-call site (blob_exists) reachable from
+    # exit_code_fleet_monitor.sweep()'s own per-VM hot loop that does NOT funnel
+    # through read_text — must get the identical bound.
+    storage = _StallingStorage()
+    start = time.monotonic()
+    result = _gcs.is_vm_preempted(storage, LOG_BUCKET, "wedged-vm", timeout_seconds=0.2)
+    elapsed = time.monotonic() - start
+    assert result is False
+    assert elapsed < 5.0
 
 
 # ── _gcs.read_progress_checkpoint (SPOT preemption resume checkpoint) ─────────
@@ -2525,6 +2630,182 @@ def test_cron_stale_sentinel_alerts_when_execution_unknown(monkeypatch):
         execution_history_reader=lambda _job: None,
     )
     assert "DP_CRON_DID_NOT_FIRE" in emitted
+
+
+# ── DP_CRON_DID_NOT_FIRE re-nag cooldown (2026-07-23) ────────────────────────
+# dp_exit_code_monitor_cron_dead_2026_07_23.md: check_cron_fired had no re-fire
+# suppression (unlike its sibling check_high_attempted_failed, which got a 30-min
+# RenagTracker cooldown fix on 2026-07-15 for this EXACT spam pattern) — so
+# DP_CRON_DID_NOT_FIRE re-paged an identical CRITICAL every */15 meta-sweep for as
+# long as the underlying condition held (dp-exit-code-monitor: ~10 identical pages
+# in under an hour). These tests mirror the DP-FETCH-009 renag tests above exactly
+# (same RenagTracker mechanism, same apply_cooldown gate before _emit, same
+# .record() immediately after) — the SAME mechanism, not an invented one.
+
+
+def test_cron_renag_first_emission_fires_immediately(monkeypatch):
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted = _capture_emits(monkeypatch)
+    meta_watchers.reset_emitted_tracker()
+    renag = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[_monitor_target()], renag_tracker=renag)
+    renag.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_cron_renag_suppresses_repeat_page_within_cooldown(monkeypatch):
+    # A second sweep with the SAME cron still stale, well within the cooldown window,
+    # must NOT re-page — this is the exact spam dp-exit-code-monitor hit (~10 identical
+    # pages in under an hour, one per */15 meta-sweep).
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted = _capture_emits(monkeypatch)
+    target = _monitor_target()
+    key = meta_watchers._cron_miss_key(target)
+
+    # Sweep 1 — fresh renag_tracker, no cooldown recorded yet → pages.
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)
+    emitted.clear()
+
+    # Sweep 2 — same cron still stale, default 1800s cooldown has NOT elapsed → suppressed.
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    results = meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag2)
+    renag2.persist()
+    assert results[0].stale is True  # condition genuinely still stale...
+    assert not any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)  # ...but the page is suppressed
+    # Still marked ACTIVE this sweep (cooldown-suppressed != resolved) so reconcile_resolved
+    # never mistakes cooldown-suppression for a genuine clear.
+    assert key in meta_watchers._EMITTED_THIS_SWEEP
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_cron_renag_reemits_after_cooldown_elapses(monkeypatch):
+    # Once the cooldown has genuinely elapsed since the LAST actual alert, the
+    # still-stale cron re-emits (this is re-nag, not permanent silence).
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted = _capture_emits(monkeypatch)
+    target = _monitor_target()
+    key = meta_watchers._cron_miss_key(target)
+
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)
+    emitted.clear()
+
+    # Back-date the persisted last_alerted_at past the cooldown (simulates a sweep
+    # that runs after DEFAULT_RENAG_COOLDOWN_SECONDS have genuinely elapsed, without a
+    # real sleep in the test).
+    stale_ts = datetime.now(UTC).timestamp() - (renag_tracker_module.DEFAULT_RENAG_COOLDOWN_SECONDS + 60.0)
+    storage.blobs[(LOG_BUCKET, renag_tracker_module.DP_RENAG_TIMESTAMPS_BLOB)] = (
+        json.dumps({key: stale_ts}).encode(),
+        0.0,
+    )
+
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag2)
+    renag2.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_cron_renag_cleared_on_resolve_allows_immediate_fresh_onset(monkeypatch):
+    # After reconcile_resolved posts the RESOLVED bookend for a cron that recovers, a
+    # LATER fresh stall on the SAME cron must fire immediately — not blocked by stale
+    # re-nag state left over from the prior incident.
+    bucket, blob = "deployment-scripts-prd", "vm-census/exit-code-last-run.json"
+    storage = FakeStorage({(bucket, blob): (b"{}", 40.0)})  # stale (40m > 10m budget)
+    emitted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.meta_watchers.log_event",
+        lambda event, severity="INFO", details=None: emitted.append((event, severity)),
+    )
+    target = _monitor_target()
+    key = meta_watchers._cron_miss_key(target)
+
+    # Sweep 1 — stale, first-ever emission; reconcile_resolved records it ACTIVE.
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag1)
+    meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "CRITICAL" for e in emitted)
+    emitted.clear()
+
+    # Sweep 2 — the sentinel goes fresh (cron recovered) → not stale → not emitted →
+    # reconcile_resolved sees the key drop out → RESOLVED bookend + renag state cleared.
+    storage.blobs[(bucket, blob)] = (b"{}", 0.0)
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag2)
+    resolved = meta_watchers.reconcile_resolved(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag2)
+    renag2.persist()
+    assert key in resolved
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "INFO" for e in emitted)  # RESOLVED bookend
+    emitted.clear()
+
+    # Sweep 3 — a FRESH stall on the SAME cron moments later. Despite the prior
+    # incident having alerted very recently (well within the cooldown), the cleared
+    # renag state means this is treated as a first-ever emission → fires immediately.
+    storage.blobs[(bucket, blob)] = (b"{}", 40.0)
+    meta_watchers.reset_emitted_tracker()
+    renag3 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[target], renag_tracker=renag3)
+    renag3.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" and e[1] == "CRITICAL" for e in emitted)
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_cron_no_renag_tracker_pages_every_sweep(monkeypatch):
+    # Back-compat: with no renag_tracker (existing call sites / tests unaffected), a
+    # stale cron pages on EVERY sweep, as before — the pre-fix behavior for anyone not
+    # yet passing a tracker.
+    storage = FakeStorage({("deployment-scripts-prd", "vm-census/exit-code-last-run.json"): (b"{}", 40.0)})
+    emitted = _capture_emits(monkeypatch)
+    meta_watchers.reset_emitted_tracker()
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[_monitor_target()])
+    meta_watchers.reset_emitted_tracker()
+    meta_watchers.check_cron_fired(storage_client=storage, targets=[_monitor_target()])
+    assert sum(1 for e in emitted if e[0] == "DP_CRON_DID_NOT_FIRE") == 2  # both sweeps paged
+    meta_watchers.reset_emitted_tracker()
+
+
+def test_check_monitor_crons_fired_forwards_renag_tracker(monkeypatch):
+    # check_monitor_crons_fired is a thin wrapper over check_cron_fired for the
+    # monitor-sweep sentinels — this IS the exact path dp-exit-code-monitor's own
+    # stale sentinel spammed DP_CRON_DID_NOT_FIRE through. Prove renag_tracker
+    # actually reaches check_cron_fired via the wrapper, not just that the wrapper
+    # accepts the kwarg.
+    storage = FakeStorage({(LOG_BUCKET, _gcs.MONITOR_LAST_RUN_BLOB.format(mode="exit-code")): (b"{}", 100.0)})
+    emitted = _capture_emits(monkeypatch)
+    target = next(t for t in meta_watchers.monitor_cron_targets(LOG_BUCKET) if "exit-code" in t.label)
+    key = meta_watchers._cron_miss_key(target)
+
+    meta_watchers.reset_emitted_tracker()
+    renag1 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_monitor_crons_fired(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag1)
+    renag1.persist()
+    assert any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)
+    emitted.clear()
+
+    meta_watchers.reset_emitted_tracker()
+    renag2 = renag_tracker_module.RenagTracker.load(storage_client=storage, log_bucket=LOG_BUCKET)
+    meta_watchers.check_monitor_crons_fired(storage_client=storage, log_bucket=LOG_BUCKET, renag_tracker=renag2)
+    renag2.persist()
+    assert not any(e[0] == "DP_CRON_DID_NOT_FIRE" for e in emitted)  # cooldown suppressed via the forwarded tracker
+    assert key in meta_watchers._EMITTED_THIS_SWEEP
+    meta_watchers.reset_emitted_tracker()
 
 
 def test_reconcile_resolved_emits_bookend_when_alert_clears(monkeypatch):

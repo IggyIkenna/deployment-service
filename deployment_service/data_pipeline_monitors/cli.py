@@ -806,6 +806,7 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
+                renag_tracker=renag_tracker,  # 2026-07-23 re-nag cooldown
             )
             # DP-WATCHER-003: the INVERSE of check_cron_fired's pause-awareness —
             # page when a non-`-legacy-` manifest-consolidator scheduler is PAUSED
@@ -834,6 +835,7 @@ def main(argv: list[str] | None = None) -> int:
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
+                renag_tracker=renag_tracker,  # 2026-07-23: dp-exit-code-monitor's own spam path
             )
             _live_shards = live_stream_watcher.build_prediction_live_shards(
                 storage_client
