@@ -215,6 +215,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "orphan-sweep-defi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-tradfi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-prediction-": "launch-orphan-sweep-vm.sh",
+    "backfill-orphan-e-cefi-": "launch-backfill-orphan-e-vm.sh",
+    "backfill-orphan-e-defi-": "launch-backfill-orphan-e-vm.sh",
+    "backfill-orphan-e-tradfi-": "launch-backfill-orphan-e-vm.sh",
+    "backfill-orphan-e-prediction-": "launch-backfill-orphan-e-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
