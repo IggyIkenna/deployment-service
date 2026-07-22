@@ -132,13 +132,23 @@ PREV_REVISION=$(get_current_revision)
 log "Previous stable revision: ${PREV_REVISION:-<none>}"
 
 # ── Step 1: Deploy new revision with no traffic ──────────────────────────────
+# --no-traffic is rejected by `gcloud run deploy` when the service does not exist yet
+# (a brand-new service has no traffic to withhold) — only pass it when a previous
+# revision is already serving.
 
-log "Deploying new revision (no traffic)..."
+DEPLOY_TRAFFIC_FLAGS=()
+if [ -n "$PREV_REVISION" ]; then
+  DEPLOY_TRAFFIC_FLAGS+=(--no-traffic)
+  log "Deploying new revision (no traffic)..."
+else
+  log "Deploying first revision (service does not exist yet — no --no-traffic)..."
+fi
+
 if ! run_cmd gcloud run deploy "$SERVICE" \
   --image "$IMAGE_TAG" \
   --region "$REGION" \
   --project "$PROJECT" \
-  --no-traffic \
+  "${DEPLOY_TRAFFIC_FLAGS[@]}" \
   --quiet 2>&1; then
   log "ERROR: Failed to deploy new revision"
   exit 2
