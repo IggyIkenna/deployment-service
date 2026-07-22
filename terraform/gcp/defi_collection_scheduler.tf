@@ -7,13 +7,13 @@
 #   pre-existing "${env_prefix}-market-tick-data-service-fast-t1-recon"
 #   target invokes "--operation run --mode batch --asset-group DEFI", which the
 #   orchestrator (`engine/orchestrator.py`) explicitly skips for every DeFi
-#   venue. The actual DeFi work happens via 11 dedicated `collect-*` ops
+#   venue. The actual DeFi work happens via 14 dedicated `collect-*` ops
 #   registered in `cli/main.py` — none of which had a scheduler entry.
 #
 #   This file declares both halves of the chain (Cloud Run Job spec + Cloud
 #   Scheduler cron) per operation, so cutting them on/off is single-PR.
 #
-# Why 11 jobs (not 1 fan-out wrapper)
+# Why 14 jobs (not 1 fan-out wrapper)
 #   * Failure isolation — a stuck Subgraph endpoint must not gate gas-fee
 #     collection.
 #   * Per-job CPU/memory tuning — `dex-pools` writes 64k+ rows/day and
@@ -22,22 +22,29 @@
 #   * Per-op rate-limit / retry — TheGraph keys, Alchemy RPC, and DeFiLlama
 #     have separate quotas.
 #   * Per-op logs/alerting — Cloud Logging filter by resource.labels.job_name.
-#   * Cost is trivial — Cloud Scheduler is $0.10/job/month → $1.10/month for
-#     all 11.
+#   * Cost is trivial — Cloud Scheduler is $0.10/job/month → $1.40/month for
+#     all 14.
 #
 # Stagger schedule (must finish by 02:25 UTC so features-onchain T+1 at
-# 02:30 UTC sees fresh manifest entries — see t1_batch_scheduler.tf:124-128)
+# 02:30 UTC sees fresh manifest entries — see t1_batch_scheduler.tf:124-128.
+# NOTE (2026-07-22, residual_defi_pipeline_completion follow-up): this
+# deadline already looked tight with 11 jobs (solana-defi alone can finish
+# ~02:30) before mev-events/bridge-events were added below; flagged to the
+# t1_batch_scheduler.tf owner separately, not silently absorbed here.)
 #   00:00 collect-gas-fees           Alchemy RPC per-block (heavy network)
 #   00:05 collect-oracle-prices      Chainlink RPC (multi-chain)
 #   00:15 collect-dex-pools          TheGraph subgraph (heavy memory)
 #   00:30 collect-dex-swaps          TheGraph subgraph (heavy memory)
 #   00:45 collect-lending-indices    Aave/Compound RPC + Subgraph
 #   01:00 collect-lst-rates          Lido / RocketPool / Mantle RPC
+#   01:10 collect-vault-share-price  ERC-4626 convertToAssets (Yearn/Ethena/Maker/Frax/Morpho)
 #   01:15 collect-perp-funding       Hyperliquid / dYdX / GMX REST
 #   01:30 collect-liquidations       Aave subgraph
 #   01:45 collect-eigenlayer-rewards EigenLayer RPC
 #   01:55 collect-evm-defi           Multi-source aggregate
 #   02:05 collect-solana-defi        Solana RPC + DeFiLlama yields
+#   02:10 collect-mev-events         Flashbots relay API (MEV-Boost stats)
+#   02:15 collect-bridge-events      ACROSS + STARGATE via Alchemy eth_getLogs
 #
 # Why two service accounts
 #   * `t1_batch_sa` (declared in t1_batch_scheduler.tf:40-51) — used by
@@ -57,7 +64,7 @@
 locals {
   # MTDS image — published by `market-tick-data-service/cloudbuild.yaml`
   # (`_REGISTRY_REPO=unified-trading-system`, `_SERVICE_NAME=market-tick-data-service`).
-  # Single image for all 11 ops; CLI dispatches via `--operation collect-X`.
+  # Single image for all 14 ops; CLI dispatches via `--operation collect-X`.
   mtds_image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/market-tick-data-service:latest"
 
   # Per-operation tuning. CPU/memory + timeout sized from the production VM
@@ -109,6 +116,13 @@ locals {
       timeout     = 1200
       description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block."
     }
+    "vault-share-price" = {
+      schedule    = "10 1 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 900
+      description = "DeFi collect-vault-share-price — ERC-4626 convertToAssets snapshots (Yearn V3, Ethena, Maker sDAI, Frax sFRAX, Morpho MetaMorpho USDC)."
+    }
     "perp-funding" = {
       schedule    = "15 1 * * *"
       cpu         = "1"
@@ -143,6 +157,20 @@ locals {
       memory      = "2Gi"
       timeout     = 1500
       description = "DeFi collect-solana-defi — Marinade / Jito / Orca / Raydium / Kamino / Marginfi / Solend via Solana RPC + DeFiLlama."
+    }
+    "mev-events" = {
+      schedule    = "10 2 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 900
+      description = "DeFi collect-mev-events — MEV-Boost relay stats via Flashbots relay API."
+    }
+    "bridge-events" = {
+      schedule    = "15 2 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 1200
+      description = "DeFi collect-bridge-events — ACROSS + STARGATE transfer events via Alchemy eth_getLogs."
     }
   }
 }

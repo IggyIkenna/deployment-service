@@ -313,7 +313,17 @@ lc_gcloud_create() {
 #   # STARTUP_FILE is now set; cleanup registered via trap EXIT
 lc_write_startup_file() {
     local content="${1:?lc_write_startup_file: script content required}"
-    STARTUP_FILE="$(mktemp /tmp/startup-XXXX.sh)"
+    # mktemp -d + a fixed filename inside (portable): a template with a
+    # non-X suffix ("-XXXX.sh") only randomizes on GNU coreutils — BSD/macOS
+    # mktemp requires the trailing chars to be ALL 'X's, so on macOS it
+    # silently returns the LITERAL path unrandomized. Two concurrent
+    # invocations (e.g. pytest-xdist workers exercising different launcher
+    # tests at once) then collide on the exact same file ("mkstemp failed:
+    # File exists"), non-deterministically breaking any caller — found via
+    # this exact xdist collision in test_vm_launcher_scripts.py. `mktemp -d`
+    # (no template) is genuinely portable and creates a mode-0700 directory,
+    # so a fixed name inside it is exclusive to this process.
+    STARTUP_FILE="$(mktemp -d)/startup.sh"
     printf '%s' "$content" > "$STARTUP_FILE"
     # Register cleanup — if caller already has an EXIT trap, this appends to it.
     # shellcheck disable=SC2064
@@ -345,7 +355,10 @@ lc_write_startup_file() {
 # preemption check into that script instead (see the transfermarkt launcher
 # for the inline pattern).
 lc_write_preemption_signal_file() {
-    PREEMPTION_SIGNAL_FILE="$(mktemp /tmp/preempt-shutdown-XXXX.sh)"
+    # Portable mktemp (see lc_write_startup_file's comment above for the full
+    # rationale): a non-X-terminal template silently fails to randomize on
+    # BSD/macOS mktemp, colliding across concurrent invocations.
+    PREEMPTION_SIGNAL_FILE="$(mktemp -d)/preempt-shutdown.sh"
     cat > "$PREEMPTION_SIGNAL_FILE" <<'PREEMPTION_EOF'
 #!/usr/bin/env bash
 PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
@@ -566,7 +579,10 @@ lc_resolve_tarball_sha() {
     local tarball manifest_uri manifest_tmp sha
     tarball="$(lc_tarball_name_for_repo "$repo")"
     manifest_uri="gs://${code_bucket}/code/${tarball}.manifest.json"
-    manifest_tmp="$(mktemp /tmp/lc-resolve-XXXX.json)"
+    # Portable mktemp — see lc_write_startup_file's comment for the full
+    # BSD/macOS-vs-GNU rationale (a non-X-terminal template doesn't randomize
+    # on macOS, colliding across concurrent invocations/xdist workers).
+    manifest_tmp="$(mktemp -d)/manifest.json"
     if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
         rm -f "$manifest_tmp"
         return 0
@@ -690,7 +706,12 @@ lc_verify_tarball_freshness() {
 
         # Read the floating tarball's manifest commit_sha from GCS.
         manifest_uri="gs://${code_bucket}/code/${tarball}.manifest.json"
-        manifest_tmp="$(mktemp /tmp/lc-manifest-XXXX.json)"
+        # Portable mktemp — see lc_write_startup_file's comment for the full
+        # BSD/macOS-vs-GNU rationale (a non-X-terminal template doesn't
+        # randomize on macOS, colliding across concurrent invocations/xdist
+        # workers — this exact call is what test_stale_tarball_warn_does_not_block
+        # flaked on under xdist before this fix).
+        manifest_tmp="$(mktemp -d)/manifest.json"
         if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
             rm -f "$manifest_tmp"
             echo "WARNING: tarball manifest MISSING for $repo ($manifest_uri) — VM would fetch an absent/stale tarball" >&2
