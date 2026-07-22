@@ -316,6 +316,25 @@ _tradfi_massive_purge_cmd() {
 # laptop run, because GCS latency was never the bottleneck. CANON_SHARDS (default 16) forks one
 # PROCESS per shard over a disjoint stride partition (proven disjoint+exhaustive: sum(shards)==27100,
 # all-unique) and waits, propagating a non-zero rc if ANY shard fails.
+# Roll-up producer (2026-07-22): build_instrument_catalogue.py --asset-group tradfi --mode incremental
+# — regenerates catalog.parquet from the per-date instrument_availability snapshots and re-evaluates the
+# UAC is_mvp() predicate over every row, so the +409 MVP-scope expansion (VIX FUTURE/treasury INDEX/KRW/
+# crypto futures, landed uac@22e6a534 this same closeout) actually shows mvp=True in the SERVED catalogue
+# instead of staying frozen at the old 70,930-row set. DIFFERENT script from tradfi-catalogue-canon
+# (canonicalize_tradfi_catalogue_usd_lin_2026_07_18.py, which fixes ids WITHIN the by_date snapshots —
+# already ran earlier this closeout) — this one is the ROLL-UP that PRODUCES catalog.parquet FROM those
+# snapshots. Monotonic-guard promotion is baked into the script itself (temp-object + row-count->=-current
+# assert before the real promote-copy) so this launcher does not need its own extra safety wrapper.
+# --mode incremental (the tool's own default) is deliberately NOT overridden to --mode full: MVP is a
+# boolean re-evaluated over whatever rows already exist in the frozen catalogue + the self-widening
+# trailing window, not a property of the by_date snapshots themselves, so a full re-aggregation buys
+# nothing extra for this specific ask and costs a full historical re-walk.
+_catalogue_promote_cmd() {
+    local dry_flag=""
+    [[ "$MODE" != "full" ]] && dry_flag=" --dry-run"
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u scripts/build_instrument_catalogue.py --asset-group tradfi${dry_flag}"
+}
+
 _catalogue_canon_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
@@ -498,6 +517,11 @@ _launch() {
         # the tradfi content-migration branch).
         cmd="$(_catalogue_canon_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "tradfi-catalogue-promote" ]]; then
+        # Self-contained `cd ... && python ...` single invocation; --dry-run is embedded per-MODE by the
+        # builder (the tool's OWN monotonic guard is the write-safety, not this launcher).
+        cmd="$(_catalogue_promote_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == *-candle-census ]]; then
         # Candle census (2026-07-22): self-contained `cd ... && gcloud ... && python --dry-run ...`
         # chain; $MODE is deliberately IGNORED (see _candle_census_cmd comment -- always --dry-run,
@@ -535,7 +559,7 @@ _launch() {
     # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
-    [[ "$cat" == "tradfi-catalogue-canon" ]] && _svc="instruments_service"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _svc="instruments_service"
     # candle-census runs migrate_candle_canonical_2026_07.py which lives in market-data-processing-
     # service, not MTDS -- so it needs that tarball staged instead (see _candle_census_cmd comment).
     [[ "$cat" == *-candle-census ]] && _svc="market_data_processing_service"
@@ -547,7 +571,7 @@ _launch() {
     [[ "$cat" == "defi-per-instrument" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
-    [[ "$cat" == "tradfi-catalogue-canon" ]] && _ag="TRADFI"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
     # candle-census category names are "<ag>-candle-census" -- strip the suffix to recover the real
     # asset group so dashboards/heartbeat classify these VMs with the rest of that asset group instead
     # of a novel "<AG>-CANDLE-CENSUS" bucket.
@@ -619,7 +643,7 @@ _launch() {
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == "tradfi-catalogue-canon" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
@@ -669,7 +693,7 @@ case "$ASSET_GROUP" in
             MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-cid
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
