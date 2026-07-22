@@ -206,6 +206,15 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "datapoint-validation-tradfi-": "launch-datapoint-validation-vm.sh",
     "datapoint-validation-sports-": "launch-datapoint-validation-vm.sh",
     "datapoint-validation-prediction-": "launch-datapoint-validation-vm.sh",
+    # GCS→manifest orphan sweep (migration_orphan_sweep.py) — read-only + idempotent
+    # (re-running just re-classifies + overwrites the same fixed report path), so a
+    # SPOT preemption relaunch is a SAFE restart-from-scratch. Distinct from
+    # datapoint-validation's presence-skip frontier resume: this tool has no
+    # per-shard/day checkpoint, so relaunch re-walks the whole corpus, not a resume.
+    "orphan-sweep-cefi-": "launch-orphan-sweep-vm.sh",
+    "orphan-sweep-defi-": "launch-orphan-sweep-vm.sh",
+    "orphan-sweep-tradfi-": "launch-orphan-sweep-vm.sh",
+    "orphan-sweep-prediction-": "launch-orphan-sweep-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",

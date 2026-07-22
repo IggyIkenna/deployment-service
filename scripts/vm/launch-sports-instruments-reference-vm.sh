@@ -35,6 +35,15 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"  # 32GB — e2-standard-2 (8GB) OO
 DRY_RUN=false
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 CHUNK_DAYS="${CHUNK_DAYS:-30}"
+# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
+# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
+# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
+ON_DEMAND=false
+# ONLY_VM_NAME env fallback (SPOT-preemption relaunch support): a bare
+# re-invocation (RelaunchPreemptedVm passes ZERO CLI args, only the env
+# lc_write_launch_params captured) must scope back down to the ONE shard VM
+# that was preempted — otherwise it would re-launch all 3 shards.
+ONLY_VM_NAME="${ONLY_VM_NAME:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --env)        DEPLOYMENT_ENV="$2"; shift 2 ;;
     --chunk-days) CHUNK_DAYS="$2"; shift 2 ;;
+    --on-demand)  ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -86,6 +96,11 @@ for cfg in "${VM_CONFIGS[@]}"; do
   echo ""
   echo "--- ${VM_NAME}: ${START_DATE} → ${END_DATE} ---"
 
+  if [[ -n "$ONLY_VM_NAME" && "$VM_NAME" != "$ONLY_VM_NAME" ]]; then
+    echo "  [SKIP] ONLY_VM_NAME=${ONLY_VM_NAME} set — skipping ${VM_NAME}"
+    continue
+  fi
+
   if $DRY_RUN; then
     echo "  [DRY RUN] Would create VM: ${VM_NAME}"
     continue
@@ -117,10 +132,27 @@ for cfg in "${VM_CONFIGS[@]}"; do
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
   fi
 
+  # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
+  PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
+  if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
+
+  # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+  # "Close the SPOT-preemption relaunch gap"): persist the ONE shard this VM
+  # covers so exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+  # (relaunch_backfill_vm.RelaunchPreemptedVm) re-invokes THIS launcher scoped
+  # to just this shard (via the ONLY_VM_NAME env fallback above) instead of
+  # re-launching all 3 shards. Best-effort, non-fatal.
+  lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-sports-instruments-reference-vm.sh" \
+      "ONLY_VM_NAME=${VM_NAME}" \
+      "CHUNK_DAYS=${CHUNK_DAYS}" \
+      "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+
+  # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
+    ${PROVISIONING_FLAGS} \
     --scopes=cloud-platform \
     --no-restart-on-failure \
     --image-family=ubuntu-2404-lts-amd64 \

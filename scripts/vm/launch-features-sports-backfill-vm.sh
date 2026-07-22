@@ -78,8 +78,13 @@ FORCE=false
 # this the launcher CANNOT replay a writer fix over history: measured 2026-07-18, a
 # 2.5h lineups re-derive logged 'SKIP fixture_lineups for <date> - manifest shows
 # prior captured/empty (use --force)' on every date and wrote NOTHING.
-REDO_ALL=false
-SKIP_EXISTING=false
+# RESUME_REDO_ALL / RESUME_SKIP_EXISTING env fallbacks (SPOT-preemption relaunch
+# support): RelaunchPreemptedVm re-invokes this launcher with ZERO CLI args, only
+# the env lc_write_launch_params captured — losing REDO_ALL on relaunch is the
+# exact "force disables the skip the resume relies on" bug documented for
+# launch-api-football-backfill-vm.sh, so both booleans must be env-readable too.
+REDO_ALL="${RESUME_REDO_ALL:-false}"
+SKIP_EXISTING="${RESUME_SKIP_EXISTING:-false}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 DRY_RUN=false
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
@@ -110,6 +115,14 @@ case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
+
+# SPOT-preemption relaunch support: a bare re-invocation (RelaunchPreemptedVm
+# passes ZERO CLI args, only the env lc_write_launch_params captured) falls back
+# to RESUME_START_DATE/RESUME_END_DATE so the same window is reproduced instead
+# of hitting the usage error below. Explicit positional args always win.
+if [[ $# -eq 0 && -n "${RESUME_START_DATE:-}" && -n "${RESUME_END_DATE:-}" ]]; then
+  set -- "$RESUME_START_DATE" "$RESUME_END_DATE"
+fi
 
 if [[ $# -ne 2 ]]; then
   cat >&2 <<EOF
@@ -207,6 +220,19 @@ else
           features-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
   fi
+
+  # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+  # "Close the SPOT-preemption relaunch gap"): persist the EXACT env this VM was
+  # launched with so exit_code_fleet_monitor's PREEMPTED auto_recover actuator
+  # (relaunch_backfill_vm.RelaunchPreemptedVm) can re-invoke THIS launcher with
+  # the SAME window/tables/redo-all scope instead of a blind default. Best-effort.
+  lc_write_launch_params "$VM_NAME" "$PROJECT" "launch-features-sports-backfill-vm.sh" \
+      "RESUME_START_DATE=${START_DATE}" \
+      "RESUME_END_DATE=${END_DATE}" \
+      "TABLES=${TABLES}" \
+      "RESUME_REDO_ALL=${REDO_ALL}" \
+      "RESUME_SKIP_EXISTING=${SKIP_EXISTING}" \
+      "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \

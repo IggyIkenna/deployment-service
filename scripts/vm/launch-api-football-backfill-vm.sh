@@ -143,6 +143,24 @@ case "$DEPLOYMENT_ENV" in
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
+# SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+# "Close the SPOT-preemption relaunch gap"): RelaunchPreemptedVm re-invokes this
+# launcher with ZERO CLI args, only the env lc_write_launch_params captured below
+# — without this fallback a bare re-invocation hits the positional-arg usage
+# error (explicit mode) or silently no-ops (rolling mode never set), so the
+# preempted VM's window/entity is lost instead of resumed. Only applies when NO
+# CLI args were given at all (an explicit invocation always wins).
+if [[ $# -eq 0 && -z "$LOOKBACK" && -z "$LOOKAHEAD" ]]; then
+  if [[ -n "${RESUME_START_DATE:-}" && -n "${RESUME_END_DATE:-}" ]]; then
+    set -- "$RESUME_START_DATE" "$RESUME_END_DATE"
+  elif [[ -n "${RESUME_LOOKBACK:-}" || -n "${RESUME_LOOKAHEAD:-}" ]]; then
+    LOOKBACK="${RESUME_LOOKBACK:-0}"
+    LOOKAHEAD="${RESUME_LOOKAHEAD:-0}"
+    [[ "${RESUME_FORCE_WINDOW:-false}" == "true" ]] && FORCE_WINDOW=true
+  fi
+  [[ -n "${RESUME_ENTITY:-}" ]] && ENTITY="${RESUME_ENTITY}"
+fi
+
 # Mode resolution: rolling (--lookback/--lookahead) vs explicit (<start> <end>).
 USE_ROLLING=false
 if [[ -n "$LOOKBACK" || -n "$LOOKAHEAD" ]]; then
@@ -427,6 +445,28 @@ SHUTDOWN_EOF
       lc_verify_tarball_freshness "$CODE_BUCKET" \
           instruments-service unified-api-contracts unified-trading-library deployment-service \
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+  fi
+
+  # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+  # "Close the SPOT-preemption relaunch gap"): persist the EXACT window/entity
+  # this VM was launched with so exit_code_fleet_monitor's PREEMPTED
+  # auto_recover actuator (relaunch_backfill_vm.RelaunchPreemptedVm) can
+  # re-invoke THIS launcher through the RESUME_* env fallback above instead of
+  # a blind default (which would hit the usage error / relaunch nothing).
+  # Best-effort, non-fatal.
+  if $USE_ROLLING; then
+    lc_write_launch_params "$VM_NAME" "$PROJECT" "launch-api-football-backfill-vm.sh" \
+        "RESUME_LOOKBACK=${LOOKBACK}" \
+        "RESUME_LOOKAHEAD=${LOOKAHEAD}" \
+        "RESUME_FORCE_WINDOW=${FORCE_WINDOW}" \
+        "RESUME_ENTITY=${ENTITY}" \
+        "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  else
+    lc_write_launch_params "$VM_NAME" "$PROJECT" "launch-api-football-backfill-vm.sh" \
+        "RESUME_START_DATE=${START_DATE}" \
+        "RESUME_END_DATE=${END_DATE}" \
+        "RESUME_ENTITY=${ENTITY}" \
+        "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   fi
 
   gcloud compute instances create "$VM_NAME" \

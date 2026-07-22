@@ -27,10 +27,15 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
 START_DATE="${START_DATE:-2020-06-01}"
 END_DATE="${END_DATE:-2026-03-28}"
-FORCE=false
-ALLOW_PARALLEL=false
+# RESUME_FORCE / RESUME_ALLOW_PARALLEL env fallbacks (SPOT-preemption relaunch
+# support, cefi_completion_program_2026_07_15.md pattern): RelaunchPreemptedVm
+# re-invokes this launcher with ZERO CLI args, only the env captured by
+# lc_write_launch_params below — so every knob that affects WHICH shard this VM
+# covers must be readable from env, not just a CLI flag.
+FORCE="${RESUME_FORCE:-false}"
+ALLOW_PARALLEL="${RESUME_ALLOW_PARALLEL:-false}"
 CHUNK_SIZE="${CHUNK_SIZE:-250}"
-VM_NAME_OVERRIDE=""
+VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
@@ -127,6 +132,23 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
+
+# SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
+# "Close the SPOT-preemption relaunch gap"): persist the EXACT env this shard
+# was launched with so exit_code_fleet_monitor's PREEMPTED auto_recover
+# actuator (relaunch_backfill_vm.RelaunchPreemptedVm) can re-invoke THIS
+# launcher with the SAME window/shard-name instead of falling back to the
+# launcher's bare defaults (mtds-backfill-odds-1, 2020-06-01..2026-03-28) —
+# RESUME_ALLOW_PARALLEL=true so the relaunch never trips the singleton lock on
+# a sibling shard that is still legitimately running. Best-effort, non-fatal.
+lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-mtds-sports-odds-backfill-vm.sh" \
+    "VM_NAME_OVERRIDE=${VM_NAME}" \
+    "START_DATE=${START_DATE}" \
+    "END_DATE=${END_DATE}" \
+    "CHUNK_SIZE=${CHUNK_SIZE}" \
+    "RESUME_FORCE=${FORCE}" \
+    "RESUME_ALLOW_PARALLEL=true" \
+    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
