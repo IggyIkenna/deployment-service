@@ -599,7 +599,21 @@ case "$ASSET_GROUP" in
             _launch tradfi
         fi
         ;;
-    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    tradfi-content-rewrite)
+        # Per-object worklist (859,121 rows measured 2026-07-21) -- shard fan-out mirrors the "tradfi"
+        # category above. SHARD_OF>1 with SHARD_INDEX unset fans one VM per shard; a pinned SHARD_INDEX
+        # (or SHARD_OF=1) launches exactly one VM (canary / targeted relaunch).
+        if [[ "$SHARD_OF" -gt 1 && -z "$SHARD_INDEX_EXPLICIT" ]]; then
+            for ((_i = 0; _i < SHARD_OF; _i++)); do
+                SHARD_INDEX="$_i"
+                VM_NAME_SUFFIX="shard${_i}of${SHARD_OF}"
+                MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS} --shard-of ${SHARD_OF} --shard-index ${_i} --workers ${WORKERS:-32}" _launch tradfi-content-rewrite
+            done
+        else
+            MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-content-rewrite
+        fi
+        ;;
+    cefi|defi|defi-per-instrument|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
