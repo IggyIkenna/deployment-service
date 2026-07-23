@@ -113,12 +113,20 @@ CODE_BUCKET="deployment-scripts-${PROJECT}"
 # produced ZERO log/heartbeat output for 30-40+ minutes each -- a signature that
 # matches the confirmed OOM precedent in launch-expected-universe-v2-vm.sh (a
 # 63.9M-row defi run OOM-killed on e2-standard-4, fixed via e2-standard-16) more
-# than a GCS/network flake. defi/tradfi/prediction measurably ran fine on
-# e2-standard-4 (the separate throughput-decay bug they hit is a workers-based
-# concurrency fix, not a memory one -- see migration_orphan_sweep_performance_decay_2026_07_22.md).
+# than a GCS/network flake. tradfi/prediction measurably ran fine on e2-standard-4
+# (the separate throughput-decay bug they hit is a workers-based concurrency fix,
+# not a memory one -- see migration_orphan_sweep_performance_decay_2026_07_22.md).
+# defi ALSO bumped 2026-07-23: ran fine on e2-standard-4 for 3 earlier same-session
+# attempts (whose failures were 2x SPOT preemption + 1x an unrelated in-memory
+# actionable-accumulator OOM, now separately fixed), but its 4th and 5th attempts
+# BOTH hit the identical index-load freeze cefi had (system-wide silence, incl. the
+# independent bash heartbeat loop -- confirmed via serial console, not just the
+# Python log) -- defi's manifest had evidently grown enough since its earlier
+# attempts (hours of ongoing unrelated production capture) to now also exceed
+# e2-standard-4's headroom for this same one-shot whole-index load.
 case "$ASSET_GROUP" in
-    cefi) MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-8}" ;;
-    *)    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}" ;;
+    cefi|defi) MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-8}" ;;
+    *)         MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}" ;;
 esac
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
