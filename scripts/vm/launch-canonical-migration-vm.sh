@@ -191,7 +191,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|defi-glued-reshard|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -351,6 +351,20 @@ _catalogue_promote_cmd() {
     local dry_flag=""
     [[ "$MODE" != "full" ]] && dry_flag=" --dry-run"
     printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u scripts/build_instrument_catalogue.py --asset-group tradfi${dry_flag}"
+}
+
+# defi-glued-reshard (2026-07-23): re-run of scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py
+# against a fresh local snapshot of the consolidated index -- that one-off's own docstring says it's
+# "kept ... in case new glued ids appear before the forward write-path fix ships", and a post-rebuild
+# recount (in-region VM read, 2026-07-23) found exactly that: 34 captured rows across
+# lending_indices/liquidations (KAMINO + several lending-protocol chains) matching the glued-timestamp
+# regex, distinct from the LST/oracle-price class the 2026-07-21 sweep resolved to 0. DRY-BY-DEFAULT
+# (dry = the tool's own default, no flag); full appends --apply. START_DATE/END_DATE are cosmetic (VM
+# labels only) -- the tool re-scans the whole snapshot, not a date range.
+_glued_reshard_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p /tmp/defi_snap && gcloud storage cp gs://market-data-tick-defi-prd-central-element-323112/_index/availability_index.parquet /tmp/defi_snap/defi_index.parquet && GCP_PROJECT_ID=${PROJECT} python -u scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py /tmp/defi_snap${apply_flag}"
 }
 
 _catalogue_canon_cmd() {
@@ -627,6 +641,12 @@ _launch() {
         # builder (the tool's OWN monotonic guard is the write-safety, not this launcher).
         cmd="$(_catalogue_promote_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "defi-glued-reshard" ]]; then
+        # Self-contained `cd ... && gcloud storage cp ... && python ...` chain; --apply is embedded
+        # per-MODE by the builder (same reason as tradfi-catalogue-promote -- a compound && chain
+        # can't take a blind flag append).
+        cmd="$(_glued_reshard_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == *-candle-census ]]; then
         # Candle census (2026-07-22): self-contained `cd ... && gcloud ... && python --dry-run ...`
         # chain; $MODE is deliberately IGNORED (see _candle_census_cmd comment -- always --dry-run,
@@ -685,7 +705,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -849,7 +869,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-rebuild|defi-glued-reshard|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
