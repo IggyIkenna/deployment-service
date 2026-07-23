@@ -181,7 +181,13 @@ MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 if [[ "${ON_DEMAND:-false}" == "true" ]]; then
     PROVISIONING_ARGS=(--provisioning-model=STANDARD)
 else
-    PROVISIONING_ARGS=(--provisioning-model=SPOT --instance-termination-action=STOP)
+    # --instance-termination-action=DELETE (not STOP): a SPOT-preemption relaunch (RelaunchPreemptedVm)
+    # reuses the EXACT SAME vm_name via VM_NAME_OVERRIDE (see lc_write_launch_params below), so a merely
+    # STOPPED (not deleted) instance would still occupy that name and the relaunch's `gcloud compute
+    # instances create` would fail with "already exists". Matches every other SPOT launcher in this
+    # codebase (launch-defi-backfill-vm.sh, launch-cefi-sharded-backfill.sh) -- STOP here was an
+    # inconsistency, not a deliberate choice (vm_fleet_preemption_autorecovery_gap_2026_07_23.md).
+    PROVISIONING_ARGS=(--provisioning-model=SPOT --instance-termination-action=DELETE)
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
@@ -751,6 +757,14 @@ _launch() {
         "RESUME_SHARD_INDEX=${SHARD_INDEX}" \
         "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 
+    # SPOT preemption contract (2026-07-23, operator-requested — this launcher family had
+    # LAUNCH_PARAMS.json (above) but NOT the preemption-signal blob, so exit_code_fleet_monitor's
+    # PREEMPTED auto_recover actuator (RelaunchPreemptedVm) could never distinguish a benign SPOT
+    # reclaim from a genuine silent-zero failure for any canonical-migration-* VM — measured live on
+    # the TRADFI candle-apply run: 18/20 SPOT shards preempted within minutes, all silently, no
+    # auto-recovery fired). Mirrors launch-defi-backfill-vm.sh's already-working pattern.
+    lc_write_preemption_signal_file
+
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
@@ -784,6 +798,7 @@ _launch() {
         --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
         --scopes=cloud-platform \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
+        --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
         --labels=purpose=canonical-migration,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS_LABEL}"
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
