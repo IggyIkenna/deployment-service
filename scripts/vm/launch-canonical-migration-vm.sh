@@ -101,10 +101,14 @@
 #   # defi-relabel (2026-07-23): the Solana dex_pools fake-history relabel-forward migration
 #   # (relabel_solana_dex_pools_fake_history.py). Population is EXACTLY 34 known (day, venue) combos
 #   # (17 days x {ORCA, RAYDIUM}) -- no --shard-of; shard via MIGRATION_EXTRA_ARGS="--only-day
-#   # <comma-list>" instead, one disjoint day sub-range per VM. START_DATE/END_DATE are cosmetic (VM
-#   # labels only) -- the script scopes its own worklist from the fixed 34-combo population.
+#   # <colon-list>" instead, one disjoint day sub-range per VM. Colon (":"), NOT comma -- `gcloud
+#   # compute instances create --metadata` parses its value as a comma-delimited dict, so a
+#   # comma-joined day list breaks gcloud's OWN arg parsing ("Bad syntax for dict arg", adversarial
+#   # finding 2026-07-23); the script's `_parse_days()` accepts both, but only ":" survives the
+#   # --metadata round-trip. START_DATE/END_DATE are cosmetic (VM labels only) -- the script scopes
+#   # its own worklist from the fixed 34-combo population.
 #   bash launch-canonical-migration-vm.sh defi-relabel 2025-01-01 2025-01-17 dry
-#   MIGRATION_EXTRA_ARGS="--only-day 2025-01-01,2025-01-02,2025-01-03,2025-01-04,2025-01-05" \
+#   MIGRATION_EXTRA_ARGS="--only-day 2025-01-01:2025-01-02:2025-01-03:2025-01-04:2025-01-05" \
 #     VM_NAME_SUFFIX=d01to05 bash launch-canonical-migration-vm.sh defi-relabel 2025-01-01 2025-01-17 full
 #
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
@@ -586,8 +590,11 @@ _script_for() {
         # defi_solana_dex_pools_fake_history_recurrence_prd_bucket_2026_07_23.md todo 3. Population is
         # EXACTLY 34 known (day, venue) combinations (17 days x {ORCA, RAYDIUM}), confirmed FINAL
         # 2026-07-23 via a targeted bounded walk -- NOT re-derived here, NOT a corpus-wide scan. The
-        # tool has no --shard-of/--shard-index; it accepts a comma-separated `--only-day` list instead
-        # (`_parse_days()`), so MIGRATION_EXTRA_ARGS="--only-day 2025-01-01,2025-01-02,..." lets the
+        # tool has no --shard-of/--shard-index; it accepts a comma- OR colon-separated `--only-day`
+        # list instead (`_parse_days()`) -- use COLON here, never comma: `gcloud compute instances
+        # create --metadata` parses its value as a comma-delimited dict, so a comma-joined day list
+        # breaks gcloud's OWN arg parsing ("Bad syntax for dict arg", adversarial finding 2026-07-23).
+        # MIGRATION_EXTRA_ARGS="--only-day 2025-01-01:2025-01-02:..." lets the
         # operator assign each VM a disjoint day sub-range. Every shard processes BOTH venues for its
         # assigned days (no separate venue split) -- RAYDIUM's ~99/day is negligible next to ORCA's
         # ~14094/day. Omitting MIGRATION_EXTRA_ARGS processes the WHOLE 34-combo population in one VM
