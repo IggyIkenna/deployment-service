@@ -720,6 +720,8 @@ def check_monitor_crons_fired(
     dry_run: bool = False,
     miss_tracker: MissTracker | None = None,
     min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
+    renag_tracker: RenagTracker | None = None,
+    renag_cooldown_seconds: float = DEFAULT_RENAG_COOLDOWN_SECONDS,
 ) -> list[FreshnessResult]:
     """DP-WATCHER-002 — the fleet-monitor / meta-watcher crons fired on schedule.
 
@@ -733,6 +735,9 @@ def check_monitor_crons_fired(
     schedulers (``dp-exit-code-monitor`` / ``dp-heartbeat-monitor`` /
     ``dp-meta-monitor``) are NOT paused during the campaign, so this is wired for
     parity; a paused monitor cron would (correctly) suppress.
+
+    ``renag_tracker``/``renag_cooldown_seconds`` forward to :func:`check_cron_fired`
+    (2026-07-23 — the exact path ``dp-exit-code-monitor``'s stale sentinel re-fired through).
     """
     return check_cron_fired(
         storage_client=storage_client,
@@ -743,6 +748,8 @@ def check_monitor_crons_fired(
         dry_run=dry_run,
         miss_tracker=miss_tracker,
         min_consecutive=min_consecutive,
+        renag_tracker=renag_tracker,
+        renag_cooldown_seconds=renag_cooldown_seconds,
     )
 
 
@@ -756,6 +763,8 @@ def check_cron_fired(
     dry_run: bool = False,
     miss_tracker: MissTracker | None = None,
     min_consecutive: int = DEFAULT_MIN_CONSECUTIVE_MISSES,
+    renag_tracker: RenagTracker | None = None,
+    renag_cooldown_seconds: float = DEFAULT_RENAG_COOLDOWN_SECONDS,
 ) -> list[FreshnessResult]:
     """DP-WATCHER-002 — scheduled audit/consolidator/digest crons fired on schedule.
 
@@ -784,6 +793,13 @@ def check_cron_fired(
     executing. A ``None`` last-success age (no successful execution / job absent /
     API error) does NOT suppress (fail toward alerting). No ``cloud_run_job`` / no
     reader ⇒ no cross-check (sentinel is the sole signal, the prior behaviour).
+
+    **Re-nag cooldown** (2026-07-23, extends the 2026-07-15 ``DP_RUN_MOSTLY_EMPTY``
+    fix — see the ``renag_tracker`` module docstring — to this sibling detector, which
+    had the identical no-ongoing-suppression gap). With ``renag_tracker``, a cron past
+    onset only re-emits once ``renag_cooldown_seconds`` has elapsed since its last
+    ACTUAL emission — mirrors ``check_high_attempted_failed``'s usage exactly. ``None``
+    ⇒ no cooldown (back-compat: fire every sweep past onset, the prior behaviour).
     """
     results: list[FreshnessResult] = []
     for target in targets:
@@ -841,6 +857,16 @@ def check_cron_fired(
                     min_consecutive,
                 )
                 continue
+        # Re-nag cooldown (2026-07-23): miss_key doubles as the renag identity (matches
+        # _alert_key's selection for this event — see _cron_miss_key).
+        if apply_cooldown(
+            renag_tracker,
+            miss_key,
+            cooldown_seconds=renag_cooldown_seconds,
+            active_sweep=_EMITTED_THIS_SWEEP,
+            event=DP_CRON_DID_NOT_FIRE,
+        ):
+            continue
         if result.stale:
             _emit(
                 PipelineFinding(
@@ -863,4 +889,6 @@ def check_cron_fired(
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
             )
+            if renag_tracker is not None:
+                renag_tracker.record(miss_key)
     return results

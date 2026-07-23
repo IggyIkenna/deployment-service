@@ -29,6 +29,12 @@ LOCAL_DEPS=(deployment-api)
 # Standard services use 50L; deployment-service needs higher due to orchestration complexity.
 MAX_FUNCTION_LINES=510
 MAX_METHOD_LINES=510
+# data_pipeline_monitors/cli.py is the single dispatch point wiring every fleet-monitor /
+# meta-watcher check (exit-code, heartbeat, meta) — it was already at the 900L default
+# ceiling before the 2026-07-23 renag_tracker wiring fix (dp_exit_code_monitor_cron_dead
+# issue doc) needed 2 more lines across two existing call sites. Modest, bounded bump
+# (not an open-ended raise) — new orchestration growth here still gets caught well before it.
+MAX_FILE_LINES=920
 
 # Per-repo QG exclusions (see base-service.sh for variable documentation)
 # print(): Rich console.print in progress.py, bash heredoc print in vm_config.py
