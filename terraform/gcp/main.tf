@@ -642,6 +642,19 @@ resource "google_project_iam_member" "unified_trading_service_account_user" {
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
 
+# Granted 2026-07-24 to unblock the /ops/artifacts "Artifacts" tab in prod (deployment-api's
+# gcp_artifact_registry_images() calls ArtifactRegistryClient.list_docker_images directly). Without
+# this the call throws PermissionDenied, is swallowed by the per-source `safe()` isolation wrapper,
+# and the tab silently renders empty rows in prod while working locally (where dev uses the
+# operator's own broad ADC credentials, not this SA). Dashboard's compute SA already has this same
+# role (terraform/dashboard/gcp/main.tf) for the same AR-listing need — this mirrors it for
+# unified-trading-sa, deployment-api's actual runtime identity.
+resource "google_project_iam_member" "unified_trading_artifactregistry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Memorystore (Redis) — optional; guarded by var.enable_memorystore
 #
