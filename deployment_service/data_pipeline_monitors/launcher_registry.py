@@ -332,18 +332,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "vm-zombie-watchdog-": None,  # the watchdog itself — never a relaunch target
     "dm-": None,  # deploy-missing surgical VM — launched by deployment-api, not a recurring launcher
     "scenario-matrix-": "launch-scenario-runner-vm.sh",
-    # ── Agent-orchestrator VMs (planning + per-epic) ──────────────────────
+    # ── Agent-orchestrator VMs (planning; per-epic REMOVED 2026-07-24) ────
     "agent-orch-planning-vm-": None,  # orchestrator VM — operator-owned lifecycle, never auto-relaunch
-    "agent-orch-vm-defi-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-cefi-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-tradfi-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-sports-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-prediction-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-ml-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-trading-core-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-operator-ops-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-cross-cutting-": None,  # orchestrator epic VM — operator-owned lifecycle
-    "agent-orch-vm-orchestrator-": None,  # orchestrator epic VM — operator-owned lifecycle
 }
 
 

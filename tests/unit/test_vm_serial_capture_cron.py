@@ -46,7 +46,7 @@ def test_build_target_prefixes_returns_long_lived_and_scheduled() -> None:
     # Spot-check: known LONG_LIVED_LIVE prefixes are included.
     assert "strategy-live-" in prefixes
     assert "mtds-live-defi-" in prefixes
-    assert "agent-orch-vm-defi-" in prefixes
+    assert "agent-orch-planning-vm-" in prefixes
 
     # EPHEMERAL_BATCH prefixes must NOT appear.
     assert "cefi-mr-" not in prefixes
