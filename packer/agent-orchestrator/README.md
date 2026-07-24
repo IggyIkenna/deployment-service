@@ -64,13 +64,11 @@ Output: an AMI named `agent-orchestrator-YYYYMMDD-HHMMSS` tagged
 
 ## Use the AMI
 
-Pass the AMI id to `launch-epic-vm-aws.sh` via env var:
+Pass the AMI id to `launch-central-brain-aws.sh` via env var:
 
 ```bash
 export AMI_ID=ami-0123456789abcdef
-bash deployment-service/scripts/vm/launch-epic-vm-aws.sh --vm-id vm-defi
-# Or all 10:
-bash deployment-service/scripts/vm/launch-epic-vm-aws.sh --all
+bash deployment-service/scripts/vm/launch-central-brain-aws.sh
 ```
 
 The launcher prints which AMI it's using:
@@ -114,8 +112,9 @@ packer/agent-orchestrator/
 
 - `agent-orchestrator/scripts/bootstrap_vm.sh` — the first-boot script that
   detects the marker and short-circuits installed steps
-- `deployment-service/scripts/vm/launch-epic-vm-aws.sh` — launcher that takes
-  the optional `AMI_ID` env var
+- `deployment-service/scripts/vm/launch-central-brain-aws.sh` — launcher that takes
+  the optional `AMI_ID` env var (the epic-VM launchers were removed 2026-07-24 —
+  per-epic VMs are deprecated; this AMI now serves only the central/planning box)
 - `deployment-service/scripts/vm/lib/aws_ec2_launch_lib.sh::lc_aws_ec2_run` —
   the EC2 RunInstances wrapper that resolves the AMI
 - `codex/12-agent-workflow/agent-orchestrator-single-vm-architecture.md` — topology + dispatch

@@ -965,7 +965,6 @@ class TestDurableLogStreamerCoverage:
         "launch-planning-vm.sh": "LONG_LIVED_LIVE interactive planning VM (no batch run-log lifecycle).",
         "launch-orchestrator-worker-vm.sh": "LONG_LIVED agent-orchestrator worker (systemd-managed, persistent).",
         "launch-dashboard-vm.sh": "LONG_LIVED container VM (restart=always; container logging, no startup-script run.log).",
-        "launch-epic-vm.sh": "Epic VM from the orchestrator registry; long-lived, delegates the planning VM to launch-planning-vm.sh.",
         "launch-data-pipeline-fleet-monitor.sh": "Permanent observability monitor VM (it IS the fleet monitor).",
         # --- Consolidated multi-shard live VMs with bespoke startup scripts ---
         "launch-mtds-live-cefi-consolidated.sh": (
