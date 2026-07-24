@@ -70,6 +70,13 @@ ROW_COUNT_SCALE="1.0"
 # the `serviceAccount of type was not found` failure mode). Override via
 # `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
+# Opt-in override for the deployment-registry Firestore dual-write flag
+# (deployment_registry_firestore_p0_unblock_2026_07_14.md, Link 2 wired the
+# metadata->env plumbing in setup-data-pipeline-vm.sh; nothing sets it true
+# yet). Default false — matches every other launcher's behavior unchanged;
+# set `DUAL_WRITE=true bash launch-synthetic-benchmark-vm.sh ...` to soak a
+# single VM against real Firestore for the plan's [VERIFY]/[DATA] todos.
+DUAL_WRITE="${DUAL_WRITE:-false}"
 
 DRY_RUN=false
 
@@ -151,7 +158,8 @@ for SHAPE in $SHAPES; do
   BENCHMARK_VM_SHAPE=${SHAPE},\
   DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
   CODE_BUCKET=${CODE_BUCKET},\
-  PROJECT_ID=${PROJECT}" \
+  PROJECT_ID=${PROJECT},\
+  DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=${DUAL_WRITE}" \
       --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
       --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
   fi
