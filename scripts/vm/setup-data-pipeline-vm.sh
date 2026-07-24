@@ -427,6 +427,18 @@ case "$DEPLOYMENT_ENV" in
   *)       DEPLOYMENT_ENV_SHORT="$DEPLOYMENT_ENV" ;;
 esac
 export DEPLOYMENT_ENV_SHORT
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE (P1 registry-migration flag,
+# unified_trading_library/config_interface/cloud_config.py — read by
+# UnifiedCloudConfig via pydantic AliasChoices, so any process env var of this
+# exact name is picked up automatically). Mirrors the DEPLOYMENT_ENV plumbing
+# above: launchers pass it via --metadata=DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=true,
+# this reads it off GCE metadata and exports it into the process env BEFORE
+# the heartbeat daemon (which constructs DeploymentsRegistry) starts. Default
+# "false" when absent — matches UTL's own field default, so unmigrated
+# launchers keep writing GCS-only until explicitly opted in (see
+# plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md "Link 2").
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)
+export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
 # Stall-watchdog timeout override. Sports MDPS processes long empty-date
 # stretches (no betting events → no log output) that would falsely trigger
 # the default 1800s threshold and SIGKILL the process before the manifest

@@ -655,6 +655,23 @@ resource "google_project_iam_member" "unified_trading_artifactregistry_reader" {
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
 
+# Granted 2026-07-24 — Link 3 of the deployment-registry Firestore dual-write migration
+# (plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md). VMs write the
+# deployment registry via the DEFAULT compute SA (155/156 launchers under
+# deployment-service/scripts/vm/launch-*.sh pass NO --service-account=, so gcloud falls
+# back to `{project_number}-compute@developer.gserviceaccount.com` — mirrors the same
+# default-SA pattern already used by alerting_relay_pubsub.tf/catalogue_regen_scheduler.tf).
+# Firestore writes from `_maybe_build_registry_store()`
+# (unified_trading_library/deployment_registry.py) need `roles/datastore.user`; without it
+# the dual-write path degrades to GCS-only + a warning (best-effort by design), which is
+# exactly the silent-failure mode the plan's own [VERIFY] todo warns about — this grant is
+# a prerequisite, not the flag flip itself (the flag stays default-off, see Link 2).
+resource "google_project_iam_member" "default_compute_sa_datastore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${var.project_number}-compute@developer.gserviceaccount.com"
+}
+
 # ---------------------------------------------------------------------------
 # Cloud Memorystore (Redis) — optional; guarded by var.enable_memorystore
 #
