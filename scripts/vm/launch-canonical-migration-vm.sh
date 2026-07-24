@@ -217,7 +217,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -386,6 +386,32 @@ _catalogue_promote_cmd() {
     local dry_flag=""
     [[ "$MODE" != "full" ]] && dry_flag=" --dry-run"
     printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} python -u scripts/build_instrument_catalogue.py --asset-group tradfi${dry_flag}"
+}
+
+# cefi-dedup-apply (2026-07-24) — the CeFi Surface-C manifest de-dup/canonicalisation one-off
+# (`complete_cefi_manifest_canonical_dedup_v2_2026_07_20.py`, instruments-service). Repeated direct
+# in-session runs of this ~10.6M-row, multi-GB-RSS script were killed (SIGTERM/143) by the shared
+# host's `earlyoom` daemon under concurrent multi-agent memory contention — genuinely a resource
+# problem, not a code/logic one (independently verified via a completed full-corpus investigation
+# run + a fast local synthetic-data test first). Moving it to an ISOLATED in-region VM (same
+# `VM_SERVICE=instruments_service` re-homing trick as `tradfi-catalogue-canon`) removes that
+# contention entirely. Self-contained `cd ... && python ...` chain; `--apply` is embedded per-MODE
+# by the builder (the tool's own STOP-ON-SURPRISE / chain-drop-lossy-tolerance gates are the write
+# safety, not this launcher). **DRAIN GATE (operator/caller responsibility, NOT automated by this
+# launcher)**: `full` mode MUST run only while
+# `uts-prod-manifest-consolidator-market-data-cefi-cron` is PAUSED (`gcloud scheduler jobs pause/
+# resume --location=asia-northeast1`) — verify directly via `gcloud scheduler jobs describe`
+# immediately before launch and RESUME it once the VM's `VM_SHUTDOWN_ON_COMPLETION` fires; a
+# forgotten resume silently starves the manifest of live updates (this exact mistake already
+# happened once this session, see `issues/cefi_chain_drop_root_cause_and_heavy_io_vm_rule_2026_07_24.md`
+# Finding 3). START_DATE/END_DATE are cosmetic (VM labels only) — the tool re-scans the whole live
+# manifest, not a date range.
+#   bash launch-canonical-migration-vm.sh cefi-dedup-apply 2026-07-24 2026-07-24 dry
+#   bash launch-canonical-migration-vm.sh cefi-dedup-apply 2026-07-24 2026-07-24 full
+_cefi_dedup_apply_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/complete_cefi_manifest_canonical_dedup_v2_2026_07_20.py${apply_flag}"
 }
 
 # defi-glued-reshard (2026-07-23): re-run of scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py
@@ -731,6 +757,12 @@ _launch() {
         # builder (the tool's OWN monotonic guard is the write-safety, not this launcher).
         cmd="$(_catalogue_promote_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "cefi-dedup-apply" ]]; then
+        # Self-contained `cd ... && python ...` single invocation; --apply is embedded per-MODE by the
+        # builder (the tool's own STOP-ON-SURPRISE gates are the write-safety, not this launcher).
+        # DRAIN GATE is the caller's responsibility — see _cefi_dedup_apply_cmd's comment.
+        cmd="$(_cefi_dedup_apply_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == "defi-glued-reshard" ]]; then
         # Self-contained `cd ... && gcloud storage cp ... && python ...` chain; --apply is embedded
         # per-MODE by the builder (same reason as tradfi-catalogue-promote -- a compound && chain
@@ -796,7 +828,7 @@ _launch() {
     # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
-    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _svc="instruments_service"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" ]] && _svc="instruments_service"
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
@@ -810,6 +842,9 @@ _launch() {
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
+    # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY) so dashboards/heartbeat
+    # classify this VM with the rest of cefi.
+    [[ "$cat" == "cefi-dedup-apply" ]] && _ag="CEFI"
     # candle-census / candle-apply category names are "<ag>-candle-census"/"<ag>-candle-apply" --
     # strip the suffix to recover the real asset group so dashboards/heartbeat classify these VMs
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
@@ -890,7 +925,7 @@ _launch() {
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
@@ -970,7 +1005,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
