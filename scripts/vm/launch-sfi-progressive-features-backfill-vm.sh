@@ -117,7 +117,13 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-BUCKET="features-sports-${PROJECT}"
+# Canonical bucket (the legacy flat `features-sports-${PROJECT}` twin was
+# deleted 2026-07-21 by the bucket_estate_consolidation_to_sub100 migration —
+# see migrate_features_sports_flat_bucket_gap_2026_07_15.py in features-service,
+# which migrated this launcher's only real prior output, the day=2020-01-01
+# sfi_progressive cell, into this bucket). Matches the sibling
+# launch-features-sports-parallel-backfill-vm.sh's GCS_BUCKET default.
+BUCKET="features-sports-prd-${PROJECT}"
 
 # Singleton lock — prevent duplicate features-sfi-progressive-* VMs in the zone.
 if ! $FORCE; then
