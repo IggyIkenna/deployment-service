@@ -131,29 +131,35 @@ if $DRY_RUN; then
   exit 0
 fi
 
+# NOTE (found + fixed 2026-07-24, mtds_backfill_vm_startup_oom_rc137_2026_07_14 verification):
+# metadata pairs are joined with ';' (not ',') because --protocols can carry a comma-separated
+# list (e.g. "velodrome_v2,trader_joe_v2") -- gcloud's default --metadata delimiter IS ',', so a
+# comma-bearing VALUE previously got mis-parsed as extra bare "key" tokens ("Bad syntax for dict
+# arg"), hard-failing every multi-protocol launch. ';' is safe (no metadata key/value here
+# contains it). Same fix applied to the sibling launch-mtds-dex-pools-backfill-vm.sh.
 METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-METADATA="${METADATA},VM_TASK=defi-backfill"
-METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
-METADATA="${METADATA},VM_OPERATION=collect-dex-swaps"
-METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
-METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=${VM_SHUTDOWN_ON_COMPLETION}"
+METADATA="${METADATA};VM_TASK=defi-backfill"
+METADATA="${METADATA};VM_SERVICE=market_tick_data_service"
+METADATA="${METADATA};VM_OPERATION=collect-dex-swaps"
+METADATA="${METADATA};VM_ASSET_GROUP=DEFI"
+METADATA="${METADATA};MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA};MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+METADATA="${METADATA};VM_NAME=${VM_NAME}"
+METADATA="${METADATA};VM_SHUTDOWN_ON_COMPLETION=${VM_SHUTDOWN_ON_COMPLETION}"
 # Part 4: SHARD_INDEX selects this VM's starting TheGraph key (key_number =
 # SHARD_INDEX % 9 + 1); the handler round-robins the full 9-key pool per request.
-METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA};SHARD_INDEX=${SHARD_INDEX}"
+METADATA="${METADATA};DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA};VM_START_DATE=${START_DATE}"
+METADATA="${METADATA};VM_END_DATE=${END_DATE}"
 if [[ -n "$PROTOCOLS" ]]; then
-  METADATA="${METADATA},VM_DEX_SWAPS_PROTOCOLS=${PROTOCOLS}"
+  METADATA="${METADATA};VM_DEX_SWAPS_PROTOCOLS=${PROTOCOLS}"
 fi
 if [[ -n "${MTDS_TARBALL_SHA}" ]]; then
-  METADATA="${METADATA},MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
+  METADATA="${METADATA};MTDS_TARBALL_SHA=${MTDS_TARBALL_SHA}"
 fi
 if [[ -n "${UTL_TARBALL_SHA}" ]]; then
-  METADATA="${METADATA},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
+  METADATA="${METADATA};UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
 fi
 
 # Durable pin registry — instance metadata (above) covers this VM only while it
@@ -187,7 +193,7 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-dex-swaps-backfill,env=${DEPLOYMENT_ENV}" \
-  --metadata="${METADATA}"
+  --metadata="^;^${METADATA}"
 
 echo ""
 echo "  VM created: ${VM_NAME}"

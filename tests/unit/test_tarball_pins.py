@@ -230,11 +230,16 @@ class TestRealLauncherOutputShape:
     def test_launcher_pin_keys_are_all_known_to_the_extractor(self, launcher: str) -> None:
         """Lockstep guard: a key a launcher sets but this module ignores = an unprotected live pin."""
         source = (_VM_SCRIPTS / launcher).read_text()
-        # Every `<PREFIX>_TARBALL_SHA` token appearing anywhere in the launcher.
+        # Every `<PREFIX>_TARBALL_SHA` token appearing anywhere in the launcher. `;` is also a
+        # valid pair-separator here (2026-07-24): a launcher whose --metadata carries a
+        # comma-bearing value (e.g. a comma-separated --protocols list) must join ALL its
+        # metadata pairs with `;` + gcloud's `^;^` alternate-delimiter syntax instead of `,` —
+        # gcloud requires ONE consistent delimiter per --metadata argument, so once any pair
+        # needs `;`, every pair in that string does, including the TARBALL_SHA ones.
         tokens = {
-            word.strip("\"'${}(),")
+            word.strip("\"'${}(),;")
             for line in source.splitlines()
-            for word in line.replace(",", " ").replace("=", " ").split()
+            for word in line.replace(",", " ").replace(";", " ").replace("=", " ").split()
             if "_TARBALL_SHA" in word
         }
         keys = {t.replace("_PIN", "") for t in tokens if t.replace("_PIN", "").endswith("_TARBALL_SHA")}
