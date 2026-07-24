@@ -124,23 +124,30 @@ if $DRY_RUN; then
   exit 0
 fi
 
-METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-METADATA="${METADATA},VM_TASK=defi-backfill"
-METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
-METADATA="${METADATA},VM_OPERATION=collect-dex-pools"
-METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
-METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+STARTUP_SCRIPT_URL="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+# NOTE (found + fixed 2026-07-24, mtds_backfill_vm_startup_oom_rc137_2026_07_14 verification):
+# metadata pairs are joined with ';' (not ',') because --protocols can carry a
+# comma-separated list (e.g. "velodrome_v2,trader_joe_v2,uniswap_v4,uniswap_v2") -- gcloud's
+# default --metadata delimiter IS ',', so a comma-bearing VALUE previously got mis-parsed as
+# extra bare "key" tokens ("Bad syntax for dict arg: [trader_joe_v2]"), hard-failing every
+# multi-protocol launch. ';' is safe here (no metadata key/value in this script contains it).
+METADATA="startup-script-url=${STARTUP_SCRIPT_URL}"
+METADATA="${METADATA};VM_TASK=defi-backfill"
+METADATA="${METADATA};VM_SERVICE=market_tick_data_service"
+METADATA="${METADATA};VM_OPERATION=collect-dex-pools"
+METADATA="${METADATA};VM_ASSET_GROUP=DEFI"
+METADATA="${METADATA};MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA};MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+METADATA="${METADATA};VM_NAME=${VM_NAME}"
+METADATA="${METADATA};VM_SHUTDOWN_ON_COMPLETION=true"
 # Part 4: SHARD_INDEX selects this VM's starting TheGraph key (key_number =
 # SHARD_INDEX % 9 + 1); the handler round-robins the full 9-key pool per request.
-METADATA="${METADATA},SHARD_INDEX=${SHARD_INDEX}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
+METADATA="${METADATA};SHARD_INDEX=${SHARD_INDEX}"
+METADATA="${METADATA};DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+METADATA="${METADATA};VM_START_DATE=${START_DATE}"
+METADATA="${METADATA};VM_END_DATE=${END_DATE}"
 if [[ -n "$PROTOCOLS" ]]; then
-  METADATA="${METADATA},VM_DEX_POOLS_PROTOCOLS=${PROTOCOLS}"
+  METADATA="${METADATA};VM_DEX_POOLS_PROTOCOLS=${PROTOCOLS}"
 fi
 
 # SPOT by default (--no-restart-on-failure already passed below); --on-demand clears it.
@@ -166,7 +173,7 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-dex-pools-backfill,env=${DEPLOYMENT_ENV}" \
-  --metadata="${METADATA}"
+  --metadata="^;^${METADATA}"
 
 echo ""
 echo "  VM created: ${VM_NAME}"

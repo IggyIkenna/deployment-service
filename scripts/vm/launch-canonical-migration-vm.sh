@@ -111,6 +111,19 @@
 #   MIGRATION_EXTRA_ARGS="--only-day 2025-01-01:2025-01-02:2025-01-03:2025-01-04:2025-01-05" \
 #     VM_NAME_SUFFIX=d01to05 bash launch-canonical-migration-vm.sh defi-relabel 2025-01-01 2025-01-17 full
 #
+#   # defi-marker-cleanup (2026-07-24): in-region READ-ONLY dry-run safety report for
+#   # scripts/one_offs/delete_migrated_defi_markers_2026_07_23.py's `_migrated_*` R3 retirement
+#   # markers. DRY-RUN ONLY, HARD -- $MODE is ignored, forced to "dry"; there is NO reachable --apply
+#   # path through this launcher (--apply is human-executed-only, per the tool's own docstring +
+#   # CLAUDE.md's "prod-bucket deletes are human-only" -- never wired through automation, at any
+#   # confidence level). START_DATE/END_DATE ARE real here -- they scope the tool's own
+#   # --start-date/--end-date discovery window (unlike most cosmetic-label categories above).
+#   # RESUME_SEED_GS points at a GCS copy of already-verified progress (e.g. from a prior host run) to
+#   # pull down before starting; the run pushes its own progress back to that same path every 2 min (and
+#   # once more on exit) so a SPOT preemption never loses more than ~2 min of verification.
+#   RESUME_SEED_GS=gs://deployment-scripts-central-element-323112/canonical-migration-defi-marker-cleanup/resume-seed/delete_migrated_defi_markers_2026_07_23.resume.jsonl \
+#     bash launch-canonical-migration-vm.sh defi-marker-cleanup 2020-01-01 2026-07-24 dry
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -204,7 +217,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -257,6 +270,15 @@ TRADFI_TICK_BUCKET="${TRADFI_TICK_BUCKET:-market-data-tick-tradfi-${_ENV_SHORT}-
 # rather than left as a TODO since it is the same one-line validation shape as the WORKERS gate.)
 if [[ ! "${TRADFI_TICK_BUCKET}" =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]]; then
     echo "ERROR: TRADFI_TICK_BUCKET must be a valid GCS bucket name (got: '${TRADFI_TICK_BUCKET}')" >&2
+    exit 1
+fi
+
+# SECURITY: RESUME_SEED_GS (defi-marker-cleanup category only) is embedded unquoted-in-effect inside
+# `gcloud storage cp ${seed_gs} ...` segments of the same VM-side `bash -c`-executed compound string as
+# WORKERS/TRADFI_TICK_BUCKET above -- same injection shape, same one-line gate. Only validated when set
+# (the category's own default is a hardcoded, already-safe gs:// literal).
+if [[ -n "${RESUME_SEED_GS:-}" && ! "${RESUME_SEED_GS}" =~ ^gs://[a-z0-9][a-z0-9._-]{1,61}[a-z0-9](/[A-Za-z0-9._-]+)+$ ]]; then
+    echo "ERROR: RESUME_SEED_GS must be a bare gs://bucket/path URI (got: '${RESUME_SEED_GS}')" >&2
     exit 1
 fi
 
@@ -378,6 +400,44 @@ _glued_reshard_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p /tmp/defi_snap && gcloud storage cp gs://market-data-tick-defi-prd-central-element-323112/_index/availability_index.parquet /tmp/defi_snap/defi_index.parquet && GCP_PROJECT_ID=${PROJECT} python -u scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py /tmp/defi_snap${apply_flag}"
+}
+
+# defi-marker-cleanup (2026-07-24): in-region runner for the READ-ONLY safety report
+# scripts/one_offs/delete_migrated_defi_markers_2026_07_23.py produces over the `_migrated_*` R3
+# retirement markers (see that script's own module docstring). HARD, NON-NEGOTIABLE: this category
+# is DRY-RUN ONLY -- $MODE is deliberately IGNORED in _launch() (mirrors *-candle-census) and there is
+# NO reachable --apply code path through this launcher, ever, regardless of what an operator passes.
+# The tool's own docstring + CLAUDE.md's "prod-bucket deletes are human-only" both say the same thing:
+# no agent invokes --apply against this bucket autonomously, at any confidence level. --apply, if it is
+# ever run, is a human typing it directly on a terminal -- never wired through automation.
+#
+# Moved off an operator/agent host onto an in-region VM per the (2026-07-24) "heavy I/O never runs from
+# the operator's local machine" rule: a 356k-marker full-corpus walk from a non-GCP host measured a
+# decelerating throughput pattern (cross-cloud GCS round-trip latency stacking on top of shared-host CPU
+# contention) matching this file's own documented history for exactly this class of workload (see the
+# tradfi-catalogue-canon comment above -- an earlier off-region attempt on an analogous corpus-scale walk
+# hit the same decelerating pattern before this launcher moved that class of job onto a same-zone VM).
+#
+# RESUME-LOG CONTINUITY: the tool's own --resume-log is a LOCAL VM-disk JSONL file, so a bare SPOT
+# preemption (--instance-termination-action=DELETE wipes the disk) would silently lose every marker
+# verified since this VM's own boot -- the opposite of what makes SPOT safe for an idempotent/resumable
+# job. RESUME_SEED_GS (if set) points at a GCS copy of progress already made (e.g. from a prior host run)
+# that gets pulled down BEFORE the tool starts; a background loop pushes the live resume-log back to that
+# same GCS path every 2 minutes for the whole run (plus once more on exit), so a preemption never loses
+# more than ~2 minutes of verification, and a relaunch (or a fresh RESUME_SEED_GS-pointed rerun) resumes
+# from there instead of re-verifying the whole corpus. Best-effort (`|| true` throughout) -- a transient
+# GCS hiccup on the sync must never abort or crash the actual verification run.
+#
+# START_DATE/END_DATE are REAL here (unlike most cosmetic-label categories above) -- they scope the
+# tool's own --start-date/--end-date discovery window. WORKERS (already validated as a bare positive
+# integer host-side, see the WORKERS gate near the top of this file) sets --verify-workers; a dedicated
+# same-zone VM has no shared-host contention, so a higher value than the 24-worker default measured on a
+# contended host is reasonable (default here: 48).
+_delete_migrated_defi_markers_cmd() {
+    local work="/home/ikennaigboaka/workspace/defi-marker-cleanup"
+    local resume="${work}/delete_migrated_defi_markers_2026_07_23.resume.jsonl"
+    local seed_gs="${RESUME_SEED_GS:-gs://${CODE_BUCKET}/canonical-migration-defi-marker-cleanup/resume-seed/delete_migrated_defi_markers_2026_07_23.resume.jsonl}"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p ${work} && (gcloud storage cp ${seed_gs} ${resume} || true); (while true; do sleep 120; gcloud storage cp ${resume} ${seed_gs} >/dev/null 2>&1 || true; done) & SYNC_PID=\$!; python -u scripts/one_offs/delete_migrated_defi_markers_2026_07_23.py --project-id ${PROJECT} --start-date ${START_DATE} --end-date ${END_DATE} --resume-log ${resume} --verify-workers ${WORKERS:-48} --discover-workers 32; RC=\$?; kill \$SYNC_PID 2>/dev/null || true; gcloud storage cp ${resume} ${seed_gs} || true; exit \$RC"
 }
 
 _catalogue_canon_cmd() {
@@ -699,6 +759,17 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_apply_cmd "${cat%-candle-apply}" "$vm_name")"
+    elif [[ "$cat" == "defi-marker-cleanup" ]]; then
+        # DRY-RUN ONLY, HARD -- $MODE is deliberately IGNORED and forced to "dry" (mirrors
+        # *-candle-census): this category has NO reachable --apply code path through this launcher,
+        # ever, regardless of what an operator passes. See _delete_migrated_defi_markers_cmd's comment.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-marker-cleanup -- it emits a" >&2
+            echo "       fixed dry-run-only compound && chain and the flags would be silently discarded." >&2
+            return 1
+        fi
+        MODE="dry"
+        cmd="$(_delete_migrated_defi_markers_cmd)"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -735,7 +806,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -899,7 +970,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
