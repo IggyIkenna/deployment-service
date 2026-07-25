@@ -116,7 +116,11 @@ if [[ "$STATUS_ONLY" == "true" ]]; then
   # Canonical durable-log path written by lc_log_upload_trap_block:
   # gs://deployment-scripts-<pid>/vm-logs/<vm_name>/run.log (+ EXIT_STATUS).
   LOG_BASE="gs://deployment-scripts-${PROJECT_ID}/vm-logs"
-  LOG_FILES=$(gsutil ls "${LOG_BASE}/fss-backfill-vm-*/run.log" 2>/dev/null || true)
+  # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+  # account (a short-lived WIF token in an interactive AO slot can't refresh
+  # unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+  # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+  LOG_FILES=$(gcloud storage ls "${LOG_BASE}/fss-backfill-vm-*/run.log" 2>/dev/null || true)
   if [[ -z "$LOG_FILES" ]]; then
     echo "No log files found under ${LOG_BASE}/fss-backfill-vm-*/"
     echo "VMs may still be starting up. Check directly:"
@@ -127,10 +131,10 @@ if [[ "$STATUS_ONLY" == "true" ]]; then
   for FILE in $LOG_FILES; do
     # .../vm-logs/<vm_name>/run.log → <vm_name>
     VM_NAME=$(basename "$(dirname "$FILE")")
-    EXIT_STATUS=$(gsutil cat "${LOG_BASE}/${VM_NAME}/EXIT_STATUS" 2>/dev/null || echo "running")
+    EXIT_STATUS=$(gcloud storage cat "${LOG_BASE}/${VM_NAME}/EXIT_STATUS" 2>/dev/null || echo "running")
     echo ""
     echo "--- ${VM_NAME} (exit_status=${EXIT_STATUS}) ---"
-    gsutil cat "$FILE" 2>/dev/null | rg "(Date |COMPLETE|FAILED|WARNING|FSS Features|VM EXIT)" || true
+    gcloud storage cat "$FILE" 2>/dev/null | rg "(Date |COMPLETE|FAILED|WARNING|FSS Features|VM EXIT)" || true
   done
 
   echo ""
@@ -286,9 +290,13 @@ if [[ ! -f "$VM_RUNNER_SCRIPT" ]]; then
 fi
 
 echo "  Uploading tarball..."
-gsutil -q cp "${TARBALL_PATH}" "${GCS_TARBALL}"
+# `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+# account (a short-lived WIF token in an interactive AO slot can't refresh
+# unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+gcloud storage cp "${TARBALL_PATH}" "${GCS_TARBALL}" --quiet
 echo "  Uploading runner script..."
-gsutil -q cp "${VM_RUNNER_SCRIPT}" "${GCS_RUNNER}"
+gcloud storage cp "${VM_RUNNER_SCRIPT}" "${GCS_RUNNER}" --quiet
 echo "  Done."
 rm -f "${TARBALL_PATH}"
 

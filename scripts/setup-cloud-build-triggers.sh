@@ -22,8 +22,12 @@ ensure_artifact_infra() {
       --location="$REGION" \
       --project="$PROJECT_ID" \
       --description="Unified Python libraries"
-  gsutil ls "gs://${PROJECT_ID}-build-metadata/" &>/dev/null || \
-    gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${PROJECT_ID}-build-metadata/" 2>/dev/null || true
+  # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+  # account (a short-lived WIF token in an interactive AO slot can't refresh
+  # unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+  # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+  gcloud storage ls "gs://${PROJECT_ID}-build-metadata/" &>/dev/null || \
+    gcloud storage buckets create "gs://${PROJECT_ID}-build-metadata/" --project="$PROJECT_ID" --location="$REGION" 2>/dev/null || true
   echo "✓ Artifact Registry and GCS ready"
 }
 

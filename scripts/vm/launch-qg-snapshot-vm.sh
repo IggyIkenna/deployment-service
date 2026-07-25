@@ -88,7 +88,11 @@ STARTUP_URL="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # the script to GCS.
 # Bypass with SKIP_GCS_PREFLIGHT=true (CI / test environments).
 if [[ "${SKIP_GCS_PREFLIGHT:-false}" != "true" ]]; then
-    if ! gsutil -q stat "$STARTUP_URL" 2>/dev/null; then
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+    # account (a short-lived WIF token in an interactive AO slot can't refresh
+    # unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    if ! gcloud storage objects describe "$STARTUP_URL" >/dev/null 2>&1; then
         echo "ERROR: startup script not found at $STARTUP_URL" >&2
         echo "Run 'bash scripts/vm/create-code-tarballs.sh' first, then re-run." >&2
         exit 1

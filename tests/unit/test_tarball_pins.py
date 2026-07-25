@@ -129,16 +129,18 @@ def _record(**pins: str) -> str:
 def _write_real_pin_record(tmp_path: Path, vm_name: str, launcher: str, pairs: list[str]) -> str:
     """Run the REAL `lc_write_tarball_pin_record` and return what it uploaded.
 
-    A fake `gsutil` on PATH captures stdin instead of talking to GCS, so this
+    A fake `gcloud` on PATH captures stdin instead of talking to GCS, so this
     exercises the actual shell + embedded-python producer the launchers call —
-    the thing a hand-written fixture cannot vouch for.
+    the thing a hand-written fixture cannot vouch for. `gcloud storage`, not
+    `gsutil` — see
+    plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
     """
     captured = tmp_path / "uploaded.json"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir(exist_ok=True)
-    gsutil = fake_bin / "gsutil"
-    _ = gsutil.write_text(f'#!/bin/sh\ncat > "{captured}"\n')
-    gsutil.chmod(0o755)
+    gcloud = fake_bin / "gcloud"
+    _ = gcloud.write_text(f'#!/bin/sh\ncat > "{captured}"\n')
+    gcloud.chmod(0o755)
 
     env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
     script = 'source "$1"; shift; lc_write_tarball_pin_record "$@"'

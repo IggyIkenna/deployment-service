@@ -92,7 +92,12 @@ while IFS= read -r instance; do
     log_path="gs://${BUCKET}/logs/${instance}/run.log"
 
     # Read the last 10 lines (L1 correct pattern — NOT tail -1).
-    tail_text=$(gsutil cat "$log_path" 2>/dev/null | tail -10 || true)
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's
+    # active account (a short-lived WIF token in an interactive AO slot can't
+    # refresh unattended), while `gcloud storage` resolves via ADC, which stays
+    # valid. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    tail_text=$(gcloud storage cat "$log_path" 2>/dev/null | tail -10 || true)
 
     is_zombie="false"
     reason=""
@@ -117,7 +122,7 @@ while IFS= read -r instance; do
         reason="terminal rc present (${rc_line})"
     else
         # run.log exists but no rc= — check last-modified age.
-        last_update=$(gsutil stat "$log_path" 2>/dev/null | awk -F': +' '/Update time/ {print $2}' || true)
+        last_update=$(gcloud storage objects describe "$log_path" --format='value(update_time)' 2>/dev/null || true)
         if [[ -n "$last_update" ]]; then
             lu_epoch=$(date -d "$last_update" +%s 2>/dev/null || echo 0)
             if [[ $((now_epoch - lu_epoch)) -gt $SILENCE_SEC ]]; then

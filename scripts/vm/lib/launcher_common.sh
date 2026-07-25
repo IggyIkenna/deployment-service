@@ -143,22 +143,28 @@ EOF
 # ---------------------------------------------------------------------------
 # lc_gcs_object_age_seconds <gcs_uri>
 # ---------------------------------------------------------------------------
-# Seconds elapsed since <gcs_uri>'s "Update time" (per `gsutil stat`). Prints
-# the integer to stdout; returns non-zero if the object doesn't exist, gsutil
-# is unavailable, or the timestamp can't be parsed. Uses python3 (already a
-# hard dependency everywhere gcloud/gsutil run) for portable RFC-2822 parsing
-# instead of GNU-only `date -d` (this file targets bash 3.2+/macOS too).
+# Seconds elapsed since <gcs_uri>'s update time (per `gcloud storage objects
+# describe`). Prints the integer to stdout; returns non-zero if the object
+# doesn't exist, gcloud is unavailable, or the timestamp can't be parsed. Uses
+# python3 (already a hard dependency everywhere gcloud runs) for portable ISO
+# 8601 parsing instead of GNU-only `date -d` (this file targets bash 3.2+/
+# macOS too).
+#
+# `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+# account (a short-lived WIF token in an interactive AO slot can't refresh
+# unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
 lc_gcs_object_age_seconds() {
     local gcs_uri="${1:?lc_gcs_object_age_seconds: gcs_uri required}"
-    command -v gsutil >/dev/null 2>&1 || return 1
+    command -v gcloud >/dev/null 2>&1 || return 1
     local updated
-    updated="$(gsutil stat "$gcs_uri" 2>/dev/null | sed -n 's/^[[:space:]]*Update time:[[:space:]]*//p')"
+    updated="$(gcloud storage objects describe "$gcs_uri" --format='value(update_time)' 2>/dev/null)"
     [[ -n "$updated" ]] || return 1
     python3 -c "
 import sys, time
-from email.utils import parsedate_to_datetime
+from datetime import datetime
 try:
-    ts = parsedate_to_datetime(sys.argv[1]).timestamp()
+    ts = datetime.strptime(sys.argv[1], '%Y-%m-%dT%H:%M:%S%z').timestamp()
     print(int(time.time() - ts))
 except Exception:
     sys.exit(1)
@@ -403,7 +409,7 @@ PREEMPTION_EOF
 # tardis_concurrency_guard (sourced inside it) still binds; this helper never
 # bypasses that guard, it only lets the relaunch aim at the right shard.
 #
-# Best-effort: a missing gsutil/python3, or a write failure, only WARNS — it
+# Best-effort: a missing gcloud/python3, or a write failure, only WARNS — it
 # must never fail the launch (the VM being created is the real deliverable; a
 # lost launch-params record just means a future preemption relaunch falls back
 # to the launcher's bare defaults instead of an exact replay).
@@ -416,11 +422,15 @@ lc_write_launch_params() {
     local project="${2:?lc_write_launch_params: project required}"
     local launcher="${3:?lc_write_launch_params: launcher required}"
     shift 3
-    if ! command -v gsutil >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-        echo "WARNING: lc_write_launch_params — gsutil/python3 unavailable, skipping (relaunch will use launcher defaults)" >&2
+    if ! command -v gcloud >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: lc_write_launch_params — gcloud/python3 unavailable, skipping (relaunch will use launcher defaults)" >&2
         return 0
     fi
     local uri="gs://$(lc_code_bucket "$project")/vm-logs/${vm_name}/LAUNCH_PARAMS.json"
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+    # account (a short-lived WIF token in an interactive AO slot can't refresh
+    # unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
     if ! python3 -c '
 import json, sys
 
@@ -431,7 +441,7 @@ for pair in sys.argv[2:]:
         key, _, value = pair.partition("=")
         env[key] = value
 print(json.dumps({"launcher": launcher, "env": env}))
-' "$launcher" "$@" | gsutil -q cp - "$uri" 2>/dev/null; then
+' "$launcher" "$@" | gcloud storage cp - "$uri" --quiet 2>/dev/null; then
         echo "WARNING: lc_write_launch_params — failed to write ${uri} (best-effort, non-fatal; a preemption relaunch will use launcher defaults)" >&2
     fi
 }
@@ -474,11 +484,13 @@ lc_write_tarball_pin_record() {
     local project="${2:?lc_write_tarball_pin_record: project required}"
     local launcher="${3:?lc_write_tarball_pin_record: launcher required}"
     shift 3
-    if ! command -v gsutil >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-        echo "WARNING: lc_write_tarball_pin_record — gsutil/python3 unavailable, skipping (retention falls back to instance metadata only)" >&2
+    if ! command -v gcloud >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        echo "WARNING: lc_write_tarball_pin_record — gcloud/python3 unavailable, skipping (retention falls back to instance metadata only)" >&2
         return 0
     fi
     local uri="gs://$(lc_code_bucket "$project")/vm-logs/${vm_name}/TARBALL_PINS.json"
+    # `gcloud storage`, not `gsutil` — see the ADC-vs-active-account note on
+    # lc_write_launch_params above; same WIF-token gap.
     if ! python3 -c '
 import datetime, json, sys
 
@@ -507,7 +519,7 @@ print(
         }
     )
 )
-' "$launcher" "$vm_name" "$@" | gsutil -q cp - "$uri" 2>/dev/null; then
+' "$launcher" "$vm_name" "$@" | gcloud storage cp - "$uri" --quiet 2>/dev/null; then
         echo "WARNING: lc_write_tarball_pin_record — failed to write ${uri} (best-effort, non-fatal; retention falls back to instance metadata for as long as this VM runs)" >&2
     fi
 }
@@ -639,7 +651,7 @@ lc_resolve_tarball_sha() {
 #   WORKSPACE_ROOT              workspace root holding the sibling repo clones
 #                               (default: auto-detected from this lib's location)
 #
-# Robustness: git/gsutil unavailable, or a repo dir that isn't a git clone, is a
+# Robustness: git/gcloud unavailable, or a repo dir that isn't a git clone, is a
 # "can't verify" — warn+skip in every mode EXCEPT enforce with a genuinely
 # stale/missing tarball. A transient tooling absence never blocks a launch.
 #
@@ -800,14 +812,13 @@ lc_verify_tarball_freshness() {
 # ---------------------------------------------------------------------------
 # PRE-LAUNCH guard against the setup-script publish race: create-code-tarballs.sh
 # publishes scripts/vm/setup-data-pipeline-vm.sh (the file every Pattern-A VM's
-# startup-script-url points at) via a plain, unversioned `gsutil cp` with no
-# manifest/checksum companion — unlike the code tarballs (see
-# lc_verify_tarball_freshness above, which has a .manifest.json to compare
-# against). A VM can boot and fetch that GCS object BEFORE a fix-then-launch
-# turn's `gsutil cp` has actually landed, silently running stale startup logic
-# despite correct instance metadata. Root-caused 2026-07-12 (morpho
-# lending_indices first backfill VM ran the pre-fix _DEFAULT_PROTOCOLS list for
-# ~17 min before the race was noticed). SSOT:
+# startup-script-url points at) with no manifest/checksum companion — unlike the
+# code tarballs (see lc_verify_tarball_freshness above, which has a
+# .manifest.json to compare against). A VM can boot and fetch that GCS object
+# BEFORE a fix-then-launch turn's publish has actually landed, silently running
+# stale startup logic despite correct instance metadata. Root-caused 2026-07-12
+# (morpho lending_indices first backfill VM ran the pre-fix _DEFAULT_PROTOCOLS
+# list for ~17 min before the race was noticed). SSOT:
 # plans/active/issues/defi_morpho_lending_indices_never_wired_2026_07_12.md.
 #
 # Called automatically by lc_gcloud_create (not per-launcher) so every caller
@@ -815,18 +826,19 @@ lc_verify_tarball_freshness() {
 # a `startup-script-url=gs://<bucket>/vm/<name>.sh` entry — a no-op (return 0)
 # if none is present (e.g. launchers using --metadata-from-file startup-script
 # instead of Pattern A). Compares the local script's content hash
-# (`gsutil hash -m`, matches `gsutil stat`'s reporting format) against the live
-# GCS object's md5 before the VM is created.
+# (`gcloud storage hash`, same base64 md5 encoding `gcloud storage objects
+# describe` reports) against the live GCS object's md5 before the VM is
+# created.
 #
 # Acts per LC_SETUP_SCRIPT_FRESHNESS (same semantics as LC_TARBALL_FRESHNESS):
 #   off      — skip the check entirely.
 #   warn     — (DEFAULT) print a loud WARNING + the exact republish remedy,
 #              then return 0 (never blocks a launch).
 #   enforce  — return 1 (block the launch) if the script is stale or missing.
-#   auto     — republish via `gsutil cp` the local script over the GCS object,
-#              then return 0 (or 1 if the republish itself failed).
+#   auto     — republish via `gcloud storage cp` the local script over the GCS
+#              object, then return 0 (or 1 if the republish itself failed).
 #
-# Robustness: gsutil unavailable, or the local script file not found, is a
+# Robustness: gcloud unavailable, or the local script file not found, is a
 # "can't verify" — warn+skip in every mode (a tooling/path gap never blocks a
 # launch; only a genuinely-confirmed stale/missing object blocks in enforce).
 lc_verify_setup_script_freshness() {
@@ -853,8 +865,8 @@ lc_verify_setup_script_freshness() {
     local script_name
     script_name="$(basename "$gcs_url")"
 
-    if ! command -v gsutil >/dev/null 2>&1; then
-        echo "WARNING: lc_verify_setup_script_freshness — gsutil unavailable, skipping freshness check for $script_name" >&2
+    if ! command -v gcloud >/dev/null 2>&1; then
+        echo "WARNING: lc_verify_setup_script_freshness — gcloud unavailable, skipping freshness check for $script_name" >&2
         return 0
     fi
 
@@ -866,16 +878,22 @@ lc_verify_setup_script_freshness() {
         return 0
     fi
 
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+    # account (a short-lived WIF token in an interactive AO slot can't refresh
+    # unattended), while `gcloud storage` resolves via ADC, which stays valid. Both
+    # sides use the same base64 md5 encoding `gsutil hash`/`gsutil stat` used, so
+    # the direct string comparison below is unchanged. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
     local local_md5 remote_md5
-    local_md5="$(gsutil hash -m "$local_path" 2>/dev/null | awk -F': ' '/Hash \(md5\):/ {gsub(/^ +| +$/, "", $2); print $2}')"
-    remote_md5="$(gsutil stat "$gcs_url" 2>/dev/null | awk -F': ' '/Hash \(md5\):/ {gsub(/^ +| +$/, "", $2); print $2}')"
+    local_md5="$(gcloud storage hash "$local_path" --skip-crc32c --format='value(md5_hash)' 2>/dev/null)"
+    remote_md5="$(gcloud storage objects describe "$gcs_url" --format='value(md5_hash)' 2>/dev/null)"
 
     if [[ -z "$local_md5" ]]; then
         echo "WARNING: lc_verify_setup_script_freshness — could not hash local $local_path, skipping" >&2
         return 0
     fi
 
-    local republish_cmd="gsutil cp ${local_path} ${gcs_url}"
+    local republish_cmd="gcloud storage cp ${local_path} ${gcs_url} --quiet"
 
     if [[ -z "$remote_md5" ]]; then
         echo "WARNING: setup script MISSING on GCS: $gcs_url — the VM would fail to fetch its startup-script-url" >&2

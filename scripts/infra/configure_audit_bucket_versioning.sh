@@ -48,13 +48,17 @@ echo "  Action: enable versioning + set 7-year retention lock"
 echo ""
 
 # --- Step 1: Enable object versioning ---
+# `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+# account (a short-lived WIF token in an interactive AO slot can't refresh
+# unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
 echo "[1/3] Enabling object versioning..."
-gsutil versioning set on "gs://${GCP_BUCKET}"
+gcloud storage buckets update "gs://${GCP_BUCKET}" --versioning
 echo "      Versioning enabled."
 
 # Verify
-VERSIONING_STATUS=$(gsutil versioning get "gs://${GCP_BUCKET}" 2>&1)
-if echo "${VERSIONING_STATUS}" | grep -q "Enabled"; then
+VERSIONING_STATUS=$(gcloud storage buckets describe "gs://${GCP_BUCKET}" --format='value(versioning_enabled)' 2>&1)
+if [[ "${VERSIONING_STATUS}" == "True" ]]; then
   echo "      Verified: versioning is ON."
 else
   echo "ERROR: versioning did not enable. Output: ${VERSIONING_STATUS}" >&2
