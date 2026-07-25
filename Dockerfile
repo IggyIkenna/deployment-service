@@ -19,7 +19,7 @@ ARG PROJECT_ID
 # Digest-pinned UTL base image (QG STEP 5.79 -- reproducible builds + UTL/UAC provenance).
 # Refreshed by the dependency-update fan-out (update-dependency-version.yml) on base-image
 # republish; cloudbuild may override at build time: --build-arg BASE_IMAGE_DIGEST=sha256:...
-ARG BASE_IMAGE_DIGEST=sha256:2d620b660df483fc92d6bb306c210b16cc44cfeb3c6989a551483a8d728ce359
+ARG BASE_IMAGE_DIGEST=sha256:a302c0cd81b9e5192e977b6644b3cbbcbb6e326d19195b5780014a9e5e188b02
 FROM --platform=linux/amd64 asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-library/unified-trading-library@${BASE_IMAGE_DIGEST} AS base
 
 FROM base AS api
