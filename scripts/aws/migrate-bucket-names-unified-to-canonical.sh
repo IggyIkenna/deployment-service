@@ -2,6 +2,13 @@
 # Epic: infrastructure_master
 # Lifecycle: oneoff
 # Delete-when: after prod-run verified + GCS orphan-sweep=0
+# STATUS (re-confirmed 2026-07-25, bucket_estate_consolidation_closeout_2026_07_24.md, asset-group parity
+# drift cleanup): Phase 5 has EXECUTED — the ml-*/features-*/execution-* legacy `unified-trading-*` names
+# this script renames are confirmed either already deleted or already superseded by later folds (env-tiered
+# ml-store / features / execution-store). This file is a HISTORICAL RECORD of an executed rename migration,
+# not a live inventory — do not edit the old/new name pairs in place to "fix" them to current canonical
+# shapes. Decide delete-vs-keep against the Delete-when condition above (a dedicated GCS orphan-sweep, not
+# done in this session) rather than re-running it against the current estate.
 # Phase 5 — AWS bucket rename: unified-trading-* → canonical symmetric names
 #
 # Context: coordinator data_pipeline_master_coordination_2026_05_20.md Phase 5.
