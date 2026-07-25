@@ -19,13 +19,20 @@ set -euo pipefail
 # Caller-provided (each wrapper overrides if needed):
 TRADFI_OHLCV_ZONE="${TRADFI_OHLCV_ZONE:-asia-northeast1-c}"
 TRADFI_OHLCV_PROJECT="${TRADFI_OHLCV_PROJECT:-central-element-323112}"
-# e2-highmem-4 (32GB) — tradfi OHLCV backfill peaks ~15GB/chunk (a per-date transient
-# spike on a heavy fetch: liquid GC.OPT ohlcv_1s expiry day, or NASDAQ/NYSE many-symbol
-# ohlcv_1m week) that sits right at e2-standard-4's 16GB ceiling → OOM-crash-loop on 16GB
-# (verified 2026-06-24: gc-2025 cleared >1 7-day chunk on 32GB, zero OOM, peak RSS 15.3GB).
-# The per-date footprint itself is the real bug (tiny output, ~15GB transient) — reduce it
-# (memray) + revert to e2-standard-4. SSOT: tradfi_backfill_oom_remediation_2026_06_24.md.
-TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-highmem-4}"
+# e2-highmem-16 (128GB) — raised from e2-highmem-4 2026-07-25 per the measured A3.1
+# throughput analysis (tradfi_backfill_throughput_followups_2026_07_24.md): every real
+# measurement of the 1.56x date-fanout lever (--batch-date-concurrency) and the
+# 46.9k rows/min/VM CME rate was taken ON e2-highmem-16 — e2-highmem-4 was still the
+# launcher default while the whole throughput model assumed 16 vCPU, understating the
+# real backfill ETA by ~1.5x. Still comfortably clears the 2026-06-24 OOM floor below
+# (15.3GB peak RSS on 32GB e2-highmem-4; 128GB leaves far more headroom).
+# Prior context (why e2-highmem-4 over e2-standard-4): tradfi OHLCV backfill peaks
+# ~15GB/chunk (a per-date transient spike on a heavy fetch: liquid GC.OPT ohlcv_1s
+# expiry day, or NASDAQ/NYSE many-symbol ohlcv_1m week) that sits right at
+# e2-standard-4's 16GB ceiling → OOM-crash-loop on 16GB (verified 2026-06-24: gc-2025
+# cleared >1 7-day chunk on 32GB, zero OOM). SSOT: tradfi_backfill_oom_remediation_2026_06_24.md,
+# tradfi_backfill_throughput_followups_2026_07_24.md (A3.1 + the OHLCV_FLEET_CONCURRENCY_CAP raise below).
+TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-highmem-16}"
 # pd-balanced 250GB: pd-standard throttles sustained writes hard (~0.17 MB/s/GB,
 # measured disk-bound on cefi backfills); pd-balanced is SSD-backed and scales
 # write throughput with size, so a larger balanced disk lifts the download→parquet
@@ -154,8 +161,15 @@ ohlcv_default_date_concurrency() {
 # NYSE now fan out to (ticker-group x year) instead of one VM per year, so the
 # equity fleet alone is ~2 venues x 5 groups x 4 years = ~40 VMs, and 20 would
 # refuse the second venue mid-rollout. 60 leaves headroom for a concurrent
-# CME/ICE/CFE wave. Override: OHLCV_FLEET_CONCURRENCY_CAP=N (env).
-OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-60}"
+# CME/ICE/CFE wave.
+# Raised 60 → 150 (2026-07-25) per the tick-26 throughput re-analysis
+# (tradfi_backfill_throughput_followups_2026_07_24.md): the corrected ETA is
+# THROUGHPUT-bound (~999 VM-h against a cap of 60), not critical-path-bound, so
+# the cap is the single highest-leverage remaining knob — same per-IP-per-VM
+# reasoning as the 20->60 raise above (Databento's 100-conn/100-req-s budget is
+# spent per VM, not fleet-wide; 18 concurrent VMs measured zero 429s). Projected
+# ~22h -> ~9h backfill ETA. Override: OHLCV_FLEET_CONCURRENCY_CAP=N (env).
+OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-150}"
 
 # Stall-watchdog progress marker (metadata-safe: no '=', space or comma).
 #
