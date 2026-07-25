@@ -43,14 +43,14 @@ if ! command -v gcloud >/dev/null 2>&1; then
   echo "ERROR: gcloud CLI is required" >&2
   exit 1
 fi
-if ! command -v gsutil >/dev/null 2>&1; then
-  echo "ERROR: gsutil CLI is required" >&2
-  exit 1
-fi
+echo "[verify-test-bucket-lifecycle] listing -test- buckets via gcloud storage..."
 
-echo "[verify-test-bucket-lifecycle] listing -test- buckets via gsutil..."
-
-# `gsutil ls -p <project>` lists buckets owned by the configured project.
+# `gcloud storage ls --project=<project>` lists buckets owned by the configured
+# project. `gcloud storage`, not `gsutil` — gsutil resolves creds from the
+# CLI's active account (a short-lived WIF token in an interactive AO slot
+# can't refresh unattended), while `gcloud storage` resolves via ADC, which
+# stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
 PROJECT_ID="$(gcloud config get-value project 2>/dev/null || true)"
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "ERROR: no gcloud project configured. Run: gcloud config set project <id>" >&2
@@ -61,7 +61,7 @@ fi
 BUCKETS=()
 while IFS= read -r _b; do
   [[ -n "${_b}" ]] && BUCKETS+=("${_b}")
-done < <(gsutil ls -p "${PROJECT_ID}" 2>/dev/null \
+done < <(gcloud storage ls --project="${PROJECT_ID}" 2>/dev/null \
   | sed -e 's#^gs://##' -e 's#/$##' \
   | grep -E -- '-test-' || true)
 
@@ -90,7 +90,10 @@ MISSING_LIST=()
 
 for bucket in "${BUCKETS[@]}"; do
   url="gs://${bucket}"
-  current="$(gsutil lifecycle get "${url}" 2>/dev/null || echo "")"
+  # `--raw` preserves the API's own JSON field shape (matches gsutil's
+  # `lifecycle get` output) so the "type": "Delete" / "age": 7 substring
+  # checks below still hold.
+  current="$(gcloud storage buckets describe "${url}" --raw --format=json 2>/dev/null || echo "")"
   if [[ -n "${current}" ]] \
       && echo "${current}" | grep -q '"type": *"Delete"' \
       && echo "${current}" | grep -q '"age": *7'; then
@@ -100,7 +103,7 @@ for bucket in "${BUCKETS[@]}"; do
   MISSING=$((MISSING + 1))
   MISSING_LIST+=("${bucket}")
   if [[ ${APPLY} -eq 1 ]]; then
-    if gsutil lifecycle set "${LIFECYCLE_JSON}" "${url}" >/dev/null 2>&1; then
+    if gcloud storage buckets update "${url}" --lifecycle-file="${LIFECYCLE_JSON}" >/dev/null 2>&1; then
       APPLIED=$((APPLIED + 1))
       echo "  applied lifecycle to ${bucket}"
     else

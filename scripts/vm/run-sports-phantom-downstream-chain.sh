@@ -107,7 +107,12 @@ for entity in "${ENTITY_LIST[@]}"; do
   TODAY="$(date -u +%Y-%m-%d)"
   while true; do
     EVENTS_PATH="gs://${EVENTS_BUCKET}/events/instruments-service/${TODAY}/${VM_NAME}/hour=*/*.jsonl"
-    TERMINAL="$(gsutil cat "$EVENTS_PATH" 2>/dev/null | grep -E '"event": "(STOPPED|FAILED)"' | tail -1 || true)"
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's
+    # active account (a short-lived WIF token in an interactive AO slot can't
+    # refresh unattended), while `gcloud storage` resolves via ADC, which stays
+    # valid. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    TERMINAL="$(gcloud storage cat "$EVENTS_PATH" 2>/dev/null | grep -E '"event": "(STOPPED|FAILED)"' | tail -1 || true)"
     if [[ -n "$TERMINAL" ]]; then
       if echo "$TERMINAL" | grep -q '"event": "FAILED"'; then
         echo "FAILED event detected for $VM_NAME — aborting chain. Diagnose:" >&2

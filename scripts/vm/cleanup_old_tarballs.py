@@ -87,14 +87,20 @@ class TarballEntry(TypedDict):
 
 
 def _gsutil_ls_l(prefix: str, all_versions: bool = False) -> list[tuple[datetime, str]]:
-    """Run `gsutil ls -l [--all-versions]` and return [(mtime, gcs_path)] pairs."""
-    cmd = ["gsutil", "ls", "-l"]
+    """Run `gcloud storage ls -l [-a]` and return [(mtime, gcs_path)] pairs.
+
+    `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+    account (a short-lived WIF token in an interactive AO slot can't refresh
+    unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+    plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    """
+    cmd = ["gcloud", "storage", "ls", "-l"]
     if all_versions:
         cmd.append("-a")
     cmd.append(prefix)
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        logger.warning("gsutil ls failed: %s", result.stderr.strip())
+        logger.warning("gcloud storage ls failed: %s", result.stderr.strip())
         return []
     rows: list[tuple[datetime, str]] = []
     for line in result.stdout.splitlines():

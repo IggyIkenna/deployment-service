@@ -106,7 +106,11 @@ if [[ ! -f "$LOCAL_PY" ]]; then
     exit 1
 fi
 echo "Uploading repo SSOT → gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py"
-gsutil -q cp "$LOCAL_PY" "gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py"
+# `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+# account (a short-lived WIF token in an interactive AO slot can't refresh
+# unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+gcloud storage cp "$LOCAL_PY" "gs://${CODE_BUCKET}/scripts/vm_zombie_watchdog.py" --quiet
 
 # Boot pip vs apt notes (2026-05-04 — silent-watchdog incident fix):
 #

@@ -83,9 +83,13 @@ echo "    All APIs enabled."
 STATE_BUCKET="${PREFIX}-terraform-state-${PROJECT_ID}"
 echo "==> Ensuring Terraform state bucket: gs://${STATE_BUCKET}"
 
-if ! gsutil ls -b "gs://${STATE_BUCKET}" &>/dev/null; then
-  gsutil mb -p "$PROJECT_ID" -l "$REGION" "gs://${STATE_BUCKET}"
-  gsutil versioning set on "gs://${STATE_BUCKET}"
+# `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+# account (a short-lived WIF token in an interactive AO slot can't refresh
+# unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+# plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+if ! gcloud storage ls -b "gs://${STATE_BUCKET}" &>/dev/null; then
+  gcloud storage buckets create "gs://${STATE_BUCKET}" --project="$PROJECT_ID" --location="$REGION"
+  gcloud storage buckets update "gs://${STATE_BUCKET}" --versioning
   echo "    Created: gs://${STATE_BUCKET}"
 else
   echo "    Already exists: gs://${STATE_BUCKET}"

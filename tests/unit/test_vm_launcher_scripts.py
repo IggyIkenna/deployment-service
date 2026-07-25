@@ -314,8 +314,8 @@ class TestSetupScriptFreshnessGuard:
 
     Root cause it prevents (2026-07-12 morpho incident, "UPDATE" section): unlike code
     tarballs (which carry a .manifest.json commit_sha), the GCS setup/startup script a
-    Pattern-A VM's startup-script-url points at is published via a plain, unversioned
-    `gsutil cp` with no freshness record. A VM can boot and fetch that object before a
+    Pattern-A VM's startup-script-url points at is published with no freshness record.
+    A VM can boot and fetch that object before a
     fix-then-launch turn's publish has landed, silently running stale startup logic
     despite correct instance metadata. Unlike lc_verify_tarball_freshness (which every
     launcher must wire individually), this guard is invoked automatically from
@@ -354,27 +354,33 @@ class TestSetupScriptFreshnessGuard:
         )
         assert result.returncode == 0
 
-    def _run_with_mock_gsutil(
+    def _run_with_mock_gcloud(
         self, local_script: Path, remote_hash: str | None, mode: str
     ) -> subprocess.CompletedProcess[str]:
+        """Mock `gcloud storage hash`/`objects describe`/`cp` — the guard's local-hash and
+
+        remote-hash reads route through `gcloud storage` (ADC-backed), not `gsutil` (active-
+        CLI-account-backed, breaks under an expired WIF token in an interactive AO slot). See
+        plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+        """
         lib = self._lib_abs()
-        remote_stat_body = f'echo "    Hash (md5):          {remote_hash}"' if remote_hash is not None else "return 1"
+        remote_describe_body = f'echo "{remote_hash}"' if remote_hash is not None else "return 1"
         script = f"""
-gsutil() {{
-    if [[ "$1" == "hash" ]]; then
-        echo "    Hash (md5):          local-hash-abc"
+gcloud() {{
+    if [[ "$1" == "storage" && "$2" == "hash" ]]; then
+        echo "local-hash-abc"
         return 0
     fi
-    if [[ "$1" == "stat" ]]; then
-        {remote_stat_body}
+    if [[ "$1" == "storage" && "$2" == "objects" && "$3" == "describe" ]]; then
+        {remote_describe_body}
         return 0
     fi
-    if [[ "$1" == "cp" ]]; then
+    if [[ "$1" == "storage" && "$2" == "cp" ]]; then
         return 0
     fi
     return 0
 }}
-export -f gsutil
+export -f gcloud
 source "{lib}"
 # `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
 set +e
@@ -396,26 +402,26 @@ echo "RC=$rc"
         # lc_verify_setup_script_freshness's local-path resolution finds a real file.
         real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
         assert real_script.exists(), "fixture assumes setup-data-pipeline-vm.sh exists in scripts/vm/"
-        result = self._run_with_mock_gsutil(real_script, "local-hash-abc", "warn")
+        result = self._run_with_mock_gcloud(real_script, "local-hash-abc", "warn")
         assert "RC=0" in result.stdout
         assert "setup script fresh" in result.stdout
 
     def test_stale_script_warn_does_not_block(self, tmp_path: Path):
         real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
-        result = self._run_with_mock_gsutil(real_script, "different-remote-hash", "warn")
+        result = self._run_with_mock_gcloud(real_script, "different-remote-hash", "warn")
         assert "RC=0" in result.stdout, "warn mode must not block a launch"
         assert "STALE setup script" in result.stderr
-        assert "gsutil cp" in result.stderr
+        assert "gcloud storage cp" in result.stderr
 
     def test_stale_script_enforce_blocks(self, tmp_path: Path):
         real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
-        result = self._run_with_mock_gsutil(real_script, "different-remote-hash", "enforce")
+        result = self._run_with_mock_gcloud(real_script, "different-remote-hash", "enforce")
         assert "RC=1" in result.stdout, "enforce mode must block a stale launch"
         assert "refusing to launch" in result.stderr
 
     def test_missing_remote_script_enforce_blocks(self, tmp_path: Path):
         real_script = self._lib_abs().parent.parent / "setup-data-pipeline-vm.sh"
-        result = self._run_with_mock_gsutil(real_script, None, "enforce")
+        result = self._run_with_mock_gcloud(real_script, None, "enforce")
         assert "RC=1" in result.stdout
         assert "MISSING" in result.stderr
 
@@ -883,8 +889,8 @@ class TestQgSnapshotLauncher:
     def test_preflight_check_exits_when_gsutil_fails(self, launcher_path: Path) -> None:
         """Pre-flight check must fail fast with a clear error when startup-script-url is inaccessible."""
         script = f"""#!/bin/bash
-gsutil() {{ return 1; }}
-export -f gsutil
+gcloud() {{ return 1; }}
+export -f gcloud
 SKIP_GCS_PREFLIGHT=false bash "{launcher_path}" --dry-run-scheduler-body
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
@@ -894,7 +900,7 @@ SKIP_GCS_PREFLIGHT=false bash "{launcher_path}" --dry-run-scheduler-body
             result = subprocess.run(["bash", f.name], capture_output=True, text=True)
         finally:
             os.unlink(f.name)
-        assert result.returncode != 0, "Should fail when gsutil stat returns non-zero"
+        assert result.returncode != 0, "Should fail when the startup-script-url pre-flight check returns non-zero"
         assert "create-code-tarballs.sh" in result.stderr or "startup script not found" in result.stderr, (
             f"Error message should mention create-code-tarballs.sh; got: {result.stderr!r}"
         )
@@ -911,8 +917,7 @@ gcloud() {{
     fi
     return 0
 }}
-gsutil() {{ return 0; }}
-export -f gcloud gsutil
+export -f gcloud
 SKIP_GCS_PREFLIGHT=true bash "{launcher_path}" --dry-run
 """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
@@ -1166,29 +1171,27 @@ class TestCanonicalMigrationVmRelaunch:
     def _mock_preamble(self, capture_dir: Path, gcloud_log: Path) -> str:
         # gcloud: no-op success; every "instances create <name> ..." call is appended to gcloud_log so
         # tests can assert exactly how many VMs were created (fan-out vs single relaunch) and under
-        # which name. gsutil: only `-q cp - <uri>` (lc_write_launch_params / lc_write_tarball_pin_record's
-        # actual mechanism) is intercepted -- stdin is captured to `<capture_dir>/<basename(uri)>` so a
-        # test can read back the exact JSON that would have been persisted to GCS; every other gsutil
-        # invocation (freshness checks etc.) is a harmless no-op. python3 is left REAL so
-        # lc_write_launch_params's own JSON-building one-liner runs for real, just piped into our mock.
+        # which name. `storage cp - <uri> --quiet` (lc_write_launch_params / lc_write_tarball_pin_record's
+        # actual mechanism, `gcloud storage` not `gsutil` -- see
+        # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md) is
+        # intercepted -- stdin is captured to `<capture_dir>/<basename(uri)>` so a test can read back the
+        # exact JSON that would have been persisted to GCS; every other gcloud invocation (freshness
+        # checks etc.) is a harmless no-op. python3 is left REAL so lc_write_launch_params's own
+        # JSON-building one-liner runs for real, just piped into our mock.
         return f'''
 gcloud() {{
     if [[ "$1 $2 $3" == "compute instances create" ]]; then
         echo "$4" >> "{gcloud_log}"
         return 0
     fi
-    return 0
-}}
-export -f gcloud
-gsutil() {{
-    if [[ "$1 $2 $3" == "-q cp -" ]]; then
+    if [[ "$1 $2 $3" == "storage cp -" ]]; then
         local uri="$4"
         cat > "{capture_dir}/$(basename "$uri")"
         return 0
     fi
     return 0
 }}
-export -f gsutil
+export -f gcloud
 '''
 
     def _run(
@@ -1351,28 +1354,26 @@ class TestDefiLaunchersSpotPreemptionContract:
         # --metadata-from-file=shutdown-script=... on the same line. "compute
         # instances list" (the Solana launcher's already-running guard) falls
         # through the else branch and returns nothing, i.e. EXISTING="" — the
-        # guard's normal not-already-running path. gsutil: only `-q cp -`
-        # (lc_write_launch_params's actual mechanism) is intercepted, stdin
-        # captured to <capture_dir>/<basename(uri)>; every other gsutil call
-        # (freshness checks, etc.) is a harmless no-op.
+        # guard's normal not-already-running path. `storage cp - <uri> --quiet`
+        # (lc_write_launch_params's actual mechanism, `gcloud storage` not
+        # `gsutil` -- see
+        # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md)
+        # is intercepted, stdin captured to <capture_dir>/<basename(uri)>; every
+        # other gcloud invocation (freshness checks, etc.) is a harmless no-op.
         return f'''
 gcloud() {{
     if [[ "$1 $2 $3" == "compute instances create" ]]; then
         printf '%s\\n' "$*" >> "{gcloud_log}"
         return 0
     fi
-    return 0
-}}
-export -f gcloud
-gsutil() {{
-    if [[ "$1 $2 $3" == "-q cp -" ]]; then
+    if [[ "$1 $2 $3" == "storage cp -" ]]; then
         local uri="$4"
         cat > "{capture_dir}/$(basename "$uri")"
         return 0
     fi
     return 0
 }}
-export -f gsutil
+export -f gcloud
 '''
 
     def _run(
