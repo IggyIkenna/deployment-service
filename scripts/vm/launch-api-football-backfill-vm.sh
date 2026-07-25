@@ -57,6 +57,15 @@
 #   (API-Football publishes schedules weeks/months ahead; per-fixture
 #   enrichments only exist post-match).
 #
+# --league LEAGUE_ID[,LEAGUE_ID...]
+#   Comma-separated canonical LEAGUE_REGISTRY IDs (passed through to the CLI's
+#   --league; default there is "all prediction leagues", so omit this to run
+#   the normal MVP-scope backfill). Use this to scope a run to specific
+#   non-MVP/Reference leagues (e.g. a curated-universe expansion batch) without
+#   re-processing the whole prediction set. The value transits VM metadata
+#   ;-joined internally (gcloud --metadata uses , as its own key separator) and
+#   is re-joined on , by setup-data-pipeline-vm.sh before reaching the CLI.
+#
 # Cost: e2-standard-2 for ~5-30 min depending on range size. API-Football
 # fixtures-by-date returns all leagues in one call per date, so the wall clock
 # is dominated by rate-limit pacing (one call per date in the range).
@@ -78,6 +87,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 FORCE=false
 ENTITY=""
+LEAGUE=""
 LOOKBACK=""
 LOOKAHEAD=""
 FORCE_WINDOW=false
@@ -122,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --skip-lock) SKIP_LOCK=true; shift ;;
     --entity) ENTITY="$2"; shift 2 ;;
+    --league) LEAGUE="$2"; shift 2 ;;
     --lookback) LOOKBACK="$2"; shift 2 ;;
     --lookahead) LOOKAHEAD="$2"; shift 2 ;;
     --force-window) FORCE_WINDOW=true; shift ;;
@@ -159,6 +170,7 @@ if [[ $# -eq 0 && -z "$LOOKBACK" && -z "$LOOKAHEAD" ]]; then
     [[ "${RESUME_FORCE_WINDOW:-false}" == "true" ]] && FORCE_WINDOW=true
   fi
   [[ -n "${RESUME_ENTITY:-}" ]] && ENTITY="${RESUME_ENTITY}"
+  [[ -n "${RESUME_LEAGUE:-}" ]] && LEAGUE="${RESUME_LEAGUE}"
 fi
 
 # Mode resolution: rolling (--lookback/--lookahead) vs explicit (<start> <end>).
@@ -186,7 +198,7 @@ EOF
 else
   if [[ $# -ne 2 ]]; then
     cat >&2 <<EOF
-Usage: bash launch-api-football-backfill-vm.sh [--force] [--skip-lock] [--entity ENTITY] \\
+Usage: bash launch-api-football-backfill-vm.sh [--force] [--skip-lock] [--entity ENTITY] [--league LEAGUE_IDS] \\
          ( <START_DATE> <END_DATE> | --lookback N --lookahead M [--force-window] )
 
   START_DATE, END_DATE must be YYYY-MM-DD (inclusive).
@@ -197,6 +209,8 @@ Usage: bash launch-api-football-backfill-vm.sh [--force] [--skip-lock] [--entity
                NOT use --force just to clear the lock on a fleet launch.
   ENTITY (optional): FIXTURES | INJURIES | FIXTURE_STATS | FIXTURE_EVENTS |
                      FIXTURE_LINEUPS | PLAYER_STATS. Omit for all entities.
+  LEAGUE_IDS (optional): comma-separated canonical LEAGUE_REGISTRY IDs. Omit for
+                     the CLI default (all prediction leagues).
 
 Examples:
   bash launch-api-football-backfill-vm.sh 2018-01-01 2019-01-15
@@ -386,6 +400,12 @@ else
 fi
 METADATA="${METADATA},VM_SPORTS_PROVIDER=API_FOOTBALL"
 [[ -n "$ENTITY" ]] && METADATA="${METADATA},VM_SPORTS_ENTITY=${ENTITY}"
+# LEAGUE arrives comma-joined (matches the CLI's --league comma-separated
+# contract) but gcloud's --metadata flag uses commas as the KEY separator, so
+# a comma-bearing value would corrupt the METADATA string — re-delimit on ;
+# for transit (VM_DATA_TYPES/VM_INSTRUMENT_IDS precedent), setup-data-pipeline-vm.sh
+# converts back to , when assembling the final --league CLI arg.
+[[ -n "$LEAGUE" ]] && METADATA="${METADATA},VM_SPORTS_LEAGUE=${LEAGUE//,/;}"
 [[ -n "$RECOVERY_FIXTURE_IDS" ]] && METADATA="${METADATA},VM_RECOVERY_FIXTURE_IDS=${RECOVERY_FIXTURE_IDS}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
@@ -460,12 +480,14 @@ SHUTDOWN_EOF
         "RESUME_LOOKAHEAD=${LOOKAHEAD}" \
         "RESUME_FORCE_WINDOW=${FORCE_WINDOW}" \
         "RESUME_ENTITY=${ENTITY}" \
+        "RESUME_LEAGUE=${LEAGUE}" \
         "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   else
     lc_write_launch_params "$VM_NAME" "$PROJECT" "launch-api-football-backfill-vm.sh" \
         "RESUME_START_DATE=${START_DATE}" \
         "RESUME_END_DATE=${END_DATE}" \
         "RESUME_ENTITY=${ENTITY}" \
+        "RESUME_LEAGUE=${LEAGUE}" \
         "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
   fi
 

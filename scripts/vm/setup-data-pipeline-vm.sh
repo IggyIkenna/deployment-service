@@ -239,6 +239,7 @@ VM_OPERATION=$(_meta VM_OPERATION download)
 VM_SERVICE=$(_meta VM_SERVICE market_tick_data_service)
 VM_SPORTS_PROVIDER=$(_meta VM_SPORTS_PROVIDER)
 VM_SPORTS_ENTITY=$(_meta VM_SPORTS_ENTITY)
+VM_SPORTS_LEAGUE=$(_meta VM_SPORTS_LEAGUE)
 # Registry-driven rate-budget (operator design 2026-06-23): the launcher splits
 # the source's fleet req/min ceiling across N concurrent VMs
 # (deployment-service launch_budget_registry.allocate_rate_budget →
@@ -1889,6 +1890,12 @@ elif [ -n "$VM_TASK" ]; then
   [[ "$VM_FORCE" == "true" ]] && CLI_ARGS="$CLI_ARGS --force"
   [[ -n "$VM_SPORTS_PROVIDER" ]] && CLI_ARGS="$CLI_ARGS --sports-provider $VM_SPORTS_PROVIDER"
   [[ -n "$VM_SPORTS_ENTITY" ]] && CLI_ARGS="$CLI_ARGS --sports-entity $VM_SPORTS_ENTITY"
+  # VM_SPORTS_LEAGUE arrives ;-joined (gcloud metadata comma-collision workaround,
+  # same convention as VM_DATA_TYPES/VM_INSTRUMENT_IDS below); the CLI's --league
+  # itself wants a single comma-joined string (type=str, not nargs='+'), so convert
+  # back to , here rather than the space-splitting //[,;]/ pattern used for the
+  # nargs='+' flags in this block.
+  [[ -n "$VM_SPORTS_LEAGUE" ]] && CLI_ARGS="$CLI_ARGS --league ${VM_SPORTS_LEAGUE//;/,}"
   [[ -n "$VM_RECOVERY_FIXTURE_IDS" ]] && CLI_ARGS="$CLI_ARGS --recovery-fixture-ids $VM_RECOVERY_FIXTURE_IDS"
   [[ -n "$VM_STRATEGY" ]] && CLI_ARGS="$CLI_ARGS --strategy $VM_STRATEGY"
   [[ -n "$VM_LENDING_PROTOCOLS" ]] && CLI_ARGS="$CLI_ARGS --lending-protocols ${VM_LENDING_PROTOCOLS//[,;]/ }"
