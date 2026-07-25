@@ -73,6 +73,19 @@ def _load_fixture_counts_for_date(
     if not league_counts:
         legacy_prefix = _FIXTURES_LEGACY_PREFIX.format(date=date_str)
         _scan_fixture_prefix(cloud_client, bucket_name, legacy_prefix, league_counts)
+        if league_counts:
+            # Greppable/aggregatable marker (findings:
+            # sports_legacy_duplicate_triage_2026_07_22.md § Part 4) — this is a
+            # confirmed live reader of the legacy flat sports_reference/fixtures/
+            # path, the SOLE data source for the ~478 post-floor rows with no
+            # canonical twin at all. Logged at WARNING so real hit frequency is
+            # measurable before any future delete reconsideration.
+            logger.warning(
+                "LEGACY_FLAT_PATH_HIT data_status_sports date=%s: %d league(s) resolved only via the oldest "
+                "legacy sports_reference/fixtures/ prefix (no canonical/bare/schedule-split data found)",
+                date_str,
+                len(league_counts),
+            )
 
     return dict(league_counts)
 
@@ -314,6 +327,17 @@ def _check_league_status(
             legacy_prefix = f"sports_reference/fixtures/day={date_str}/league={league_id}/"
             legacy_blobs = list(bucket.list_blobs(prefix=legacy_prefix, max_results=1))
             has_data = any(b.name.endswith(".parquet") for b in legacy_blobs)
+            if has_data:
+                # Same greppable marker as _load_fixture_counts_for_date's legacy
+                # branch (findings: sports_legacy_duplicate_triage_2026_07_22.md §
+                # Part 4) — this per-league check independently duplicates the
+                # legacy-path fallback logic, so it needs its own instrumentation.
+                logger.warning(
+                    "LEGACY_FLAT_PATH_HIT data_status_sports league=%s date=%s: resolved only via the oldest "
+                    "legacy sports_reference/fixtures/ path (no canonical/bare/schedule-split object found)",
+                    league_id,
+                    date_str,
+                )
 
         if has_data:
             status.actual_fixture_dates.append(date_str)

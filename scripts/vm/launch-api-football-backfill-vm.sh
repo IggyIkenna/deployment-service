@@ -215,6 +215,23 @@ EOF
     echo "ERROR: dates must be YYYY-MM-DD (got START=$START_DATE END=$END_DATE)" >&2
     exit 1
   fi
+
+  # 2020-06 sports DATA FLOOR (codex/02-data/sports-2020-06-data-floor.md): sports
+  # odds/fixtures data starts 2020-06-06 — a pre-floor START_DATE is
+  # fabrication-by-construction, not just stale. The venue-epoch skip gate
+  # (get_venue_epoch) is defense-in-depth once the VM is running, not a
+  # substitute for the launcher itself refusing a pre-floor explicit start (the
+  # other sports launchers — launch-sports-entity-sweep-vm.sh,
+  # launch-sports-instruments-reference-vm.sh, launch-mdps-backfill-vm.sh —
+  # structurally can't accept one; this launcher's free-form <START_DATE> arg
+  # could until now).
+  SPORTS_DATA_FLOOR="2020-06-06"
+  if [[ "$START_DATE" < "$SPORTS_DATA_FLOOR" ]]; then
+    echo "ERROR: START_DATE ($START_DATE) is before the 2020-06-06 sports data floor — pre-floor" >&2
+    echo "       API-Football fixtures/odds data is fabrication-by-construction, not stale data." >&2
+    echo "       See codex/02-data/sports-2020-06-data-floor.md. Use ${SPORTS_DATA_FLOOR} or later." >&2
+    exit 1
+  fi
   RANGE_DESC="${START_DATE}..${END_DATE}"
 
   if $FORCE_WINDOW; then

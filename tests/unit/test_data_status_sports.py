@@ -12,6 +12,10 @@ features_sports_fixtures_split_reader_gap_2026_07_15.md.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from deployment_service.cli.utils.data_status_sports import (
     _check_league_status,
     _load_fixture_counts_for_date,
@@ -77,6 +81,36 @@ class TestLoadFixtureCountsForDateSplitEntity:
         counts = _load_fixture_counts_for_date(cloud_client, "bkt", "2020-01-01")  # type: ignore[arg-type]
         assert counts == {"UCL": 1}
 
+    def test_oldest_legacy_path_hit_logs_greppable_marker(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Legacy-path hits must log a distinct LEGACY_FLAT_PATH_HIT marker —
+        the instrumentation asked for by sports_legacy_duplicate_triage_2026_07_22.md
+        § Part 4 / sports_satellite_ao_dispatch_batch2_2026_07_24.md, since this
+        reader is a confirmed live dependency (sole source for ~478 of 28,100
+        post-floor rows), not a dead branch safe to silently remove."""
+        cloud_client = _FakeCloudClient(
+            [
+                "sports_reference/fixtures/day=2020-01-01/league=UCL/fixtures.parquet",
+            ]
+        )
+        with caplog.at_level(logging.WARNING):
+            _load_fixture_counts_for_date(cloud_client, "bkt", "2020-01-01")  # type: ignore[arg-type]
+
+        assert any("LEGACY_FLAT_PATH_HIT" in r.getMessage() for r in caplog.records), (
+            f"expected a LEGACY_FLAT_PATH_HIT warning, got: {[r.getMessage() for r in caplog.records]}"
+        )
+
+    def test_canonical_hit_does_not_log_legacy_marker(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A canonical-path hit (no fallback needed) must NOT emit the legacy marker."""
+        cloud_client = _FakeCloudClient(
+            [
+                "sports_reference/by_date/day=2026-07-13/entity=fixtures/league=UCL/fixtures.parquet",
+            ]
+        )
+        with caplog.at_level(logging.WARNING):
+            _load_fixture_counts_for_date(cloud_client, "bkt", "2026-07-13")  # type: ignore[arg-type]
+
+        assert not any("LEGACY_FLAT_PATH_HIT" in r.getMessage() for r in caplog.records)
+
     def test_no_fixtures_anywhere_returns_empty(self) -> None:
         cloud_client = _FakeCloudClient([])
         counts = _load_fixture_counts_for_date(cloud_client, "bkt", "2026-07-14")  # type: ignore[arg-type]
@@ -126,3 +160,30 @@ class TestCheckLeagueStatusSplitEntity:
         assert status.total_expected == 1
         assert status.total_actual == 0
         assert status.missing_fixture_dates == [date_str]
+
+    def test_legacy_path_hit_logs_greppable_marker(self, caplog: pytest.LogCaptureFixture) -> None:
+        """_check_league_status independently duplicates the legacy-path fallback
+        logic (a separate code path from _load_fixture_counts_for_date's), so it
+        needs its own LEGACY_FLAT_PATH_HIT instrumentation too."""
+        date_str = "2020-01-01"
+        league_id = "UCL"
+        cloud_client = _FakeCloudClient(
+            [
+                f"sports_reference/fixtures/day={date_str}/league={league_id}/fixtures.parquet",
+            ]
+        )
+        fixture_calendar = {date_str: {league_id: 1}}
+
+        with caplog.at_level(logging.WARNING):
+            status = _check_league_status(
+                league_id=league_id,
+                all_dates=[date_str],
+                fixture_calendar=fixture_calendar,
+                cloud_client=cloud_client,  # type: ignore[arg-type]
+                bucket_name="bkt",
+            )
+
+        assert status.total_actual == 1
+        assert any("LEGACY_FLAT_PATH_HIT" in r.getMessage() for r in caplog.records), (
+            f"expected a LEGACY_FLAT_PATH_HIT warning, got: {[r.getMessage() for r in caplog.records]}"
+        )
