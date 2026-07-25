@@ -2,6 +2,15 @@
 # Epic: infrastructure_master
 # Lifecycle: oneoff
 # Delete-when: after prod-run verified + GCS orphan-sweep=0
+# STATUS (re-confirmed 2026-07-25, bucket_estate_consolidation_closeout_2026_07_24.md, asset-group parity
+# drift cleanup): the migration this script performs has EXECUTED — the ml legacy-kind buckets it names
+# (ml-models-store-*/ml-predictions-store-*/ml-configs-store-*) plus the flat market-data-tick-* twins are
+# confirmed either already deleted or already superseded by the current env-tiered/folded estate (see that
+# plan's "ml legacy variants" + "_KIND_ALIASES hard-removal" todos). This file is a HISTORICAL RECORD of an
+# executed lifecycle-archival step, not a live inventory — the bucket names below intentionally still read
+# as they did at run time. Do NOT edit the names in place to "fix" them to current canonical shapes; decide
+# delete-vs-keep against the Delete-when condition above (a dedicated GCS orphan-sweep, not done in this
+# session) rather than silently re-running it against the current (mostly-gone) estate.
 # ============================================================================
 # archive-flat-buckets.sh — Phase 2.6 Step 5: set 30-day delete lifecycle
 # policy on flat (no-env-tier) buckets after delegate-flip is deployed.

@@ -32,7 +32,17 @@ locals {
     "features-volatility-cefi"     = "unified-trading-features-volatility-cefi-${var.aws_account_id}"
     "features-volatility-tradfi"   = "unified-trading-features-volatility-tradfi-${var.aws_account_id}"
     "features-onchain-defi"        = "unified-trading-features-onchain-defi-${var.aws_account_id}"
-    "features-onchain-cefi"        = "unified-trading-features-onchain-cefi-${var.aws_account_id}"
+    # "features-onchain-cefi" entry REMOVED 2026-07-25 (bucket-estate-consolidation closeout, asset-group
+    # parity drift cleanup) — mirrors the GCP-side fix (manifest_consolidator_scheduler.tf:231, removed
+    # 2026-07-17): on-chain metrics are DeFi-only in every consumer (features_service/onchain/config.py
+    # hardcodes `_ONCHAIN_ASSET_GROUP = "defi"`; deployment-api scopes the service to
+    # frozenset({"DEFI"})), so no producer could ever fill `unified-trading-features-onchain-cefi-*`. Unlike
+    # GCP, the legacy AWS bucket still exists (not yet decommissioned), so this entry wasted a scheduled
+    # consolidator run rather than 404-ing; it never held real data beyond this consolidator's own `_index/`.
+    # Do NOT re-add. NOTE: the live AWS Batch job + EventBridge rule this map entry generated still need an
+    # out-of-band removal (mirroring GCP's direct-gcloud cleanup) next time AWS infra is touched directly —
+    # a real `tofu apply` is not safely runnable here (pre-existing estate drift, see
+    # bucket_fold_ml_2026_07_17.md Progress Log), so this source-text fix does not itself retire the job.
     "features-sports"              = "unified-trading-features-sports-${var.aws_account_id}"
     "features-calendar"            = "unified-trading-features-calendar-${var.aws_account_id}"
     # strategy FOLD D (bucket_fold_execution_strategy_2026_07_17): 3 per-AG consolidators collapse into ONE
