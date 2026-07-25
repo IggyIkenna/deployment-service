@@ -77,7 +77,7 @@ steps:
   # pull doesn't trigger the helper). Mirrors the market-tick-data-service pattern.
   #
   # DIGEST-AWARE (FROM-digest ratchet, 2026-06-10): the Dockerfile pins
-  # `ARG BASE_IMAGE_DIGEST=sha256:<64-hex>` and builds `FROM ...@${BASE_IMAGE_DIGEST}`.
+  # `ARG BASE_IMAGE_DIGEST=sha256:<64-hex>` and builds `FROM ...@$${BASE_IMAGE_DIGEST}`.
   # A bare `:latest` pre-pull warms a DIFFERENT manifest, so the in-build FROM @<pinned>
   # falls through to a daemon-side registry pull which is UNAUTHENTICATED → "denied"
   # (live incident 2026-06-22: deployment-api builds failing on the pinned digest

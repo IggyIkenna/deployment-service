@@ -496,11 +496,17 @@ else
     [[ ${#_libfiles_to_publish[@]} -gt 0 ]] && gcs_upload "code/deployment-service/scripts/vm/lib" "${_libfiles_to_publish[@]}"
     log "  Published $_launcher_count bare launchers + lib/ helpers"
 
-    # Verify
+    # Verify — `gcloud storage`, not `gsutil`: gsutil resolves creds from the CLI's
+    # active account, which in an interactive AO slot is often a short-lived WIF
+    # token that can't refresh unattended, even when ADC keeps working (same root
+    # cause as the upload path's gcs_upload_via_adc.py — see
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md).
+    # A failure here previously made the WHOLE SCRIPT exit non-zero under `set -e`
+    # even though every real upload above had already succeeded.
     log ""
     log "Uploaded files:"
-    gsutil ls -lh "gs://$BUCKET/code/" 2>/dev/null
-    gsutil ls -lh "gs://$BUCKET/vm/" 2>/dev/null
+    gcloud storage ls -l "gs://$BUCKET/code/" 2>/dev/null
+    gcloud storage ls -l "gs://$BUCKET/vm/" 2>/dev/null
 
     log ""
     log "=== Done. VMs can now use: ==="
