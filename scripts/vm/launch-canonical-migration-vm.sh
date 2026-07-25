@@ -217,7 +217,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -487,6 +487,30 @@ _delete_migrated_defi_markers_cmd() {
     local resume="${work}/delete_migrated_defi_markers_2026_07_23.resume.jsonl"
     local seed_gs="${RESUME_SEED_GS:-gs://${CODE_BUCKET}/canonical-migration-defi-marker-cleanup/resume-seed/delete_migrated_defi_markers_2026_07_23.resume.jsonl}"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p ${work} && (gcloud storage cp ${seed_gs} ${resume} || true); (while true; do sleep 120; gcloud storage cp ${resume} ${seed_gs} >/dev/null 2>&1 || true; done) & SYNC_PID=\$!; python -u scripts/one_offs/delete_migrated_defi_markers_2026_07_23.py --project-id ${PROJECT} --start-date ${START_DATE} --end-date ${END_DATE} --resume-log ${resume} --verify-workers ${WORKERS:-48} --discover-workers 32; RC=\$?; kill \$SYNC_PID 2>/dev/null || true; gcloud storage cp ${resume} ${seed_gs} || true; exit \$RC"
+}
+
+# DeFi GMX venue-removal purge (2026-07-25) — in-region runner for
+# scripts/one_offs/purge_gmx_venue_removal_2026_07_25.py, per
+# plans/active/defi_gmx_venue_removal_2026_07_25.md's [OPERATOR] GCS-purge todo. Moved off an
+# operator laptop per the "heavy I/O never runs from the operator's local machine" rule: a direct
+# local run measured TWO distinct failure modes reading the ~1GB `_index/availability_index.parquet`
+# -- (a) a deterministic `ChunkedEncodingError` at the EXACT same byte offset both attempts
+# (268,435,456 = precisely 256 MiB, a local proxy/connection cutoff, not random flakiness), and (b)
+# even a chunked/ranged workaround lost a race against the market-data-defi consolidator's 1-minute
+# rewrite cycle (a pinned generation 404'd mid-download because the whole download took long enough
+# for the object to rotate underneath it) -- both symptoms of round-trip latency/bandwidth to this
+# bucket being too slow from off-region; a same-zone VM clears the full 1GB well inside one cycle.
+#
+# $MODE IS honored for real (unlike defi-marker-cleanup, which is dry-only): dry -> --dry-run (safe,
+# no pause needed, the tool's own default posture); full -> --apply, which the TOOL ITSELF hard-aborts
+# unless the caller has ALREADY paused uts-prod-manifest-consolidator-market-data-defi-cron (verified
+# live via `gcloud scheduler jobs describe` inside the script) -- this launcher does not drive the
+# pause/resume/durability-watch dance itself, it only runs ONE step of that human-executed sequence
+# per VM boot (see the tool's own module docstring for the full sequence).
+_gmx_purge_cmd() {
+    local mode_flag=""
+    if [[ "$MODE" == "full" ]]; then mode_flag=" --apply"; else mode_flag=" --dry-run"; fi
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gmx_venue_removal_2026_07_25.py --project-id ${PROJECT}${mode_flag}"
 }
 
 _catalogue_canon_cmd() {
@@ -831,6 +855,15 @@ _launch() {
         fi
         MODE="dry"
         cmd="$(_delete_migrated_defi_markers_cmd)"
+    elif [[ "$cat" == "defi-gmx-purge" ]]; then
+        # $MODE IS honored (unlike defi-marker-cleanup) -- the SCRIPT ITSELF hard-gates --apply on
+        # the consolidator cron being paused, so this launcher needs no extra gate of its own.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-gmx-purge -- the mode flag" >&2
+            echo "       is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_gmx_purge_cmd)"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -867,7 +900,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -1034,7 +1067,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
