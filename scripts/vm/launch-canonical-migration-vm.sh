@@ -217,7 +217,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     exit 2
 fi
 
@@ -511,6 +511,32 @@ _gmx_purge_cmd() {
     local mode_flag=""
     if [[ "$MODE" == "full" ]]; then mode_flag=" --apply"; else mode_flag=" --dry-run"; fi
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gmx_venue_removal_2026_07_25.py --project-id ${PROJECT}${mode_flag}"
+}
+
+# cefi-bybit-spot-purge -- BYBIT-SPOT spot-nonsense manifest row purge
+# (delete_bybit_spot_spot_nonsense_manifest_2026_07_07.py). Same rationale as
+# _gmx_purge_cmd for running on a VM: the consolidated cefi manifest index is
+# currently under the 256 MiB local-read cutoff (a plain download works
+# locally), but it is still a slow multi-minute round-trip off-region -- a
+# same-zone VM is faster and gives fleet log-tee/monitoring parity, not a
+# correctness requirement. $MODE has THREE values for this category (every
+# other category is dry|full only): dry -> no flag (tool default, read-only);
+# smoke -> --smoke (deletes ONE shard, writes, force-consolidates, then
+# exits -- review the VM's run.log before running `full`); full -> --apply
+# (all ~53,934 rows). Both smoke and full are real prod-manifest writes that
+# the TOOL ITSELF hard-aborts unless uts-prod-manifest-consolidator-market-
+# data-cefi-cron is ALREADY paused (verified live via `gcloud scheduler jobs
+# describe` inside the script, mirroring _gmx_purge_cmd's tool) -- this
+# launcher does not drive the pause/resume dance itself, only one step per
+# VM boot (see the tool's own module docstring for the full sequence).
+_bybit_spot_purge_cmd() {
+    local mode_flag=""
+    case "$MODE" in
+        full) mode_flag=" --apply" ;;
+        smoke) mode_flag=" --smoke" ;;
+        *) mode_flag="" ;;
+    esac
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/delete_bybit_spot_spot_nonsense_manifest_2026_07_07.py${mode_flag}"
 }
 
 _catalogue_canon_cmd() {
@@ -864,6 +890,16 @@ _launch() {
             return 1
         fi
         cmd="$(_gmx_purge_cmd)"
+    elif [[ "$cat" == "cefi-bybit-spot-purge" ]]; then
+        # $MODE IS honored, THREE-valued (dry|smoke|full) -- see _bybit_spot_purge_cmd's comment.
+        # The SCRIPT ITSELF hard-gates both --smoke and --apply on the consolidator cron being
+        # paused, so this launcher needs no extra gate of its own (mirrors defi-gmx-purge).
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for cefi-bybit-spot-purge -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_bybit_spot_purge_cmd)"
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -904,9 +940,9 @@ _launch() {
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
-    # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY/CEFI-LATE-RENAMES) so
-    # dashboards/heartbeat classify these VMs with the rest of cefi.
-    [[ "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-late-renames" ]] && _ag="CEFI"
+    # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY/CEFI-LATE-RENAMES/
+    # CEFI-BYBIT-SPOT-PURGE) so dashboards/heartbeat classify these VMs with the rest of cefi.
+    [[ "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-late-renames" || "$cat" == "cefi-bybit-spot-purge" ]] && _ag="CEFI"
     # candle-census / candle-apply category names are "<ag>-candle-census"/"<ag>-candle-apply" --
     # strip the suffix to recover the real asset group so dashboards/heartbeat classify these VMs
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
@@ -1067,7 +1103,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
