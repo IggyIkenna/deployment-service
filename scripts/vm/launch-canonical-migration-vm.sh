@@ -217,7 +217,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -412,6 +412,29 @@ _cefi_dedup_apply_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/complete_cefi_manifest_canonical_dedup_v2_2026_07_20.py${apply_flag}"
+}
+
+# cefi-late-renames (2026-07-24) — cefi single-instrument FILENAME wire->canonical rename
+# (`migrate_cefi_tardis_filename_canonical_2026_07_17.py`, market-tick-data-service), scoped to the
+# "LATE window" the fresh 4-surface reverify pinpointed: Surface A canonical-fraction was still
+# 94-95% through 2025-06/08/10/11-12, then dropped to 67.04% by 2025-12-15, 33.02% by 2026-02-01,
+# 23.99% by 2026-05-01 — see plans/active/cefi_consolidated_closeout_2026_07_18.md and
+# issues/cefi_chain_drop_root_cause_and_heavy_io_vm_rule_2026_07_24.md Finding 4. An UNSCOPED run (no
+# --start-date) walks the full 2019-03-30..today corpus day-by-day at ~65-90s/day — measured ETA
+# 48-67 HOURS (killed at ~21min/day-14 in a direct local attempt this session, zero mutation
+# occurred). **START_DATE/END_DATE (the launcher's own positional args) are honored for REAL here**
+# (unlike cefi-dedup-apply, where they're cosmetic) — pass the actual LATE-window range, e.g.
+# 2025-11-01..today, not today..today. `--venue` can be added via MIGRATION_EXTRA_ARGS to further
+# scope to one colliding venue. `--stamp` (required by the tool for --apply) is derived from this
+# launch's own RUN_TS so every apply run gets a unique, traceable backup-filename stamp.
+#   bash launch-canonical-migration-vm.sh cefi-late-renames 2025-11-01 2026-07-24 dry
+#   MIGRATION_EXTRA_ARGS="--venue BITFINEX-FUTURES" bash launch-canonical-migration-vm.sh cefi-late-renames 2025-11-01 2026-07-24 full
+_cefi_late_renames_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply --stamp ${RUN_TS}"
+    local workers_flag=""
+    [[ -n "${WORKERS:-}" ]] && workers_flag=" --workers ${WORKERS}"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/migrate_cefi_tardis_filename_canonical_2026_07_17.py --start-date ${START_DATE} --end-date ${END_DATE}${workers_flag}${apply_flag}"
 }
 
 # defi-glued-reshard (2026-07-23): re-run of scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py
@@ -763,6 +786,12 @@ _launch() {
         # DRAIN GATE is the caller's responsibility — see _cefi_dedup_apply_cmd's comment.
         cmd="$(_cefi_dedup_apply_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "cefi-late-renames" ]]; then
+        # Self-contained `cd ... && python ...` single invocation; --apply/--stamp are embedded
+        # per-MODE by the builder (the tool's own STOP-ON-SURPRISE gates are the write-safety, not
+        # this launcher). --venue (to scope to one colliding venue) is added via MIGRATION_EXTRA_ARGS.
+        cmd="$(_cefi_late_renames_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == "defi-glued-reshard" ]]; then
         # Self-contained `cd ... && gcloud storage cp ... && python ...` chain; --apply is embedded
         # per-MODE by the builder (same reason as tradfi-catalogue-promote -- a compound && chain
@@ -842,9 +871,9 @@ _launch() {
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
-    # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY) so dashboards/heartbeat
-    # classify this VM with the rest of cefi.
-    [[ "$cat" == "cefi-dedup-apply" ]] && _ag="CEFI"
+    # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY/CEFI-LATE-RENAMES) so
+    # dashboards/heartbeat classify these VMs with the rest of cefi.
+    [[ "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-late-renames" ]] && _ag="CEFI"
     # candle-census / candle-apply category names are "<ag>-candle-census"/"<ag>-candle-apply" --
     # strip the suffix to recover the real asset group so dashboards/heartbeat classify these VMs
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
@@ -1005,7 +1034,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

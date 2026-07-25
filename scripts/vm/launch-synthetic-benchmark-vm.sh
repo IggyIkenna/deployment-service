@@ -70,6 +70,13 @@ ROW_COUNT_SCALE="1.0"
 # the `serviceAccount of type was not found` failure mode). Override via
 # `SERVICE_ACCOUNT=foo@... bash launch-synthetic-benchmark-vm.sh` if needed.
 SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-${PROJECT_NUMBER}-compute@developer.gserviceaccount.com}"
+# Opt-in override for the deployment-registry Firestore dual-write flag
+# (deployment_registry_firestore_p0_unblock_2026_07_14.md, Link 2 wired the
+# metadata->env plumbing in setup-data-pipeline-vm.sh; nothing sets it true
+# yet). Default false — matches every other launcher's behavior unchanged;
+# set `DUAL_WRITE=true bash launch-synthetic-benchmark-vm.sh ...` to soak a
+# single VM against real Firestore for the plan's [VERIFY]/[DATA] todos.
+DUAL_WRITE="${DUAL_WRITE:-false}"
 
 DRY_RUN=false
 
@@ -115,6 +122,31 @@ for SHAPE in $SHAPES; do
   VM_INPUT_URI="${INPUT_URI}/${VM_NAME}"
   VM_REPORT_URI="${REPORT_URI}"
   VM_BACKFILL_CMD="python -m unified_trading_library.synthetic --archetype ${ARCHETYPE} --date-start ${DATE_START} --date-end ${DATE_END} --input-uri ${VM_INPUT_URI} --report-uri ${VM_REPORT_URI} --mode ${MODE} --row-count-scale ${ROW_COUNT_SCALE} --vm-shape ${SHAPE} --run-id ${VM_NAME}"
+  # Build as a single comma-joined string (the fleet-standard pattern used by
+  # every other launcher) rather than a `--metadata="\`-continued multi-line
+  # literal: bash removes the backslash-newline pair inside double quotes but
+  # NOT the indentation that follows it, so a continued literal like this
+  # silently bakes a leading "  " into every key past the first
+  # (`resource.metadata.items[N].key` regex-rejects it) — found live 2026-07-24
+  # trying to launch a DUAL_WRITE soak VM with this script for the first time.
+  METADATA="SERVICE_REPO=unified-trading-library"
+  METADATA="${METADATA},SERVICE_MODULE=unified_trading_library.synthetic"
+  METADATA="${METADATA},VM_NAME=${VM_NAME}"
+  METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+  METADATA="${METADATA},VM_TASK=synthetic-benchmark"
+  METADATA="${METADATA},VM_BACKFILL_CMD=${VM_BACKFILL_CMD}"
+  METADATA="${METADATA},SYNTHETIC_ARCHETYPE=${ARCHETYPE}"
+  METADATA="${METADATA},SYNTHETIC_MODE=${MODE}"
+  METADATA="${METADATA},SYNTHETIC_DATE_START=${DATE_START}"
+  METADATA="${METADATA},SYNTHETIC_DATE_END=${DATE_END}"
+  METADATA="${METADATA},SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE}"
+  METADATA="${METADATA},SYNTHETIC_INPUT_URI=${VM_INPUT_URI}"
+  METADATA="${METADATA},SYNTHETIC_REPORT_URI=${VM_REPORT_URI}"
+  METADATA="${METADATA},BENCHMARK_VM_SHAPE=${SHAPE}"
+  METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  METADATA="${METADATA},CODE_BUCKET=${CODE_BUCKET}"
+  METADATA="${METADATA},PROJECT_ID=${PROJECT}"
+  METADATA="${METADATA},DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=${DUAL_WRITE}"
   echo "Launching synthetic-benchmark VM:"
   echo "  name:       $VM_NAME"
   echo "  archetype:  $ARCHETYPE   shape: $SHAPE   mode: $MODE   window: ${DATE_START}..${DATE_END}"
@@ -134,24 +166,7 @@ for SHAPE in $SHAPES; do
       --boot-disk-size=50GB \
       --service-account="${SERVICE_ACCOUNT}" \
       --scopes=cloud-platform \
-      --metadata="\
-  SERVICE_REPO=unified-trading-library,\
-  SERVICE_MODULE=unified_trading_library.synthetic,\
-  VM_NAME=${VM_NAME},\
-  VM_SHUTDOWN_ON_COMPLETION=true,\
-  VM_TASK=synthetic-benchmark,\
-  VM_BACKFILL_CMD=${VM_BACKFILL_CMD},\
-  SYNTHETIC_ARCHETYPE=${ARCHETYPE},\
-  SYNTHETIC_MODE=${MODE},\
-  SYNTHETIC_DATE_START=${DATE_START},\
-  SYNTHETIC_DATE_END=${DATE_END},\
-  SYNTHETIC_ROW_COUNT_SCALE=${ROW_COUNT_SCALE},\
-  SYNTHETIC_INPUT_URI=${VM_INPUT_URI},\
-  SYNTHETIC_REPORT_URI=${VM_REPORT_URI},\
-  BENCHMARK_VM_SHAPE=${SHAPE},\
-  DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
-  CODE_BUCKET=${CODE_BUCKET},\
-  PROJECT_ID=${PROJECT}" \
+      --metadata="${METADATA}" \
       --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
       --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
   fi
