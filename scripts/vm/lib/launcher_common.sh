@@ -574,7 +574,7 @@ lc_tarball_name_for_repo() {
 lc_resolve_tarball_sha() {
     local code_bucket="${1:?lc_resolve_tarball_sha: code_bucket required}"
     local repo="${2:?lc_resolve_tarball_sha: repo required}"
-    command -v gsutil >/dev/null 2>&1 || return 0
+    command -v gcloud >/dev/null 2>&1 || return 0
     command -v python3 >/dev/null 2>&1 || return 0
     local tarball manifest_uri manifest_tmp sha
     tarball="$(lc_tarball_name_for_repo "$repo")"
@@ -583,7 +583,11 @@ lc_resolve_tarball_sha() {
     # BSD/macOS-vs-GNU rationale (a non-X-terminal template doesn't randomize
     # on macOS, colliding across concurrent invocations/xdist workers).
     manifest_tmp="$(mktemp -d)/manifest.json"
-    if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
+    # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
+    # account (a short-lived WIF token in an interactive AO slot can't refresh
+    # unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    if ! gcloud storage cp "$manifest_uri" "$manifest_tmp" --quiet 2>/dev/null; then
         rm -f "$manifest_tmp"
         return 0
     fi
@@ -593,8 +597,8 @@ lc_resolve_tarball_sha() {
     # Only emit the pin if the @<sha> tarball AND its manifest BOTH exist — setup
     # refuses a pinned tarball whose manifest is absent ("cannot verify
     # provenance") just as hard as a missing tarball.
-    gsutil -q stat "gs://${code_bucket}/code/${tarball}@${sha}.tar.gz" >/dev/null 2>&1 || return 0
-    gsutil -q stat "gs://${code_bucket}/code/${tarball}@${sha}.manifest.json" >/dev/null 2>&1 || return 0
+    gcloud storage objects describe "gs://${code_bucket}/code/${tarball}@${sha}.tar.gz" >/dev/null 2>&1 || return 0
+    gcloud storage objects describe "gs://${code_bucket}/code/${tarball}@${sha}.manifest.json" >/dev/null 2>&1 || return 0
     printf '%s' "$sha"
 }
 
@@ -664,8 +668,8 @@ lc_verify_tarball_freshness() {
 
     # Tooling preconditions — a missing tool means we can't verify anything;
     # warn once and let the launch proceed (never block on a tooling gap).
-    if ! command -v gsutil >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
-        echo "WARNING: lc_verify_tarball_freshness — gsutil/git unavailable, skipping tarball-freshness check" >&2
+    if ! command -v gcloud >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+        echo "WARNING: lc_verify_tarball_freshness — gcloud/git unavailable, skipping tarball-freshness check" >&2
         return 0
     fi
 
@@ -712,7 +716,10 @@ lc_verify_tarball_freshness() {
         # workers — this exact call is what test_stale_tarball_warn_does_not_block
         # flaked on under xdist before this fix).
         manifest_tmp="$(mktemp -d)/manifest.json"
-        if ! gsutil -q cp "$manifest_uri" "$manifest_tmp" 2>/dev/null; then
+        # `gcloud storage`, not `gsutil` — see the ADC-vs-active-account note on
+        # lc_resolve_tarball_sha above; the same WIF-token gap made this read a
+        # false-MISSING signal in every interactive AO slot.
+        if ! gcloud storage cp "$manifest_uri" "$manifest_tmp" --quiet 2>/dev/null; then
             rm -f "$manifest_tmp"
             echo "WARNING: tarball manifest MISSING for $repo ($manifest_uri) — VM would fetch an absent/stale tarball" >&2
             stale_repos="${stale_repos}${repo} "

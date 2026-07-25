@@ -197,7 +197,7 @@ class TestTarballFreshnessGuard:
             assert result.stdout.strip() == expected, f"{repo} → {result.stdout.strip()!r} (want {expected!r})"
 
     def test_off_mode_short_circuits(self, lib_path: Path):
-        """LC_TARBALL_FRESHNESS=off returns 0 without touching git/gsutil."""
+        """LC_TARBALL_FRESHNESS=off returns 0 without touching git/gcloud."""
         result = subprocess.run(
             [
                 "bash",
@@ -226,18 +226,24 @@ class TestTarballFreshnessGuard:
         return tmp_path, head
 
     def _run_with_mock_gsutil(self, ws: Path, manifest_sha: str, mode: str) -> subprocess.CompletedProcess[str]:
-        """Run the guard with gsutil mocked to emit a manifest carrying manifest_sha."""
+        """Run the guard with `gcloud storage` mocked to emit a manifest carrying manifest_sha.
+
+        (Helper name kept for diff-minimality; it mocks `gcloud`, not `gsutil` — the guard's
+        manifest reads route through `gcloud storage cp` (ADC-backed), not `gsutil` (active-CLI-
+        account-backed, breaks under an expired WIF token in an interactive AO slot). See
+        plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.)
+        """
         lib = self._lib_abs()
-        # gsutil mock: for a `... cp gs://...manifest.json <dest>` call, write the manifest.
+        # gcloud mock: for a `storage cp gs://...manifest.json <dest> --quiet` call, write the manifest.
         script = f"""
-gsutil() {{
-    local dest="${{@: -1}}"
+gcloud() {{
+    local dest="${{@: -2:1}}"
     if [[ "$*" == *manifest.json* && "$*" == *cp* ]]; then
         printf '{{"commit_sha": "{manifest_sha}"}}' > "$dest"; return 0
     fi
     return 0
 }}
-export -f gsutil
+export -f gcloud
 source "{lib}"
 # `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
 set +e
@@ -275,8 +281,8 @@ echo "RC=$rc"
         ws, _ = self._fresh_workspace(tmp_path)
         lib = self._lib_abs()
         script = f"""
-gsutil() {{ if [[ "$*" == *cp* ]]; then return 1; fi; return 0; }}
-export -f gsutil
+gcloud() {{ if [[ "$*" == *cp* ]]; then return 1; fi; return 0; }}
+export -f gcloud
 source "{lib}"
 # `source` re-runs `set -euo pipefail`; disable AFTER so a return-1 doesn't abort.
 set +e
