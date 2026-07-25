@@ -89,6 +89,26 @@ class StorageClient:
                 self._mock_mode = True
         return self._client
 
+    def upload_file(self, local_path: str, cloud_path: str, content_type: str | None = None) -> str | None:
+        """Upload a local file to cloud storage. Returns the resulting URI, or None on failure/mock mode.
+
+        Routes through UTL's ADC-backed StorageClient — never shells out to gsutil/gcloud, which
+        resolve credentials via the CLI's configured ACTIVE ACCOUNT rather than ADC and can fail
+        under an expired WIF token in an interactive session even when ADC itself works fine.
+        See plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+        """
+        provider, bucket_name, blob_name = self._parse_cloud_path(cloud_path)
+        client = self.client
+        if self._mock_mode or client is None:
+            return None
+        try:
+            if provider == "gs":
+                return client.upload_file(bucket_name, blob_name, local_path, content_type=content_type)
+            return None
+        except (OSError, PermissionError, ValueError, RuntimeError) as e:
+            logger.error("Error uploading %s to %s: %s", local_path, cloud_path, e)
+            return None
+
     def list_files(self, cloud_path: str, pattern: str = "*", max_results: int = 1000) -> list[str]:
         """List files in a cloud storage path matching a pattern."""
         provider, bucket_name, prefix = self._parse_cloud_path(cloud_path)

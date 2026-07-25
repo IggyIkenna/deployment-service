@@ -429,11 +429,34 @@ if [[ "$CLOUD" == "aws" ]]; then
     log "=== Done. EC2 VMs can now use: ==="
     log "  aws s3 cp s3://$BUCKET/vm/setup-data-pipeline-vm-aws.sh /tmp/ && sudo bash /tmp/setup-data-pipeline-vm-aws.sh"
 else
-    # Upload to GCS — tarballs + manifests + SHA-named copies
+    # Upload to GCS — tarballs + manifests + SHA-named copies.
+    #
+    # Uploads route through gcs_upload_via_adc.py (UTL's ADC-backed StorageClient),
+    # NOT bare `gsutil cp` — gsutil resolves credentials from the gcloud CLI's
+    # configured ACTIVE ACCOUNT, which in an interactive AO slot is often a
+    # short-lived WIF service account whose token expires and cannot be refreshed
+    # unattended, even when ADC itself (a long-lived refresh-token credential)
+    # keeps working fine. See
+    # plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    DS_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    GCS_UPLOAD_PY="${DS_ROOT}/.venv/bin/python"
+    [[ -x "$GCS_UPLOAD_PY" ]] || GCS_UPLOAD_PY="python3"
+    # DeploymentConfig only reads GCP_PROJECT_ID/PROJECT_ID env vars — an interactive
+    # slot may not have either set even though gcloud's own local config does. Resolve
+    # from gcloud's LOCAL config (a plain file read, doesn't touch the broken active-
+    # account credential) so the upload path doesn't inherit this separate gap.
+    GCS_PROJECT_ID="${GCP_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-value project 2>/dev/null || true)}}"
+    gcs_upload() {
+        # $1 = destination blob-path prefix (no leading/trailing slash, "" for bucket root)
+        # $@[2:] = local file paths
+        local dest_prefix="$1"; shift
+        "$GCS_UPLOAD_PY" "$SCRIPT_DIR/gcs_upload_via_adc.py" --bucket "$BUCKET" --project "$GCS_PROJECT_ID" --prefix "$dest_prefix" "$@"
+    }
+
     log ""
     log "Uploading to gs://$BUCKET/code/..."
-    gsutil -m cp "$TMP_DIR"/*.tar.gz "gs://$BUCKET/code/"
-    gsutil -m cp "$TMP_DIR"/*.manifest.json "gs://$BUCKET/code/"
+    gcs_upload "code" "$TMP_DIR"/*.tar.gz
+    gcs_upload "code" "$TMP_DIR"/*.manifest.json
 
     # Also upload the setup + execution wrapper scripts. Without the wrapper
     # upload, edits to vm-exec-with-gcs-tee.sh (e.g. BUG-4 exit_code reporting,
@@ -442,9 +465,9 @@ else
     # the deployment-service tarball. The wrapper sat at 2026-04-28 mtime for a
     # week despite multiple tarball refreshes (incident 2026-05-05).
     log "Uploading setup + wrapper scripts to gs://$BUCKET/vm/..."
-    gsutil cp "$SCRIPT_DIR/setup-data-pipeline-vm.sh" "gs://$BUCKET/vm/"
-    gsutil cp "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh" "gs://$BUCKET/vm/"
-    gsutil cp "$SCRIPT_DIR/heartbeat_daemon.py" "gs://$BUCKET/vm/" 2>/dev/null || true
+    gcs_upload "vm" "$SCRIPT_DIR/setup-data-pipeline-vm.sh"
+    gcs_upload "vm" "$SCRIPT_DIR/vm-exec-with-gcs-tee.sh"
+    [[ -f "$SCRIPT_DIR/heartbeat_daemon.py" ]] && gcs_upload "vm" "$SCRIPT_DIR/heartbeat_daemon.py" 2>/dev/null || true
 
     # Bare-launcher publish — cron-VM hosts (launch-*-fwd-daily-cron-vm.sh) fetch
     # individual launch-*-forward-poll.sh scripts from a stable GCS path each cron
@@ -457,18 +480,20 @@ else
     # this just ALSO publishes bare launchers for the cron-VM consumers.
     log "Publishing bare launcher scripts to gs://$BUCKET/code/deployment-service/scripts/vm/..."
     _launcher_count=0
+    _launchers_to_publish=()
     for _launcher in "$SCRIPT_DIR"/launch-*.sh; do
         [[ -f "$_launcher" ]] || continue
-        _launcher_name=$(basename "$_launcher")
-        gsutil -q cp "$_launcher" "gs://$BUCKET/code/deployment-service/scripts/vm/$_launcher_name"
+        _launchers_to_publish+=("$_launcher")
         _launcher_count=$((_launcher_count + 1))
     done
+    [[ ${#_launchers_to_publish[@]} -gt 0 ]] && gcs_upload "code/deployment-service/scripts/vm" "${_launchers_to_publish[@]}"
     # Also publish the lib/ directory contents — launchers source from it.
+    _libfiles_to_publish=()
     for _libfile in "$SCRIPT_DIR"/lib/*.sh; do
         [[ -f "$_libfile" ]] || continue
-        _libfile_name=$(basename "$_libfile")
-        gsutil -q cp "$_libfile" "gs://$BUCKET/code/deployment-service/scripts/vm/lib/$_libfile_name"
+        _libfiles_to_publish+=("$_libfile")
     done
+    [[ ${#_libfiles_to_publish[@]} -gt 0 ]] && gcs_upload "code/deployment-service/scripts/vm/lib" "${_libfiles_to_publish[@]}"
     log "  Published $_launcher_count bare launchers + lib/ helpers"
 
     # Verify
