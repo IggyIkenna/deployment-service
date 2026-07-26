@@ -1544,7 +1544,19 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1
+  CHUNK_RC=\$?
+  # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
+  # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
+  # exit left no log signal at all beyond staleness, see
+  # mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md). Log a clear, greppable
+  # marker either way and CONTINUE to the next chunk (shard-level failure isolation —
+  # one bad chunk must not silently wedge the whole multi-chunk run).
+  if [[ \$CHUNK_RC -eq 137 ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  elif [[ \$CHUNK_RC -ne 0 ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
 echo "mtds-backfill loop complete: \$(date -u)"
