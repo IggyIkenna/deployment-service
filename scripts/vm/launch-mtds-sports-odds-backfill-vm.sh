@@ -19,6 +19,11 @@
 #   bash launch-mtds-sports-odds-backfill-vm.sh --vm-name mtds-backfill-odds-2020 --start 2020-06-01 --end 2020-12-31 --force
 #   bash launch-mtds-sports-odds-backfill-vm.sh --env staging
 #   bash launch-mtds-sports-odds-backfill-vm.sh --allow-parallel --vm-name mtds-backfill-odds-2021 --start 2021-01-01 --end 2021-12-31
+#   # Scope to specific leagues (canonical league IDs, comma-separated) — e.g. a
+#   # Reference/Features-tier league with real odds_api coverage that the default
+#   # unscoped run (Prediction-tier only) never reaches:
+#   bash launch-mtds-sports-odds-backfill-vm.sh --vm-name mtds-backfill-odds-ucl-gap \
+#     --league UCL,CHINA_SUPER_LEAGUE,RUSSIA_PREMIER_LEAGUE --start 2025-09-01 --end 2025-11-30
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
@@ -37,6 +42,13 @@ ALLOW_PARALLEL="${RESUME_ALLOW_PARALLEL:-false}"
 CHUNK_SIZE="${CHUNK_SIZE:-250}"
 VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+# Comma-separated canonical league IDs (e.g. UCL,CHINA_SUPER_LEAGUE) to scope the
+# run to specific leagues -- empty means the CLI's default (unscoped = Prediction-
+# tier only). Wired through to VM_LEAGUE metadata; setup-data-pipeline-vm.sh
+# already converts it to the CLI's --league flag (';'-joined in metadata, per the
+# VM_INSTRUMENT_IDS convention -- gcloud --metadata=K=V,K=V splits on ',' at the
+# key level, so a literal comma in the value would break parsing).
+LEAGUE="${LEAGUE:-}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
@@ -55,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --vm-name)      VM_NAME_OVERRIDE="$2"; shift 2 ;;
     --env)          DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --league)      LEAGUE="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
@@ -80,6 +93,7 @@ echo "  Machine:   ${MACHINE_TYPE}"
 echo "  Range:     ${START_DATE} → ${END_DATE}"
 echo "  Chunk:     ${CHUNK_SIZE} days per batch"
 echo "  Force:     ${FORCE}"
+echo "  League:    ${LEAGUE:-<all Prediction-tier, default>}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
 echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "============================================================"
@@ -102,7 +116,7 @@ if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
   echo "  startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
   echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=SPORTS  (no VM_TIER — sports MTDS has no --tier)"
-  echo "  FORCE=${FORCE}  ALLOW_PARALLEL=${ALLOW_PARALLEL}"
+  echo "  FORCE=${FORCE}  ALLOW_PARALLEL=${ALLOW_PARALLEL}  VM_LEAGUE=${LEAGUE}"
   exit 0
 fi
 
@@ -120,6 +134,7 @@ METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
 METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
+[[ -n "$LEAGUE" ]] && METADATA="${METADATA},VM_LEAGUE=${LEAGUE//,/;}"
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
 PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
@@ -148,7 +163,8 @@ lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-mtds-sports-odds-bac
     "CHUNK_SIZE=${CHUNK_SIZE}" \
     "RESUME_FORCE=${FORCE}" \
     "RESUME_ALLOW_PARALLEL=true" \
-    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+    "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
+    "LEAGUE=${LEAGUE}"
 
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
