@@ -138,8 +138,13 @@ module "cf_manifest_audit_job_aws" {
 
   name            = "uts-prod-cf-manifest-audit"
   image           = local.cf_audit_ecr_image
-  vcpus           = "1"
-  memory_mb       = "4096" # 4 GiB — IO-bound GCS/S3 reads across 10 buckets
+  vcpus           = "8"
+  memory_mb       = "32768" # 32 GiB — mirrors the GCP job's fix (cf_manifest_audit_scheduler.tf):
+  # 4Gi OOM'd every run for 14 straight days on the GCP side before ever finishing bucket 1/10;
+  # unified-trading-library@6ce1ddb6's column-pruned + pyarrow-backed read cut peak RSS ~3.7-4x,
+  # but even 16Gi/4vCPU still OOM'd live on the fleet's largest bucket (defi tick, 26.3M rows) —
+  # jumped to Cloud Run's ceiling on the GCP side rather than re-guessing; keep this leg in parity
+  # so it doesn't repeat the same failure if/when it is activated.
   timeout_seconds = 1800
   max_retries     = 0 # non-zero exit = RED alert; do not retry
 

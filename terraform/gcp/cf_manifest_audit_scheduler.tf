@@ -123,10 +123,19 @@ module "cf_manifest_audit_job" {
   # Override var.cf_audit_image once the PM audit wrapper ships its own release.
   image = local.cf_audit_image_resolved
 
-  # CF audit is IO-bound (GCS metadata reads across 10 buckets) but not CPU-heavy.
-  # 2 vCPU / 4Gi is sufficient; the per-bucket CF manifest read is sequential.
-  cpu             = "2"
-  memory          = "4Gi"
+  # 4Gi OOM'd EVERY run for 14 straight days (2026-07-13..2026-07-26) — it never got past the
+  # FIRST of 10 buckets. Root cause + fix: issues/cf_manifest_audit_scheduled_job_daily_failure_2026_07_13.md +
+  # unified-trading-library@6ce1ddb6 (column-pruned + pyarrow-backed `_read_index()`, ~3.7-4x
+  # reduction) — verified live 2026-07-26: got past bucket 1 (cefi tick) for the first time ever,
+  # then OOM'd on bucket 3 (defi tick, 26.3M rows, the fleet's largest) EVEN AT 16Gi/4vCPU. Local
+  # isolated measurement had put its peak at ~6.4GB, but the real container adds the full UTL
+  # import surface + a concurrent `gcloud storage cp` subprocess (counted against the SAME cgroup
+  # limit) + a transient 2x peak during the Arrow-to-pandas concat/dtype-conversion step that a
+  # steady-state RSS snapshot doesn't capture — evidently enough to blow past 16Gi. This is a
+  # once-daily, ~2-5min job; jumping straight to Cloud Run's memory ceiling (32Gi, paired with the
+  # max 8 vCPU) removes the guesswork rather than re-guessing a second intermediate number.
+  cpu             = "8"
+  memory          = "32Gi"
   timeout_seconds = 1800 # 30 min upper bound; typical run 2-5 min for 10 buckets
 
   max_retries = 0 # non-zero exit = RED alert; do not retry (masks the signal)
