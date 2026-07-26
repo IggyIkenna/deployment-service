@@ -60,12 +60,19 @@ ML_TRAINING=false
 # The per-domain features-* repos (features-delta-one / cross-instrument / multi-timeframe /
 # calendar / volatility / onchain / sports / commodity) were CONSOLIDATED into the single
 # `features-service` repo (its subdirs) — every category uses features-service for feature code.
+# pnl-attribution-service / risk-and-exposure-service / position-balance-monitor-service were
+# subtree-merged into `strategy-service` (2026-05-20, deprecation-ledger.yaml
+# {pnl_attribution,risk_and_exposure,position_balance_monitor}_service_repo_consolidation_2026_05_19,
+# known_import_count=0) and archived — none of the three exist as checkouts in this workspace
+# anymore. Their tarballs stayed stale/frozen from before the merge; installing them alongside
+# current strategy-service/UTL/UAC produced an unsatisfiable dependency conflict (found 2026-07-26,
+# issues/mdps_features_live_launcher_shared_venv_dependency_conflict_2026_07_26.md). Removed from
+# every array below — `strategy-service` (already present) is the replacement.
 CEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
     ml-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
 )
 TRADFI_REPOS=(
     "${CEFI_REPOS[@]}"
@@ -74,7 +81,6 @@ DEFI_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     e2e-testing
 )
 SPORTS_REPOS=(
@@ -82,13 +88,11 @@ SPORTS_REPOS=(
     features-service
     ml-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service
 )
 PREDICTION_REPOS=(
     instruments-service market-tick-data-service market-data-processing-service
     features-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service
 )
 # ML pipeline — minimal fleet for harness-only runs. Covers the CME S&P 500 ML
 # Tier 1 MVP (stitched continuous ES series trained locally / on a training VM).
@@ -111,7 +115,6 @@ ALL_SERVICE_REPOS=(
     features-service
     ml-service
     strategy-service execution-service
-    pnl-attribution-service risk-and-exposure-service position-balance-monitor-service
     batch-live-reconciliation-service
     alerting-service
 )

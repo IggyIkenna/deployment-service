@@ -589,6 +589,28 @@ declare -A TARBALL_DIRS=(
   ["e2e-testing-code"]="e2e-testing"
 )
 
+# Transitive sibling dependency: MDPS + features-* services declare
+# `market-tick-data-service>=0.1.0,<1.0.0` in their pyproject.toml but MTDS
+# is not on PyPI, so without MTDS installed as a sibling editable install
+# the whole resolve fails with "requirements are unsatisfiable". Two MDPS
+# backfill VMs died this way 2026-04-19. Keep this list in lockstep with
+# pyproject deps of each downstream service.
+# Declared here (before NEEDED_TARBALLS resolution) rather than after it, so the
+# compound-VM_SERVICE branch below can also consult it per-component — moved
+# 2026-07-26, see issues/mdps_features_live_launcher_shared_venv_dependency_conflict_2026_07_26.md.
+MTDS_DEPENDENT_SERVICES=(
+  "market_data_processing_service"
+  "features_delta_one_service"
+  "features_onchain_service"
+  "features_volatility_service"
+  "features_calendar_service"
+  "features_multi_timeframe_service"
+  "features_cross_instrument_service"
+  "features_commodity_service"
+  "features_sports_service"
+  "features_service"
+)
+
 # Always install core (UAC + UTL + deployment-service) + the service
 # tarball for VM_SERVICE.
 # UEI was folded into unified-trading-library.events 2026-04-17 — removed from
@@ -634,6 +656,40 @@ elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_bench
     "strategy-service-code"
     "execution-service-code"
   )
+elif [[ "$VM_SERVICE" == *"+"* ]]; then
+  # Compound VM_SERVICE (e.g. "market_data_processing_service+features_service",
+  # launch-mdps-features-live.sh's co-located MDPS+features VM): SERVICE_TARBALLS
+  # only has single-service keys, so an unsplit lookup here always misses and used
+  # to fall through to "install all" below — the exact 2026-05-16 features_service
+  # failure mode this table's own comment describes, just for a "+"-joined key
+  # instead of a plain one (found 2026-07-26,
+  # issues/mdps_features_live_launcher_shared_venv_dependency_conflict_2026_07_26.md:
+  # the "install all" fallback pulled in the archived/stale position-balance-
+  # monitor-service tarball, an unrelated unsatisfiable dependency conflict).
+  # Resolve each "+"-joined part individually instead of failing the whole lookup.
+  IFS='+' read -ra _compound_services <<<"$VM_SERVICE"
+  for _svc in "${_compound_services[@]}"; do
+    _svc_tarball="${SERVICE_TARBALLS[$_svc]:-}"
+    if [ -n "$_svc_tarball" ]; then
+      NEEDED_TARBALLS+=("$_svc_tarball")
+    else
+      log "WARNING: unknown component '$_svc' in compound VM_SERVICE=$VM_SERVICE — no tarball added for it"
+    fi
+    # The MTDS_DEPENDENT_SERVICES check below only compares the whole (unsplit)
+    # $VM_SERVICE against each dep_svc, so it never matches a compound value —
+    # mirror it here per-component or a compound MDPS/features VM silently
+    # loses mtds-code (the exact "requirements are unsatisfiable" failure two
+    # MDPS backfill VMs hit 2026-04-19, per the comment below).
+    for _dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
+      if [[ "$_svc" == "$_dep_svc" ]]; then
+        case " ${NEEDED_TARBALLS[*]} " in
+          *" mtds-code "*) ;;
+          *) NEEDED_TARBALLS+=("mtds-code"); log "  (added mtds-code — $_svc depends on MTDS)" ;;
+        esac
+        break
+      fi
+    done
+  done
 else
   SERVICE_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-}"
   if [ -n "$SERVICE_TARBALL" ]; then
@@ -644,24 +700,9 @@ else
   fi
 fi
 
-# Transitive sibling dependency: MDPS + features-* services declare
-# `market-tick-data-service>=0.1.0,<1.0.0` in their pyproject.toml but MTDS
-# is not on PyPI, so without MTDS installed as a sibling editable install
-# the whole resolve fails with "requirements are unsatisfiable". Two MDPS
-# backfill VMs died this way 2026-04-19. Keep this list in lockstep with
-# pyproject deps of each downstream service.
-MTDS_DEPENDENT_SERVICES=(
-  "market_data_processing_service"
-  "features_delta_one_service"
-  "features_onchain_service"
-  "features_volatility_service"
-  "features_calendar_service"
-  "features_multi_timeframe_service"
-  "features_cross_instrument_service"
-  "features_commodity_service"
-  "features_sports_service"
-  "features_service"
-)
+# Transitive sibling dependency: MTDS_DEPENDENT_SERVICES is declared earlier
+# (before NEEDED_TARBALLS resolution) so the compound-VM_SERVICE branch above
+# can also consult it — this loop covers the plain single-VM_SERVICE case.
 for dep_svc in "${MTDS_DEPENDENT_SERVICES[@]}"; do
   if [[ "$VM_SERVICE" == "$dep_svc" ]]; then
     case " ${NEEDED_TARBALLS[*]} " in
