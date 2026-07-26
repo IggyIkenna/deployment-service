@@ -20,9 +20,10 @@
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --venues BINANCE-FUTURES \
 #       --data-types trades --instrument-ids BTCUSDT --start 2026-07-01 --end 2026-07-01 \
 #       --vm-name mtds-backfill-cefi-pipelinecheck-1 --test-run   # Scoped single-shard smoke check (test bucket)
-#   bash launch-mtds-backfill-vm.sh --asset-group SPORTS --venues ODDS_API --league UCL,CHINA_SUPER_LEAGUE \
+#   bash launch-mtds-backfill-vm.sh --asset-group SPORTS --venues ODDS_API --league 'UCL;CHINA_SUPER_LEAGUE' \
 #       --data-types trades --start 2025-09-01 --end 2025-11-30 \
-#       --vm-name mtds-backfill-sports-odds-3leagues-1   # Scoped odds-api league backfill (--league is comma-separated, sports only)
+#       --vm-name mtds-backfill-sports-odds-3leagues-1   # Scoped odds-api league backfill (sports only;
+#       # use ';' between multiple leagues -- same convention as --instrument-ids, gcloud --metadata splits on ',')
 #
 # --instrument-ids: verbatim-passed to VM_INSTRUMENT_IDS metadata; use ';' to separate
 # multiple symbols (gcloud --metadata=K=V,K=V splits on ',' at the key level — see
