@@ -1836,6 +1836,24 @@ elif [[ "$VM_TASK" == "backfill-orphan-e" ]]; then
     log "ERROR: backfill-orphan-e task without VM_BACKFILL_CMD metadata"
   fi
 elif [ -n "$VM_TASK" ]; then
+  # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12
+  # sports-v9-migration, 2026-07-13 defi-paper, 2026-07-21 datapoint-validation —
+  # see issues/datapoint_validation_results_bucket_missing_2026_07_21.md todo 4).
+  # VM_BACKFILL_CMD is ONLY ever set by launchers whose VM_TASK has its own dedicated
+  # dispatch branch above (each of those branches curls it and runs it directly) — so
+  # reaching this generic fallback with VM_BACKFILL_CMD metadata present is BY
+  # CONSTRUCTION a missing-dispatch-branch bug: this VM_TASK's launcher prepared a
+  # specific command for the VM to run, but no `elif [[ "$VM_TASK" == "..." ]]` exists
+  # to route to it, so this generic branch would silently ignore VM_BACKFILL_CMD and
+  # build an unrelated `--operation $VM_OPERATION` invocation instead — which then
+  # crashes minutes later, deep inside a task-specific CLI's argparse, with no signal
+  # pointing back at the real cause. Fail loud and immediately instead.
+  _VM_BACKFILL_CMD_PRESENT=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$_VM_BACKFILL_CMD_PRESENT" ]]; then
+    log "ERROR: VM_TASK=${VM_TASK} has no dedicated dispatch branch in this script, but VM_BACKFILL_CMD metadata IS present (${_VM_BACKFILL_CMD_PRESENT:0:120}...). This launcher expects VM_BACKFILL_CMD to be run directly — add an 'elif [[ \"\$VM_TASK\" == \"${VM_TASK}\" ]]' branch here that curls VM_BACKFILL_CMD and runs it via _launch_with_tee (mirror the datapoint-validation/orphan-sweep branches above). Refusing to fall through to the generic --operation dispatch, which would silently ignore VM_BACKFILL_CMD and crash deep in an unrelated CLI's argparse."
+    exit 1
+  fi
   _OP="$VM_OPERATION"
   # Translate metadata op name → CLI op name for live mode.
   [[ "$_OP" == "live_websocket" ]] && _OP="websocket-streaming"
