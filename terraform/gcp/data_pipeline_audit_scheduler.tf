@@ -87,9 +87,13 @@ module "dp_daily_digest_job" {
 
   image = local.dp_audit_image_resolved
 
-  # IO-bound (per-AG availability-index reads). 2 vCPU / 4Gi is sufficient.
-  cpu             = "2"
-  memory          = "4Gi"
+  # OOM-fix (2026-07-26): the digest reads the FULL per-AG `_index` with columns=None,
+  # OOM-killing tradfi/cefi at 4Gi ("configured memory limit reached", confirmed live on
+  # every recent execution 2026-07-22..07-26). Bumped 2vCPU/4Gi -> 4vCPU/16Gi per
+  # data_pipeline_self_healing_completion_residual_2026_07_24.md. The real fix (restrict
+  # columns + non-expanding aggregation) is tracked separately — this is the band-aid.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 1800
 
   max_retries = 0 # a finding is a DP_* event, not a job failure; do not retry
@@ -145,8 +149,11 @@ module "dp_manifest_hygiene_changed_job" {
 
   image = local.dp_audit_image_resolved
 
-  cpu             = "2"
-  memory          = "4Gi"
+  # OOM-fix (2026-07-26): bumped 2vCPU/4Gi -> 4vCPU/16Gi (same corpus-wide index read as
+  # the digest job; confirmed OOM-killed live on every recent execution). See
+  # data_pipeline_self_healing_completion_residual_2026_07_24.md.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 1800 # --mode changed is index-only (no corpus walk) → fast
 
   max_retries = 0
@@ -207,8 +214,11 @@ module "dp_manifest_hygiene_full_job" {
   image = local.dp_audit_image_resolved
 
   # Full GCS walk → more memory + a longer ceiling than the index-only daily.
-  cpu             = "2"
-  memory          = "8Gi"
+  # OOM-fix (2026-07-26): bumped 2vCPU/8Gi -> 4vCPU/16Gi (confirmed OOM-killed live on
+  # every recent execution — the full-walk job needs the same 16Gi ceiling as the other
+  # 3). See data_pipeline_self_healing_completion_residual_2026_07_24.md.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 7200 # 2h upper bound for the weekly full corpus walk
 
   max_retries = 0
@@ -264,8 +274,11 @@ module "dp_reprobe_empty_job" {
 
   image = local.dp_audit_image_resolved
 
-  cpu             = "2"
-  memory          = "4Gi"
+  # OOM-fix (2026-07-26): bumped 2vCPU/4Gi -> 4vCPU/16Gi — confirmed OOM-killed live on
+  # every recent execution ("configured memory limit reached", 2026-07-22..07-26 daily
+  # runs). See data_pipeline_self_healing_completion_residual_2026_07_24.md.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 1800
 
   max_retries = 0
