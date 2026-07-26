@@ -23,7 +23,7 @@
 # --mode batch --asset-group $VM_ASSET_GROUP ...`).
 #
 # Example assembled command:
-#   python -m ml_training_service \
+#   python -m ml_service.training \
 #     --operation train --mode batch --asset-group TRADFI \
 #     --instruments ES_FRONT --timeframes 1m \
 #     --target-types swing_high swing_low \
@@ -42,6 +42,14 @@
 #       --timeframes 1m \
 #       --start-date 2022-01-01 --end-date 2025-12-31
 #   bash launch-ml-training-vm.sh --gpu ...                    # use GPU machine
+#   # SPORTS requires --family (pregame_xg_family|pregame_clv_family|ht_xg_family|
+#   # ht_clv_family|meta_family) -- ml_training_service's CLI itself requires it
+#   # for --asset-group SPORTS. --extra-train-args passes through any flag this
+#   # launcher has no dedicated arg for (e.g. '--skip-walk-forward --optuna-trials 10').
+#   bash launch-ml-training-vm.sh \
+#       --asset-group SPORTS --instruments SPORTS:ALL \
+#       --family pregame_clv_family --timeframes fixture \
+#       --start-date 2020-06-06 --end-date 2026-07-20
 #
 # Machine type:
 #   --machine cpu   → n2-highmem-8 (64 GB RAM, no GPU — default)
@@ -71,6 +79,8 @@ MACHINE_CHOICE="cpu"
 OPERATION="train"
 EXTRA_METADATA=""
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+FAMILY=""
+EXTRA_TRAIN_ARGS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -85,13 +95,22 @@ while [[ $# -gt 0 ]]; do
         --operation)       OPERATION="$2"; shift 2 ;;
         --extra-metadata)  EXTRA_METADATA="$2"; shift 2 ;;
         --env)             DEPLOYMENT_ENV="$2"; shift 2 ;;
+        # --family: SPORTS-only, required by ml_training_service's CLI when
+        # --asset-group SPORTS (pregame_xg_family / pregame_clv_family /
+        # ht_xg_family / ht_clv_family / meta_family). Semicolon/comma-
+        # separated like --target-types/--timeframes above.
+        --family)          FAMILY="$2"; shift 2 ;;
+        # --extra-train-args: verbatim passthrough appended to the assembled
+        # ml_training_service command (e.g. '--skip-walk-forward --optuna-trials 10')
+        # for flags this launcher doesn't have a dedicated arg for.
+        --extra-train-args) EXTRA_TRAIN_ARGS="$2"; shift 2 ;;
         --help|-h)
             grep '^#' "$0" | head -60
             exit 0
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--dry-run] [--asset-group TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline] [--env <prod|staging|dev>]" >&2
+            echo "Usage: $0 [--dry-run] [--asset-group TRADFI|CEFI|SPORTS] [--instruments 'ES_FRONT;BTC'] [--target-types 'swing_high;swing_low'] [--timeframes '1m;1h'] [--family 'pregame_clv_family'] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--machine cpu|gpu|high] [--operation train|evaluate|grid-search|pipeline] [--extra-train-args '--skip-walk-forward'] [--env <prod|staging|dev>]" >&2
             exit 1
             ;;
     esac
@@ -99,6 +118,11 @@ done
 
 if [[ -z "$INSTRUMENTS" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     echo "ERROR: --instruments, --start-date, --end-date are required" >&2
+    exit 1
+fi
+
+if [[ "$ASSET_GROUP" == "SPORTS" && -z "$FAMILY" ]]; then
+    echo "ERROR: --family is required when --asset-group SPORTS (pregame_xg_family|pregame_clv_family|ht_xg_family|ht_clv_family|meta_family)" >&2
     exit 1
 fi
 
@@ -127,13 +151,16 @@ esac
 # Instrument-specific VM name prefix — first instrument label, sanitised.
 FIRST_INST="${INSTRUMENTS%%;*}"
 FIRST_INST="${FIRST_INST%%,*}"
-FIRST_INST_LOWER="$(echo "$FIRST_INST" | tr '[:upper:]_' '[:lower:]-')"
+# GCE instance names must match [a-z]([-a-z0-9]*[a-z0-9])? -- colons appear in
+# sports instrument ids (e.g. SPORTS:ALL, SPORTS:LEAGUE:PREMIER_LEAGUE) and
+# were previously left untranslated, producing an invalid create request.
+FIRST_INST_LOWER="$(echo "$FIRST_INST" | tr '[:upper:]_:' '[:lower:]--' | tr -s '-')"
 
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="ml-train-${FIRST_INST_LOWER}-${RUN_TS}"
 
 # Metadata: setup-data-pipeline-vm.sh generic branch will assemble
-#   python -m ml_training_service --operation $VM_OPERATION --mode batch
+#   python -m ml_service.training --operation $VM_OPERATION --mode batch
 #     --asset-group $VM_ASSET_GROUP --instrument-ids $VM_INSTRUMENT_IDS
 #     --data-types $VM_DATA_TYPES --start-date $VM_START_DATE --end-date ...
 #
@@ -151,7 +178,14 @@ VM_NAME="ml-train-${FIRST_INST_LOWER}-${RUN_TS}"
 # directly. For now, VM_BACKFILL_CMD is the cleanest seam that already
 # exists in setup-data-pipeline-vm.sh (see line 424-434) — it carries the
 # full command string verbatim.
-ML_CMD="python -m ml_training_service"
+# The repo's real importable package is ml_service (pyproject name
+# "ml-service"), with the training CLI under the ml_service.training
+# submodule (see ml_service/training/__main__.py) -- "ml_training_service"
+# is a stale pre-rename name that was never actually importable; running it
+# verbatim would fail every invocation with ModuleNotFoundError. VM_SERVICE
+# below stays "ml_training_service" (it only keys the SERVICE_TARBALLS dict
+# in setup-data-pipeline-vm.sh, unrelated to this literal invocation).
+ML_CMD="python -m ml_service.training"
 ML_CMD="${ML_CMD} --operation ${OPERATION}"
 ML_CMD="${ML_CMD} --mode batch"
 ML_CMD="${ML_CMD} --asset-group ${ASSET_GROUP}"
@@ -162,8 +196,10 @@ ML_CMD="${ML_CMD} --asset-group ${ASSET_GROUP}"
 ML_CMD="${ML_CMD} --instruments ${INSTRUMENTS//[,;]/ }"
 [[ -n "$TARGET_TYPES" ]] && ML_CMD="${ML_CMD} --target-types ${TARGET_TYPES//[,;]/ }"
 [[ -n "$TIMEFRAMES" ]] && ML_CMD="${ML_CMD} --timeframes ${TIMEFRAMES//[,;]/ }"
+[[ -n "$FAMILY" ]] && ML_CMD="${ML_CMD} --family ${FAMILY//[,;]/ }"
 ML_CMD="${ML_CMD} --start-date ${START_DATE}"
 ML_CMD="${ML_CMD} --end-date ${END_DATE}"
+[[ -n "$EXTRA_TRAIN_ARGS" ]] && ML_CMD="${ML_CMD} ${EXTRA_TRAIN_ARGS}"
 
 METADATA="VM_TASK=features-backfill"
 # ^ reuse the features-backfill routing branch which already reads
