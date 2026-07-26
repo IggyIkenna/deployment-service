@@ -405,7 +405,7 @@ elif command -v curl &>/dev/null; then
     hash -r
     log_ok "Installed/realigned uv 0.10.8 (pinned, astral installer)"
 else
-    "$PYTHON_CMD" -m pip install "uv==0.10.8" --quiet 2>/dev/null || pip install "uv==0.10.8" --quiet 2>/dev/null
+    "$PYTHON_CMD" -m pip install uv==0.10.8 --quiet 2>/dev/null || pip install uv==0.10.8 --quiet 2>/dev/null
     log_ok "Installed uv 0.10.8 (pinned, pip fallback)"
 fi
 
