@@ -13,6 +13,7 @@
 #   bash scripts/vm/create-code-tarballs.sh --bucket my-bucket # custom bucket
 #   bash scripts/vm/create-code-tarballs.sh --dry-run          # show what would be created
 #   bash scripts/vm/create-code-tarballs.sh --allow-dirty-tarball  # override dirty-tree block (audit logged)
+#   bash scripts/vm/create-code-tarballs.sh --force             # skip the skip-if-unchanged cache, rebuild everything
 #   bash scripts/vm/create-code-tarballs.sh --asset-group CEFI    # core + CEFI services
 #   bash scripts/vm/create-code-tarballs.sh --asset-group DEFI    # core + DEFI services
 #   bash scripts/vm/create-code-tarballs.sh --all              # core + ALL service repos
@@ -48,6 +49,7 @@ BUCKET="$DEFAULT_BUCKET"
 CLOUD="gcp"
 DRY_RUN=false
 ALLOW_DIRTY_TARBALL=false
+FORCE_REBUILD=false
 EXTRA_REPOS=()
 ASSET_GROUP=""
 ALL_REPOS=false
@@ -128,6 +130,8 @@ usage() {
     echo "  --include <repo>      Include additional repo (repeatable)"
     echo "  --dry-run             Show what would be created without uploading"
     echo "  --allow-dirty-tarball Override dirty-tree block (audit logged; emergency hotfixes only)"
+    echo "  --force               Skip the skip-if-unchanged cache — rebuild + reupload every selected repo"
+    echo "                        regardless of whether its committed HEAD already matches the deployed tarball"
     exit 1
 }
 
@@ -138,6 +142,7 @@ while [[ $# -gt 0 ]]; do
         --cloud) CLOUD="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --allow-dirty-tarball) ALLOW_DIRTY_TARBALL=true; shift ;;
+        --force) FORCE_REBUILD=true; shift ;;
         --include) EXTRA_REPOS+=("$2"); shift 2 ;;
         --asset-group) ASSET_GROUP="$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"; shift 2 ;;  # uppercase (bash3-safe)
         --all) ALL_REPOS=true; shift ;;
@@ -249,6 +254,21 @@ EXCLUDES=(
     --exclude='.coverage'
 )
 
+_skipped_repos=0
+_rebuilt_repos=0
+
+# Best-effort: print the commit_sha recorded in the CURRENTLY DEPLOYED
+# manifest.json for this tarball, or nothing if it's missing/unreadable
+# (never-tarballed repo, transient GCS error, etc.) — callers must treat
+# empty output as "no cached sha, must build".
+_existing_tarball_sha() {
+    local tarball_name="$1"
+    local existing
+    existing="$(gcloud storage cat "gs://${BUCKET}/code/${tarball_name}.manifest.json" 2>/dev/null || true)"
+    [[ -z "$existing" ]] && return 0
+    printf '%s' "$existing" | jq -r '.commit_sha // empty' 2>/dev/null || true
+}
+
 create_tarball() {
     local repo_dir="$1"
     local tarball_name="$2"
@@ -266,6 +286,35 @@ create_tarball() {
     # Compute git metadata (always — even in dry-run)
     local commit_sha git_status_clean
     commit_sha=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null || echo "unknown")
+
+    # Skip-if-unchanged (2026-07-26): if the CURRENTLY DEPLOYED tarball for this
+    # repo is already pinned to this exact committed HEAD sha, there is nothing
+    # to rebuild — skip entirely, BEFORE the dirty-tree check below. Ordering
+    # matters: a repo that is locally DIRTY but whose COMMITTED HEAD already
+    # matches what's deployed doesn't need touching at all, so its dirty
+    # working tree must not block anything. A repo whose HEAD has genuinely
+    # moved (sha mismatch) still hits the dirty-tree hard-block below exactly
+    # as before -- you still cannot publish a tarball for a moving target with
+    # uncommitted changes mixed in, and concurrent agents leaving dirty trees
+    # in a shared worktree while a rebuild is needed is still the thing this
+    # blocks by design. Real-incident motivation: an unrelated concurrent
+    # agent's dirty unified-trading-library blocked a rebuild requested only
+    # for market-tick-data-service + deployment-service, twice, 2026-07-25/26,
+    # even though UTL's own committed HEAD hadn't moved.
+    if [[ "$FORCE_REBUILD" != "true" && "$commit_sha" != "unknown" ]]; then
+        local existing_sha
+        existing_sha="$(_existing_tarball_sha "$tarball_name")"
+        if [[ -n "$existing_sha" && "$existing_sha" == "$commit_sha" ]]; then
+            _skipped_repos=$((_skipped_repos + 1))
+            if $DRY_RUN; then
+                log "  [DRY RUN] SKIP $tarball_name.tar.gz — already deployed at sha=${commit_sha:0:12}, unchanged"
+            else
+                log "SKIP $tarball_name.tar.gz from $repo_dir — already deployed at sha=${commit_sha:0:12}, unchanged"
+            fi
+            return 0
+        fi
+    fi
+
     if git -C "$repo_path" diff-index --quiet HEAD -- 2>/dev/null; then
         git_status_clean="true"
     else
@@ -306,6 +355,7 @@ create_tarball() {
         size=$(du -sh "$repo_path" 2>/dev/null | cut -f1)
         log "  [DRY RUN] Would create: $tarball_name.tar.gz ($size)"
         log "  [DRY RUN] Would write:  $tarball_name.manifest.json + $tarball_name@${commit_sha:0:12}.[tar.gz|manifest.json]"
+        _rebuilt_repos=$((_rebuilt_repos + 1))
         return 0
     fi
 
@@ -319,6 +369,7 @@ create_tarball() {
     cp "$tarball" "$TMP_DIR/${tarball_name}@${commit_sha}.tar.gz"
     cp "$manifest" "$TMP_DIR/${tarball_name}@${commit_sha}.manifest.json"
     log "  SHA-pinned copy: $tarball_name@${commit_sha:0:12}.tar.gz"
+    _rebuilt_repos=$((_rebuilt_repos + 1))
 }
 
 # Create tarballs
