@@ -233,7 +233,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -757,6 +757,19 @@ _script_for() {
             local _applyflag=""; [[ "$MODE" == "full" ]] && _applyflag=" --apply"
             printf '%s' "rc=1; for attempt in 1 2 3 4 5 6 7 8; do echo \"=== CAS attempt \${attempt}/8 START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u scripts/migrate_tradfi_manifest_usd_lin_2026_07_18.py --in-place-cas${_applyflag}; rc=\$?; echo \"=== CAS attempt \${attempt}/8 DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -eq 0 ] && break; sleep \$(( (RANDOM % 20) + 5 )); done; echo \"=== CAS FINAL rc=\${rc} after up to 8 attempts ===\"; exit \${rc}"
             ;;
+        # TradFi legacy per-contract manifest RETIRE (recover_tradfi_chain_manifest_registration_2026_07_22.py,
+        # retire phase only -- the register phase is a separate, already-applied one-time pass with no
+        # launcher wiring of its own). Drops the stale raw per-contract manifest rows left over from the
+        # pre-2026-07 CME options/futures_chain flat layout now that their canonical bundled-per-underlying
+        # counterparts are confirmed registered. Whole-index in-place-CAS REPLACE -- same race against the
+        # manifest consolidator's 60s cron as tradfi-manifest-cas, so same 8-attempt jittered-retry loop.
+        # DRY-BY-DEFAULT: dry mode runs `--retire` alone (read-only report + recovery_retire.tsv, no write);
+        # full mode adds `--apply`, the only path that performs the in-place-CAS write (the tool snapshots
+        # the pre-retire manifest first). `--retire` is baked in, never optional, for this category.
+        tradfi-manifest-retire)
+            local _applyflag=""; [[ "$MODE" == "full" ]] && _applyflag=" --apply"
+            printf '%s' "rc=1; for attempt in 1 2 3 4 5 6 7 8; do echo \"=== RETIRE attempt \${attempt}/8 START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.recover_tradfi_chain_manifest_registration_2026_07_22 --retire --out recovery_retire.tsv${_applyflag}; rc=\$?; echo \"=== RETIRE attempt \${attempt}/8 DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -eq 0 ] && break; sleep \$(( (RANDOM % 20) + 5 )); done; echo \"=== RETIRE FINAL rc=\${rc} after up to 8 attempts ===\"; exit \${rc}"
+            ;;
         # Sports: --workers 16 — same-region VM has lower GCS latency than the
         # cross-region laptop run that thrashed at workers=32 (2026-05-05
         # incident: 2476 generation conflicts, run died on 404 NotFound race).
@@ -989,11 +1002,11 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
-              # tradfi-manifest-cas (mirrors defi-per-instrument's per-year loop) -- a --apply/--dry-run/
-              # EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax error, so BOTH the
-              # flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed for both categories.
+              # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
+              # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
+              # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed.
         elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1186,7 +1199,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
