@@ -72,26 +72,48 @@ _ALERT_TOPIC = _config.alert_topic
 # Data vendor / read-only keys are lower risk → 180-day window
 _TRADE_KEY_PATTERNS = frozenset(
     [
-        "binance-api-key",
-        "binance-api-secret",
+        # Binance/Deribit: pooled/house read/trade/write split, verified live
+        # against GCP Secret Manager 2026-07-23 (codex/05-infrastructure/
+        # secret-manager-naming.md § 1 / § 2.2; execution-service/service_config.py
+        # confirms the trade tier). Renamed 2026-07-26 — the prior unscoped
+        # binance-api-key/-secret and deribit-api-key/-secret never matched any
+        # real secret (see issues/rotate_exchange_keys_stale_venue_registry_2026_07_23.md).
+        "binance-read-api-key",
+        "binance-trade-api-key",
+        "binance-write-api-key",
+        "binance-read-api-key-secret",
+        "binance-trade-api-key-secret",
         "bybit-api-key",
         "bybit-api-secret",
-        "deribit-api-key",
-        "deribit-api-secret",
+        "deribit-read-api-key",
+        "deribit-trade-api-key",
+        "deribit-write-api-key",
+        "deribit-read-api-key-secret",
+        "deribit-trade-api-key-secret",
+        # OKX has no pooled/house secret — client-scoped exec-{client}-okx-* only
+        # (verified 2026-07-23). Kept as a harmless no-op match in case a pooled
+        # key is ever provisioned; do not invent a name for one that isn't.
         "okx-api-key",
         "okx-api-secret",
+        # coinbase/kraken/bitfinex/bitget/upbit: UNVERIFIED against live GCP —
+        # this worktree's service account lacks secretmanager.secrets.list/get
+        # (2026-07-26). Left as-is; re-verify with a credentialed pass before
+        # trusting these names. See the issue doc's Progress Log.
         "coinbase-api-key",
         "coinbase-api-secret",
+        # betfair-session-token is the real, live, actively-consumed secret name
+        # (execution_service/sports_execution/routing.py, instruments-service's
+        # betfair adapter) — distinct from the 3 ad hoc betfair-api-key/-app-key/
+        # -username auth-input secrets that produce it.
         "betfair-session-token",
-        "kalshi-api-key",
         # 2026-05-09: extended for May-23 cutover per credentials-readiness audit
         # (plans/questions/api_keys_wallets_accounts_readiness_2026_05_08.md R4-R6).
         # Six perp venues from master plan Group F + 4 additional CeFi venues +
         # custody (Copper) + prediction (Polymarket).
-        "hyperliquid-api-key",
-        "hyperliquid-api-secret",
+        "kalshi-api-credentials",
+        "hyperliquid-trade-key",
         "aster-api-key",
-        "aster-api-secret",
+        "aster-secret-key",
         "upbit-api-key",
         "upbit-api-secret",
         "kraken-api-key",
@@ -101,10 +123,10 @@ _TRADE_KEY_PATTERNS = frozenset(
         "bitget-api-key",
         "bitget-api-secret",
         "polymarket-api-key",
-        "polymarket-api-secret",
+        "polymarket-secret",
         "copper-api-key",
         "copper-api-secret",
-        "copper-organization-id",
+        "copper-org-id",
     ]
 )
 
@@ -221,10 +243,7 @@ def rotate_exchange_keys(request: flask.Request) -> flask.Response:
                     "secret": secret_name,
                     "project": _PROJECT_ID,
                     "timestamp": today.isoformat(),
-                    "message": (
-                        f"Secret {secret_name!r} has no last_rotated label."
-                        " Add label or rotate immediately."
-                    ),
+                    "message": (f"Secret {secret_name!r} has no last_rotated label. Add label or rotate immediately."),
                     "severity": "WARNING",
                 },
             )
