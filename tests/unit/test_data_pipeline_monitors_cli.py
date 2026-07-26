@@ -9,8 +9,16 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from unified_trading_library import (
+    ARCHIVE_PREFIX,
+    DEFAULT_BUCKET,
+    DeploymentRegistryEntry,
+    DeploymentsRegistry,
+    InMemoryStorageClient,
+)
 
 from deployment_service.data_pipeline_monitors import (
     _gcs,
@@ -191,6 +199,59 @@ def test_main_exit_code_mode_dry_run(monkeypatch):
     monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
     rc = cli.main(["--mode", "exit-code", "--dry-run"])
     assert rc == 0
+
+
+def _make_registry_entry(**overrides: object) -> DeploymentRegistryEntry:
+    base: dict[str, object] = {
+        "deployment_id": "dep-gone-vm-1",
+        "vm_name": "cefi-migration-gone-20260701-000000",
+        "asset_group": "CEFI",
+        "task": "canonical-migration",
+        "mode": "dry",
+        "start_date": "2026-07-01",
+        "end_date": "2026-07-01",
+        "status": "running",
+        "started_at": "2026-07-01T00:00:00Z",
+        "last_heartbeat_at": "2026-07-01T00:00:00Z",
+        "completed_at": None,
+        "exit_code": None,
+        "rows_in": 0,
+        "rows_out": 0,
+        "rows_error": 0,
+        "events_emitted": 1,
+        "log_uri": "gs://bucket/vm-logs/x/run.log",
+    }
+    base.update(overrides)
+    return DeploymentRegistryEntry(**base)  # type: ignore[arg-type]
+
+
+def test_main_exit_code_mode_reaps_gone_vm_registry_entry(monkeypatch):
+    """cefi_satellite_ao_dispatch_batch1-017: DeploymentsRegistry.reap_stale() is wired
+    into cli.py's exit-code sweep (previously implemented + unit-tested but never
+    called) — a deployments/active/*.json entry whose VM is confirmed gone (not in the
+    running-VM census, heartbeat older than the 5-min race-tolerance grace) gets
+    archived after one real (non-dry-run) --mode exit-code run."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    # The running census does NOT include the registry entry's VM — it's confirmed gone.
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: [("cefi-mr-2025", "asia-northeast1-c")])
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+
+    reg_storage = InMemoryStorageClient()
+    registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=reg_storage)
+    old_hb = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry.register(_make_registry_entry(last_heartbeat_at=old_hb))
+    monkeypatch.setattr(cli, "DeploymentsRegistry", lambda *_a, **_kw: registry)
+
+    rc = cli.main(["--mode", "exit-code"])
+    assert rc == 0
+
+    archive_keys = reg_storage.list_keys(DEFAULT_BUCKET, ARCHIVE_PREFIX)
+    assert len(archive_keys) == 1
+    stored = json.loads(reg_storage.download_string(DEFAULT_BUCKET, archive_keys[0]))
+    assert stored["status"] == "failed"
+    assert stored["extras"]["reap_reason"] == "vm_not_running"
 
 
 def test_main_heartbeat_mode_dry_run(monkeypatch):

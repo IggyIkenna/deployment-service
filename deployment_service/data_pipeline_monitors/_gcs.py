@@ -808,7 +808,14 @@ class NoCaptureReason(StrEnum):
 #     pattern required the word "rows").
 _PROGRESS_RE = re.compile(
     r"\bWrote\s+\d+\b[^\n]{0,60}\b(rows?|records?)\b"
-    r"|\brecord_captured\b|\bCATALOGUE_PROMOTED\b|\bcaptured=(?!0\b)\d+",
+    r"|\brecord_captured\b|\bCATALOGUE_PROMOTED\b|\bcaptured=(?!0\b)\d+"
+    # migrate_cefi_content_instrument_id_catalogue_2026_07_17.py: a content-canonicalisation
+    # dry-run/audit script that structurally never writes the availability manifest, so its
+    # own progress/summary vocabulary (would_patch/already_canonical_skipped in its stats=
+    # dict, or its "SCRIPT 1 CONTENT MIGRATION SUMMARY" banner) is the only durable signal
+    # that the run actually did something — without this it false-pages DP_VM_GONE_NO_CAPTURE
+    # on every completed run (cefi_content_migration_vm_wedged_worker_2026_07_23).
+    r"|\bwould_patch\b|\balready_canonical_skipped\b|SCRIPT 1 CONTENT MIGRATION SUMMARY",
     re.IGNORECASE,
 )
 # The source legitimately had nothing / the shard was already complete / the VM
