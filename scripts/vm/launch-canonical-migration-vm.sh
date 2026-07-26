@@ -124,6 +124,22 @@
 #   RESUME_SEED_GS=gs://deployment-scripts-central-element-323112/canonical-migration-defi-marker-cleanup/resume-seed/delete_migrated_defi_markers_2026_07_23.resume.jsonl \
 #     bash launch-canonical-migration-vm.sh defi-marker-cleanup 2020-01-01 2026-07-24 dry
 #
+#   # defi-lst-rates-fold (2026-07-25): in-region runner for
+#   # scripts/one_offs/fold_lst_rates_migrated_markers_2026_07_25.py -- folds the missing per-instrument
+#   # lst_rates leaf back in for every FLAGGED `_migrated_*` marker (COINBASE/SWELL/MAKER/ETHENA), per
+#   # plans/active/defi_dex_pool_symbol_fix_backfill_purge_2026_07_25.md's [OPERATOR] re-verify+purge todo
+#   # and its blocking issue doc issues/defi_lst_rates_migrated_marker_unfiltered_live_reader_2026_07_25.md.
+#   # FOLD-NOT-PURGE -- copy-only (gcs_copy_object / construct-then-upload), agent-executable per
+#   # codex/02-data/gcs-and-manifest-delete-safety-protocol.md Section 5 (this tool never calls a delete
+#   # path -- unlike defi-marker-cleanup, which is DRY-RUN ONLY, HARD). Population is the exact,
+#   # fully-enumerated 346-marker known-cluster default (no --shard-of; the script's own
+#   # --markers-file/--rediscover flags are how you'd scope differently, via MIGRATION_EXTRA_ARGS).
+#   # DRY-BY-DEFAULT + --apply for full (same convention as defi-relabel/defi-glued-reshard).
+#   # START_DATE/END_DATE are cosmetic (VM labels only) -- the script scopes its own worklist from the
+#   # fixed 346-marker population, not a date range.
+#   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 dry
+#   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -217,7 +233,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     exit 2
 fi
 
@@ -511,6 +527,27 @@ _gmx_purge_cmd() {
     local mode_flag=""
     if [[ "$MODE" == "full" ]]; then mode_flag=" --apply"; else mode_flag=" --dry-run"; fi
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gmx_venue_removal_2026_07_25.py --project-id ${PROJECT}${mode_flag}"
+}
+
+# DeFi lst_rates FLAGGED-marker fold (2026-07-25) -- in-region runner for
+# scripts/one_offs/fold_lst_rates_migrated_markers_2026_07_25.py. FOLD-NOT-PURGE: the tool's own
+# --apply mode only ever WRITES a sibling per-instrument leaf (gcs_copy_object true-copy, or a
+# construct-then-upload merge onto an existing leaf) -- it never renames or deletes the marker itself
+# and never calls a delete path, so this is agent-executable per
+# codex/02-data/gcs-and-manifest-delete-safety-protocol.md Section 5 (unlike defi-marker-cleanup, which
+# is DRY-RUN ONLY, HARD, because ITS --apply is a prod-bucket delete). $MODE IS honored for real here
+# (dry -> tool default report-only; full -> --apply, embedded by this builder) -- no consolidator-drain
+# gate is needed (unlike defi-gmx-purge/cefi-bybit-spot-purge), since a fold-only write race with the
+# manifest consolidator is harmless (it only ever ADDS a new leaf, never mutates/removes an existing
+# manifest-tracked object). Population defaults to the tool's own exact, fully-enumerated 346-marker
+# known-cluster population (COINBASE/SWELL/MAKER/ETHENA) -- no --shard-of; MIGRATION_EXTRA_ARGS forwards
+# --markers-file/--limit/--workers overrides straight to the tool for a narrower re-run or smoke-test.
+# START_DATE/END_DATE are cosmetic (VM labels only) -- the tool scopes its own worklist from the fixed
+# population, not a date range.
+_lst_rates_fold_cmd() {
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/fold_lst_rates_migrated_markers_2026_07_25.py --project-id ${PROJECT} --workers ${WORKERS:-16}${apply_flag}"
 }
 
 # cefi-bybit-spot-purge -- BYBIT-SPOT spot-nonsense manifest row purge
@@ -890,6 +927,11 @@ _launch() {
             return 1
         fi
         cmd="$(_gmx_purge_cmd)"
+    elif [[ "$cat" == "defi-lst-rates-fold" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Fold-only (never a delete),
+        # so no consolidator-drain gate is required (unlike defi-gmx-purge/cefi-bybit-spot-purge).
+        cmd="$(_lst_rates_fold_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == "cefi-bybit-spot-purge" ]]; then
         # $MODE IS honored, THREE-valued (dry|smoke|full) -- see _bybit_spot_purge_cmd's comment.
         # The SCRIPT ITSELF hard-gates both --smoke and --apply on the consolidator cron being
@@ -936,7 +978,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" || "$cat" == "defi-lst-rates-fold" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -1103,7 +1145,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
