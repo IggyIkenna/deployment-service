@@ -32,7 +32,9 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# Default resolved below (asset-group-aware) once ASSET_GROUP is parsed — an explicit
+# --machine-type flag or MACHINE_TYPE env var always wins over that default.
+MACHINE_TYPE="${MACHINE_TYPE:-}"
 DRY_RUN=false
 ASSET_GROUP=""
 START_DATE=""
@@ -96,6 +98,24 @@ if [[ -z "$ASSET_GROUP" ]]; then
 fi
 
 CATEGORY_LOWER=$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')
+
+# CEFI-specific machine-type default: the Tardis per-chunk download path showed an
+# unpredictable transient memory spike (confirmed real kernel OOM-kill, anon-rss up to
+# ~14.6GB, two back-to-back identical --chunk-days 1 chunks for the same symbol/venue
+# set varying >2x — see mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md) that
+# sits right at the e2-standard-4 (16GB) ceiling. This is the SAME OOM signature already
+# root-caused + fixed for tradfi OHLCV backfills (tradfi_backfill_oom_remediation_2026_06_24.md):
+# bumping to e2-highmem-4 (32GB) gave weeks of zero-OOM-recurrence fleet operation there.
+# Only changes the DEFAULT for asset-group=cefi; an explicit --machine-type/MACHINE_TYPE
+# always wins, and other asset groups keep the e2-standard-4 default unchanged.
+if [[ -z "$MACHINE_TYPE" ]]; then
+  if [[ "$CATEGORY_LOWER" == "cefi" ]]; then
+    MACHINE_TYPE="e2-highmem-4"
+  else
+    MACHINE_TYPE="e2-standard-4"
+  fi
+fi
+
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 VM_NAME="${VM_NAME_OVERRIDE:-mtds-backfill-${CATEGORY_LOWER}-1}"
 

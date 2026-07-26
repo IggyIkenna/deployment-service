@@ -15,43 +15,9 @@ output "job_uid" {
   value       = module.daily_job.uid
 }
 
-output "workflow_id" {
-  description = "The ID of the Cloud Workflow"
-  value       = module.daily_workflow.workflow_id
-}
-
-output "workflow_name" {
-  description = "The name of the Cloud Workflow"
-  value       = module.daily_workflow.workflow_name
-}
-
-output "scheduler_name" {
-  description = "The name of the Cloud Scheduler job"
-  value       = module.daily_workflow.scheduler_job_name
-}
-
-output "daily_execution_url" {
-  description = "URL to execute the daily workflow manually"
-  value       = module.daily_workflow.execution_url
-}
-
-# Backfill Workflow Outputs
-output "backfill_workflow_id" {
-  description = "The ID of the backfill Cloud Workflow"
-  value       = module.backfill_workflow.workflow_id
-}
-
-output "backfill_workflow_name" {
-  description = "The name of the backfill Cloud Workflow"
-  value       = module.backfill_workflow.workflow_name
-}
-
-output "backfill_execution_url" {
-  description = "URL to execute the backfill workflow manually"
-  value       = module.backfill_workflow.execution_url
-}
-
-output "backfill_example_command" {
-  description = "Example command to run backfill workflow"
-  value       = "gcloud workflows run ${var.backfill_workflow_name} --location=${var.region} --data='{\"start_date\":\"2020-01-01\",\"end_date\":\"2026-01-25\",\"categories\":[\"CEFI\",\"TRADFI\",\"DEFI\"],\"force\":true,\"include_corporate_actions\":true}'"
-}
+# NOTE (2026-07-26): daily_workflow and backfill_workflow module blocks were disabled in
+# main.tf on 2026-06-26 (dead CLI flags, superseded by the t1-recon Cloud Run jobs) but their
+# outputs here were left dangling, which made `terraform plan/apply` fail outright in this
+# directory ever since — so the intended destroy of the dead google_workflows_workflow +
+# google_cloud_scheduler_job resources never actually applied. Removing the dangling outputs
+# so apply can run and retire those live resources.
