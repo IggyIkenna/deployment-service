@@ -60,6 +60,7 @@ from deployment_service.data_pipeline_monitors.escalation import (
     PipelineFinding,
     route_finding,
 )
+from deployment_service.data_pipeline_monitors.known_dead_cells_registry import is_known_dead_for_series
 from deployment_service.data_pipeline_monitors.renag_tracker import (
     DEFAULT_RENAG_COOLDOWN_SECONDS,
     RenagTracker,
@@ -462,6 +463,7 @@ class AttemptedFailedCell:
     attempted_failed: int
     ratio: float  # attempted_failed / (captured + attempted_failed), 0.0 when denom is 0
     high: bool  # crossed the abs OR ratio threshold (a real failure batch)
+    known_dead: bool = False  # registered dead cell, no activity since narrowing (known_dead_cells_registry.py)
 
 
 def _read_attempted_failed_cells(
@@ -486,12 +488,9 @@ def _read_attempted_failed_cells(
     except Exception:
         return []
     try:
-        # Read ONLY the two columns this checker uses. The consolidated _index can be
-        # hundreds of MB compressed (defi ~424MB) and blows past the job's 16Gi limit
-        # when materialised in full (object-dtype strings decompress ~5-10x) — the OOM
-        # that stalled dp-meta-monitor. A parquet missing either column raises here and
-        # is caught below (same graceful empty-read as a schema-less index).
-        index = pd.read_parquet(io.BytesIO(raw), columns=["capture_status", "data_type"])
+        # Read ONLY the columns this checker uses (avoids the full-index-materialise OOM
+        # that stalled dp-meta-monitor). `attempted_at` feeds the is_known_dead check.
+        index = pd.read_parquet(io.BytesIO(raw), columns=["capture_status", "data_type", "attempted_at"])
     except Exception:
         return []
     if index.empty or "capture_status" not in index.columns or "data_type" not in index.columns:
@@ -499,6 +498,7 @@ def _read_attempted_failed_cells(
 
     status = index["capture_status"].astype(str)
     data_type_col = index["data_type"].astype(str)
+    attempted_at_col = index["attempted_at"].astype(str)
     captured_mask = status == "captured"
     failed_mask = status == "attempted_failed"
 
@@ -521,6 +521,7 @@ def _read_attempted_failed_cells(
                 attempted_failed=attempted_failed,
                 ratio=ratio,
                 high=high,
+                known_dead=is_known_dead_for_series(asset_group, data_type, attempted_at_col[dt_mask & failed_mask]),
             )
         )
     return cells
@@ -576,6 +577,9 @@ def check_high_attempted_failed(
         )
         all_cells.extend(cells)
         for cell in cells:
+            if cell.known_dead:  # no miss/renag for a dead cell; new activity re-enables paging
+                logger.info("DP_RUN_MOSTLY_EMPTY suppressed (known-dead) for '%s/%s'", cell.asset_group, cell.data_type)
+                continue
             if miss_tracker is not None:
                 misses = miss_tracker.register(
                     _high_attempted_failed_miss_key(cell.asset_group, cell.data_type),

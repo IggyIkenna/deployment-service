@@ -61,7 +61,7 @@ class TestMaxAgeDays:
     def test_infer_trade_from_name(self):
         import main as m
 
-        result = m._max_age_days("binance-api-key", None)
+        result = m._max_age_days("binance-trade-api-key", None)
         assert result == m._TRADE_MAX_DAYS
 
     def test_infer_data_from_name(self):
@@ -75,6 +75,27 @@ class TestMaxAgeDays:
 
         result = m._max_age_days("unknown-key-xyz", None)
         assert result == m._TRADE_MAX_DAYS  # conservative
+
+    def test_stale_unscoped_binance_name_no_longer_matches(self):
+        """binance-api-key never matched a real secret (see rotate_exchange_keys_stale_venue_registry_2026_07_23.md)
+        and falls through to the conservative default rather than a real trade-pattern match."""
+        import main as m
+
+        assert not any(p in "binance-api-key" for p in m._TRADE_KEY_PATTERNS)
+
+    def test_renamed_venue_secrets_match_live_gcp_names(self):
+        """2026-07-26 fix: patterns match the real GCP names, not the stale pre-migration ones."""
+        import main as m
+
+        for real_name in (
+            "kalshi-api-credentials",
+            "hyperliquid-trade-key",
+            "aster-secret-key",
+            "polymarket-secret",
+            "copper-org-id",
+            "deribit-trade-api-key",
+        ):
+            assert any(p in real_name for p in m._TRADE_KEY_PATTERNS), real_name
 
 
 class TestDaysSinceRotation:
@@ -204,7 +225,7 @@ class TestRotateExchangeKeys:
 
     def test_ok_secret_not_counted_as_overdue(self):
         last = (date.today() - timedelta(days=10)).isoformat()
-        secret = _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": last})
+        secret = _make_secret("binance-trade-api-key", {"key_category": "trade", "last_rotated": last})
         response, _ = self._run_function([secret])
 
         body = json.loads(response.get_data())
@@ -215,19 +236,19 @@ class TestRotateExchangeKeys:
 
     def test_overdue_secret_triggers_alert_and_207(self):
         last = (date.today() - timedelta(days=100)).isoformat()  # > 90 days
-        secret = _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": last})
+        secret = _make_secret("binance-trade-api-key", {"key_category": "trade", "last_rotated": last})
         response, mock_pub = self._run_function([secret])
 
         body = json.loads(response.get_data())
         assert body["overdue"] == 1
         assert len(body["overdue_secrets"]) == 1
-        assert body["overdue_secrets"][0]["secret"] == "binance-api-key"
+        assert body["overdue_secrets"][0]["secret"] == "binance-trade-api-key"
         assert response.status_code == 207
         mock_pub.publish.assert_called()
 
     def test_warning_secret_triggers_warning_alert(self):
         last = (date.today() - timedelta(days=80)).isoformat()  # 80 days, warn at 90-14=76
-        secret = _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": last})
+        secret = _make_secret("binance-trade-api-key", {"key_category": "trade", "last_rotated": last})
         response, mock_pub = self._run_function([secret])
 
         body = json.loads(response.get_data())
@@ -237,12 +258,12 @@ class TestRotateExchangeKeys:
         mock_pub.publish.assert_called()
 
     def test_unknown_age_secret_flagged(self):
-        secret = _make_secret("binance-api-key", {"key_category": "trade"})  # no last_rotated
+        secret = _make_secret("binance-trade-api-key", {"key_category": "trade"})  # no last_rotated
         response, mock_pub = self._run_function([secret])
 
         body = json.loads(response.get_data())
         assert body["unknown_age"] == 1
-        assert "binance-api-key" in body["unknown_age_secrets"]
+        assert "binance-trade-api-key" in body["unknown_age_secrets"]
         mock_pub.publish.assert_called()
 
     def test_ignores_non_exchange_secrets(self):
@@ -268,7 +289,7 @@ class TestRotateExchangeKeys:
         warn_last = (date.today() - timedelta(days=80)).isoformat()
 
         secrets = [
-            _make_secret("binance-api-key", {"key_category": "trade", "last_rotated": ok_last}),
+            _make_secret("binance-trade-api-key", {"key_category": "trade", "last_rotated": ok_last}),
             _make_secret("bybit-api-key", {"key_category": "trade", "last_rotated": overdue_last}),
             _make_secret("okx-api-key", {"key_category": "trade", "last_rotated": warn_last}),
             _make_secret("tardis-api-key", {"key_category": "data"}),  # unknown age

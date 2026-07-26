@@ -1759,13 +1759,18 @@ _MD_BUCKET = "market-data-sports-prd-test-project"
 _AVAIL_INDEX = meta_watchers.AVAILABILITY_INDEX_BLOB
 
 
-def _index_parquet(rows: list[tuple[str, str]]) -> bytes:
-    """Build a consolidated _index parquet from (data_type, capture_status) rows."""
+def _index_parquet(rows: list[tuple[str, str]] | list[tuple[str, str, str]]) -> bytes:
+    """Build a consolidated _index parquet from (data_type, capture_status[, attempted_at]) rows.
+
+    ``attempted_at`` defaults to ``""`` (legacy/unknown) when a row omits it, so every
+    pre-existing 2-tuple call site keeps working unchanged.
+    """
     import io
 
     import pandas as pd
 
-    df = pd.DataFrame(rows, columns=["data_type", "capture_status"])
+    padded = [(r[0], r[1], r[2] if len(r) > 2 else "") for r in rows]
+    df = pd.DataFrame(padded, columns=["data_type", "capture_status", "attempted_at"])
     buf = io.BytesIO()
     df.to_parquet(buf, index=False)
     return buf.getvalue()
@@ -1822,6 +1827,52 @@ def test_high_attempted_failed_ratio_guard_ignores_micro_cell(monkeypatch):
     cell = next(c for c in cells if c.data_type == "oi")
     assert cell.ratio == 0.5 and not cell.high
     assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)
+
+
+# ── DP-FETCH-009 known-dead suppression (tradfi_ohlcv_attempted_failed_cluster_2026_07_23.md) ──
+
+
+def test_known_dead_cell_suppressed_despite_crossing_threshold(monkeypatch):
+    # The registered CBOE ohlcv_15m cell: high (crosses ABS_THRESHOLD) but every row's
+    # attempted_at is BEFORE the registered narrowing date → suppressed, never pages.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cell = next(c for c in cells if c.data_type == "ohlcv_15m")
+    assert cell.high  # crosses the threshold ...
+    assert cell.known_dead  # ... but is the registered known-dead cell
+    assert not any(e[0] == "DP_RUN_MOSTLY_EMPTY" for e in emitted)  # so it never pages
+
+
+def test_known_dead_cell_with_new_activity_still_pages(monkeypatch):
+    # Same registered cell, but ONE row carries an attempted_at AFTER the narrowing
+    # date — genuinely new activity → known_dead must clear and the cell must page.
+    n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 4
+    rows = [("ohlcv_15m", "attempted_failed", "2026-07-07T06:40:00Z")] * n_old
+    rows.append(("ohlcv_15m", "attempted_failed", "2026-07-20T00:00:00Z"))
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cell = next(c for c in cells if c.data_type == "ohlcv_15m")
+    assert cell.high
+    assert not cell.known_dead
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_unregistered_cell_never_known_dead(monkeypatch):
+    # A high cell for a (asset_group, data_type) NOT in the registry must page exactly
+    # as before this change — the registry is opt-in, never a blanket suppression.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", "2026-07-07T06:40:00Z")] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    emitted = _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target(label="tradfi")])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.high
+    assert not cell.known_dead
+    assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
 def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
