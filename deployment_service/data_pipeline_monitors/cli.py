@@ -34,6 +34,7 @@ from typing import cast
 
 import pandas as pd
 from unified_trading_library import (
+    DeploymentsRegistry,
     PubSubEventSink,
     StorageClient,
     UnifiedCloudConfig,
@@ -604,7 +605,8 @@ def main(argv: list[str] | None = None) -> int:
         log_bucket = _log_bucket()
 
         if mode == "exit-code":
-            running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
+            all_running_vms = _list_running_vms()
+            running = [vm for vm in all_running_vms if _is_data_vm(vm[0])]
             ec_findings: list[PipelineFinding] = []
             results = exit_code_fleet_monitor.sweep(
                 storage_client=storage_client,
@@ -637,6 +639,26 @@ def main(argv: list[str] | None = None) -> int:
                     ok=True,
                     counts={"terminated": len(results), "non_clean": len(non_clean)},
                 )
+                # DeploymentsRegistry.reap_stale() was already implemented + unit-tested
+                # but had zero callers — a deployments/active/*.json registration whose
+                # GCE instance is confirmed gone stayed status="running" forever (live-
+                # verified: one record stayed "running" 4 days after its instance was
+                # deleted). Wire it here using the SAME running-VM census this sweep
+                # already fetched (unfiltered by _is_data_vm — registry entries are not
+                # limited to data VMs). Best-effort: a failure here must never abort the
+                # exit-code sweep itself.
+                try:
+                    reaped = DeploymentsRegistry().reap_stale(
+                        running_vm_names={vm_name for vm_name, _zone in all_running_vms}
+                    )
+                    if reaped:
+                        logger.info(
+                            "exit-code sweep: reap_stale archived %d stale deployment registration(s): %s",
+                            len(reaped),
+                            ", ".join(e.deployment_id for e in reaped),
+                        )
+                except Exception as exc:
+                    logger.warning("exit-code sweep: reap_stale failed (best-effort): %s", exc)
             # RESOLVED bookend (alert-lifecycle, extended to exit-code 2026-06-24): a
             # DP_VM_GONE/DP_VM_EXIT that fired last sweep but not this one (the cell got
             # captured / relaunched) posts a ✅ RESOLVED. Own active blob (disjoint events).
