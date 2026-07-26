@@ -20,6 +20,9 @@
 #   bash launch-mtds-backfill-vm.sh --asset-group CEFI --venues BINANCE-FUTURES \
 #       --data-types trades --instrument-ids BTCUSDT --start 2026-07-01 --end 2026-07-01 \
 #       --vm-name mtds-backfill-cefi-pipelinecheck-1 --test-run   # Scoped single-shard smoke check (test bucket)
+#   bash launch-mtds-backfill-vm.sh --asset-group SPORTS --venues ODDS_API --league UCL,CHINA_SUPER_LEAGUE \
+#       --data-types trades --start 2025-09-01 --end 2025-11-30 \
+#       --vm-name mtds-backfill-sports-odds-3leagues-1   # Scoped odds-api league backfill (--league is comma-separated, sports only)
 #
 # --instrument-ids: verbatim-passed to VM_INSTRUMENT_IDS metadata; use ';' to separate
 # multiple symbols (gcloud --metadata=K=V,K=V splits on ',' at the key level — see
@@ -51,6 +54,7 @@ VENUES=""
 DATA_TYPES=""
 INSTRUMENT_IDS=""
 SOURCE=""
+LEAGUE=""
 # --test-run routes writes to the -test- bucket sibling (IS_TEST_RUN=true metadata;
 # setup-data-pipeline-vm.sh:251-254 reads + exports it — MTDS's freshness-read
 # stays PROD-driven per the read-bucket asymmetry, only the WRITE target moves).
@@ -80,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     --data-types)    DATA_TYPES="$2"; shift 2 ;;
     --instrument-ids) INSTRUMENT_IDS="$2"; shift 2 ;;
     --source)        SOURCE="$2"; shift 2 ;;
+    --league)        LEAGUE="$2"; shift 2 ;;
     --test-run)      TEST_RUN=true; shift ;;
     --env)           DEPLOYMENT_ENV="$2"; shift 2 ;;
     --on-demand)     ON_DEMAND=true; shift ;;
@@ -136,6 +141,7 @@ echo "  Venues:    ${VENUES:-all}"
 echo "  DataTypes: ${DATA_TYPES:-all}"
 echo "  InstrIDs:  ${INSTRUMENT_IDS:-<full universe>}"
 echo "  Source:    ${SOURCE:-<SOURCE_PRIORITY default>}"
+echo "  League:    ${LEAGUE:-all (sports only)}"
 echo "  TestRun:   ${TEST_RUN}"
 echo "  VM:        ${VM_NAME}"
 echo "  Env:       ${DEPLOYMENT_ENV}"
@@ -173,6 +179,7 @@ if $DRY_RUN; then
   echo "  VM_TASK=mtds-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
   [[ -n "$INSTRUMENT_IDS" ]] && echo "  VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
   [[ -n "$SOURCE" ]]         && echo "  VM_SOURCE=${SOURCE}"
+  [[ -n "$LEAGUE" ]]        && echo "  VM_LEAGUE=${LEAGUE}"
   $TEST_RUN && echo "  IS_TEST_RUN=true"
   exit 0
 fi
@@ -207,6 +214,7 @@ METADATA="${METADATA},VM_CHUNK_DAYS=${CHUNK_SIZE}"
 [[ -n "$DATA_TYPES" ]] && METADATA="${METADATA},VM_DATA_TYPES=${DATA_TYPES}"
 [[ -n "$INSTRUMENT_IDS" ]] && METADATA="${METADATA},VM_INSTRUMENT_IDS=${INSTRUMENT_IDS}"
 [[ -n "$SOURCE" ]]     && METADATA="${METADATA},VM_SOURCE=${SOURCE}"
+[[ -n "$LEAGUE" ]]     && METADATA="${METADATA},VM_LEAGUE=${LEAGUE}"
 $FORCE && METADATA="${METADATA},VM_FORCE=true"
 # Test runs also get a relaxed consolidator-staleness budget: -test- buckets have
 # NO standing consolidator cron (the checker force-consolidates them once in

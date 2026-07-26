@@ -1510,6 +1510,13 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   # provenance); the CLI ignores it for non-tradfi venue-fixed runs.
   [[ -n "$VM_SOURCE" ]] && BASE_CLI="$BASE_CLI --source $VM_SOURCE"
   [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  # --league (sports only): the CLI flag takes ONE comma-separated string (unlike
+  # the nargs="+" flags above), so VM_LEAGUE is passed through verbatim, not
+  # comma-to-space split. Lets a scoped VM target specific leagues (e.g. a
+  # Reference/Features league with real odds_api coverage that a full
+  # unscoped run would never reach) instead of always fetching every league.
+  VM_LEAGUE=$(_meta VM_LEAGUE)
+  [[ -n "$VM_LEAGUE" ]] && BASE_CLI="$BASE_CLI --league $VM_LEAGUE"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
   # --batch-date-concurrency: OPT-IN, DEFAULT-OFF. The flag is a UTL ServiceCLI
   # addition shipped separately — the deployed UTL on a given tarball may not yet
