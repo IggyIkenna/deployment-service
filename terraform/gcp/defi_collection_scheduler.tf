@@ -41,6 +41,7 @@
 #   01:15 collect-perp-funding       Hyperliquid / dYdX / GMX REST
 #   01:30 collect-liquidations       Aave subgraph
 #   01:45 collect-eigenlayer-rewards EigenLayer RPC
+#   01:50 collect-staking-yields     Lido / EtherFi / EigenLayer public REST APIs
 #   01:55 collect-evm-defi           Multi-source aggregate
 #   02:05 collect-solana-defi        Solana RPC + DeFiLlama yields
 #   02:10 collect-mev-events         Flashbots relay API (MEV-Boost stats)
@@ -143,6 +144,13 @@ locals {
       memory      = "2Gi"
       timeout     = 1200
       description = "DeFi collect-eigenlayer-rewards — restaking reward claims per operator + AVS."
+    }
+    "staking-yields" = {
+      schedule    = "50 1 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 1200
+      description = "DeFi collect-staking-yields — protocol-REST staking APY (Lido, EtherFi, EigenLayer public APIs/DefiLlama)."
     }
     "evm-defi" = {
       schedule    = "55 1 * * *"
