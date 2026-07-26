@@ -123,10 +123,14 @@ module "cf_manifest_audit_job" {
   # Override var.cf_audit_image once the PM audit wrapper ships its own release.
   image = local.cf_audit_image_resolved
 
-  # CF audit is IO-bound (GCS metadata reads across 10 buckets) but not CPU-heavy.
-  # 2 vCPU / 4Gi is sufficient; the per-bucket CF manifest read is sequential.
-  cpu             = "2"
-  memory          = "4Gi"
+  # 4Gi OOM'd every run for 14 straight days (2026-07-13..07-26) before ever finishing bucket
+  # 1/10. Fixed the read cost first (unified-trading-library@6ce1ddb6, column-pruned + pyarrow
+  # read) but even 16Gi/4vCPU still OOM'd live on the fleet's largest bucket (defi tick, 26.3M
+  # rows) — jumped to Cloud Run's ceiling instead of re-guessing. Verified green:
+  # execution uts-prod-cf-manifest-audit-qsp6r, all 10 buckets, 2026-07-26.
+  # issues/cf_manifest_audit_scheduled_job_daily_failure_2026_07_13.md
+  cpu             = "8"
+  memory          = "32Gi"
   timeout_seconds = 1800 # 30 min upper bound; typical run 2-5 min for 10 buckets
 
   max_retries = 0 # non-zero exit = RED alert; do not retry (masks the signal)
