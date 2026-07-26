@@ -523,10 +523,19 @@ _delete_migrated_defi_markers_cmd() {
 # unless the caller has ALREADY paused uts-prod-manifest-consolidator-market-data-defi-cron (verified
 # live via `gcloud scheduler jobs describe` inside the script) -- this launcher does not drive the
 # pause/resume/durability-watch dance itself, it only runs ONE step of that human-executed sequence
-# per VM boot (see the tool's own module docstring for the full sequence).
+# per VM boot (see the tool's own module docstring for the full sequence). `verify` (2026-07-26) ->
+# --verify-only -- re-discovers GCS objects + re-reads the manifest and confirms both are zero,
+# WITHOUT the consolidator-pause precondition (read-only) -- for the post-resume durability watch
+# (module docstring step 6), which must run repeatedly and shouldn't require the cron paused each
+# time. Runs on a VM for the same reason as everything else here: the manifest index is too large
+# for a reliable plain local download (confirmed 256 MiB local-network cutoff).
 _gmx_purge_cmd() {
     local mode_flag=""
-    if [[ "$MODE" == "full" ]]; then mode_flag=" --apply"; else mode_flag=" --dry-run"; fi
+    case "$MODE" in
+        full) mode_flag=" --apply" ;;
+        verify) mode_flag=" --verify-only" ;;
+        *) mode_flag=" --dry-run" ;;
+    esac
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gmx_venue_removal_2026_07_25.py --project-id ${PROJECT}${mode_flag}"
 }
 
