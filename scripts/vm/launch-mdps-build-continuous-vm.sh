@@ -103,6 +103,19 @@ if [[ -n "$VM_NAME_OVERRIDE" ]]; then
     VM_NAME="$VM_NAME_OVERRIDE"
 fi
 
+# Freshness check (+ auto-republish if stale) MUST run BEFORE the tarball SHAs below
+# are resolved for the metadata pin — resolving first (as this launcher originally did)
+# pins whatever "latest" WAS at that moment, which is the PRE-republish (pre-fix) tarball
+# if this repo was stale; the VM then downloads that stale code despite the freshness
+# check reporting "fresh" afterward. Root-caused 2026-07-26: a build-continuous launch
+# silently ran the OLD process_candles_handler code path on stale market-data-processing-
+# service, wasting a VM cycle on the wrong operation.
+if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    lc_verify_tarball_freshness "$CODE_BUCKET" \
+        market-data-processing-service unified-api-contracts unified-trading-library \
+        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+fi
+
 if [[ -z "${UTL_TARBALL_SHA:-}" ]]; then
     UTL_TARBALL_SHA="$(lc_resolve_tarball_sha "$CODE_BUCKET" unified-trading-library)"
 fi
