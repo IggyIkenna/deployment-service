@@ -83,6 +83,16 @@
 #                             volatility / onchain accept this; others ignore)
 #   INSTRUMENTS=<ids>         space-separated canonical ids passed as
 #                             --instruments to the service CLI (e.g. "CME:FUTURES:ES")
+#   TIMEFRAME=<tf>            delta_one --timeframe override. The service CLI parser
+#                             defaults --timeframe to "15s" unconditionally
+#                             (delta_one/cli/parser.py) — a CEFI-only concept with no
+#                             TradFi equivalent (MDPS never writes tick-level 15s
+#                             candles for futures), so every TRADFI delta_one launch
+#                             MUST pass this (e.g. "1m") or every instrument silently
+#                             reads zero candles (found live 2026-07-26: a real ES
+#                             futures_basis production launch failed end-to-end this
+#                             way — every date "skipped" for lack of 15s data that was
+#                             never expected to exist).
 #   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
 #   FORCE=1                   rewrite parquets even if manifest shows captured
 
@@ -140,6 +150,9 @@ asset-group   ∈ { CEFI, DEFI, TRADFI, SPORTS, PREDICTION, GLOBAL }
 Optional env overrides:
   FEATURE_GROUP=<group>     narrower-than-family selector
   INSTRUMENTS=<ids>         space-separated canonical ids (e.g. "CME:FUTURES:ES")
+  TIMEFRAME=<tf>            delta_one --timeframe override (defaults to "15s" in the
+                            service CLI, which does not exist for TradFi — pass this
+                            for every TRADFI delta_one launch)
   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
   FORCE=1                   rewrite parquets even if manifest shows captured
 EOF
@@ -247,6 +260,13 @@ fi
 # strategy-/scenario-driven targeted runs override via FEATURE_GROUP env var.
 case "$FEATURE_FAMILY" in
     delta_one|volatility|onchain) CMD="$CMD --feature-group ${FEATURE_GROUP:-ALL}" ;;
+esac
+
+# delta_one / volatility accept --timeframe (onchain doesn't); the CLI parser
+# defaults it to "15s" unconditionally, which doesn't exist for TradFi — pass
+# TIMEFRAME explicitly for any TradFi run (see header for the failure mode).
+case "$FEATURE_FAMILY" in
+    delta_one|volatility) [[ -n "${TIMEFRAME:-}" ]] && CMD="$CMD --timeframe ${TIMEFRAME}" ;;
 esac
 
 if [[ -n "${SKIP_DEPENDENCY_CHECK:-}" ]]; then
