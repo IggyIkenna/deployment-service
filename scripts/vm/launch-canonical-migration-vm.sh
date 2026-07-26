@@ -233,7 +233,8 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
 
@@ -574,6 +575,30 @@ _bybit_spot_purge_cmd() {
         *) mode_flag="" ;;
     esac
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/delete_bybit_spot_spot_nonsense_manifest_2026_07_07.py${mode_flag}"
+}
+
+# manifest-restamp -- run restamp_manifest_consolidator_2026_07_26.py once,
+# in-region, for a bucket whose canonical index is too large for a plain
+# local download (matches the DEFI manifest's already-confirmed 256 MiB
+# local-read cutoff, same root cause as _gmx_purge_cmd). One-time remediation
+# tool: 2026-07-26 found BOTH the GMX and bybit purge scripts' own
+# force-consolidate calls silently failed (first: missing setup_events
+# bootstrap; then, after fixing that: PermissionDenied on pubsub.topics.publish
+# when mirroring the scheduled cron's own PubSubEventSink bootstrap -- this
+# VM class's service account has never needed that permission before) after
+# their row-deletes had already landed correctly. The script this invokes
+# uses mode="local" event logging (no sink, no IAM dependency) instead of
+# the bare `python -m unified_trading_library.manifest_consolidator` CLI's
+# own hardcoded PubSubEventSink bootstrap, which is what hit the IAM wall.
+# $RESTAMP_BUCKET is required (no asset-group inference -- the bucket IS the
+# whole point of this category). $MODE is ignored; there is no dry-run
+# distinction for a bare --force re-stamp of already-correct data.
+_manifest_restamp_cmd() {
+    if [[ -z "${RESTAMP_BUCKET:-}" ]]; then
+        echo "ERROR: manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment." >&2
+        return 1
+    fi
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/restamp_manifest_consolidator_2026_07_26.py --bucket ${RESTAMP_BUCKET}"
 }
 
 _catalogue_canon_cmd() {
@@ -942,6 +967,13 @@ _launch() {
             return 1
         fi
         cmd="$(_bybit_spot_purge_cmd)"
+    elif [[ "$cat" == "manifest-restamp" ]]; then
+        # $MODE is ignored -- see _manifest_restamp_cmd's comment. RESTAMP_BUCKET is required.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for manifest-restamp." >&2
+            return 1
+        fi
+        cmd="$(_manifest_restamp_cmd)" || return 1
     else
         cmd="$(_script_for "$cat")"
         [[ -z "$cmd" ]] && { echo "Unknown category: $cat"; return 1; }
@@ -1145,7 +1177,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
