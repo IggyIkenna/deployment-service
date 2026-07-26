@@ -2258,6 +2258,23 @@ def test_no_capture_reason_silent_when_no_signal_or_empty():
     assert _gcs.classify_no_capture_reason("") is _gcs.NoCaptureReason.SILENT
 
 
+def test_no_capture_reason_progress_content_migration_stats_dict():
+    # migrate_cefi_content_instrument_id_catalogue_2026_07_17.py never writes the
+    # availability manifest, so a flat captured count for its VM previously classified
+    # SILENT (false DP_VM_GONE_NO_CAPTURE page) even though the run made real progress —
+    # its own stats= dict vocabulary (would_patch/already_canonical_skipped) is the signal.
+    log = (
+        "2026-07-23 12:00:01 INFO Progress: 200/5000 files (12.3 files/sec, 16.2s elapsed) "
+        "stats={'would_patch': 150, 'already_canonical_skipped': 45, 'error': 5}"
+    )
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.PROGRESS
+
+
+def test_no_capture_reason_progress_content_migration_summary_banner():
+    log = "2026-07-23 14:10:00 INFO === SCRIPT 1 CONTENT MIGRATION SUMMARY (DRY-RUN) ==="
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.PROGRESS
+
+
 def test_no_capture_reason_honest_absence_empty_confirmed_writes():
     # operator 2026-06-27: sports-ref-v3-1 backfilled zero-fixture 2022 dates and the writer
     # recorded 4-state honest-absence rows (empty_confirmed), NOT captured rows → flat captured
