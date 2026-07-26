@@ -140,6 +140,25 @@
 #   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 dry
 #   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 full
 #
+#   # tradfi-cme-monolith (2026-07-26): per-contract canonical migration for the ~30
+#   # day=*/venue=CME/ticks.parquet monolith objects (migrate_cme_monolith_trades_2026_07_26.py,
+#   # market-tick-data-service). Reuses the production classify_databento_symbol + write_tradfi_shard
+#   # path -- an only-copy corpus (2026-07-21 reconciliation), so ALWAYS run a CME_DAY canary before
+#   # --all-days. DRY-BY-DEFAULT; full embeds --apply --stamp (this launch's own RUN_TS -- mirrors
+#   # cefi-late-renames). START_DATE/END_DATE are cosmetic (VM labels only) -- the tool's worklist is
+#   # its own hardcoded, live-re-verified 30-day list, not date-range-driven. Category name deliberately
+#   # starts with "tradfi-" so the VM name stays under the ALREADY registered
+#   # "canonical-migration-tradfi-" VM_PREFIX_TO_BUCKET prefix -- no new registry entry needed.
+#   CME_DAY=2026-01-05 bash launch-canonical-migration-vm.sh tradfi-cme-monolith 2026-01-01 2026-01-01 dry
+#   CME_DAY=2026-01-05 bash launch-canonical-migration-vm.sh tradfi-cme-monolith 2026-01-01 2026-01-01 full
+#   bash launch-canonical-migration-vm.sh tradfi-cme-monolith 2026-01-01 2026-01-01 full   # --all-days
+#
+#   # tradfi-cme-monolith-delete (2026-07-26): the SEPARATE, gated delete-source phase for the same
+#   # tool -- never bundled with the migrate run above. The tool itself refuses to delete a source
+#   # object unless the LIVE manifest already shows a captured row for that day. DRY-BY-DEFAULT; full
+#   # appends --apply. Always review the dry-run candidate list before ever running full.
+#   bash launch-canonical-migration-vm.sh tradfi-cme-monolith-delete 2026-01-01 2026-01-01 dry
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -233,7 +252,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -452,6 +471,39 @@ _cefi_late_renames_cmd() {
     local workers_flag=""
     [[ -n "${WORKERS:-}" ]] && workers_flag=" --workers ${WORKERS}"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/migrate_cefi_tardis_filename_canonical_2026_07_17.py --start-date ${START_DATE} --end-date ${END_DATE}${workers_flag}${apply_flag}"
+}
+
+# CME monolith trades -> canonical per-underlying migration (2026-07-26,
+# migrate_cme_monolith_trades_2026_07_26.py, market_tick_data_service package module -- invoked via
+# -m, NOT a standalone scripts/ one-off). Migrates the ~30 real day=*/venue=CME/ticks.parquet
+# monolith objects (Databento MBP-0/trades, all CME symbols mixed per day, no Hive partitioning)
+# into canonical per-contract/chain form via the SAME production classifier
+# (classify_databento_symbol) and write path (write_tradfi_shard) live adapters use, then additively
+# registers manifest rows. ONLY-COPY corpus (2026-07-21 reconciliation report) -- CME_DAY narrows to
+# one real day (canary/pilot; ALWAYS run before --all-days); unset = --all-days (every real day, the
+# tool's own static 30-day worklist, live-re-verified). DRY-BY-DEFAULT (dry = tool default, no flag);
+# full embeds --apply --stamp (this launch's own RUN_TS, so every apply run gets a unique traceable
+# backup-filename stamp -- mirrors cefi-late-renames above). START_DATE/END_DATE are cosmetic (VM
+# labels only) -- the tool's worklist is hardcoded, not date-range-driven.
+_cme_monolith_migrate_cmd() {
+    local day_flag="--all-days"
+    [[ -n "${CME_DAY:-}" ]] && day_flag="--day ${CME_DAY}"
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply --stamp ${RUN_TS}"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u -m market_tick_data_service.scripts.migrate_cme_monolith_trades_2026_07_26 ${day_flag}${apply_flag}"
+}
+
+# CME monolith delete-source phase -- SEPARATE from migrate above, never bundled (only-copy data).
+# The tool itself refuses to delete any source object unless the LIVE manifest already shows a
+# captured row for that day (re-verified live, not from a stale ledger), so this launcher needs no
+# extra gate of its own. DRY-BY-DEFAULT; full appends --apply. Always review the dry-run candidate
+# list before ever running full.
+_cme_monolith_delete_source_cmd() {
+    local day_flag="--all-days"
+    [[ -n "${CME_DAY:-}" ]] && day_flag="--day ${CME_DAY}"
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u -m market_tick_data_service.scripts.migrate_cme_monolith_trades_2026_07_26 ${day_flag} --delete-source${apply_flag}"
 }
 
 # defi-glued-reshard (2026-07-23): re-run of scripts/one_offs/reshard_glued_defi_ids_2026_07_21.py
@@ -926,6 +978,14 @@ _launch() {
         # this launcher). --venue (to scope to one colliding venue) is added via MIGRATION_EXTRA_ARGS.
         cmd="$(_cefi_late_renames_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "tradfi-cme-monolith" ]]; then
+        # Self-contained single invocation; --apply/--stamp/--day are embedded per-MODE/CME_DAY by
+        # the builder (same reason as cefi-late-renames -- a compound value, not a blind append).
+        cmd="$(_cme_monolith_migrate_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "tradfi-cme-monolith-delete" ]]; then
+        cmd="$(_cme_monolith_delete_source_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == "defi-glued-reshard" ]]; then
         # Self-contained `cd ... && gcloud storage cp ... && python ...` chain; --apply is embedded
         # per-MODE by the builder (same reason as tradfi-catalogue-promote -- a compound && chain
@@ -1199,7 +1259,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
