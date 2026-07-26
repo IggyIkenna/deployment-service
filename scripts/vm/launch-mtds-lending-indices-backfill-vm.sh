@@ -174,19 +174,29 @@ fi
 
 # Metadata follows the cefi-backfill convention — setup-data-pipeline-vm.sh
 # routes VM_TASK=cefi-backfill through the generic MTDS CLI assembly.
-METADATA="VM_TASK=cefi-backfill"
-METADATA="${METADATA},VM_SERVICE=market_tick_data_service"
-METADATA="${METADATA},VM_OPERATION=collect-lending-indices"
-METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
-METADATA="${METADATA},VM_START_DATE=${START_DATE}"
-METADATA="${METADATA},VM_END_DATE=${END_DATE}"
-METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-METADATA="${METADATA},MANIFEST_PER_VM_SHARDS=true"
-METADATA="${METADATA},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
-METADATA="${METADATA},VM_NAME=${VM_NAME}"
-METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+# NOTE (same fix shape as launch-mtds-dex-pools-backfill-vm.sh /
+# launch-mtds-dex-swaps-backfill-vm.sh, 2026-07-24): metadata pairs are joined
+# with ';' (not ',') because --lending-protocols can carry a comma-separated
+# list -- gcloud's default --metadata delimiter IS ',', so a comma-bearing
+# VALUE gets mis-parsed as extra bare "key" tokens ("Bad syntax for dict
+# arg"). Latent here because this launcher has only ever been exercised
+# single-protocol. ';' is safe (no metadata key/value in this script
+# contains it); the create call below passes --metadata="^;^${METADATA}" to
+# tell gcloud to use ';' as the delimiter instead of its default ','.
+METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
+METADATA="${METADATA};VM_TASK=cefi-backfill"
+METADATA="${METADATA};VM_SERVICE=market_tick_data_service"
+METADATA="${METADATA};VM_OPERATION=collect-lending-indices"
+METADATA="${METADATA};VM_ASSET_GROUP=DEFI"
+METADATA="${METADATA};VM_START_DATE=${START_DATE}"
+METADATA="${METADATA};VM_END_DATE=${END_DATE}"
+METADATA="${METADATA};VM_SHUTDOWN_ON_COMPLETION=true"
+METADATA="${METADATA};MANIFEST_PER_VM_SHARDS=true"
+METADATA="${METADATA};MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
+METADATA="${METADATA};VM_NAME=${VM_NAME}"
+METADATA="${METADATA};DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 if [[ -n "$LENDING_PROTOCOLS" ]]; then
-    METADATA="${METADATA},VM_LENDING_PROTOCOLS=${LENDING_PROTOCOLS}"
+    METADATA="${METADATA};VM_LENDING_PROTOCOLS=${LENDING_PROTOCOLS}"
 fi
 
 # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
@@ -208,7 +218,7 @@ else
       --scopes=cloud-platform \
       --no-restart-on-failure \
       ${PROVISIONING_FLAGS} \
-      --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+      --metadata="^;^${METADATA}" \
       --labels=purpose=mtds-lending-indices-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi
 
