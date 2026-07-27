@@ -159,6 +159,22 @@
 #   # appends --apply. Always review the dry-run candidate list before ever running full.
 #   bash launch-canonical-migration-vm.sh tradfi-cme-monolith-delete 2026-01-01 2026-01-01 dry
 #
+#   # sports-k1k2-casing-revert (2026-07-27): the K1/K2 casing-REVERT data migration
+#   # (issues/sports_k1k2_delete_bundled_with_twin_less_data_2026_07_27.md todo 1,
+#   # sports_consolidated_closeout_2026_07_19.md Track C step 3). COPY-ONLY, idempotent, never
+#   # deletes the uppercase source (the separate, later, [OPERATOR]-gated delete is Track V).
+#   # START_DATE/END_DATE are REAL (not cosmetic) -- they scope both the migrate and report-gen
+#   # passes' day range. dry -> a single migrate dry-run scan (no writes, sizing only). full ->
+#   # the 3-step compound chain in ONE VM boot: (1) migrate --apply-prod --confirm-prod-write
+#   # (copy uppercase->lowercase twins, content-verify), (2) on a clean exit, generate the
+#   # content-re-verified manifest report (--reports-dir local, no GCS round-trip needed -- same
+#   # VM, same boot), (3) on a clean exit, manifest_swap --apply-prod --confirm-prod-write (ADD
+#   # lowercase canonical rows + REMOVE stale uppercase rows, CAS-protected). Same suppression
+#   # class as sports-features-purge/tradfi-manifest-cas (compound `... ; exit ${rc}` chain) --
+#   # --apply/--dry-run append + MIGRATION_EXTRA_ARGS are both deliberately suppressed.
+#   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 dry
+#   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -252,7 +268,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -834,6 +850,30 @@ _candle_apply_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the candle-orphan-sweep command (2026-07-27, todo 1 of
+# mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md) — READ-ONLY GCS->manifest
+# orphan sweep for ONE asset_group's processed_candles/ corpus (market-data-processing-
+# service/scripts/candle_orphan_sweep.py). Unlike candle-census/candle-apply, this tool does
+# its OWN internal single walk + bucket resolution (no pre-built enumeration file needed) —
+# the launcher only needs to invoke it, not stage a `gcloud storage ls` enumeration first.
+# $MODE is DELIBERATELY IGNORED (mirrors *-candle-census) — this category has NO reachable
+# --apply/delete path, ever; it only ever writes an audit report parquet + its own resumable
+# checkpoint (never manifest/GCS data). Supports ALL 5 asset_groups (unlike candle-apply,
+# which excludes sports) per the design brief's scope. `--manifest-fix-cutover` defaults to
+# the caa995c fix-landing date (2026-07-27, see the script's own module docstring for why an
+# omitted/pre-cutover no-manifest-row object must classify (F) ambiguous, never an unverified
+# (E)) — override via CANDLE_ORPHAN_SWEEP_CUTOVER for a re-run once more history is verified.
+# LIMIT (shared global) bounds the walk for a canary/smoke run; omit for the real full sweep.
+_candle_orphan_sweep_cmd() {
+    local ag="$1"       # cefi | defi | tradfi | sports | prediction
+    local vm_name="$2"
+    local cutover="${CANDLE_ORPHAN_SWEEP_CUTOVER:-2026-07-27}"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-candle-orphan-sweep/${RUN_TS}/${vm_name}/orphan_sweep_${ag}.parquet"
+    local limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag=" --limit ${LIMIT}"
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && python -u scripts/candle_orphan_sweep.py --asset-group ${ag} --manifest-fix-cutover ${cutover}${limit_flag} --report-out ${stage}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
@@ -985,6 +1025,29 @@ _script_for() {
                 printf '%s' "cd ${VM_WORKSPACE}/features && python -u scripts/purge_sports_derived_features_post_floor_residue_2026_07_27.py --workers ${WORKERS:-32}"
             fi
             ;;
+        # Sports K1/K2 casing-REVERT data migration (2026-07-27, Track C step 3 —
+        # issues/sports_k1k2_delete_bundled_with_twin_less_data_2026_07_27.md todo 1). Runs from
+        # $VM_WORKSPACE/mtds (market-tick-data-service — the default _svc, no override needed).
+        # COPY-ONLY (never deletes the uppercase source — the separate, later, [OPERATOR]-gated
+        # delete pass is Track V). $MODE IS honored for real: dry -> a single migrate dry-run scan
+        # (prefix-scoped listing per day, no writes, sizing only); full -> the 3-step compound
+        # chain in ONE VM boot, gated at each step on the prior step's clean exit: (1) migrate
+        # --apply-prod --confirm-prod-write (copy-if-missing / content-verify-if-present, never
+        # re-copies a byte/key-identical twin), (2) generate_casing_revert_manifest_report (a
+        # READ-ONLY re-verify pass over the now-canonical lowercase objects — writes its report to
+        # a LOCAL --reports-dir, no GCS round-trip needed since step 3 runs on the SAME VM boot),
+        # (3) manifest_swap --apply-prod --confirm-prod-write (CAS-protected snapshot -> REMOVE
+        # stale uppercase rows -> ADD lowercase canonical rows -> verify). Same suppression class
+        # as sports-features-purge/tradfi-manifest-cas (compound `...; exit ${rc}` chain) — see the
+        # MIGRATION_EXTRA_ARGS suppression list in _launch below.
+        sports-k1k2-casing-revert)
+            local _k1k2_dir="scripts/sports/k1k2_casing_revert_2026_07_27"
+            if [[ "$MODE" == "full" ]]; then
+                printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p k1k2-revert-work && python -u ${_k1k2_dir}/migrate_sports_casing_revert_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --apply-prod --confirm-prod-write --workers ${WORKERS:-16}; rc=\$?; echo \"=== MIGRATE DONE rc=\${rc} ===\"; if [ \"\${rc}\" -eq 0 ]; then echo \"=== REPORT GEN START ===\"; python -u ${_k1k2_dir}/generate_casing_revert_manifest_report_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --out k1k2-revert-work/shard_0_of_1.json --workers ${WORKERS:-16}; rc=\$?; echo \"=== REPORT GEN DONE rc=\${rc} ===\"; if [ \"\${rc}\" -eq 0 ]; then echo \"=== MANIFEST SWAP START ===\"; python -u ${_k1k2_dir}/manifest_swap_casing_revert_2026_07_27.py --reports-dir k1k2-revert-work --num-shards 1 --apply-prod --confirm-prod-write; rc=\$?; echo \"=== MANIFEST SWAP DONE rc=\${rc} ===\"; fi; fi; exit \${rc}"
+            else
+                printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_dir}/migrate_sports_casing_revert_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS:-16}"
+            fi
+            ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -1015,6 +1078,11 @@ _launch() {
         # Operates on the already nounset-safe local (not $VM_NAME_SUFFIX directly, which crashes
         # under `set -u` when unset for a non-sharded single-VM candle-apply launch).
         _shard_suffix="${_shard_suffix/#shard/s}"
+    elif [[ "$cat" == *-candle-orphan-sweep ]]; then
+        # BUG FOUND 2026-07-27 (first real launch): "canonical-migration-prediction-candle-orphan-
+        # sweep-<ts>" is 66 chars, over GCE's 63-char limit -- same overflow class as *-candle-apply
+        # above. Abbreviate the vm_name token only ($cat itself stays unabbreviated everywhere else).
+        _vm_name_cat="${cat%-candle-orphan-sweep}-cdlorph"
     fi
     local vm_name="canonical-migration-${_vm_name_cat}-${RUN_TS}${_shard_suffix:+-${_shard_suffix}}"
     # --vm-name/VM_NAME_OVERRIDE wins (single-category relaunch only -- see the top-of-file comment).
@@ -1126,6 +1194,18 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_apply_cmd "${cat%-candle-apply}" "$vm_name")"
+    elif [[ "$cat" == *-candle-orphan-sweep ]]; then
+        # Candle orphan sweep (2026-07-27, todo 1): self-contained `cd ... && python ...`
+        # invocation -- the SCRIPT does its own internal single walk + bucket resolution, so
+        # (unlike candle-census/apply) there is no `gcloud storage ls` enumeration step here.
+        # $MODE is DELIBERATELY IGNORED (mirrors *-candle-census) -- READ-ONLY, no reachable
+        # --apply/delete path ever; only writes an audit report parquet + its own checkpoint.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for candle-orphan-sweep categories" >&2
+            echo "       -- use CANDLE_ORPHAN_SWEEP_CUTOVER / LIMIT env overrides instead." >&2
+            return 1
+        fi
+        cmd="$(_candle_orphan_sweep_cmd "${cat%-candle-orphan-sweep}" "$vm_name")"
     elif [[ "$cat" == "defi-marker-cleanup" ]]; then
         # DRY-RUN ONLY, HARD -- $MODE is deliberately IGNORED and forced to "dry" (mirrors
         # *-candle-census): this category has NO reachable --apply code path through this launcher,
@@ -1174,13 +1254,15 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed.
               # sports-features-purge's own if/full else/dry branches are the SAME class of compound
               # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
+              # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
+              # `exit ${rc}`) -- same suppression reasoning.
         elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1200,7 +1282,7 @@ _launch() {
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
-    [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _svc="market_data_processing_service"
+    [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _svc="market_data_processing_service"
     # sports-features-purge's script lives in features-service, not MTDS.
     [[ "$cat" == "sports-features-purge" ]] && _svc="features_service"
     md="${md},VM_SERVICE=${_svc}"
@@ -1221,13 +1303,44 @@ _launch() {
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
-    # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE) so dashboards/
-    # heartbeat classify this VM with the rest of sports.
-    [[ "$cat" == "sports-features-purge" ]] && _ag="SPORTS"
+    [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
+    # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
+    # SPORTS-K1K2-CASING-REVERT) so dashboards/heartbeat classify these VMs with the rest of sports.
+    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]] && _ag="SPORTS"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_MIGRATION_CMD=${cmd}"
+    # STALL_PROGRESS_REGEX (todo 3+4, migration_vm_hung_detection_monitoring_gap_2026_07_27.md,
+    # Gap 2) -- setup-data-pipeline-vm.sh already routes every VM_TASK=canonical-migration worker
+    # through the shared _launch_with_tee() -> vm-exec-with-gcs-tee.sh stall-kill (confirmed live
+    # this session: no code change needed there, STALL_TIMEOUT_SEC/STALL_PROGRESS_REGEX are read off
+    # GCE metadata generically, lines 460/468, independent of VM_TASK), but no launcher category ever
+    # set STALL_PROGRESS_REGEX, so every category fell back to raw log-BYTE-GROWTH stall detection --
+    # permanently defeated by the always-on PIPELINE_HEARTBEAT emitter wired into the SAME tee'd log
+    # (it writes a line every 60s regardless of whether the real workload is alive), which is exactly
+    # how 10/42 cefi-content-apply VMs sat hung 1-2.5h+ with GCE reporting RUNNING and nothing paging.
+    # Only cefi-content-apply's script has had its real progress-log line format verified against a
+    # live run.log this session (migrate_cefi_content_instrument_id_catalogue_2026_07_17.py); the
+    # other ~20 VM_TASK=canonical-migration categories' scripts have NOT been individually checked
+    # (that per-category audit is todo 5's stated scope, deliberately left open there) so they
+    # intentionally do NOT get a regex here yet and keep the size-only 1800s default.
+    #   "Discovery progress: day=%s cumulative_files=%d elapsed=%.1fs" -- once per scanned day
+    #     (discovery phase).
+    #   "Progress: %d/%d files (%.1f files/sec, %.1fs elapsed) stats=%s" -- every 200 completed
+    #     files, and once more as the final tally (migrate phase).
+    #   "Elapsed (migrate phase): %.1fs (%.2f files/sec)" -- final summary line.
+    #   "No progress in the last poll window -- %d files still outstanding (possible wedged worker)"
+    #     -- this is the tool's OWN wedged-worker WARNING, not a progress marker; it must never reset
+    #     the stall timer, and it does not (case-sensitive grep -E, verified against the exact string
+    #     above: "progress:" (lowercase, colon) does not match "progress in", and it has no
+    #     "files/sec" substring either).
+    # Regex: "progress:|files/sec" -- case-sensitive grep -E, no spaces/commas (gcloud's --metadata is
+    # comma-delimited so a literal comma in the value would silently split into a bogus second key).
+    # Campaign-measured healthy throughput (2.9-9.9 files/sec/VM, ~5.5 avg) gives a "Progress:" line
+    # roughly every 20-70s -- >>25x headroom under the unchanged 1800s STALL_TIMEOUT_SEC default, so
+    # this is a low false-positive-risk addition for legitimately-running VMs of this specific category.
+    [[ "$cat" == "cefi-content-apply" ]] && md="${md},STALL_PROGRESS_REGEX=progress:|files/sec"
     # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
     # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),
     # but it is still echoed verbatim into VM_MIGRATION_MODE metadata and the "mode=" GCE label
@@ -1300,7 +1413,7 @@ _launch() {
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
@@ -1394,7 +1507,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
