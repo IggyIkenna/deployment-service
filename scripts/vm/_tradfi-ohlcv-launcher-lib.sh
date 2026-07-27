@@ -13,7 +13,7 @@
 # Sourced by the venue wrappers. Fleet concurrency cap (OHLCV_FLEET_CONCURRENCY_CAP,
 # default 20) prevents overloading the shared Databento subscription account.
 #
-# SSOT: plans/active/tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6.
+# SSOT: plans/active/tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
 
 # Caller-provided (each wrapper overrides if needed):
@@ -192,6 +192,23 @@ TRADFI_OHLCV_STALL_PROGRESS_REGEX="${TRADFI_OHLCV_STALL_PROGRESS_REGEX:-uploaded
 # Default number of (ticker-group x year) shards per equity venue. See
 # `ohlcv_split_ticker_groups` for why equity venues shard by ticker-group.
 OHLCV_TICKER_GROUPS="${OHLCV_TICKER_GROUPS:-5}"
+
+# Equity sharding mode: "date-range" (default) or "ticker-group" (legacy,
+# kept as an escape hatch for the pathological single-VM-memory-ceiling
+# case). MEASURED (tick-26 throughput re-analysis,
+# tradfi_backfill_throughput_followups_2026_07_24.md): equity per-calendar-
+# date cost is ~1.46 min FIXED + 7.1e-4 min/cell, i.e. ticker-count-
+# INVARIANT, so the ticker-group fan-out re-pays that fixed overhead once
+# PER GROUP over the SAME calendar dates (5x compute for only ~1.0-1.2x
+# wall-clock). Splitting by contiguous DATE-range instead (all tickers per
+# VM) pays the fixed per-date overhead once per date TOTAL, collapsing the
+# equity critical path (measured 7.1h -> 1.2h, 231 -> 46 VM-h). Override
+# with --shard-mode ticker-group / OHLCV_SHARD_MODE=ticker-group.
+OHLCV_SHARD_MODE="${OHLCV_SHARD_MODE:-date-range}"
+# Date-slices per year-shard in date-range mode. Default 5 mirrors the prior
+# ticker-group default (5 groups x ~4 years == the measured "20 date-
+# slices/venue" the tick-26 analysis sized the critical-path win on).
+OHLCV_DATE_SLICES="${OHLCV_DATE_SLICES:-5}"
 
 ohlcv_check_singleton_lock() {
     local force="${1:-false}"
@@ -397,6 +414,50 @@ ohlcv_split_ticker_groups() {
     done
 }
 
+# --- Date-range sharding (the default equity shard axis) --------------------
+# Split a single [start_iso, end_iso] window into N contiguous date-range
+# slices with no day lost or duplicated (same base+remainder distribution as
+# `ohlcv_split_ticker_groups`, applied to calendar days instead of tickers).
+# Echoes one "start_iso:end_iso" per line.
+#   $1 start_iso  — YYYY-MM-DD
+#   $2 end_iso    — YYYY-MM-DD
+#   $3 n_slices   — desired slice count (clamped to [1, total_days])
+_ohlcv_epoch_day() {
+    date -u -d "$1" +%s 2>/dev/null || date -u -j -f '%Y-%m-%d' "$1" +%s
+}
+
+_ohlcv_iso_from_epoch() {
+    date -u -d "@$1" +%Y-%m-%d 2>/dev/null || date -u -r "$1" +%Y-%m-%d
+}
+
+ohlcv_split_date_slices() {
+    local start_iso="$1" end_iso="$2" n="$3"
+    local start_epoch end_epoch total_days
+    start_epoch="$(_ohlcv_epoch_day "$start_iso")"
+    end_epoch="$(_ohlcv_epoch_day "$end_iso")"
+    total_days=$(( (end_epoch - start_epoch) / 86400 + 1 ))
+    (( total_days <= 0 )) && return 0
+    [[ "$n" =~ ^[0-9]+$ ]] || n=1
+    (( n < 1 )) && n=1
+    (( n > total_days )) && n="$total_days"
+
+    local base=$(( total_days / n ))
+    local rem=$(( total_days % n ))
+    local cursor_epoch="$start_epoch"
+    local i size slice_start slice_end slice_end_epoch
+    for (( i = 0; i < n; i++ )); do
+        size="$base"
+        # Spread the remainder over the first `rem` slices, same rule as
+        # ohlcv_split_ticker_groups — never a fat tail slice.
+        (( i < rem )) && size=$(( size + 1 ))
+        slice_start="$(_ohlcv_iso_from_epoch "$cursor_epoch")"
+        slice_end_epoch=$(( cursor_epoch + (size - 1) * 86400 ))
+        slice_end="$(_ohlcv_iso_from_epoch "$slice_end_epoch")"
+        printf '%s:%s\n' "$slice_start" "$slice_end"
+        cursor_epoch=$(( slice_end_epoch + 86400 ))
+    done
+}
+
 # --- Per-venue discovery-floor clamp ----------------------------------------
 # UAC ``VenueMapping.get_instrument_discovery_start`` is the SSOT for the
 # earliest date a (venue, date) shard can produce records. Dates below it are
@@ -471,13 +532,15 @@ ohlcv_parse_common_args() {
             --start-floor)      START_FLOOR="$2"; shift 2 ;;
             --year)             ONLY_YEAR="$2"; shift 2 ;;
             --ticker-groups)    OHLCV_TICKER_GROUPS="$2"; shift 2 ;;
+            --shard-mode)       OHLCV_SHARD_MODE="$2"; shift 2 ;;
+            --date-slices)      OHLCV_DATE_SLICES="$2"; shift 2 ;;
             --help|-h)
                 grep '^#' "${BASH_SOURCE[1]}" | head -40
                 exit 0
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--ticker-groups N] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--shard-mode date-range|ticker-group] [--date-slices N] [--ticker-groups N] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac
@@ -494,6 +557,15 @@ ohlcv_parse_common_args() {
 
     if ! [[ "$OHLCV_TICKER_GROUPS" =~ ^[0-9]+$ ]] || (( OHLCV_TICKER_GROUPS < 1 )); then
         echo "ERROR: --ticker-groups must be a positive integer (got: $OHLCV_TICKER_GROUPS)" >&2; exit 1
+    fi
+
+    case "$OHLCV_SHARD_MODE" in
+        date-range|ticker-group) ;;
+        *) echo "ERROR: --shard-mode must be date-range|ticker-group (got: $OHLCV_SHARD_MODE)" >&2; exit 1 ;;
+    esac
+
+    if ! [[ "$OHLCV_DATE_SLICES" =~ ^[0-9]+$ ]] || (( OHLCV_DATE_SLICES < 1 )); then
+        echo "ERROR: --date-slices must be a positive integer (got: $OHLCV_DATE_SLICES)" >&2; exit 1
     fi
 }
 
