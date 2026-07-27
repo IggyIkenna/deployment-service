@@ -368,6 +368,23 @@ _launch() {
     # ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
     # same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
     # Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
+    #
+    # Extra venue/data-type labels (rebuild_manifest_from_canonical_paths_prefix_scoped_wipe
+    # sibling finding, worker_session_teardown_kills_long_running_pipeline_check_2026_07_27.md
+    # MDPS-parity follow-up): the pipeline-e2e-check driver launches one VM per
+    # (asset_group, venue, data_type) shard, always passing a SINGLE --venues/--data-types
+    # value per launch (never the multi-value space-separated form). Stamping them as labels
+    # (only when single-valued, mirroring launch-features-vm.sh's family/category labels) lets
+    # a duplicate-in-flight guard match at the actual shard granularity instead of only
+    # per-category — a category-only match would wrongly treat two DIFFERENT concurrent
+    # shards under the same asset_group as duplicates of each other.
+    local extra_labels=""
+    if [[ -n "$FILTER_VENUES" && "$FILTER_VENUES" != *" "* ]]; then
+        extra_labels=",venue=$(echo "$FILTER_VENUES" | tr '[:upper:]' '[:lower:]')"
+    fi
+    if [[ -n "$FILTER_DATA_TYPES" && "$FILTER_DATA_TYPES" != *" "* ]]; then
+        extra_labels="${extra_labels},data_type=$(echo "$FILTER_DATA_TYPES" | tr '[:upper:]' '[:lower:]')"
+    fi
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
         --zone="$ZONE" \
@@ -378,7 +395,7 @@ _launch() {
         --scopes=cloud-platform \
         ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"${extra_labels}
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
     echo ""
