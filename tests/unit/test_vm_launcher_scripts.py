@@ -1331,6 +1331,70 @@ export -f gcloud
         result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
+    def _mock_preamble_full_args(self, gcloud_log: Path) -> str:
+        """Like `_mock_preamble` but captures the FULL `compute instances create` argument list
+        (not just the vm-name at $4), so a test can grep the `--metadata=` value for
+        VM_SERVICE=/VM_MIGRATION_CMD= content."""
+        return f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+'''
+
+    def test_defi_curve_optimism_reclassify_dry_uses_instruments_service_and_dry_run_flag(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """New category (2026-07-27): the one-shot CURVE/OPTIMISM dex_pool_swaps reclassify script
+        lives in instruments-service, not MTDS, and `dry` mode must pass --dry-run to the tool."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 dry\n'
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        assert "VM_SERVICE=instruments_service" in call
+        assert "reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py --dry-run" in call
+        assert "--apply" not in call
+
+    def test_defi_curve_optimism_reclassify_full_uses_apply_flag(self, launcher_path: Path, tmp_path: Path) -> None:
+        """`full` mode must pass --apply, not --dry-run — the actual data-mutating run."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 full\n'
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        assert "reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py --apply" in call
+        assert "--dry-run" not in call
+
+    def test_defi_curve_optimism_reclassify_vm_name_stays_under_gce_limit(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """Regression guard: the un-abbreviated category name
+        ('defi-curve-optimism-reclassify', 31 chars) + the 'canonical-migration-' prefix (21 chars)
+        + the RUN_TS timestamp (15 chars) is 66 chars — over GCE's 63-char instance-name limit
+        BEFORE any shard suffix is even added. The vm_name-only abbreviation (mirroring the existing
+        *-candle-apply pattern) must keep the real, launched name under budget."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 dry\n'
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        # `"$*"` logs the FULL invocation ("compute instances create <vm_name> --zone=... ..."),
+        # so the vm_name is the 4th word (index 3), not the first.
+        vm_name = call.split()[3]
+        assert vm_name.startswith("canonical-migration-defi-curve-optm-reclass-"), vm_name
+        assert len(vm_name) <= 63, f"'{vm_name}' is {len(vm_name)} chars, exceeds GCE's 63-char limit"
+
 
 class TestDefiLaunchersSpotPreemptionContract:
     """SPOT preemption contract for the two DeFi backfill launchers
