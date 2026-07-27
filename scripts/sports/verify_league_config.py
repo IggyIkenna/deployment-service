@@ -226,8 +226,8 @@ def verify_configuration(
             discrepancies.append(
                 {
                     "league_id": league_id,
-                    "league_name": str(actual.get("api_football_league_name", "")),
-                    "country": str(actual.get("country_region", "")),
+                    "league_name": str(actual.get("api_football_league_name", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent name renders as an honest blank, not a hidden error
+                    "country": str(actual.get("country_region", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent region renders as an honest blank, not a hidden error
                     "field": "tier",
                     "expected": expected["tier"],
                     "actual": actual.get("tier"),
@@ -238,8 +238,8 @@ def verify_configuration(
             discrepancies.append(
                 {
                     "league_id": league_id,
-                    "league_name": str(actual.get("api_football_league_name", "")),
-                    "country": str(actual.get("country_region", "")),
+                    "league_name": str(actual.get("api_football_league_name", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent name renders as an honest blank, not a hidden error
+                    "country": str(actual.get("country_region", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent region renders as an honest blank, not a hidden error
                     "field": "odds_api_league_name",
                     "expected": expected["odds_api"],
                     "actual": actual.get("odds_api_league_name"),
@@ -250,8 +250,8 @@ def verify_configuration(
             discrepancies.append(
                 {
                     "league_id": league_id,
-                    "league_name": str(actual.get("api_football_league_name", "")),
-                    "country": str(actual.get("country_region", "")),
+                    "league_name": str(actual.get("api_football_league_name", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent name renders as an honest blank, not a hidden error
+                    "country": str(actual.get("country_region", "")),  # noqa: qg-empty-fallback — diagnostic report row, an absent region renders as an honest blank, not a hidden error
                     "field": "classification",
                     "expected": expected["classification"],
                     "actual": actual.get("classification"),

@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from datetime import UTC, datetime
 
@@ -43,9 +42,11 @@ from unified_trading_library import (
     DEPLOYMENT_FAILED,
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
+    RUN_LEDGER_RECORDED,
     DeploymentRegistryEntry,
     DeploymentsRegistry,
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
+    PubSubFlatEventPublisher,
     log_event,
     setup_events,
 )
@@ -57,6 +58,7 @@ from deployment_service.deployment_classification import (
     UnclassifiedDeploymentError,
     umbrella_for_vm_name,
 )
+from deployment_service.deployment_config import DeploymentConfig
 
 logger = logging.getLogger("deployment_heartbeat")
 
@@ -96,7 +98,7 @@ def _utcnow_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _init_events() -> None:
+def _init_events(config: DeploymentConfig) -> None:
     """Initialise event sink in batch mode — publish to Pub/Sub topic
     ``deployment-events`` so deployment-ui + any subscriber sees the
     DEPLOYMENT_STARTED/PROGRESS/COMPLETED/FAILED lifecycle in real time.
@@ -107,8 +109,14 @@ def _init_events() -> None:
     deployment-service tarball (fixed 2026-04-18, deployment-service
     241940d) this meant zero batch-VM observability. This function fixes
     bug #2.
+
+    Resolves project id + topic via the typed ``DeploymentConfig`` (same
+    path as ``deployment_service/vm/heartbeat_cli.py``) — previously a bare
+    ``os.environ.get`` here independently duplicated the same defaults,
+    a real drift risk flagged by the 2026-07-27 audit
+    (deployment_durable_operational_data_bigquery_2026_07_21.md PR-1).
     """
-    project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+    project_id = config.gcp_project_id
     if not project_id:
         # Fallback so we don't crash the VM; events degrade gracefully to
         # stdout via UTL's local mode.
@@ -116,13 +124,52 @@ def _init_events() -> None:
         setup_events(service_name="vm-deployment-heartbeat", mode="local")
         return
 
-    topic = os.environ.get("DEPLOYMENT_EVENTS_TOPIC", "deployment-events")
     sink = PubSubEventSink(
         project_id=project_id,
-        topic=topic,
+        topic=config.deployment_events_topic,
         service_name="vm-deployment-heartbeat",
     )
     setup_events(service_name="vm-deployment-heartbeat", mode="batch", sink=sink)
+
+
+def _build_run_summary_publisher(config: DeploymentConfig) -> PubSubFlatEventPublisher | None:
+    """Flat-schema (BQ-bound) run-summary publisher, or None with no project.
+
+    This CLI has no host-metrics sampler (unlike heartbeat_cli.py's
+    HostMetricsSampler), so it publishes a run-summary row on ``complete``
+    only — never a resource-sample event, honestly reflecting that this
+    caller never samples host metrics.
+    """
+    project_id = config.gcp_project_id
+    if not project_id:
+        return None
+    return PubSubFlatEventPublisher(project_id=project_id, topic=config.run_ledger_events_topic)
+
+
+def _run_summary_payload(entry: DeploymentRegistryEntry) -> dict[str, object]:
+    """Flat run_ledger row from the registry entry at completion time."""
+    return {
+        "deployment_id": entry.deployment_id,
+        "vm_name": entry.vm_name,
+        "asset_group": entry.asset_group,
+        "task": entry.task,
+        "mode": entry.mode,
+        "status": entry.status,
+        "exit_code": entry.exit_code,
+        "started_at": entry.started_at,
+        "completed_at": entry.completed_at,
+        "rows_in": entry.rows_in,
+        "rows_out": entry.rows_out,
+        "rows_error": entry.rows_error,
+        "events_emitted": entry.events_emitted,
+        "log_uri": entry.log_uri,
+        "image_digest": entry.image_digest,
+        "git_commit": entry.git_commit,
+        "cpu_pct": entry.cpu_pct,
+        "mem_pct": entry.mem_pct,
+        "disk_pct": entry.disk_pct,
+        "workload_alive": entry.workload_alive,
+    }
 
 
 def _emit(
@@ -214,7 +261,11 @@ def cmd_heartbeat(args: argparse.Namespace, registry: DeploymentsRegistry) -> in
     return 0
 
 
-def cmd_complete(args: argparse.Namespace, registry: DeploymentsRegistry) -> int:
+def cmd_complete(
+    args: argparse.Namespace,
+    registry: DeploymentsRegistry,
+    run_summary_publisher: PubSubFlatEventPublisher | None,
+) -> int:
     entry = registry.get(args.id)
     if entry is None:
         logger.error("complete: deployment %s not found in registry", args.id)
@@ -238,6 +289,16 @@ def cmd_complete(args: argparse.Namespace, registry: DeploymentsRegistry) -> int
     severity = "INFO" if status == "completed" else "ERROR"
     _emit(event, severity, entry)
     logger.info("%s %s (exit_code=%s)", event, entry.deployment_id, entry.exit_code)
+
+    # Additive flat-schema run-summary publish (best-effort — must not fail
+    # the CLI's exit code; the DEPLOYMENT_COMPLETED/FAILED event above already
+    # fired and the registry archive already happened).
+    if run_summary_publisher is not None:
+        try:
+            run_summary_publisher.publish(_run_summary_payload(entry))
+        except Exception as exc:
+            logger.warning("%s publish failed: %s", RUN_LEDGER_RECORDED, exc)
+
     return 0
 
 
@@ -283,7 +344,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    _init_events()
+    config = DeploymentConfig()
+    _init_events(config)
     registry = DeploymentsRegistry(bucket=args.bucket)
 
     if args.operation == "register":
@@ -291,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.operation == "heartbeat":
         return cmd_heartbeat(args, registry)
     if args.operation == "complete":
-        return cmd_complete(args, registry)
+        return cmd_complete(args, registry, _build_run_summary_publisher(config))
     parser.error(f"unknown operation: {args.operation}")
     return 2
 

@@ -219,7 +219,7 @@ class RelaunchStalledVm:
         resume_date = ""
         if checkpoint is not None:
             monotonic = str(checkpoint.get("monotonic", "false")).strip().lower() == "true"
-            last = str(checkpoint.get("last_completed_date", "")).strip()
+            last = str(checkpoint.get("last_completed_date", "")).strip()  # noqa: qg-empty-fallback — absent date is a real "no checkpoint yet" state; the `if last` check below already treats it as absent
             if last and monotonic:
                 resume_date = last
 

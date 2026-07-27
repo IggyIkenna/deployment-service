@@ -86,8 +86,12 @@ fi
 # ---------------------------------------------------------------------------
 # Core topics — deployment-service
 TOPIC_REGISTRY=(
-    # Deployment pipeline events
-    "deployment-events|7|deployment-events-monitor|7"
+    # Deployment pipeline events. NOTE: no subscription listed here on purpose —
+    # the prior "deployment-events-monitor" pull subscription was DELETED 2026-07-27
+    # (confirmed zero consumers: monitor.py reads the GCS registry directly, never
+    # pulls Pub/Sub; see /codex/05-infrastructure/event-sink-chain.md). Do not re-add
+    # it without a real consumer — this topic is fire-and-forget today.
+    "deployment-events|7||"
     "deployment-status|7|deployment-status-monitor,deployment-status-ui|7"
     "deployment-alerts|7|deployment-alerts-monitor|7"
 
@@ -131,6 +135,27 @@ TOPIC_REGISTRY=(
     # MTDS publishes live odds (Odds API + Betfair), instruments-service publishes live stats (API Football)
     "sports-live-odds|3|sports-live-odds-api,sports-live-odds-features|3"
     "sports-live-stats|3|sports-live-stats-api,sports-live-stats-features|3"
+
+    # Durable operational data (deployment_durable_operational_data_bigquery_2026_07_21.md,
+    # PR-1) — dedicated, flat-schema topics for BQ-bound signals. No generic pull
+    # subscription here on purpose; each gets a NATIVE BigQuery subscription instead
+    # (see BQ_SUBSCRIPTION_REGISTRY below) so typed columns land directly.
+    "resource-samples|3||"
+    "run-ledger|30||"
+)
+
+# ---------------------------------------------------------------------------
+# Native BigQuery subscriptions — a DIFFERENT gcloud creation path than the
+# generic pull subscriptions above (--bigquery-table + --use-table-schema
+# parses each flat JSON message straight into the target table's columns;
+# a plain pull subscription would only ever land raw bytes in a `data` column).
+# Format: TOPIC|SUBSCRIPTION_NAME|DATASET.TABLE
+# The dataset + tables themselves are created by
+# deployment-service/scripts/bootstrap_operational_data_bq.py — run that FIRST.
+# ---------------------------------------------------------------------------
+BQ_SUBSCRIPTION_REGISTRY=(
+    "resource-samples|resource-samples-bq|deployment_operational_data.resource_samples"
+    "run-ledger|run-ledger-bq|deployment_operational_data.run_ledger"
 )
 
 # ---------------------------------------------------------------------------
@@ -273,6 +298,38 @@ create_subscription_if_missing() {
     fi
 }
 
+create_bq_subscription_if_missing() {
+    local topic="$1"
+    local sub="$2"
+    local dataset_table="$3"  # DATASET.TABLE — bare, no project prefix
+
+    if gcloud pubsub subscriptions describe "$sub" --project="$PROJECT_ID" &>/dev/null; then
+        echo "    [SKIP] bq-sub: $sub (already exists)"
+        ((skipped_subs++)) || true
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "    [DRY]  bq-sub: $sub → $topic → bq:${PROJECT_ID}:${dataset_table} (use-table-schema)"
+        return 0
+    fi
+
+    echo "    [CREATE] bq-sub: $sub → $topic → bq:${PROJECT_ID}:${dataset_table}"
+    if gcloud pubsub subscriptions create "$sub" \
+        --topic="$topic" \
+        --project="$PROJECT_ID" \
+        --bigquery-table="${PROJECT_ID}:${dataset_table}" \
+        --use-table-schema \
+        --drop-unknown-fields \
+        --quiet 2>&1; then
+        ((created_subs++)) || true
+    else
+        echo "    [ERROR] Failed to create BQ subscription: $sub — has"
+        echo "            deployment-service/scripts/bootstrap_operational_data_bq.py run first?"
+        ((errors++)) || true
+    fi
+}
+
 # ---------------------------------------------------------------------------
 echo "--- Processing ${#TOPIC_REGISTRY[@]} topic entries ---"
 echo
@@ -290,6 +347,14 @@ for entry in "${TOPIC_REGISTRY[@]}"; do
     done
     echo
 done
+
+echo "--- Processing ${#BQ_SUBSCRIPTION_REGISTRY[@]} native BigQuery subscription entries ---"
+echo
+for entry in "${BQ_SUBSCRIPTION_REGISTRY[@]}"; do
+    IFS='|' read -r topic_name sub_name dataset_table <<< "$entry"
+    create_bq_subscription_if_missing "$topic_name" "$sub_name" "$dataset_table"
+done
+echo
 
 echo "================================================="
 echo "Summary"
