@@ -119,11 +119,48 @@ def _is_backfill_vm(vm_name: str) -> bool:
     over a WS and log sparsely — their run.log goes legitimately quiet, so the
     run.log-freshness signal is NOT applied to them (heartbeat-blob freshness is
     their liveness signal).
+
+    One-off migration/reclassify/rescan launcher VMs are ALSO continuously-
+    logging batch jobs shaped exactly like a backfill (per-chunk/per-day
+    progress lines), but their names don't contain "backfill"/"-bf-", so they
+    were silently routed into the live-capture (heartbeat-blob-only) liveness
+    path instead — Gap 3 of
+    ``plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md``.
+    The prefixes below are the ``VM_TASK=canonical-migration``-dispatch family
+    (confirmed live via ``setup-data-pipeline-vm.sh``'s shared
+    ``_launch_with_tee()`` → ``vm-exec-with-gcs-tee.sh``, so the run.log-
+    freshness signal below is meaningful for them too — audited launcher →
+    VM_NAME mapping, per the same issue doc's todo 5):
+      - ``canonical-migration-`` — launch-canonical-migration-vm.sh itself, and
+        launch-tradfi-session-stamp-vm.sh / launch-tradfi-session-stamps-vm.sh
+        (VM_NAME built on this same base prefix).
+      - ``mtds-migrate-cefi-itype`` — launch-cefi-migration-vm.sh.
+      - ``mtds-migrate-cefi-mvp-reclassify`` — launch-cefi-mvp-reclassify-vm.sh.
+      - ``mtds-prediction-kalshibulk`` — launch-kalshi-bulk-seed-vm.sh.
+      - ``sports-v9-migration`` — launch-sports-v9-migration-vm.sh.
+      - ``mdps-sports-bucket`` — launch-mdps-sports-bucket-vm.sh.
+      - ``sports-manifest-rescan`` — launch-sports-manifest-rescan-vm.sh
+        (covers its ``-coord-``/``-chunk-`` shard variants too, same prefix).
     """
     lowered = vm_name.lower()
     if "-live-" in lowered or lowered.endswith("-live"):
         return False
-    return "backfill" in lowered or "-bf-" in lowered or lowered.startswith(("tradfi-bf", "tm-backfill", "fs-backfill"))
+    if "backfill" in lowered or "-bf-" in lowered:
+        return True
+    return lowered.startswith(
+        (
+            "tradfi-bf",
+            "tm-backfill",
+            "fs-backfill",
+            "canonical-migration",
+            "mtds-migrate-cefi-itype",
+            "mtds-migrate-cefi-mvp-reclassify",
+            "mtds-prediction-kalshibulk",
+            "sports-v9-migration",
+            "mdps-sports-bucket",
+            "sports-manifest-rescan",
+        )
+    )
 
 
 class LivenessVerdict(StrEnum):

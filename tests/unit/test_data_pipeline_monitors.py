@@ -1334,6 +1334,41 @@ def test_is_backfill_vm_classification():
     assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
 
 
+def test_is_backfill_vm_matches_migration_launcher_family():
+    """Gap 3 fix — migration_vm_hung_detection_monitoring_gap_2026_07_27.md todo 2.
+
+    One-off migration/reclassify/rescan launcher VMs are continuously-logging
+    batch jobs (same shape as a backfill), but their names never contained
+    "backfill"/"-bf-" and so were silently routed into the live-capture
+    (heartbeat-blob-only) liveness path instead of the run-log-freshness path.
+    Every VM_NAME prefix below is a real launcher output, confirmed by the
+    Gap-3 audit (todo 5) directly against each launcher's ``VM_NAME=`` line.
+    """
+    assert heartbeat_stall_watcher._is_backfill_vm("canonical-migration-cefi-relabel-20260727-120000")
+    # launch-tradfi-session-stamp[s]-vm.sh build on the same base prefix.
+    assert heartbeat_stall_watcher._is_backfill_vm("canonical-migration-tradfi-sessionstamp-20260727-1")
+    assert heartbeat_stall_watcher._is_backfill_vm("canonical-migration-tradfi-session-stamps-20260727-1")
+    # launch-cefi-migration-vm.sh / launch-cefi-mvp-reclassify-vm.sh / launch-kalshi-bulk-seed-vm.sh —
+    # dispatched via VM_TASK=canonical-migration internally, but their VM_NAME does not itself
+    # start with "canonical-migration" (this is exactly why they need their own explicit prefix).
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-migrate-cefi-itype")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-migrate-cefi-mvp-reclassify")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-prediction-kalshibulk-20260727-120000")
+    # launch-sports-v9-migration-vm.sh / launch-mdps-sports-bucket-vm.sh / launch-sports-manifest-rescan-vm.sh
+    assert heartbeat_stall_watcher._is_backfill_vm("sports-v9-migration-fixtures-2024-20260727-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mdps-sports-bucket-20260727-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("sports-manifest-rescan-20260727-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("sports-manifest-rescan-coord-20260727-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("sports-manifest-rescan-chunk-1of4-20260727-120000")
+    # existing backfill/-bf-/literal-prefix cases must still pass unchanged.
+    assert heartbeat_stall_watcher._is_backfill_vm("tm-backfill-20260622-211407")
+    assert heartbeat_stall_watcher._is_backfill_vm("tradfi-bf-cme-ohlcv-1m-rb-2025")
+    assert heartbeat_stall_watcher._is_backfill_vm("fs-backfill-20260622")
+    # the -live-/-live early-out must still win over every OTHER signal, unchanged.
+    assert not heartbeat_stall_watcher._is_backfill_vm("mtds-live-cefi-okx-trades-2026")
+    assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
+
+
 def test_live_vm_with_quiet_runlog_reads_alive_in_sweep(monkeypatch):
     """End-to-end of the false-positive fix: a LIVE VM with a FRESH PIPELINE_HEARTBEAT
     marker but a long-quiet DATA run.log line (296 min, like the real mtds-live-deribit)
