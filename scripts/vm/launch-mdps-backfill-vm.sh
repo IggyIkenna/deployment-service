@@ -34,6 +34,21 @@
 #   bash launch-mdps-backfill-vm.sh prediction 2025-03-14 2026-04-18 full
 #   bash launch-mdps-backfill-vm.sh all        2020-01-01 2026-04-18 full
 #
+# R1 throughput lever (opt-in, DEFAULT UNSET = today's exact behaviour):
+#   --date-concurrency N                               # or MDPS_DATE_CONCURRENCY env. Threads
+#                                                      # --date-concurrency N into the MDPS `process`
+#                                                      # CLI, which dispatches up to N date-subprocesses
+#                                                      # concurrently instead of one-at-a-time (each date
+#                                                      # is ALREADY its own subprocess via the default
+#                                                      # --subprocess-per-date; this only stops blocking
+#                                                      # between them). Months->weeks lever
+#                                                      # (data_pipeline_check_mdps_features_2026_07_20.md
+#                                                      # R1); PROVEN 4.12s@N=1 -> 1.04s@N=4 on 4 real
+#                                                      # subprocesses (mtds@b3376b8). RSS scales
+#                                                      # ~linearly with N (~0.3 GB per concurrent
+#                                                      # in-date instrument-day) — size to the VM's RAM;
+#                                                      # e2-standard-8 (32GB): start N=2-4.
+#
 # Force-reprocess (densify reprocess — re-write already-captured candle cells):
 #   --force                                            # or FORCE=true env. Threads --force into the
 #                                                      # MDPS `process` CLI (_write_candles(force=True)),
@@ -91,6 +106,10 @@ OUTPUT_BUCKET_OVERRIDE=""
 # `[DATA] P1`). Without it the `mdps-backfill` VM_TASK branch in setup-data-pipeline-vm.sh
 # runs VM_BACKFILL_CMD verbatim and never re-processes fresh-in-manifest cells.
 FORCE_REPROCESS="${FORCE:-false}"
+# R1 throughput lever (data_pipeline_check_mdps_features_2026_07_20.md) — opt-in,
+# empty by default = MDPS's own MDPS_DATE_CONCURRENCY config default of 1 (SERIAL,
+# byte-for-byte today's behaviour). N>1 dispatches N date-subprocesses concurrently.
+DATE_CONCURRENCY="${MDPS_DATE_CONCURRENCY:-}"
 # Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
 # exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
 # SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
@@ -114,6 +133,7 @@ while [[ $# -gt 0 ]]; do
         --output-bucket) OUTPUT_BUCKET_OVERRIDE="$2"; shift 2 ;;
         --vm-name) VM_NAME_OVERRIDE="$2"; shift 2 ;;
         --force) FORCE_REPROCESS="true"; shift ;;
+        --date-concurrency) DATE_CONCURRENCY="$2"; shift 2 ;;
         --on-demand)   ON_DEMAND=true; shift ;;
         *) POSITIONAL+=("$1"); shift ;;
     esac
@@ -167,7 +187,7 @@ MDPS_OUTPUT_BUCKET_SPORTS_OVERRIDE="${MDPS_OUTPUT_BUCKET_SPORTS:-}"
 MDPS_OUTPUT_BUCKET_PREDICTION_OVERRIDE="${MDPS_OUTPUT_BUCKET_PREDICTION:-}"
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] [--force] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
+    echo "Usage: $0 [--env prod|staging|dev] [--source-bucket <b>] [--data-types <t>] [--venues <v>] [--instrument-ids <i>] [--output-bucket <b>] [--force] [--date-concurrency N] <cefi|tradfi|defi|sports|prediction|all> <start-date> <end-date> [dry|full]"
     exit 2
 fi
 
@@ -272,6 +292,10 @@ _launch() {
     if [[ "$FORCE_REPROCESS" == "true" ]]; then
         cmd="$cmd --force"
     fi
+    # R1 throughput lever — opt-in, unset by default (today's exact serial behaviour).
+    if [[ -n "$DATE_CONCURRENCY" ]]; then
+        cmd="$cmd --date-concurrency $DATE_CONCURRENCY"
+    fi
 
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
     local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
@@ -290,6 +314,7 @@ _launch() {
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=${MODE}"
     md="${md},VM_FORCE=${FORCE_REPROCESS}"
+    [[ -n "$DATE_CONCURRENCY" ]] && md="${md},VM_DATE_CONCURRENCY=${DATE_CONCURRENCY}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "${UTL_TARBALL_SHA:-}" ]]  && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA}"
@@ -331,6 +356,7 @@ _launch() {
         "RESUME_END_DATE=${END_DATE}" \
         "RESUME_MODE=${MODE}" \
         "FORCE=${FORCE_REPROCESS}" \
+        "MDPS_DATE_CONCURRENCY=${DATE_CONCURRENCY}" \
         "MDPS_DATA_TYPES=${FILTER_DATA_TYPES:-$MDPS_DATA_TYPES_OVERRIDE}" \
         "MDPS_VENUES=${FILTER_VENUES:-$MDPS_VENUES_OVERRIDE}" \
         "MDPS_INSTRUMENT_IDS=${FILTER_INSTRUMENT_IDS:-$MDPS_INSTRUMENT_IDS_OVERRIDE}" \

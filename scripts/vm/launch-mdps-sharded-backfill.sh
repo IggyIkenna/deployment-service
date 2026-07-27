@@ -30,6 +30,16 @@
 #   bash launch-mdps-sharded-backfill.sh cefi tradfi            # subset by asset_group
 #   bash launch-mdps-sharded-backfill.sh --dry                  # MDPS --dry-run inside VMs (no GCS writes; VMs still spawn)
 #   bash launch-mdps-sharded-backfill.sh cefi --year 2024 2025  # subset by year
+#   bash launch-mdps-sharded-backfill.sh cefi --date-concurrency 4   # R1 throughput lever (opt-in)
+#
+# R1 throughput lever (--date-concurrency N / MDPS_DATE_CONCURRENCY env, opt-in, DEFAULT
+# UNSET = today's exact per-year serial behaviour): dispatches up to N date-subprocesses
+# concurrently WITHIN each year-shard VM (each date is already its own subprocess via the
+# default --subprocess-per-date; this only stops blocking between them). Compounds with
+# this launcher's own year-fanout lever. Months->weeks lever
+# (data_pipeline_check_mdps_features_2026_07_20.md R1); PROVEN 4.12s@N=1 -> 1.04s@N=4 on 4
+# real subprocesses (mtds@b3376b8). RSS scales ~linearly with N (~0.3 GB per concurrent
+# in-date instrument-day) — size to the VM's RAM; e2-standard-8 (32GB): start N=2-4.
 #
 # Cost: e2-standard-8 × N VMs where N = sum of years per asset_group selected
 # (default 7+7+7+2 = 23 VMs). Each VM ~3-12 hours wallclock depending on data
@@ -72,9 +82,14 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 #   MACHINE_TYPE=e2-standard-8 MDPS_MAX_WORKERS=4 bash launch-mdps-sharded-backfill.sh tradfi
 MACHINE_TYPE_OVERRIDE="${MACHINE_TYPE:-}"
 MDPS_MAX_WORKERS_OVERRIDE="${MDPS_MAX_WORKERS:-}"
+# R1 throughput lever (data_pipeline_check_mdps_features_2026_07_20.md) — opt-in,
+# empty by default = MDPS's own MDPS_DATE_CONCURRENCY config default of 1 (SERIAL,
+# byte-for-byte today's behaviour).
+MDPS_DATE_CONCURRENCY_OVERRIDE="${MDPS_DATE_CONCURRENCY:-}"
 
 # Optional CLI flag --max-workers N forwards to the in-VM MDPS CLI.
 CLI_MAX_WORKERS=""
+CLI_DATE_CONCURRENCY=""
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 # Per-tarball SHA pins — prevents race condition where another slot rebuilds the
 # fixed-name tarball between tarball build and VM boot.
@@ -126,6 +141,15 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
+        --date-concurrency)
+            shift
+            CLI_DATE_CONCURRENCY="${1:-}"
+            if [[ -z "$CLI_DATE_CONCURRENCY" ]]; then
+                echo "--date-concurrency requires a value"
+                exit 2
+            fi
+            shift
+            ;;
         --utl-sha)
             shift; UTL_TARBALL_SHA_PIN="${1:-}"; shift ;;
         --mdps-sha)
@@ -136,7 +160,7 @@ while [[ $# -gt 0 ]]; do
             SELECTED_AGS="$SELECTED_AGS $1"
             shift
             ;;
-        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--env prod|staging|dev] [--source-bucket-override BUCKET]"; exit 2 ;;
+        *) echo "Unknown arg: $1"; echo "Usage: $0 [cefi|tradfi|defi|sports|prediction ...] [--year YYYY ...] [--dry] [--preview] [--max-workers N] [--date-concurrency N] [--env prod|staging|dev] [--source-bucket-override BUCKET]"; exit 2 ;;
     esac
 done
 
@@ -239,6 +263,14 @@ launch_year_shard() {
         resolved_max_workers="$(_max_workers_for "$cat")"
     fi
 
+    # R1 throughput lever resolution (env override > CLI flag > unset/serial default).
+    local resolved_date_concurrency=""
+    if [[ -n "$MDPS_DATE_CONCURRENCY_OVERRIDE" ]]; then
+        resolved_date_concurrency="$MDPS_DATE_CONCURRENCY_OVERRIDE"
+    elif [[ -n "$CLI_DATE_CONCURRENCY" ]]; then
+        resolved_date_concurrency="$CLI_DATE_CONCURRENCY"
+    fi
+
     local env_short
     case "$DEPLOYMENT_ENV" in
         prod)    env_short="prd" ;;
@@ -270,12 +302,16 @@ launch_year_shard() {
     if $DRY; then
         cmd="$cmd --dry-run"
     fi
+    # R1 throughput lever — opt-in, unset by default (today's exact per-year serial behaviour).
+    if [[ -n "$resolved_date_concurrency" ]]; then
+        cmd="$cmd --date-concurrency $resolved_date_concurrency"
+    fi
 
     # SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
     local PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
     if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 
-    echo "[$cat $year] $vm_name  ${start_date}..${end_date}  (machine=$machine_type, max_workers=${resolved_max_workers:-default}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+    echo "[$cat $year] $vm_name  ${start_date}..${end_date}  (machine=$machine_type, max_workers=${resolved_max_workers:-default}, date_concurrency=${resolved_date_concurrency:-1}) [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
     echo "  cmd: $cmd"
 
     if $PREVIEW; then
@@ -291,6 +327,7 @@ launch_year_shard() {
     md="${md},VM_END_DATE=${end_date}"
     md="${md},VM_BACKFILL_CMD=${cmd}"
     md="${md},VM_BACKFILL_MODE=$($DRY && echo dry || echo full)"
+    [[ -n "$resolved_date_concurrency" ]] && md="${md},VM_DATE_CONCURRENCY=${resolved_date_concurrency}"
     md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
     md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
     [[ -n "$UTL_TARBALL_SHA_PIN" ]] && md="${md},UTL_TARBALL_SHA=${UTL_TARBALL_SHA_PIN}"
