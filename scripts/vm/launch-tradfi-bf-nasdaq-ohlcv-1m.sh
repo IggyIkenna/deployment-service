@@ -14,17 +14,23 @@
 # Window: 2019-01-01 → today by default (clamped to the 2023-04-15 XNAS
 # discovery floor). Override with `--start-floor`.
 #
-# Sharding: (ticker-group x year). `--ticker-groups N` (default 5) splits the
-# sorted ticker universe into N contiguous groups, so the default fan-out is
-# ~5 groups x ~4 years = ~20 VMs instead of 4. Per-VM shard isolation:
+# Sharding: DATE-RANGE (default) — `--date-slices N` (default 5) splits each
+# year-shard's calendar days into N contiguous date-range slices, ALL
+# tickers per VM, so the default fan-out is ~5 slices x ~4 years = ~20 VMs.
+# Equity per-calendar-date cost is ~ticker-count-invariant (measured:
+# tradfi_backfill_throughput_followups_2026_07_24.md tick-26), so this pays
+# the fixed per-date overhead once per date instead of once per group.
+# Legacy TICKER-GROUP sharding (`--shard-mode ticker-group`) stays reachable
+# for the pathological single-VM-memory-ceiling case. Per-VM shard isolation:
 # VM_NAME + MANIFEST_PER_VM_SHARDS=true.
 #
 # Usage:
 #   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --dry-run
 #   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh
-#   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --ticker-groups 10   # finer shards
+#   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --date-slices 10                     # finer date shards
+#   bash launch-tradfi-bf-nasdaq-ohlcv-1m.sh --shard-mode ticker-group --ticker-groups 10  # legacy path
 #
-# SSOT: tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6.
+# SSOT: tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,44 +93,68 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
-# Shard by (ticker-group x year), not by year alone. One VM per year carried
-# ALL ~622 tickers, putting ~30,106 cells on the longest NASDAQ VM and making
-# equity — not CME — the tradfi backfill critical path. See
-# `ohlcv_split_ticker_groups` in the lib for the full rationale and for why
-# more VMs is SAFE here (per-IP Databento budget, one ephemeral IP per VM).
-TICKER_GROUPS_OUT="$(ohlcv_split_ticker_groups "$TICKER_LIST" "$OHLCV_TICKER_GROUPS")"
-if [[ -n "$ONLY_GROUP" ]]; then
-    TICKER_GROUPS_OUT="$(printf '%s\n' "$TICKER_GROUPS_OUT" | awk -F'|' -v g="$ONLY_GROUP" '$1==g')"
-    if [[ -z "$TICKER_GROUPS_OUT" ]]; then
-        echo "ERROR: --only-group '$ONLY_GROUP' matched no group (valid 1..${OHLCV_TICKER_GROUPS})" >&2
-        exit 1
+# Shard axis: date-range (default) or ticker-group (legacy escape hatch).
+# Ticker-group sharding was found to re-pay equity's ~1.46 min/date fixed
+# per-date overhead once PER GROUP over the SAME calendar dates (5x compute
+# for only ~1.0-1.2x wall-clock speedup); date-range sharding pays that
+# overhead once per date TOTAL. See `ohlcv_split_date_slices` /
+# `ohlcv_split_ticker_groups` in the lib for the full rationale.
+if [[ "$OHLCV_SHARD_MODE" == "ticker-group" ]]; then
+    TICKER_GROUPS_OUT="$(ohlcv_split_ticker_groups "$TICKER_LIST" "$OHLCV_TICKER_GROUPS")"
+    if [[ -n "$ONLY_GROUP" ]]; then
+        TICKER_GROUPS_OUT="$(printf '%s\n' "$TICKER_GROUPS_OUT" | awk -F'|' -v g="$ONLY_GROUP" '$1==g')"
+        if [[ -z "$TICKER_GROUPS_OUT" ]]; then
+            echo "ERROR: --only-group '$ONLY_GROUP' matched no group (valid 1..${OHLCV_TICKER_GROUPS})" >&2
+            exit 1
+        fi
+        echo "Filtered to ticker-group ${ONLY_GROUP} (--only-group)."
     fi
-    echo "Filtered to ticker-group ${ONLY_GROUP} (--only-group)."
-fi
-group_count="$(printf '%s\n' "$TICKER_GROUPS_OUT" | grep -c .)"
-echo "Sharding $ticker_count tickers into $group_count group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
+    group_count="$(printf '%s\n' "$TICKER_GROUPS_OUT" | grep -c .)"
+    echo "[ticker-group mode] Sharding $ticker_count tickers into $group_count group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
 
-while IFS='|' read -r gidx gfirst glast gtickers; do
-    [[ -z "$gidx" ]] && continue
-    gtag="$(printf 'g%02d' "$gidx")"
+    while IFS='|' read -r gidx gfirst glast gtickers; do
+        [[ -z "$gidx" ]] && continue
+        gtag="$(printf 'g%02d' "$gidx")"
+        for shard in "${_shards[@]}"; do
+            start="${shard%%:*}"
+            end="${shard##*:}"
+            year="${start:0:4}"
+            run_ts="$(date +%Y%m%d-%H%M%S)"
+            vm_name="tradfi-bf-nasdaq-ohlcv-1m-${gtag}-${year}-${run_ts}"
+            echo "  ${gtag} (${gfirst}..${glast}) ${year}"
+            ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$gtickers" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+        done
+    done <<< "$TICKER_GROUPS_OUT"
+else
+    [[ -n "$ONLY_GROUP" ]] && { echo "ERROR: --only-group requires --shard-mode ticker-group" >&2; exit 1; }
+    total_vms=0
     for shard in "${_shards[@]}"; do
         start="${shard%%:*}"
         end="${shard##*:}"
         year="${start:0:4}"
-        run_ts="$(date +%Y%m%d-%H%M%S)"
-        vm_name="tradfi-bf-nasdaq-ohlcv-1m-${gtag}-${year}-${run_ts}"
-        echo "  ${gtag} (${gfirst}..${glast}) ${year}"
-        ohlcv_create_vm "$vm_name" "NASDAQ" "$start" "$end" "$gtickers" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+        DATE_SLICES_OUT="$(ohlcv_split_date_slices "$start" "$end" "$OHLCV_DATE_SLICES")"
+        didx=0
+        while IFS=':' read -r dstart dend; do
+            [[ -z "$dstart" ]] && continue
+            didx=$(( didx + 1 ))
+            dtag="$(printf 'd%02d' "$didx")"
+            run_ts="$(date +%Y%m%d-%H%M%S)"
+            vm_name="tradfi-bf-nasdaq-ohlcv-1m-${year}-${dtag}-${run_ts}"
+            echo "  ${year} ${dtag} (${dstart}..${dend})"
+            ohlcv_create_vm "$vm_name" "NASDAQ" "$dstart" "$dend" "$TICKER_LIST" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+            total_vms=$(( total_vms + 1 ))
+        done <<< "$DATE_SLICES_OUT"
     done
-done <<< "$TICKER_GROUPS_OUT"
+    echo "[date-range mode] Sharded into $total_vms date-range VM(s) across ${#_shards[@]} year(s), all $ticker_count tickers per VM."
+fi
 
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
-    echo "DRY-RUN: NASDAQ OHLCV-1m (ticker-group x year) shards (${START_FLOOR}..today)"
+    echo "DRY-RUN: NASDAQ OHLCV-1m (${OHLCV_SHARD_MODE}) shards (${START_FLOOR}..today)"
     echo "=========================================="
 else
-    echo "NASDAQ OHLCV-1m (ticker-group x year) shards launched in ${TRADFI_OHLCV_ZONE}."
+    echo "NASDAQ OHLCV-1m (${OHLCV_SHARD_MODE}) shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
     echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='NASDAQ')&(df.data_type=='ohlcv_1m')].groupby('capture_status').size())\""

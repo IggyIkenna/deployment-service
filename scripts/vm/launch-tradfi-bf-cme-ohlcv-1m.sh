@@ -22,7 +22,7 @@
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --env staging --start-floor 2020-01-01
 #
-# SSOT: tradfi_ohlcv_only_mvp_backfill_2026_05_15.md Phase 6.
+# SSOT: tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
