@@ -215,6 +215,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "orphan-sweep-defi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-tradfi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-prediction-": "launch-orphan-sweep-vm.sh",
+    # Sports derived_features post-floor residue census — read-only + idempotent
+    # (re-running just re-scans and overwrites the same fixed report path), so a
+    # SPOT preemption relaunch is a safe restart-from-scratch.
+    "sports-derived-features-census-": "launch-sports-derived-features-census-vm.sh",
     "backfill-orphan-e-cefi-": "launch-backfill-orphan-e-vm.sh",
     "backfill-orphan-e-defi-": "launch-backfill-orphan-e-vm.sh",
     "backfill-orphan-e-tradfi-": "launch-backfill-orphan-e-vm.sh",
