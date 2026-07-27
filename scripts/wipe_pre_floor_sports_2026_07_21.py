@@ -16,8 +16,8 @@ client's list_blobs — so creation-time is unusable here. The Hive partition se
 that; a path without a parseable day< floor is NEVER deleted.
 
 SAFETY:
-  * day-dir enumeration is a sanctioned DELIMITER listing (gcloud storage ls, read-only) —
-    NOT a whole-corpus walk.
+  * day-dir enumeration is a sanctioned DELIMITER listing (UTL StorageClient SDK
+    wrapper, read-only, one level shallow) — NOT a whole-corpus walk.
   * strict cutoff: an object is delete-eligible ONLY if its path's day=<D> parses AND
     D < FLOOR. Anything that does not parse to a pre-floor day is LEFT UNTOUCHED.
   * --census writes the full pre-floor object-name snapshot first (recovery record); on
@@ -32,7 +32,6 @@ import argparse
 import datetime as dt
 import json
 import re
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -54,29 +53,31 @@ def parse_day(path: str) -> dt.date | None:
 
 
 def list_day_dirs(bucket: str, root_prefix: str) -> list[tuple[dt.date, str]]:
-    """Delimiter listing of day= dirs directly under root_prefix (read-only, sanctioned)."""
-    uri = f"gs://{bucket}/{root_prefix.rstrip('/')}/"
-    proc = subprocess.run(
-        ["gcloud", "storage", "ls", uri],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        print(f"!!! day-dir listing failed for {uri}: {proc.stderr.strip()[:300]}", flush=True)
+    """Delimiter listing of day= dirs directly under root_prefix (read-only, sanctioned).
+
+    Uses the UTL StorageClient SDK wrapper's delimiter listing (never a subprocess
+    CLI call) — same shallow, ONE-level-only semantics as `gcloud storage ls` on a
+    trailing-slash URI: it returns only the immediate child prefixes, never a
+    recursive corpus walk.
+    """
+    prefix = f"{root_prefix.rstrip('/')}/"
+    try:
+        handle = get_storage_client(provider="gcp").bucket(bucket)
+        native_iter = handle.list_blobs(prefix=prefix, delimiter="/")
+        list(native_iter)  # must exhaust before .prefixes populates
+        child_prefixes = list(getattr(native_iter, "prefixes", []))
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"!!! day-dir listing failed for gs://{bucket}/{prefix}: {exc}", flush=True)
         return []
     out: list[tuple[dt.date, str]] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        m = _DAY_DIR_RE.search(line)
+    for obj_prefix in child_prefixes:
+        m = _DAY_DIR_RE.search(obj_prefix)
         if not m:
             continue
         try:
             d = dt.date.fromisoformat(m.group(1))
         except ValueError:
             continue
-        # strip the gs://bucket/ prefix to get the object prefix
-        obj_prefix = line.split(f"gs://{bucket}/", 1)[-1]
         out.append((d, obj_prefix))
     return out
 

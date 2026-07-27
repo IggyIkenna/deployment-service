@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import click
+from unified_trading_library import get_storage_client
 
 from ...services.deployment_service import DeploymentService
 from ...services.status_service import StatusService
@@ -68,44 +69,35 @@ class MaintenanceHandler:
             raise click.ClickException(f"GCS cleanup failed: {e}") from e
 
     def _find_old_files(self, bucket: str, older_than_days: int) -> list[str]:
-        """Find old files in GCS bucket.
+        """Find old files in the state bucket.
 
         Args:
-            bucket: GCS bucket name
+            bucket: Bucket name
             older_than_days: Age threshold in days
 
         Returns:
             List of file paths to delete
         """
         try:
-            # Use gsutil to list old files
-            cmd = ["gsutil", "ls", "-l", "-b", f"gs://{bucket}/**"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
-
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-            files_to_delete = []
+            client = get_storage_client(provider=self.cloud_provider)
             cutoff_date = datetime.now(UTC).timestamp() - (older_than_days * 24 * 60 * 60)
 
-            for line in result.stdout.split("\n"):
-                if line.strip() and not line.startswith("TOTAL"):
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        # Parse file date
-                        date_str = parts[1] + " " + parts[2]
-                        try:
-                            file_date = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").timestamp()
-
-                            if file_date < cutoff_date:
-                                file_path = parts[-1]  # Last part is the file path
-                                files_to_delete.append(file_path)
-                        except ValueError as e:
-                            logger.debug("Skipping item due to %s: %s", type(e).__name__, e)
-                            continue
+            files_to_delete = []
+            for meta in client.list_blobs(bucket):
+                if not meta.last_modified:
+                    continue
+                try:
+                    file_date = datetime.fromisoformat(meta.last_modified).timestamp()
+                except ValueError as e:
+                    logger.debug("Skipping item due to %s: %s", type(e).__name__, e)
+                    continue
+                if file_date < cutoff_date:
+                    files_to_delete.append(meta.name)
 
             return files_to_delete
 
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to list GCS files: %s", e)
+        except (OSError, ValueError, RuntimeError) as e:
+            logger.error("Failed to list bucket files: %s", e)
             return []
 
     def _show_cleanup_preview(self, files: list[str]) -> None:
@@ -130,17 +122,18 @@ class MaintenanceHandler:
         """
         deleted_count = 0
         failed_count = 0
+        client = get_storage_client(provider=self.cloud_provider)
 
         for file_path in files:
             try:
-                cmd = ["gsutil", "rm", file_path]
-                subprocess.run(cmd, check=True, capture_output=True)
+                if not client.delete_blob(bucket, file_path):
+                    raise RuntimeError(f"delete_blob returned False for {file_path}")
                 deleted_count += 1
 
                 if deleted_count % 10 == 0:
                     click.echo(f"Deleted {deleted_count}/{len(files)} files")
 
-            except subprocess.CalledProcessError as e:
+            except (OSError, ValueError, RuntimeError) as e:
                 logger.error("Failed to delete %s: %s", file_path, e)
                 failed_count += 1
 
@@ -363,13 +356,8 @@ class MaintenanceHandler:
             True if bucket exists
         """
         try:
-            if self.cloud_provider == "gcp":
-                cmd = ["gsutil", "ls", "-b", f"gs://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
-            else:
-                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes aws s3 directly for bucket ops
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
+            client = get_storage_client(provider=self.cloud_provider)
+            return client.bucket(bucket_name).exists()
 
         except (OSError, ValueError, RuntimeError):
             return False
@@ -384,13 +372,12 @@ class MaintenanceHandler:
             True if permissions are adequate
         """
         try:
-            if self.cloud_provider == "gcp":
-                cmd = ["gsutil", "ls", f"gs://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes gsutil directly for bucket ops
-            else:
-                cmd = ["aws", "s3", "ls", f"s3://{bucket_name}"]  # noqa: gs-uri — CLI maintenance handler invokes aws s3 directly for bucket ops
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
+            client = get_storage_client(provider=self.cloud_provider)
+            # Attempt to actually list — .exists() alone can succeed on a HEAD-bucket
+            # permission distinct from list-objects access; this probes the same
+            # capability _find_old_files/_perform_cleanup actually need.
+            _ = next(iter(client.list_blobs(bucket_name, max_results=1)), None)
+            return True
 
         except (OSError, ValueError, RuntimeError):
             return False

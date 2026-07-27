@@ -4,10 +4,10 @@
 # Delete-when: NA
 """Analyze GCE VM costs from vm-logs directory in GCS.
 
-Uses two fast GCS operations:
-  1. ``gsutil ls gs://{code_bucket}/vm-logs/`` — enumerate VM run directories.
-  2. ``gsutil ls -l gs://{code_bucket}/vm-logs/*/EXIT_STATUS`` — get EXIT_STATUS
-     modification times (used as end-time proxy).
+Uses two GCS operations (via the UTL StorageClient SDK wrapper, not a subprocess CLI):
+  1. A delimiter listing of ``vm-logs/`` — enumerate VM run directories.
+  2. A prefix listing under ``vm-logs/`` filtered to ``EXIT_STATUS``/``run.log`` —
+     get modification times (used as end-time proxy).
 
 Start time is parsed from the VM name's run-ts suffix (YYYYMMDD-HHMMSS).
 Duration = EXIT_STATUS mtime - run-ts. Machine type is inferred from the VM
@@ -31,10 +31,11 @@ import argparse
 import csv
 import io
 import re
-import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict, cast
+
+from unified_trading_library import get_storage_client
 
 
 class VmRow(TypedDict):
@@ -140,8 +141,6 @@ _DEFAULT_ASSET_GROUP = "unknown"
 
 # Pattern: YYYYMMDD-HHMMSS anywhere in VM name (usually suffix)
 _RUN_TS_RE = re.compile(r"(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})")
-# gsutil ls -l output: "<size>  <datetime>  gs://..." e.g. "   1234  2026-05-15T10:20:30Z  gs://..."
-_LS_L_RE = re.compile(r"^\s*\d+\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\s+(gs://.+)$")
 
 
 def _resolve_prefix_meta(vm_name: str) -> tuple[str, str, str]:
@@ -175,30 +174,25 @@ def _iso_week(dt: datetime) -> str:
     return dt.strftime("%Y-W%V")
 
 
-def _gsutil_ls(pattern: str) -> list[str]:
-    """Run `gcloud storage ls` and return non-empty lines.
+def _list_vm_dirs(bucket: str, prefix: str) -> list[str]:
+    """Shallow one-level listing of subdirectories under ``prefix`` (delimiter listing).
 
-    `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
-    account (a short-lived WIF token in an interactive AO slot can't refresh
-    unattended), while `gcloud storage` resolves via ADC, which stays valid. See
-    plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
+    Uses the UTL StorageClient SDK wrapper (ADC-based, same credential resolution
+    as `gcloud storage` — never a subprocess CLI call).
     """
-    result = subprocess.run(["gcloud", "storage", "ls", pattern], capture_output=True, text=True, check=False)
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    handle = get_storage_client(provider="gcp").bucket(bucket)
+    native_iter = handle.list_blobs(prefix=prefix, delimiter="/")
+    list(native_iter)  # exhaust before .prefixes populates
+    return [f"gs://{bucket}/{p}" for p in getattr(native_iter, "prefixes", [])]
 
 
-def _gsutil_ls_l(pattern: str) -> list[tuple[datetime, str]]:
-    """Run `gcloud storage ls -l` and parse (mtime, gcs_path) pairs."""
-    result = subprocess.run(["gcloud", "storage", "ls", "-l", pattern], capture_output=True, text=True, check=False)
+def _find_files_by_name(bucket: str, prefix: str, filename: str) -> list[tuple[datetime, str]]:
+    """Recursively find all objects under ``prefix`` named ``filename``, with mtimes."""
     out: list[tuple[datetime, str]] = []
-    for line in result.stdout.splitlines():
-        m = _LS_L_RE.match(line)
-        if m:
-            try:
-                mtime = datetime.fromisoformat(m.group(1).replace("Z", "+00:00"))
-                out.append((mtime, m.group(2)))
-            except ValueError:
-                pass
+    for meta in get_storage_client(provider="gcp").list_blobs(bucket, prefix=prefix):
+        if not meta.name.endswith(f"/{filename}") or not meta.last_modified:
+            continue
+        out.append((datetime.fromisoformat(meta.last_modified), f"gs://{bucket}/{meta.name}"))
     return out
 
 
@@ -207,7 +201,7 @@ def analyze(project: str, days: int, output_path: str | None) -> None:
     print(f"[analyze_vm_costs] project={project} bucket={code_bucket} days={days}", file=sys.stderr)
 
     # 1. List all vm-log directories
-    all_dirs = _gsutil_ls(f"gs://{code_bucket}/vm-logs/")
+    all_dirs = _list_vm_dirs(code_bucket, "vm-logs/")
     prefix = f"gs://{code_bucket}/vm-logs/"
     all_vm_names = [
         d.removeprefix(prefix).rstrip("/")
@@ -245,7 +239,7 @@ def analyze(project: str, days: int, output_path: str | None) -> None:
     print("[analyze_vm_costs] Fetching EXIT_STATUS + run.log timestamps...", file=sys.stderr)
     end_mtimes: dict[str, datetime] = {}
     for filename in ("EXIT_STATUS", "run.log"):
-        for mtime, gcs_path in _gsutil_ls_l(f"gs://{code_bucket}/vm-logs/**/{filename}"):
+        for mtime, gcs_path in _find_files_by_name(code_bucket, "vm-logs/", filename):
             inner = gcs_path.removeprefix(f"gs://{code_bucket}/vm-logs/")
             parts = inner.rstrip("/").split("/")
             if len(parts) == 2 and parts[1] == filename:

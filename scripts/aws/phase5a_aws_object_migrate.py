@@ -12,6 +12,7 @@ and writes plans/audit/results/phase5_aws_object_migrate.csv.
 Usage:
     WORKSPACE_ROOT=... SLOT_ID=10 python3 scripts/aws/phase5a_aws_object_migrate.py [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +23,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from unified_trading_library import get_storage_client
 
 AWS_ACCOUNT_ID = "427895769566"
 AWS_REGION = "ap-northeast-1"
@@ -64,8 +67,10 @@ def list_all_buckets() -> set[str]:
 
 def bucket_object_count(name: str) -> int:
     """Return first-page object count (≤1000). Non-zero = has objects; 0 = empty."""
-    r = run(["aws", "s3api", "list-objects-v2", "--bucket", name,
-             "--query", "length(Contents)", "--output", "text"], check=False)
+    r = run(
+        ["aws", "s3api", "list-objects-v2", "--bucket", name, "--query", "length(Contents)", "--output", "text"],
+        check=False,
+    )
     if r.returncode != 0:
         return 0
     # Auto-pagination yields one count per page; take just the first line
@@ -85,63 +90,85 @@ def create_bucket(name: str, existing: set[str], dry_run: bool) -> bool:
         print(f"    [DRY-RUN] create s3://{name}")
         existing.add(name)
         return True
-    r = run([
-        "aws", "s3api", "create-bucket", "--bucket", name,
-        "--region", AWS_REGION,
-        "--create-bucket-configuration", f"LocationConstraint={AWS_REGION}",
-    ], check=False)
+    r = run(
+        [
+            "aws",
+            "s3api",
+            "create-bucket",
+            "--bucket",
+            name,
+            "--region",
+            AWS_REGION,
+            "--create-bucket-configuration",
+            f"LocationConstraint={AWS_REGION}",
+        ],
+        check=False,
+    )
     if r.returncode != 0:
         print(f"    ERROR creating {name}: {r.stderr.strip()[:200]}", file=sys.stderr)
         return False
-    run(["aws", "s3api", "put-bucket-versioning", "--bucket", name,
-         "--versioning-configuration", "Status=Enabled"], check=False)
-    run(["aws", "s3api", "put-public-access-block", "--bucket", name,
-         "--public-access-block-configuration",
-         "BlockPublicAcls=true,IgnorePublicAcls=true,"
-         "BlockPublicPolicy=true,RestrictPublicBuckets=true"], check=False)
+    run(
+        ["aws", "s3api", "put-bucket-versioning", "--bucket", name, "--versioning-configuration", "Status=Enabled"],
+        check=False,
+    )
+    run(
+        [
+            "aws",
+            "s3api",
+            "put-public-access-block",
+            "--bucket",
+            name,
+            "--public-access-block-configuration",
+            "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true",
+        ],
+        check=False,
+    )
     existing.add(name)
     return True
 
 
 def sync_bucket(source: str, target: str, dry_run: bool) -> tuple[int, str]:
-    cmd = ["aws", "s3", "sync", f"s3://{source}", f"s3://{target}",
-           "--exact-timestamps", "--no-progress"]
+    """Copy every object from source to target (full copy, not an incremental
+    diff-sync) via the UTL S3 SDK wrapper — never subprocess `aws s3 sync`."""
+    client = get_storage_client(provider="aws")
+    try:
+        names = [meta.name for meta in client.list_blobs(source)]
+    except (OSError, ValueError, RuntimeError) as exc:
+        return 0, str(exc)[:300]
     if dry_run:
-        cmd.append("--dryrun")
-    r = run(cmd, check=False)
-    if r.returncode != 0:
-        return 0, r.stderr.strip()[:300]
-    copied = sum(1 for ln in r.stdout.splitlines()
-                 if "copy:" in ln.lower() or "(dryrun) copy" in ln)
+        return len(names), ""
+    copied = 0
+    for name in names:
+        try:
+            client.copy_blob(source, name, target, name)
+            copied += 1
+        except (OSError, ValueError, RuntimeError) as exc:
+            return copied, str(exc)[:300]
     return copied, ""
 
 
 def spot_check(source: str, target: str, n: int = 5) -> tuple[bool, str]:
     """Compare up to n objects between source and target for size-identity."""
-    r = run(["aws", "s3", "ls", f"s3://{source}", "--recursive"], check=False)
-    if r.returncode != 0 or not r.stdout.strip():
+    client = get_storage_client(provider="aws")
+    try:
+        source_metas = list(client.list_blobs(source, max_results=n))
+    except (OSError, ValueError, RuntimeError):
         return True, "source empty"
-    lines = [ln for ln in r.stdout.splitlines() if ln.strip()][:n]
-    if not lines:
+    if not source_metas:
         return True, "no objects"
     mismatches: list[str] = []
-    for line in lines:
-        parts = line.split(None, 3)
-        if len(parts) < 4:
-            continue
-        key = parts[3]
-        src_size = parts[2]
-        r2 = run(["aws", "s3api", "head-object", "--bucket", target, "--key", key], check=False)
-        if r2.returncode != 0:
+    for meta in source_metas:
+        key = meta.name
+        src_size = meta.size
+        tgt_meta = client.get_blob_metadata(target, key)
+        if tgt_meta is None:
             mismatches.append(f"MISSING:{key}")
             continue
-        meta = json.loads(r2.stdout)
-        tgt_size = str(meta.get("ContentLength", "?"))
-        if tgt_size != src_size:
+        if tgt_meta.size != src_size:
             mismatches.append(f"SIZE_MISMATCH:{key}")
     if mismatches:
         return False, "; ".join(mismatches[:3])
-    return True, f"checked {len(lines)} objects OK"
+    return True, f"checked {len(source_metas)} objects OK"
 
 
 def expand(tpl: str, env: str) -> str:
@@ -164,17 +191,18 @@ def find_source(current_tpl: str, env: str, all_buckets: set[str]) -> str | None
             if c in all_buckets:
                 return c
         # 3. No-env fallback: template with env placeholder removed
-        no_env = (current_tpl
-                  .replace("-${DEPLOYMENT_ENV_SHORT}-", "-")
-                  .replace("-${DEPLOYMENT_ENV_SHORT}", "")
-                  .replace("${DEPLOYMENT_ENV_SHORT}-", ""))
+        no_env = (
+            current_tpl.replace("-${DEPLOYMENT_ENV_SHORT}-", "-")
+            .replace("-${DEPLOYMENT_ENV_SHORT}", "")
+            .replace("${DEPLOYMENT_ENV_SHORT}-", "")
+        )
         c = expand(no_env, env)
         if c in all_buckets:
             return c
     else:
         # Template has no env var — check env-suffixed variants (old provisioning style)
         base = expand(current_tpl, env)  # already no-env
-        for suffix_env in [env] + ENV_ALIASES.get(env, []):
+        for suffix_env in [env, *ENV_ALIASES.get(env, [])]:
             # Insert env between last segment and account ID
             c = base.replace(f"-{AWS_ACCOUNT_ID}", f"-{suffix_env}-{AWS_ACCOUNT_ID}")
             if c in all_buckets:
@@ -217,19 +245,22 @@ def main() -> None:
         tpl_cur = rec["current_template"]
         tpl_tgt = rec["target_template"]
         has_env = "${DEPLOYMENT_ENV_SHORT}" in tpl_cur or "${DEPLOYMENT_ENV_SHORT}" in tpl_tgt
-        for env in (ENVS if has_env else ["prd"]):
-            rows.append(MigrationRow(
-                kind=kind, asset_group=ag,
-                source=expand(tpl_cur, env),
-                target=expand(tpl_tgt, env),
-                env=env,
-            ))
+        for env in ENVS if has_env else ["prd"]:
+            rows.append(
+                MigrationRow(
+                    kind=kind,
+                    asset_group=ag,
+                    source=expand(tpl_cur, env),
+                    target=expand(tpl_tgt, env),
+                    env=env,
+                )
+            )
 
     print(f"Processing {len(rows)} pairs  [{('DRY-RUN' if args.dry_run else 'LIVE')}]\n")
 
     kind_checked: set[str] = set()
     for i, row in enumerate(rows):
-        label = f"[{i+1}/{len(rows)}] {row.kind}/{row.asset_group}/{row.env}"
+        label = f"[{i + 1}/{len(rows)}] {row.kind}/{row.asset_group}/{row.env}"
         rec = records.get((row.kind, row.asset_group), {})
         actual = find_source(rec.get("current_template", row.source), row.env, all_buckets)
 
@@ -283,9 +314,21 @@ def main() -> None:
             row.spot_check_note = "kind already checked"
 
     # Write report
-    fieldnames = ["kind", "asset_group", "env", "source", "target",
-                  "source_exists", "source_object_count", "target_created",
-                  "synced_objects", "spot_check_pass", "spot_check_note", "status", "error"]
+    fieldnames = [
+        "kind",
+        "asset_group",
+        "env",
+        "source",
+        "target",
+        "source_exists",
+        "source_object_count",
+        "target_created",
+        "synced_objects",
+        "spot_check_pass",
+        "spot_check_note",
+        "status",
+        "error",
+    ]
     with csv_out.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
