@@ -28,10 +28,21 @@
 #   bash launch-defi-phantom-recon-vm.sh cefi                     # cefi --dry-run
 #   bash launch-defi-phantom-recon-vm.sh sports                   # sports --dry-run
 #   bash launch-defi-phantom-recon-vm.sh --force defi             # bypass singleton
+#   MACHINE_TYPE=e2-highmem-4 bash launch-defi-phantom-recon-vm.sh cefi --apply
+#                                                                  # bigger box (default
+#                                                                  # e2-standard-4/16GB OOMs
+#                                                                  # loading the full cefi
+#                                                                  # manifest -- see
+#                                                                  # cefi_residual_followups_after_honest_done_2026_07_17.md)
+#   VENUES=HYPERLIQUID bash launch-defi-phantom-recon-vm.sh cefi --apply
+#                                                                  # scope the audit to one
+#                                                                  # (or comma-separated) venue(s)
 #
 # Cost: e2-standard-4 + 50GB. ~13 min for full DEFI per CLAUDE.md
 # (~222 prefixes/sec on same-region GCE). Larger asset_groups (CEFI ~313k
-# rows) take 30-60 min.
+# rows) take 30-60 min. MACHINE_TYPE/VENUES env vars override the default box
+# size / venue scope (the initial manifest load is asset_group-wide regardless
+# of VENUES -- it only trims the downstream audit-loop scope, not the load).
 #
 # Singleton lock: refuses to launch if another defi-phantom-recon-* VM is
 # RUNNING in the zone. The audit script reads the canonical manifest +
@@ -84,8 +95,19 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
+VENUES="${VENUES:-}"
+
+if [[ "${ON_DEMAND:-false}" == "true" ]]; then
+    PROVISIONING_ARGS=(--provisioning-model=STANDARD)
+else
+    # Idempotent audit-and-relabel: the write-back is a single atomic CAS at
+    # the very end of the run (see reconcile_phantom_manifest_rows_all.py),
+    # so a mid-run preemption loses no partial state -- safe SPOT default per
+    # CLAUDE.md "Backfill VMs default to SPOT".
+    PROVISIONING_ARGS=(--provisioning-model=SPOT --instance-termination-action=STOP)
+fi
 
 if ! $FORCE; then
     EXISTING="$(gcloud compute instances list \
@@ -118,7 +140,7 @@ fi
 RUN_TS="$(date +%Y%m%d-%H%M%S)"
 VM_NAME="defi-phantom-recon-${ASSET_GROUP}-${RUN_TS}"
 
-echo "Launching $VM_NAME: phantom recon for asset_group=${ASSET_GROUP} (${APPLY_FLAG})"
+echo "Launching $VM_NAME: phantom recon for asset_group=${ASSET_GROUP} (${APPLY_FLAG})${VENUES:+ venues=${VENUES}} machine=${MACHINE_TYPE}"
 
 # Route via VM_TASK=phantom-recon (added to setup-data-pipeline-vm.sh
 # 2026-05-07): the setup script pulls the instruments-service tarball
@@ -129,6 +151,9 @@ echo "Launching $VM_NAME: phantom recon for asset_group=${ASSET_GROUP} (${APPLY_
 # alias in that script. $WORKSPACE = /home/ikennaigboaka/workspace.
 RECON_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/reconcile_phantom_manifest_rows_all.py"
 BACKFILL_CMD="python ${RECON_SCRIPT} --asset-group ${ASSET_GROUP} ${APPLY_FLAG}"
+if [[ -n "$VENUES" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} --venues ${VENUES}"
+fi
 
 METADATA="VM_TASK=phantom-recon"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
@@ -148,6 +173,7 @@ gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
+    "${PROVISIONING_ARGS[@]}" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
