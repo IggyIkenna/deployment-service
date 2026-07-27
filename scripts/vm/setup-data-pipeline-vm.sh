@@ -1246,11 +1246,23 @@ fi
 if [[ "$VM_TASK" == "canonical-migration" ]]; then
   # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full
   # command (e.g. "python -m market_tick_data_service.scripts.migrate_defi_canonical ...").
+  # The migration script's OWN module lives wherever VM_SERVICE's tarball was
+  # extracted — this task was originally MTDS-only (hardcoded cd into
+  # $WORKSPACE/mtds), but a later instruments-service migration script
+  # (reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py) hit
+  # "ERROR: $WORKSPACE/mtds missing" launched with VM_SERVICE=instruments_service
+  # because this branch never consulted VM_SERVICE at all. Derive the
+  # workspace dir via the SAME SERVICE_TARBALLS -> TARBALL_DIRS mapping the
+  # tarball-install step above already uses (never hand-roll a second
+  # service->dir mapping) — this generalises the branch to whichever
+  # VM_SERVICE the launcher set, not just MTDS.
   VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
   if [[ -n "$VM_MIGRATION_CMD" ]]; then
     FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
-    cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing"; exit 1; }
+    _MIGRATION_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-mtds-code}"
+    _MIGRATION_DIR="${TARBALL_DIRS[$_MIGRATION_TARBALL]:-mtds}"
+    cd "$WORKSPACE/$_MIGRATION_DIR" || { log "ERROR: $WORKSPACE/$_MIGRATION_DIR missing (VM_SERVICE=$VM_SERVICE)"; exit 1; }
     _launch_with_tee "$FULL_CMD" "$LOGS/canonical-migration.log"
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"
