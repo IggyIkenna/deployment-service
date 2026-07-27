@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, TypedDict, cast
 
@@ -41,11 +42,26 @@ class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet 
     away_team: str
 
 
-def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
+def get_upcoming_fixtures(horizon_hours: int = 48, lookback_hours: float = 2.0) -> list[FixtureInfo]:
     """Read upcoming fixtures from GCS.
 
     Looks at the fixture calendar for today and the next few days,
-    returning fixtures with kickoff within ``horizon_hours`` from now.
+    returning fixtures with kickoff within ``horizon_hours`` from now AND no
+    more than ``lookback_hours`` in the past.
+
+    ``lookback_hours`` defaults to 2h — the historical fixture-visibility
+    cutoff every existing caller (pre-match evaluation, Tier-1/2 periodic
+    dispatch) relies on; passing the default keeps the day-scan and result
+    set byte-identical to before this parameter existed, so the common
+    discovery/pre-match call path's GCS scan cost is unchanged. A caller that
+    needs to see fixtures further in the past — e.g.
+    ``sports_trigger_scheduler.evaluate_post_match_triggers``, whose fire
+    window can sit >24h after kickoff — passes a larger value explicitly,
+    which ALSO widens the backward day-scan so a fixture written to a prior
+    day's GCS partition is still found (see
+    ``sports_trigger_scheduler._max_post_match_lookback_hours``). Root cause:
+    unified-trading-pm/plans/active/issues/
+    sports_post_match_trigger_24h_lookback_bug_2026_07_27.md.
     """
     try:
         config = DeploymentConfig()
@@ -73,7 +89,11 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
             "sports_reference/by_date/day={date}/entity=fixtures/",
             "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/",
         ]
-        for day_offset in range(4):
+        # Only widen the backward scan when a caller asks for more than the
+        # default 2h lookback — keeps the default call's day range (and GCS
+        # scan cost) exactly as before.
+        days_back = math.ceil(lookback_hours / 24) if lookback_hours > 2.0 else 0
+        for day_offset in range(-days_back, 4):
             scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
             # No explicit project_id → delegates to cloud-providers.yaml SSOT
             # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
@@ -133,7 +153,7 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
 
                             # Only include fixtures within horizon
                             hours_until = (kickoff - now).total_seconds() / 3600
-                            if -2 <= hours_until <= horizon_hours:
+                            if -lookback_hours <= hours_until <= horizon_hours:
                                 _fixture_id = row.get("fixture_id") or row.get("af_fixture_id") or ""
                                 _league_id = _path_league_id or row.get("league_id") or row.get("af_league_id") or ""
                                 _home_team = row.get("home_team") or row.get("af_home_name") or ""
