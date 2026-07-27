@@ -48,34 +48,47 @@ CODE_BUCKET="${CODE_BUCKET:-deployment-scripts-central-element-323112}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 
-# ── EXIT trap: self-delete on early-bootstrap failure ──
+# ── EXIT trap: loud-failure forensics + self-delete on early-bootstrap failure ──
 # 2026-05-28 follow-up to the cefi-heavy zombie incident: this script uses
 # `set -euo pipefail` so any apt/tarball/pip failure exits non-zero before
 # _launch_with_tee fires. Without this trap the VM_SHUTDOWN_ON_COMPLETION
 # wiring in vm-exec-with-gcs-tee.sh never runs (the wrapper is never launched),
 # so the VM sits RUNNING until the zombie-watchdog reaps it. When the watchdog
 # is also broken (2026-05-24 → 28 window), VMs accumulate as zombies.
-# Defense in depth: detect non-zero exit here, upload the setup log to
-# vm-logs/<vm>/vm-setup.log for forensics, then self-delete (gated on
-# VM_SHUTDOWN_ON_COMPLETION=true). Runs detached so SIGHUP/SIGTERM on VM
-# teardown can't interrupt the gcloud delete.
+#
+# 2026-07-27 fix (mdps_features_live_launcher_shared_venv_dependency_conflict_2026_07_26.md):
+# both the forensics upload AND the self-delete used to be gated behind
+# VM_SHUTDOWN_ON_COMPLETION=true, so every long-running "live" launcher
+# (VM_SHUTDOWN_ON_COMPLETION=false by design, e.g. launch-mdps-features-live.sh) got
+# ZERO signal on a bootstrap failure — no log, no marker, no self-delete — the VM just
+# sat RUNNING indefinitely billing with no process (confirmed: a `uv pip install`
+# conflict left a VM silently stalled for 2.5h). Worse, the zombie VM also blocked any
+# retry: every launcher's singleton-lock check refuses to launch a same-prefix VM while
+# one is RUNNING. This trap only ever fires BEFORE the real task launches (disarmed via
+# `trap - EXIT` at the bottom of _launch_with_tee once the wrapped process is actually
+# running — see below), so VM_SHUTDOWN_ON_COMPLETION=false's real intent ("don't delete
+# a successfully-launched live consumer when it later exits/restarts") never applies
+# here — a bootstrap that never reached launch has nothing worth preserving. Fixed:
+# forensics upload + self-delete both now run UNCONDITIONALLY on any bootstrap failure,
+# regardless of VM_SHUTDOWN_ON_COMPLETION. Also writes the SAME rc to the canonical
+# `EXIT_STATUS` blob (_gcs.EXIT_STATUS_BLOB) that exit_code_fleet_monitor.py's
+# read_terminal_exit_code() already polls for terminated VMs — once this VM
+# self-deletes, the existing DP_VM_EXIT_NONZERO alerting path picks it up for free,
+# same as any other launcher's task-crash, instead of needing a new monitor.
+# Runs detached so SIGHUP/SIGTERM on VM teardown can't interrupt the upload or delete.
 _self_delete_on_setup_failure() {
     local rc=$?
     [[ $rc -eq 0 ]] && return 0
-    local shutdown
-    shutdown=$(curl -sf -H 'Metadata-Flavor: Google' \
-        'http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_SHUTDOWN_ON_COMPLETION' \
-        2>/dev/null || echo '')
-    [[ "$shutdown" == "true" ]] || return 0
     local vm_name vm_zone
     vm_name=$(curl -sf -H 'Metadata-Flavor: Google' \
         'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo '')
     vm_zone=$(curl -sf -H 'Metadata-Flavor: Google' \
         'http://metadata.google.internal/computeMetadata/v1/instance/zone' 2>/dev/null | awk -F/ '{print $NF}')
     [[ -n "$vm_name" && -n "$vm_zone" ]] || return 0
-    log "SETUP FAILED rc=$rc — uploading log + scheduling self-delete (VM_SHUTDOWN_ON_COMPLETION=true)" || true
+    log "SETUP FAILED rc=$rc — uploading log + EXIT_STATUS, scheduling self-delete" || true
     gsutil -q cp "$LOG" "gs://${CODE_BUCKET}/vm-logs/${vm_name}/vm-setup.log" 2>/dev/null || true
     echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/SETUP_EXIT_STATUS" 2>/dev/null || true
+    echo "$rc" | gsutil -q cp - "gs://${CODE_BUCKET}/vm-logs/${vm_name}/EXIT_STATUS" 2>/dev/null || true
     nohup setsid bash -c "
         sleep 10
         gcloud compute instances delete '$vm_name' --zone='$vm_zone' --quiet --delete-disks=all \
@@ -1233,11 +1246,23 @@ fi
 if [[ "$VM_TASK" == "canonical-migration" ]]; then
   # Phase 3.4 migration scripts: MIGRATION_CMD metadata carries the full
   # command (e.g. "python -m market_tick_data_service.scripts.migrate_defi_canonical ...").
+  # The migration script's OWN module lives wherever VM_SERVICE's tarball was
+  # extracted — this task was originally MTDS-only (hardcoded cd into
+  # $WORKSPACE/mtds), but a later instruments-service migration script
+  # (reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py) hit
+  # "ERROR: $WORKSPACE/mtds missing" launched with VM_SERVICE=instruments_service
+  # because this branch never consulted VM_SERVICE at all. Derive the
+  # workspace dir via the SAME SERVICE_TARBALLS -> TARBALL_DIRS mapping the
+  # tarball-install step above already uses (never hand-roll a second
+  # service->dir mapping) — this generalises the branch to whichever
+  # VM_SERVICE the launcher set, not just MTDS.
   VM_MIGRATION_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_MIGRATION_CMD" || echo "")
   if [[ -n "$VM_MIGRATION_CMD" ]]; then
     FULL_CMD="${VM_MIGRATION_CMD/python /$VENV/bin/python }"
-    cd "$WORKSPACE/mtds" || { log "ERROR: $WORKSPACE/mtds missing"; exit 1; }
+    _MIGRATION_TARBALL="${SERVICE_TARBALLS[$VM_SERVICE]:-mtds-code}"
+    _MIGRATION_DIR="${TARBALL_DIRS[$_MIGRATION_TARBALL]:-mtds}"
+    cd "$WORKSPACE/$_MIGRATION_DIR" || { log "ERROR: $WORKSPACE/$_MIGRATION_DIR missing (VM_SERVICE=$VM_SERVICE)"; exit 1; }
     _launch_with_tee "$FULL_CMD" "$LOGS/canonical-migration.log"
   else
     log "ERROR: canonical-migration task without VM_MIGRATION_CMD metadata"

@@ -498,6 +498,37 @@ module "mdps_t1_recon_job" {
     PROTOCOL_DATA_SOURCE_BUCKET_DEFI       = "market-data-tick-defi-prd-${var.project_id}"
     PROTOCOL_DATA_SOURCE_BUCKET_SPORTS     = "market-data-tick-sports-prd-${var.project_id}"
     PROTOCOL_DATA_SOURCE_BUCKET_PREDICTION = "market-data-tick-pred-prd-${var.project_id}"
+    # Phase 2 (mdps_t1_recon_job_oom_failing_7_days_2026_07_26 — SECOND OOM,
+    # found after the availability_index.parquet READ-path OOM above was
+    # fixed): UTL's ManifestWriter defaults to the LEGACY (non-per-VM) CAS
+    # write path when MANIFEST_PER_VM_SHARDS is unset — every
+    # write_candle_parquet() call's per-shard manifest flush
+    # (_flush_manifest_with_backoff -> ManifestWriter.write()+.flush()) then
+    # does an UNFILTERED `pd.read_parquet()` of the ENTIRE canonical
+    # `_index/availability_index.parquet` (DEFI's has grown to ~27.4M rows)
+    # to merge+CAS-rewrite it — the SAME unbounded-full-index-materialization
+    # shape as the first OOM, just in the WRITE path instead of the READ path
+    # this time. With ThreadPoolExecutor workers each independently flushing
+    # their own ManifestWriter per (file, timeframe), several CONCURRENT full
+    # decodes of that ~1GB-compressed/27.4M-row parquet blow past 32Gi within
+    # under 90s — confirmed live: execution -7q78v OOM'd within ~93s of DEFI
+    # dex_pool_swaps' first (and, this run, ONLY non-skip-fresh) write
+    # starting, despite the INPUT data for all 704 files totalling only
+    # ~38MB. Every SIBLING t1-recon job in this file (mtds_fast/mtds_cefi
+    # above) and every instruments-service t1-recon job
+    # (t1_recon_instruments_jobs.tf) already sets MANIFEST_PER_VM_SHARDS=true
+    # — this job was simply missed when that convention was established
+    # (MDPS's job was added later, per the Phase 1 F-41 follow-up above).
+    # Routes writes to `_index/per_vm/{VM_NAME}.parquet` instead (no CAS, no
+    # full-index read); the standing manifest consolidator folds it into the
+    # canonical index on its normal cadence, and reads stay correct in the
+    # SAME run because read_availability_index() always unions per-VM shards
+    # on top of the consolidated blob. VM_NAME is a fixed per-job (not
+    # per-execution) tag — safe because the per-VM shard rewrite is
+    # process-level-lock-serialized (_per_vm_shard_lock), and this job never
+    # runs two overlapping executions (parallelism=1, one scheduled fire/day).
+    MANIFEST_PER_VM_SHARDS = "true"
+    VM_NAME                = "mdps-t1-recon-job"
   }
 
   service_name = "market-data-processing-service"

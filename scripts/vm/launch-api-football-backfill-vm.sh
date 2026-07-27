@@ -389,6 +389,21 @@ else
   echo "WARNING: rate-budget registry unavailable — VM keeps the adapter's class-default throttle (429 backoff still the safety net)." >&2
 fi
 
+# VM_TASK selection (2026-07-27, memory-accumulation OOM fix): a rolling
+# window run is always a few days wide (never accumulates a large per-VM
+# shard), so it stays on the generic single-shot "sports-backfill" dispatch.
+# An explicit start/end range can span YEARS in one process — the per-VM
+# shard's read-merge-write grows with cumulative shard size every flush
+# (unified-trading-library ManifestWriter._flush_per_vm_pending), so a long
+# single process eventually OOMs (measured: exit_code=137 after ~20.5hrs /
+# ~2,400 dates / ~159K accumulated shard rows on af-backfill-20260726-110610).
+# Routing to the EXISTING "instruments-backfill" VM_TASK (already used by
+# launch-sports-instruments-reference-vm.sh / launch-sports-full-sweep-vm.sh
+# / launch-sports-is-gap-fill.sh / launch-sports-entity-sweep-vm.sh) chunks
+# the range into VM_CHUNK_DAYS-day windows, each run as a FRESH process —
+# memory resets between chunks, and a chunk's failure (`|| true` in that
+# branch's loop) doesn't abort the remaining chunks. No shared-dispatcher
+# code changed; this only redirects what THIS launcher's own metadata sets.
 METADATA="VM_TASK=sports-backfill"
 METADATA="${METADATA},VM_SERVICE=instruments_service"
 METADATA="${METADATA},VM_OPERATION=instruments"
@@ -398,6 +413,16 @@ if $USE_ROLLING; then
   METADATA="${METADATA},VM_LOOKAHEAD_DAYS=${LOOKAHEAD}"
   $FORCE_WINDOW && METADATA="${METADATA},VM_FORCE_WINDOW=true"
 else
+  # The "instruments-backfill" chunk-loop branch doesn't plumb
+  # --recovery-fixture-ids (it only builds --sports-provider/--sports-entity/
+  # --data-types/--force) — a targeted recovery run is bounded/short-lived
+  # anyway (not the multi-year-range OOM this redirect exists for), so it
+  # stays on the original generic dispatch rather than silently losing the
+  # flag.
+  if [[ -z "$RECOVERY_FIXTURE_IDS" ]]; then
+    METADATA="${METADATA/VM_TASK=sports-backfill/VM_TASK=instruments-backfill}"
+    METADATA="${METADATA},VM_CHUNK_DAYS=90"
+  fi
   METADATA="${METADATA},VM_START_DATE=${START_DATE}"
   METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 fi

@@ -91,7 +91,7 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 REGION="asia-northeast1"
 SERVICE="features-service"
-IMAGE="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/features-service/features-service:latest"
+IMAGE="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-system/features-service:latest"
 SA="features-prod@${PROJECT_ID}.iam.gserviceaccount.com"
 
 DRY_RUN=false
@@ -122,7 +122,7 @@ RUNTIME_ENV=(
   "UCS_SKIP_GCSFUSE_CHECK=1"
   "FEATURES_ASSET_GROUPS=cefi,defi,tradfi,sports,prediction"
 )
-RUNTIME_ENV_STR=$(IFS=,; echo "${RUNTIME_ENV[*]}")
+RUNTIME_ENV_STR="^|^$(IFS='|'; echo "${RUNTIME_ENV[*]}")"
 
 # Secrets mounted as env vars.
 # mdps-redis-url-prod must exist in Secret Manager (see prerequisites above).
@@ -139,6 +139,12 @@ DEPLOY_CMD=(
     --service-account "${SA}"
     --set-env-vars "${RUNTIME_ENV_STR}"
     --update-secrets "${RUNTIME_SECRETS}"
+    # features-conn was created + torn down for a 2026-07-26 smoke-test verification
+    # (issues/cefi_batch2_010_misscoped_gated_bundle_2026_07_26.md) — recreate it before
+    # a real deploy: gcloud compute networks vpc-access connectors create features-conn
+    #   --region=asia-northeast1 --network=default --range=10.8.0.0/28 --project=${PROJECT_ID}
+    --vpc-connector features-conn
+    --vpc-egress private-ranges-only
     --memory 4Gi
     --cpu 2
     --min-instances 1

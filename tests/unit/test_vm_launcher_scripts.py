@@ -1577,5 +1577,74 @@ export -f gsutil
         assert "market-data-tick-prediction-" not in result.stdout
 
 
+class TestCanonicalMigrationServiceKeyedWorkspaceDir:
+    """Regression guard for the canonical-migration VM_TASK branch in setup-data-pipeline-vm.sh:
+    it used to hardcode `cd "$WORKSPACE/mtds"` regardless of VM_SERVICE, so an
+    instruments-service canonical-migration script (e.g.
+    reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py, launched with
+    VM_SERVICE=instruments_service) hit "ERROR: $WORKSPACE/mtds missing" even though its
+    tarball was correctly extracted to $WORKSPACE/instruments by the earlier install step.
+    The fix derives the workspace dir via the SAME SERVICE_TARBALLS -> TARBALL_DIRS mapping
+    the tarball-install step already uses. These tests extract the REAL declarations/derivation
+    lines straight out of the setup script (not a hand-duplicated copy) so a future edit to
+    either mapping or the derivation can't silently drift out of sync with this test.
+    """
+
+    SETUP_SCRIPT = "scripts/vm/setup-data-pipeline-vm.sh"
+
+    @pytest.fixture
+    def setup_script_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.SETUP_SCRIPT
+
+    def _extract_block(self, content: str, start_marker: str) -> str:
+        """Extract a `declare -A NAME=( ... )` block starting at start_marker, up to its
+        closing `)` line (these blocks never contain a nested top-level `)`-only line)."""
+        lines = content.splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.startswith(start_marker))
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == ")")
+        return "\n".join(lines[start : end + 1])
+
+    def _resolved_dir_for(self, setup_script_path: Path, vm_service: str) -> str:
+        content = setup_script_path.read_text()
+        service_tarballs = self._extract_block(content, "declare -A SERVICE_TARBALLS=(")
+        tarball_dirs = self._extract_block(content, "declare -A TARBALL_DIRS=(")
+        derivation_lines = [
+            ln.strip() for ln in content.splitlines() if "_MIGRATION_TARBALL=" in ln or "_MIGRATION_DIR=" in ln
+        ]
+        assert len(derivation_lines) == 2, (
+            f"expected exactly 2 derivation lines (_MIGRATION_TARBALL=/_MIGRATION_DIR=) in "
+            f"{self.SETUP_SCRIPT}, found {len(derivation_lines)} — the canonical-migration "
+            "branch's shape changed; update this test's extraction to match."
+        )
+        script = "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                service_tarballs,
+                tarball_dirs,
+                f'VM_SERVICE="{vm_service}"',
+                *derivation_lines,
+                'echo "$_MIGRATION_DIR"',
+            ]
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_instruments_service_resolves_to_instruments_dir(self, setup_script_path: Path) -> None:
+        """The bug this fixes: VM_SERVICE=instruments_service must resolve to $WORKSPACE/instruments,
+        not the previously-hardcoded $WORKSPACE/mtds."""
+        assert self._resolved_dir_for(setup_script_path, "instruments_service") == "instruments"
+
+    def test_market_tick_data_service_still_resolves_to_mtds_dir(self, setup_script_path: Path) -> None:
+        """Backward-compat: the original MTDS-only canonical-migration callers must be unaffected."""
+        assert self._resolved_dir_for(setup_script_path, "market_tick_data_service") == "mtds"
+
+    def test_unmapped_vm_service_falls_back_to_mtds_dir(self, setup_script_path: Path) -> None:
+        """An unrecognised VM_SERVICE falls back to the pre-fix default (mtds) rather than an
+        empty/unset dir that would silently `cd` somewhere unintended."""
+        assert self._resolved_dir_for(setup_script_path, "some_future_service") == "mtds"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
