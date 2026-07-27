@@ -45,7 +45,16 @@ from .sports_trigger_state import (
     resolve_state_bucket,
 )
 from .sports_trigger_state import (
+    get_recently_completed_fixtures as _get_recently_completed_fixtures,
+)
+from .sports_trigger_state import (
     get_upcoming_fixtures as _get_upcoming_fixtures,
+)
+from .sports_trigger_state import (
+    merge_post_match_fixture_pool as _merge_post_match_fixture_pool,
+)
+from .sports_trigger_state import (
+    post_match_lookback_hours as _post_match_lookback_hours,
 )
 
 logger = logging.getLogger(__name__)
@@ -199,6 +208,35 @@ class SportsTriggerScheduler:
         """
         return _get_upcoming_fixtures(horizon_hours)
 
+    def get_recently_completed_fixtures(self, lookback_hours: float) -> list[FixtureInfo]:
+        """Read fixtures whose kickoff was within the last ``lookback_hours``.
+
+        Thin instance wrapper around the module-level
+        :func:`sports_trigger_state.get_recently_completed_fixtures` — see
+        that function's docstring for why this is separate from
+        :meth:`get_upcoming_fixtures`.
+        """
+        return _get_recently_completed_fixtures(lookback_hours)
+
+    def _build_post_match_fixture_pool(self, fixtures: list[FixtureInfo]) -> list[FixtureInfo]:
+        """Fixture pool for :meth:`evaluate_post_match_triggers`.
+
+        ``fixtures`` (from :meth:`get_upcoming_fixtures`) only covers up to
+        ~2h post-kickoff — widen it with :meth:`get_recently_completed_fixtures`
+        when any configured post-match trigger's fire window reaches further
+        back than that, so triggers like ``stats_delayed``/``features_post_match``
+        (~25-27h post-kickoff) can actually see their target fixture. Logic
+        lives in ``sports_trigger_state`` to keep this module under the
+        codex line cap.
+        """
+        post_match_raw = self._config.get("post_match", {})
+        post_match = cast(dict[str, object], post_match_raw) if isinstance(post_match_raw, dict) else {}
+        lookback_hours = _post_match_lookback_hours(post_match, MATCH_END_OFFSET_MIN)
+        if lookback_hours <= 2.0:
+            return fixtures
+        late_fixtures = self.get_recently_completed_fixtures(lookback_hours=lookback_hours)
+        return _merge_post_match_fixture_pool(fixtures, late_fixtures)
+
     # ------------------------------------------------------------------
     # Trigger evaluation
     # ------------------------------------------------------------------
@@ -278,15 +316,22 @@ class SportsTriggerScheduler:
         if not isinstance(triggers, list):
             return events
 
-        for trigger in triggers:
-            if not isinstance(trigger, dict):
+        for trigger_raw in triggers:
+            if not isinstance(trigger_raw, dict):
                 continue
+            trigger = cast(dict[str, object], trigger_raw)
 
             name = str(trigger.get("name", ""))
             # Post-match offsets can be minutes or hours
             offset_minutes = int(trigger.get("offset_minutes", 0))
             offset_hours = int(trigger.get("offset_hours", 0))
             total_offset_minutes = offset_minutes + (offset_hours * 60)
+            # Default 30 matches the historical hardcoded tolerance; a
+            # trigger (e.g. features_post_match) may configure its own wider
+            # tolerance_minutes — previously ignored here even though it was
+            # already read for pre-match triggers, see
+            # sports_post_match_trigger_24h_lookback_bug_2026_07_27.md.
+            tolerance_minutes = int(trigger.get("tolerance_minutes", 30))
 
             for fixture in fixtures:
                 fixture_id = fixture["fixture_id"]
@@ -305,7 +350,7 @@ class SportsTriggerScheduler:
 
                 delta_minutes = abs((now - fire_at).total_seconds()) / 60
 
-                if delta_minutes <= 30:  # 30 min tolerance for post-match
+                if delta_minutes <= tolerance_minutes:
                     services = trigger.get("services", [])
                     if not isinstance(services, list):
                         services = []
@@ -804,19 +849,28 @@ class SportsTriggerScheduler:
         fired += dispatcher.check_reference()
 
         fixtures = self.get_upcoming_fixtures(horizon_hours=48)
-        if not fixtures:
-            logger.info("No upcoming fixtures — periodic-only cycle fired=%d", fired)
+        # Post-match triggers need a WIDER fixture pool than pre-match —
+        # `fixtures` only covers ~2h post-kickoff, but stats_delayed/
+        # features_post_match fire ~25-27h post-kickoff. Widening `fixtures`
+        # itself would inflate every discovery/pre-match scan, so this is a
+        # separate, additive pool — see _build_post_match_fixture_pool.
+        post_match_pool = self._build_post_match_fixture_pool(fixtures)
+
+        if not fixtures and not post_match_pool:
+            logger.info("No upcoming or recently-completed fixtures — periodic-only cycle fired=%d", fired)
             return fired
 
         # Tier-3 pre-match + Tier-4 post-match — fixture-proximate.
-        pre_match_events = self.evaluate_pre_match_triggers(fixtures)
-        post_match_events = self.evaluate_post_match_triggers(fixtures)
+        pre_match_events = self.evaluate_pre_match_triggers(fixtures) if fixtures else []
+        post_match_events = self.evaluate_post_match_triggers(post_match_pool) if post_match_pool else []
         all_events = pre_match_events + post_match_events
 
         if not all_events:
             logger.info(
-                "No fixture-proximate triggers due — %d fixtures checked, %d already fired, periodic fired=%d",
+                "No fixture-proximate triggers due — %d fixtures checked (%d post-match pool), %d already fired, "
+                "periodic fired=%d",
                 len(fixtures),
+                len(post_match_pool),
                 len(self._state.fired),
                 fired,
             )
