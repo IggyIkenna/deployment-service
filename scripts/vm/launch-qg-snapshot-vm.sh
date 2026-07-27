@@ -107,23 +107,13 @@ PARQUET_CMD="python3 ${_VM_WORKSPACE}/unified-trading-pm/scripts/quality_gates/s
 # Full pipeline: snapshot → parquet upload → auto-shutdown
 BACKFILL_CMD="${SNAPSHOT_CMD} | ${PARQUET_CMD}"
 
-RUN_TS="$(lc_run_ts)"
-VM_NAME="${VM_PREFIX}${RUN_TS}"
-
-lc_singleton_check "$VM_PREFIX" "$ZONE" "$PROJECT" "$FORCE"
-
-FULL_METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-FULL_METADATA="${FULL_METADATA},VM_TASK=qg-snapshot"
-FULL_METADATA="${FULL_METADATA},VM_SERVICE=qg_snapshot"
-FULL_METADATA="${FULL_METADATA},VM_OPERATION=qg-snapshot"
-FULL_METADATA="${FULL_METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
-FULL_METADATA="${FULL_METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-FULL_METADATA="${FULL_METADATA},GCP_PROJECT_ID=${PROJECT}"
-FULL_METADATA="${FULL_METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
-FULL_METADATA="${FULL_METADATA},VM_LIFECYCLE_CLASS=EPHEMERAL_BATCH"
-
-LABELS="purpose=qg-snapshot,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
-
+# --dry-run-scheduler-body must stay side-effect/state-independent: it only
+# renders the Cloud Scheduler REST body (JSON built below via its own
+# self-contained python heredoc) and does not need to know the live fleet's
+# singleton-lock state. The lock preflight (lc_singleton_check) runs ONLY on
+# the real direct-launch path further down, right before the actual gcloud
+# create call. See
+# plans/active/issues/deployment_service_qg_red_qg_snapshot_launcher_live_vm_flake_2026_07_27.md
 if $DRY_RUN_SCHEDULER_BODY; then
     # Output the Compute Engine instances.insert REST body for Cloud Scheduler HTTP target.
     # Usage:
