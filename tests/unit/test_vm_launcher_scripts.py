@@ -309,6 +309,159 @@ echo "RC=$rc"
         )
         assert "launcher_common.sh" in content, "launcher must source launcher_common.sh"
 
+    def test_default_mode_remains_warn(self, lib_path: Path):
+        """No LC_TARBALL_FRESHNESS set at all → default stays `warn`, NOT `auto`.
+
+        See features_universe_filter_settlement_suffix_and_vm_tarball_staleness_2026_07_27.md:
+        defaulting to `auto`/`enforce` was investigated (3 independent same-day
+        silent-stale-tarball incidents motivated it) but empirically DOES newly
+        block unrelated launches in this workspace — a manifest-read failure
+        (e.g. the documented WIF-token gap) is already treated as "stale", and
+        under `auto`/`enforce` that triggers a real republish attempt (or an
+        outright block) instead of a warning. Reproduced directly: flipping the
+        default broke 24 pre-existing tests
+        (TestCandleApplyCategory/TestDefiLaunchersSpotPreemptionContract/
+        TestCanonicalMigrationVmRelaunch) that never touched
+        LC_TARBALL_FRESHNESS themselves. `auto` itself was hardened
+        (dirty-tree-safe, see the tests below) and stays available as a
+        per-launcher opt-in; the fleet-wide default is deliberately unchanged
+        until the manifest-read-failure-vs-confirmed-stale conflation is fixed.
+        """
+        result = subprocess.run(
+            ["bash", "-c", f'source "{lib_path}" && printf %s "${{LC_TARBALL_FRESHNESS:-warn}}"'],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert result.stdout == "warn"
+
+    def _init_repo(self, path: Path) -> str:
+        """git-init an empty-commit repo at `path`; return its HEAD sha."""
+        path.mkdir(parents=True, exist_ok=True)
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "t@t"],
+            ["git", "config", "user.name", "t"],
+            ["git", "commit", "-q", "--allow-empty", "-m", "init"],
+        ):
+            subprocess.run(cmd, cwd=path, check=True, capture_output=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=path, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    def _isolated_lib_with_stub_republish(self, tmp_path: Path, stub_exit: int, call_log: Path) -> Path:
+        """Copy launcher_common.sh into an isolated scripts/vm/lib/ tree with a stub
+        sibling create-code-tarballs.sh, so `auto` mode's relative
+        `${lib_dir}/../create-code-tarballs.sh` invocation is fully test-controlled —
+        it never shells out to the real tar/GCS-upload logic, only records the
+        --include args it received and exits with `stub_exit`.
+        """
+        lib_dir = tmp_path / "isolated" / "scripts" / "vm" / "lib"
+        lib_dir.mkdir(parents=True)
+        copied_lib = lib_dir / "launcher_common.sh"
+        copied_lib.write_text(self._lib_abs().read_text())
+        stub = lib_dir.parent / "create-code-tarballs.sh"
+        stub.write_text(f'#!/usr/bin/env bash\necho "$@" >> "{call_log}"\nexit {stub_exit}\n')
+        stub.chmod(0o755)
+        return copied_lib
+
+    def _run_auto(
+        self, tmp_path: Path, repo_shas: dict[str, str], manifest_shas: dict[str, str], stub_exit: int = 0
+    ) -> tuple[subprocess.CompletedProcess[str], Path]:
+        """Run lc_verify_tarball_freshness with LC_TARBALL_FRESHNESS=auto (opt-in —
+        `auto` is NOT the default, see test_default_mode_remains_warn) against
+        `repo_shas` (repo -> workspace-clone HEAD sha, already created on disk under
+        tmp_path/<repo>) with the floating tarball manifest mocked to `manifest_shas`
+        (repo -> commit_sha GCS reports). create-code-tarballs.sh is stubbed; returns
+        (result, call_log_path) so a test can assert exactly which repos were
+        auto-republished.
+        """
+        call_log = tmp_path / "stub_calls.log"
+        call_log.write_text("")
+        lib = self._isolated_lib_with_stub_republish(tmp_path, stub_exit, call_log)
+        manifest_cases = "\n".join(
+            f'    if [[ "$*" == *"{repo}-code.manifest.json"* && "$*" == *cp* ]]; then '
+            f'printf \'{{"commit_sha": "{sha}"}}\' > "$dest"; return 0; fi'
+            for repo, sha in manifest_shas.items()
+        )
+        script = f"""
+gcloud() {{
+    local dest="${{@: -2:1}}"
+{manifest_cases}
+    return 0
+}}
+export -f gcloud
+source "{lib}"
+set +e
+if lc_verify_tarball_freshness bkt {" ".join(repo_shas.keys())}; then rc=0; else rc=$?; fi
+echo "RC=$rc"
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "WORKSPACE_ROOT": str(tmp_path), "LC_TARBALL_FRESHNESS": "auto"},
+        )
+        return result, call_log
+
+    def test_auto_republishes_clean_stale_repo(self, tmp_path: Path):
+        """A stale repo with a CLEAN tree is auto-republished, never blocking."""
+        head = self._init_repo(tmp_path / "repo-a")
+        result, call_log = self._run_auto(
+            tmp_path, repo_shas={"repo-a": head}, manifest_shas={"repo-a": "deadbeef" * 5}
+        )
+        assert "RC=0" in result.stdout, result.stderr
+        assert "auto-republishing stale tarball(s): repo-a" in result.stdout
+        assert "--include repo-a" in call_log.read_text()
+
+    def test_auto_skips_dirty_repo_without_blocking(self, tmp_path: Path):
+        """A stale repo with a DIRTY tree is never auto-republished (would risk
+        baking uncommitted WIP into the shared floating tarball, or hitting
+        create-code-tarballs.sh's own dirty-tree guard) — it degrades to a
+        non-blocking warning instead, same as `warn` mode.
+        """
+        repo_path = tmp_path / "repo-a"
+        head = self._init_repo(repo_path)
+        (repo_path / "wip.txt").write_text("uncommitted local work")
+        result, call_log = self._run_auto(
+            tmp_path, repo_shas={"repo-a": head}, manifest_shas={"repo-a": "deadbeef" * 5}
+        )
+        assert "RC=0" in result.stdout, "a dirty repo must never block a launch"
+        assert "dirty working tree, skipping auto-republish for: repo-a" in result.stderr
+        assert call_log.read_text().strip() == "", "dirty repo must never be auto-republished"
+
+    def test_auto_partial_dirty_only_republishes_clean_repos(self, tmp_path: Path):
+        """With one clean+stale and one dirty+stale repo, auto republishes only
+        the clean one and warns (without blocking) about the dirty one.
+        """
+        clean_head = self._init_repo(tmp_path / "repo-a")
+        dirty_path = tmp_path / "repo-b"
+        dirty_head = self._init_repo(dirty_path)
+        (dirty_path / "wip.txt").write_text("uncommitted local work")
+        result, call_log = self._run_auto(
+            tmp_path,
+            repo_shas={"repo-a": clean_head, "repo-b": dirty_head},
+            manifest_shas={"repo-a": "deadbeef" * 5, "repo-b": "cafebabe" * 5},
+        )
+        assert "RC=0" in result.stdout, result.stderr
+        calls = call_log.read_text()
+        assert "--include repo-a" in calls
+        assert "repo-b" not in calls, "dirty repo-b must never reach the republish command"
+        assert "dirty working tree, skipping auto-republish for: repo-b" in result.stderr
+
+    def test_auto_republish_failure_of_clean_repo_blocks(self, tmp_path: Path):
+        """A CLEAN stale repo whose auto-republish attempt itself fails (e.g.
+        transient GCS error) still blocks the launch — auto only forgives the
+        unfixable (dirty) case, not a genuine republish failure.
+        """
+        head = self._init_repo(tmp_path / "repo-a")
+        result, call_log = self._run_auto(
+            tmp_path, repo_shas={"repo-a": head}, manifest_shas={"repo-a": "deadbeef" * 5}, stub_exit=1
+        )
+        assert "RC=1" in result.stdout
+        assert "auto-republish failed for: repo-a" in result.stderr
+        assert "--include repo-a" in call_log.read_text()
+
 
 class TestSetupScriptFreshnessGuard:
     """Test lc_verify_setup_script_freshness — the pre-launch stale-startup-script guard.
