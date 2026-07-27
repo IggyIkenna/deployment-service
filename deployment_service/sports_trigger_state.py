@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, TypedDict, cast
 
@@ -30,6 +31,22 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_KEY = "sports_scheduler_state/scheduler.json"
 
+# Try multiple GCS path patterns — the fixture calendar may be at the legacy
+# path, the (never-populated) pre-pipeline_mode entity path, or the CURRENT
+# canonical instruments-service writer shape (confirmed live via GCS listing
+# 2026-07-14: instruments-service's sports fixtures writer emits under a
+# ``pipeline_mode=`` segment with entity name ``fixtures_schedule``, e.g.
+# ``.../day=2026-07-14/pipeline_mode=batch_api_football/
+# entity=fixtures_schedule/league=UCL/fixtures_schedule.parquet`` — NEITHER
+# prior pattern ever matches this, which silently zeroed out Tier-3/4
+# fixture-proximate triggers indefinitely; see unified-trading-pm/plans/
+# active/sports_data_sources_canonical_completion_2026_07_13.md).
+_FIXTURE_PATH_PATTERNS: list[str] = [
+    "sports_reference/fixtures/day={date}/",
+    "sports_reference/by_date/day={date}/entity=fixtures/",
+    "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/",
+]
+
 
 class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet shape, never exported
     """Minimal fixture data read from GCS parquets."""
@@ -41,116 +58,129 @@ class FixtureInfo(TypedDict):  # CORRECT-LOCAL: scheduler-local fixture-parquet 
     away_team: str
 
 
+def _scan_fixture_parquets(
+    storage: StorageClient,
+    bucket_name: str,
+    day_offsets: range,
+    now: datetime,
+    include: Callable[[datetime], bool],
+) -> tuple[list[FixtureInfo], int]:
+    """Shared blob-scan across the sports fixture-calendar path patterns.
+
+    Scans ``day_offsets`` (relative to ``now``, may include negative values
+    for past days) across every entry in ``_FIXTURE_PATH_PATTERNS``, parses
+    each fixture row's kickoff time, and keeps rows where ``include(kickoff)``
+    is true. Returns ``(fixtures, total_parquets_scanned)`` — the caller
+    decides what an empty scan / zero parquets means for its own logging.
+    """
+    fixtures: list[FixtureInfo] = []
+    total_parquets_scanned = 0
+
+    for day_offset in day_offsets:
+        scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+
+        for path_pattern in _FIXTURE_PATH_PATTERNS:
+            prefix = path_pattern.format(date=scan_date)
+
+            try:
+                blobs = list(
+                    storage.list_blobs(
+                        bucket=bucket_name,
+                        prefix=prefix,
+                        max_results=100,
+                    )
+                )
+            except Exception as exc:
+                logger.debug("No fixtures at %s: %s", prefix, exc)
+                continue
+
+            for blob in blobs:
+                if not blob.name.endswith(".parquet"):
+                    continue
+
+                total_parquets_scanned += 1
+
+                # Read parquet to get fixture details
+                try:
+                    raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
+                    df = pd.read_parquet(io.BytesIO(raw))
+
+                    # league_id: prefer the canonical string league key carried
+                    # in the blob's own ``league={KEY}`` path segment (matches
+                    # the manifest-wide league_id convention, e.g. "UCL") over
+                    # api_football's numeric ``af_league_id`` — only used as a
+                    # last-resort fallback when the path carries no such segment
+                    # (e.g. the legacy non-league-partitioned path shape).
+                    _path_league_id = ""
+                    for _seg in blob.name.split("/"):
+                        if _seg.startswith("league="):
+                            _path_league_id = _seg[len("league=") :]
+                            break
+
+                    for _, row in df.iterrows():
+                        # kickoff_utc: legacy writer shape. timestamp: the
+                        # current instruments-service fixtures_schedule shape
+                        # (see the path-pattern comment above).
+                        kickoff_str = str(row.get("kickoff_utc") or row.get("timestamp") or "")  # pyright: ignore[reportAny]
+                        if not kickoff_str:
+                            continue
+
+                        try:
+                            kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+                        except ValueError:
+                            continue
+
+                        if include(kickoff):
+                            _fixture_id = row.get("fixture_id") or row.get("af_fixture_id") or ""
+                            _league_id = _path_league_id or row.get("league_id") or row.get("af_league_id") or ""
+                            _home_team = row.get("home_team") or row.get("af_home_name") or ""
+                            _away_team = row.get("away_team") or row.get("af_away_name") or ""
+                            fixtures.append(
+                                FixtureInfo(
+                                    fixture_id=str(cast(object, _fixture_id)),
+                                    league_id=str(cast(object, _league_id)),
+                                    kickoff_utc=kickoff_str,
+                                    home_team=str(cast(object, _home_team)),
+                                    away_team=str(cast(object, _away_team)),
+                                )
+                            )
+                except Exception as exc:
+                    logger.warning("Failed to read fixture parquet %s: %s", blob.name, exc)
+
+    return fixtures, total_parquets_scanned
+
+
 def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
     """Read upcoming fixtures from GCS.
 
     Looks at the fixture calendar for today and the next few days,
     returning fixtures with kickoff within ``horizon_hours`` from now.
+
+    Visibility window is ``[kickoff-2h, kickoff+horizon_hours]`` — a fixture
+    is dropped from the result once ``now`` passes ``kickoff+2h``. This is
+    intentionally narrow (keeps the pre-match/discovery scan cheap); it is
+    NOT the right source for post-match triggers whose fire offset exceeds
+    ~2h — use :func:`get_recently_completed_fixtures` for those (see
+    unified-trading-pm/plans/active/issues/
+    sports_post_match_trigger_24h_lookback_bug_2026_07_27.md).
     """
     try:
         config = DeploymentConfig()
         storage = get_storage_client(project_id=config.project_id)
-
         now = datetime.now(UTC)
-        fixtures: list[FixtureInfo] = []
-        total_parquets_scanned = 0
+        # No explicit project_id → delegates to cloud-providers.yaml SSOT
+        # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
+        # (never the legacy no-env bucket decommissioned at sports cutover).
+        bucket_name = get_bucket_name("instruments", "SPORTS")
 
         # Scan today and next 3 days for fixtures.
-        # Try multiple GCS path patterns — the fixture calendar may be at
-        # the legacy path, the (never-populated) pre-pipeline_mode entity
-        # path, or the CURRENT canonical instruments-service writer shape
-        # (confirmed live via GCS listing 2026-07-14: instruments-service's
-        # sports fixtures writer emits under a ``pipeline_mode=`` segment
-        # with entity name ``fixtures_schedule``, e.g.
-        # ``.../day=2026-07-14/pipeline_mode=batch_api_football/
-        # entity=fixtures_schedule/league=UCL/fixtures_schedule.parquet`` —
-        # NEITHER prior pattern ever matches this, which silently zeroed out
-        # Tier-3/4 fixture-proximate triggers indefinitely; see
-        # unified-trading-pm/plans/active/
-        # sports_data_sources_canonical_completion_2026_07_13.md).
-        _fixture_path_patterns = [
-            "sports_reference/fixtures/day={date}/",
-            "sports_reference/by_date/day={date}/entity=fixtures/",
-            "sports_reference/by_date/day={date}/pipeline_mode=batch_api_football/entity=fixtures_schedule/",
-        ]
-        for day_offset in range(4):
-            scan_date = (now + timedelta(days=day_offset)).strftime("%Y-%m-%d")
-            # No explicit project_id → delegates to cloud-providers.yaml SSOT
-            # → env-tiered ``instruments-store-sports-prd-{pid}`` canonical form
-            # (never the legacy no-env bucket decommissioned at sports cutover).
-            bucket_name = get_bucket_name("instruments", "SPORTS")
-
-            for path_pattern in _fixture_path_patterns:
-                prefix = path_pattern.format(date=scan_date)
-
-                try:
-                    blobs = list(
-                        storage.list_blobs(
-                            bucket=bucket_name,
-                            prefix=prefix,
-                            max_results=100,
-                        )
-                    )
-                except Exception as exc:
-                    logger.debug("No fixtures at %s: %s", prefix, exc)
-                    continue
-
-                for blob in blobs:
-                    if not blob.name.endswith(".parquet"):
-                        continue
-
-                    total_parquets_scanned += 1
-
-                    # Read parquet to get fixture details
-                    try:
-                        raw = storage.download_bytes(bucket=bucket_name, blob_path=blob.name)
-                        df = pd.read_parquet(io.BytesIO(raw))
-
-                        # league_id: prefer the canonical string league key carried
-                        # in the blob's own ``league={KEY}`` path segment (matches
-                        # the manifest-wide league_id convention, e.g. "UCL") over
-                        # api_football's numeric ``af_league_id`` — only used as a
-                        # last-resort fallback when the path carries no such segment
-                        # (e.g. the legacy non-league-partitioned path shape).
-                        _path_league_id = ""
-                        for _seg in blob.name.split("/"):
-                            if _seg.startswith("league="):
-                                _path_league_id = _seg[len("league=") :]
-                                break
-
-                        for _, row in df.iterrows():
-                            # kickoff_utc: legacy writer shape. timestamp: the
-                            # current instruments-service fixtures_schedule shape
-                            # (see the path-pattern comment above).
-                            kickoff_str = str(row.get("kickoff_utc") or row.get("timestamp") or "")  # pyright: ignore[reportAny]
-                            if not kickoff_str:
-                                continue
-
-                            try:
-                                kickoff = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
-                            except ValueError:
-                                continue
-
-                            # Only include fixtures within horizon
-                            hours_until = (kickoff - now).total_seconds() / 3600
-                            if -2 <= hours_until <= horizon_hours:
-                                _fixture_id = row.get("fixture_id") or row.get("af_fixture_id") or ""
-                                _league_id = _path_league_id or row.get("league_id") or row.get("af_league_id") or ""
-                                _home_team = row.get("home_team") or row.get("af_home_name") or ""
-                                _away_team = row.get("away_team") or row.get("af_away_name") or ""
-                                fixtures.append(
-                                    FixtureInfo(
-                                        fixture_id=str(cast(object, _fixture_id)),
-                                        league_id=str(cast(object, _league_id)),
-                                        kickoff_utc=kickoff_str,
-                                        home_team=str(cast(object, _home_team)),
-                                        away_team=str(cast(object, _away_team)),
-                                    )
-                                )
-                    except Exception as exc:
-                        logger.warning("Failed to read fixture parquet %s: %s", blob.name, exc)
-
-        # end of path_pattern loop for this scan_date
+        fixtures, total_parquets_scanned = _scan_fixture_parquets(
+            storage,
+            bucket_name,
+            range(4),
+            now,
+            include=lambda kickoff: -2 <= (kickoff - now).total_seconds() / 3600 <= horizon_hours,
+        )
 
         if total_parquets_scanned == 0:
             # No fixture parquets found at all — instruments-service has not yet written
@@ -174,6 +204,97 @@ def get_upcoming_fixtures(horizon_hours: int = 48) -> list[FixtureInfo]:
     except Exception as exc:
         logger.error("Failed to read fixture calendar from GCS: %s", exc)
         return []
+
+
+def get_recently_completed_fixtures(lookback_hours: float) -> list[FixtureInfo]:
+    """Read fixtures whose kickoff was within the last ``lookback_hours``.
+
+    Companion to :func:`get_upcoming_fixtures`, which stops returning a
+    fixture once ``now`` passes ``kickoff+2h`` — too narrow for post-match
+    triggers that fire well past that (``stats_delayed`` at ~kickoff+25.75h,
+    ``features_post_match`` at ~kickoff+26.75h). Deliberately kept SEPARATE
+    from ``get_upcoming_fixtures`` rather than widening its shared window, so
+    the cheap pre-match/discovery scan cost is untouched — see "Recommended
+    decision" in unified-trading-pm/plans/active/issues/
+    sports_post_match_trigger_24h_lookback_bug_2026_07_27.md.
+    """
+    try:
+        config = DeploymentConfig()
+        storage = get_storage_client(project_id=config.project_id)
+        now = datetime.now(UTC)
+        bucket_name = get_bucket_name("instruments", "SPORTS")
+
+        # +2 buffer days absorbs day-boundary slop (a fixture kicking off
+        # just after UTC midnight `lookback_hours` ago may still be filed
+        # under the PRIOR day= partition depending on the writer's clock).
+        lookback_days = int(lookback_hours // 24) + 2
+        fixtures, total_parquets_scanned = _scan_fixture_parquets(
+            storage,
+            bucket_name,
+            range(-lookback_days, 1),
+            now,
+            include=lambda kickoff: 0 <= (now - kickoff).total_seconds() / 3600 <= lookback_hours,
+        )
+
+        logger.info(
+            "Found %d recently-completed fixtures within %.1fh lookback (scanned %d parquets)",
+            len(fixtures),
+            lookback_hours,
+            total_parquets_scanned,
+        )
+        return fixtures
+
+    except Exception as exc:
+        logger.error("Failed to read recently-completed fixture calendar from GCS: %s", exc)
+        return []
+
+
+def post_match_lookback_hours(post_match_config: dict[str, object], match_end_offset_min: int) -> float:
+    """Largest configured post-match trigger's fire+tolerance window, in hours.
+
+    Floors at 2.0 — the same visibility floor :func:`get_upcoming_fixtures`
+    already provides — so post-match evaluation is never handed a NARROWER
+    fixture pool than pre-match discovery. Derived from config (not
+    hardcoded) so a future trigger with a longer offset widens the lookback
+    automatically instead of silently going dead again like
+    ``stats_delayed``/``features_post_match`` did — see
+    unified-trading-pm/plans/active/issues/
+    sports_post_match_trigger_24h_lookback_bug_2026_07_27.md.
+    """
+    triggers_raw = post_match_config.get("triggers", [])
+    if not isinstance(triggers_raw, list):
+        return 2.0
+    triggers = cast("list[object]", triggers_raw)
+
+    max_hours = 2.0
+    for trigger_raw in triggers:
+        if not isinstance(trigger_raw, dict):
+            continue
+        trigger = cast(dict[str, object], trigger_raw)
+        offset_minutes = as_int(trigger.get("offset_minutes"), default=0)
+        offset_hours = as_int(trigger.get("offset_hours"), default=0)
+        tolerance_minutes = as_int(trigger.get("tolerance_minutes"), default=30)
+        total_minutes = match_end_offset_min + offset_minutes + (offset_hours * 60) + tolerance_minutes
+        max_hours = max(max_hours, total_minutes / 60)
+    return max_hours
+
+
+def merge_post_match_fixture_pool(
+    fixtures: list[FixtureInfo],
+    late_fixtures: list[FixtureInfo],
+) -> list[FixtureInfo]:
+    """Union ``fixtures`` (near-term) with ``late_fixtures`` (recently-completed).
+
+    Dedupes by ``fixture_id``, preferring the ``fixtures`` copy when a
+    fixture somehow appears in both (near-term entries carry the freshest
+    read). No-op passthrough when ``late_fixtures`` is empty.
+    """
+    if not late_fixtures:
+        return fixtures
+    known_ids = {f["fixture_id"] for f in fixtures}
+    merged = list(fixtures)
+    merged.extend(f for f in late_fixtures if f["fixture_id"] not in known_ids)
+    return merged
 
 
 class SchedulerStateStorage(Protocol):
