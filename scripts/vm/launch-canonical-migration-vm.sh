@@ -854,6 +854,13 @@ _script_for() {
         # chain, so the generic append at the bottom of _launch works — see that function's comment on
         # why compound-chain categories like "tradfi"/"defi-per-instrument" must suppress it instead).
         tradfi-cid) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_content_id_2026_07_21" ;;
+        # TradFi FUTURE/OPTION chain-bundle parquet-CONTENT instrument_id rewrite (2026-07-25) — the
+        # per-instrument tool above deliberately EXCLUDES chain-bundle files (multi-row-per-object,
+        # different shape); this is the follow-up covering that population (277,993 candidate manifest
+        # rows measured 2026-07-25). Same DRY-BY-DEFAULT + --apply convention as tradfi-cid, handled in
+        # _launch below. --stamp/--shard-of/--shard-index/--workers passed via MIGRATION_EXTRA_ARGS (a
+        # simple single-invocation category, same reasoning as tradfi-cid's comment above).
+        tradfi-cid-cb) echo "python -u -m market_tick_data_service.scripts.rewrite_tradfi_chain_bundle_content_id_2026_07_25" ;;
         # TradFi manifest USD@LIN in-place CAS re-stamp (2026-07-18/22) — a whole-index read-mutate-write
         # against the live `_index/availability_index.parquet`. Even from an IN-REGION (asia-northeast1)
         # VM the ~23s round-trip (download+transform+backup-snapshot-upload+CAS-upload) still lost the
@@ -1153,7 +1160,7 @@ _launch() {
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -1328,6 +1335,21 @@ case "$ASSET_GROUP" in
             done
         else
             MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-cid
+        fi
+        ;;
+    tradfi-cid-cb)
+        # Chain-bundle worklist (277,993 candidate manifest rows measured 2026-07-25) -- shard fan-out
+        # mirrors "tradfi-cid" above exactly (same tool family, same --stamp/--shard-of/--shard-index/
+        # --workers CLI surface). SHARD_OF>1 with SHARD_INDEX unset fans one VM per shard; a pinned
+        # SHARD_INDEX (or SHARD_OF=1) launches exactly one VM (canary / targeted relaunch).
+        if [[ "$SHARD_OF" -gt 1 && -z "$SHARD_INDEX_EXPLICIT" ]]; then
+            for ((_i = 0; _i < SHARD_OF; _i++)); do
+                SHARD_INDEX="$_i"
+                VM_NAME_SUFFIX="shard${_i}of${SHARD_OF}"
+                MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS} --shard-of ${SHARD_OF} --shard-index ${_i} --workers ${WORKERS:-32}" _launch tradfi-cid-cb
+            done
+        else
+            MIGRATION_EXTRA_ARGS="--stamp ${RUN_TS}${SHARD_INDEX_EXPLICIT:+ --shard-of ${SHARD_OF} --shard-index ${SHARD_INDEX}} --workers ${WORKERS:-32}" _launch tradfi-cid-cb
         fi
         ;;
     cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply)
