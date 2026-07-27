@@ -431,6 +431,8 @@ def _finding_for(
     stall_minutes: float,
     relaunch_launcher: str = "",
     umbrella: str = "",
+    launch_env: dict[str, str] | None = None,
+    checkpoint: dict[str, str] | None = None,
 ) -> PipelineFinding | None:
     base: dict[str, object] = {
         "vm_name": result.vm_name,
@@ -450,6 +452,15 @@ def _finding_for(
     # falls through to file_issue (can't relaunch deterministically).
     if relaunch_launcher:
         base["relaunch_launcher"] = relaunch_launcher
+    # The captured launch env (LAUNCH_PARAMS.json) + resume checkpoint
+    # (PROGRESS.json) — same fields RelaunchPreemptedVm already consumes — let
+    # relaunch_stalled_vm resume from the last completed date instead of
+    # replaying START_DATE from genesis (operator ask 2026-07-27: "stale vms
+    # should be watchdog killed and relaunched if they weren't complete").
+    if launch_env:
+        base["launch_env"] = launch_env
+    if checkpoint:
+        base["progress_checkpoint"] = checkpoint
     if result.verdict is LivenessVerdict.STALL:
         if result.heartbeat_age_min is not None:
             reason = f"heartbeat {result.heartbeat_age_min:.0f}m stale"
@@ -592,12 +603,23 @@ def sweep(
 
         launcher = launcher_for_vm(vm_name) if launcher_for_vm is not None else ""
         umbrella = umbrella_for_vm(vm_name) if umbrella_for_vm is not None else ""
+        # Only resolve the resume env/checkpoint for a genuine STALL verdict —
+        # keeps the per-tick GCS read count down (mirrors exit_code_fleet_monitor's
+        # same-shaped gate). Lets relaunch_stalled_vm resume from PROGRESS instead
+        # of replaying START_DATE (operator ask 2026-07-27).
+        launch_env: dict[str, str] | None = None
+        checkpoint: dict[str, str] | None = None
+        if result.verdict is LivenessVerdict.STALL:
+            launch_env = _gcs.read_launch_params(storage_client, log_bucket, vm_name)
+            checkpoint = _gcs.read_progress_checkpoint(storage_client, log_bucket, vm_name)
         finding = _finding_for(
             result,
             asset_group=asset_group_for_vm(vm_name),
             stall_minutes=stall_minutes,
             relaunch_launcher=launcher,
             umbrella=umbrella,
+            launch_env=launch_env,
+            checkpoint=checkpoint,
         )
         # Record the fired finding for the RESOLVED-bookend lifecycle (the caller
         # reconciles it against the prior active set so a recovered/reaped VM posts a

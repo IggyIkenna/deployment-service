@@ -374,6 +374,11 @@ def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str,
     via its launcher (bounded ≤2/(vm-prefix, day) then page). Unconditional on
     exit code — the stall verdict is the trigger. A finding with no
     ``relaunch_launcher`` binding returns ``recovered=False`` → file_issue.
+
+    Threads ``details["launch_env"]``/``details["progress_checkpoint"]`` through
+    to the actuator (mirrors ``_recover_preempted_vm``) so a stall-killed VM that
+    made real progress RESUMES from its checkpoint instead of replaying its
+    original ``START_DATE`` from genesis — operator ask 2026-07-27.
     """
     details = finding.details
     launcher = str(details.get("relaunch_launcher", "")).strip()
@@ -387,11 +392,22 @@ def _recover_stalled_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str,
     # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
     _mod = importlib.import_module("scripts.recovery.relaunch_stalled_vm")
 
+    launch_env_raw = details.get("launch_env")
+    launch_env: dict[str, str] | None = None
+    if isinstance(launch_env_raw, dict):
+        launch_env = {str(k): str(v) for k, v in cast("dict[object, object]", launch_env_raw).items()}
+    checkpoint_raw = details.get("progress_checkpoint")
+    checkpoint: dict[str, str] | None = None
+    if isinstance(checkpoint_raw, dict):
+        checkpoint = {str(k): str(v) for k, v in cast("dict[object, object]", checkpoint_raw).items()}
+
     actuator = _mod.RelaunchStalledVm()
     result = actuator.relaunch(
         str(details.get("vm_name", "")),
         launcher=launcher,
         asset_group=str(details.get("asset_group", "")),
+        launch_env=launch_env,
+        checkpoint=checkpoint,
         dry_run=dry_run,
     )
     recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
@@ -711,6 +727,38 @@ def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None)
         return {"dispatched": False, "reason": f"error: {exc!r}"[:200]}
 
 
+def _oom_investigate_finding(finding: PipelineFinding, recovery: dict[str, object]) -> PipelineFinding:
+    """A distinct, human-triage ``PipelineFinding`` for a SUCCEEDED OOM relaunch.
+
+    Giving an OOM'd VM more RAM and moving on does not explain WHY it OOM'd
+    (a genuine data-quality issue — e.g. the DERIBIT dated-options
+    misclassification, 2026-07-27 — or a genuinely oversized workload). Filed
+    alongside the successful ``auto_recover`` (operator ask 2026-07-27: "file an
+    issue doc to investigate the oom when a human wakes up"), not instead of it
+    — the tier stays ``auto_recover`` (no page, no urgent dispatch); this is a
+    quiet human-triage breadcrumb, not an escalation. Slugged by vm-prefix (not
+    the ephemeral timestamped vm_name) so ``_write_issue_doc``'s own slug+date
+    dedup collapses repeat same-day OOMs of the same backfill family into ONE
+    doc rather than filing a fresh one per relaunch.
+    """
+    vm_name = str(finding.details.get("vm_name", "unknown"))
+    prefix = vm_name.split("-", 1)[0] if "-" in vm_name else vm_name
+    escalated = str(recovery.get("escalated_machine_type", ""))
+    return PipelineFinding(
+        event=finding.event,
+        severity="INFO",
+        tier=EscalationTier.FILE_ISSUE,
+        summary=f"investigate OOM root cause — {prefix} backfill relaunched at {escalated}",
+        details={
+            **finding.details,
+            "recovery_action": "relaunch_backfill_vm",
+            "escalated_machine_type": escalated,
+            "relaunch_result": recovery.get("result", {}),
+        },
+        registry_id=finding.registry_id,
+    )
+
+
 def route_finding(
     finding: PipelineFinding,
     *,
@@ -794,6 +842,20 @@ def route_finding(
                 event_details["auto_recover_fell_through"] = "actuator_not_recovered"
                 effective_tier = EscalationTier.FILE_ISSUE
     result["effective_tier"] = str(effective_tier)
+
+    # A SUCCEEDED OOM relaunch still deserves a human follow-up (operator ask
+    # 2026-07-27) — see _oom_investigate_finding's docstring. Fires ONLY when the
+    # actuator actually escalated the machine type (a plain first-try success
+    # with no OOM history doesn't need this); never changes effective_tier, never
+    # pages, never fast-dispatches — a quiet, idempotent-per-day issue doc.
+    if finding.event == _EVENT_VM_EXIT_NONZERO and effective_tier is EscalationTier.AUTO_RECOVER and not dry_run:
+        recovery_outcome = cast("dict[str, object]", result.get("recovery") or {})
+        if recovery_outcome.get("recovered") and recovery_outcome.get("escalated_machine_type"):
+            pm_root = _resolve_pm_path(pm_repo_path)
+            if pm_root is not None:
+                oom_path = _write_issue_doc(pm_root, _oom_investigate_finding(finding, recovery_outcome))
+                if oom_path is not None:
+                    result["oom_investigate_issue_path"] = str(oom_path)
 
     filed_issue_path: Path | None = None
     if effective_tier is EscalationTier.FILE_ISSUE and not dry_run:

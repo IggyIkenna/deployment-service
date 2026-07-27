@@ -851,6 +851,77 @@ def test_stall_finding_carries_relaunch_launcher(monkeypatch):
     assert stall_details[0]["relaunch_launcher"] == "launch-tradfi-bf-cme.sh"
 
 
+def test_stall_finding_carries_launch_env_and_checkpoint(monkeypatch):
+    """A STALL verdict resolves LAUNCH_PARAMS.json + PROGRESS.json (operator ask
+    2026-07-27: "stale vms should be watchdog killed and relaunched if they
+    weren't complete") so relaunch_stalled_vm can resume from the checkpoint
+    instead of blindly replaying the original START_DATE."""
+    vm = "tradfi-bf-cme-2027"
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=40.0), None),
+            (LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (
+                json.dumps({"launcher": "launch-tradfi-bf-cme.sh", "env": {"START_DATE": "2019-01-01"}}).encode(),
+                0.0,
+            ),
+            (LOG_BUCKET, _gcs.PROGRESS_BLOB.format(vm=vm)): (
+                json.dumps({"last_completed_date": "2026-05-01", "monotonic": True}).encode(),
+                0.0,
+            ),
+        }
+    )
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        launcher_for_vm=lambda _vm: "launch-tradfi-bf-cme.sh",
+        stall_minutes=15,
+    )
+    stall_details = [d for d in captured_details if d.get("relaunch_launcher")]
+    assert stall_details, "DP_VM_STALL finding should carry the relaunch_launcher binding"
+    assert stall_details[0]["launch_env"] == {"START_DATE": "2019-01-01"}
+    assert stall_details[0]["progress_checkpoint"] == {"last_completed_date": "2026-05-01", "monotonic": "true"}
+
+
+def test_alive_vm_never_reads_launch_env_or_checkpoint(monkeypatch):
+    """The extra GCS reads are gated on a genuine STALL verdict — never fired for
+    a healthy VM (keeps the per-tick GCS read count down)."""
+    vm = "mtds-live-defi-2027"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=1.0), None)})
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+
+    def _boom(*_a, **_k):  # noqa: ANN002, ANN003
+        raise AssertionError("must not read LAUNCH_PARAMS/PROGRESS for a non-STALL VM")
+
+    monkeypatch.setattr(_gcs, "read_launch_params", _boom)
+    monkeypatch.setattr(_gcs, "read_progress_checkpoint", _boom)
+    results = heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "defi",
+        stall_minutes=15,
+    )
+    assert results[0].verdict is heartbeat_stall_watcher.LivenessVerdict.ALIVE
+
+
 def _stall_result(vm: str, *, hb_age: float | None, run_log_age: float | None = None):
     return heartbeat_stall_watcher.LivenessResult(
         vm_name=vm,
