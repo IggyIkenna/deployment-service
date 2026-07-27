@@ -16,6 +16,7 @@ Coverage includes:
 """
 
 import os
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -1394,6 +1395,253 @@ export -f gcloud
         vm_name = call.split()[3]
         assert vm_name.startswith("canonical-migration-defi-curve-optm-reclass-"), vm_name
         assert len(vm_name) <= 63, f"'{vm_name}' is {len(vm_name)} chars, exceeds GCE's 63-char limit"
+
+
+class TestCanonicalMigrationStallDetection:
+    """Todo 3+4, /plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md
+    (Gap 2): 10/42 cefi-content-apply canonical-migration VMs sat hung 1-2.5h+ with GCE reporting
+    RUNNING and nothing paging. Root cause traced this session: every VM_TASK=canonical-migration
+    worker already routes through the shared setup-data-pipeline-vm.sh -> _launch_with_tee() ->
+    vm-exec-with-gcs-tee.sh stall-kill (no code change needed in either of those two files --
+    STALL_TIMEOUT_SEC/STALL_PROGRESS_REGEX are read off GCE instance metadata generically,
+    independent of VM_TASK), but no launcher category ever SET STALL_PROGRESS_REGEX, so every
+    category fell back to raw log-BYTE-GROWTH stall detection -- permanently defeated by the
+    always-on PIPELINE_HEARTBEAT emitter wired into the SAME tee'd log (it writes a line every 60s
+    regardless of whether the real workload is alive). The fix: set STALL_PROGRESS_REGEX for
+    cefi-content-apply specifically (its script's real progress-log line format was read straight
+    out of migrate_cefi_content_instrument_id_catalogue_2026_07_17.py this session), scoped
+    narrowly per todo 5's stated per-category audit boundary -- every other
+    VM_TASK=canonical-migration category's script has NOT been individually verified and
+    deliberately gets no regex here yet.
+
+    This class proves both halves: (1) the launcher wires the metadata key ONLY for
+    cefi-content-apply (never a different, unverified category); and (2) the underlying
+    vm-exec-with-gcs-tee.sh watchdog mechanism ACTUALLY closes the gap on a simulated hang -- and
+    would NOT have, absent this fix (the exact historical incident, reproduced small-scale, byte-
+    for-byte against the shipped production watchdog script, not a reimplementation of it)."""
+
+    LAUNCHER = TestCanonicalMigrationVmRelaunch.LAUNCHER
+    WATCHDOG = "scripts/vm/vm-exec-with-gcs-tee.sh"
+    # The exact regex this session added to launch-canonical-migration-vm.sh's cefi-content-apply
+    # branch -- kept as one constant so the metadata-wiring tests and the live-watchdog tests below
+    # can never silently drift apart from each other or from the shipped value.
+    REGEX = "progress:|files/sec"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    @pytest.fixture
+    def watchdog_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.WATCHDOG
+
+    # ---- half 1: the launcher wires the metadata key, scoped correctly ----
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_cefi_content_apply_sets_the_verified_stall_progress_regex(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        call = self._created_metadata(
+            launcher_path, ["cefi-content-apply", "2019-03-30", "2026-07-27", "dry"], tmp_path
+        )
+        assert f"STALL_PROGRESS_REGEX={self.REGEX}" in call
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["cefi-late-renames", "2025-11-01", "2026-07-24", "dry"],
+            ["cefi-dedup-apply", "2026-07-27", "2026-07-27", "dry"],
+            ["cefi", "2020-01-01", "2026-01-01", "dry"],
+        ],
+    )
+    def test_other_categories_get_no_stall_progress_regex_yet(
+        self, launcher_path: Path, tmp_path: Path, args: list[str]
+    ) -> None:
+        """Regression guard for the narrow scoping: only cefi-content-apply's real progress-log
+        format has been individually verified (todo 5's per-category audit is deliberately left
+        open for every other VM_TASK=canonical-migration category) -- broadening this regex onto
+        an unverified category's script would risk a false-positive stall-kill on a legitimately
+        slow/quiet phase of a DIFFERENT tool with a different log shape."""
+        call = self._created_metadata(launcher_path, args, tmp_path)
+        assert "STALL_PROGRESS_REGEX=" not in call
+
+    # ---- half 2: the regex itself, against the real log-line formats ----
+
+    @pytest.mark.parametrize(
+        "line,expect_match",
+        [
+            # migrate_cefi_content_instrument_id_catalogue_2026_07_17.py's discovery-phase marker.
+            ("12:00:01 INFO  Discovery progress: day=2019-03-30 cumulative_files=5 elapsed=1.2s", True),
+            # Its per-200-file migrate-phase marker.
+            (
+                "12:00:02 INFO  Progress: 200/5000 files (5.2 files/sec, 38.5s elapsed) stats={'ok': 200}",
+                True,
+            ),
+            # Its final migrate-phase summary line.
+            ("12:00:03 INFO  Elapsed (migrate phase): 120.3s (8.31 files/sec)", True),
+            # Its OWN wedged-worker WARNING -- must NEVER count as progress (case-sensitive
+            # "progress:" does not match "progress in", and this line has no "files/sec").
+            (
+                "12:00:04 WARN  No progress in the last poll window -- 12 files still outstanding "
+                "(possible wedged worker)",
+                False,
+            ),
+        ],
+    )
+    def test_regex_matches_exactly_the_intended_lines(self, line: str, expect_match: bool) -> None:
+        """Checks the exact production regex case-sensitively against the real line shapes the
+        migration script emits, using the SAME `grep -qE` matcher vm-exec-with-gcs-tee.sh itself
+        uses (line 260: `grep -qE "$STALL_PROGRESS_REGEX"`), not a reimplementation in Python."""
+        result = subprocess.run(["grep", "-qE", self.REGEX], input=line, text=True)
+        matched = result.returncode == 0
+        assert matched == expect_match, f"line={line!r} expected_match={expect_match} got={matched}"
+
+    # ---- half 3: the real watchdog, against a simulated hang ----
+
+    def _mock_bin_functions(self) -> str:
+        """Bash-function mocks for the heavy deps vm-exec-with-gcs-tee.sh talks to, so this test
+        never touches real GCS/GCE credentials. `stat` is additionally shimmed to a portable
+        `wc -c`-based equivalent of GNU coreutils' `stat -c %s` (production always runs this
+        script on real Ubuntu GCE VMs where that flag is native; a local dev/CI box may not be
+        Linux, so this keeps the byte-growth-vs-progress-regex comparison meaningful everywhere
+        rather than silently degenerating on a non-GNU `stat`). All three are exported so they
+        survive the script's own `exec setsid bash "$0" "$@"` re-exec when `setsid` is present
+        (bash forwards `export -f` functions to a child bash via BASH_FUNC_*% env vars regardless
+        of the intermediate `setsid` binary; verified directly against this exact script this
+        session on both a no-setsid host and by tracing the re-exec logic)."""
+        return """
+python() {
+    if [[ "$1" == "-c" ]]; then
+        echo "00000000-0000-0000-0000-000000000000"
+        return 0
+    fi
+    return 0
+}
+export -f python
+gsutil() { return 0; }
+export -f gsutil
+stat() {
+    if [[ "$1" == "-c" && "$2" == "%s" ]]; then
+        wc -c < "$3" 2>/dev/null | tr -d ' '
+        return 0
+    fi
+    return 1
+}
+export -f stat
+"""
+
+    def _run_watchdog(
+        self,
+        watchdog_path: Path,
+        workload: str,
+        stall_progress_regex: str | None,
+        tmp_path: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        env = {
+            **os.environ,
+            "VM_NAME": f"stall-detection-unit-test-{tmp_path.name}",
+            "VM_ASSET_GROUP": "CEFI",
+            "VM_TASK": "canonical-migration",
+            "VM_MODE": "full",
+            "PYTHON_BIN": "python",
+            # Compressed timings for test speed -- production default is STALL_TIMEOUT_SEC=1800
+            # (30 min); only the threshold is compressed here, the watchdog logic under test is
+            # byte-for-byte the shipped production script (no reimplementation).
+            "STALL_TIMEOUT_SEC": "3",
+            "STALL_POLL_SEC": "1",
+        }
+        if stall_progress_regex is not None:
+            env["STALL_PROGRESS_REGEX"] = stall_progress_regex
+        else:
+            env.pop("STALL_PROGRESS_REGEX", None)
+        script = self._mock_bin_functions() + (
+            f"bash {shlex.quote(str(watchdog_path))} {shlex.quote(gcs_log_uri)} bash -c {shlex.quote(workload)}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=25)
+
+    def test_hung_worker_with_noisy_non_progress_log_is_killed_when_regex_is_set(
+        self, watchdog_path: Path, tmp_path: Path
+    ) -> None:
+        """The exact incident this fixes: a worker wedged on a network call while its log keeps
+        emitting non-progress noise (the always-on PIPELINE_HEARTBEAT emitter, or any other
+        recurring line that never matches a real progress marker) -- proven this session to
+        silently defeat the byte-growth-only default for 1-2.5h+ across 10/42 real VMs."""
+        workload = (
+            'for i in $(seq 1 10); do echo "PIPELINE_HEARTBEAT tick=$i (no real progress)"; '
+            "sleep 1; done; echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        # rc=124 is airtight proof the kill fired: the workload's OWN natural exit code (had it
+        # ever reached its `echo DONE_NORMALLY` tail) would be 0, and the script only ever
+        # overrides RC to 124 in the branch gated on the STALL_BREADCRUMB file existing (written
+        # exclusively by the watchdog's stall-kill path) -- there is no other way to observe 124
+        # here. (The workload's stdout is teed into a `/tmp/vm-exec-$$.log` this test doesn't
+        # capture, and the startup banner already echoes the command's OWN source text --
+        # including the literal substring "DONE_NORMALLY" -- to this process's stdout regardless
+        # of outcome, so checking for that substring's absence here would be a false signal, not
+        # evidence of anything.)
+        assert result.returncode == 124, (
+            f"expected the stall-kill (rc=124), got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=failed" in result.stdout
+
+    def test_same_hang_is_not_caught_by_the_byte_growth_only_default(self, watchdog_path: Path, tmp_path: Path) -> None:
+        """Regression baseline proving the bug this fix closes: the IDENTICAL noisy hang, but with
+        STALL_PROGRESS_REGEX unset (every canonical-migration category's behavior before this
+        session's fix) -- the noise itself keeps the log growing, so byte-growth mode never fires
+        and the wedged worker runs to its own (here, harmless) natural completion instead of being
+        killed. This is exactly how 10/42 real cefi-content-apply VMs sat hung 1-2.5h+ undetected."""
+        workload = (
+            'for i in $(seq 1 6); do echo "PIPELINE_HEARTBEAT tick=$i (no real progress)"; '
+            "sleep 1; done; echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(watchdog_path, workload, None, tmp_path)
+        assert result.returncode == 0, (
+            f"byte-growth-only mode should let the noisy-but-hung run finish on its own, "
+            f"got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+
+    def test_genuinely_healthy_run_with_real_progress_markers_is_not_false_killed(
+        self, watchdog_path: Path, tmp_path: Path
+    ) -> None:
+        """No-false-positive check: a run that periodically emits the tool's OWN wedged-worker
+        WARNING line ("No progress in the last poll window...") interleaved with genuine
+        "Progress: ... files/sec" markers must NOT be killed -- the WARNING text never resets the
+        timer on its own (per test_regex_matches_exactly_the_intended_lines above), only the real
+        marker does, and campaign-measured healthy throughput (2.9-9.9 files/sec/VM) gives >>25x
+        headroom under the unchanged 1800s production STALL_TIMEOUT_SEC default."""
+        workload = (
+            "for i in 1 2 3 4 5 6; do "
+            'echo "No progress in the last poll window -- $i files still outstanding '
+            '(possible wedged worker)"; sleep 1; '
+            'echo "Progress: $i/10 files (2.0 files/sec, 5.0s elapsed) stats={}"; sleep 1; '
+            "done; echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        assert result.returncode == 0, (
+            f"a genuinely-progressing worker must not be killed, got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
 
 
 class TestDefiLaunchersSpotPreemptionContract:

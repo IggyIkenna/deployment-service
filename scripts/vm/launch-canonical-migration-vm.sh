@@ -1228,6 +1228,36 @@ _launch() {
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
     md="${md},VM_MIGRATION_CMD=${cmd}"
+    # STALL_PROGRESS_REGEX (todo 3+4, migration_vm_hung_detection_monitoring_gap_2026_07_27.md,
+    # Gap 2) -- setup-data-pipeline-vm.sh already routes every VM_TASK=canonical-migration worker
+    # through the shared _launch_with_tee() -> vm-exec-with-gcs-tee.sh stall-kill (confirmed live
+    # this session: no code change needed there, STALL_TIMEOUT_SEC/STALL_PROGRESS_REGEX are read off
+    # GCE metadata generically, lines 460/468, independent of VM_TASK), but no launcher category ever
+    # set STALL_PROGRESS_REGEX, so every category fell back to raw log-BYTE-GROWTH stall detection --
+    # permanently defeated by the always-on PIPELINE_HEARTBEAT emitter wired into the SAME tee'd log
+    # (it writes a line every 60s regardless of whether the real workload is alive), which is exactly
+    # how 10/42 cefi-content-apply VMs sat hung 1-2.5h+ with GCE reporting RUNNING and nothing paging.
+    # Only cefi-content-apply's script has had its real progress-log line format verified against a
+    # live run.log this session (migrate_cefi_content_instrument_id_catalogue_2026_07_17.py); the
+    # other ~20 VM_TASK=canonical-migration categories' scripts have NOT been individually checked
+    # (that per-category audit is todo 5's stated scope, deliberately left open there) so they
+    # intentionally do NOT get a regex here yet and keep the size-only 1800s default.
+    #   "Discovery progress: day=%s cumulative_files=%d elapsed=%.1fs" -- once per scanned day
+    #     (discovery phase).
+    #   "Progress: %d/%d files (%.1f files/sec, %.1fs elapsed) stats=%s" -- every 200 completed
+    #     files, and once more as the final tally (migrate phase).
+    #   "Elapsed (migrate phase): %.1fs (%.2f files/sec)" -- final summary line.
+    #   "No progress in the last poll window -- %d files still outstanding (possible wedged worker)"
+    #     -- this is the tool's OWN wedged-worker WARNING, not a progress marker; it must never reset
+    #     the stall timer, and it does not (case-sensitive grep -E, verified against the exact string
+    #     above: "progress:" (lowercase, colon) does not match "progress in", and it has no
+    #     "files/sec" substring either).
+    # Regex: "progress:|files/sec" -- case-sensitive grep -E, no spaces/commas (gcloud's --metadata is
+    # comma-delimited so a literal comma in the value would silently split into a bogus second key).
+    # Campaign-measured healthy throughput (2.9-9.9 files/sec/VM, ~5.5 avg) gives a "Progress:" line
+    # roughly every 20-70s -- >>25x headroom under the unchanged 1800s STALL_TIMEOUT_SEC default, so
+    # this is a low false-positive-risk addition for legitimately-running VMs of this specific category.
+    [[ "$cat" == "cefi-content-apply" ]] && md="${md},STALL_PROGRESS_REGEX=progress:|files/sec"
     # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
     # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),
     # but it is still echoed verbatim into VM_MIGRATION_MODE metadata and the "mode=" GCE label
