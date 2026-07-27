@@ -625,6 +625,19 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "orphan-sweep-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "orphan-sweep-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # Sports derived_features post-floor residue census (launch-sports-derived-
+    # features-census-vm.sh) — runs features-service/scripts/purge_sports_derived_
+    # features_post_floor_residue_2026_07_27.py in CENSUS mode (no --apply; read-only
+    # per-day listing + last_modified check). Writes a FIXED per-plan report path
+    # (_audits/derived_features_postfloor_residue_census_2026_07_27.json) inside the
+    # sports features bucket itself, not a per-VM shard — same reasoning as
+    # orphan-sweep-* above, so bucket=None (heartbeat-only). Idempotent + read-only
+    # (re-running just re-scans and overwrites the same fixed path), so a SPOT
+    # preemption relaunch is a safe restart-from-scratch.
+    # SSOT: unified-trading-pm/plans/active/sports_derived_features_postfloor_residue_purge_2026_07_27.md
+    # ------------------------------------------------------------------
+    "sports-derived-features-census-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # Class-E orphan record_captured backfill (launch-backfill-orphan-e-vm.sh) — runs
     # instruments-service/scripts/backfill_orphan_class_e.py --asset-group <ag> --apply,
     # reading the durable orphan_sweep_{ag}.parquet report the sweep above already wrote.
