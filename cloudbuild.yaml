@@ -282,37 +282,6 @@ steps:
           docker push --all-tags "$$REPO_IMG"
         fi
 
-  # Step 5c: Re-resolve the data-pipeline monitor Cloud Run JOBS to the freshly-pushed
-  # deployment-api :latest digest. Cloud Run Jobs pin the image digest at deploy time, so
-  # a rebuilt :latest is NOT picked up until the job is updated — this makes the 4 dp-*
-  # monitor jobs track each deployment-api build automatically (closes the manual
-  # `gcloud run jobs update` gap tracked in
-  # plans/active/issues/monitor_jobs_auto_repin_and_alerting_cli_wiring_2026_06_24.md).
-  #
-  # GUARDED: this cloudbuild.yaml is shared by the deployment-dashboard build (default
-  # _SERVICE_NAME) and the deployment-api build (_SERVICE_NAME=deployment-api). The
-  # monitor jobs run the deployment-api image, so the step is a NO-OP for any other
-  # _SERVICE_NAME. Failure-tolerant: a job absent in this env logs a WARN and does not
-  # fail the build (the image push already succeeded). Requires the Cloud Build SA to have
-  # roles/run.developer + roles/iam.serviceAccountUser on the jobs' runtime SA.
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-    id: "redeploy-monitor-jobs"
-    waitFor: ["push"]
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        if [ "${_SERVICE_NAME}" != "deployment-api" ]; then
-          echo "not deployment-api build — skipping monitor re-pin"
-          exit 0
-        fi
-        IMG="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPO}/${_SERVICE_NAME}:latest"
-        for job in uts-prod-monitoring-deadman uts-prod-dp-exit-code-monitor uts-prod-dp-heartbeat-watcher uts-prod-dp-meta-watchers; do
-          echo "Re-resolving $${job} -> $${IMG}"
-          gcloud run jobs update "$${job}" --image="$${IMG}" --region="${_REGION}" --project="${PROJECT_ID}" \
-            || echo "WARN: could not update $${job} (may not exist in this env) — image push still succeeded"
-        done
-
   # Step 6b: Generate env vars file for deploy (avoids Cloud Build 100-args limit)
   - name: "ubuntu"
     id: "gen-env"
