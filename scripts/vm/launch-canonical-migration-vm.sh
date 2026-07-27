@@ -252,7 +252,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -448,6 +448,29 @@ _cefi_dedup_apply_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/complete_cefi_manifest_canonical_dedup_v2_2026_07_20.py${apply_flag}"
+}
+
+# defi-curve-optimism-reclassify (2026-07-27) — the one-shot CURVE/OPTIMISM dex_pool_swaps
+# `attempted_failed` -> `empty_confirmed[EXPECTED_SUBGRAPH_DEINDEXED]` retroactive reclassification
+# (`reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py`, instruments-service). Same
+# `VM_SERVICE=instruments_service` re-homing trick as cefi-dedup-apply/tradfi-catalogue-canon — the
+# script's own manifest-index read-transform-write is the heavy-I/O op this launcher's canonical-
+# migration dispatch exists for (per the heavy-I/O hard rule, never run --apply from the operator's
+# local machine). Self-contained `cd ... && python ...` chain; --apply is embedded per-MODE by the
+# builder (the tool's own backup-then-write + idempotent design is the write safety, not this
+# launcher). Dry-run already verified 144 matching rows against live prod (see
+# issues/defi_curve_optimism_subgraph_no_allocations_2026_07_15.md "Verified live (2026-07-24)"); 2
+# prior VM-launch attempts (2026-07-24) both failed on setup-data-pipeline-vm.sh's canonical-
+# migration branch hardcoding `cd $WORKSPACE/mtds` regardless of VM_SERVICE — fixed
+# deployment-service@0ed2ca6 before this category existed. START_DATE/END_DATE are cosmetic (VM
+# labels only) — the script re-scans the whole live manifest for the fixed (venue, chain, data_type)
+# cell, not a date range.
+#   bash launch-canonical-migration-vm.sh defi-curve-optimism-reclassify 2026-07-27 2026-07-27 dry
+#   bash launch-canonical-migration-vm.sh defi-curve-optimism-reclassify 2026-07-27 2026-07-27 full
+_curve_optimism_reclassify_cmd() {
+    local mode_flag="--dry-run"
+    [[ "$MODE" == "full" ]] && mode_flag="--apply"
+    printf '%s' "cd ${VM_WORKSPACE}/instruments && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py ${mode_flag}"
 }
 
 # cefi-late-renames (2026-07-24) — cefi single-instrument FILENAME wire->canonical rename
@@ -915,7 +938,13 @@ _launch() {
     # "canonical-migration-<ag>-" prefix (longest-prefix-startswith match in VM_PREFIX_TO_BUCKET).
     local _vm_name_cat="$cat"
     local _shard_suffix="${VM_NAME_SUFFIX:-}"
-    if [[ "$cat" == *-candle-apply ]]; then
+    # "defi-curve-optimism-reclassify" (31 chars) + the 21-char "canonical-migration-" prefix +
+    # 15-char timestamp overflows the 63-char budget on its own (66 chars, no shard suffix even
+    # needed) — abbreviate the vm_name token only, same reasoning as *-candle-apply above ($cat
+    # itself stays unabbreviated everywhere else: dispatch match, _svc/_ag derivation, tarball checks).
+    if [[ "$cat" == "defi-curve-optimism-reclassify" ]]; then
+        _vm_name_cat="defi-curve-optm-reclass"
+    elif [[ "$cat" == *-candle-apply ]]; then
         _vm_name_cat="${cat%-candle-apply}-cdlap"
         # Shorten "shard{i}of{N}" -> "s{i}of{N}" too (saves 4 more chars) — same info, tighter budget.
         # Operates on the already nounset-safe local (not $VM_NAME_SUFFIX directly, which crashes
@@ -971,6 +1000,12 @@ _launch() {
         # builder (the tool's own STOP-ON-SURPRISE gates are the write-safety, not this launcher).
         # DRAIN GATE is the caller's responsibility — see _cefi_dedup_apply_cmd's comment.
         cmd="$(_cefi_dedup_apply_cmd)"
+        [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "defi-curve-optimism-reclassify" ]]; then
+        # Self-contained `cd ... && python ...` single invocation; --apply/--dry-run is embedded
+        # per-MODE by the builder (the tool's own backup-then-write + idempotent design is the write
+        # safety, not this launcher). See _curve_optimism_reclassify_cmd's comment.
+        cmd="$(_curve_optimism_reclassify_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     elif [[ "$cat" == "cefi-late-renames" ]]; then
         # Self-contained `cd ... && python ...` single invocation; --apply/--stamp are embedded
@@ -1082,7 +1117,7 @@ _launch() {
     # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
-    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" ]] && _svc="instruments_service"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _svc="instruments_service"
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
@@ -1092,7 +1127,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" || "$cat" == "defi-lst-rates-fold" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" || "$cat" == "defi-lst-rates-fold" || "$cat" == "defi-curve-optimism-reclassify" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -1179,7 +1214,7 @@ _launch() {
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
@@ -1259,7 +1294,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
