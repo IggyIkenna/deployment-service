@@ -818,6 +818,44 @@ def test_heartbeat_sweep_emits_stall(monkeypatch):
     assert any(e[0] == "DP_VM_STALL" and e[1] == "WARN" for e in emitted)
 
 
+def test_stall_finding_emits_vm_name_asset_group_and_message(monkeypatch):
+    """Regression test (2026-07-27, data_pipeline_alert_substrate_residual_2026_07_24.md
+    'verify the heartbeat-stall watcher emit carries vm_name+asset_group+message'):
+    the 13x-batch incident that motivated this ask came from an OLD alerting revision
+    (00005, pre-base-url) -- the CURRENT path must be measured directly rather than
+    assumed fixed. Traced end-to-end: heartbeat_stall_watcher._finding_for() stamps
+    vm_name + asset_group into PipelineFinding.details, and escalation.route_finding()
+    (event_details = dict(finding.details); then injects message = finding.summary when
+    absent) carries all three through to the log_event(details=...) the alerting-service
+    router consumes -- so per-VM DP_VM_STALL alerts DO render distinguishably today.
+    """
+    vm = "tradfi-bf-cme-vmname-check-2026"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (_pipeline_hb_runlog(vm, marker_age_min=40.0), None)})
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    monkeypatch.setattr(
+        escalation, "_dispatch_to_orchestrator", lambda _f, _p: {"dispatched": False, "reason": "muted"}
+    )
+    monkeypatch.setattr(escalation, "_resolve_pm_path", lambda _p: None)
+    heartbeat_stall_watcher.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[(vm, "asia-northeast1-c")],
+        vm_age_reader=lambda _n, _z: 120.0,
+        captured_reader=lambda _vm: 0,
+        asset_group_for_vm=lambda _vm: "tradfi",
+        stall_minutes=15,
+    )
+    stall_details = [d for d in captured_details if d.get("vm_name") == vm]
+    assert stall_details, "DP_VM_STALL finding should carry vm_name"
+    d = stall_details[0]
+    assert d["asset_group"] == "tradfi"
+    assert "message" in d and vm in d["message"]
+
+
 def test_stall_finding_carries_relaunch_launcher(monkeypatch):
     """When launcher_for_vm is wired, the DP_VM_STALL finding carries relaunch_launcher.
 
