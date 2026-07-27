@@ -630,14 +630,25 @@ lc_resolve_tarball_sha() {
 # create-code-tarballs.sh would tar right now) and acts per LC_TARBALL_FRESHNESS:
 #
 #   off      — skip the check entirely (return 0).
-#   warn     — (DEFAULT) print a loud WARNING + the exact republish remedy for
-#              each stale repo, then return 0 (never blocks a launch).
+#   warn     — print a loud WARNING + the exact republish remedy for each
+#              stale repo, then return 0 (never blocks a launch).
 #   enforce  — return 1 (block the launch) if ANY repo is stale or its tarball
 #              manifest is missing/unreadable — "never launch a VM onto stale
 #              code", mirroring setup-data-pipeline-vm.sh's TARBALL_EXPECTED_SHA
 #              gate one step earlier (before the VM even boots).
-#   auto     — republish each stale repo via create-code-tarballs.sh --include
-#              <repo>, re-verify, then return 0 (or 1 if a republish failed).
+#   auto     — (DEFAULT since 2026-07-27 — 3 independent same-day silent-stale
+#              incidents, see
+#              features_universe_filter_settlement_suffix_and_vm_tarball_staleness_2026_07_27.md)
+#              republish each stale repo WITH A CLEAN GIT TREE via
+#              create-code-tarballs.sh --include <repo>, re-verify, then
+#              return 0 — or 1 only if a republish it actually attempted
+#              failed. A stale repo with a DIRTY tree (uncommitted local WIP —
+#              common across this workspace's concurrent multi-slot clones) is
+#              never auto-republished (that would either bake someone else's
+#              WIP into the shared floating tarball or hit
+#              create-code-tarballs.sh's own dirty-tree guard and fail); it
+#              degrades to the same non-blocking warn behavior instead, so
+#              `auto` never blocks a launch over a repo it can't safely fix.
 #
 # Comparison ref: the local workspace clone HEAD by default (kept fresh by
 # slot-cron-ff-pull). Set LC_TARBALL_FRESHNESS_FETCH=true to `git fetch` first
@@ -645,7 +656,7 @@ lc_resolve_tarball_sha() {
 # live-defi-rollout) for a network-authoritative check.
 #
 # Env knobs:
-#   LC_TARBALL_FRESHNESS        off|warn|enforce|auto  (default: warn)
+#   LC_TARBALL_FRESHNESS        off|warn|enforce|auto  (default: auto)
 #   LC_TARBALL_FRESHNESS_FETCH  true|false             (default: false)
 #   LC_TARBALL_FRESHNESS_REF    branch                 (default: live-defi-rollout)
 #   WORKSPACE_ROOT              workspace root holding the sibling repo clones
@@ -669,7 +680,7 @@ lc_verify_tarball_freshness() {
 
     # bash-3.2 safe lowercase.
     local mode
-    mode="$(printf '%s' "${LC_TARBALL_FRESHNESS:-warn}" | tr '[:upper:]' '[:lower:]')"
+    mode="$(printf '%s' "${LC_TARBALL_FRESHNESS:-auto}" | tr '[:upper:]' '[:lower:]')"
     if [[ "$mode" == "off" ]]; then
         return 0
     fi
@@ -793,15 +804,51 @@ lc_verify_tarball_freshness() {
             return 1
             ;;
         auto)
-            echo "lc_verify_tarball_freshness: auto-republishing stale tarball(s): ${stale_repos}"
-            if $republish_cmd; then
+            # Only auto-republish repos with a CLEAN tree — see the `auto`
+            # entry in this function's docstring. A dirty repo degrades to
+            # warn-only so `auto` never blocks a launch over WIP it can't
+            # safely rebuild (dirty trees are common across this workspace's
+            # concurrent multi-slot clones).
+            local clean_repos="" dirty_repos=""
+            for r in $stale_repos; do
+                if [[ -z "$(git -C "$ws_root/$r" status --porcelain 2>/dev/null)" ]]; then
+                    clean_repos="${clean_repos}${r} "
+                else
+                    dirty_repos="${dirty_repos}${r} "
+                fi
+            done
+            clean_repos="${clean_repos% }"
+            dirty_repos="${dirty_repos% }"
+
+            if [[ -n "$dirty_repos" ]]; then
+                {
+                    echo "WARNING: dirty working tree, skipping auto-republish for: ${dirty_repos}"
+                    echo "WARNING: (would risk baking uncommitted WIP into the shared floating tarball,"
+                    echo "WARNING: or failing on create-code-tarballs.sh's own dirty-tree guard)."
+                    echo "WARNING: commit/stash, or republish manually once clean:"
+                    echo "WARNING:   bash ${lib_dir}/../create-code-tarballs.sh --include <repo>"
+                } >&2
+            fi
+
+            if [[ -z "$clean_repos" ]]; then
+                echo "lc_verify_tarball_freshness: nothing auto-republishable (all stale repos dirty) — not blocking"
+                return 0
+            fi
+
+            local auto_republish_cmd="bash ${lib_dir}/../create-code-tarballs.sh"
+            for r in $clean_repos; do
+                auto_republish_cmd="${auto_republish_cmd} --include ${r}"
+            done
+
+            echo "lc_verify_tarball_freshness: auto-republishing stale tarball(s): ${clean_repos}"
+            if $auto_republish_cmd; then
                 echo "lc_verify_tarball_freshness: republish complete — re-verifying"
                 # Re-verify once in warn mode (no infinite loop) so the operator
                 # sees confirmation the republish took.
-                LC_TARBALL_FRESHNESS=warn lc_verify_tarball_freshness "$code_bucket" $stale_repos
+                LC_TARBALL_FRESHNESS=warn lc_verify_tarball_freshness "$code_bucket" $clean_repos
                 return 0
             fi
-            echo "ERROR: auto-republish failed for: ${stale_repos} — not launching onto unverified code" >&2
+            echo "ERROR: auto-republish failed for: ${clean_repos} — not launching onto unverified code" >&2
             return 1
             ;;
     esac
