@@ -1724,6 +1724,72 @@ def test_critical_attempts_dispatch(monkeypatch):
     assert result["dispatch"]["dispatched"] is True
 
 
+def test_dispatch_client_payload_stays_under_github_top_level_key_cap(monkeypatch):
+    """Regression guard: GitHub's repository_dispatch endpoint 422s a client_payload
+    over 10 top-level properties. A prior payload shape (repo/pr_number/wall_type/
+    context/authoring_slot/model + action/vm_name/relaunch_launcher/deployment_id/
+    asset_group = 11 keys) hit exactly this cap on every VM-lifecycle finding, so
+    auto-relaunch never fired for any frozen/stalled VM — silently, since the 422's
+    response body was never logged, only the generic exception string
+    (heartbeat_stall_watcher_autokill_never_works_in_production_2026_07_27.md, the
+    422-dispatch half of that investigation). The 5 relaunch-specific fields were
+    also provably dead: escalate-to-orchestrator.yml's actual POST /api/escalate
+    body (unified-trading-pm) only ever forwarded repo/pr_number/wall_type/context/
+    authoring_slot/model — so dropping them lost no downstream capability, the
+    worker already gets vm_name/launcher/deployment_id/asset_group via the
+    human-readable `context` text (relaunch_ctx)."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+
+    class _FakeSecretClient:
+        def get_secret(self, _name: str) -> str:
+            return "fake-gh-token"
+
+    monkeypatch.setattr(escalation, "get_secret_client", lambda: _FakeSecretClient())
+
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status = 204
+
+        def close(self) -> None:
+            return None
+
+    def _fake_urlopen(request, timeout=15):  # noqa: ARG001
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse()
+
+    monkeypatch.setattr(escalation.urllib.request, "urlopen", _fake_urlopen)
+
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm frozen",
+        details={
+            "vm_name": "canonical-migration-cefi-content-apply-055803-cs9-1d",
+            "relaunch_launcher": "launch-canonical-migration-vm.sh",
+            "deployment_id": "dep-123",
+            "asset_group": "cefi",
+        },
+        registry_id="DP-VM-002",
+    )
+
+    out = escalation._dispatch_to_orchestrator(finding, None)
+
+    assert out["dispatched"] is True
+    client_payload = captured["payload"]["client_payload"]
+    assert len(client_payload) <= 10, (
+        f"client_payload has {len(client_payload)} top-level keys — GitHub's repository_dispatch "
+        "caps client_payload at 10 top-level properties; exceeding it 422s every dispatch."
+    )
+    # The relaunch binding must still reach the worker somehow — via the context text,
+    # since the structured fields were dropped as dead weight (see docstring above).
+    assert "RELAUNCH vm=canonical-migration-cefi-content-apply-055803-cs9-1d" in client_payload["context"]
+
+
 def test_dispatch_is_non_raising_without_gh_token(monkeypatch):
     """The REAL _dispatch_to_orchestrator never raises — no GH token → graceful skip."""
     emitted: list[str] = []

@@ -709,8 +709,17 @@ def test_actuator_unavailable_dispatches_worker_even_without_pm_clone(monkeypatc
 
 
 def test_dispatch_payload_carries_relaunch_binding(monkeypatch):
-    """The dispatch ``client_payload`` carries the STRUCTURED relaunch binding so the
-    worker relaunches from the registries, not by parsing the context text."""
+    """The dispatch ``client_payload`` carries the relaunch binding via the
+    human-readable ``context`` text, NOT as separate top-level keys.
+
+    Those 5 fields (action/vm_name/relaunch_launcher/deployment_id/asset_group) used
+    to ride as their own top-level client_payload keys, pushing the total to 11 —
+    over GitHub's documented 10-top-level-key cap for repository_dispatch, so every
+    VM-lifecycle dispatch 422'd and auto-relaunch never fired for any frozen/stalled
+    VM (heartbeat_stall_watcher_autokill_never_works_in_production_2026_07_27.md).
+    They were also provably dead weight: escalate-to-orchestrator.yml's actual
+    POST /api/escalate body never forwarded them, only repo/pr_number/wall_type/
+    context/authoring_slot/model — so dropping them lost no real capability."""
 
     class _FakeSecretClient:
         def get_secret(self, _name: str) -> str:
@@ -746,12 +755,18 @@ def test_dispatch_payload_carries_relaunch_binding(monkeypatch):
     out = escalation._dispatch_to_orchestrator(finding, None)
     assert out["dispatched"] is True
     client_payload = captured["body"]["client_payload"]  # type: ignore[index]
-    assert client_payload["action"] == "relaunch_vm"
-    assert client_payload["vm_name"] == "vm-x"
-    assert client_payload["relaunch_launcher"] == "launch-x.sh"
-    assert client_payload["deployment_id"] == "dep-1"
-    assert client_payload["asset_group"] == "tradfi"
-    assert "rb_infra_relaunch.md" in client_payload["context"]
+    assert len(client_payload) <= 10, (
+        f"client_payload has {len(client_payload)} top-level keys — over GitHub's "
+        "repository_dispatch cap of 10; every dispatch would 422."
+    )
+    assert "action" not in client_payload
+    assert "vm_name" not in client_payload
+    context = client_payload["context"]
+    assert "RELAUNCH vm=vm-x" in context
+    assert "launcher=launch-x.sh" in context
+    assert "deployment_id=dep-1" in context
+    assert "asset_group=tradfi" in context
+    assert "rb_infra_relaunch.md" in context
 
 
 def test_route_auto_recover_oom_relaunch_via_finding(tmp_path: Path, monkeypatch):
