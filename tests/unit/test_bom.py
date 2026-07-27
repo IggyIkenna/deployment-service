@@ -9,10 +9,12 @@ test_deployment_heartbeat_cli.py.
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
 import sys
 from dataclasses import dataclass
 from types import ModuleType
+from unittest.mock import patch
 
 
 def _load_bom_module() -> ModuleType:
@@ -95,3 +97,20 @@ def test_resolve_bom_unknowns_stay_empty() -> None:
     assert _bom.BASE_IMAGE_DIGEST_KEY not in bom.dep_versions
     # Installed internal dists are still honestly reported.
     assert set(bom.dep_versions) <= set(_bom.BOM_DISTRIBUTIONS)
+
+
+def test_resolve_bom_reads_git_commit_from_env_via_deployment_config() -> None:
+    """Phase 3c (artifact_pipeline_observability plan): `setup-data-pipeline-vm.sh` now `export
+    GIT_COMMIT=<sha>` at VM launch — this is the Python half of that fix, covering the REAL
+    `DeploymentConfig` (not the `_StubConfig` double above) so the env-var alias resolution itself is
+    exercised, not just `resolve_deployment_bom`'s own passthrough logic (already covered above).
+    `GIT_COMMIT` is the first `AliasChoices` entry on `DeploymentConfig.git_commit` — no code change
+    was needed for this to work; this test pins that it doesn't silently regress.
+    """
+    from deployment_service.deployment_config import DeploymentConfig
+
+    with patch.dict(os.environ, {"GIT_COMMIT": "4b3aad7181cb782c1ea41677fa1e720765aad88f"}):
+        config = DeploymentConfig()
+        assert config.git_commit == "4b3aad7181cb782c1ea41677fa1e720765aad88f"
+        bom = _bom.resolve_deployment_bom(config)
+        assert bom.git_commit == "4b3aad7181cb782c1ea41677fa1e720765aad88f"

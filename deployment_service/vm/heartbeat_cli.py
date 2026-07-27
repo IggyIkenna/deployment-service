@@ -29,6 +29,7 @@ import logging
 import pathlib
 import sys
 import tempfile
+from datetime import UTC, datetime
 from typing import cast
 
 from unified_trading_library import (
@@ -38,13 +39,17 @@ from unified_trading_library import (
     DEPLOYMENT_PROGRESS,
     DEPLOYMENT_STARTED,
     HOST_METRICS_WINDOW_KEY,
+    RESOURCE_SAMPLE,
+    RUN_LEDGER_RECORDED,
     DeploymentRegistryEntry,
     DeploymentsRegistry,
+    FlatEventPublisher,
     HeartbeatDaemon,
     HeartbeatEntry,
     HostMetricsSampler,
     LocalFsEventSink,  # pyright: ignore[reportPrivateImportUsage]
     PubSubEventSink,  # pyright: ignore[reportPrivateImportUsage]
+    PubSubFlatEventPublisher,
     SignalProtocol,
     coerce_host_metrics_window,
     get_storage_client,
@@ -200,6 +205,63 @@ def _vm_payload(entry: HeartbeatEntry) -> dict[str, object]:
     }
 
 
+def _vm_resource_sample_payload(entry: HeartbeatEntry, sample_dict: dict[str, float]) -> dict[str, object]:
+    """Flat resource_samples row matching the BQ table's exact column names.
+
+    Column is ``service`` (not ``service_name``) per
+    deployment_durable_operational_data_bigquery_2026_07_21.md's schema — this
+    caller-supplied builder exists specifically so daemon.py's generic default
+    doesn't have to hardcode a deployment-service-specific column name.
+    """
+    md = entry.metadata
+    payload: dict[str, object] = {
+        "deployment_id": entry.deployment_id,
+        "vm_name": md.get("vm_name", entry.service_name),
+        "service": entry.service_name,
+        "asset_group": md.get("asset_group") or md.get("category", ""),
+        "mode": md.get("mode", ""),
+        "ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "workload_alive": md.get("workload_alive", True),
+    }
+    payload.update(sample_dict)
+    return payload
+
+
+def _vm_run_summary_payload(entry: HeartbeatEntry) -> dict[str, object]:
+    """Flat run_ledger row — a SUBSET of ``_vm_payload``'s fields, not the whole metadata dict.
+
+    Deliberately excludes ``host_metrics_window`` (a nested list, not a flat BQ
+    column) and ``dep_versions`` (a nested dict) — those stay Firestore/registry-only.
+    ``cpu_pct``/``mem_pct``/``disk_pct`` here are the LATEST instantaneous sample at
+    completion, not a true peak-over-run — real peak-tracking is a follow-up
+    (PR-6, deployment_durable_operational_data_bigquery_2026_07_21.md).
+    """
+    md = entry.metadata
+    counters = entry.counters
+    return {
+        "deployment_id": entry.deployment_id,
+        "vm_name": md.get("vm_name", entry.service_name),
+        "asset_group": md.get("asset_group") or md.get("category", ""),
+        "task": md.get("task", ""),
+        "mode": md.get("mode", ""),
+        "status": entry.status,
+        "exit_code": entry.exit_code,
+        "started_at": entry.started_at,
+        "completed_at": entry.completed_at,
+        "rows_in": counters.get("rows_in", 0),
+        "rows_out": counters.get("rows_out", 0),
+        "rows_error": counters.get("rows_error", 0),
+        "events_emitted": counters.get("events_emitted", 0),
+        "log_uri": md.get("log_uri", ""),
+        "image_digest": md.get("image_digest", ""),
+        "git_commit": md.get("git_commit", ""),
+        "cpu_pct": md.get("cpu_pct", 0.0),
+        "mem_pct": md.get("mem_pct", 0.0),
+        "disk_pct": md.get("disk_pct", 0.0),
+        "workload_alive": md.get("workload_alive", True),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Events bootstrap
 # ---------------------------------------------------------------------------
@@ -222,6 +284,26 @@ def _init_events(config: DeploymentConfig) -> None:
         service_name="vm-heartbeat-daemon",
     )
     setup_events(service_name="vm-heartbeat-daemon", mode="batch", sink=sink)
+
+
+def _build_flat_publishers(
+    config: DeploymentConfig,
+) -> tuple[FlatEventPublisher | None, FlatEventPublisher | None]:
+    """Build the two flat-schema (BQ-bound) publishers, or (None, None) with no project.
+
+    Separate from ``_init_events`` on purpose — these publish to dedicated topics
+    with a flat payload, bypassing the generic ``log_event`` envelope entirely
+    (deployment_durable_operational_data_bigquery_2026_07_21.md PR-1). Additive:
+    the generic DEPLOYMENT_* lifecycle events above still fire unchanged.
+    """
+    project_id = config.gcp_project_id
+    if not project_id:
+        return None, None
+    resource_sample_publisher = PubSubFlatEventPublisher(
+        project_id=project_id, topic=config.resource_sample_events_topic
+    )
+    run_summary_publisher = PubSubFlatEventPublisher(project_id=project_id, topic=config.run_ledger_events_topic)
+    return resource_sample_publisher, run_summary_publisher
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
     bucket = _s("bucket")
 
     _init_events(config)
+    resource_sample_publisher, run_summary_publisher = _build_flat_publishers(config)
 
     with run_lifecycle(
         service_name="vm-heartbeat-daemon",
@@ -404,6 +487,12 @@ def main(argv: list[str] | None = None) -> int:
             upload_max_staleness_sec=upload_max_staleness,
             payload_builder=_vm_payload,
             host_metrics_sampler=HostMetricsSampler(),
+            resource_sample_event=RESOURCE_SAMPLE,
+            resource_sample_publisher=resource_sample_publisher,
+            resource_sample_payload_builder=_vm_resource_sample_payload,
+            run_summary_event=RUN_LEDGER_RECORDED,
+            run_summary_publisher=run_summary_publisher,
+            run_summary_payload_builder=_vm_run_summary_payload,
         )
         return daemon.run()
 

@@ -118,6 +118,26 @@ class DeploymentConfig(UnifiedCloudConfig):
         description="PubSub topic the VM heartbeat daemon publishes lifecycle events to",
     )
 
+    resource_sample_events_topic: str = Field(
+        default="resource-samples",
+        validation_alias=AliasChoices("RESOURCE_SAMPLE_EVENTS_TOPIC"),
+        description=(
+            "Dedicated PubSub topic for flat-schema resource-sample events (BQ-bound, "
+            "deployment_durable_operational_data_bigquery_2026_07_21.md PR-1) — separate "
+            "from deployment_events_topic's nested envelope so a native BigQuery "
+            "subscription can produce typed columns directly."
+        ),
+    )
+
+    run_ledger_events_topic: str = Field(
+        default="run-ledger",
+        validation_alias=AliasChoices("RUN_LEDGER_EVENTS_TOPIC"),
+        description=(
+            "Dedicated PubSub topic for the flat-schema run-summary event (durable "
+            "run_ledger row, same PR-1 decision as resource_sample_events_topic)."
+        ),
+    )
+
     heartbeat_interval_sec: int = Field(
         default=60,
         validation_alias=AliasChoices("HEARTBEAT_INTERVAL_SEC"),

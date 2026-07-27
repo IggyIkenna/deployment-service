@@ -41,9 +41,9 @@ async def root() -> dict[str, str]:
 async def receive_signal(cp_id: str, request: Request) -> JSONResponse:
     body_bytes = await request.body()
     headers = dict(request.headers)
-    auth_header = headers.get("authorization", "")
-    idempotency_key = headers.get("idempotency-key", "")
-    content_type = headers.get("content-type", "")
+    auth_header = headers.get("authorization", "")  # noqa: qg-empty-fallback — optional HTTP header, absent is a real "not sent" state
+    idempotency_key = headers.get("idempotency-key", "")  # noqa: qg-empty-fallback — optional HTTP header, absent is a real "not sent" state
+    content_type = headers.get("content-type", "")  # noqa: qg-empty-fallback — optional HTTP header, absent is a real "not sent" state
 
     # stdout print is what `gcloud run services logs read` surfaces cleanly.
     print(

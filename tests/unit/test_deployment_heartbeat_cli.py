@@ -86,8 +86,11 @@ def test_heartbeat_cli_register_then_complete(storage: InMemoryStorageClient, mo
     spec.loader.exec_module(module)
 
     registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=storage)
-    monkeypatch.setattr(module, "_init_events", lambda: None)
+    monkeypatch.setattr(module, "_init_events", lambda config: None)
     monkeypatch.setattr(module, "_emit", lambda *a, **k: None)
+    # Same "don't touch Pub/Sub" intent as the two mocks above — _build_run_summary_publisher
+    # is a separate call site `cmd_complete` invokes directly (not through `_emit`).
+    monkeypatch.setattr(module, "_build_run_summary_publisher", lambda config: None)
     monkeypatch.setattr(module, "DeploymentsRegistry", lambda bucket: registry)
     # Deterministic BoM — resolve_deployment_bom(config=None) would otherwise
     # lazily import DeploymentConfig through the stub package and fail.
