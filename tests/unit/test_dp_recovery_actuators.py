@@ -211,6 +211,86 @@ def test_stalled_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch):
     assert launched == []
 
 
+# ── relaunch_stalled_vm progress-checkpoint resume (operator ask 2026-07-27) ─
+# "stale vms should be watchdog killed and relaunched if they weren't complete"
+# — mirrors RelaunchPreemptedVm's checkpoint-resume contract (minus tarball-repin).
+
+
+def test_stalled_relaunch_resumes_from_monotonic_checkpoint(tmp_path: Path, monkeypatch):
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchStalledVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "tradfi-bf-cme",
+        launcher="launch-tradfi-bf-cme.sh",
+        launch_env={"VENUE": "CME", "START_DATE": "2019-01-01"},
+        checkpoint={"last_completed_date": "2026-05-01", "monotonic": "true"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["START_DATE"] == "2026-05-01"
+    assert launched[0][1]["VENUE"] == "CME"
+    assert any(
+        e[0] == "DP_VM_STALL" and e[1] == "INFO" and e[2].get("resume_from_checkpoint") == "2026-05-01" for e in emitted
+    )
+
+
+def test_stalled_relaunch_force_run_no_checkpoint_pages(tmp_path: Path, monkeypatch):
+    emitted = _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchStalledVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch(
+        "tradfi-bf-cme",
+        launcher="launch-tradfi-bf-cme.sh",
+        launch_env={"VM_FORCE": "true", "START_DATE": "2019-01-01"},
+    )
+    assert result["status"] == "PAGE"
+    assert result["reason"] == "force_run_not_replayable"
+    assert launched == []
+    assert any(e[0] == "DP_VM_STALL" and e[1] == "CRITICAL" and e[2].get("force_run_not_replayable") for e in emitted)
+
+
+def test_stalled_relaunch_non_force_no_checkpoint_replays_verbatim(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchStalledVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "tradfi-bf-cme",
+        launcher="launch-tradfi-bf-cme.sh",
+        launch_env={"START_DATE": "2026-02-01", "VENUE": "CME"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["START_DATE"] == "2026-02-01"  # unchanged — no checkpoint, verbatim replay
+
+
+def test_stalled_relaunch_no_launch_env_or_checkpoint_still_works(tmp_path: Path, monkeypatch):
+    """Back-compat: a caller that never passes launch_env/checkpoint (today's
+    only real caller shape until the watcher wiring rolls out) keeps working."""
+    _patch_log_event(monkeypatch)
+    launched: list[str] = []
+    actuator = RelaunchStalledVm(
+        budget_dir=tmp_path,
+        now=lambda: _FIXED_NOW,
+        run_launcher=lambda n, *, env: launched.append(n) or _ok_launcher(n, env=env),
+    )
+    result = actuator.relaunch("tradfi-bf", launcher="launch-tradfi-bf-cme.sh")
+    assert result["status"] == "SUCCEEDED"
+    assert launched == ["launch-tradfi-bf-cme.sh"]
+
+
 # ── relaunch_preempted_vm (DP_VM_PREEMPTED self-heal, Fix 1) ────────────────
 
 
@@ -1059,3 +1139,156 @@ def test_registry_read_failure_degrades_to_launch_env_never_raises(tmp_path: Pat
 
     assert result["status"] == "SUCCEEDED"
     assert launched[0][1]["UAC_TARBALL_SHA"] == "livesha"
+
+
+# ── route_finding wiring: DP_VM_STALL threads launch_env/checkpoint ─────────
+
+
+def test_route_auto_recover_stalled_relaunch_resumes_from_checkpoint(tmp_path: Path, monkeypatch):
+    """DP_VM_STALL is wired to relaunch_stalled_vm — a finding carrying
+    launch_env + progress_checkpoint resumes from the checkpoint frontier
+    (operator ask 2026-07-27), mirroring the PREEMPTED wiring test above."""
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def stalled_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchStalledVm(
+            budget_dir=tmp_path,
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: (
+                launched.append((n, dict(env)))
+                or subprocess.CompletedProcess(args=["bash", n], returncode=0, stdout="ok", stderr="")
+            ),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_stalled_vm.RelaunchStalledVm", stalled_class)
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="WARN",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="vm stalled",
+        details={
+            "vm_name": "tradfi-bf-cme-1",
+            "relaunch_launcher": "launch-tradfi-bf-cme.sh",
+            "asset_group": "tradfi",
+            "launch_env": {"START_DATE": "2019-01-01"},
+            "progress_checkpoint": {"last_completed_date": "2026-05-01", "monotonic": "true"},
+        },
+        registry_id="DP-VM-003",
+    )
+    result = escalation.route_finding(finding)
+    assert result["effective_tier"] == "auto_recover"
+    assert result["recovery"]["recovered"] is True
+    assert launched == [("launch-tradfi-bf-cme.sh", {"START_DATE": "2026-05-01"})]
+
+
+# ── route_finding: OOM successful relaunch also files an investigate doc ────
+# (operator ask 2026-07-27: "file an issue doc to investigate the oom when a
+# human wakes up" — even when the escalated-memory relaunch itself succeeds.)
+
+
+def test_oom_relaunch_with_bigger_machine_files_investigate_issue_doc(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+
+    def launcher_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchBackfillVm(
+            budget_dir=tmp_path / "budget",
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: _ok_launcher(n, env=env),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchBackfillVm", launcher_class)
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM cefi-cs7-4d terminated with exit_code=137 (OOM)",
+        details={
+            "vm_name": "cefi-cs7-4d",
+            "exit_code": 137,
+            "oom": True,
+            "relaunch_launcher": "launch-canonical-migration-vm.sh",
+            "asset_group": "cefi",
+            "bigger_machine": True,
+            "machine_type": "e2-standard-8",
+        },
+        registry_id="DP-VM-001",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["effective_tier"] == "auto_recover"  # the relaunch itself still succeeded quietly
+    assert result["recovery"]["recovered"] is True
+    oom_path = result.get("oom_investigate_issue_path")
+    assert oom_path is not None, "a successful escalated-memory OOM relaunch must file a human follow-up"
+    contents = Path(oom_path).read_text(encoding="utf-8")
+    assert "investigate OOM root cause" in contents
+    assert "cefi" in contents  # the vm-prefix appears in the title
+
+
+def test_oom_relaunch_without_bigger_machine_hint_does_not_file_investigate_doc(tmp_path: Path, monkeypatch):
+    """A finding with no bigger_machine hint never escalated the machine type, so
+    there is nothing new to investigate beyond the ordinary path — no doc."""
+    _patch_log_event(monkeypatch)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+
+    def launcher_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchBackfillVm(
+            budget_dir=tmp_path / "budget",
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: _ok_launcher(n, env=env),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchBackfillVm", launcher_class)
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="VM sports-bf-1 terminated with exit_code=137 (OOM)",
+        details={"vm_name": "sports-bf-1", "exit_code": 137, "oom": True, "relaunch_launcher": "launch-x.sh"},
+        registry_id="DP-VM-001",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["effective_tier"] == "auto_recover"
+    assert result.get("oom_investigate_issue_path") is None
+    assert not list((pm / "plans" / "active" / "issues").iterdir()), "no issue doc should have been written"
+
+
+def test_oom_relaunch_investigate_doc_idempotent_same_day(tmp_path: Path, monkeypatch):
+    """A second same-day OOM of the SAME vm-prefix collapses into the same doc
+    (via _write_issue_doc's own slug+date dedup) rather than filing a new one
+    per relaunch."""
+    _patch_log_event(monkeypatch)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+
+    def launcher_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchBackfillVm(
+            budget_dir=tmp_path / "budget",
+            now=lambda: _FIXED_NOW,
+            run_launcher=lambda n, *, env: _ok_launcher(n, env=env),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_backfill_vm.RelaunchBackfillVm", launcher_class)
+
+    def _finding(vm_name: str) -> PipelineFinding:
+        return PipelineFinding(
+            event="DP_VM_EXIT_NONZERO",
+            severity="CRITICAL",
+            tier=EscalationTier.AUTO_RECOVER,
+            summary=f"VM {vm_name} terminated with exit_code=137 (OOM)",
+            details={
+                "vm_name": vm_name,
+                "exit_code": 137,
+                "oom": True,
+                "relaunch_launcher": "launch-canonical-migration-vm.sh",
+                "bigger_machine": True,
+            },
+            registry_id="DP-VM-001",
+        )
+
+    r1 = escalation.route_finding(_finding("cefi-cs7-4d"), pm_repo_path=str(pm))
+    r2 = escalation.route_finding(_finding("cefi-cs8-2f"), pm_repo_path=str(pm))
+    assert r1["oom_investigate_issue_path"] == r2["oom_investigate_issue_path"]
+    assert len(list((pm / "plans" / "active" / "issues").iterdir())) == 1

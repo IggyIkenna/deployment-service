@@ -219,6 +219,13 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "backfill-orphan-e-defi-": "launch-backfill-orphan-e-vm.sh",
     "backfill-orphan-e-tradfi-": "launch-backfill-orphan-e-vm.sh",
     "backfill-orphan-e-prediction-": "launch-backfill-orphan-e-vm.sh",
+    # Candle-corpus class-E/F record_captured backfill (backfill_candle_manifest.py)
+    # — RECORD-ONLY (never rewrites/deletes the source object), so a SPOT preemption
+    # relaunch is a safe restart-from-scratch of the whole report.
+    "backfill-candle-manifest-cefi-": "launch-backfill-candle-manifest-vm.sh",
+    "backfill-candle-manifest-defi-": "launch-backfill-candle-manifest-vm.sh",
+    "backfill-candle-manifest-tradfi-": "launch-backfill-candle-manifest-vm.sh",
+    "backfill-candle-manifest-prediction-": "launch-backfill-candle-manifest-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",

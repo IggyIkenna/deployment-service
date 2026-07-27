@@ -25,6 +25,15 @@ hang), so the relaunch is **budget-bounded**: at most ``_MAX_RELAUNCHES_PER_DAY`
 diagnose the hang's root cause — almost always an outbound call lacking a
 ``timeout=`` per the CLAUDE.md hung-process rule).
 
+**Checkpoint-aware resume (2026-07-27, operator ask)**: mirrors
+``RelaunchPreemptedVm``'s ``launch_env``/``checkpoint`` resume contract — a
+stall-killed VM that wrote a monotonic ``PROGRESS.json`` checkpoint resumes from
+its ``last_completed_date`` instead of blindly replaying the original
+``START_DATE`` from genesis. Before this, "watchdog killed + relaunched" only
+ever meant "restart the whole shard again" — real, if wasteful, work but not
+what "resume from where it left off" means. Does NOT port the preemption
+actuator's tarball-repin logic (a separate, long-lived-fleet concern).
+
 Mirrors the shipped ``refetch_feed`` / ``relaunch_backfill_vm`` actuator pattern —
 idempotent, dry-runnable, cloud-agnostic (no direct ``google.cloud``; the relaunch
 is the existing launcher subprocess, which itself uses the sanctioned SDK
@@ -135,6 +144,8 @@ class RelaunchStalledVm:
         launcher: str,
         asset_group: str = "",
         launcher_env: dict[str, str] | None = None,
+        launch_env: dict[str, str] | None = None,
+        checkpoint: dict[str, str] | None = None,
         dry_run: bool = False,
     ) -> dict[str, str | bool | int | None]:
         """Re-launch the stalled backfill, budget-bounded. Never raises.
@@ -146,6 +157,20 @@ class RelaunchStalledVm:
           the human/worker call: fix the unbounded call).
         - SDK/launcher failure → ``status=FAILED`` (caller falls to file_issue).
         - else → ``status=SUCCEEDED`` (relaunched).
+
+        ``launch_env`` + ``checkpoint`` mirror ``RelaunchPreemptedVm``'s resume
+        contract (operator ask, 2026-07-27: "stale vms should be watchdog killed
+        and relaunched if they weren't complete" — a stall-killed VM deserves the
+        SAME checkpoint-aware resume a SPOT-preempted one already gets, not a
+        blind replay from the original ``START_DATE``). A monotonic checkpoint
+        overrides ``START_DATE`` to the last completed date; a ``--force``/
+        ``redo_all`` run (``VM_FORCE=true``) with no such checkpoint PAGEs rather
+        than silently restarting from day one on every stall (the same day-one-
+        replay bug class ``RelaunchPreemptedVm`` already closes). Deliberately
+        does NOT port that actuator's tarball-repin logic — a separate,
+        long-lived-fleet-specific concern, not part of "resume where it left
+        off". ``launcher_env`` (back-compat) is applied as a final override on
+        top of the resolved env.
         """
         prefix = vm_prefix(vm_name)
         base: dict[str, str | bool | int | None] = {
@@ -188,8 +213,49 @@ class RelaunchStalledVm:
                 "max_per_day": self._max_per_day,
             }
 
+        # ── Progress-checkpoint resume (mirrors RelaunchPreemptedVm) ─────────
+        env = dict(launch_env or {})
+        force = str(env.get("VM_FORCE", "")).strip().lower() == "true"
+        resume_date = ""
+        if checkpoint is not None:
+            monotonic = str(checkpoint.get("monotonic", "false")).strip().lower() == "true"
+            last = str(checkpoint.get("last_completed_date", "")).strip()
+            if last and monotonic:
+                resume_date = last
+
+        if resume_date:
+            env["START_DATE"] = resume_date
+            log_event(
+                DP_VM_STALL,
+                severity="INFO",
+                details={
+                    **base,
+                    "recovery_action": "relaunch_stalled_vm",
+                    "resume_from_checkpoint": resume_date,
+                    "force_run": force,
+                    "detail": "resuming from the monotonic PROGRESS checkpoint frontier instead of "
+                    "replaying the original START_DATE",
+                },
+            )
+        elif force:
+            log_event(
+                DP_VM_STALL,
+                severity="CRITICAL",
+                details={
+                    **base,
+                    "recovery_action": "relaunch_stalled_vm",
+                    "force_run_not_replayable": True,
+                    "detail": "stalled VM ran with VM_FORCE=true (redo_all) and left no monotonic PROGRESS "
+                    "checkpoint; replaying its original START_DATE would restart the backfill from day one "
+                    "on EVERY stall because --force disables the presence-skip a normal resume relies on. "
+                    "Relaunch from last_completed_unit+1 or ensure the run emits record_vm_progress checkpoints.",
+                },
+            )
+            return {**base, "status": "PAGE", "reason": "force_run_not_replayable"}
+
+        env.update(launcher_env or {})
+
         self._stamp_relaunch(prefix)
-        env = launcher_env or {}
         try:
             result = self._run_launcher(launcher, env=env)
         except Exception as exc:  # launcher/SDK failure → file_issue fallthrough

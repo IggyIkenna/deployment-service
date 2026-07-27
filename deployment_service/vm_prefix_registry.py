@@ -639,6 +639,24 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "backfill-orphan-e-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "backfill-orphan-e-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # Candle-corpus class-E/F record_captured backfill
+    # (launch-backfill-candle-manifest-vm.sh) — runs
+    # market-data-processing-service/scripts/backfill_candle_manifest.py
+    # --asset-group <ag> --apply, reading the durable orphan_sweep_{ag}.parquet
+    # report candle_orphan_sweep.py already wrote (staged under the CODE_BUCKET,
+    # passed via REPORT_URI — not a fixed per-AG tick-bucket path). Direct sibling
+    # of backfill-orphan-e-* (same bucket=None heartbeat-only reasoning: this tool
+    # writes a FIXED per-AG report path, not a per-VM shard). Singleton-locked per
+    # asset_group. Sports is EXCLUDED (its candle-manifest coverage is ~100%
+    # already — see the issue doc's measured numbers).
+    # SSOT: unified-trading-pm/plans/active/issues/mdps_candle_manifest_near_total_coverage_gap_2026_07_27.md
+    # todo 1.
+    # ------------------------------------------------------------------
+    "backfill-candle-manifest-cefi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-candle-manifest-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-candle-manifest-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "backfill-candle-manifest-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom
