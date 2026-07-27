@@ -292,8 +292,23 @@ fi
 # prefix is honoured. Feature writer resolves the sink via get_data_sink(routing_key=
 # ag.lower()) which reads PROTOCOL_DATA_SINK_BUCKET_{AG_UPPER}; input via
 # PROTOCOL_DATA_SOURCE_BUCKET. AG-keyed + base fallback both set (calendar=GLOBAL).
+#
+# MANIFEST_ALLOW_STALE_FALLBACK=true rides alongside IS_TEST_RUN=true: -test- tier
+# buckets have NO standing manifest-consolidator Cloud Run Job/Scheduler cron
+# (terraform's manifest_consolidator_buckets[_extended] maps only cover the
+# dev/staging/prod tiers via deployment_env_short — confirmed live 2026-07-27,
+# `gcloud run jobs list` has no `*-features-sports-test*` job, only the prod-tier
+# `uts-prod-manifest-consolidator-features-sports` targeting
+# features-sports-prd-<pid>), by design — provisioning a per-minute job against an
+# ephemeral smoke-test bucket would be pure billing waste. So the VM-side read
+# against a -test- bucket will ALWAYS see a stale/missing consolidated index; without
+# this override `pipeline_e2e_check.py`'s own local driver process tolerates that
+# (it sets this same var for itself, see features-service scripts/pipeline_e2e_check.py
+# main()) but the remote VM it launches did not inherit the tolerance and hard-refused
+# (ManifestConsolidatorStaleError). Test buckets are always small, so the per-VM-shard
+# merge this unblocks can't hit the OOM the guard exists to prevent on prod buckets.
 if [[ -n "$TEST_SINK_BUCKET" || -n "$TEST_SOURCE_BUCKET" ]]; then
-    ENV_PREFIX="IS_TEST_RUN=true"
+    ENV_PREFIX="IS_TEST_RUN=true MANIFEST_ALLOW_STALE_FALLBACK=true"
     if [[ -n "$TEST_SINK_BUCKET" ]]; then
         ENV_PREFIX="$ENV_PREFIX PROTOCOL_DATA_SINK_BUCKET_${ASSET_GROUP}=${TEST_SINK_BUCKET} PROTOCOL_DATA_SINK_BUCKET=${TEST_SINK_BUCKET}"
     fi
