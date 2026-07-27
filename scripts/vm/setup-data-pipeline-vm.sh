@@ -1901,6 +1901,25 @@ elif [[ "$VM_TASK" == "backfill-orphan-e" ]]; then
   else
     log "ERROR: backfill-orphan-e task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "backfill-candle-manifest" ]]; then
+  # candle-corpus class-E/F record_captured backfill —
+  # launch-backfill-candle-manifest-vm.sh prepares the correct
+  # backfill_candle_manifest.py invocation in VM_BACKFILL_CMD (same
+  # VM_BACKFILL_CMD dispatch shape as backfill-orphan-e above — sibling
+  # launcher, added 2026-07-27 so this VM_TASK gets its OWN branch from day
+  # one rather than repeating the recurring no-dispatch-branch bug class
+  # documented on orphan-sweep/backfill-orphan-e above). Unlike those two
+  # (instruments-service), the target script lives in market-data-processing-
+  # service's mdps workspace dir.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/mdps" || { log "ERROR: $WORKSPACE/mdps missing — market-data-processing-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/backfill-candle-manifest.log"
+  else
+    log "ERROR: backfill-candle-manifest task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12
   # sports-v9-migration, 2026-07-13 defi-paper, 2026-07-21 datapoint-validation —
