@@ -1117,6 +1117,18 @@ _launch_with_tee() {
   export VM_MODE="${VM_MODE:-${VM_BACKFILL_MODE:-full}}"
   export VM_START_DATE="${VM_START_DATE:-}"
   export VM_END_DATE="${VM_END_DATE:-}"
+  # Phase 3c (artifact_pipeline_observability plan) — stamp the tarball commit this VM booted, for
+  # deployment-registry provenance. `_tarball_actual_sha` is already computed by the download loop
+  # above (the LAST tarball's manifest `commit_sha`, "unknown" if unparseable) — this reads it, never
+  # re-derives it. Deliberately mid-block, never a trailing `[[ ]] && export` (under `set -euo
+  # pipefail`, that form's failure would abort EVERY VM boot). Never abort on a missing/garbage SHA —
+  # degrade to the pre-existing "" (resolve_deployment_bom() already treats that as honestly unknown).
+  # Semantics: this is "the manifest commit_sha this VM read at boot", NOT an attestation of the
+  # running bytes (a floating pull can race the */30 refresh cron between the tarball and manifest
+  # `gsutil cp` calls) — the value is not sent at all when unknown, same absence as today.
+  if [[ -n "${_tarball_actual_sha:-}" && "$_tarball_actual_sha" != "unknown" ]]; then
+    export GIT_COMMIT="$_tarball_actual_sha"
+  fi
   export PYTHON_BIN="$VENV/bin/python"
   # VM-life PIPELINE_HEARTBEAT marker (BUG1b, 2026-06-22). The in-process UTL
   # PipelineHeartbeatTimer publishes a PIPELINE_HEARTBEAT *event* to PubSub, but
