@@ -268,7 +268,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -850,6 +850,30 @@ _candle_apply_cmd() {
     printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
+# Build the candle-orphan-sweep command (2026-07-27, todo 1 of
+# mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md) — READ-ONLY GCS->manifest
+# orphan sweep for ONE asset_group's processed_candles/ corpus (market-data-processing-
+# service/scripts/candle_orphan_sweep.py). Unlike candle-census/candle-apply, this tool does
+# its OWN internal single walk + bucket resolution (no pre-built enumeration file needed) —
+# the launcher only needs to invoke it, not stage a `gcloud storage ls` enumeration first.
+# $MODE is DELIBERATELY IGNORED (mirrors *-candle-census) — this category has NO reachable
+# --apply/delete path, ever; it only ever writes an audit report parquet + its own resumable
+# checkpoint (never manifest/GCS data). Supports ALL 5 asset_groups (unlike candle-apply,
+# which excludes sports) per the design brief's scope. `--manifest-fix-cutover` defaults to
+# the caa995c fix-landing date (2026-07-27, see the script's own module docstring for why an
+# omitted/pre-cutover no-manifest-row object must classify (F) ambiguous, never an unverified
+# (E)) — override via CANDLE_ORPHAN_SWEEP_CUTOVER for a re-run once more history is verified.
+# LIMIT (shared global) bounds the walk for a canary/smoke run; omit for the real full sweep.
+_candle_orphan_sweep_cmd() {
+    local ag="$1"       # cefi | defi | tradfi | sports | prediction
+    local vm_name="$2"
+    local cutover="${CANDLE_ORPHAN_SWEEP_CUTOVER:-2026-07-27}"
+    local stage="gs://${CODE_BUCKET}/canonical-migration-candle-orphan-sweep/${RUN_TS}/${vm_name}/orphan_sweep_${ag}.parquet"
+    local limit_flag=""
+    [[ "${LIMIT:-0}" -gt 0 ]] && limit_flag=" --limit ${LIMIT}"
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && python -u scripts/candle_orphan_sweep.py --asset-group ${ag} --manifest-fix-cutover ${cutover}${limit_flag} --report-out ${stage}"
+}
+
 _script_for() {
     case "$1" in
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
@@ -1165,6 +1189,18 @@ _launch() {
             return 1
         fi
         cmd="$(_candle_apply_cmd "${cat%-candle-apply}" "$vm_name")"
+    elif [[ "$cat" == *-candle-orphan-sweep ]]; then
+        # Candle orphan sweep (2026-07-27, todo 1): self-contained `cd ... && python ...`
+        # invocation -- the SCRIPT does its own internal single walk + bucket resolution, so
+        # (unlike candle-census/apply) there is no `gcloud storage ls` enumeration step here.
+        # $MODE is DELIBERATELY IGNORED (mirrors *-candle-census) -- READ-ONLY, no reachable
+        # --apply/delete path ever; only writes an audit report parquet + its own checkpoint.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for candle-orphan-sweep categories" >&2
+            echo "       -- use CANDLE_ORPHAN_SWEEP_CUTOVER / LIMIT env overrides instead." >&2
+            return 1
+        fi
+        cmd="$(_candle_orphan_sweep_cmd "${cat%-candle-orphan-sweep}" "$vm_name")"
     elif [[ "$cat" == "defi-marker-cleanup" ]]; then
         # DRY-RUN ONLY, HARD -- $MODE is deliberately IGNORED and forced to "dry" (mirrors
         # *-candle-census): this category has NO reachable --apply code path through this launcher,
@@ -1241,7 +1277,7 @@ _launch() {
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
-    [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _svc="market_data_processing_service"
+    [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _svc="market_data_processing_service"
     # sports-features-purge's script lives in features-service, not MTDS.
     [[ "$cat" == "sports-features-purge" ]] && _svc="features_service"
     md="${md},VM_SERVICE=${_svc}"
@@ -1262,6 +1298,7 @@ _launch() {
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
+    [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
     # SPORTS-K1K2-CASING-REVERT) so dashboards/heartbeat classify these VMs with the rest of sports.
     [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]] && _ag="SPORTS"
@@ -1371,7 +1408,7 @@ _launch() {
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
@@ -1465,7 +1502,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
