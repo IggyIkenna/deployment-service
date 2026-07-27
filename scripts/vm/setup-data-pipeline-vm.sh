@@ -1932,6 +1932,26 @@ elif [[ "$VM_TASK" == "backfill-candle-manifest" ]]; then
   else
     log "ERROR: backfill-candle-manifest task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "sports-derived-features-census" ]]; then
+  # Sports derived_features post-floor residue census —
+  # launch-sports-derived-features-census-vm.sh prepares the correct
+  # purge_sports_derived_features_post_floor_residue_2026_07_27.py invocation
+  # (no --apply) in VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as
+  # datapoint-validation/orphan-sweep above). Found 2026-07-27 (first real
+  # launch-run): this VM_TASK had NO dispatch branch here — same root-cause
+  # class as those two (VM self-deleted rc=1 within ~3 minutes on the generic
+  # fallback guard below, before the census ever ran). Unlike instruments-
+  # service tasks above, the target script lives in features-service's
+  # workspace dir.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/features" || { log "ERROR: $WORKSPACE/features missing — features-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/sports-derived-features-census.log"
+  else
+    log "ERROR: sports-derived-features-census task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12
   # sports-v9-migration, 2026-07-13 defi-paper, 2026-07-21 datapoint-validation —
