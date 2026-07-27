@@ -966,6 +966,25 @@ _script_for() {
         # day-sub-range sharding across several VMs is strongly preferred over one VM walking serially).
         # DRY-BY-DEFAULT + --apply for full (same convention as defi/cefi/tradfi-cid below).
         defi-relabel) echo "python -u scripts/relabel_solana_dex_pools_fake_history.py" ;;
+        # Sports derived_features post-floor residue census+purge (2026-07-27, Track F
+        # follow-up, sports_consolidated_native_ao_extract_2026_07_25.md). Runs from
+        # features-service (VM_SERVICE=features_service below re-homes the dispatcher's
+        # default `cd $WORKSPACE/mtds` into `$WORKSPACE/features` -- same re-homing trick
+        # as tradfi-catalogue-canon/candle-census). A standalone scripts/ tool, not an
+        # installed package module, so invoked as a PLAIN SCRIPT. $MODE is baked in here
+        # (compound chain), NOT via the generic --apply/--dry-run append below -- dry mode
+        # runs the census once (no mutation); full mode applies the delete then, only on a
+        # clean exit, immediately chains --recensus to verify 0 residue objects remain
+        # (steps 4+5 of the todo's own spec, one VM boot instead of two). No --shard-of --
+        # the tool parallelizes internally via --workers (per-day GCS listing threads), not
+        # via multiple VMs.
+        sports-features-purge)
+            if [[ "$MODE" == "full" ]]; then
+                printf '%s' "cd ${VM_WORKSPACE}/features && python -u scripts/purge_sports_derived_features_post_floor_residue_2026_07_27.py --workers ${WORKERS:-32} --apply; rc=\$?; echo \"=== PURGE DONE rc=\${rc} ===\"; if [ \"\${rc}\" -eq 0 ]; then echo \"=== RE-CENSUS START ===\"; python -u scripts/purge_sports_derived_features_post_floor_residue_2026_07_27.py --workers ${WORKERS:-32} --recensus; rc=\$?; echo \"=== RE-CENSUS DONE rc=\${rc} ===\"; fi; exit \${rc}"
+            else
+                printf '%s' "cd ${VM_WORKSPACE}/features && python -u scripts/purge_sports_derived_features_post_floor_residue_2026_07_27.py --workers ${WORKERS:-32}"
+            fi
+            ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -1155,11 +1174,13 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed.
+              # sports-features-purge's own if/full else/dry branches are the SAME class of compound
+              # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
         elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1180,6 +1201,8 @@ _launch() {
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
     [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]] && _svc="market_data_processing_service"
+    # sports-features-purge's script lives in features-service, not MTDS.
+    [[ "$cat" == "sports-features-purge" ]] && _svc="features_service"
     md="${md},VM_SERVICE=${_svc}"
     md="${md},VM_OPERATION=migrate-${cat}"
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
@@ -1198,6 +1221,9 @@ _launch() {
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
+    # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE) so dashboards/
+    # heartbeat classify this VM with the rest of sports.
+    [[ "$cat" == "sports-features-purge" ]] && _ag="SPORTS"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -1368,7 +1394,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp) _launch "$ASSET_GROUP" ;;
+    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

@@ -824,6 +824,16 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # sports derived_features post-floor residue census+purge (Track F follow-up,
+    # sports_consolidated_native_ao_extract_2026_07_25.md) — launch-canonical-migration-
+    # vm.sh category "sports-features-purge", VM name
+    # canonical-migration-sports-features-purge-{ts}. Bucket = features-sports-{pid}
+    # (NOT the tick bucket the shorter "canonical-migration-sports-" prefix above maps
+    # to) — this longer, more specific prefix wins via longest-prefix-match.
+    "canonical-migration-sports-features-": VmPrefixSpec(
+        bucket=_FEAT_SPORTS,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     # legacy→canonical sharded migration VMs — launch-legacy-bucket-migration-sharded.sh
     # naming: canonical-migration-legacy-{cefi|tradfi|defi|prediction|sports}-{shard}-{ts}
     # (bucket_name_ssot_legacy_dual_write_remediation Phase 5; per-shard data-only copy).
