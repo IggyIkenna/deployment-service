@@ -175,6 +175,27 @@
 #   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 dry
 #   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 full
 #
+#   # sports-odds-venue-mig (2026-07-27): the odds_horizon_bucket FINE manifest-row venue
+#   # migration (migrate_odds_horizon_bucket_venue_to_bookmaker_2026_07_27.py, market-data-
+#   # processing-service). Re-stamps the pre-fix ODDS_API vendor sentinel on every FINE
+#   # (league_id+timeframe-populated) captured row to the real per-bookmaker venue, read back
+#   # from each shard's own bucketed.parquet content -- see
+#   # plans/active/issues/mdps_t1_recon_job_oom_failing_7_days_2026_07_26.md Phase 2. Runs from
+#   # $WORKSPACE/mdps (VM_SERVICE=market_data_processing_service re-homes the dispatcher's
+#   # default `cd $WORKSPACE/mtds` -- same re-homing trick as candle-census/candle-apply).
+#   # HEAVY I/O: ~184k individual shard-file reads (measured 2026-07-27) -- this category exists
+#   # specifically because that read volume is squarely inside the "heavy I/O never runs from the
+#   # operator's local machine" hard rule. START_DATE/END_DATE are cosmetic (VM labels only) -- the
+#   # tool re-scans the whole live manifest, not a date range. DRY-BY-DEFAULT (tool default, no
+#   # flag) + --apply for full (same convention as defi/cefi/tradfi-cid). The tool's own internal
+#   # CAS-retry loop (3 attempts) + pre-apply GCS snapshot + post-write row-count/generation
+#   # verification are the write safety -- no extra bash retry wrapper needed here (unlike
+#   # tradfi-manifest-cas/-retire, which wrap a script with no internal retry of its own).
+#   # MIGRATION_EXTRA_ARGS can pass e.g. "--limit 500" for a bounded canary (never combine --limit
+#   # with full/--apply -- the tool itself refuses that combination).
+#   bash launch-canonical-migration-vm.sh sports-odds-venue-mig 2026-07-27 2026-07-27 dry
+#   bash launch-canonical-migration-vm.sh sports-odds-venue-mig 2026-07-27 2026-07-27 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -268,7 +289,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -937,6 +958,13 @@ _script_for() {
         # MANIFEST_PER_VM_SHARDS=true is already exported by setup-data-pipeline-vm.sh
         # so manifest writes hit per-VM shards instead of canonical _index.
         sports)     echo "python -m market_tick_data_service.scripts.migrate_sports_canonical --start-date $START_DATE --end-date $END_DATE --workers 16" ;;
+        # Sports odds_horizon_bucket FINE manifest-row venue migration (2026-07-27) -- see the
+        # top-of-file usage comment for full context. A standalone scripts/ tool in market-data-
+        # processing-service (not mtds), invoked as a plain script; VM_SERVICE override below
+        # re-homes the dispatcher's cd target. DRY-BY-DEFAULT + --apply, handled in _launch below
+        # (same convention as tradfi-cid). --start-date/--end-date are NOT accepted by this tool
+        # (whole-manifest scan) so they are deliberately NOT passed here.
+        sports-odds-venue-mig) echo "python -u scripts/migrate_odds_horizon_bucket_venue_to_bookmaker_2026_07_27.py --workers ${WORKERS:-32}" ;;
         # TradFi CME options_chain legacy-flat -> canonical bundled migration
         # (tradfi_cme_options_chain_legacy_layout_2026_07_10.md). A standalone scripts/
         # one-off, NOT a market_tick_data_service module -- invoked as a plain script
@@ -1263,7 +1291,7 @@ _launch() {
               # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
               # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
               # `exit ${rc}`) -- same suppression reasoning.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -1283,6 +1311,8 @@ _launch() {
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
     [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _svc="market_data_processing_service"
+    # sports-odds-venue-mig's script also lives in market-data-processing-service, not MTDS.
+    [[ "$cat" == "sports-odds-venue-mig" ]] && _svc="market_data_processing_service"
     # sports-features-purge's script lives in features-service, not MTDS.
     [[ "$cat" == "sports-features-purge" ]] && _svc="features_service"
     md="${md},VM_SERVICE=${_svc}"
@@ -1305,8 +1335,9 @@ _launch() {
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
-    # SPORTS-K1K2-CASING-REVERT) so dashboards/heartbeat classify these VMs with the rest of sports.
-    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]] && _ag="SPORTS"
+    # SPORTS-K1K2-CASING-REVERT / SPORTS-ODDS-VENUE-MIG) so dashboards/heartbeat classify these
+    # VMs with the rest of sports.
+    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-odds-venue-mig" ]] && _ag="SPORTS"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
