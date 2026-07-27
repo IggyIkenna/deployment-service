@@ -1078,6 +1078,11 @@ _launch() {
         # Operates on the already nounset-safe local (not $VM_NAME_SUFFIX directly, which crashes
         # under `set -u` when unset for a non-sharded single-VM candle-apply launch).
         _shard_suffix="${_shard_suffix/#shard/s}"
+    elif [[ "$cat" == *-candle-orphan-sweep ]]; then
+        # BUG FOUND 2026-07-27 (first real launch): "canonical-migration-prediction-candle-orphan-
+        # sweep-<ts>" is 66 chars, over GCE's 63-char limit -- same overflow class as *-candle-apply
+        # above. Abbreviate the vm_name token only ($cat itself stays unabbreviated everywhere else).
+        _vm_name_cat="${cat%-candle-orphan-sweep}-cdlorph"
     fi
     local vm_name="canonical-migration-${_vm_name_cat}-${RUN_TS}${_shard_suffix:+-${_shard_suffix}}"
     # --vm-name/VM_NAME_OVERRIDE wins (single-category relaunch only -- see the top-of-file comment).
