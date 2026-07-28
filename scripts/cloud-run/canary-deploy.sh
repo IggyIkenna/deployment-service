@@ -29,7 +29,13 @@
 #   --health-interval N    Seconds between health checks (default: 30)
 #   --non-critical         Use AR image re-tag for fast rollback instead of revision rollback
 #   --project PROJECT_ID   GCP project ID (default: from gcloud config)
+#   --keep-revisions N     Revisions to retain (newest-first) after a successful promote;
+#                           older ones are deleted so rollback targets don't accumulate
+#                           forever (default: 3; 0 disables cleanup)
 #   --dry-run              Print commands without executing
+#   -- ARGS...             Everything after a literal `--` is passed through verbatim to
+#                           `gcloud run deploy` (e.g. --port, --memory, --set-env-vars,
+#                           --update-secrets, --allow-unauthenticated). Must be last.
 #
 # Exit codes:
 #   0 = canary promoted to 100%
@@ -55,7 +61,9 @@ HEALTH_PATH="/health"
 HEALTH_INTERVAL=30
 NON_CRITICAL=false
 PROJECT=""
+KEEP_REVISIONS=3
 DRY_RUN=false
+EXTRA_DEPLOY_ARGS=()
 
 # ── Parse options ─────────────────────────────────────────────────────────────
 
@@ -67,7 +75,9 @@ while [ $# -gt 0 ]; do
     --health-interval) HEALTH_INTERVAL="$2"; shift 2 ;;
     --non-critical)    NON_CRITICAL=true; shift ;;
     --project)         PROJECT="$2"; shift 2 ;;
+    --keep-revisions)  KEEP_REVISIONS="$2"; shift 2 ;;
     --dry-run)         DRY_RUN=true; shift ;;
+    --)                shift; EXTRA_DEPLOY_ARGS=("$@"); break ;;
     *) echo "ERROR: Unknown option: $1"; exit 2 ;;
   esac
 done
@@ -117,6 +127,30 @@ get_latest_revision() {
     --format "value(status.latestCreatedRevisionName)" 2>/dev/null || echo ""
 }
 
+# Keeps the newest KEEP_REVISIONS revisions (rollback targets) and deletes the rest.
+# Only ever called after a successful promote, so the currently-serving revision is
+# always inside the retained window. KEEP_REVISIONS=0 disables cleanup entirely.
+cleanup_old_revisions() {
+  if [ "$KEEP_REVISIONS" -le 0 ]; then
+    return 0
+  fi
+  log "Retention: keeping newest ${KEEP_REVISIONS} revision(s) as rollback targets"
+  gcloud run revisions list \
+    --service="$SERVICE" \
+    --region="$REGION" \
+    --project="$PROJECT" \
+    --format="value(name)" \
+    --sort-by="~metadata.creationTimestamp" | tail -n "+$((KEEP_REVISIONS + 1))" | while read -r rev; do
+      if [ -n "$rev" ]; then
+        log "  Deleting old revision (beyond retention window): $rev"
+        run_cmd gcloud run revisions delete "$rev" \
+          --region="$REGION" \
+          --project="$PROJECT" \
+          --quiet 2>/dev/null || log "WARNING: could not delete $rev (may still be referenced)"
+      fi
+    done
+}
+
 # ── Step 0: Record previous stable revision ──────────────────────────────────
 
 log "=== Canary Deploy ==="
@@ -149,6 +183,7 @@ if ! run_cmd gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --project "$PROJECT" \
   "${DEPLOY_TRAFFIC_FLAGS[@]}" \
+  "${EXTRA_DEPLOY_ARGS[@]}" \
   --quiet 2>&1; then
   log "ERROR: Failed to deploy new revision"
   exit 2
@@ -275,4 +310,7 @@ run_cmd gcloud run services update-traffic "$SERVICE" \
   --quiet
 
 log "PROMOTION COMPLETE: $SERVICE now serving 100% traffic on $NEW_REVISION"
+
+cleanup_old_revisions
+
 exit 0
