@@ -190,6 +190,18 @@
 #   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 dry
 #   bash launch-canonical-migration-vm.sh sports-k1k2-casing-revert 2020-06-06 2026-07-27 full
 #
+#   # sports-k1k2-uppercase-delete (2026-07-28): Track V -- the SEPARATE, later, gated DELETE of
+#   # the now-redundant uppercase source objects, run only after sports-k1k2-casing-revert's own
+#   # migrate+report-gen+manifest-swap chain has completed with 100% twin coverage. Every object
+#   # is FRESH re-verified immediately before its own delete (twin exists + content-equivalent,
+#   # never merely existence) via a generation-matched conditional delete -- never trusts a prior
+#   # report. dry -> a single dry-run scan (no reads/writes, sizing only). full -> --apply-prod
+#   # --confirm-prod-write (the actual delete). Same suppression class as sports-k1k2-casing-
+#   # revert -- flags are baked directly into the command per mode, so the generic --apply/
+#   # --dry-run append + MIGRATION_EXTRA_ARGS are both deliberately suppressed.
+#   bash launch-canonical-migration-vm.sh sports-k1k2-uppercase-delete 2020-06-06 2026-07-27 dry
+#   bash launch-canonical-migration-vm.sh sports-k1k2-uppercase-delete 2020-06-06 2026-07-27 full
+#
 #   # sports-odds-venue-mig (2026-07-27): the odds_horizon_bucket FINE manifest-row venue
 #   # migration (migrate_odds_horizon_bucket_venue_to_bookmaker_2026_07_27.py, market-data-
 #   # processing-service). Re-stamps the pre-fix ODDS_API vendor sentinel on every FINE
@@ -304,7 +316,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -1138,6 +1150,20 @@ _script_for() {
                 printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_dir}/migrate_sports_casing_revert_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS:-16}"
             fi
             ;;
+        # Sports K1/K2 Track V -- gated DELETE of the now-redundant uppercase source, run only
+        # after sports-k1k2-casing-revert has completed with 100% twin coverage (issues/
+        # sports_k1k2_delete_bundled_with_twin_less_data_2026_07_27.md todo 2). Every object is
+        # fresh re-verified immediately before its own delete -- never trusts a prior report. dry
+        # -> a single dry-run scan (no reads/writes, sizing only). full -> --apply-prod
+        # --confirm-prod-write (the actual delete, generation-matched CAS per object).
+        sports-k1k2-uppercase-delete)
+            local _k1k2_del_dir="scripts/sports/k1k2_casing_revert_2026_07_27"
+            if [[ "$MODE" == "full" ]]; then
+                printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_del_dir}/delete_stale_uppercase_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --apply-prod --confirm-prod-write --workers ${WORKERS:-16}"
+            else
+                printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_del_dir}/delete_stale_uppercase_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS:-16}"
+            fi
+            ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -1354,7 +1380,7 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
@@ -1362,7 +1388,10 @@ _launch() {
               # sports-features-purge's own if/full else/dry branches are the SAME class of compound
               # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
               # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
-              # `exit ${rc}`) -- same suppression reasoning.
+              # `exit ${rc}`) -- same suppression reasoning. sports-k1k2-uppercase-delete bakes
+              # --apply-prod --confirm-prod-write directly into the full-mode command itself (a
+              # single statement, not a compound chain) -- suppressed anyway so the generic
+              # --apply/--dry-run append never double-flags it.
         elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1409,7 +1438,7 @@ _launch() {
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
     # SPORTS-K1K2-CASING-REVERT / SPORTS-ODDS-VENUE-MIG) so dashboards/heartbeat classify these
     # VMs with the rest of sports.
-    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-odds-venue-mig" ]] && _ag="SPORTS"
+    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" || "$cat" == "sports-odds-venue-mig" ]] && _ag="SPORTS"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -1610,7 +1639,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
