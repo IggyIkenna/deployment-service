@@ -3361,6 +3361,114 @@ def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
     assert out["escalated_machine_type"] == "n2-standard-16"
 
 
+# ── DP-VM-001/OOM ALWAYS files an issue doc, regardless of relaunch outcome
+# (dp_vm_001_oom_escalation_no_auto_recover_or_issue_file_2026_07_28.md, todo 3).
+# Each test drives a REAL classified termination through classify_terminated_vm
+# -> _finding_for -> escalation.route_finding (a simulated real OOM trigger, not
+# a hand-built PipelineFinding) so the whole chain is exercised end-to-end.
+def test_oom_finding_always_files_issue_when_relaunch_succeeds(monkeypatch, tmp_path):
+    """A successful resize-up relaunch STILL files an issue doc — an OOM is a
+    root-cause signal worth a human eventually looking at even when the
+    immediate symptom self-heals (operator ask 2026-07-27)."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+
+    relaunch_calls: list[dict[str, object]] = []
+
+    class _FakeActuator:
+        def relaunch(self, vm_name, *, exit_code, launcher, asset_group="", launcher_env=None, dry_run=False):
+            relaunch_calls.append(
+                {"vm_name": vm_name, "exit_code": exit_code, "launcher": launcher, "launcher_env": launcher_env}
+            )
+            return {"status": "SUCCEEDED"}
+
+    fake_mod = type("M", (), {"RelaunchBackfillVm": _FakeActuator})
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", lambda _name: fake_mod)
+
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-backfill-sports-20260728", exit_code=137, captured_before=10, captured_after=10
+    )
+    assert termination.verdict == exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    finding = exit_code_fleet_monitor._finding_for(
+        termination, asset_group="sports", relaunch_launcher="launch-mtds-backfill-vm.sh"
+    )
+    assert finding is not None
+    assert finding.tier == EscalationTier.AUTO_RECOVER  # OOM → auto_recover, not straight page
+
+    route_result = escalation.route_finding(finding, pm_repo_path=str(pm))
+
+    # 1) the resize-up relaunch was actually attempted.
+    assert len(relaunch_calls) == 1
+    assert relaunch_calls[0]["exit_code"] == 137
+    assert relaunch_calls[0]["launcher_env"] == {"MACHINE_TYPE": escalation._OOM_FALLBACK_MACHINE}
+
+    # 2) an issue doc was ALSO filed, even though the recovery succeeded.
+    assert route_result["effective_tier"] == "auto_recover"
+    assert route_result.get("oom_investigate_issue_path") is not None
+    written = list((pm / "plans" / "active" / "issues").glob("*.md"))
+    assert len(written) == 1
+    body = written[0].read_text()
+    assert "investigate OOM root cause" in body
+    assert "DP_VM_EXIT_NONZERO" in body
+
+
+def test_oom_finding_always_files_issue_when_no_launcher_binding(monkeypatch, tmp_path):
+    """An OOM with no resolvable launcher binding cannot be relaunched, but the
+    finding still falls through to file_issue — it is never silently lost."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "mystery-vm-20260728", exit_code=137, captured_before=0, captured_after=0
+    )
+    finding = exit_code_fleet_monitor._finding_for(termination, asset_group="sports", relaunch_launcher="")
+    assert finding is not None
+    assert finding.tier == EscalationTier.AUTO_RECOVER
+
+    route_result = escalation.route_finding(finding, pm_repo_path=str(pm))
+
+    assert route_result["effective_tier"] == "file_issue"
+    assert route_result["issue_path"] is not None
+    written = list((pm / "plans" / "active" / "issues").glob("*.md"))
+    assert len(written) == 1
+    assert "DP_VM_EXIT_NONZERO" in written[0].read_text()
+
+
+def test_oom_finding_always_files_issue_when_relaunch_budget_exhausted(monkeypatch, tmp_path):
+    """An OOM whose actuator runs but reports it could not recover (e.g. the
+    ≤2/(vm-prefix, day) relaunch budget is exhausted) ALSO falls through to
+    file_issue — recovery FAILING must never mean the finding vanishes."""
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+
+    class _FakeActuator:
+        def relaunch(self, vm_name, *, exit_code, launcher, asset_group="", launcher_env=None, dry_run=False):
+            return {"status": "PAGE", "reason": "relaunch_budget_exhausted"}
+
+    fake_mod = type("M", (), {"RelaunchBackfillVm": _FakeActuator})
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", lambda _name: fake_mod)
+
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-backfill-cefi-20260728", exit_code=137, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination, asset_group="cefi", relaunch_launcher="launch-mtds-backfill-vm.sh"
+    )
+    assert finding is not None
+
+    route_result = escalation.route_finding(finding, pm_repo_path=str(pm))
+
+    assert route_result["effective_tier"] == "file_issue"
+    assert route_result["issue_path"] is not None
+    written = list((pm / "plans" / "active" / "issues").glob("*.md"))
+    assert len(written) == 1
+
+
 # ── JSON-sentinel freshness on a bare-last_modified bucket (regression 2026-06-23) ──
 def _json_sentinel(ts_age_min: float) -> bytes:
     ts = (datetime.now(UTC) - timedelta(minutes=ts_age_min)).isoformat()
