@@ -142,6 +142,12 @@ TOPIC_REGISTRY=(
     # (see BQ_SUBSCRIPTION_REGISTRY below) so typed columns land directly.
     "resource-samples|3||"
     "run-ledger|30||"
+    # 4th signal (process-category breakdown, ~1/5min, diagnostic not billing-grade) --
+    # replaces the agent-orchestrator/scripts/orchestrator/resource-monitor.sh bridge
+    # cron's local-JSONL stopgap with the same publish -> topic -> native-BQ-subscription
+    # mechanism as the two signals above. 3-day retention matches resource-samples'
+    # precedent (this is a live feed into BigQuery, not a durable queue).
+    "process-samples|3||"
 )
 
 # ---------------------------------------------------------------------------
@@ -156,6 +162,7 @@ TOPIC_REGISTRY=(
 BQ_SUBSCRIPTION_REGISTRY=(
     "resource-samples|resource-samples-bq|deployment_operational_data.resource_samples"
     "run-ledger|run-ledger-bq|deployment_operational_data.run_ledger"
+    "process-samples|process-samples-bq|deployment_operational_data.process_samples"
 )
 
 # ---------------------------------------------------------------------------

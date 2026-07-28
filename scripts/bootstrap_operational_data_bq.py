@@ -35,10 +35,20 @@ logger = logging.getLogger("bootstrap_operational_data_bq")
 DATASET = "deployment_operational_data"
 LOCATION = "asia-northeast1"
 
-# Table name -> (schema, time_partitioning_field, clustering_fields)
+# PR-4 (partition-expiration TTL) — deployment_durable_operational_data_bigquery_2026_07_21.md.
+# Retention is per-table, not blanket: run_ledger is DELIBERATELY never-expiring (its entire
+# point is to survive past the 30-day deployments/archive/ GCS TTL — a blanket TTL here would
+# contradict the plan's own design goal), the other four are diagnostic/operational signals
+# where a long-but-bounded retention is the common-sense choice absent an explicit operator
+# figure.
+_ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
+_TWO_YEARS_MS = 2 * _ONE_YEAR_MS
+
+# Table name -> (schema, time_partitioning_field, clustering_fields, partition_expiration_ms)
 # Schema entries are (column_name, bq_type, mode) tuples per the UTL
-# GCPAnalyticsClient.create_table wrapper's signature.
-TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
+# GCPAnalyticsClient.create_table wrapper's signature. partition_expiration_ms=None means
+# never-expiring (BigQuery's own default absent a TTL).
+TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str], int | None]] = {
     "resource_samples": (
         [
             ("deployment_id", "STRING", "NULLABLE"),
@@ -57,6 +67,7 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
         ],
         "ts",
         ["vm_name", "service"],
+        _ONE_YEAR_MS,
     ),
     "run_ledger": (
         [
@@ -83,6 +94,8 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
         ],
         "completed_at",
         ["vm_name", "asset_group"],
+        None,  # deliberately never-expiring -- the entire point of run_ledger is durability
+        # past the 30-day deployments/archive/ GCS TTL; a blanket TTL here would defeat it.
     ),
     # Central-scheduled snapshot: one ROLLUP row per run (resource_name IS NULL)
     # plus one row per idle/reapable resource (resource_name set) — same table,
@@ -101,6 +114,7 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
         ],
         "ts",
         ["resource_name"],
+        _TWO_YEARS_MS,  # cost-trend table -- keep longer than the diagnostic signals
     ),
     "reap_events": (
         [
@@ -113,6 +127,7 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
         ],
         "ts",
         ["vm_name"],
+        _ONE_YEAR_MS,
     ),
     # 4th signal (process-category breakdown) — multi-tenant hosts only, see
     # the plan's "4th signal detail" section. Schema mirrors the bridge
@@ -131,6 +146,7 @@ TABLES: dict[str, tuple[list[tuple[str, str, str]], str, list[str]]] = {
         ],
         "ts",
         ["vm_name", "category"],
+        _ONE_YEAR_MS,
     ),
 }
 
@@ -144,13 +160,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         logger.info("[DRY RUN] would create dataset=%s (location=%s)", DATASET, LOCATION)
-        for table, (schema, partition_field, clustering) in TABLES.items():
+        for table, (schema, partition_field, clustering, expiration_ms) in TABLES.items():
             logger.info(
-                "[DRY RUN] would create table=%s.%s (partition=%s, cluster=%s, %d columns)",
+                "[DRY RUN] would create table=%s.%s (partition=%s, cluster=%s, expiration_ms=%s, %d columns)",
                 DATASET,
                 table,
                 partition_field,
                 clustering,
+                expiration_ms,
                 len(schema),
             )
         return 0
@@ -159,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Creating dataset %s (location=%s, idempotent)...", DATASET, LOCATION)
     client.create_dataset(DATASET, location=LOCATION)
 
-    for table, (schema, partition_field, clustering) in TABLES.items():
+    for table, (schema, partition_field, clustering, expiration_ms) in TABLES.items():
         logger.info("Creating table %s.%s (idempotent)...", DATASET, table)
         client.create_table(
             DATASET,
@@ -167,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             schema,
             time_partitioning_field=partition_field,
             clustering_fields=clustering,
+            partition_expiration_ms=expiration_ms,
             exists_ok=True,
         )
         logger.info(
