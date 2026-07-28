@@ -141,8 +141,9 @@ def test_exit_code_none_for_running_sentinel_not_misread_as_success():
 # (threading.Event that is never set) + a SHORT test timeout, so the assertion is on real
 # bounded-wait behavior (elapsed time), not just that a timeout parameter exists.
 class _StallingStorage:
-    """StorageClient stand-in whose blob_exists/download_bytes block forever
-    (until the daemon thread is abandoned) — simulates a wedged GCS connection."""
+    """StorageClient stand-in whose blob_exists/download_bytes/get_blob_metadata
+    block forever (until the daemon thread is abandoned) — simulates a wedged
+    GCS connection."""
 
     def blob_exists(self, bucket: str, path: str) -> bool:
         threading.Event().wait()  # never set -> blocks until the process exits
@@ -151,6 +152,10 @@ class _StallingStorage:
     def download_bytes(self, bucket: str, path: str) -> bytes:
         threading.Event().wait()
         return b""  # pragma: no cover - unreachable within the test's bound
+
+    def get_blob_metadata(self, bucket: str, path: str):
+        threading.Event().wait()
+        return None  # pragma: no cover - unreachable within the test's bound
 
 
 class _ExistsButHangsOnDownload:
@@ -234,6 +239,48 @@ def test_is_vm_preempted_returns_false_promptly_on_stall():
     result = _gcs.is_vm_preempted(storage, LOG_BUCKET, "wedged-vm", timeout_seconds=0.2)
     elapsed = time.monotonic() - start
     assert result is False
+    assert elapsed < 5.0
+
+
+# ── _gcs.read_bytes + blob_age_minutes bounded reads (2026-07-28 recurrence) ──
+# dp_exit_code_monitor_cron_dead_recurrence_2026_07_28.md: the 2026-07-23 fix only
+# bounded _gcs.py's OWN call sites (read_text / is_vm_preempted). cli.py's
+# _make_captured_reader called storage_client.blob_exists/download_bytes directly,
+# and _gcs.blob_age_minutes called get_blob_metadata directly — both untimed —
+# so dp-exit-code-monitor kept hanging every 5-minute tick. read_bytes is the
+# binary-content sibling of read_text (needed for parquet payloads); read_text is
+# now a thin decode wrapper around it, so its own bound tests above cover read_bytes
+# too — these add the two call sites that were still unbounded.
+def test_read_bytes_returns_none_promptly_when_blob_exists_stalls():
+    storage = _StallingStorage()
+    start = time.monotonic()
+    result = _gcs.read_bytes(storage, LOG_BUCKET, "_index/per_vm/wedged.parquet", timeout_seconds=0.2)
+    elapsed = time.monotonic() - start
+    assert result is None
+    assert elapsed < 5.0
+
+
+def test_read_bytes_happy_path_returns_raw_bytes_undecoded():
+    # Regression guard: read_bytes must NOT utf-8-decode (unlike read_text) — a
+    # parquet payload is not valid UTF-8 in general.
+    vm = "healthy-vm"
+    payload = b"\x00\x01\xfe\xff-not-utf8-"
+    storage = FakeStorage({(LOG_BUCKET, _run_log_blob(vm)): (payload, 0.0)})
+    assert _gcs.read_bytes(storage, LOG_BUCKET, _run_log_blob(vm), timeout_seconds=5.0) == payload
+
+
+def test_blob_age_minutes_returns_none_promptly_when_get_blob_metadata_stalls():
+    # get_blob_metadata is a THIRD untimed-call-site class (distinct from the
+    # blob_exists/download_bytes pair read_text/read_bytes bound) — must get the
+    # identical bound so a wedged bucket can't hang the heartbeat-stall sweep's
+    # shard-mtime reader either. timeout_seconds propagates through the
+    # last_modified-bare fallback (_content_epoch_age_minutes -> read_text) too,
+    # so the WHOLE call resolves within one consistent bound, not two stacked ones.
+    storage = _StallingStorage()
+    start = time.monotonic()
+    result = _gcs.blob_age_minutes(storage, LOG_BUCKET, "_index/per_vm/wedged.parquet", timeout_seconds=0.2)
+    elapsed = time.monotonic() - start
+    assert result is None
     assert elapsed < 5.0
 
 

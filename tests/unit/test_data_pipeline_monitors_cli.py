@@ -8,6 +8,7 @@ escalation modules — credential-free + block-network safe.
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -29,7 +30,13 @@ from deployment_service.data_pipeline_monitors import (
     meta_targets,
     meta_watchers,
 )
-from tests.unit.test_data_pipeline_monitors import LOG_BUCKET, FakeStorage
+from tests.unit.test_data_pipeline_monitors import (
+    LOG_BUCKET,
+    FakeStorage,
+    _ExistsButHangsOnDownload,
+    _index_parquet,
+    _StallingStorage,
+)
 
 
 # ── cli pure helpers ─────────────────────────────────────────────────────────
@@ -105,6 +112,53 @@ def test_make_captured_reader_unknown_ag_returns_zero():
     reader = cli._make_captured_reader(storage)
     # unknown AG → no shard bucket → 0
     assert reader("vm-zombie-watchdog-2025") == 0
+
+
+def test_make_captured_reader_happy_path_counts_captured_rows(monkeypatch):
+    # Regression guard for the 2026-07-28 _gcs.read_bytes refactor: parquet
+    # parsing + capture_status counting must behave identically to the prior
+    # direct storage_client.blob_exists/download_bytes call.
+    vm = "cefi-mr-binance-2025"
+    bucket = "market-data-tick-cefi-prd-x"
+    shard_path = cli._PER_VM_SHARD.format(vm=vm)
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: bucket)
+    payload = _index_parquet([("trades", "captured"), ("trades", "captured"), ("trades", "attempted_failed")])
+    storage = FakeStorage({(bucket, shard_path): (payload, 0.0)})
+    reader = cli._make_captured_reader(storage)
+    assert reader(vm) == 2
+
+
+# ── _make_captured_reader bounded read (2026-07-28 recurrence) ────────────────
+# dp_exit_code_monitor_cron_dead_recurrence_2026_07_28.md: this reader called
+# storage_client.blob_exists/download_bytes DIRECTLY (missed by the 2026-07-23
+# _gcs.py bound) — it runs once per currently-RUNNING VM inside
+# exit_code_fleet_monitor.sweep()'s census-refresh loop, BEFORE the
+# terminated-VM verdict loop even starts, so one wedged bucket/blob silently ate
+# the whole 300s Cloud Run sweep with zero per-VM verdict ever logged. Confirmed
+# live via gcloud logs: every execution hung immediately after "Event logging
+# initialized" with total silence until Cloud Run's timeout kill — no VM verdict,
+# unlike the 2026-07-23 incident's logs which showed at least one verdict before
+# hanging later in the loop.
+def test_make_captured_reader_bounded_when_blob_exists_stalls(monkeypatch):
+    vm = "cefi-mr-binance-2025"
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+    reader = cli._make_captured_reader(_StallingStorage(), timeout_seconds=0.2)
+    start = time.monotonic()
+    result = reader(vm)
+    elapsed = time.monotonic() - start
+    assert result == 0  # matches the reader's existing "any read miss -> 0" fail-safe
+    assert elapsed < 5.0
+
+
+def test_make_captured_reader_bounded_when_download_stalls(monkeypatch):
+    vm = "cefi-mr-binance-2025"
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+    reader = cli._make_captured_reader(_ExistsButHangsOnDownload(), timeout_seconds=0.2)
+    start = time.monotonic()
+    result = reader(vm)
+    elapsed = time.monotonic() - start
+    assert result == 0
+    assert elapsed < 5.0
 
 
 def test_shard_bucket_for_vm_unknown_is_none():

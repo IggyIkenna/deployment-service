@@ -273,13 +273,29 @@ def _shard_bucket_for_vm(vm_name: str) -> str | None:
         return None
 
 
-def _make_captured_reader(storage_client: StorageClient):
+def _make_captured_reader(
+    storage_client: StorageClient,
+    *,
+    timeout_seconds: float = _gcs.DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+):
     """Return ``vm_name -> captured_cum`` reading the per-VM manifest shard.
 
     Reads ``_index/per_vm/{vm}.parquet`` from the VM's asset_group market-data
     bucket and counts ``capture_status == "captured"`` rows. Returns 0 on any
     read miss (a VM with no shard yet / heartbeat-only VM) — the cross-check then
     treats it as "no captured progress", the fail-safe direction.
+
+    **Bounded** (2026-07-28, dp_exit_code_monitor_cron_dead_recurrence_2026_07_28.md):
+    routes through ``_gcs.read_bytes`` — the same ``_call_with_timeout``-wrapped
+    helper ``read_text``/``is_vm_preempted`` already use — instead of calling
+    ``storage_client.blob_exists``/``download_bytes`` directly. The direct,
+    unbounded call here (missed by the 2026-07-23 fix, which only bounded
+    ``_gcs.py``'s OWN call sites) was the actual continued cause of
+    ``dp-exit-code-monitor``'s DP_CRON_DID_NOT_FIRE: this reader runs once per
+    currently-RUNNING VM inside ``exit_code_fleet_monitor.sweep()``'s
+    census-refresh loop, BEFORE the terminated-VM verdict loop even starts, so
+    one wedged bucket/blob silently ate the whole sweep with zero per-VM
+    verdict ever logged.
     """
 
     def _read(vm_name: str) -> int:
@@ -287,10 +303,10 @@ def _make_captured_reader(storage_client: StorageClient):
         if not bucket:
             return 0
         blob_path = _PER_VM_SHARD.format(vm=vm_name)
+        raw = _gcs.read_bytes(storage_client, bucket, blob_path, timeout_seconds=timeout_seconds)
+        if raw is None:
+            return 0
         try:
-            if not storage_client.blob_exists(bucket, blob_path):
-                return 0
-            raw = storage_client.download_bytes(bucket, blob_path)
             frame = pd.read_parquet(io.BytesIO(raw))
             if "capture_status" not in frame.columns:
                 return len(frame)

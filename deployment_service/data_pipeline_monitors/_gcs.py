@@ -201,7 +201,13 @@ _RC_LINE_RE = re.compile(r"command exited rc=(-?\d+)")
 _STALL_RE = re.compile(r"WORKER_STALLED|reason=WORKER_STALLED")
 
 
-def blob_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str) -> float | None:
+def blob_age_minutes(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> float | None:
     """Age in minutes of a blob's last modification, or ``None`` if missing/unreadable.
 
     Uses ``get_blob_metadata`` (cloud-agnostic) and the ISO ``last_modified`` field.
@@ -217,9 +223,19 @@ def blob_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str)
     when ``last_modified`` is absent we fall back to the blob's CONTENT timestamp
     via :func:`heartbeat_blob_age_minutes` for the heartbeat blob shape. SSOT:
     ``data_pipeline_hardening_self_monitoring_2026_06_22.md`` Phase 2 BUG2.
+
+    **Bounded** (2026-07-28, dp_exit_code_monitor_cron_dead_recurrence_2026_07_28.md):
+    ``get_blob_metadata`` is a THIRD untimed-GCS-call shape (distinct from the
+    ``blob_exists``/``download_bytes`` pair :func:`read_bytes` bounds) — wrapped
+    in :func:`_call_with_timeout` identically, so a wedged bucket can't hang the
+    heartbeat-stall sweep's shard-mtime reader either.
     """
     try:
-        meta = storage_client.get_blob_metadata(bucket, blob_path)
+        meta = _call_with_timeout(
+            lambda: storage_client.get_blob_metadata(bucket, blob_path),
+            timeout_seconds=timeout_seconds,
+            op_label=f"get_blob_metadata({bucket}/{blob_path})",
+        )
     except Exception:
         meta = None
     if meta is not None and meta.last_modified:
@@ -234,10 +250,16 @@ def blob_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str)
     # last_modified missing/unparseable → fall back to the blob's CONTENT epoch
     # (the heartbeat sidecar writes `<epoch_seconds>` as its first line). This is
     # the RELIABLE liveness signal when the storage-client metadata is bare.
-    return _content_epoch_age_minutes(storage_client, bucket, blob_path)
+    return _content_epoch_age_minutes(storage_client, bucket, blob_path, timeout_seconds=timeout_seconds)
 
 
-def _content_epoch_age_minutes(storage_client: StorageClient, bucket: str, blob_path: str) -> float | None:
+def _content_epoch_age_minutes(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> float | None:
     """Age in minutes from a blob's CONTENT timestamp, or ``None``.
 
     Handles the TWO content shapes that live in ``deployment-scripts-*`` (where the
@@ -255,7 +277,7 @@ def _content_epoch_age_minutes(storage_client: StorageClient, bucket: str, blob_
     "sentinel stale: missing (never ran)" on every run despite the sweeps writing fresh
     sentinels (the bug surfaced the moment the deadman stopped crashing before this check).
     """
-    raw = read_text(storage_client, bucket, blob_path)
+    raw = read_text(storage_client, bucket, blob_path, timeout_seconds=timeout_seconds)
     if not raw:
         return None
     stripped = raw.strip()
@@ -464,14 +486,14 @@ def run_log_signals(storage_client: StorageClient, bucket: str, vm_name: str) ->
     return RunLogSignals(pipeline_heartbeat_age_min=hb_age, run_log_age_min=log_age)
 
 
-def read_text(
+def read_bytes(
     storage_client: StorageClient,
     bucket: str,
     blob_path: str,
     *,
     timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
-) -> str | None:
-    """Download a blob as UTF-8 text, or ``None`` if missing/unreadable.
+) -> bytes | None:
+    """Download a blob as raw bytes, or ``None`` if missing/unreadable.
 
     Never raises — a missing blob (the VM never wrote it) reads as ``None``,
     and so does a genuine read error.
@@ -488,6 +510,10 @@ def read_text(
     function folds it into the same ``None`` "unreadable" outcome every
     other read failure already produces) — never silently swallowed, so a
     future occurrence is diagnosable from the Cloud Run logs.
+
+    Binary-content sibling of :func:`read_text` — callers that parse a
+    non-UTF-8 payload (e.g. parquet) need the raw bytes rather than a
+    decoded string.
     """
     try:
         exists = _call_with_timeout(
@@ -497,14 +523,33 @@ def read_text(
         )
         if not exists:
             return None
-        raw = _call_with_timeout(
+        return _call_with_timeout(
             lambda: storage_client.download_bytes(bucket, blob_path),
             timeout_seconds=timeout_seconds,
             op_label=f"download_bytes({bucket}/{blob_path})",
         )
-        return raw.decode("utf-8", errors="replace")
     except Exception:
         return None
+
+
+def read_text(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> str | None:
+    """Download a blob as UTF-8 text, or ``None`` if missing/unreadable.
+
+    Never raises — a missing blob (the VM never wrote it) reads as ``None``,
+    and so does a genuine read error. Bounded identically to :func:`read_bytes`
+    (this is its UTF-8-decoding wrapper) — see that function's docstring for
+    the full incident history.
+    """
+    raw = read_bytes(storage_client, bucket, blob_path, timeout_seconds=timeout_seconds)
+    if raw is None:
+        return None
+    return raw.decode("utf-8", errors="replace")
 
 
 def read_terminal_exit_code(storage_client: StorageClient, bucket: str, vm_name: str) -> int | None:
