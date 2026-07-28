@@ -1665,6 +1665,10 @@ while cur <= end:
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
 CHUNK_NUM=0
+# Tracks whether any EARLIER chunk in this run failed — gates the checkpoint below so
+# a later chunk's success can never paper over an earlier gap (see the checkpoint
+# comment further down for why this matters).
+HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
@@ -1681,8 +1685,24 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   # one bad chunk must not silently wedge the whole multi-chunk run).
   if [[ \$CHUNK_RC -eq 137 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
   elif [[ \$CHUNK_RC -ne 0 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
+  fi
+  # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
+  # P2 "no-checkpoint launcher families"): this generic download branch aggregates rows
+  # via PartitionedGroupWriter.record_captured_from_counts, which does NOT thread through
+  # unified_trading_library.manifest_writer._vm_progress.record_vm_progress (only the
+  # per-row record_captured path does), so this shell chunk-loop was silently emitting NO
+  # PROGRESS.json checkpoint. Emit the marker at THIS granularity instead — the
+  # vm-exec-with-gcs-tee.sh watchdog greps stdout for it regardless of which layer wrote
+  # it. Gated on BOTH this chunk succeeding AND no EARLIER chunk having failed: chunks
+  # are processed in date order but a later chunk can still complete after an earlier one
+  # failed (shard-level isolation keeps the loop going), and advancing the checkpoint past
+  # a later date would make a preemption relaunch skip the unwritten earlier gap forever.
+  if [[ \$CHUNK_RC -eq 0 && \$HAD_FAILURE -eq 0 ]]; then
+    echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
   fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
@@ -1723,13 +1743,28 @@ while cur <= end:
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
 CHUNK_NUM=0
+# See the matching HAD_FAILURE comment in mtds_chunk_loop.sh above — the checkpoint must
+# never advance past an earlier chunk's failure just because a later one succeeded.
+HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
   CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1
+  CHUNK_RC=\$?
+  # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
+  # P2) — same gap and same fix as mtds_chunk_loop.sh above: collect-onchain-perp-batch
+  # also routes through the counts-based manifest path, which never emits the generic
+  # UTL VM_PROGRESS marker. Only advance the frontier on a successful chunk with no
+  # earlier chunk failure.
+  if [[ \$CHUNK_RC -eq 0 ]]; then
+    [[ \$HAD_FAILURE -eq 0 ]] && echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
+  else
+    HAD_FAILURE=1
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
 echo "cefi-hl-aster-backfill loop complete: \$(date -u)"

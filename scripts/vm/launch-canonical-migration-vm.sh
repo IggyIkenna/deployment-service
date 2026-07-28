@@ -1096,7 +1096,16 @@ _script_for() {
             local _rbdry=""; [[ "$MODE" != "full" ]] && _rbdry=" --dry-run"
             local _bkt="market-data-tick-defi-prd-central-element-323112"
             local _yrs="${MIGRATION_YEARS:-2020 2021 2022 2023 2024 2025 2026}"
-            printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -ne 0 ] && rc_all=1; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
+            # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
+            # P2 "no-checkpoint launcher families") -- this per-year bash chunk loop had no
+            # PROGRESS.json emission at all, so a preemption relaunch replayed RESUME_START_DATE
+            # from genesis instead of skipping already-migrated years. Emit the generic
+            # vm-exec-with-gcs-tee.sh marker after each SUCCESSFUL year chunk (only in --apply/full
+            # mode -- a dry-run preview writes nothing, so its "progress" is not real resumable
+            # work and must not seed a checkpoint a later --apply run would trust).
+            local _progress_emit=""
+            [[ "$MODE" == "full" ]] && _progress_emit="echo \\[\\[VM_PROGRESS\\]\\] last_completed_date=\${y}-12-31 monotonic=true; "
+            printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; if [ \"\${rc}\" -eq 0 ] && [ \"\${rc_all}\" -eq 0 ]; then ${_progress_emit}:; elif [ \"\${rc}\" -ne 0 ]; then rc_all=1; fi; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
         # DeFi R3 per-instrument split, SINGLE date-range scope — one VM per QUARTER for a parallel fan-out
         # (wall-time = the slowest quarter, not the sum). Same migrate_defi_batch_to_per_instrument tool as
         # defi-per-instrument, but scoped to the positional <start-date>..<end-date> for ONE quarter with NO
