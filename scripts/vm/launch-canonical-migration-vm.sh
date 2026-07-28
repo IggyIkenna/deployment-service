@@ -140,6 +140,21 @@
 #   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 dry
 #   bash launch-canonical-migration-vm.sh defi-lst-rates-fold 2020-01-01 2026-07-25 full
 #
+#   # defi-dex-pool-leaf-purge (2026-07-28): in-region runner for
+#   # scripts/one_offs/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.py, per
+#   # plans/active/defi_dex_pool_symbol_fix_backfill_purge_2026_07_25.md todo 5. Content-verified
+#   # DELETE (real prod-bucket object removal, unlike defi-lst-rates-fold's fold-only copy) --
+#   # reversibility-qualified per codex/02-data/gcs-and-manifest-delete-safety-protocol.md §3a (the
+#   # tool re-checks gcs_bucket_soft_delete_retention_seconds fresh before any --apply). Scope is
+#   # BAKED INTO THE SCRIPT (curve/ETHEREUM+AVALANCHE -- OPTIMISM deliberately excluded, deindexed
+#   # subgraph, no replacement possible -- sushiswap/ARBITRUM, trader_joe_v2/AVALANCHE,
+#   # velodrome_v2/OPTIMISM), per-shard-directory content verification (an address-keyed leaf is only
+#   # deleted when a symbol-named sibling in the SAME directory has a matching pool_address). $MODE IS
+#   # honored for real: dry -> report-only; full -> --apply. START_DATE/END_DATE ARE real (the tool's
+#   # own scan window). RESUME_SEED_GS mirrors defi-marker-cleanup's periodic GCS sync.
+#   bash launch-canonical-migration-vm.sh defi-dex-pool-leaf-purge 2020-01-01 2026-07-28 dry
+#   bash launch-canonical-migration-vm.sh defi-dex-pool-leaf-purge 2020-01-01 2026-07-28 full
+#
 #   # tradfi-cme-monolith (2026-07-26): per-contract canonical migration for the ~30
 #   # day=*/venue=CME/ticks.parquet monolith objects (migrate_cme_monolith_trades_2026_07_26.py,
 #   # market-tick-data-service). Reuses the production classify_databento_symbol + write_tradfi_shard
@@ -289,7 +304,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -709,6 +724,29 @@ _lst_rates_fold_cmd() {
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/fold_lst_rates_migrated_markers_2026_07_25.py --project-id ${PROJECT} --workers ${WORKERS:-16}${apply_flag}"
+}
+
+# DeFi dex_pool_state superseded address-keyed leaf purge (2026-07-28) -- in-region runner for
+# scripts/one_offs/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.py, per
+# plans/active/defi_dex_pool_symbol_fix_backfill_purge_2026_07_25.md todo 5. Content-verified DELETE
+# (unlike defi-lst-rates-fold, which is fold-only) -- reversibility-qualified per
+# codex/02-data/gcs-and-manifest-delete-safety-protocol.md §3a (the tool itself re-checks
+# gcs_bucket_soft_delete_retention_seconds fresh before any --apply delete). $MODE IS honored for real:
+# dry -> tool default (report-only); full -> --apply, embedded by this builder. Object-level deletes
+# only (never a manifest write), so no consolidator-drain gate is needed (mirrors defi-lst-rates-fold).
+# Scope is BAKED INTO THE SCRIPT (VENUE_CHAIN_PAIRS, the plan's confirmed-recoverable range --
+# CURVE/OPTIMISM deliberately excluded, deindexed subgraph, no replacement ever possible) -- START_DATE/
+# END_DATE are real here (the full 2020-01-01..today range by default, per the plan's own backfill
+# range) but MIGRATION_EXTRA_ARGS is unsupported (no other CLI flags to forward). RESUME_SEED_GS mirrors
+# defi-marker-cleanup's periodic GCS sync (every 2 min + on exit) -- this scans years of shards across 5
+# (venue,chain) pairs, so a SPOT preemption should never lose more than ~2 min of verified progress.
+_defi_dex_pool_leaf_purge_cmd() {
+    local work="/home/ikennaigboaka/workspace/defi-dex-pool-leaf-purge"
+    local resume="${work}/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.resume.jsonl"
+    local seed_gs="${RESUME_SEED_GS:-gs://${CODE_BUCKET}/canonical-migration-defi-dex-pool-leaf-purge/resume-seed/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.resume.jsonl}"
+    local apply_flag=""
+    [[ "$MODE" == "full" ]] && apply_flag=" --apply"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p ${work} && (gcloud storage cp ${seed_gs} ${resume} || true); (while true; do sleep 120; gcloud storage cp ${resume} ${seed_gs} >/dev/null 2>&1 || true; done) & SYNC_PID=\$!; python -u scripts/one_offs/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.py --project-id ${PROJECT} --start-date ${START_DATE} --end-date ${END_DATE} --resume-log ${resume} --workers ${WORKERS:-24}${apply_flag}; RC=\$?; kill \$SYNC_PID 2>/dev/null || true; gcloud storage cp ${resume} ${seed_gs} || true; exit \$RC"
 }
 
 # cefi-bybit-spot-purge -- BYBIT-SPOT spot-nonsense manifest row purge
@@ -1275,6 +1313,16 @@ _launch() {
         # so no consolidator-drain gate is required (unlike defi-gmx-purge/cefi-bybit-spot-purge).
         cmd="$(_lst_rates_fold_cmd)"
         [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+    elif [[ "$cat" == "defi-dex-pool-leaf-purge" ]]; then
+        # $MODE IS honored for real -- --apply is embedded by the builder. Plain object-level GCS
+        # deletes only (never a manifest write), so no consolidator-drain gate is needed (mirrors
+        # defi-lst-rates-fold). See _defi_dex_pool_leaf_purge_cmd's comment for full context.
+        if [[ -n "${MIGRATION_EXTRA_ARGS:-}" ]]; then
+            echo "ERROR: MIGRATION_EXTRA_ARGS is not supported for defi-dex-pool-leaf-purge -- the mode" >&2
+            echo "       flag is embedded by the builder and a trailing append could land in the wrong place." >&2
+            return 1
+        fi
+        cmd="$(_defi_dex_pool_leaf_purge_cmd)"
     elif [[ "$cat" == "cefi-bybit-spot-purge" ]]; then
         # $MODE IS honored, THREE-valued (dry|smoke|full) -- see _bybit_spot_purge_cmd's comment.
         # The SCRIPT ITSELF hard-gates both --smoke and --apply on the consolidator cron being
@@ -1336,7 +1384,7 @@ _launch() {
     # defi-per-instrument shares the DeFi tick bucket + fleet classification — keep the asset group DEFI
     # (not the novel DEFI-PER-INSTRUMENT) so dashboards/heartbeat classify it with the rest of DeFi.
     local _ag; _ag="$(echo "$cat" | tr '[:lower:]' '[:upper:]')"
-    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" || "$cat" == "defi-lst-rates-fold" || "$cat" == "defi-curve-optimism-reclassify" ]] && _ag="DEFI"
+    [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "defi-rebuild" || "$cat" == "defi-glued-reshard" || "$cat" == "defi-marker-cleanup" || "$cat" == "defi-gmx-purge" || "$cat" == "defi-lst-rates-fold" || "$cat" == "defi-dex-pool-leaf-purge" || "$cat" == "defi-curve-optimism-reclassify" ]] && _ag="DEFI"
     # Keep the fleet asset-group TRADFI (not the novel TRADFI-CATALOGUE-CANON) so heartbeat/
     # dashboards classify this VM with the rest of tradfi.
     [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" ]] && _ag="TRADFI"
@@ -1554,7 +1602,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
