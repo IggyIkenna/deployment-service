@@ -2085,6 +2085,84 @@ def test_unregistered_cell_never_known_dead(monkeypatch):
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
 
 
+# ── DP-FETCH-009 staleness labeling (cefi_high_attempted_failed_batch_cluster_2026_07_23.md
+# "Alerting-hygiene question" — distinguish "static, already-tracked backlog" from "fresh
+# failure" in the alert BODY, without changing whether/how often it pages: that suppression
+# policy call stays open for the operator/alerting-service owner) ──────────────────────────
+
+
+def test_stale_days_computed_for_old_attempted_at(monkeypatch):
+    # All failures are several days old — surfaces on the cell (additive fields; does NOT
+    # affect whether it pages).
+    old_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", old_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.max_attempted_at == old_ts
+    assert cell.stale_days is not None
+    assert 5 <= cell.stale_days <= 6  # >= 5 full days elapsed by check time; small test-run slack
+
+
+def test_stale_days_zero_for_fresh_activity(monkeypatch):
+    # Failures attempted just now — stale_days is 0, never annotated STATIC.
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", fresh_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.stale_days == 0
+
+
+def test_stale_days_none_for_empty_attempted_at(monkeypatch):
+    # Legacy/unknown rows (attempted_at="") never assert staleness — None, not 0/false,
+    # matching is_known_dead's own fail-safe convention for the same data quirk.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed")] * n_failed  # attempted_at defaults to ""
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.max_attempted_at == ""
+    assert cell.stale_days is None
+
+
+def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
+    # The STATIC BACKLOG label reaches the alert's details/summary, but the cell still
+    # pages exactly as before — labeling is additive, suppression policy is untouched.
+    old_ts = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", old_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    captured_details: list[dict] = []
+    captured_summaries: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    orig_emit = meta_watchers._emit
+
+    def _capture_emit(finding, **kwargs):
+        captured_summaries.append(finding.summary)
+        return orig_emit(finding, **kwargs)
+
+    monkeypatch.setattr(meta_watchers, "_emit", _capture_emit)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.high  # still pages — labeling never suppresses
+    dp_details = [d for d in captured_details if d.get("data_type") == "trades"]
+    assert dp_details, "DP_RUN_MOSTLY_EMPTY finding should carry data_type=trades"
+    d = dp_details[0]
+    assert d["is_static_backlog"] is True
+    assert d["stale_days"] >= 9
+    assert d["max_attempted_at"] == old_ts
+    assert any("STATIC BACKLOG" in s for s in captured_summaries)
+
+
 def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
     # A SINGLE high sweep (a transient consolidator blip) must NOT page; only a
     # SUSTAINED high condition (>= min_consecutive sweeps) does. Mirrors the catalogue gate.
