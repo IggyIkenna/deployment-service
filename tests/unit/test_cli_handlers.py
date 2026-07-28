@@ -790,15 +790,13 @@ class TestMaintenanceHandlerCleanupGcs:
     @pytest.mark.cli
     def test_cleanup_dry_run_no_deletions(self) -> None:
         ctx = _make_ctx()
+        mock_client = MagicMock()
+        mock_client.list_blobs.return_value = []
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
             patch("deployment_service.cli.handlers.maintenance_handler.StatusService"),
-            patch("subprocess.run") as mock_run,
+            patch("deployment_service.cli.handlers.maintenance_handler.get_storage_client", return_value=mock_client),
         ):
-            mock_run.return_value = MagicMock(
-                stdout="",
-                returncode=0,
-            )
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
             with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
@@ -811,20 +809,19 @@ class TestMaintenanceHandlerCleanupGcs:
     @pytest.mark.cli
     def test_cleanup_shows_preview_for_old_files(self) -> None:
         ctx = _make_ctx()
-        # Simulate gsutil returning files with dates in the past
-        import datetime as dt_mod
-
+        # Simulate the storage client listing a blob with a date in the past
         old_ts = datetime.now(UTC).timestamp() - 40 * 86400
-        old_date = dt_mod.datetime.fromtimestamp(old_ts, tz=UTC)
-        date_str = old_date.strftime("%Y-%m-%d %H:%M:%S")
-        gsutil_line = f"  100 {date_str}  gs://my-bucket/old-file.txt"
+        old_iso = datetime.fromtimestamp(old_ts, tz=UTC).isoformat()
+        old_blob = MagicMock(name="old-file.txt", last_modified=old_iso)
+        old_blob.name = "old-file.txt"
+        mock_client = MagicMock()
+        mock_client.list_blobs.return_value = [old_blob]
 
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService"),
             patch("deployment_service.cli.handlers.maintenance_handler.StatusService"),
-            patch("subprocess.run") as mock_run,
+            patch("deployment_service.cli.handlers.maintenance_handler.get_storage_client", return_value=mock_client),
         ):
-            mock_run.return_value = MagicMock(stdout=gsutil_line + "\n", returncode=0)
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
             with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):
@@ -1090,10 +1087,13 @@ class TestMaintenanceHandlerValidateBuckets:
     @pytest.mark.cli
     def test_validate_buckets_with_bucket_config(self) -> None:
         ctx = _make_ctx()
+        mock_client = MagicMock()
+        mock_client.bucket.return_value.exists.return_value = True
+        mock_client.list_blobs.return_value = iter([MagicMock()])
         with (
             patch("deployment_service.cli.handlers.maintenance_handler.DeploymentService") as mock_ds_cls,
             patch("deployment_service.cli.handlers.maintenance_handler.StatusService"),
-            patch("subprocess.run") as mock_run,
+            patch("deployment_service.cli.handlers.maintenance_handler.get_storage_client", return_value=mock_client),
         ):
             mock_ds = _mock_deployment_service()
             mock_ds.get_service_info.return_value = {
@@ -1101,7 +1101,6 @@ class TestMaintenanceHandlerValidateBuckets:
                 "metadata": {},
             }
             mock_ds_cls.return_value = mock_ds
-            mock_run.return_value = MagicMock(returncode=0)
             handler = MaintenanceHandler(ctx)
             output_lines: list[str] = []
             with patch("click.echo", side_effect=lambda msg="", **kw: output_lines.append(str(msg))):

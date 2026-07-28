@@ -55,12 +55,16 @@ from deployment_service.data_pipeline_monitors._miss_tracker import (
     DEFAULT_MIN_CONSECUTIVE_MISSES,
     MissTracker,
 )
+from deployment_service.data_pipeline_monitors.attempted_failed_staleness import (
+    stale_backlog_annotation,
+    stale_days_since,
+)
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
     PipelineFinding,
     route_finding,
 )
-from deployment_service.data_pipeline_monitors.known_dead_cells_registry import is_known_dead_for_series
+from deployment_service.data_pipeline_monitors.known_dead_cells_registry import is_known_dead
 from deployment_service.data_pipeline_monitors.renag_tracker import (
     DEFAULT_RENAG_COOLDOWN_SECONDS,
     RenagTracker,
@@ -220,6 +224,7 @@ def _cron_miss_key(target: FreshnessTarget) -> str:
 ATTEMPTED_FAILED_ABS_THRESHOLD = 500  # absolute attempted_failed count per (ag, data_type) → page
 ATTEMPTED_FAILED_RATIO_THRESHOLD = 0.10  # attempted_failed / (captured + attempted_failed) → page
 MIN_ATTEMPTED_FAILED_FOR_RATIO = 50  # ratio path ignored below this count (avoid micro-cell noise)
+# STATIC_BACKLOG_STALE_DAYS_THRESHOLD: labeling-only constant, see attempted_failed_staleness.py.
 # Consolidated availability-index blob (SSOT: manifest_writer ManifestWriter._INDEX_PATH).
 AVAILABILITY_INDEX_BLOB = "_index/availability_index.parquet"
 
@@ -464,6 +469,8 @@ class AttemptedFailedCell:
     ratio: float  # attempted_failed / (captured + attempted_failed), 0.0 when denom is 0
     high: bool  # crossed the abs OR ratio threshold (a real failure batch)
     known_dead: bool = False  # registered dead cell, no activity since narrowing (known_dead_cells_registry.py)
+    max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
+    stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
 
 
 def _read_attempted_failed_cells(
@@ -513,6 +520,7 @@ def _read_attempted_failed_cells(
         high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
             attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
         )
+        max_attempted_at = max(attempted_at_col[dt_mask & failed_mask], default="")
         cells.append(
             AttemptedFailedCell(
                 asset_group=asset_group,
@@ -521,7 +529,9 @@ def _read_attempted_failed_cells(
                 attempted_failed=attempted_failed,
                 ratio=ratio,
                 high=high,
-                known_dead=is_known_dead_for_series(asset_group, data_type, attempted_at_col[dt_mask & failed_mask]),
+                known_dead=is_known_dead(asset_group, data_type, max_attempted_at=max_attempted_at),
+                max_attempted_at=max_attempted_at,
+                stale_days=stale_days_since(max_attempted_at),
             )
         )
     return cells
@@ -607,6 +617,7 @@ def check_high_attempted_failed(
                 event=DP_RUN_MOSTLY_EMPTY,
             ):
                 continue
+            is_static_backlog, staleness_note = stale_backlog_annotation(cell.stale_days)
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
                 f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
@@ -614,7 +625,7 @@ def check_high_attempted_failed(
                 f"(ratio {cell.ratio:.1%}; abs>={ATTEMPTED_FAILED_ABS_THRESHOLD} "
                 f"or ratio>={ATTEMPTED_FAILED_RATIO_THRESHOLD:.0%}). A backfill exited "
                 f"0 / captured climbed but failed this batch invisibly."
-            )
+            ) + staleness_note
             _emit(
                 PipelineFinding(
                     event=DP_RUN_MOSTLY_EMPTY,
@@ -635,6 +646,9 @@ def check_high_attempted_failed(
                         "ratio_threshold": ATTEMPTED_FAILED_RATIO_THRESHOLD,
                         "bucket": target.bucket,
                         "blob_path": target.blob_path or AVAILABILITY_INDEX_BLOB,
+                        "max_attempted_at": cell.max_attempted_at,
+                        "stale_days": cell.stale_days,
+                        "is_static_backlog": is_static_backlog,
                     },
                     registry_id="DP-FETCH-009",
                 ),

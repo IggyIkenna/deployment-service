@@ -86,19 +86,32 @@ class TarballEntry(TypedDict):
     has_sha: bool
 
 
-def _gsutil_ls_l(prefix: str, all_versions: bool = False) -> list[tuple[datetime, str]]:
-    """Run `gcloud storage ls -l [-a]` and return [(mtime, gcs_path)] pairs.
+def _list_current_versions(bucket: str, prefix: str) -> list[tuple[datetime, str]]:
+    """List live (current-version) objects under prefix via the UTL SDK wrapper."""
+    rows: list[tuple[datetime, str]] = []
+    for meta in get_storage_client(provider="gcp").list_blobs(bucket, prefix=prefix):
+        if not meta.last_modified:
+            continue
+        ts = datetime.fromisoformat(meta.last_modified)
+        rows.append((ts, f"gs://{bucket}/{meta.name}"))
+    return rows
 
-    `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's active
-    account (a short-lived WIF token in an interactive AO slot can't refresh
-    unattended), while `gcloud storage` resolves via ADC, which stays valid. See
+
+def _gsutil_ls_l_all_versions(prefix: str) -> list[tuple[datetime, str]]:
+    """Run `gcloud storage ls -l -a` for NONCURRENT-VERSION listing only.
+
+    GCS object-version listing (the `-a` flag / `#<generation>` suffixes marking
+    noncurrent versions) has no UTL StorageClient equivalent -- list_blobs() only
+    exposes prefix/delimiter/max_results/start_offset, no `versions=` parameter.
+    This is the one remaining CLI call site in this file; all CURRENT-version
+    listing is migrated to the SDK (`_list_current_versions`, above). `gcloud
+    storage`, not `gsutil` — gsutil resolves creds from the CLI's active account
+    (a short-lived WIF token in an interactive AO slot can't refresh unattended),
+    while `gcloud storage` resolves via ADC, which stays valid. See
     plans/active/issues/vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md.
     """
-    cmd = ["gcloud", "storage", "ls", "-l"]
-    if all_versions:
-        cmd.append("-a")
-    cmd.append(prefix)
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    cmd = ["gcloud", "storage", "ls", "-l", "-a", prefix]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: gcs-cli — GCS object-version listing has no UTL SDK equivalent (see docstring)
     if result.returncode != 0:
         logger.warning("gcloud storage ls failed: %s", result.stderr.strip())
         return []
@@ -112,9 +125,9 @@ def _gsutil_ls_l(prefix: str, all_versions: bool = False) -> list[tuple[datetime
     return rows
 
 
-def _parse_tarballs(prefix: str) -> list[TarballEntry]:
+def _parse_tarballs(bucket: str, prefix: str) -> list[TarballEntry]:
     """List all .tar.gz objects under prefix; parse service name + mtime."""
-    rows = _gsutil_ls_l(prefix)
+    rows = _list_current_versions(bucket, prefix)
     entries: list[TarballEntry] = []
     for mtime, gcs_path in rows:
         filename = gcs_path.rsplit("/", 1)[-1]
@@ -256,7 +269,7 @@ def cleanup_name_versioned(
     the fleet, so at ``--keep 5`` any fleet outliving 5 UAC pushes was GUARANTEED
     to lose its pin, deterministically rather than unluckily.
     """
-    entries = _parse_tarballs(f"gs://{bucket}/code/")
+    entries = _parse_tarballs(bucket, "code/")
 
     # Only process SHA-versioned entries — single-version files are untouched
     sha_entries = [e for e in entries if e["has_sha"]]
@@ -325,7 +338,7 @@ def cleanup_noncurrent_versions(bucket: str, max_age_days: int, dry_run: bool) -
     Safe to run when versioning is off — gsutil ls -a will list only live objects.
     """
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
-    rows = _gsutil_ls_l(f"gs://{bucket}/code/", all_versions=True)
+    rows = _gsutil_ls_l_all_versions(f"gs://{bucket}/code/")
 
     # gsutil ls -la adds #<generation> suffix for noncurrent versions
     # e.g.: gs://bucket/code/svc-code.tar.gz#1234567890

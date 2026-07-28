@@ -151,38 +151,28 @@ else
   DEPLOY_REGIONS=("${REGION}")
 fi
 
+# Deploy + traffic-shift + revision cleanup all go through canary-deploy.sh: it deploys
+# the new revision with --no-traffic first, splits a small canary slice, polls /health,
+# and only promotes to 100% traffic if healthy — otherwise it auto-rolls-back to the
+# still-serving prior revision. This closes the "zero rollback target" gap the old
+# unconditional update-traffic + delete-every-other-revision sequence left open
+# (issue: deployment_service_ungated_revision_delete_no_rollback_target_2026_07_26.md).
+CANARY_SCRIPT="${SCRIPT_DIR}/canary-deploy.sh"
+
 for region in "${DEPLOY_REGIONS[@]}"; do
-  echo "=== Deploying to Cloud Run (${SERVICE} @ ${region}) ==="
-  gcloud run deploy "${SERVICE}" \
-    --image "${IMAGE_REF}" \
-    --region "${region}" \
+  echo "=== Deploying to Cloud Run (${SERVICE} @ ${region}) via canary-deploy.sh ==="
+  bash "${CANARY_SCRIPT}" "${SERVICE}" "${region}" "${IMAGE_REF}" \
+    --project "${PROJECT_ID}" \
+    --health-path /health \
+    -- \
     --platform managed \
     --allow-unauthenticated \
     --port=3000
 
-  echo "=== Routing 100% traffic to latest (${region}) ==="
-  gcloud run services update-traffic "${SERVICE}" \
+  LATEST=$(gcloud run services describe "${SERVICE}" \
     --region "${region}" \
-    --to-latest
-
-  echo "=== Cleaning up old revisions (${region}) ==="
-  LATEST=$(gcloud run revisions list \
-    --service="${SERVICE}" \
-    --region="${region}" \
-    --format="value(name)" \
-    --sort-by="~metadata.creationTimestamp" \
-    --limit=1)
-
-  gcloud run revisions list \
-    --service="${SERVICE}" \
-    --region="${region}" \
-    --format="value(name)" \
-    --sort-by="~metadata.creationTimestamp" | tail -n +2 | while read -r rev; do
-      if [ -n "$rev" ]; then
-        echo "  Deleting old revision: $rev"
-        gcloud run revisions delete "$rev" --region="${region}" --quiet 2>/dev/null || true
-      fi
-    done
+    --project "${PROJECT_ID}" \
+    --format="value(status.latestCreatedRevisionName)")
 
   echo "=== Done — Cloud Run ${SERVICE} updated (${region}) — active: ${LATEST} ==="
 done

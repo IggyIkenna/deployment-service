@@ -21,8 +21,11 @@
 #   TradFi:     2020-2026  (7 VMs)
 #   Sports:     2020-2026  (7 VMs, SKIP_DEPENDENCY_CHECK=true; pre-2020 sports raw absent)
 #   Prediction: 2025-2026  (2 VMs; data starts 2025-03-14)
-#   DeFi:       SKIPPED — DeFi data types are pass-through (NEEDS_CANDLE_PROCESSING=False)
-#               so there is no MDPS work to do. blocked_on_raw stays 0 by design.
+#   DeFi:       2022-2026  (5 VMs; raw_tick_data begins 2022-11-01, 2022 shard clamps its
+#               start accordingly). Stale-doc note (2026-07-28): DeFi was originally
+#               pass-through/no-op at launcher creation (2026-04-28) but gained real MDPS
+#               candle-derivation support in 489ec0e (2026-05-05, DEFI_YEARS added below) —
+#               this comment was never updated to match; DeFi is NOT skipped.
 #
 # Usage:
 #   bash launch-mdps-sharded-backfill.sh --preview              # plan only, no VMs created
@@ -400,7 +403,10 @@ echo ""
 echo "Tail any VM:"
 echo "  gsutil cat gs://${CODE_BUCKET}/vm-logs/<vm-name>/run.log"
 echo ""
-echo "Reminder: post-backfill, run manifest reconciliation per asset_group:"
-echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('market-data-tick-<ag>-${PROJECT}', \\"
+echo "Reminder: post-backfill, run manifest reconciliation per asset_group (ADDITIVE merge only —"
+echo "rebuild_manifest_from_canonical_paths() wholesale-replaces a shared bucket's WHOLE manifest"
+echo "index and would delete this bucket's raw_tick manifest rows; see"
+echo "rebuild_manifest_from_canonical_paths_prefix_scoped_wipe_2026_07_27.md):"
+echo "  python -c \"from unified_trading_library.manifest_writer import merge_manifest_from_canonical_paths; \\"
+echo "    merge_manifest_from_canonical_paths('market-data-tick-<ag>-${PROJECT}', \\"
 echo "      service_name='market-data-processing-service', prefix='processed_candles/by_date')\""

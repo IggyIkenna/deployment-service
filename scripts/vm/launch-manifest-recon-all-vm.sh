@@ -10,6 +10,9 @@
 #   1. reconcile_phantom_manifest_rows_all.py      --dry-run
 #   2. reconcile_expected_absence_reasons.py       (scan-only = omit --apply-flips)
 #   3. reconcile_legacy_blank_to_typed_reason.py   (scan-only = omit --apply-flips)
+#   4. (defi only) reconcile_phantom_manifest_rows_all.py --report-pyth-oracle-prices-ghost-failures
+#      — dry-run report of PYTH oracle_prices stale day-level ghost attempted_failed rows
+#      (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md).
 #
 # Run on same-region (asia-northeast1-c) so GCS manifest reads are fast
 # (CLAUDE.md "Manifest phantom audit" — cross-region listing is 18× slower).
@@ -42,7 +45,12 @@
 #   bash launch-manifest-recon-all-vm.sh --force cefi     # bypass singleton lock
 #   bash launch-manifest-recon-all-vm.sh --env staging cefi
 #
-# Cost: e2-standard-4 + 50GB. Estimated runtime (read-only, same-region):
+# Cost: e2-standard-4 + 50GB (override via MACHINE_TYPE=e2-highmem-8 etc. — the
+#   merge_canonical_with_outstanding_shards manifest read scales with the CURRENT
+#   count of outstanding per-VM shards across the fleet, not just corpus size; a
+#   defi dry-run OOM-killed at 15.4GB RSS on 2026-07-28 under elevated concurrent-
+#   backfill load, so 16GB is not a safe floor when other DeFi VMs are actively
+#   writing shards). Estimated runtime (read-only, same-region):
 #   cefi/tradfi: ~45-60 min | defi: ~15 min | sports/prediction: ~10 min
 set -euo pipefail
 
@@ -77,7 +85,7 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Singleton check per-asset-group (different asset_groups may run in parallel).
@@ -140,6 +148,12 @@ BACKFILL_CMD="python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-g
 # cmd2+: \$PYTHON_BIN — literal in metadata, expanded by bash -c at runtime.
 BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP}"
 BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP}"
+# cmd4 (defi-only): PYTH oracle_prices stale day-level ghost attempted_failed
+# rows (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md) — dry-run
+# report only; the flag itself hard-requires --asset-group defi.
+if [[ "$ASSET_GROUP" == "defi" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group defi --report-pyth-oracle-prices-ghost-failures"
+fi
 # Upload combined log to recon-logs/ after all 3 scripts complete (no-fail).
 # /home/ikennaigboaka/logs/phantom-recon.log = $LOGS/$VM_TASK.log (VM_TASK=phantom-recon).
 BACKFILL_CMD="${BACKFILL_CMD} && { gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true; }"

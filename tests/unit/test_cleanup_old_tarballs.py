@@ -81,16 +81,16 @@ class TestParseTarballs:
             _make_ls_l_row("gs://bucket/code/my-svc@abc12345.tar.gz", 10),
             _make_ls_l_row("gs://bucket/code/my-svc@def67890.tar.gz", 5),
         ]
-        with patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows):
-            entries = _parse_tarballs("gs://bucket/code/")
+        with patch("cleanup_old_tarballs._list_current_versions", return_value=rows):
+            entries = _parse_tarballs("bucket", "code/")
         assert len(entries) == 2
         assert all(e["service"] == "my-svc" for e in entries)
         assert all(e["has_sha"] for e in entries)
 
     def test_simple_pattern_parsed_as_no_sha(self) -> None:
         rows = [_make_ls_l_row("gs://bucket/code/my-svc-code.tar.gz", 1)]
-        with patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows):
-            entries = _parse_tarballs("gs://bucket/code/")
+        with patch("cleanup_old_tarballs._list_current_versions", return_value=rows):
+            entries = _parse_tarballs("bucket", "code/")
         assert len(entries) == 1
         assert entries[0]["service"] == "my-svc"
         assert not entries[0]["has_sha"]
@@ -100,8 +100,8 @@ class TestParseTarballs:
             _make_ls_l_row("gs://bucket/code/some-script.sh", 1),
             _make_ls_l_row("gs://bucket/code/my-svc-code.tar.gz", 1),
         ]
-        with patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows):
-            entries = _parse_tarballs("gs://bucket/code/")
+        with patch("cleanup_old_tarballs._list_current_versions", return_value=rows):
+            entries = _parse_tarballs("bucket", "code/")
         assert len(entries) == 1
 
 
@@ -337,7 +337,7 @@ class TestCleanupNoncurrentVersions:
             ]
         )
         with (
-            patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
+            patch("cleanup_old_tarballs._gsutil_ls_l_all_versions", return_value=rows),
             patch("cleanup_old_tarballs._delete_object") as mock_del,
         ):
             count = _cleanup_noncurrent("bucket", max_age_days=7, dry_run=True)
@@ -351,7 +351,7 @@ class TestCleanupNoncurrentVersions:
             ]
         )
         with (
-            patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
+            patch("cleanup_old_tarballs._gsutil_ls_l_all_versions", return_value=rows),
             patch("cleanup_old_tarballs._delete_object") as mock_del,
         ):
             count = _cleanup_noncurrent("bucket", max_age_days=7, dry_run=True)
@@ -365,7 +365,7 @@ class TestCleanupNoncurrentVersions:
             ]
         )
         with (
-            patch("cleanup_old_tarballs._gsutil_ls_l", return_value=rows),
+            patch("cleanup_old_tarballs._gsutil_ls_l_all_versions", return_value=rows),
             patch("cleanup_old_tarballs._delete_object", return_value=True) as mock_del,
         ):
             count = _cleanup_noncurrent("bucket", max_age_days=7, dry_run=True)

@@ -25,12 +25,27 @@
 #   * Cost is trivial — Cloud Scheduler is $0.10/job/month → $1.40/month for
 #     all 14.
 #
-# Stagger schedule (must finish by 02:25 UTC so features-onchain T+1 at
-# 02:30 UTC sees fresh manifest entries — see t1_batch_scheduler.tf:124-128.
-# NOTE (2026-07-22, residual_defi_pipeline_completion follow-up): this
-# deadline already looked tight with 11 jobs (solana-defi alone can finish
-# ~02:30) before mev-events/bridge-events were added below; flagged to the
-# t1_batch_scheduler.tf owner separately, not silently absorbed here.)
+# Stagger schedule. Historically framed as "must finish by 02:25 UTC so
+# features-onchain T+1 at 02:30 UTC sees fresh manifest entries" (citing
+# t1_batch_scheduler.tf:124-128) — that citation is STALE and the consumer it
+# pointed at no longer exists: the "features-onchain" T+1 recon Cloud
+# Scheduler job (t1_batch_scheduler.tf's now-removed "features-onchain" map
+# entry, which created uts-{prod,dev,staging}-features-onchain-service-t1-recon)
+# was deliberately DELETED 2026-07-13 per explicit operator ruling —
+# deployment-service@b13f79b (terraform prune) + full cloud-side decommission,
+# see plans/archive/issues/features_onchain_image_pipeline_gap_2026_07_13.md —
+# and never replaced (confirmed 2026-07-28: zero features-onchain/T+1-recon
+# entries anywhere in t1_batch_scheduler.tf or the wider terraform/gcp tree).
+# No live T+1 job currently depends on a hard 02:25/02:30 UTC cutover for this
+# data; the times below are kept as a historical stagger only, not an
+# enforced deadline. See plans/active/issues/defi_t1_freshness_deadline_stagger_2026_07_28.md
+# for the full investigation + two follow-up todos (re-stagger or drop the
+# deadline framing entirely; re-check collect-lst-seasonal-rewards).
+# NOTE (2026-07-22, residual_defi_pipeline_completion follow-up, now moot per
+# the above): this deadline already looked tight with 11 jobs (solana-defi
+# alone can finish ~02:30) before mev-events/bridge-events were added below;
+# flagged to the t1_batch_scheduler.tf owner separately, not silently
+# absorbed here.)
 #   00:00 collect-gas-fees           Alchemy RPC per-block (heavy network)
 #   00:05 collect-oracle-prices      Chainlink RPC (multi-chain)
 #   00:15 collect-dex-pools          TheGraph subgraph (heavy memory)

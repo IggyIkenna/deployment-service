@@ -1724,6 +1724,72 @@ def test_critical_attempts_dispatch(monkeypatch):
     assert result["dispatch"]["dispatched"] is True
 
 
+def test_dispatch_client_payload_stays_under_github_top_level_key_cap(monkeypatch):
+    """Regression guard: GitHub's repository_dispatch endpoint 422s a client_payload
+    over 10 top-level properties. A prior payload shape (repo/pr_number/wall_type/
+    context/authoring_slot/model + action/vm_name/relaunch_launcher/deployment_id/
+    asset_group = 11 keys) hit exactly this cap on every VM-lifecycle finding, so
+    auto-relaunch never fired for any frozen/stalled VM — silently, since the 422's
+    response body was never logged, only the generic exception string
+    (heartbeat_stall_watcher_autokill_never_works_in_production_2026_07_27.md, the
+    422-dispatch half of that investigation). The 5 relaunch-specific fields were
+    also provably dead: escalate-to-orchestrator.yml's actual POST /api/escalate
+    body (unified-trading-pm) only ever forwarded repo/pr_number/wall_type/context/
+    authoring_slot/model — so dropping them lost no downstream capability, the
+    worker already gets vm_name/launcher/deployment_id/asset_group via the
+    human-readable `context` text (relaunch_ctx)."""
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+
+    class _FakeSecretClient:
+        def get_secret(self, _name: str) -> str:
+            return "fake-gh-token"
+
+    monkeypatch.setattr(escalation, "get_secret_client", lambda: _FakeSecretClient())
+
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status = 204
+
+        def close(self) -> None:
+            return None
+
+    def _fake_urlopen(request, timeout=15):  # noqa: ARG001
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse()
+
+    monkeypatch.setattr(escalation.urllib.request, "urlopen", _fake_urlopen)
+
+    finding = PipelineFinding(
+        event="DP_VM_STALL",
+        severity="CRITICAL",
+        tier=EscalationTier.PAGE_OPERATOR,
+        summary="vm frozen",
+        details={
+            "vm_name": "canonical-migration-cefi-content-apply-055803-cs9-1d",
+            "relaunch_launcher": "launch-canonical-migration-vm.sh",
+            "deployment_id": "dep-123",
+            "asset_group": "cefi",
+        },
+        registry_id="DP-VM-002",
+    )
+
+    out = escalation._dispatch_to_orchestrator(finding, None)
+
+    assert out["dispatched"] is True
+    client_payload = captured["payload"]["client_payload"]
+    assert len(client_payload) <= 10, (
+        f"client_payload has {len(client_payload)} top-level keys — GitHub's repository_dispatch "
+        "caps client_payload at 10 top-level properties; exceeding it 422s every dispatch."
+    )
+    # The relaunch binding must still reach the worker somehow — via the context text,
+    # since the structured fields were dropped as dead weight (see docstring above).
+    assert "RELAUNCH vm=canonical-migration-cefi-content-apply-055803-cs9-1d" in client_payload["context"]
+
+
 def test_dispatch_is_non_raising_without_gh_token(monkeypatch):
     """The REAL _dispatch_to_orchestrator never raises — no GH token → graceful skip."""
     emitted: list[str] = []
@@ -2017,6 +2083,84 @@ def test_unregistered_cell_never_known_dead(monkeypatch):
     assert cell.high
     assert not cell.known_dead
     assert any(e[0] == "DP_RUN_MOSTLY_EMPTY" and e[1] == "CRITICAL" for e in emitted)
+
+
+# ── DP-FETCH-009 staleness labeling (cefi_high_attempted_failed_batch_cluster_2026_07_23.md
+# "Alerting-hygiene question" — distinguish "static, already-tracked backlog" from "fresh
+# failure" in the alert BODY, without changing whether/how often it pages: that suppression
+# policy call stays open for the operator/alerting-service owner) ──────────────────────────
+
+
+def test_stale_days_computed_for_old_attempted_at(monkeypatch):
+    # All failures are several days old — surfaces on the cell (additive fields; does NOT
+    # affect whether it pages).
+    old_ts = (datetime.now(UTC) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", old_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.max_attempted_at == old_ts
+    assert cell.stale_days is not None
+    assert 5 <= cell.stale_days <= 6  # >= 5 full days elapsed by check time; small test-run slack
+
+
+def test_stale_days_zero_for_fresh_activity(monkeypatch):
+    # Failures attempted just now — stale_days is 0, never annotated STATIC.
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", fresh_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.stale_days == 0
+
+
+def test_stale_days_none_for_empty_attempted_at(monkeypatch):
+    # Legacy/unknown rows (attempted_at="") never assert staleness — None, not 0/false,
+    # matching is_known_dead's own fail-safe convention for the same data quirk.
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed")] * n_failed  # attempted_at defaults to ""
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    _capture_emits(monkeypatch)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.max_attempted_at == ""
+    assert cell.stale_days is None
+
+
+def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
+    # The STATIC BACKLOG label reaches the alert's details/summary, but the cell still
+    # pages exactly as before — labeling is additive, suppression policy is untouched.
+    old_ts = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_failed = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("trades", "attempted_failed", old_ts)] * n_failed
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    captured_details: list[dict] = []
+    captured_summaries: list[str] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    orig_emit = meta_watchers._emit
+
+    def _capture_emit(finding, **kwargs):
+        captured_summaries.append(finding.summary)
+        return orig_emit(finding, **kwargs)
+
+    monkeypatch.setattr(meta_watchers, "_emit", _capture_emit)
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "trades")
+    assert cell.high  # still pages — labeling never suppresses
+    dp_details = [d for d in captured_details if d.get("data_type") == "trades"]
+    assert dp_details, "DP_RUN_MOSTLY_EMPTY finding should carry data_type=trades"
+    d = dp_details[0]
+    assert d["is_static_backlog"] is True
+    assert d["stale_days"] >= 9
+    assert d["max_attempted_at"] == old_ts
+    assert any("STATIC BACKLOG" in s for s in captured_summaries)
 
 
 def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):

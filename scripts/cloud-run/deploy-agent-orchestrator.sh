@@ -116,11 +116,17 @@ fi
 RUNTIME_ENV="ORCHESTRATOR_MODE=live,ORCHESTRATOR_ALLOW_ANONYMOUS=false,ORCHESTRATOR_USERS_JSON=/secrets/users.json"
 RUNTIME_SECRETS="ORCHESTRATOR_JWT_SECRET=ORCHESTRATOR_JWT_SECRET:latest,/secrets/users.json=ORCHESTRATOR_USERS_JSON:latest"
 
-echo "=== Deploying to Cloud Run (${SERVICE} @ ${REGION}) ==="
-gcloud run deploy "${SERVICE}" \
-  --image "${IMAGE_REF}" \
-  --region "${REGION}" \
+# Deploy + traffic-shift + revision cleanup all go through canary-deploy.sh: it deploys
+# the new revision with --no-traffic first, splits a small canary slice, polls /health,
+# and only promotes to 100% traffic if healthy — otherwise it auto-rolls-back to the
+# still-serving prior revision. This closes the "zero rollback target" gap the old
+# unconditional update-traffic + delete-every-other-revision sequence left open
+# (issue: deployment_service_ungated_revision_delete_no_rollback_target_2026_07_26.md).
+echo "=== Deploying to Cloud Run (${SERVICE} @ ${REGION}) via canary-deploy.sh ==="
+bash "${SCRIPT_DIR}/canary-deploy.sh" "${SERVICE}" "${REGION}" "${IMAGE_REF}" \
   --project "${PROJECT_ID}" \
+  --health-path /health \
+  -- \
   --platform managed \
   --allow-unauthenticated \
   --port=8080 \
@@ -131,13 +137,6 @@ gcloud run deploy "${SERVICE}" \
   --min-instances=0 \
   --max-instances=3
 
-echo "=== Routing 100% traffic to latest ==="
-gcloud run services update-traffic "${SERVICE}" \
-  --region "${REGION}" \
-  --project "${PROJECT_ID}" \
-  --to-latest
-
-echo "=== Cleaning up old revisions (keep latest) ==="
 LATEST=$(gcloud run revisions list \
   --service="${SERVICE}" \
   --region="${REGION}" \
@@ -145,18 +144,6 @@ LATEST=$(gcloud run revisions list \
   --format="value(name)" \
   --sort-by="~metadata.creationTimestamp" \
   --limit=1)
-
-gcloud run revisions list \
-  --service="${SERVICE}" \
-  --region="${REGION}" \
-  --project="${PROJECT_ID}" \
-  --format="value(name)" \
-  --sort-by="~metadata.creationTimestamp" | tail -n +2 | while read -r rev; do
-    if [ -n "$rev" ]; then
-      echo "  Deleting old revision: $rev"
-      gcloud run revisions delete "$rev" --region="${REGION}" --project="${PROJECT_ID}" --quiet 2>/dev/null || true
-    fi
-  done
 
 # Fetch the Cloud Run-assigned URL for the just-deployed service.
 SERVICE_URL=$(gcloud run services describe "${SERVICE}" \

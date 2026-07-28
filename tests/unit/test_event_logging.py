@@ -2,6 +2,7 @@
 
 import os
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,14 @@ SERVICE_SPECIFIC_EVENTS: dict[str, list[str]] = {
 
 
 def get_service_name() -> str:
+    """Resolve the service's own identity (pyproject `name`), not the checkout dirname."""
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    if pyproject_path.is_file():
+        with pyproject_path.open("rb") as f:
+            data = tomllib.load(f)
+        name = data.get("project", {}).get("name")
+        if name:
+            return str(name)
     return Path.cwd().name
 
 

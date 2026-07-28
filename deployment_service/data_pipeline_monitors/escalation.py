@@ -656,12 +656,18 @@ def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None)
     if not token:
         return {"dispatched": False, "reason": "no_gh_token"}
 
-    # Structured relaunch binding — so the worker relaunches DETERMINISTICALLY
-    # from the registries (DeploymentsRegistry row + launcher_registry), never by
-    # parsing the context text. A relaunch hand-off = a VM-lifecycle finding whose
-    # in-image auto_recover could not actuate (actuators/launchers absent from the
-    # Cloud Run monitor image — the 2026-06-23 decision: relaunch via a planning-VM
-    # worker, not by packaging scripts into the image).
+    # A relaunch hand-off = a VM-lifecycle finding whose in-image auto_recover could
+    # not actuate (actuators/launchers absent from the Cloud Run monitor image — the
+    # 2026-06-23 decision: relaunch via a planning-VM worker, not by packaging
+    # scripts into the image). vm_name/relaunch_launcher/deployment_id/asset_group
+    # used to ALSO ride as separate top-level client_payload keys for a structured
+    # (non-context-text) worker read — dropped 2026-07-27 (they pushed client_payload
+    # past GitHub's 10-top-level-key cap → every dispatch 422'd, so auto-relaunch never
+    # fired for any VM-lifecycle finding); escalate-to-orchestrator.yml's actual
+    # POST /api/escalate body never forwarded them anyway (it only reads repo/
+    # pr_number/wall_type/context/authoring_slot/model), so nothing downstream lost
+    # capability — the worker already gets these via the `relaunch_ctx` text below,
+    # which IS the field escalate-to-orchestrator.yml forwards.
     details = finding.details
     vm_name = str(details.get("vm_name", "")).strip()
     relaunch_launcher = str(details.get("relaunch_launcher", "")).strip()
@@ -690,13 +696,6 @@ def _dispatch_to_orchestrator(finding: PipelineFinding, issue_path: Path | None)
             "context": context,
             "authoring_slot": "dp-fleet-monitor",
             "model": "sonnet",
-            # Structured relaunch binding (empty strings when N/A) — the worker
-            # reads these + the DeploymentsRegistry row, not the context text.
-            "action": "relaunch_vm" if is_relaunch else "investigate",
-            "vm_name": vm_name,
-            "relaunch_launcher": relaunch_launcher,
-            "deployment_id": deployment_id,
-            "asset_group": asset_group,
         },
     }
     request = urllib.request.Request(

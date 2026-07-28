@@ -236,11 +236,21 @@ if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
 # this launcher's --force flag means VM_FORCE (data re-fetch), NOT a guard bypass — when the
 # cap refuses, wait for a running Tardis VM to finish (or an operator can bump
 # TARDIS_MAX_CONCURRENT_VMS explicitly).
+#
+# Scoped to Tardis-sourced venues only (not blanket asset_group==cefi): this launcher is
+# also used for the documented CAP-EXEMPT native-REST venues (HYPERLIQUID/ASTER/
+# LIGHTER-ZKSYNC/EXTENDED-STARKNET/COINBASE-CDE), which never touch datasets.tardis.dev and
+# so must not be refused just because a real Tardis VM is running elsewhere — see
+# mtds_backfill_launcher_guard_overapplies_to_nontardis_venues_2026_07_28.md.
 # SSOT: unified-trading-pm/plans/active/issues/tardis_concurrent_ip_lockout_2026_07_12.md
 if [[ "${DRY_RUN:-false}" != "true" && "$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]')" == "cefi" ]]; then
     # shellcheck source=./tardis-concurrency-guard.sh
     source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
-    tardis_concurrency_guard 1 "${ZONE}" "${PROJECT_ID}" || exit 1
+    if tardis_venue_list_needs_guard "${VENUES}"; then
+        tardis_concurrency_guard 1 "${ZONE}" "${PROJECT_ID}" || exit 1
+    else
+        echo "[tardis-guard] SKIPPED: --venues (${VENUES}) are all CAP-EXEMPT (non-Tardis) — no contention for the shared Tardis IP."
+    fi
 fi
 
 echo "Creating VM ${VM_NAME} [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."

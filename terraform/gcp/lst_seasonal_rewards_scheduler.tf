@@ -21,10 +21,21 @@
 #   * Different image — features-service (onchain family), not market-tick-data-service.
 #   * Different cadence — fires AFTER all the upstream DeFi collection
 #     ops finish (the dex-pools / oracle-prices / lst-rates jobs in
-#     defi_collection_scheduler.tf complete by 02:05 UTC) and BEFORE the
-#     features-onchain-service T+1 recon at 02:30 UTC, so the recon
-#     pass picks up the fresh ``lst_seasonal_rewards/by_date/day=...``
-#     parquet for the previous day.
+#     defi_collection_scheduler.tf complete by 02:05 UTC). Historically framed
+#     as "BEFORE the features-onchain-service T+1 recon at 02:30 UTC, so the
+#     recon pass picks up the fresh ``lst_seasonal_rewards/by_date/day=...``
+#     parquet for the previous day" (citing t1_batch_scheduler.tf:131-135) —
+#     that consumer no longer exists: the "features-onchain" T+1 recon Cloud
+#     Scheduler job was deliberately DELETED 2026-07-13 per explicit operator
+#     ruling (deployment-service@b13f79b terraform prune + cloud-side
+#     decommission, see
+#     plans/archive/issues/features_onchain_image_pipeline_gap_2026_07_13.md)
+#     and never replaced (confirmed 2026-07-28, zero matches anywhere in
+#     terraform/gcp — see
+#     plans/active/issues/defi_t1_freshness_deadline_stagger_2026_07_28.md).
+#     No live T+1 job currently depends on this collector finishing by a hard
+#     02:25/02:30 UTC cutover; the 02:25 UTC start is kept because it still
+#     gives the upstream collect-* fan-out headroom, not to feed a recon pass.
 #   * Different secret surface — needs Web3 RPCs (Alchemy ETH / Base /
 #     Arbitrum / Optimism) + Solana RPC + venue API keys via
 #     ApiKeyReloader. The runtime SA `unified_trading` already has
@@ -34,7 +45,8 @@
 #   00:00–02:05  defi_collection_scheduler.tf — 11 collect-* ops fan out
 #   02:05–02:25  buffer (gives the heaviest collect ops headroom)
 #   02:25 UTC    THIS — collect-lst-seasonal-rewards (fires at 02:25)
-#   02:30 UTC    features-onchain T+1 recon (t1_batch_scheduler.tf:131-135)
+#   02:30 UTC    (historical) features-onchain T+1 recon — job deleted
+#                2026-07-13, no longer exists; see note above
 #   03:00 UTC    ml-inference T+1
 #   04:00 UTC    strategy T+1
 #
