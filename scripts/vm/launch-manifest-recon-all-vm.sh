@@ -45,7 +45,12 @@
 #   bash launch-manifest-recon-all-vm.sh --force cefi     # bypass singleton lock
 #   bash launch-manifest-recon-all-vm.sh --env staging cefi
 #
-# Cost: e2-standard-4 + 50GB. Estimated runtime (read-only, same-region):
+# Cost: e2-standard-4 + 50GB (override via MACHINE_TYPE=e2-highmem-8 etc. — the
+#   merge_canonical_with_outstanding_shards manifest read scales with the CURRENT
+#   count of outstanding per-VM shards across the fleet, not just corpus size; a
+#   defi dry-run OOM-killed at 15.4GB RSS on 2026-07-28 under elevated concurrent-
+#   backfill load, so 16GB is not a safe floor when other DeFi VMs are actively
+#   writing shards). Estimated runtime (read-only, same-region):
 #   cefi/tradfi: ~45-60 min | defi: ~15 min | sports/prediction: ~10 min
 set -euo pipefail
 
@@ -80,7 +85,7 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-4"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Singleton check per-asset-group (different asset_groups may run in parallel).
