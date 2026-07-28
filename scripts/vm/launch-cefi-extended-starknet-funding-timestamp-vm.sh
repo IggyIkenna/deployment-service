@@ -1,32 +1,42 @@
 #!/usr/bin/env bash
 # Epic: perp_funding_data_semantics_and_cadence_2026_06_16
 # Lifecycle: oneoff
-# Delete-when: after the full historical derivative_ticker funding_timestamp reprocess has run
-#   --apply to completion (verified, manifest-row-count-unchanged) across every venue in
-#   market-tick-data-service/scripts/one_offs/reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py's
-#   KNOWN_TARDIS_DERIVATIVE_TICKER_VENUES.
+# Delete-when: after the full historical EXTENDED-STARKNET derivative_ticker funding_timestamp
+#   ADD (schema-extension, not a value correction) has run --apply to completion (verified) across
+#   BOTH pipeline_mode lanes (batch_extended + the currently-mislabelled batch_tardis copy) in
+#   market-tick-data-service/scripts/one_offs/add_extended_starknet_derivative_ticker_funding_timestamp_2026_07_28.py.
 #
-# One-off CeFi migration VM (Pattern A, same shape as launch-cefi-migration-vm.sh) that scales the
-# already-sample-proven ``reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py``
-# script (design + a real 86/86-object production sample verified 2026-07-28, see
-# plans/active/issues/perp_funding_data_semantics_and_cadence_2026_06_16.md) to a REAL venue's FULL
-# affected date range. One VM per venue (independent GCS prefixes -- safe to launch concurrently);
-# --mode apply --apply is baked in (this launcher's whole purpose is the real correction run, not a
-# dry-run scan -- use the script directly with --mode scan for quantification).
+# One-off CeFi migration VM (Pattern A, same shape as launch-cefi-funding-timestamp-fix-vm.sh) that
+# scales the already-sample-proven ``add_extended_starknet_derivative_ticker_funding_timestamp_
+# 2026_07_28.py`` script (design + a real 135/135 batch_extended + 69/69 batch_tardis production
+# sample verified 2026-07-28, see
+# plans/active/issues/perp_funding_data_semantics_and_cadence_2026_06_16.md Finding 5) to the FULL
+# historical corpus for ONE pipeline_mode lane. EXTENDED-STARKNET carries derivative_ticker under
+# TWO lanes (batch_extended = declared native, batch_tardis = a currently-mislabelled copy — see
+# onchain_venues_mislabeled_batch_tardis_lane_2026_07_20.md) -- launch ONE VM per lane (independent
+# GCS prefixes -- safe to launch concurrently); --mode apply --apply is baked in.
+#
+# Unlike the sibling Tardis bulk-CSV fix, this script ADDS two new columns (funding_timestamp /
+# next_funding_timestamp derived from the row's own already-correct `timestamp`) rather than
+# shifting an existing forward-looking value -- EXTENDED-STARKNET's raw wire schema never carried
+# funding_timestamp at all. See the script's own module docstring for the full evidence trail.
 #
 # GCS-only workload: the script reads/rewrites ALREADY-CAPTURED historical
 # raw_tick_data/by_date/.../data_type=derivative_ticker parquet via UTL's get_storage_client() /
-# gcs_copy_object / gcs_describe_object / gcs_conditional_put -- it makes ZERO live calls to Tardis's
-# API (no tardis-py / websocket / REST client import anywhere in the script), so the
+# gcs_copy_object / gcs_describe_object / gcs_conditional_put -- it makes ZERO live calls to any
+# vendor API (no tardis-py / websocket / REST client import anywhere in the script), so the
 # tardis-concurrency-guard cap-1 rule does NOT apply to this launcher.
 #
 # Usage:
-#   bash launch-cefi-funding-timestamp-fix-vm.sh <VENUE> <START_DATE> <END_DATE>
-#   bash launch-cefi-funding-timestamp-fix-vm.sh --dry-run <VENUE> <START_DATE> <END_DATE>
-#   bash launch-cefi-funding-timestamp-fix-vm.sh --env staging <VENUE> <START_DATE> <END_DATE>
+#   bash launch-cefi-extended-starknet-funding-timestamp-vm.sh <PIPELINE_MODE> <START_DATE> <END_DATE>
+#   bash launch-cefi-extended-starknet-funding-timestamp-vm.sh --dry-run <PIPELINE_MODE> <START_DATE> <END_DATE>
+#   bash launch-cefi-extended-starknet-funding-timestamp-vm.sh --env staging <PIPELINE_MODE> <START_DATE> <END_DATE>
 #
-# Example (BYBIT, its full manifest-scanned range per the issue doc's scope table):
-#   bash launch-cefi-funding-timestamp-fix-vm.sh BYBIT 2020-01-01 2026-05-01
+# PIPELINE_MODE must be one of: batch_extended, batch_tardis
+#
+# Example (batch_extended lane, full genesis-to-date range):
+#   bash launch-cefi-extended-starknet-funding-timestamp-vm.sh batch_extended 2025-07-18 2026-07-28
+#   bash launch-cefi-extended-starknet-funding-timestamp-vm.sh batch_tardis 2026-01-14 2026-07-28
 #
 # Env overrides:
 #   MACHINE_TYPE=e2-standard-4   VM size (default: e2-standard-4 -- this workload is GCS-I/O-bound,
@@ -64,26 +74,32 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${POSITIONAL[@]:-}"
 
-VENUE="${1:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <VENUE> <START_DATE> <END_DATE>}"
-START_DATE="${2:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <VENUE> <START_DATE> <END_DATE>}"
-END_DATE="${3:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <VENUE> <START_DATE> <END_DATE>}"
+PIPELINE_MODE="${1:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <batch_extended|batch_tardis> <START_DATE> <END_DATE>}"
+START_DATE="${2:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <batch_extended|batch_tardis> <START_DATE> <END_DATE>}"
+END_DATE="${3:?Usage: $0 [--dry-run] [--env prod|staging|dev] [--on-demand] <batch_extended|batch_tardis> <START_DATE> <END_DATE>}"
+
+case "$PIPELINE_MODE" in
+  batch_extended|batch_tardis) ;;
+  *) echo "ERROR: PIPELINE_MODE must be batch_extended or batch_tardis (got: $PIPELINE_MODE)" >&2; exit 1 ;;
+esac
 
 case "$DEPLOYMENT_ENV" in
   prod|staging|dev) ;;
   *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
 esac
 
-# Bare positive-integer-free venue slug for the VM name (lowercased, dashes only) -- avoids leaking
-# an arbitrary --venue string with unsafe characters into a GCE resource name.
-VENUE_SLUG="$(printf '%s' "$VENUE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/-\+/-/g; s/^-//; s/-$//')"
+# Lane slug for the VM name (dashes only) -- "batch_extended" -> "ext", "batch_tardis" -> "tar".
+case "$PIPELINE_MODE" in
+  batch_extended) LANE_SLUG="ext" ;;
+  batch_tardis)   LANE_SLUG="tar" ;;
+esac
 RUN_TS="$(lc_run_ts)"
 # Namespaced under the ALREADY-REGISTERED "canonical-migration-cefi-" VM_PREFIX_TO_BUCKET prefix
 # (deployment_service/vm_prefix_registry.py) -- longest-prefix-match routes this to the CeFi tick
-# bucket + EPHEMERAL_BATCH lifecycle with NO new registry entry needed (same convention documented
-# throughout launch-canonical-migration-vm.sh for its category-suffixed VM names). "fts" (funding
-# timestamp) keeps the full name under GCE's 63-char instance-name limit even for the longest venue
-# slug ("bitfinex-futures", 16 chars): 29 (prefix) + 16 (venue) + 1 + 15 (run_ts) = 61.
-VM_NAME="canonical-migration-cefi-fts-${VENUE_SLUG}-${RUN_TS}"
+# bucket + EPHEMERAL_BATCH lifecycle with NO new registry entry needed. "fts-ext" (funding
+# timestamp, extended-starknet) keeps the full name well under GCE's 63-char instance-name limit:
+# 33 (prefix+lane) + 1 + 15 (run_ts) = 49.
+VM_NAME="canonical-migration-cefi-fts-ext-${LANE_SLUG}-${RUN_TS}"
 
 CODE_BUCKET="deployment-scripts-${PROJECT_ID}"
 
@@ -97,19 +113,19 @@ if [[ "$ON_DEMAND" == "true" ]]; then
 fi
 
 echo "============================================================"
-echo "CeFi Bulk-Tardis derivative_ticker funding_timestamp Fix VM"
-echo "  Project:    ${PROJECT_ID}"
-echo "  Zone:       ${ZONE}"
-echo "  Machine:    ${MACHINE_TYPE}"
-echo "  VM:         ${VM_NAME}"
-echo "  Env:        ${DEPLOYMENT_ENV}"
-echo "  Venue:      ${VENUE}"
-echo "  Window:     ${START_DATE} .. ${END_DATE}"
-echo "  Provision:  ${PROVISIONING_FLAGS:-STANDARD (--on-demand)}"
-echo "  Tarball:    gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
+echo "EXTENDED-STARKNET derivative_ticker funding_timestamp ADD VM"
+echo "  Project:       ${PROJECT_ID}"
+echo "  Zone:          ${ZONE}"
+echo "  Machine:       ${MACHINE_TYPE}"
+echo "  VM:            ${VM_NAME}"
+echo "  Env:           ${DEPLOYMENT_ENV}"
+echo "  Pipeline mode: ${PIPELINE_MODE}"
+echo "  Window:        ${START_DATE} .. ${END_DATE}"
+echo "  Provision:     ${PROVISIONING_FLAGS:-STANDARD (--on-demand)}"
+echo "  Tarball:       gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "============================================================"
 
-VM_MIGRATION_CMD="python scripts/one_offs/reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py --mode apply --venue ${VENUE} --start-date ${START_DATE} --end-date ${END_DATE} --apply"
+VM_MIGRATION_CMD="python scripts/one_offs/add_extended_starknet_derivative_ticker_funding_timestamp_2026_07_28.py --mode apply --pipeline-mode ${PIPELINE_MODE} --start-date ${START_DATE} --end-date ${END_DATE} --apply"
 
 if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
@@ -147,13 +163,13 @@ gcloud compute instances create "${VM_NAME}" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-  --labels="purpose=cefi-funding-timestamp-fix,env=${DEPLOYMENT_ENV},venue=${VENUE_SLUG}" \
+  --labels="purpose=cefi-extended-starknet-funding-timestamp-add,env=${DEPLOYMENT_ENV},lane=${LANE_SLUG}" \
   --metadata="${METADATA}"
 
 # Best-effort exact-replay record for a SPOT-preemption relaunch (never fails the launch — see
 # lc_write_launch_params's own docstring).
-lc_write_launch_params "$VM_NAME" "$PROJECT_ID" "launch-cefi-funding-timestamp-fix-vm.sh" \
-  "VENUE=${VENUE}" "START_DATE=${START_DATE}" "END_DATE=${END_DATE}" "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" || true
+lc_write_launch_params "$VM_NAME" "$PROJECT_ID" "launch-cefi-extended-starknet-funding-timestamp-vm.sh" \
+  "PIPELINE_MODE=${PIPELINE_MODE}" "START_DATE=${START_DATE}" "END_DATE=${END_DATE}" "DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" || true
 
 echo ""
 echo "VM launched: ${VM_NAME}"

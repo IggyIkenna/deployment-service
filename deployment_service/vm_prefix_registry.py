@@ -865,6 +865,22 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_FEAT_SPORTS,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # CeFi perp derivative_ticker funding_timestamp fix VMs (dedicated launchers, NOT
+    # launch-canonical-migration-vm.sh — see perp_funding_data_semantics_and_cadence_
+    # 2026_06_16.md) — same bucket/lifecycle as the parent "canonical-migration-cefi-"
+    # prefix, registered ONLY so launcher_registry.py can bind a MORE SPECIFIC (correct)
+    # relaunch launcher than the generic canonical-migration one via longest-prefix-match
+    # (a preempted VM under these prefixes must relaunch via its OWN launcher — which
+    # knows VENUE/PIPELINE_MODE/START_DATE/END_DATE — not launch-canonical-migration-vm.sh,
+    # which expects a totally different category/dry-full positional CLI shape).
+    # launch-cefi-funding-timestamp-fix-vm.sh: VM_NAME=canonical-migration-cefi-fts-{venue}-{ts}
+    "canonical-migration-cefi-fts-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # launch-cefi-extended-starknet-funding-timestamp-vm.sh:
+    # VM_NAME=canonical-migration-cefi-fts-ext-{lane}-{ts} (wins over the entry above via
+    # longest-prefix-match).
+    "canonical-migration-cefi-fts-ext-": VmPrefixSpec(
+        bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
+    ),
     # legacy→canonical sharded migration VMs — launch-legacy-bucket-migration-sharded.sh
     # naming: canonical-migration-legacy-{cefi|tradfi|defi|prediction|sports}-{shard}-{ts}
     # (bucket_name_ssot_legacy_dual_write_remediation Phase 5; per-shard data-only copy).

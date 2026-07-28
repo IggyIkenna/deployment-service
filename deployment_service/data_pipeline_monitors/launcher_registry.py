@@ -281,6 +281,14 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "canonical-migration-prediction-": "launch-canonical-migration-vm.sh",
     "canonical-migration-sports-": "launch-canonical-migration-vm.sh",
     "canonical-migration-sports-features-": "launch-canonical-migration-vm.sh",
+    # CeFi perp derivative_ticker funding_timestamp fix VMs — dedicated launchers (NOT
+    # launch-canonical-migration-vm.sh, which expects a different category/dry-full CLI
+    # shape). Longest-prefix-match wins over the generic "canonical-migration-cefi-"
+    # entry above, so a SPOT-preemption relaunch invokes the correct launcher with the
+    # correct VENUE/PIPELINE_MODE/START_DATE/END_DATE env — see
+    # perp_funding_data_semantics_and_cadence_2026_06_16.md.
+    "canonical-migration-cefi-fts-": "launch-cefi-funding-timestamp-fix-vm.sh",
+    "canonical-migration-cefi-fts-ext-": "launch-cefi-extended-starknet-funding-timestamp-vm.sh",
     # legacy→canonical sharded migration VMs
     "canonical-migration-legacy-cefi-": "launch-legacy-bucket-migration-sharded.sh",
     "canonical-migration-legacy-tradfi-": "launch-legacy-bucket-migration-sharded.sh",
