@@ -741,9 +741,17 @@ _lst_rates_fold_cmd() {
 # defi-marker-cleanup's periodic GCS sync (every 2 min + on exit) -- this scans years of shards across 5
 # (venue,chain) pairs, so a SPOT preemption should never lose more than ~2 min of verified progress.
 _defi_dex_pool_leaf_purge_cmd() {
+    # Mode-specific resume file (2026-07-28 fix): a dry-run's resume-log records every shard's
+    # disposition with action="would_delete", never "deleted" -- if a subsequent --apply run pulled
+    # the SAME seed path, it would see all 12005 shards already "processed" and skip every single one,
+    # silently no-op'ing the entire apply (confirmed live: first --apply launch after a completed
+    # dry-run did exactly this, 0 shards processed, 0 deletes -- safe, but not the intended run).
+    # Suffixing the resume filename with the mode makes dry and full runs use disjoint state.
+    local mode_suffix="dry"
+    [[ "$MODE" == "full" ]] && mode_suffix="apply"
     local work="/home/ikennaigboaka/workspace/defi-dex-pool-leaf-purge"
-    local resume="${work}/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.resume.jsonl"
-    local seed_gs="${RESUME_SEED_GS:-gs://${CODE_BUCKET}/canonical-migration-defi-dex-pool-leaf-purge/resume-seed/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.resume.jsonl}"
+    local resume="${work}/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.${mode_suffix}.resume.jsonl"
+    local seed_gs="${RESUME_SEED_GS:-gs://${CODE_BUCKET}/canonical-migration-defi-dex-pool-leaf-purge/resume-seed/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.${mode_suffix}.resume.jsonl}"
     local apply_flag=""
     [[ "$MODE" == "full" ]] && apply_flag=" --apply"
     printf '%s' "cd ${VM_WORKSPACE}/mtds && mkdir -p ${work} && (gcloud storage cp ${seed_gs} ${resume} || true); (while true; do sleep 120; gcloud storage cp ${resume} ${seed_gs} >/dev/null 2>&1 || true; done) & SYNC_PID=\$!; python -u scripts/one_offs/purge_superseded_dex_pool_address_keyed_leaves_2026_07_28.py --project-id ${PROJECT} --start-date ${START_DATE} --end-date ${END_DATE} --resume-log ${resume} --workers ${WORKERS:-24}${apply_flag}; RC=\$?; kill \$SYNC_PID 2>/dev/null || true; gcloud storage cp ${resume} ${seed_gs} || true; exit \$RC"
