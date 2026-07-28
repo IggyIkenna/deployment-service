@@ -1726,13 +1726,42 @@ while cur <= end:
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
 CHUNK_NUM=0
+# Bounded per-chunk retry: a chunk's process dying mid-range (OOM/signal) must
+# retry the SAME range (skip-if-fresh resumes past whatever it already
+# captured) rather than silently advancing to the next chunk's start — the
+# prior bare "|| true" swallowed every such failure and left a permanent,
+# undetected date-range gap (see
+# plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md).
+CHUNK_MAX_ATTEMPTS=4
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
-    "$VENV/bin/python" -m instruments_service \\
-      $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+  ATTEMPT=0
+  RC=1
+  while [[ \$ATTEMPT -lt \$CHUNK_MAX_ATTEMPTS ]]; do
+    ATTEMPT=\$((ATTEMPT + 1))
+    # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
+    # tee-wrapper/heartbeat use for vm-logs/PROGRESS.json is untouched) bounds
+    # unified-trading-library ManifestWriter's per-VM shard
+    # (_index/per_vm/{VM_NAME}.parquet) to just THIS chunk's rows instead of
+    # accumulating the whole multi-year backfill into one ever-growing shard —
+    # the confirmed root cause of the repeated OOM-kills (same issue doc above;
+    # the manifest consolidator merges every per_vm/*.parquet shard generically
+    # regardless of naming, and prunes on mtime/generation, never VM-liveness
+    # name-matching, so this is safe).
+    VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+      "$VENV/bin/python" -m instruments_service \\
+        $BASE_CLI \\
+        --start-date "\${CS}" --end-date "\${CE}" 2>&1
+    RC=\$?
+    if [[ \$RC -eq 0 ]]; then
+      break
+    fi
+    echo "CHUNK_RETRY chunk=\${CHUNK_NUM}/\${TOTAL} attempt=\${ATTEMPT}/\${CHUNK_MAX_ATTEMPTS} rc=\${RC} range=\${CS}→\${CE} — process died, retrying same range (skip-if-fresh resumes past captured dates)"
+  done
+  if [[ \$RC -ne 0 ]]; then
+    echo "CHUNK_EXHAUSTED chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} after \${CHUNK_MAX_ATTEMPTS} attempts (rc=\${RC}) — moving on; this range may be INCOMPLETE"
+  fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
 echo "instruments-backfill loop complete: \$(date -u)"
