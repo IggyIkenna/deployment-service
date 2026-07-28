@@ -1628,11 +1628,12 @@ CHUNK_NUM=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  _CHUNK_LOG_TMP=\$(mktemp)
   CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1
-  CHUNK_RC=\$?
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$_CHUNK_LOG_TMP"
+  CHUNK_RC=\${PIPESTATUS[0]}
   # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
   # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
   # exit left no log signal at all beyond staleness, see
@@ -1644,6 +1645,28 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   elif [[ \$CHUNK_RC -ne 0 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   fi
+  # SPOT resume checkpoint (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json
+  # rollout, spot-vms-for-backfill.md). mtds_chunk_loop.sh re-execs python once
+  # PER CHUNK, and manifest_finalize.py's "Manifest updated: date=... total_records=N
+  # complete=..." line is the only per-date completion signal this loop can see
+  # directly, so scan THIS chunk's own captured output for it and emit a
+  # [[VM_PROGRESS]] marker for the latest date with total_records>0 — artifact-gated
+  # (never advances past a date whose capture produced zero real rows), mirroring
+  # UTL record_vm_progress's own frontier semantics. vm-exec-with-gcs-tee.sh's
+  # stall-watchdog already scans run.log for this exact marker and persists
+  # vm-logs/{vm}/PROGRESS.json — no wrapper change needed.
+  _ckpt_date=""
+  while IFS= read -r _ml; do
+    _d="\${_ml#*date=}"; _d="\${_d%% *}"
+    _tr="\${_ml#*total_records=}"; _tr="\${_tr%% *}"
+    [[ "\$_tr" =~ ^[0-9]+\$ ]] || continue
+    (( _tr > 0 )) || continue
+    if [[ -z "\$_ckpt_date" || "\$_d" > "\$_ckpt_date" ]]; then
+      _ckpt_date="\$_d"
+    fi
+  done < <(grep -a 'Manifest updated: date=' "\$_CHUNK_LOG_TMP" 2>/dev/null)
+  [[ -n "\$_ckpt_date" ]] && echo "[[VM_PROGRESS]] last_completed_date=\${_ckpt_date} monotonic=true"
+  rm -f "\$_CHUNK_LOG_TMP"
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
 echo "mtds-backfill loop complete: \$(date -u)"
@@ -1686,10 +1709,32 @@ CHUNK_NUM=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  _CHUNK_LOG_TMP=\$(mktemp)
   CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1 || true
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$_CHUNK_LOG_TMP"
+  # SPOT resume checkpoint (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json
+  # rollout, spot-vms-for-backfill.md). OnchainPerpBatchHandler._record_captured
+  # writes via ManifestWriter.add() (not record_captured()), so the UTL
+  # record_vm_progress hook never fires on its own. Scan this chunk's own output
+  # for its own completion log ("OnchainPerpBatch: VENUE/data_type/symbol/DATE
+  # captured N rows") and emit [[VM_PROGRESS]] for the latest date with N>0 —
+  # artifact-gated, same frontier semantics as record_vm_progress itself.
+  _ckpt_date=""
+  while IFS= read -r _ml; do
+    _rest="\${_ml#*OnchainPerpBatch: }"
+    _datepart="\${_rest%% captured*}"
+    _d="\${_datepart##*/}"
+    _cnt="\${_ml#*captured }"; _cnt="\${_cnt%% rows*}"
+    [[ "\$_d" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\$ && "\$_cnt" =~ ^[0-9]+\$ ]] || continue
+    (( _cnt > 0 )) || continue
+    if [[ -z "\$_ckpt_date" || "\$_d" > "\$_ckpt_date" ]]; then
+      _ckpt_date="\$_d"
+    fi
+  done < <(grep -a 'OnchainPerpBatch: .* captured .* rows' "\$_CHUNK_LOG_TMP" 2>/dev/null)
+  [[ -n "\$_ckpt_date" ]] && echo "[[VM_PROGRESS]] last_completed_date=\${_ckpt_date} monotonic=true"
+  rm -f "\$_CHUNK_LOG_TMP"
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done
 echo "cefi-hl-aster-backfill loop complete: \$(date -u)"
@@ -1761,6 +1806,18 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   done
   if [[ \$RC -ne 0 ]]; then
     echo "CHUNK_EXHAUSTED chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} after \${CHUNK_MAX_ATTEMPTS} attempts (rc=\${RC}) — moving on; this range may be INCOMPLETE"
+  else
+    # SPOT resume checkpoint (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json
+    # rollout, spot-vms-for-backfill.md). instruments-service's manifest writes
+    # (manifest.record_captured() calls scattered per-league/per-provider) have no
+    # single per-date completion summary this loop can grep the way MTDS's
+    # "Manifest updated: date=..." line allows, so this checkpoint is coarser:
+    # mark the chunk's END date only once the chunk's own retry loop reports
+    # RC==0 (the CLI ran the whole [CS,CE] window to completion without dying).
+    # A resume that blindly restarts from an earlier date still costs only a
+    # cheap presence-skip re-scan, never a re-fetch — the same bounded-risk
+    # reasoning already accepted for canonical-migration-defi-rebuild.
+    echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
   fi
   echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 done

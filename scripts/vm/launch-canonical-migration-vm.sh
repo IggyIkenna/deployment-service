@@ -1011,22 +1011,42 @@ _script_for() {
         # Only a single literal 'python ' token appears per python module (the loop reuses one venv python
         # after setup-data-pipeline-vm.sh's first-occurrence replacement; the venv is `source`-activated so
         # the second module also resolves to it). Year list overridable via MIGRATION_YEARS; workers via WORKERS.
+        #
+        # SPOT resume checkpoint (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json rollout,
+        # spot-vms-for-backfill.md): the split loop's own tool writes no manifest rows (parquet-only —
+        # see defi-pi-range's comment above), so each year's chunk echoes its own [[VM_PROGRESS]] marker
+        # on rc==0 right after the existing "R3 CHUNK ... DONE" line. The chained rebuild phase (full
+        # mode only) gets a REAL artifact-gated checkpoint for free — rebuild_defi_manifest.py now calls
+        # record_vm_progress() per date internally (same rollout), and this whole compound chain runs
+        # under one constant VM_NAME, so that hook fires correctly here too.
         defi-per-instrument)
             local _apply=""; [[ "$MODE" == "full" ]] && _apply=" --apply"
             local _rbdry=""; [[ "$MODE" != "full" ]] && _rbdry=" --dry-run"
             local _bkt="market-data-tick-defi-prd-central-element-323112"
             local _yrs="${MIGRATION_YEARS:-2020 2021 2022 2023 2024 2025 2026}"
-            printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; [ \"\${rc}\" -ne 0 ] && rc_all=1; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
+            printf '%s' "rc_all=0; for y in ${_yrs}; do echo \"=== R3 CHUNK year=\${y} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${y}-01-01 --end-date \${y}-12-31 --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== R3 CHUNK year=\${y} DONE rc=\${rc} ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; if [ \"\${rc}\" -eq 0 ]; then echo \"[[VM_PROGRESS]] last_completed_date=\${y}-12-31 monotonic=true\"; else rc_all=1; fi; done; echo \"=== R3 MIGRATION ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; if [ \"\${rc_all}\" -eq 0 ]; then echo \"=== REBUILD MANIFEST START ===\"; python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket ${_bkt} --start-date 2020-01-01 --end-date 2026-12-31${_rbdry}; rc_rb=\$?; echo \"=== REBUILD MANIFEST DONE rc=\${rc_rb} ===\"; exit \${rc_rb}; else echo \"=== SKIP REBUILD: migration had chunk failure(s); inspect per-chunk rc above ===\"; exit 1; fi" ;;
         # DeFi R3 per-instrument split, SINGLE date-range scope — one VM per QUARTER for a parallel fan-out
         # (wall-time = the slowest quarter, not the sum). Same migrate_defi_batch_to_per_instrument tool as
         # defi-per-instrument, but scoped to the positional <start-date>..<end-date> for ONE quarter with NO
         # internal year-loop and NO chained rebuild — rebuild_defi_manifest is run ONCE over the whole corpus
         # after every quarter-VM reaches terminal. Disjoint quarters ⇒ disjoint day partitions ⇒ no leaf /
         # _needs_attribution write races, safe to parallelize. Idempotent (done cells' sources are already
-        # _migrated_*, invisible to the walk → fast skip). DRY-BY-DEFAULT + --apply appended by the flag block
-        # below (a single-command category, exactly like defi/tradfi). Distinct VM names via VM_NAME_SUFFIX.
+        # _migrated_*, invisible to the walk → fast skip). DRY-BY-DEFAULT + --apply baked in below (compound
+        # chain, NOT the generic append — see the flag-suppression comment in _launch). Distinct VM names via
+        # VM_NAME_SUFFIX.
+        #
+        # SPOT resume checkpoint (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json rollout,
+        # spot-vms-for-backfill.md): migrate_defi_batch_to_per_instrument writes parquet only (no
+        # ManifestWriter calls at all — the manifest is rebuilt separately by defi-rebuild), so there is
+        # no per-date artifact signal this single non-chunked invocation can checkpoint against mid-run.
+        # Emit ONE [[VM_PROGRESS]] marker for the whole [START_DATE,END_DATE] scope on rc==0 — a coarser
+        # checkpoint than the chunk-level markers elsewhere in this rollout, but still lets a preemption
+        # relaunch of an ALREADY-COMPLETED quarter-VM skip the blind START_DATE replay (the split is
+        # idempotent regardless — _migrated_* sources make a re-run a fast skip — so this is defense in
+        # depth, not correctness-critical).
         defi-pi-range)
-            echo "python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-16}" ;;
+            local _apply=""; [[ "$MODE" == "full" ]] && _apply=" --apply"
+            printf '%s' "python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-16}${_apply}; rc=\$?; if [ \"\${rc}\" -eq 0 ]; then echo \"[[VM_PROGRESS]] last_completed_date=$END_DATE monotonic=true\"; fi; exit \${rc}" ;;
         # DeFi manifest rebuild ONLY (rebuild_defi_manifest) over the whole corpus — the post-migration step
         # run ONCE after every per-quarter migrate VM is terminal. Re-derives per-instrument instrument_id=stem
         # from the actual leaves. Write-by-default (falls to the else branch → dry appends --dry-run, full
@@ -1298,7 +1318,7 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
@@ -1306,15 +1326,17 @@ _launch() {
               # sports-features-purge's own if/full else/dry branches are the SAME class of compound
               # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
               # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
-              # `exit ${rc}`) -- same suppression reasoning.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
+              # `exit ${rc}`) -- same suppression reasoning. defi-pi-range joined this list
+              # (infra_satellite_ao_dispatch_batch1 P2 PROGRESS.json rollout) when its command grew a
+              # trailing `rc=$?; ...; exit ${rc}` checkpoint wrapper -- same compound-chain class.
+        elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
         fi
         # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
         # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
-        [[ "$cat" != "defi-per-instrument" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+        [[ "$cat" != "defi-per-instrument" && "$cat" != "defi-pi-range" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     fi
 
     echo "Launching $vm_name — $cmd"
