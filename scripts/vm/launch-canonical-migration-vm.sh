@@ -1188,6 +1188,13 @@ _launch() {
     # itself stays unabbreviated everywhere else: dispatch match, _svc/_ag derivation, tarball checks).
     if [[ "$cat" == "defi-curve-optimism-reclassify" ]]; then
         _vm_name_cat="defi-curve-optm-reclass"
+    elif [[ "$cat" == "sports-k1k2-uppercase-delete" ]]; then
+        # BUG FOUND 2026-07-28 (first real launch): "canonical-migration-sports-k1k2-uppercase-
+        # delete-<ts>" is 64 chars, 1 over GCE's 63-char limit -- same overflow class as the
+        # defi-curve-optimism-reclassify/*-candle-apply cases above. Abbreviate the vm_name token
+        # only ($cat itself stays unabbreviated everywhere else: dispatch match, _ag derivation,
+        # tarball checks).
+        _vm_name_cat="sports-k1k2-upper-del"
     elif [[ "$cat" == *-candle-apply ]]; then
         _vm_name_cat="${cat%-candle-apply}-cdlap"
         # Shorten "shard{i}of{N}" -> "s{i}of{N}" too (saves 4 more chars) — same info, tighter budget.
