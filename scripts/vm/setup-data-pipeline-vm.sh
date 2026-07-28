@@ -1574,8 +1574,43 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
         ;;
     esac
   else
-    BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
-    [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+    # HARDENING (mtds_backfill_vm_data_types_silently_ignored_for_hl_aster_2026_07_28.md):
+    # HYPERLIQUID/ASTER/LIGHTER-ZKSYNC/EXTENDED-STARKNET are CeFi-classified but are
+    # on-chain-perp venues driven by OnchainPerpBatchHandler under the hood — the
+    # generic `--operation download` CLI path does NOT thread --data-types down into
+    # that handler's per-data-type filtering (it always fetches the handler's full
+    # declared data_type set for the venue regardless of the flag), so a
+    # --data-types-scoped launch silently over-fetches (confirmed: a single-day
+    # HYPERLIQUID trades-only launch pulled book_snapshot_5 + derivative_ticker too,
+    # ~6min instead of ~25s). Detect membership via the SAME registry the handler is
+    # built on (umi_tick_provider.ONCHAIN_PERP_VENUE_CHAIN — its own docstring:
+    # "Exported for use by VM launcher scripts") rather than re-declaring the venue
+    # set here, so this stays in sync with the handler automatically. Scoped to
+    # VM_DATA_TYPES being SET: an unscoped (no --data-types) launch already fetches
+    # the handler's full declared set either way via the download path, so this only
+    # changes behavior in the exact silent-drop scenario found — no other caller's
+    # unscoped download-path usage for these venues is affected.
+    # Only pay the python-import cost when it can actually change routing (both a
+    # venue AND a data-types scope are present) — an unscoped launch is a no-op
+    # either way, so skip the check entirely rather than probe it needlessly.
+    _IS_ONCHAIN_PERP_VENUE="false"
+    if [[ -n "$VM_VENUE" && -n "$VM_DATA_TYPES" ]]; then
+      _IS_ONCHAIN_PERP_VENUE=$("$VENV/bin/python" -c "
+from market_tick_data_service.adapters.umi_tick_provider import ONCHAIN_PERP_VENUE_CHAIN
+print('true' if '${VM_VENUE^^}' in ONCHAIN_PERP_VENUE_CHAIN else 'false')
+" 2>/dev/null || echo "false")
+    fi
+    if [[ "$_IS_ONCHAIN_PERP_VENUE" == "true" && -n "$VM_DATA_TYPES" ]]; then
+      log "mtds-backfill: VM_VENUE=$VM_VENUE is a CeFi on-chain-perp venue with VM_DATA_TYPES set — routing to collect-onchain-perp-batch (honors per-data-type filtering) instead of the generic download path that silently ignores it"
+      BASE_CLI="--operation collect-onchain-perp-batch --mode batch --asset-group $VM_ASSET_GROUP --venues $VM_VENUE"
+      BASE_CLI="$BASE_CLI --onchain-perp-data-types ${VM_DATA_TYPES//[,;]/ }"
+      [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --onchain-perp-symbols ${VM_INSTRUMENT_IDS//[,;]/ }"
+      _MTDS_ONCHAIN_PERP_ROUTED="true"
+    else
+      BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
+      [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+      _MTDS_ONCHAIN_PERP_ROUTED="false"
+    fi
   fi
   # NOTE: VM_TIER is NOT a CLI flag — the MTDS download CLI has no `--tier` option
   # (argparse rejects it: "unrecognized arguments: --tier 1"). "Tier" is an
@@ -1583,11 +1618,16 @@ elif [[ "$VM_TASK" == "mtds-backfill" ]]; then
   # asset_group + instrument universe (venue=odds_api auto-routed by the
   # orchestrator); the Odds-API paid-plan tier is encoded in the Secret-Manager
   # API key, not passed per-run. VM_TIER stays in metadata for documentation/logs.
-  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  # --data-types / --instrument-ids: SKIPPED when the on-chain-perp branch above
+  # already routed to collect-onchain-perp-batch — that branch appends the handler's
+  # own --onchain-perp-data-types / --onchain-perp-symbols equivalents itself, so
+  # appending the generic flags too would be redundant (and semantically wrong —
+  # this operation doesn't take --data-types/--instrument-ids).
+  [[ -n "$VM_DATA_TYPES" && "${_MTDS_ONCHAIN_PERP_ROUTED:-false}" != "true" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
   # --source: REQUIRED for a TradFi OHLCV download (selects fetcher + stamps
   # provenance); the CLI ignores it for non-tradfi venue-fixed runs.
   [[ -n "$VM_SOURCE" ]] && BASE_CLI="$BASE_CLI --source $VM_SOURCE"
-  [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ -n "$VM_INSTRUMENT_IDS" && "${_MTDS_ONCHAIN_PERP_ROUTED:-false}" != "true" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
   # --league (sports only): the CLI flag takes ONE comma-separated string. Metadata
   # uses ';' between leagues (like VM_INSTRUMENT_IDS above — gcloud
   # --metadata=K=V,K=V splits on ',' at the key level, so a literal comma in the
