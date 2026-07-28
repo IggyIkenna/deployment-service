@@ -81,6 +81,35 @@ TARDIS_MAX_CONCURRENT_VMS="${TARDIS_MAX_CONCURRENT_VMS:-1}"
 # and mtds cefi backfill/pipelinecheck VMs.
 TARDIS_VM_NAME_PATTERN='^(cefi|tradfi)-.*-(heavy|light)-|^cefi-queue-|^mtds-backfill-cefi-'
 
+# CAP-EXEMPT venues (see the prose above): venues whose URDI adapter is NOT
+# "tardis" (unified-api-contracts registry/venue_adapter_keys.py
+# VENUE_TO_ADAPTER_KEY is the SSOT — grep it, don't guess, before editing this
+# list), so they never open an authenticated datasets.tardis.dev connection
+# and do not contend for the single-IP slot. A small, rarely-changing set —
+# kept as a bash mirror here (rather than shelling to python3 to import UAC)
+# because every caller of this guard is bash and the set changes only on a
+# deliberate operator-ruled venue add/remove.
+TARDIS_CAP_EXEMPT_VENUES=(HYPERLIQUID ASTER LIGHTER-ZKSYNC EXTENDED-STARKNET COINBASE-CDE)
+
+# tardis_venue_list_needs_guard <space-separated venue list, or empty>
+# Returns 0 (true — guard IS needed) if the list is empty (== "all venues for
+# the asset group", which includes real Tardis venues) OR contains at least
+# one venue NOT in TARDIS_CAP_EXEMPT_VENUES. Returns 1 (false — guard can be
+# skipped) only when every listed venue is cap-exempt. Matching is
+# case-insensitive (venue casing on the CLI is not guaranteed uppercase).
+tardis_venue_list_needs_guard() {
+  local venues="$1" v e exempt
+  [[ -z "$venues" ]] && return 0
+  for v in $venues; do
+    exempt=false
+    for e in "${TARDIS_CAP_EXEMPT_VENUES[@]}"; do
+      [[ "${v^^}" == "$e" ]] && { exempt=true; break; }
+    done
+    $exempt || return 0
+  done
+  return 1
+}
+
 # Self-declaring metadata model (operator-approved design, 2026-07-16 —
 # cefi_completion_program_2026_07_15.md "Scope the Tardis cap to AUTHENTICATED
 # batch consumers only"): a name-regex can never stay in sync with every
