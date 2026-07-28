@@ -223,6 +223,27 @@
 #   bash launch-canonical-migration-vm.sh sports-odds-venue-mig 2026-07-27 2026-07-27 dry
 #   bash launch-canonical-migration-vm.sh sports-odds-venue-mig 2026-07-27 2026-07-27 full
 #
+#   # sports-odds-reclassify-unresolvable (2026-07-28): the companion cleanup for
+#   # sports-odds-venue-mig -- reclassify_odds_horizon_bucket_unresolvable_rows_2026_07_28.py
+#   # (market-data-processing-service). After the venue-migration apply, ~3,063 fine
+#   # ODDS_API rows remained un-migratable (NaN row_count / missing shard file / genuine
+#   # row-count mismatch -- see
+#   # plans/active/issues/mdps_t1_recon_job_oom_failing_7_days_2026_07_26.md Update 13).
+#   # This re-checks each one FRESH (the manifest is live) and reclassifies only rows
+#   # STILL unresolvable from captured -> attempted_failed (honest-coverage correction,
+#   # no re-fetch); anything that became resolvable since is left untouched (candidate
+#   # for a sports-odds-venue-mig re-run instead). Runs from $WORKSPACE/mdps
+#   # (VM_SERVICE=market_data_processing_service, same re-homing as sports-odds-venue-mig).
+#   # HEAVY I/O: ~3,063 individual shard-existence checks -- smaller than the venue
+#   # migration but still >"a few hundred objects", so this stays VM-only per the
+#   # heavy-I/O hard rule. START_DATE/END_DATE are cosmetic (VM labels only) -- the tool
+#   # re-scans the whole live manifest, not a date range. DRY-BY-DEFAULT (tool default,
+#   # no flag) + --apply for full (same convention as sports-odds-venue-mig). The tool's
+#   # own internal CAS-retry loop (20 attempts) + pre-apply GCS snapshot + post-write
+#   # verification are the write safety.
+#   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 dry
+#   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -316,7 +337,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -1039,6 +1060,7 @@ _script_for() {
         # (same convention as tradfi-cid). --start-date/--end-date are NOT accepted by this tool
         # (whole-manifest scan) so they are deliberately NOT passed here.
         sports-odds-venue-mig) echo "python -u scripts/migrate_odds_horizon_bucket_venue_to_bookmaker_2026_07_27.py --workers ${WORKERS:-32}" ;;
+        sports-odds-reclassify-unresolvable) echo "python -u scripts/reclassify_odds_horizon_bucket_unresolvable_rows_2026_07_28.py --workers ${WORKERS:-32}" ;;
         # TradFi CME options_chain legacy-flat -> canonical bundled migration
         # (tradfi_cme_options_chain_legacy_layout_2026_07_10.md). A standalone scripts/
         # one-off, NOT a market_tick_data_service module -- invoked as a plain script
@@ -1195,6 +1217,12 @@ _launch() {
         # only ($cat itself stays unabbreviated everywhere else: dispatch match, _ag derivation,
         # tarball checks).
         _vm_name_cat="sports-k1k2-upper-del"
+    elif [[ "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
+        # "sports-odds-reclassify-unresolvable" (36 chars) + the 21-char "canonical-migration-"
+        # prefix + 15-char timestamp overflows the 63-char budget on its own (72 chars, no
+        # shard suffix even needed) -- same overflow class as the cases above. Abbreviate the
+        # vm_name token only ($cat itself stays unabbreviated everywhere else).
+        _vm_name_cat="sports-odds-reclass-unres"
     elif [[ "$cat" == *-candle-apply ]]; then
         _vm_name_cat="${cat%-candle-apply}-cdlap"
         # Shorten "shard{i}of{N}" -> "s{i}of{N}" too (saves 4 more chars) — same info, tighter budget.
@@ -1399,7 +1427,7 @@ _launch() {
               # --apply-prod --confirm-prod-write directly into the full-mode command itself (a
               # single statement, not a compound chain) -- suppressed anyway so the generic
               # --apply/--dry-run append never double-flags it.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -1419,8 +1447,9 @@ _launch() {
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
     [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _svc="market_data_processing_service"
-    # sports-odds-venue-mig's script also lives in market-data-processing-service, not MTDS.
-    [[ "$cat" == "sports-odds-venue-mig" ]] && _svc="market_data_processing_service"
+    # sports-odds-venue-mig / sports-odds-reclassify-unresolvable's scripts also live in
+    # market-data-processing-service, not MTDS.
+    [[ "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]] && _svc="market_data_processing_service"
     # sports-features-purge's script lives in features-service, not MTDS.
     [[ "$cat" == "sports-features-purge" ]] && _svc="features_service"
     md="${md},VM_SERVICE=${_svc}"
@@ -1445,7 +1474,7 @@ _launch() {
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
     # SPORTS-K1K2-CASING-REVERT / SPORTS-ODDS-VENUE-MIG) so dashboards/heartbeat classify these
     # VMs with the rest of sports.
-    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" || "$cat" == "sports-odds-venue-mig" ]] && _ag="SPORTS"
+    [[ "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]] && _ag="SPORTS"
     md="${md},VM_ASSET_GROUP=${_ag}"
     md="${md},VM_START_DATE=${START_DATE}"
     md="${md},VM_END_DATE=${END_DATE}"
@@ -1646,7 +1675,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
