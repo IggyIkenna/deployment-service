@@ -101,6 +101,24 @@ def _call_with_timeout[T](
     return result[0]
 
 
+def _bounded_exists(storage_client: StorageClient, bucket: str, blob_path: str, timeout_seconds: float) -> bool:
+    """``blob_exists``, bounded — shared by every reader below."""
+    return _call_with_timeout(
+        lambda: storage_client.blob_exists(bucket, blob_path),
+        timeout_seconds=timeout_seconds,
+        op_label=f"blob_exists({bucket}/{blob_path})",
+    )
+
+
+def _bounded_download(storage_client: StorageClient, bucket: str, blob_path: str, timeout_seconds: float) -> bytes:
+    """``download_bytes``, bounded (see :func:`_bounded_exists`)."""
+    return _call_with_timeout(
+        lambda: storage_client.download_bytes(bucket, blob_path),
+        timeout_seconds=timeout_seconds,
+        op_label=f"download_bytes({bucket}/{blob_path})",
+    )
+
+
 # Canonical VM live-log paths (mirror unified_trading_library.deployment_registry):
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/run.log
 #   gs://deployment-scripts-{pid}/vm-logs/{vm}/EXIT_STATUS
@@ -471,40 +489,52 @@ def read_text(
     *,
     timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
 ) -> str | None:
-    """Download a blob as UTF-8 text, or ``None`` if missing/unreadable.
+    """Download a blob as UTF-8 text, or ``None`` if missing/unreadable (never raises).
 
-    Never raises — a missing blob (the VM never wrote it) reads as ``None``,
-    and so does a genuine read error.
-
-    **Bounded** (2026-07-23, dp_exit_code_monitor_cron_dead_2026_07_23.md):
-    each underlying GCS call (``blob_exists`` / ``download_bytes``) is
-    wrapped in :func:`_call_with_timeout`, so a wedged/stalled connection on
-    ONE blob fails fast (``timeout_seconds``, default
-    :data:`DEFAULT_GCS_CALL_TIMEOUT_SECONDS` = 30s) instead of hanging the
-    caller's entire per-VM fleet-sweep loop past its own Cloud Run job
-    timeout — the confirmed failure mode that hung
-    ``uts-prod-dp-exit-code-monitor`` on every execution for ~83h straight.
-    A timeout is logged as a distinct WARNING (inside the helper, before this
-    function folds it into the same ``None`` "unreadable" outcome every
-    other read failure already produces) — never silently swallowed, so a
-    future occurrence is diagnosable from the Cloud Run logs.
+    **Bounded** (2026-07-23, dp_exit_code_monitor_cron_dead_2026_07_23.md): each
+    underlying GCS call is wrapped in :func:`_call_with_timeout` via
+    :func:`_bounded_exists`/:func:`_bounded_download`, so a wedged connection on
+    ONE blob fails fast instead of hanging the caller's per-VM fleet-sweep loop
+    past its own Cloud Run job timeout — the confirmed failure mode that hung
+    ``uts-prod-dp-exit-code-monitor`` for ~83h straight.
     """
     try:
-        exists = _call_with_timeout(
-            lambda: storage_client.blob_exists(bucket, blob_path),
-            timeout_seconds=timeout_seconds,
-            op_label=f"blob_exists({bucket}/{blob_path})",
-        )
-        if not exists:
+        if not _bounded_exists(storage_client, bucket, blob_path, timeout_seconds):
             return None
-        raw = _call_with_timeout(
-            lambda: storage_client.download_bytes(bucket, blob_path),
-            timeout_seconds=timeout_seconds,
-            op_label=f"download_bytes({bucket}/{blob_path})",
-        )
+        raw = _bounded_download(storage_client, bucket, blob_path, timeout_seconds)
         return raw.decode("utf-8", errors="replace")
     except Exception:
         return None
+
+
+def read_bytes(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> bytes | None:
+    """Same bounded contract as :func:`read_text` but returns undecoded bytes (parquet/binary callers)."""
+    try:
+        if not _bounded_exists(storage_client, bucket, blob_path, timeout_seconds):
+            return None
+        return _bounded_download(storage_client, bucket, blob_path, timeout_seconds)
+    except Exception:
+        return None
+
+
+def blob_exists_bounded(
+    storage_client: StorageClient,
+    bucket: str,
+    blob_path: str,
+    *,
+    timeout_seconds: float = DEFAULT_GCS_CALL_TIMEOUT_SECONDS,
+) -> bool:
+    """``blob_exists``, bounded; a wedge/error reads ``False`` (fail-safe: absent, not a hang)."""
+    try:
+        return _bounded_exists(storage_client, bucket, blob_path, timeout_seconds)
+    except Exception:
+        return False
 
 
 def read_terminal_exit_code(storage_client: StorageClient, bucket: str, vm_name: str) -> int | None:
@@ -754,20 +784,12 @@ def is_vm_preempted(
     conservatively returns ``False`` so the monitor falls through to the normal
     classification path).
 
-    **Bounded** (2026-07-23, same fix as :func:`read_text`): this is a sibling
-    ``blob_exists`` call in ``exit_code_fleet_monitor.sweep()``'s own per-VM
-    hot loop that does NOT funnel through ``read_text`` — a wedged connection
-    here would hang the sweep exactly the same way, so it gets the identical
-    :func:`_call_with_timeout` bound + distinct-WARNING-on-timeout logging.
+    **Bounded** (2026-07-23): routed through :func:`blob_exists_bounded` so a
+    wedge here fails fast instead of hanging the sweep.
     """
-    try:
-        return _call_with_timeout(
-            lambda: storage_client.blob_exists(bucket, PREEMPTED_BLOB.format(vm=vm_name)),
-            timeout_seconds=timeout_seconds,
-            op_label=f"blob_exists({bucket}/{PREEMPTED_BLOB.format(vm=vm_name)})",
-        )
-    except Exception:
-        return False
+    return blob_exists_bounded(
+        storage_client, bucket, PREEMPTED_BLOB.format(vm=vm_name), timeout_seconds=timeout_seconds
+    )
 
 
 # ── no-capture-reason classification (DP-VM-002 false-positive killer) ────────

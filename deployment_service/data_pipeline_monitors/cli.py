@@ -211,12 +211,12 @@ def _asset_group_for_vm(vm_name: str) -> str:
 
 def _make_shard_backed_ag_fn(storage_client: StorageClient):
     def _probe(ag: str, blob: str) -> bool:
+        # Bounded (2026-07-28) — same untimed-read class the 07-23 fix missed.
         try:
-            return storage_client.blob_exists(
-                resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag), blob
-            )
+            bucket = resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
         except Exception:
             return False
+        return _gcs.blob_exists_bounded(storage_client, bucket, blob)
 
     def _fn(vm_name: str) -> str:
         if (ag := _asset_group_for_vm(vm_name)) != "unknown":
@@ -280,6 +280,10 @@ def _make_captured_reader(storage_client: StorageClient):
     bucket and counts ``capture_status == "captured"`` rows. Returns 0 on any
     read miss (a VM with no shard yet / heartbeat-only VM) — the cross-check then
     treats it as "no captured progress", the fail-safe direction.
+
+    **Bounded** (2026-07-28): called for every RUNNING vm in ``sweep()``'s first
+    loop; an unbounded read here re-hung ``dp-exit-code-monitor`` — same class
+    the 07-23 fix missed.
     """
 
     def _read(vm_name: str) -> int:
@@ -287,10 +291,10 @@ def _make_captured_reader(storage_client: StorageClient):
         if not bucket:
             return 0
         blob_path = _PER_VM_SHARD.format(vm=vm_name)
+        raw = _gcs.read_bytes(storage_client, bucket, blob_path)
+        if raw is None:
+            return 0
         try:
-            if not storage_client.blob_exists(bucket, blob_path):
-                return 0
-            raw = storage_client.download_bytes(bucket, blob_path)
             frame = pd.read_parquet(io.BytesIO(raw))
             if "capture_status" not in frame.columns:
                 return len(frame)

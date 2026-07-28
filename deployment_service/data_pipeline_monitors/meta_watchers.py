@@ -483,16 +483,20 @@ def _read_attempted_failed_cells(
     """Read the consolidated ``_index`` parquet for one AG bucket and return per
     ``data_type`` captured / attempted_failed counts + the high-failure verdict.
 
-    The read is injected (``storage_client.download_bytes``) so the checker stays
-    pure + credential-free; the cli wires the real GCS-backed client. A
-    missing/unreadable/empty/schema-less index reads as zero cells (never raises) —
-    an absent index is the catalogue/cron probes' job, not this one's.
+    The read is injected (``storage_client.download_bytes``, via the bounded
+    ``_gcs.read_bytes`` — 2026-07-28, same fix as
+    ``cli.py::_make_captured_reader`` after ``dp-exit-code-monitor`` hung on an
+    identical unbounded call site) so the checker stays pure + credential-free;
+    the cli wires the real GCS-backed client. A missing/unreadable/empty/
+    schema-less index reads as zero cells (never raises) — an absent index is
+    the catalogue/cron probes' job, not this one's. This checker runs inside
+    ``check_high_attempted_failed``, called once per asset_group from the
+    ``dp-meta-watchers`` sweep's hot loop — a wedged connection to ONE AG's
+    index must fail fast, not hang the whole meta sweep past its own Cloud Run
+    job timeout the same way ``dp-exit-code-monitor``'s did.
     """
-    try:
-        if not storage_client.blob_exists(bucket, blob):
-            return []
-        raw = storage_client.download_bytes(bucket, blob)
-    except Exception:
+    raw = _gcs.read_bytes(storage_client, bucket, blob)
+    if raw is None:
         return []
     try:
         # Read ONLY the columns this checker uses (avoids the full-index-materialise OOM
