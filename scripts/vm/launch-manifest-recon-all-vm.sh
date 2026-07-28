@@ -10,6 +10,9 @@
 #   1. reconcile_phantom_manifest_rows_all.py      --dry-run
 #   2. reconcile_expected_absence_reasons.py       (scan-only = omit --apply-flips)
 #   3. reconcile_legacy_blank_to_typed_reason.py   (scan-only = omit --apply-flips)
+#   4. (defi only) reconcile_phantom_manifest_rows_all.py --report-pyth-oracle-prices-ghost-failures
+#      — dry-run report of PYTH oracle_prices stale day-level ghost attempted_failed rows
+#      (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md).
 #
 # Run on same-region (asia-northeast1-c) so GCS manifest reads are fast
 # (CLAUDE.md "Manifest phantom audit" — cross-region listing is 18× slower).
@@ -140,6 +143,12 @@ BACKFILL_CMD="python ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-g
 # cmd2+: \$PYTHON_BIN — literal in metadata, expanded by bash -c at runtime.
 BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP}"
 BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP}"
+# cmd4 (defi-only): PYTH oracle_prices stale day-level ghost attempted_failed
+# rows (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md) — dry-run
+# report only; the flag itself hard-requires --asset-group defi.
+if [[ "$ASSET_GROUP" == "defi" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} && \$PYTHON_BIN ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group defi --report-pyth-oracle-prices-ghost-failures"
+fi
 # Upload combined log to recon-logs/ after all 3 scripts complete (no-fail).
 # /home/ikennaigboaka/logs/phantom-recon.log = $LOGS/$VM_TASK.log (VM_TASK=phantom-recon).
 BACKFILL_CMD="${BACKFILL_CMD} && { gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true; }"

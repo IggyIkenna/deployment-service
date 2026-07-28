@@ -10,6 +10,10 @@
 #   1. reconcile_phantom_manifest_rows_all.py      --unphantom
 #   2. reconcile_expected_absence_reasons.py       --apply-flips
 #   3. reconcile_legacy_blank_to_typed_reason.py   --apply-flips
+#   4. (defi only) reconcile_phantom_manifest_rows_all.py --report-pyth-oracle-prices-ghost-failures --apply
+#      — deletes confirmed PYTH oracle_prices stale day-level ghost attempted_failed rows
+#      (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md). Run the dry-run launcher
+#      first and confirm the predicate before launching this.
 #
 # Script 3 was previously excluded due to a classifier API kwarg mismatch
 # (classify_blank_reason_row() fixture_manifest kwarg) — resolved 2026-05-14,
@@ -147,6 +151,14 @@ BACKFILL_CMD="MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} python ${SCRIPTS}/r
 BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_expected_absence_reasons.py --asset-group ${ASSET_GROUP} --apply-flips"
 # cmd3: legacy-blank reclassification (Script 3) — classifier kwarg issue resolved 2026-05-14.
 BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_legacy_blank_to_typed_reason.py --asset-group ${ASSET_GROUP} --apply-flips"
+# cmd4 (defi-only): PYTH oracle_prices stale day-level ghost attempted_failed
+# rows (pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md) — APPLY
+# (deletes the confirmed ghost set); the flag itself hard-requires
+# --asset-group defi. Only launch after a dry-run pass has confirmed the
+# predicate on this same asset_group.
+if [[ "$ASSET_GROUP" == "defi" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} && MANIFEST_PER_VM_SHARDS=true VM_NAME=${VM_NAME} \$PYTHON_BIN ${SCRIPTS}/reconcile_phantom_manifest_rows_all.py --asset-group defi --report-pyth-oracle-prices-ghost-failures --apply"
+fi
 # Upload combined log to recon-logs/ after all scripts complete (no-fail).
 BACKFILL_CMD="${BACKFILL_CMD} && { gsutil cp /home/ikennaigboaka/logs/phantom-recon.log ${RECON_LOGS}/${VM_NAME}.log || true; }"
 
