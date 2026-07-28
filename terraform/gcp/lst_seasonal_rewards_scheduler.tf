@@ -50,6 +50,19 @@
 #   03:00 UTC    ml-inference T+1
 #   04:00 UTC    strategy T+1
 #
+# RESOLUTION (2026-07-28, plans/active/issues/defi_t1_freshness_deadline_stagger_2026_07_28.md
+# final todo): worst-case finish for collect-lst-seasonal-rewards is 03:05 UTC
+# (02:25 UTC start + 2400s/40min timeout) — the largest violation flagged in
+# that doc against the historical "02:30 UTC features-onchain T+1 recon"
+# deadline. The P1/P2 items in the same doc established that consumer was
+# deleted 2026-07-13 and never replaced, so there is no live downstream job
+# to re-stagger against. Option (b) taken here too, consistent with
+# defi_collection_scheduler.tf's resolution for collect-solana-defi /
+# collect-bridge-events: schedule (25 2 * * *) and timeout (2400s) are kept
+# UNCHANGED. The 02:25 UTC start remains purely to give the upstream
+# collect-* fan-out headroom before this collector's Web3 RPC calls begin,
+# not to meet any enforced cutover. Closes the doc's last remaining todo.
+#
 # How the daily collector chooses which day to scan
 #   The script's ``--date`` flag accepts an explicit ISO date. When the
 #   Cloud Scheduler invokes the Cloud Run Job, the args below pass
