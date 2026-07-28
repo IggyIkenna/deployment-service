@@ -87,7 +87,7 @@ CODEX_MAX_VIOLATIONS=1
 # ../unified-cloud-interface + ../unified-config-interface siblings (basedpyright extraPaths) resolves one
 # cross-repo type to Unknown, yielding 1293 locally. Do NOT drop below 1293 without adding those siblings first.
 BASEDPYRIGHT_MAX_ERRORS=1293
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$(cd "$(git rev-parse --show-toplevel)/.." && pwd)}"
+WORKSPACE_ROOT="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)"
 BASE_QG_SCRIPT="${WORKSPACE_ROOT}/unified-trading-pm/scripts/quality-gates-base/base-service.sh"
 if [ ! -f "${BASE_QG_SCRIPT}" ]; then
     # In-image (CI test-in-image) runs have no PM repo / no git → the base script is absent.

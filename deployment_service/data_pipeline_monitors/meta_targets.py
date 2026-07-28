@@ -130,32 +130,25 @@ def high_attempted_failed_targets() -> list[meta_watchers.FreshnessTarget]:
 # Cloud Scheduler state strings (mirror the google.cloud.scheduler_v1 Job.State enum).
 _SCHEDULER_PAUSED = "PAUSED"
 _SCHEDULER_ENABLED = "ENABLED"
-# Long → 3-char env-short (mirrors UTL bucket_naming._DEPLOYMENT_ENV_SHORT_FORM, the
-# same map ``resolve_bucket_name`` uses for the ``-prd-`` segment). Kept inline (a
-# tiny constant) rather than importing the UTL private to avoid an in-function /
-# deep private import; the public ``get_environment()`` (imported at top) gives the
-# long name. Default → prd (the fleet default).
-_ENV_SHORT_FORM: dict[str, str] = {
-    "dev": "dev",
-    "development": "dev",
-    "staging": "stg",
-    "stg": "stg",
-    "prod": "prd",
-    "prd": "prd",
-    "production": "prd",
-}
 
 
 def scheduler_env_prefix() -> str:
-    """The TF ``env_prefix`` segment in scheduler/job names: ``uts-{env-short}``.
+    """The TF ``env_prefix`` segment in scheduler/Cloud-Run job names: ``uts-{environment}``.
 
-    The consolidator scheduler jobs are ``{env_prefix}-manifest-consolidator-{key}-cron``
-    (manifest_consolidator_scheduler.tf). ``env_prefix`` = ``uts-{deployment_env_short}``
-    in the fleet TF — the env-short derived from ``get_environment()`` the same way
-    ``resolve_bucket_name`` derives the bucket's ``-prd-`` segment.
+    Every scheduler + Cloud Run job in this Terraform module (``manifest_consolidator_scheduler.tf``,
+    ``t1_batch_scheduler.tf``, etc.) is named off ``local.env_prefix = lower(replace(
+    "${var.bucket_prefix}-${var.environment}", "_", "-"))`` (``deployment-service/terraform/gcp/main.tf:47``),
+    where ``var.environment`` is validated to exactly ``"dev"|"staging"|"prod"`` — the RAW
+    environment word, NEVER a 3-char short form. This previously mapped the raw word through
+    a bucket-naming-style short-form table (``"prod"->"prd"``), producing
+    ``uts-prd-manifest-consolidator-...``, a 404 against the real deployed
+    ``uts-prod-manifest-consolidator-...`` job (confirmed live via
+    ``gcloud scheduler jobs describe`` 2026-07-27) — the exact same bug fixed in
+    ``unified_trading_library.monitors.consolidator_liveness`` (UTL@080a84a0). Bucket NAMES use
+    the short form (``resolve_bucket_name``'s ``-prd-`` segment); scheduler/Cloud-Run JOB names use
+    the raw Terraform word — two different conventions, do not conflate them.
     """
-    short = _ENV_SHORT_FORM.get(_deployment_env_long(), "prd")
-    return f"uts-{short}"
+    return f"uts-{_deployment_env_long()}"
 
 
 def consolidator_scheduler_job(ag: str) -> str:

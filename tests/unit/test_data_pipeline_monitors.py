@@ -2932,6 +2932,22 @@ def test_cron_stale_sentinel_alerts_when_execution_also_stale(monkeypatch):
     assert "DP_CRON_DID_NOT_FIRE" in emitted
 
 
+def test_scheduler_env_prefix_uses_raw_terraform_word_not_bucket_short_form(monkeypatch):
+    """Regression: ``scheduler_env_prefix()`` must build ``uts-{raw_environment}`` — Terraform's
+    ``env_prefix = "${bucket_prefix}-${environment}"`` (``deployment-service/terraform/gcp/main.tf:47``,
+    ``var.environment`` validated to exactly ``"dev"|"staging"|"prod"``) — NOT the bucket-name's
+    3-char short form (``uts-prd-...``). The short-form variant 404s against the real deployed job
+    (``uts-prod-manifest-consolidator-...``, confirmed live via ``gcloud scheduler jobs describe``
+    2026-07-27) — the identical bug + fix as
+    ``unified_trading_library.monitors.consolidator_liveness`` (UTL@080a84a0)."""
+    from deployment_service.data_pipeline_monitors import meta_targets
+
+    monkeypatch.setattr(meta_targets, "get_environment", lambda: "prod")
+    assert meta_targets.scheduler_env_prefix() == "uts-prod"
+    assert meta_targets.consolidator_scheduler_job("tradfi") == "uts-prod-manifest-consolidator-market-data-tradfi-cron"
+    assert meta_targets.consolidator_cloud_run_job("sports") == "uts-prod-manifest-consolidator-market-data-sports"
+
+
 def test_consolidator_cloud_run_job_wired_for_key4():
     """The consolidator watcher must name its Cloud Run Job (KEY #4) — without it a transiently
     stale _index can't be cross-checked against the job's real execution history (the 2026-06-24

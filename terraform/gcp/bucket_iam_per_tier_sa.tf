@@ -81,6 +81,27 @@ locals {
     "instruments-store-",
     "features-calendar-",
   ]
+
+  # Group B canonical bucket-name family prefixes (derived data) — the ONE
+  # per-AG folded kind that is env-tiered today: `features-{ag}` (Wave-3 Fold A,
+  # plans/active/bucket_fold_features_2026_07_17.md, code-complete + redeployed
+  # 2026-07-26). Per bucket-isolation-model.md §2, `features-{ag}` resolves to
+  # `features-{cefi,tradfi,defi,pred,sports}-{prd,test}-{project_id}` —
+  # `cloud-providers.yaml`'s `features:` per-AG dict (CEFI/TRADFI/DEFI/
+  # PREDICTION) + the flat `features-sports` key. Excludes `features-calendar`
+  # (Group A, listed above) and `features-commodity` (flat/non-env-split — no
+  # `-prd-`/`-test-` suffix to match, and NOT part of this fold). The other
+  # Wave-3-folded Group-B kinds (ml-store, execution-store, strategy-store,
+  # portfolio-state) belong to their own sibling fold plans
+  # (bucket_fold_{ml,execution_strategy,portfolio_state}_2026_07_17.md) and are
+  # NOT joined here — each joins independently once ITS fold is code-complete.
+  group_b_bucket_prefixes = [
+    "features-cefi-",
+    "features-tradfi-",
+    "features-defi-",
+    "features-pred-",
+    "features-sports-",
+  ]
 }
 
 resource "google_project_iam_member" "uts_prd_objectadmin_group_a" {
@@ -108,6 +129,36 @@ resource "google_project_iam_member" "uts_test_objectadmin_group_a" {
     description = "uts-test-sa writes ONLY Group A -test- buckets (ephemeral CI/E2E; bucket_iam_write_protection_per_tier_2026_06_09.md P1.2, test-tier slice)."
     expression = join(" || ", [
       for prefix in local.group_a_bucket_prefixes :
+      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-test-\"))"
+    ])
+  }
+}
+
+resource "google_project_iam_member" "uts_prd_objectadmin_group_b" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.uts_prd.email}"
+
+  condition {
+    title       = "group-b-prd-tier-only"
+    description = "uts-prd-sa writes ONLY Group B -prd- buckets (bucket_fold_features_2026_07_17.md IAM+lifecycle todo — Group B joins Phase-2 once its fold provisions the -{env}- form)."
+    expression = join(" || ", [
+      for prefix in local.group_b_bucket_prefixes :
+      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-prd-\"))"
+    ])
+  }
+}
+
+resource "google_project_iam_member" "uts_test_objectadmin_group_b" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.uts_test.email}"
+
+  condition {
+    title       = "group-b-test-tier-only"
+    description = "uts-test-sa writes ONLY Group B -test- buckets (ephemeral CI/E2E; bucket_fold_features_2026_07_17.md IAM+lifecycle todo, test-tier slice)."
+    expression = join(" || ", [
+      for prefix in local.group_b_bucket_prefixes :
       "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-test-\"))"
     ])
   }
