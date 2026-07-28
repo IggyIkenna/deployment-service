@@ -2,10 +2,13 @@
 # Converges `tofu plan` toward 0 spurious recreate; these resources ALREADY EXIST live.
 # Owning plan: bucket_name_ssot_legacy_dual_write_remediation_2026_06_01.md
 
-import {
-  to = google_cloud_run_v2_job.plan_hygiene_sweep
-  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-plan-hygiene-sweep"
-}
+# google_cloud_run_v2_job.plan_hygiene_sweep import REMOVED 2026-07-28 (RULE-11 prove-then-retire,
+# plan_hygiene_precommit_and_agentic_resolution_2026_06_10.md / operator approval
+# june_2026_vintage_audit_findings_2026_07_27.md §5-RESOLVED #21): superseded by the daily deep
+# `plan-reconciler` agent (systemd timer on the central orchestrator VM, canary-watched). The resource
+# block was removed from hygiene_sweep_scheduler.tf (file deleted) + the live Cloud Run Job
+# `uts-prod-plan-hygiene-sweep` was deleted via `gcloud run jobs delete` — this import block must go
+# too (an import whose `to` resource no longer exists in config errors `tofu plan`/`apply`).
 
 import {
   to = google_cloud_scheduler_job.alerting_paging_cron
@@ -32,10 +35,9 @@ import {
   id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-mtds-scenario-matrix-cron"
 }
 
-import {
-  to = google_cloud_scheduler_job.plan_hygiene_sweep_cron
-  id = "projects/central-element-323112/locations/asia-northeast1/jobs/uts-prod-plan-hygiene-sweep-cron"
-}
+# google_cloud_scheduler_job.plan_hygiene_sweep_cron import REMOVED 2026-07-28 (same RULE-11
+# retirement as the plan_hygiene_sweep job import above) — the live Cloud Scheduler job
+# `uts-prod-plan-hygiene-sweep-cron` was deleted via `gcloud scheduler jobs delete`.
 
 import {
   to = google_storage_bucket.audit_records

@@ -188,8 +188,10 @@ _SINGLETON_JOBS: Final[tuple[DeploymentTarget, ...]] = (
     _batch("instrument-catalogue-regen", service="instruments-service"),
     # orphan_ping_audit_scheduler.tf
     _batch("orphan-ping-audit", service="unified-trading-pm"),
-    # hygiene_sweep_scheduler.tf
-    _batch("plan-hygiene-sweep", service="unified-trading-pm"),
+    # hygiene_sweep_scheduler.tf REMOVED 2026-07-28 (RULE-11 prove-then-retire — the daily
+    # `uts-prod-plan-hygiene-sweep` Cloud Run job + its terraform were deleted; superseded by
+    # the daily deep `plan-reconciler` agent on the central orchestrator VM). Registry entry
+    # removed so it doesn't render as a dangling/gone job in deployment-ui/cockpit.
     # qg_snapshot_scheduler.tf
     _batch("qg-snapshot-daily", service="unified-trading-pm"),
     # subgraph_health_probe_scheduler.tf
