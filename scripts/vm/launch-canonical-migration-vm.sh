@@ -289,7 +289,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -900,6 +900,22 @@ _script_for() {
         # CeFi v9: flat→hive fan-out (raw_tick_data/by_date/{SYMBOL}.parquet → canonical day= partitions).
         # DRY-BY-DEFAULT + --apply (same convention as the defi v9 tool), handled in _launch below.
         cefi)       echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64" ;;
+        # cefi-drop-stale (2026-07-28) — E4/E7 orphan-sweep: twin-verified backup+delete of the OLD
+        # no-pipeline_mode= day=/candle objects + the 9 L-flat root orphans, via the SAME
+        # migrate_cefi_flat_to_v9_canonical tool's --drop-stale mode (mtds@e663d72f — shared
+        # _migrate_drop_stale.py helper, same twin-verify/backup/delete/verify-gone contract already
+        # proven by migrate_sports_canonical_v9's E8 sweep). DRY-BY-DEFAULT + --apply for full (same
+        # convention as "cefi" above — the tool's own dry_run = not args.apply). MANDATORY PRE-DELETE
+        # GUARANTEE (caller responsibility, NOT enforced by this launcher): run a normal "cefi" --apply
+        # copy pass over the FULL corpus range FIRST so every orphan's canonical destination is
+        # confirmed to exist, THEN run this category's --apply. `--also-legacy` (part (b) of the same
+        # todo — the 5,233-cell legacy→canonical gap-fill) is available via
+        # MIGRATION_EXTRA_ARGS="--also-legacy" (this category takes the generic-path EXTRA_ARGS append,
+        # same as "cefi"). See plans/active/data_completion_cefi_2026_07_15.md "E4 remaining work =
+        # ORPHAN SWEEP + gap-fill" todo.
+        #   bash launch-canonical-migration-vm.sh cefi-drop-stale 2019-03-30 2026-07-28 dry
+        #   bash launch-canonical-migration-vm.sh cefi-drop-stale 2019-03-30 2026-07-28 full
+        cefi-drop-stale) echo "python -u -m market_tick_data_service.scripts.migrate_cefi_flat_to_v9_canonical --start-date $START_DATE --end-date $END_DATE --workers 64 --drop-stale" ;;
         # TradFi: REPOINTED 2026-07-19 to the orphan-proof CONTENT migration (fresh walk -> executor ->
         # rebundle -> recovery). The old day-walking migrate_tradfi_to_v9_canonical is superseded; the
         # tradfi command is built by _tradfi_content_migration_cmd() (needs vm_name), handled in _launch.
@@ -1291,7 +1307,7 @@ _launch() {
               # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
               # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
               # `exit ${rc}`) -- same suppression reasoning.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -1327,7 +1343,7 @@ _launch() {
     # Keep the fleet asset-group CEFI (not the novel CEFI-DEDUP-APPLY/CEFI-LATE-RENAMES/
     # CEFI-BYBIT-SPOT-PURGE/CEFI-CONTENT-APPLY/CEFI-EU-TWIN-APPLY) so dashboards/heartbeat classify
     # these VMs with the rest of cefi.
-    [[ "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-late-renames" || "$cat" == "cefi-bybit-spot-purge" || "$cat" == "cefi-content-apply" || "$cat" == "cefi-eu-twin-apply" ]] && _ag="CEFI"
+    [[ "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-late-renames" || "$cat" == "cefi-bybit-spot-purge" || "$cat" == "cefi-content-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "cefi-drop-stale" ]] && _ag="CEFI"
     # candle-census / candle-apply category names are "<ag>-candle-census"/"<ag>-candle-apply" --
     # strip the suffix to recover the real asset group so dashboards/heartbeat classify these VMs
     # with the rest of that asset group instead of a novel "<AG>-CANDLE-CENSUS"/"-APPLY" bucket.
@@ -1538,7 +1554,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-odds-venue-mig) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

@@ -1889,6 +1889,90 @@ export -f gsutil
         assert "market-data-tick-prediction-" not in result.stdout
 
 
+class TestCefiDropStaleCategory:
+    """The `cefi-drop-stale` category (2026-07-28): the E4/E7 orphan-sweep pass over
+    migrate_cefi_flat_to_v9_canonical.py's `--drop-stale` mode (mtds@e663d72f). DRY-BY-DEFAULT +
+    --apply for full, same convention as the sibling bare "cefi" category (both invoke the same
+    tool) — this class only proves the NEW category wires correctly (flag, VM naming, asset-group
+    classification), not the tool's own delete logic (covered by mtds's own unit tests)."""
+
+    LAUNCHER = TestCanonicalMigrationVmRelaunch.LAUNCHER
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _run(self, launcher_path: Path, args: list[str], tmp_path: Path) -> subprocess.CompletedProcess[str]:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+
+    def test_dry_mode_does_not_apply(self, launcher_path: Path, tmp_path: Path) -> None:
+        result = self._run(launcher_path, ["cefi-drop-stale", "2019-03-30", "2026-07-28", "dry"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "--drop-stale" in result.stdout
+        assert "--apply" not in result.stdout
+
+    def test_full_mode_embeds_apply(self, launcher_path: Path, tmp_path: Path) -> None:
+        result = self._run(launcher_path, ["cefi-drop-stale", "2019-03-30", "2026-07-28", "full"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "--drop-stale" in result.stdout
+        assert "--apply" in result.stdout
+
+    def test_extra_args_forward_also_legacy(self, launcher_path: Path, tmp_path: Path) -> None:
+        """--also-legacy (part (b) of the same todo, the 5,233-cell legacy gap-fill) must reach the
+        tool via MIGRATION_EXTRA_ARGS -- this category takes the generic-path EXTRA_ARGS append."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" cefi-drop-stale 2019-03-30 2026-07-28 dry\n'
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "MIGRATION_EXTRA_ARGS": "--also-legacy"},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "--also-legacy" in result.stdout
+
+    def test_vm_name_and_metadata_classify_under_cefi(self, launcher_path: Path, tmp_path: Path) -> None:
+        result = self._run(launcher_path, ["cefi-drop-stale", "2019-03-30", "2026-07-28", "dry"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        created_call = gcloud_log.read_text()
+        tokens = shlex.split(created_call)
+        vm_names = [t for t in tokens if t.startswith("canonical-migration-cefi-drop-stale-")]
+        assert len(vm_names) == 1, f"expected exactly one matching vm_name token, got {vm_names}"
+        assert len(vm_names[0]) <= 63
+        assert "VM_OPERATION=migrate-cefi-drop-stale" in created_call
+        # Fleet classification stays CEFI (not a novel CEFI-DROP-STALE asset-group bucket), same
+        # rule already applied to cefi-dedup-apply/cefi-late-renames/cefi-eu-twin-apply/etc.
+        assert "VM_ASSET_GROUP=CEFI," in created_call
+        assert "VM_ASSET_GROUP=CEFI-DROP-STALE" not in created_call
+
+
 class TestCanonicalMigrationServiceKeyedWorkspaceDir:
     """Regression guard for the canonical-migration VM_TASK branch in setup-data-pipeline-vm.sh:
     it used to hardcode `cd "$WORKSPACE/mtds"` regardless of VM_SERVICE, so an
