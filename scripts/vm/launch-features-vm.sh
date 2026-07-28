@@ -95,6 +95,8 @@
 #                             never expected to exist).
 #   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
 #   FORCE=1                   rewrite parquets even if manifest shows captured
+#   MAX_WORKERS=<N>           within-VM multiproc (delta_one/volatility/onchain only —
+#                             the CLI default is 4; passthrough added learning-from-cefi)
 
 set -euo pipefail
 
@@ -155,6 +157,7 @@ Optional env overrides:
                             for every TRADFI delta_one launch)
   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
   FORCE=1                   rewrite parquets even if manifest shows captured
+  MAX_WORKERS=<N>           within-VM multiproc (delta_one/volatility/onchain only)
 EOF
 }
 
@@ -267,6 +270,15 @@ esac
 # TIMEFRAME explicitly for any TradFi run (see header for the failure mode).
 case "$FEATURE_FAMILY" in
     delta_one|volatility) [[ -n "${TIMEFRAME:-}" ]] && CMD="$CMD --timeframe ${TIMEFRAME}" ;;
+esac
+
+# Within-VM multiproc (learning-from-cefi/MDPS R1, todo 12 of
+# data_pipeline_check_mdps_features_2026_07_20.md): delta_one / volatility / onchain
+# already expose --max-workers on their service CLIs (default 4) but no launcher ever
+# threaded it through. The other families' CLIs don't accept the flag at all — scoped
+# to only these 3 so an unsupported flag never reaches their argparse.
+case "$FEATURE_FAMILY" in
+    delta_one|volatility|onchain) [[ -n "${MAX_WORKERS:-}" ]] && CMD="$CMD --max-workers ${MAX_WORKERS}" ;;
 esac
 
 if [[ -n "${SKIP_DEPENDENCY_CHECK:-}" ]]; then
