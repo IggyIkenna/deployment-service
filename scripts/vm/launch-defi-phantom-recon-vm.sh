@@ -37,6 +37,15 @@
 #   VENUES=HYPERLIQUID bash launch-defi-phantom-recon-vm.sh cefi --apply
 #                                                                  # scope the audit to one
 #                                                                  # (or comma-separated) venue(s)
+#   bash launch-defi-phantom-recon-vm.sh defi --report-pyth-oracle-prices-ghost-failures
+#                                                                  # PYTH oracle_prices stale
+#                                                                  # day-level ghost-failure
+#                                                                  # report (dry-run only)
+#   bash launch-defi-phantom-recon-vm.sh defi --report-pyth-oracle-prices-ghost-failures --apply
+#                                                                  # ...and DELETE the ghost set
+#                                                                  # (see plans/active/issues/
+#                                                                  # pyth_oracle_prices_stale_ghost_
+#                                                                  # failure_rows_2026_07_28.md)
 #
 # Cost: e2-standard-4 + 50GB. ~13 min for full DEFI per CLAUDE.md
 # (~222 prefixes/sec on same-region GCE). Larger asset_groups (CEFI ~313k
@@ -81,6 +90,10 @@ esac
 
 ASSET_GROUP="${1:-defi}"
 APPLY_FLAG="${2:---dry-run}"
+# Optional third positional: --apply, paired ONLY with a --report-* single-purpose
+# pass above (those passes are dry-run-by-default and need --apply as a SEPARATE
+# flag to mutate — see reconcile_phantom_manifest_rows_all.py's own --apply switch).
+EXTRA_FLAG="${3:-}"
 
 # Validate asset_group + flag.
 case "$ASSET_GROUP" in
@@ -89,8 +102,24 @@ case "$ASSET_GROUP" in
 esac
 case "$APPLY_FLAG" in
     --dry-run|--apply) ;;
-    *) echo "ERROR: second arg must be --dry-run (default) or --apply (got: $APPLY_FLAG)" >&2; exit 2 ;;
+    # Single-purpose report passes (mirror-image phantom cases, single-walk reuse
+    # of the already-loaded index — see the pass's own --help in the script).
+    # PYTH oracle_prices ghost-failure pass added 2026-07-28, see
+    # plans/active/issues/pyth_oracle_prices_stale_ghost_failure_rows_2026_07_28.md.
+    --report-pyth-oracle-prices-ghost-failures) ;;
+    *)
+        echo "ERROR: second arg must be --dry-run (default), --apply, or a --report-* single-purpose pass (got: $APPLY_FLAG)" >&2
+        exit 2
+        ;;
 esac
+if [[ -n "$EXTRA_FLAG" && "$EXTRA_FLAG" != "--apply" ]]; then
+    echo "ERROR: third arg (if given) must be --apply (got: $EXTRA_FLAG)" >&2
+    exit 2
+fi
+if [[ -n "$EXTRA_FLAG" && "$APPLY_FLAG" != --report-* ]]; then
+    echo "ERROR: third arg --apply is only valid paired with a --report-* second arg (got: $APPLY_FLAG $EXTRA_FLAG)" >&2
+    exit 2
+fi
 
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
@@ -151,6 +180,9 @@ echo "Launching $VM_NAME: phantom recon for asset_group=${ASSET_GROUP} (${APPLY_
 # alias in that script. $WORKSPACE = /home/ikennaigboaka/workspace.
 RECON_SCRIPT="/home/ikennaigboaka/workspace/instruments/scripts/reconcile_phantom_manifest_rows_all.py"
 BACKFILL_CMD="python ${RECON_SCRIPT} --asset-group ${ASSET_GROUP} ${APPLY_FLAG}"
+if [[ -n "$EXTRA_FLAG" ]]; then
+    BACKFILL_CMD="${BACKFILL_CMD} ${EXTRA_FLAG}"
+fi
 if [[ -n "$VENUES" ]]; then
     BACKFILL_CMD="${BACKFILL_CMD} --venues ${VENUES}"
 fi
