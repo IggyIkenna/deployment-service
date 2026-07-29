@@ -30,7 +30,12 @@ PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 DRY_RUN=false
-START_DATE="${START_DATE:-2020-06-01}"
+# Floor-clamped default (codex/02-data/sports-2020-06-data-floor.md): odds_api is
+# NOT in instruments-service get_venue_epoch()'s defense-in-depth clamp list (only
+# api_football/soccerfootball_info/footystats are), so a bare run of this launcher
+# with no --start override is the ONLY defense against fabricating pre-floor rows
+# for this venue. Was 2020-06-01 (5 days before the ruled 2020-06-06 floor).
+START_DATE="${START_DATE:-2020-06-06}"
 END_DATE="${END_DATE:-2026-03-28}"
 # RESUME_FORCE / RESUME_ALLOW_PARALLEL env fallbacks (SPOT-preemption relaunch
 # support, cefi_completion_program_2026_07_15.md pattern): RelaunchPreemptedVm
