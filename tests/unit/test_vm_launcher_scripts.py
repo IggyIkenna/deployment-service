@@ -1644,6 +1644,206 @@ export -f stat
         assert "status=completed" in result.stdout
 
 
+class TestCefiFundingTimestampFixStallDetection:
+    """Real incident 2026-07-29 (a genuinely NEW instance of the exact bug class
+    /plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md's
+    Gap 2 documents -- this launcher did not exist yet when that doc's todo 5 audited
+    the other 103 launch-*-vm.sh scripts): a BINANCE-FUTURES
+    canonical-migration-cefi-fts-* VM's migration script printed its own final
+    "=== SUMMARY (APPLIED) ..." line, then the process never actually exited -- the
+    VM sat GCE-RUNNING for 3+ hours with zero real progress (only the always-on
+    PIPELINE_HEARTBEAT emitter kept the tee'd log growing) before being noticed and
+    manually killed. Same root cause, same fix shape as todo 4's cefi-content-apply
+    fix: this launcher already routes through the shared setup-data-pipeline-vm.sh ->
+    _launch_with_tee() -> vm-exec-with-gcs-tee.sh stall-kill (VM_TASK=canonical-
+    migration), but had no STALL_PROGRESS_REGEX set, so it fell back to the
+    byte-growth-only default that heartbeat noise permanently defeats.
+
+    Mirrors TestCanonicalMigrationStallDetection's proof shape: (1) the launcher
+    wires the metadata key for both the N=1 and sharded launch paths; (2) the exact
+    regex matches this script's real per-object progress-log line
+    (reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py line
+    ~592); (3) against the REAL shipped vm-exec-with-gcs-tee.sh (not a
+    reimplementation), a simulated post-completion hang IS killed with the regex set
+    and is NOT killed under the byte-growth-only default -- the exact historical
+    incident, reproduced small-scale."""
+
+    LAUNCHER = "scripts/vm/launch-cefi-funding-timestamp-fix-vm.sh"
+    WATCHDOG = "scripts/vm/vm-exec-with-gcs-tee.sh"
+    REGEX = "action="
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    @pytest.fixture
+    def watchdog_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.WATCHDOG
+
+    # ---- half 1: the launcher wires the metadata key, for N=1 and sharded alike ----
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_n1_default_launch_sets_the_stall_progress_regex(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(launcher_path, ["BYBIT", "2020-01-01", "2020-01-05"], tmp_path)
+        assert f"STALL_PROGRESS_REGEX={self.REGEX}" in call
+
+    def test_sharded_launch_sets_the_stall_progress_regex_for_every_shard(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        call = self._created_metadata(launcher_path, ["--shards", "3", "BYBIT", "2020-01-01", "2020-01-10"], tmp_path)
+        assert call.count(f"STALL_PROGRESS_REGEX={self.REGEX}") == 3
+
+    # ---- half 2: the regex itself, against the real log-line format ----
+
+    @pytest.mark.parametrize(
+        "line,expect_match",
+        [
+            # reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py's real
+            # per-object line (script line ~592), across every action= value it emits.
+            (
+                "  BINANCE-FUTURES: action=corrected rows=69947 populated=69946 shifted=69946 "
+                "cadence_registered=True staged=... backup=...",
+                True,
+            ),
+            (
+                "  BINANCE-FUTURES: action=skipped_next_funding_timestamp_already_present "
+                "rows=27205 populated=0 shifted=0 cadence_registered=True",
+                True,
+            ),
+            ("  DERIBIT: action=skipped_all_null_no_forward_value rows=100 populated=0 shifted=0", True),
+            ("  EXTENDED-STARKNET: action=skipped_no_funding_timestamp_column rows=0", True),
+            # The always-on heartbeat noise that defeated byte-growth mode in the real incident --
+            # must NEVER count as progress.
+            ("PIPELINE_HEARTBEAT vm=canonical-migration-cefi-fts-binance-futures-x ts=2026-07-29T10:00:00Z", False),
+            # The final one-time summary line -- also must not match (it is emitted exactly once,
+            # right before the observed hang, so treating it as recurring progress would mask the
+            # exact failure mode this fix closes).
+            ("=== SUMMARY (APPLIED) run_ts=20260729-090941 venue=BINANCE-FUTURES window=... ===", False),
+        ],
+    )
+    def test_regex_matches_exactly_the_intended_lines(self, line: str, expect_match: bool) -> None:
+        """Checks the exact production regex case-sensitively against the real line shapes,
+        using the SAME `grep -qE` matcher vm-exec-with-gcs-tee.sh itself uses (line 260)."""
+        result = subprocess.run(["grep", "-qE", self.REGEX], input=line, text=True)
+        matched = result.returncode == 0
+        assert matched == expect_match, f"line={line!r} expected_match={expect_match} got={matched}"
+
+    # ---- half 3: the real watchdog, against the exact observed incident shape ----
+
+    def _mock_bin_functions(self) -> str:
+        return """
+python() {
+    if [[ "$1" == "-c" ]]; then
+        echo "00000000-0000-0000-0000-000000000000"
+        return 0
+    fi
+    return 0
+}
+export -f python
+gsutil() { return 0; }
+export -f gsutil
+stat() {
+    if [[ "$1" == "-c" && "$2" == "%s" ]]; then
+        wc -c < "$3" 2>/dev/null | tr -d ' '
+        return 0
+    fi
+    return 1
+}
+export -f stat
+"""
+
+    def _run_watchdog(
+        self,
+        watchdog_path: Path,
+        workload: str,
+        stall_progress_regex: str | None,
+        tmp_path: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        env = {
+            **os.environ,
+            "VM_NAME": f"cefi-fts-stall-unit-test-{tmp_path.name}",
+            "VM_ASSET_GROUP": "CEFI",
+            "VM_TASK": "canonical-migration",
+            "VM_MODE": "full",
+            "PYTHON_BIN": "python",
+            "STALL_TIMEOUT_SEC": "3",
+            "STALL_POLL_SEC": "1",
+        }
+        if stall_progress_regex is not None:
+            env["STALL_PROGRESS_REGEX"] = stall_progress_regex
+        else:
+            env.pop("STALL_PROGRESS_REGEX", None)
+        script = self._mock_bin_functions() + (
+            f"bash {shlex.quote(str(watchdog_path))} {shlex.quote(gcs_log_uri)} bash -c {shlex.quote(workload)}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=25)
+
+    def test_post_completion_hang_is_killed_when_regex_is_set(self, watchdog_path: Path, tmp_path: Path) -> None:
+        """The exact incident: the migration script prints its final SUMMARY line, then the
+        process itself never exits -- only heartbeat-shaped noise keeps appearing afterward."""
+        workload = (
+            'echo "=== SUMMARY (APPLIED) run_ts=x venue=BINANCE-FUTURES window=... ==="; '
+            'for i in $(seq 1 10); do echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; done; echo DONE_NORMALLY'
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        assert result.returncode == 124, (
+            f"expected the stall-kill (rc=124), got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=failed" in result.stdout
+
+    def test_same_hang_is_not_caught_by_the_byte_growth_only_default(self, watchdog_path: Path, tmp_path: Path) -> None:
+        """Regression baseline proving the bug: the IDENTICAL post-completion hang, but with
+        STALL_PROGRESS_REGEX unset (this launcher's behavior before this fix) -- the heartbeat
+        noise itself keeps the log growing, so byte-growth mode never fires. This is exactly how
+        the real BINANCE-FUTURES VM sat hung 3+ hours undetected."""
+        workload = (
+            'echo "=== SUMMARY (APPLIED) run_ts=x venue=BINANCE-FUTURES window=... ==="; '
+            'for i in $(seq 1 6); do echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; done; echo DONE_NORMALLY'
+        )
+        result = self._run_watchdog(watchdog_path, workload, None, tmp_path)
+        assert result.returncode == 0, (
+            f"byte-growth-only mode should let the noisy-but-hung run finish on its own, "
+            f"got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+
+    def test_genuinely_healthy_run_with_real_action_lines_is_not_false_killed(
+        self, watchdog_path: Path, tmp_path: Path
+    ) -> None:
+        """No-false-positive check: a run emitting real per-object action= lines interleaved with
+        heartbeat noise must not be killed."""
+        workload = (
+            "for i in 1 2 3 4 5 6; do "
+            'echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; '
+            'echo "  BINANCE-FUTURES: action=corrected rows=$i populated=$i shifted=$i "; sleep 1; '
+            "done; echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        assert result.returncode == 0, (
+            f"a genuinely-progressing worker must not be killed, got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+
+
 class TestDefiLaunchersSpotPreemptionContract:
     """SPOT preemption contract for the two DeFi backfill launchers
     (defi_mvp_backfill_optimization_ready_2026_07_20.md defect #2 — "Both DeFi
