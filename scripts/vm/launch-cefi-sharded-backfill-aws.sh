@@ -88,17 +88,9 @@ SYMBOLS_OKX_SWAP="BTC-USDT-SWAP;ETH-USDT-SWAP;SOL-USDT-SWAP;XRP-USDT-SWAP;BNB-US
 SYMBOLS_HYPERLIQUID="BTC;ETH;SOL;XRP;BNB;DOGE;ADA;AVAX;LINK"
 SYMBOLS_UPBIT="KRW-BTC;KRW-ETH;KRW-SOL;KRW-XRP;KRW-DOGE;KRW-ADA;KRW-AVAX;KRW-LINK"
 
-# futures_chain REMOVED from both light bundles (DP-FETCH-009, 2026-07-29): Tardis does
-# NOT offer a futures_chain channel for ANY CeFi venue (confirmed via GET
-# /v1/exchanges/<exch> availableChannels across binance-futures, bybit, deribit,
-# kraken-futures, bitfinex-derivatives, bitget-futures, upbit — G4 verification
-# 2026-07-03, market_tick_data_service/scripts/reclass_cefi_futures_chain_no_tardis_source.py).
-# Requesting it here made every backfill wave regenerate a fresh 100%-attempted_failed
-# futures_chain batch forever (115,661 cells by 2026-07-29) instead of the reclass script's
-# one-time historical fix actually holding.
 DATA_HEAVY="trades;book_snapshot_5"
-DATA_LIGHT_PERPS="derivative_ticker;liquidations"
-DATA_LIGHT_DERIBIT="derivative_ticker;options_chain"
+DATA_LIGHT_PERPS="derivative_ticker;liquidations;futures_chain"
+DATA_LIGHT_DERIBIT="derivative_ticker;options_chain;futures_chain"
 
 
 _launched=0
