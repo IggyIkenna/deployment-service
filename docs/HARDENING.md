@@ -110,8 +110,6 @@ Each service has `configs/checklist.{service}.yaml`. Key phases:
 - **Schema (20):** Validation in write paths
 - **Deployment (20):** deploy.py works; data catalogue
 
-See [audit/CURRENT_AUDIT.md](../audit/CURRENT_AUDIT.md) for current findings.
-
 ---
 
 ## Related

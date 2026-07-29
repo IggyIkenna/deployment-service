@@ -10,14 +10,12 @@
 
 ---
 
-## MAX_WORKERS & Optimization
+## Optimization
 
-| Task                                                         | Document                                                                     |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| **⭐ START HERE:** Complete MAX_WORKERS implementation guide | [IMPLEMENTATION_MAX_WORKERS.md](IMPLEMENTATION_MAX_WORKERS.md)               |
-| Production readiness audit (CSV, dependencies, BigQuery)     | [../audit/CURRENT_AUDIT.md](../audit/CURRENT_AUDIT.md)                       |
-| GCS lifecycle policy (save 76% storage)                      | [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) |
-| Cost analysis (lifecycle, backfill, monitoring)              | [COST.md](COST.md)                                                           |
+| Task                                            | Document                                                                     |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| GCS lifecycle policy (save 76% storage)         | [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) |
+| Cost analysis (lifecycle, backfill, monitoring) | [COST.md](COST.md)                                                           |
 
 ---
 
@@ -59,45 +57,28 @@
 
 ### ML & Data
 
-| Task                                         | Document                                                       |
-| -------------------------------------------- | -------------------------------------------------------------- |
-| ML architecture, BigQuery, feature pipelines | [ML_IMPLEMENTATION.md](ML_IMPLEMENTATION.md)                   |
-| BigQuery external tables setup               | [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) |
-| GCS paths, schema, key=value format          | [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md)                         |
+| Task                                | Document                                                       |
+| ----------------------------------- | -------------------------------------------------------------- |
+| BigQuery external tables setup      | [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) |
+| GCS paths, schema, key=value format | [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md)                         |
 
 ### Cost & Optimization
 
-| Task                                          | Document                                                                     |
-| --------------------------------------------- | ---------------------------------------------------------------------------- |
-| Cost analysis (storage, compute, BigQuery)    | [COST.md](COST.md)                                                           |
-| GCS lifecycle policy (aggressive strategy)    | [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) |
-| MAX_WORKERS implementation (date parallelism) | [IMPLEMENTATION_MAX_WORKERS.md](IMPLEMENTATION_MAX_WORKERS.md)               |
-
-### External/Contractor Specs
-
-| Task                       | Document             |
-| -------------------------- | -------------------- |
-| External specs (condensed) | [SPECS.md](SPECS.md) |
+| Task                                       | Document                                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| Cost analysis (storage, compute, BigQuery) | [COST.md](COST.md)                                                           |
+| GCS lifecycle policy (aggressive strategy) | [GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md](GCS_LIFECYCLE_AGGRESSIVE_STRATEGY.md) |
 
 ---
 
 ## By Role
 
 **New joiner:** SETUP → TESTING → CLI → INDEX (this file)
-**Deployment ops:** CLI → RUNBOOKS → CACHE_AND_STATE → IMPLEMENTATION_MAX_WORKERS
-**Hardening / checklist:** HARDENING → COMPREHENSIVE_SERVICE_AUDIT_FRAMEWORK → ../audit/CURRENT_AUDIT.md
-**ML / features:** ML_IMPLEMENTATION → GCS_AND_SCHEMA → BIGQUERY_INTEGRATION_GUIDE
+**Deployment ops:** CLI → RUNBOOKS → CACHE_AND_STATE
+**Hardening / checklist:** HARDENING → COMPREHENSIVE_SERVICE_AUDIT_FRAMEWORK
+**ML / features:** GCS_AND_SCHEMA → BIGQUERY_INTEGRATION_GUIDE
 **Multi-cloud / AWS:** MIGRATION → AWS_MIGRATION_EXECUTION → INFRASTRUCTURE
-**Cost optimization:** COST → GCS_LIFECYCLE_AGGRESSIVE_STRATEGY → IMPLEMENTATION_MAX_WORKERS
-
----
-
-## Audit
-
-| Document                                            | Purpose                                   |
-| --------------------------------------------------- | ----------------------------------------- |
-| [audit/CURRENT_AUDIT.md](../audit/CURRENT_AUDIT.md) | Current system-wide and per-service audit |
-| [audit/ARCHIVE.md](../audit/ARCHIVE.md)             | Historical audits                         |
+**Cost optimization:** COST → GCS_LIFECYCLE_AGGRESSIVE_STRATEGY
 
 ---
 

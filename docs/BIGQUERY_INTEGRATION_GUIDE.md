@@ -552,7 +552,6 @@ bq query --dry_run "SELECT * FROM features_data.features_1m_cefi WHERE day = '20
 - [BIGQUERY_HIVE_PARTITIONING_VALIDATION.md](BIGQUERY_HIVE_PARTITIONING_VALIDATION.md) - Service audit and validation
 - [GCS_AND_SCHEMA.md](GCS_AND_SCHEMA.md) - GCS path formats across all services
 - [COST.md](COST.md) - Complete cost analysis
-- [ML_IMPLEMENTATION.md](ML_IMPLEMENTATION.md) - ML pipeline architecture
 
 ---
 

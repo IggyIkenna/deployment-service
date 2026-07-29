@@ -182,6 +182,5 @@ GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
 
 ## Related Documentation
 
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
 - [DEPENDENCIES.md](DEPENDENCIES.md) - Upstream/downstream dependencies
 - [deployment-service/configs/sharding.{service-name}.yaml](../deployment-service/configs/) - Sharding configuration

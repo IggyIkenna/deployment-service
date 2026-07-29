@@ -85,8 +85,6 @@ python deploy.py deploy -s instruments-service --start-date 2024-01-01 --end-dat
 # → 1 shard (5 dates), processes all 5 in parallel
 ```
 
-**See:** [MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md](MAX_WORKERS_UNIFIED_IMPLEMENTATION_PLAN.md) for complete details
-
 ---
 
 ## Status and Management
