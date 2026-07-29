@@ -111,10 +111,10 @@ resource "google_project_iam_member" "uts_prd_objectadmin_group_a" {
 
   condition {
     title       = "group-a-prd-tier-only"
-    description = "uts-prd-sa writes ONLY Group A -prd- buckets (bucket_iam_write_protection_per_tier_2026_06_09.md P1.2)."
+    description = "uts-prd-sa writes ONLY Group A -prd- buckets (bucket_iam_write_protection_per_tier_2026_06_09.md P1.2). GCP IAM Condition CEL supports only startsWith/endsWith on resource.name (contains/matches are BOTH undeclared references, confirmed live 2026-07-29) -- prd/test immediately follows the group prefix in every real bucket name (e.g. features-cefi-prd-<project>), so a single startsWith per prefix+tier is exact, not an approximation."
     expression = join(" || ", [
       for prefix in local.group_a_bucket_prefixes :
-      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-prd-\"))"
+      "resource.name.startsWith(\"projects/_/buckets/${prefix}prd-\")"
     ])
   }
 }
@@ -126,10 +126,10 @@ resource "google_project_iam_member" "uts_test_objectadmin_group_a" {
 
   condition {
     title       = "group-a-test-tier-only"
-    description = "uts-test-sa writes ONLY Group A -test- buckets (ephemeral CI/E2E; bucket_iam_write_protection_per_tier_2026_06_09.md P1.2, test-tier slice)."
+    description = "uts-test-sa writes ONLY Group A -test- buckets (ephemeral CI/E2E; bucket_iam_write_protection_per_tier_2026_06_09.md P1.2, test-tier slice). See group-a-prd-tier-only's comment for why this is startsWith-only."
     expression = join(" || ", [
       for prefix in local.group_a_bucket_prefixes :
-      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-test-\"))"
+      "resource.name.startsWith(\"projects/_/buckets/${prefix}test-\")"
     ])
   }
 }
@@ -141,10 +141,10 @@ resource "google_project_iam_member" "uts_prd_objectadmin_group_b" {
 
   condition {
     title       = "group-b-prd-tier-only"
-    description = "uts-prd-sa writes ONLY Group B -prd- buckets (bucket_fold_features_2026_07_17.md IAM+lifecycle todo — Group B joins Phase-2 once its fold provisions the -{env}- form)."
+    description = "uts-prd-sa writes ONLY Group B -prd- buckets (bucket_fold_features_2026_07_17.md IAM+lifecycle todo — Group B joins Phase-2 once its fold provisions the -{env}- form). See group-a-prd-tier-only's comment for why this is startsWith-only."
     expression = join(" || ", [
       for prefix in local.group_b_bucket_prefixes :
-      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-prd-\"))"
+      "resource.name.startsWith(\"projects/_/buckets/${prefix}prd-\")"
     ])
   }
 }
@@ -156,10 +156,10 @@ resource "google_project_iam_member" "uts_test_objectadmin_group_b" {
 
   condition {
     title       = "group-b-test-tier-only"
-    description = "uts-test-sa writes ONLY Group B -test- buckets (ephemeral CI/E2E; bucket_fold_features_2026_07_17.md IAM+lifecycle todo, test-tier slice)."
+    description = "uts-test-sa writes ONLY Group B -test- buckets (ephemeral CI/E2E; bucket_fold_features_2026_07_17.md IAM+lifecycle todo, test-tier slice). See group-a-prd-tier-only's comment for why this is startsWith-only."
     expression = join(" || ", [
       for prefix in local.group_b_bucket_prefixes :
-      "(resource.name.startsWith(\"projects/_/buckets/${prefix}\") && resource.name.contains(\"-test-\"))"
+      "resource.name.startsWith(\"projects/_/buckets/${prefix}test-\")"
     ])
   }
 }
