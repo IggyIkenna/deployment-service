@@ -25,7 +25,11 @@
 #
 # Coverage ranges:
 #   HYPERLIQUID:        2023-01-01 → today (30,835 cells, cefi manifest audit 2026-06-21)
-#   ASTER:               2024-01-01 → today (17,675 cells, cefi manifest audit 2026-06-21)
+#   ASTER:               2023-07-22 → today (operator-confirmed genesis 2026-06-17, swept into
+#                        UAC venue_launch_dates.py / market_data_categories.py / expected_start_dates.yaml;
+#                        this launcher's prior 2024-01-01 default only reflected what had actually been
+#                        captured, not the confirmed genesis — real gap 2023-07-22→2023-10-31 found +
+#                        backfilled 2026-07-29, see perp_funding_data_semantics_and_cadence_2026_06_16.md GAP 2)
 #   LIGHTER-ZKSYNC:      2024-08-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
 #   EXTENDED-STARKNET:   2024-10-01 → today (UAC VENUE_DATA_TYPE_CAPABILITIES start_date)
 #
@@ -108,7 +112,7 @@ DATA_TYPES="${DATA_TYPES:-trades;book_snapshot_5;derivative_ticker}"
 
 # ── Year shards ───────────────────────────────────────────────────────────────
 # HL:                2023-01-01 → today
-# ASTER:             2024-01-01 → today
+# ASTER:             2023-07-22 → today (operator-confirmed genesis, see header note above)
 # LIGHTER-ZKSYNC:    2024-08-01 → today
 # EXTENDED-STARKNET: 2024-10-01 → today
 CURRENT_YEAR=$(date +%Y)
@@ -116,7 +120,7 @@ CUTOFF_DATE="${CUTOFF_DATE:-$(date +%F)}"
 
 declare -A VENUE_START_YEAR
 VENUE_START_YEAR["HYPERLIQUID"]=2023
-VENUE_START_YEAR["ASTER"]=2024
+VENUE_START_YEAR["ASTER"]=2023
 VENUE_START_YEAR["LIGHTER-ZKSYNC"]=2024
 VENUE_START_YEAR["EXTENDED-STARKNET"]=2024
 
@@ -125,7 +129,7 @@ VENUE_START_YEAR["EXTENDED-STARKNET"]=2024
 # source venue didn't exist for yet.
 declare -A VENUE_START_DATE
 VENUE_START_DATE["HYPERLIQUID"]="2023-01-01"
-VENUE_START_DATE["ASTER"]="2024-01-01"
+VENUE_START_DATE["ASTER"]="2023-07-22"
 VENUE_START_DATE["LIGHTER-ZKSYNC"]="2024-08-01"
 VENUE_START_DATE["EXTENDED-STARKNET"]="2024-10-01"
 
