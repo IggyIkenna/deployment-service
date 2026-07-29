@@ -67,6 +67,23 @@ resource "google_pubsub_subscription_iam_member" "lifecycle_events_sub_subscribe
   member       = local.alerting_subscriber_sa
 }
 
+# ── service-lifecycle-events: UAC-canonical lifecycle topic (InternalPubSubTopic.SERVICE_EVENTS) ──
+# Topic + subscription are already provisioned generically in main.tf's
+# `google_pubsub_topic.unified_trading` / `google_pubsub_subscription.unified_trading`
+# for_each (keyed by local.pubsub_topic_names, which already includes
+# "service-lifecycle-events") — only the subscriber IAM grant was missing,
+# which is why the subscription had zero real consumers despite live-mode
+# services publishing to it since unified-trading-library@9bdcf7a2. Operator
+# ruling 2026-07-29: subscribe alerting-service to this topic too (cheapest
+# fix, no publisher changes). See
+# plans/active/issues/live_mode_event_sink_topic_missing_2026_06_21.md.
+resource "google_pubsub_subscription_iam_member" "service_lifecycle_events_sub_subscriber" {
+  subscription = google_pubsub_subscription.unified_trading["service-lifecycle-events"].name
+  project      = var.project_id
+  role         = "roles/pubsub.subscriber"
+  member       = local.alerting_subscriber_sa
+}
+
 # ── defi_data_quality_alerts: subscription + subscriber IAM (topic is in subgraph_health_probe_scheduler.tf) ──
 resource "google_pubsub_subscription" "defi_data_quality_alerts_sub" {
   name    = "defi_data_quality_alerts"
