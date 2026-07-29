@@ -82,9 +82,18 @@ module "data_pipeline_exit_code_monitor_job" {
   # the whole RUNNING fleet (same heavy load as heartbeat), so it OOM'd at 2Gi AND 4Gi on every
   # */5 run (signal 9) → its last-run sentinel was never written → the out-of-band deadman paged
   # it stale ("dp-exit-code-monitor — sentinel stale: never ran"). Cloud Run requires cpu>=2 at 8Gi.
+  # timeout_seconds bumped 300 -> 900 (2026-07-29) — the fleet has grown enough since the memory
+  # fix that the OOM was traded for a TIMEOUT: real logs (`gcloud logging read`, job
+  # uts-prod-dp-exit-code-monitor) show "Terminating task because it has reached the maximum
+  # timeout of 300 seconds" on EVERY execution since at least 2026-07-27T05:00 UTC — this monitor
+  # has been silently failing to complete a single sweep for 2+ days, so DP_VM_PREEMPTED never
+  # fires and no SPOT-preempted VM (of any kind, not just this session's) has been auto-recovered
+  # in that window (zero "DP_VM_PREEMPTED" log lines in 3 days of history) — a genuinely broken,
+  # not merely slow, safety net. SSOT:
+  # plans/active/issues/cefi_migration_vm_launcher_no_sharding_and_spot_preemption_churn_2026_07_28.md.
   cpu             = "2"
   memory          = "8Gi"
-  timeout_seconds = 300
+  timeout_seconds = 900
   max_retries     = 0 # exit-0-always; the next cron cycle re-checks
   parallelism     = 1
   task_count      = 1
