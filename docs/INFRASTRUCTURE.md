@@ -1,119 +1,35 @@
-<!-- POST_PLAN_BANNER_2026_05_06_FINAL -->
+# Deployment Service — Infrastructure, Access, and Quotas
 
-> **Post-2026-05-06** — read [`../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md`](../../unified-trading-pm/codex/POST_PLAN_REALITY_2026_05_06.md) before code/doc changes informed by this doc. The post-plan-reality doc summarizes the 10 cross-cutting principles codified in workspace `CLAUDE.md` (live=batch, no double SSOT, three-category empty-output decision A/B/C, cluster validation MANDATORY at `record_captured`, `available_at` per-row write-time, prediction lifecycle, temporary state must have named successor, per-VM shard isolation, multi-axis shard-vs-display distinction) plus the active plans (`writegate_honest_coverage_endtoend_2026_05_06.md`, `predictions_canonical_question_group_polymarket_migration_2026_05_06.md`, `data_status_multi_axis_shard_propagation_2026_05_06.md`). If this doc disagrees with the active plans, the plans win. Flag conflicts to user — don't decide unilaterally.
+> **Canonical SSOT:** [auth-setup](../../unified-trading-pm/codex/05-infrastructure/auth-setup.md) (auth / IAM / secrets)
+> and [cicd-setup](../../unified-trading-pm/codex/05-infrastructure/cicd-setup.md) (Cloud Build triggers). This file
+> carries only deployment-service-specific details — **do not duplicate the cross-cutting auth/IAM contract here**; if
+> this file disagrees with codex, codex wins.
 
-# Infrastructure, Access, and Quotas
+## deployment-service-specific infrastructure
 
-GCP access, secrets, Cloud Build triggers, and quota requirements.
+- **Region:** `asia-northeast1` (Tokyo); failover `europe-west1`, `us-central1`.
+- **Deployment state bucket:** `deployment-orchestration-{project}` — separate from `terraform-state-{project}`.
 
-**Last consolidated:** 2026-02-09
+### Required GCP APIs
 
----
+Cloud Run · Compute Engine · Cloud Storage · Cloud Workflows · Cloud Scheduler · Secret Manager · Artifact Registry.
 
-## GCP Access
+### Cloud Build triggers (repo-local CLI)
 
-- **Project:** `test-project`
-- **Region:** `asia-northeast1` (Tokyo)
-- **Failover:** `europe-west1`, `us-central1`
-
-### Required IAM Roles
-
-| Role                                 | Purpose               |
-| ------------------------------------ | --------------------- |
-| `roles/viewer`                       | Console UI            |
-| `roles/compute.instanceAdmin.v1`     | Create/manage VMs     |
-| `roles/run.admin`                    | Manage Cloud Run jobs |
-| `roles/storage.objectAdmin`          | GCS read/write        |
-| `roles/artifactregistry.reader`      | Pull Docker images    |
-| `roles/secretmanager.secretAccessor` | Access secrets        |
-| `roles/logging.viewer`               | View logs             |
-| `roles/cloudbuild.builds.viewer`     | View Cloud Build logs |
-
-### Deployment State Bucket
-
-**Use `deployment-orchestration-{project}`** for deployment state. This is separate from `terraform-state-{project}` (Terraform backend).
+All triggers live in `asia-northeast1` (not global). Manage from the CLI:
 
 ```bash
-gsutil ls gs://deployment-orchestration-test-project/
+bash scripts/setup-cloud-build-triggers.sh setup        # add repos, create missing triggers
+bash scripts/setup-cloud-build-triggers.sh list
+bash scripts/setup-cloud-build-triggers.sh run-ordered  # run builds in dependency order
 ```
 
----
+Build order: libraries first (config → events → UCS → domain → market/order/algo), then services (instruments →
+market-tick → market-data-processing → execution → others).
 
-## Secrets (Secret Manager)
+### Quota target (repo-local)
 
-| Secret                                                          | Purpose                                            |
-| --------------------------------------------------------------- | -------------------------------------------------- |
-| `github-token`                                                  | Clone private repos                                |
-| `tardis-api-key`                                                | CeFi market data                                   |
-| `databento-api-key`                                             | TradFi market data                                 |
-| `alchemy-api-key`                                               | DeFi RPC                                           |
-| `thegraph-api-key`, `thegraph-api-key-2` … `thegraph-api-key-9` | TheGraph API (9 keys, round-robin via SHARD_INDEX) |
+~20,000 concurrent shards for a 6-year backfill; heaviest is market-tick-data-handler (26 venues × 2,190 days). Cap
+`--max-concurrent 2000` (hard limit 2500).
 
----
-
-## Cloud Build Triggers
-
-All triggers are in **asia-northeast1** (not global):
-
-```bash
-gcloud builds triggers list --project=test-project --region=asia-northeast1
-```
-
-### CLI Setup (Phase 4)
-
-Create or update triggers from the command line:
-
-```bash
-cd deployment-service
-bash scripts/setup-cloud-build-triggers.sh setup    # Add repos, create missing triggers
-bash scripts/setup-cloud-build-triggers.sh list    # List triggers
-bash scripts/setup-cloud-build-triggers.sh run-ordered  # Run builds in dependency order
-```
-
-**Build order:** Libraries first (config → events → UCS → domain → market/order/algo), then services (instruments → market-tick → market-data-processing → execution → others).
-
-**unified-domain-client:** If the repo is not accessible to the Cloud Build GitHub App, add it via GCP Console: Cloud Build → Repositories → Link repository.
-
-| Service                             | Trigger Name                         |
-| ----------------------------------- | ------------------------------------ |
-| instruments-service                 | instruments-service-build            |
-| market-tick-data-handler            | market-tick-data-handler-build       |
-| market-data-processing-service      | market-data-processing-service-build |
-| ... (all 12 services + 7 libraries) | \*-build                             |
-
-**Flow:** Push to main → Cloud Build runs quality gates → builds Docker image or wheel → pushes to Artifact Registry.
-
----
-
-## Quota Requirements
-
-- **Target:** ~20,000 concurrent shards for 6-year backfill
-- **Heavy service:** market-tick-data-handler (26 venues × 2,190 days)
-- **Cap:** `--max-concurrent 2000` (hard limit 2500)
-- See [QUOTA_REQUIREMENTS.md](QUOTA_REQUIREMENTS.md) for full matrix (or inline if kept)
-
----
-
-## Required GCP APIs
-
-- Cloud Run API
-- Compute Engine API
-- Cloud Storage API
-- Cloud Workflows API
-- Cloud Scheduler API
-- Secret Manager API
-- Artifact Registry API
-
----
-
-## Related
-
-**Setup Guides:**
-
-- [SETUP.md](SETUP.md) - Initial installation and workspace setup
-- [GCS_FUSE_VM_SETUP.md](GCS_FUSE_VM_SETUP.md) - GCS FUSE configuration for VMs and Cloud Run
-- [BIGQUERY_INTEGRATION_GUIDE.md](BIGQUERY_INTEGRATION_GUIDE.md) - BigQuery external tables setup
-
-**Operations:**
-
-- [CLI.md](CLI.md) - Deployment commands and CLI reference
+Secret inventory and IAM role bindings are owned by the codex auth-setup SSOT above.
