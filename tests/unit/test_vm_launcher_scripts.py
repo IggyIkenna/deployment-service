@@ -2042,5 +2042,256 @@ class TestCanonicalMigrationServiceKeyedWorkspaceDir:
         assert self._resolved_dir_for(setup_script_path, "some_future_service") == "mtds"
 
 
+class TestCefiFtsDateSharding:
+    """Tests for `_cefi-fts-launcher-lib.sh`'s `cefi_fts_split_date_shards` (the
+    pure date-range-split arithmetic) and its wiring into
+    `launch-cefi-funding-timestamp-fix-vm.sh`'s `--shards N` / `SHARD_COUNT`
+    option — the fix #1 half of
+    plans/active/issues/cefi_migration_vm_launcher_no_sharding_and_spot_preemption_churn_2026_07_28.md
+    (fix #2, preemption auto-recovery, is a separate track — not covered here).
+    """
+
+    LIB = "scripts/vm/_cefi-fts-launcher-lib.sh"
+    LAUNCHER = "scripts/vm/launch-cefi-funding-timestamp-fix-vm.sh"
+
+    @pytest.fixture
+    def lib_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LIB
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _split(self, lib_path: Path, start: str, end: str, n: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", f'source "{lib_path}"; set +e; cefi_fts_split_date_shards "{start}" "{end}" "{n}"'],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_lib_syntax_valid(self, lib_path: Path) -> None:
+        result = subprocess.run(["bash", "-n", str(lib_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error in {self.LIB}: {result.stderr}"
+
+    def test_single_shard_returns_full_range(self, lib_path: Path) -> None:
+        result = self._split(lib_path, "2020-01-01", "2020-01-10", "1")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "2020-01-01:2020-01-10"
+
+    def test_single_day_range_single_shard(self, lib_path: Path) -> None:
+        result = self._split(lib_path, "2020-01-01", "2020-01-01", "1")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "2020-01-01:2020-01-01"
+
+    def test_even_split_three_shards(self, lib_path: Path) -> None:
+        """9 days / 3 shards -> exactly 3 days each, no remainder."""
+        result = self._split(lib_path, "2020-01-01", "2020-01-09", "3")
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        assert lines == [
+            "2020-01-01:2020-01-03",
+            "2020-01-04:2020-01-06",
+            "2020-01-07:2020-01-09",
+        ]
+
+    def test_uneven_split_last_shard_absorbs_remainder(self, lib_path: Path) -> None:
+        """10 days / 3 shards -> base=3 for shards 1-2, shard 3 (LAST) gets the
+        remainder day (4), per the issue doc's exact spec: 'total_days // N per
+        shard, with the LAST shard absorbing any remainder day'."""
+        result = self._split(lib_path, "2020-01-01", "2020-01-10", "3")
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        assert lines == [
+            "2020-01-01:2020-01-03",
+            "2020-01-04:2020-01-06",
+            "2020-01-07:2020-01-10",
+        ]
+        # 3+3+4 = 10, no shard shorter than the base and only the last is longer.
+        assert len(lines) == 3
+
+    def test_shards_are_contiguous_and_exhaustive_no_gap_no_overlap(self, lib_path: Path) -> None:
+        """For every shard boundary, shard i's end + 1 day == shard i+1's start —
+        no gap, no double-counted day — over a real multi-year range with a
+        shard count that does not evenly divide it."""
+        import datetime
+        import itertools
+
+        result = self._split(lib_path, "2020-01-01", "2026-05-01", "7")
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        assert len(lines) == 7
+        windows = [tuple(ln.split(":")) for ln in lines]
+        assert windows[0][0] == "2020-01-01"
+        assert windows[-1][1] == "2026-05-01"
+        for (_, prev_end), (next_start, _) in itertools.pairwise(windows):
+            prev_end_d = datetime.date.fromisoformat(prev_end)
+            next_start_d = datetime.date.fromisoformat(next_start)
+            assert next_start_d - prev_end_d == datetime.timedelta(days=1), (
+                f"gap/overlap between shard end {prev_end} and next shard start {next_start}"
+            )
+        # every window is start <= end
+        for start, end in windows:
+            assert datetime.date.fromisoformat(start) <= datetime.date.fromisoformat(end)
+
+    def test_shard_count_clamped_to_total_days(self, lib_path: Path) -> None:
+        """Asking for more shards than days in a short range clamps down to
+        one shard per day rather than emitting empty/inverted windows."""
+        result = self._split(lib_path, "2020-01-01", "2020-01-03", "8")
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.strip().splitlines()
+        assert lines == ["2020-01-01:2020-01-01", "2020-01-02:2020-01-02", "2020-01-03:2020-01-03"]
+
+    def test_inverted_range_fails(self, lib_path: Path) -> None:
+        result = self._split(lib_path, "2020-01-10", "2020-01-01", "2")
+        assert result.returncode != 0
+        assert "end_date must be >= start_date" in result.stderr
+
+    def test_zero_shards_fails(self, lib_path: Path) -> None:
+        result = self._split(lib_path, "2020-01-01", "2020-01-10", "0")
+        assert result.returncode != 0
+        assert "positive integer" in result.stderr
+
+    def test_non_numeric_shards_fails(self, lib_path: Path) -> None:
+        result = self._split(lib_path, "2020-01-01", "2020-01-10", "banana")
+        assert result.returncode != 0
+        assert "positive integer" in result.stderr
+
+    # -- Launcher CLI integration -------------------------------------------
+
+    def test_launcher_syntax_valid(self, launcher_path: Path) -> None:
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error in {self.LAUNCHER}: {result.stderr}"
+
+    def test_launcher_sources_the_sharding_lib(self, launcher_path: Path) -> None:
+        content = launcher_path.read_text()
+        assert "_cefi-fts-launcher-lib.sh" in content
+        assert "cefi_fts_split_date_shards" in content
+
+    def test_default_n1_dry_run_vm_name_unchanged_shape(self, launcher_path: Path) -> None:
+        """No --shards flag: VM_NAME must be exactly
+        canonical-migration-cefi-fts-<venue>-<run_ts> with NO shard suffix —
+        the strict-additive N=1 contract."""
+        import re
+
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "BYBIT", "2020-01-01", "2020-01-10"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        vm_line = next(ln for ln in result.stdout.splitlines() if ln.strip().startswith("VM:"))
+        vm_name = vm_line.split()[-1]
+        assert re.fullmatch(r"canonical-migration-cefi-fts-bybit-\d{8}-\d{6}", vm_name), vm_name
+        # Exactly one VM printed for the unsharded default.
+        assert result.stdout.count("Would launch VM") == 1
+
+    def test_shards_flag_dry_run_prints_n_distinct_vm_names(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--shards", "4", "BYBIT", "2020-01-01", "2020-01-20"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.count("Would launch VM") == 4
+        vm_names = [
+            ln.split()[-1] for ln in result.stdout.splitlines() if ln.strip().startswith("VM:") and "canonical" in ln
+        ]
+        assert len(vm_names) == 4
+        assert len(set(vm_names)) == 4, f"shard VM names must be distinct: {vm_names}"
+
+    def test_shards_flag_windows_are_contiguous_exhaustive(self, launcher_path: Path) -> None:
+        import re
+
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--shards", "3", "BYBIT", "2020-01-01", "2020-01-10"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        windows = re.findall(r"Window:\s+(\d{4}-\d{2}-\d{2}) \.\. (\d{4}-\d{2}-\d{2})", result.stdout)
+        assert windows == [
+            ("2020-01-01", "2020-01-03"),
+            ("2020-01-04", "2020-01-06"),
+            ("2020-01-07", "2020-01-10"),
+        ]
+
+    def test_shard_count_env_var_equivalent_to_flag(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "BYBIT", "2020-01-01", "2020-01-04"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SHARD_COUNT": "2"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.count("Would launch VM") == 2
+
+    def test_shards_flag_wins_over_env_var(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--shards", "3", "BYBIT", "2020-01-01", "2020-01-09"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "SHARD_COUNT": "2"},
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.count("Would launch VM") == 3
+
+    def test_shards_over_max_is_rejected(self, launcher_path: Path) -> None:
+        """A fat-fingered --shards 50 must not launch a VM storm."""
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--shards", "50", "BYBIT", "2020-01-01", "2020-01-10"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "exceeds MAX_SHARDS" in result.stderr
+
+    def test_shards_zero_is_rejected(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--shards", "0", "BYBIT", "2020-01-01", "2020-01-10"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert "positive integer" in result.stderr
+
+    def test_max_shards_vm_name_stays_within_gce_63_char_limit(self, launcher_path: Path) -> None:
+        """The longest known venue slug (bitfinex-futures, 16 chars) at the max
+        allowed shard count must not exceed GCE's 63-character instance-name
+        limit -- the exact constraint MAX_SHARDS was chosen to respect."""
+        result = subprocess.run(
+            [
+                "bash",
+                str(launcher_path),
+                "--dry-run",
+                "--shards",
+                "8",
+                "BITFINEX-FUTURES",
+                "2020-01-01",
+                "2026-05-01",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        vm_names = [
+            ln.split()[-1] for ln in result.stdout.splitlines() if ln.strip().startswith("VM:") and "canonical" in ln
+        ]
+        assert len(vm_names) == 8
+        for name in vm_names:
+            assert len(name) <= 63, f"VM name exceeds GCE's 63-char limit ({len(name)} chars): {name}"
+
+    def test_venue_slug_still_matches_registered_vm_prefix_registry_entry(self) -> None:
+        """Every shard VM_NAME must still start with the registered
+        'canonical-migration-cefi-fts-' prefix (deployment_service/vm_prefix_registry.py)
+        -- the shard suffix is appended AFTER the timestamp, never inserted into
+        or ahead of the registered prefix itself."""
+        registry_path = Path(__file__).parent.parent.parent / "deployment_service" / "vm_prefix_registry.py"
+        content = registry_path.read_text()
+        assert '"canonical-migration-cefi-fts-"' in content, (
+            "registered prefix missing/renamed in vm_prefix_registry.py — sharded VM names "
+            "must still resolve via longest-prefix-match"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
