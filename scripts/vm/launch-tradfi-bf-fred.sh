@@ -45,12 +45,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_tradfi-ohlcv-launcher-lib.sh
 source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 
-# FRED = its own macro REST venue, no Databento/Massive dataset. Small JSON
-# payloads (29 series/day) — no need for CME's e2-highmem-16 / 250GB profile.
+# e2-highmem-4 (32GB), NOT e2-standard-4 (16GB): confirmed OOM-kill (exit 137)
+# during the 2024 smoke-test launch — chunk 1 (2024-01-01..01-07) climbed to
+# ~12.4GB/16GB before being killed, chunk 2 (01-08..01-14) climbed 58%->92.5%
+# RSS in 30s before being killed — same root cause + same validated fix as
+# mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md's CEFI Tardis OOM and
+# its sports-odds-launcher recurrence (bbce1b6): per-invocation date-iteration
+# accumulation within mtds_chunk_loop.sh's multi-day chunks, NOT vendor payload
+# size — the original "small JSON payloads, no need for a bigger profile"
+# reasoning here was the same mistake both prior incidents already disproved.
 # Direct assignment (not `:-`): the lib already set these at SOURCE time
 # (line ~35/40 of _tradfi-ohlcv-launcher-lib.sh), so a self-referential
 # `${TRADFI_OHLCV_MACHINE:-...}` here would be a no-op (var already non-empty).
-TRADFI_OHLCV_MACHINE="e2-standard-4"
+TRADFI_OHLCV_MACHINE="e2-highmem-4"
 TRADFI_OHLCV_BOOT_GB="50"
 # yield_curve (BOND-classified KEY_SERIES) + ohlcv_1d (INDEX-classified) — the
 # adapter's real, already-correct wire contract (VENUE_DATA_TYPE_CAPABILITIES
