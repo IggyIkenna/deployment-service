@@ -271,6 +271,10 @@ VM_LOOKBACK_DAYS=$(_meta VM_LOOKBACK_DAYS)
 VM_LOOKAHEAD_DAYS=$(_meta VM_LOOKAHEAD_DAYS)
 VM_FORCE_WINDOW=$(_meta VM_FORCE_WINDOW)
 VM_FORCE=$(_meta VM_FORCE)
+# Opt-in, default-off (operator-ruled 2026-07-29, tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md)
+# — wires the MTDS download CLI's already-shipped but never-called --mvp-mode flag to the
+# mtds-backfill branch only, mirroring VM_FORCE's metadata->CLI-flag pattern above.
+VM_MVP_MODE=$(_meta VM_MVP_MODE)
 # Tardis adapter feature flag — when "true", per-symbol downloads use the
 # streaming finalize path (chunked HTTP → temp parquet → per-row-group
 # canonical write) instead of the legacy full-materialise path. Set in VM
@@ -1638,6 +1642,13 @@ print('true' if '${VM_VENUE^^}' in ONCHAIN_PERP_VENUE_CHAIN else 'false')
   VM_LEAGUE=$(_meta VM_LEAGUE)
   [[ -n "$VM_LEAGUE" ]] && BASE_CLI="$BASE_CLI --league ${VM_LEAGUE//;/,}"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+  # --mvp-mode: OPT-IN, DEFAULT-OFF (operator-ruled 2026-07-29,
+  # tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md). The CLI flag already exists and is
+  # fully wired end-to-end (cli/main.py -> tick_data_handler.py -> orchestrator -> venue_fetch
+  # -> databento_enrichment) but had NO caller ever passing it, making it an unreachable dead
+  # gate. launch-tradfi-forward-poll.sh is the only launcher that sets VM_MVP_MODE metadata;
+  # absent/empty metadata is a no-op — identical CLI to today for every other launcher.
+  [[ "$VM_MVP_MODE" == "true" ]] && BASE_CLI="$BASE_CLI --mvp-mode"
   # --batch-date-concurrency: OPT-IN, DEFAULT-OFF. The flag is a UTL ServiceCLI
   # addition shipped separately — the deployed UTL on a given tarball may not yet
   # recognize it, and passing it unconditionally would error "unrecognized

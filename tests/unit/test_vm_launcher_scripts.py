@@ -2242,6 +2242,52 @@ class TestCanonicalMigrationServiceKeyedWorkspaceDir:
         assert self._resolved_dir_for(setup_script_path, "some_future_service") == "mtds"
 
 
+class TestMtdsBackfillMvpModeFlag:
+    """Regression guard for the mtds-backfill VM_TASK branch's `--mvp-mode` wiring
+    (operator-ruled 2026-07-29, tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md): the MTDS
+    download CLI's `--mvp-mode` flag was fully wired end-to-end but had NO caller passing it,
+    making it an unreachable dead gate. Extracts the REAL `VM_MVP_MODE=$(_meta VM_MVP_MODE)` +
+    conditional-append lines straight out of the setup script (not a hand-duplicated copy) so a
+    future edit can't silently drift out of sync with this test.
+    """
+
+    SETUP_SCRIPT = "scripts/vm/setup-data-pipeline-vm.sh"
+
+    @pytest.fixture
+    def setup_script_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.SETUP_SCRIPT
+
+    def _base_cli_for(self, setup_script_path: Path, vm_mvp_mode: str) -> str:
+        content = setup_script_path.read_text()
+        lines = content.splitlines()
+        read_line = next(ln.strip() for ln in lines if ln.strip().startswith("VM_MVP_MODE=$(_meta VM_MVP_MODE)"))
+        append_line = next(ln.strip() for ln in lines if '"$VM_MVP_MODE" == "true"' in ln and "--mvp-mode" in ln)
+        script = "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f'_meta() {{ [[ "$1" == "VM_MVP_MODE" ]] && echo "{vm_mvp_mode}" || echo ""; }}',
+                "BASE_CLI=''",
+                read_line,
+                append_line,
+                'echo "$BASE_CLI"',
+            ]
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_vm_mvp_mode_true_appends_the_flag(self, setup_script_path: Path) -> None:
+        assert "--mvp-mode" in self._base_cli_for(setup_script_path, "true")
+
+    def test_vm_mvp_mode_absent_does_not_append_the_flag(self, setup_script_path: Path) -> None:
+        """No metadata (the default for every OTHER launcher) must produce identical CLI to today."""
+        assert "--mvp-mode" not in self._base_cli_for(setup_script_path, "")
+
+    def test_vm_mvp_mode_false_does_not_append_the_flag(self, setup_script_path: Path) -> None:
+        assert "--mvp-mode" not in self._base_cli_for(setup_script_path, "false")
+
+
 class TestCefiFtsDateSharding:
     """Tests for `_cefi-fts-launcher-lib.sh`'s `cefi_fts_split_date_shards` (the
     pure date-range-split arithmetic) and its wiring into
