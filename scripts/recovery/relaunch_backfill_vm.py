@@ -27,8 +27,9 @@ these DP actuators live wholly in deployment-service, invoked from
 Only ``exit_code == 137`` (OOM) is relaunched here; any other non-zero exit
 returns a ``status=SKIPPED`` (not_oom) so the page-tier owns it.
 
-Also home to ``RelaunchPreemptedVm`` (Runbook RB-INFRA-001b, DP-VM-007 /
-``DP_VM_PREEMPTED``) — the preemption-aware relauncher for
+Also home to ``RelaunchPreemptedVm`` (Runbook RB-INFRA-001b, DP-VM-008 /
+``DP_VM_PREEMPTED``, resolved-bookend DP-VM-011 / ``DP_VM_PREEMPTED_RECOVERED``)
+— the preemption-aware relauncher for
 ``cefi_completion_program_2026_07_15.md`` P0 "Close the SPOT-preemption
 relaunch gap". A DIFFERENT trigger (unconditional on exit code — the durable
 ``PREEMPTED`` signal blob IS the trigger, not an exit code) and a DIFFERENT
@@ -270,9 +271,21 @@ class RelaunchBackfillVm:
 # Deliberately NOT UTL-exported constants (unlike DP_VM_EXIT_NONZERO above) — this
 # fix (cefi_completion_program_2026_07_15.md P0 "Close the SPOT-preemption
 # relaunch gap") is scoped to deployment-service only; ``log_event`` takes a plain
-# string, no registry validates it.
+# string, no Python type validates it (all three ARE registered in UAC
+# DATA_PIPELINE_ALERT_RULES as DP-VM-008/009/011 — see
+# vm_fleet_preemption_autorecovery_gap_2026_07_23.md item 5).
 _EVENT_VM_PREEMPTED = "DP_VM_PREEMPTED"
 _EVENT_VM_PREEMPTED_NO_RELAUNCH = "DP_VM_PREEMPTED_NO_RELAUNCH"
+# Resolved-bookend for a SUCCESSFUL relaunch (DP-VM-011) — deliberately a
+# DISTINCT event name from _EVENT_VM_PREEMPTED (the open-alert detection emitted
+# by exit_code_fleet_monitor), not a reuse of it: reusing the same name made the
+# "preempted" and "recovered" cases indistinguishable in #data-pipeline-alerts
+# (both rendered as a bare "DP_VM_PREEMPTED" line; a reader had to parse
+# `details.relaunched` to tell them apart). vm_name/asset_group appear in both
+# events' details so a human can still correlate open->resolved by content (no
+# alerting-service threading exists to do it automatically — webhook-only,
+# opened-at-ts correlation per the AO-alerts bookend convention).
+_EVENT_VM_PREEMPTED_RECOVERED = "DP_VM_PREEMPTED_RECOVERED"
 
 # Separate budget namespace from the OOM relauncher above (own budget dir + own
 # per-(vm-prefix, day) cap) — a SPOT VM legitimately preempts far more often than
@@ -488,8 +501,8 @@ class RelaunchPreemptedVm:
         - launcher subprocess raises, or returns non-zero (incl. the launcher's
           OWN ``tardis_concurrency_guard`` refusing the cap) → ``status=FAILED``
           + CRITICAL.
-        - else → ``status=SUCCEEDED`` — a quiet INFO ``DP_VM_PREEMPTED`` (the
-          routine, benign case; SPOT reclaim is expected).
+        - else → ``status=SUCCEEDED`` — a quiet INFO ``DP_VM_PREEMPTED_RECOVERED``
+          resolved-bookend (the routine, benign case; SPOT reclaim is expected).
         """
         prefix = vm_prefix(vm_name)
         base: dict[str, str | bool | int | None] = {
@@ -715,7 +728,7 @@ class RelaunchPreemptedVm:
             }
 
         log_event(
-            _EVENT_VM_PREEMPTED,
+            _EVENT_VM_PREEMPTED_RECOVERED,
             severity="INFO",
             details={
                 **base,

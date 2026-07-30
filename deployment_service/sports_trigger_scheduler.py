@@ -24,6 +24,7 @@ import logging
 import shlex
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -145,7 +146,30 @@ class SportsTriggerScheduler:
             latency_recorder if latency_recorder is not None else self._build_latency_recorder(enabled=record_latency)
         )
         dispatch_fn = (lambda **kw: self._dispatch_local(**kw)) if self._backend == "local" else None
-        self._first_success_poller = FirstSuccessPoller(self._latency_recorder, dispatch_fn, MATCH_END_OFFSET_MIN)
+        self._first_success_poller = self._build_first_success_poller(state_bucket, dispatch_fn)
+
+    def _build_first_success_poller(
+        self, state_bucket: str | None, dispatch_fn: Callable[..., bool] | None
+    ) -> FirstSuccessPoller:
+        """GCS-backed first-success poller; falls back to in-memory-only on failure.
+
+        Same resolution + resilience shape as ``_build_periodic_state``: reuse the
+        explicit ``state_bucket`` override if given, else ``resolve_state_bucket()``
+        (the shared ``deployment-scripts-<project>`` ops bucket ``PeriodicTierState``
+        already writes to — a sibling JSON key, not the same one). The WHOLE
+        construction (bucket resolution + storage-client creation, mirroring
+        ``PeriodicTierState``'s own client resolution) is wrapped — any failure
+        (creds-less context) falls back to ``bucket=None`` (in-memory-only,
+        pending polls reset on restart) rather than raising out of the
+        scheduler's constructor
+        (sports_stats_delayed_live_capture_still_dead_post_fix_2026_07_29.md).
+        """
+        try:
+            bucket = state_bucket or resolve_state_bucket()
+            return FirstSuccessPoller(self._latency_recorder, dispatch_fn, MATCH_END_OFFSET_MIN, bucket=bucket)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("First-success poll state unavailable (%s) — pending polls reset on restart", exc)
+            return FirstSuccessPoller(self._latency_recorder, dispatch_fn, MATCH_END_OFFSET_MIN)
 
     def _build_latency_recorder(self, *, enabled: bool) -> LatencyObservationRecorder | None:
         """GCS-backed lag recorder; None if the bucket can't resolve (creds-less ctx)."""

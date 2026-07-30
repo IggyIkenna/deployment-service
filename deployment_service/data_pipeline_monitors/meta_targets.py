@@ -57,6 +57,20 @@ def market_data_bucket(ag: str) -> str:
     return resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
 
 
+def instruments_store_bucket(ag: str) -> str:
+    """Resolve the instruments-store bucket for ``ag``, honouring the flat prediction key.
+
+    Mirrors ``market_data_bucket``'s override shape: ``prediction`` has no per-asset_group
+    ``instruments-store`` entry (it is the dedicated flat ``instruments-store-prediction``
+    key — see ``_INSTRUMENTS_STORE_KIND_OVERRIDE``, also used by ``catalogue_targets``), so
+    it is resolved with NO asset_group arg; the other four asset_groups use the per-AG call.
+    """
+    override = _INSTRUMENTS_STORE_KIND_OVERRIDE.get(ag)
+    if override is not None:
+        return resolve_bucket_name(cloud="gcp", kind=override)
+    return resolve_bucket_name(cloud="gcp", kind="instruments-store", asset_group=ag)
+
+
 def _deployment_env_long() -> str:
     """The LONG env name used as the catalogue blob prefix (default ``prod``).
 
@@ -157,6 +171,16 @@ def consolidator_scheduler_job(ag: str) -> str:
     Matches manifest_consolidator_scheduler.tf — PAUSED suppresses DP_CRON_DID_NOT_FIRE (KEY #2).
     """
     return f"{scheduler_env_prefix()}-manifest-consolidator-market-data-{ag}-cron"
+
+
+def consolidator_instruments_scheduler_job(ag: str) -> str:
+    """Scheduler job name: ``{env_prefix}-manifest-consolidator-instruments-{ag}-cron``.
+
+    The instruments-store sibling of ``consolidator_scheduler_job`` — same
+    ``manifest_consolidator_buckets`` terraform map, the other half of its 10-bucket
+    core set (5 instruments-store, 5 market-data-tick).
+    """
+    return f"{scheduler_env_prefix()}-manifest-consolidator-instruments-{ag}-cron"
 
 
 def consolidator_cloud_run_job(ag: str) -> str:

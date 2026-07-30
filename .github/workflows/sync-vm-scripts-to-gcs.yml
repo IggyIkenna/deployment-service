@@ -1,0 +1,148 @@
+name: sync-vm-scripts-to-gcs
+
+# vm_startup_scripts_no_auto_rollout_to_gcs_2026_07_19.md — deployment-service's VM
+# startup/helper scripts (fetched by every backfill/live VM at boot from
+# gs://deployment-scripts-<project>/vm/) had NO auto-rollout to GCS: quickmerge lands
+# code on live-defi-rollout, but nothing uploaded these files there — only a manual
+# `bash scripts/vm/create-code-tarballs.sh` run did, so a shipped fix could silently
+# not reach any VM until someone remembered to run it by hand (root-caused 2026-07-19:
+# a multi-process fan-out did not activate because the VM booted a stale GCS copy of
+# setup-data-pipeline-vm.sh; deployment_heartbeat.py was found separately 68 diff lines
+# behind git).
+#
+# RULING (2026-07-28, operator): Option (1) — a CI job triggered on changes under
+# scripts/vm/ that uploads the changed files to GCS on every merge, verified rather
+# than assumed. Deliberate, narrowly-scoped exception to the "gateless trunk, no
+# remote CI on live-defi-rollout" convention documented in quality-gates-v2.yml's own
+# header (push:[live-defi-rollout] never triggers QG) — this job does ONLY a targeted
+# file sync, never a quality-gate run, so it does not reintroduce blocking CI on the
+# quickmerge fast path.
+#
+# Scope: the boot-time dependency set — the 3 setup-*.sh scripts a launcher's
+# `startup-script-url=gs://.../vm/{name}` points at, plus every helper THOSE scripts
+# themselves `gsutil cp` from the same gs://.../vm/ prefix (vm-exec-with-gcs-tee.sh,
+# deployment_heartbeat.py, heartbeat_daemon.py, vm_heartbeat_sidecar.sh if present).
+# The list is DISCOVERED by grepping setup-data-pipeline-vm.sh's own fetch lines at
+# run time (never hand-duplicated here) so it cannot silently drift from the real
+# boot dependency set as new helpers are added.
+#
+# Interim safety net (kept per the ruling, not retired): `bash
+# scripts/vm/create-code-tarballs.sh` remains documented in the ship checklist as the
+# manual fallback for the rare case this job itself is down.
+
+on:
+  push:
+    branches:
+      - live-defi-rollout
+    paths:
+      - "scripts/vm/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_ID: central-element-323112
+  BUCKET: deployment-scripts-central-element-323112
+
+jobs:
+  sync:
+    name: sync-vm-scripts-to-gcs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2 # need the parent commit to diff changed files
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Discover the boot-time GCS-hosted file set
+        id: discover
+        run: |
+          set -euo pipefail
+          : > /tmp/boot_files.txt
+          # The 3 startup scripts a launcher's startup-script-url can point at.
+          for f in scripts/vm/setup-data-pipeline-vm.sh \
+                   scripts/vm/setup-cefi-live-consolidated-vm.sh \
+                   scripts/vm/setup-prediction-live-consolidated-vm.sh; do
+            [[ -f "$f" ]] && basename "$f" >> /tmp/boot_files.txt
+          done
+          # Every helper setup-data-pipeline-vm.sh itself gsutil cp's from the same
+          # gs://.../vm/ prefix at boot -- discovered, not hand-copied, so a future
+          # new helper is picked up automatically rather than silently missed.
+          grep -oE 'gs://\$\{CODE_BUCKET\}/vm/[A-Za-z0-9_.-]+\.(sh|py)' scripts/vm/setup-data-pipeline-vm.sh \
+            | sed -E 's#.*/vm/##' >> /tmp/boot_files.txt || true
+          sort -u -o /tmp/boot_files.txt /tmp/boot_files.txt
+          echo "Boot-time GCS-hosted file set:"
+          cat /tmp/boot_files.txt
+
+      - name: Determine which of those files changed in this push
+        id: changed
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          : > /tmp/changed_files.txt
+          if [[ -z "$BEFORE" || "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            # First push / force-push edge case with no diffable parent -- sync every
+            # known boot file rather than guessing at a diff (fail toward completeness).
+            while IFS= read -r name; do
+              [[ -f "scripts/vm/$name" ]] && echo "scripts/vm/$name" >> /tmp/changed_files.txt
+            done < /tmp/boot_files.txt
+          else
+            git diff --name-only --diff-filter=ACMR "$BEFORE" "${{ github.sha }}" -- scripts/vm/ > /tmp/all_changed.txt || true
+            while IFS= read -r path; do
+              name="$(basename "$path")"
+              if grep -qxF "$name" /tmp/boot_files.txt && [[ -f "$path" ]]; then
+                echo "$path" >> /tmp/changed_files.txt
+              fi
+            done < /tmp/all_changed.txt
+          fi
+          COUNT=$(wc -l < /tmp/changed_files.txt | tr -d ' ')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Changed boot-time files this push ($COUNT):"
+          cat /tmp/changed_files.txt || true
+
+      - name: Upload changed files + verify round-trip
+        if: steps.changed.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          FAILED=0
+          mkdir -p /tmp/verify
+          while IFS= read -r f; do
+            [[ -f "$f" ]] || continue
+            name="$(basename "$f")"
+            dest="gs://${BUCKET}/vm/${name}"
+            echo "Uploading $f -> $dest"
+            gcloud storage cp "$f" "$dest"
+            gcloud storage cp "$dest" "/tmp/verify/$name"
+            if ! cmp -s "$f" "/tmp/verify/$name"; then
+              echo "::error::VERIFY_FAILED $f -> $dest (round-trip byte mismatch — GCS does not yet reflect this commit)"
+              FAILED=1
+            else
+              echo "Verified $dest (byte-identical round-trip)"
+            fi
+          done < /tmp/changed_files.txt
+          exit "$FAILED"
+
+      # Failure-only Slack alert (mirrors semver-agent.yml's own failure-only pattern) --
+      # a silent failure here means VMs keep booting stale code with no other signal.
+      - name: Notify Slack (failure-only)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_CI_WEBHOOK_URL || secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TEXT=":red_circle: *sync-vm-scripts-to-gcs FAILED* | deployment-service | live-defi-rollout ${{ github.sha }} — vm/ script GCS rollout did not complete, VMs may boot stale code; fall back to \`bash scripts/vm/create-code-tarballs.sh\` — ${RUN_URL}"
+          case "${SLACK_WEBHOOK_URL:-}" in
+            https://*)
+              curl -s -o /dev/null -X POST "$SLACK_WEBHOOK_URL" -H 'Content-Type: application/json' \
+                --data "$(jq -n --arg t "$TEXT" '{text:$t}')" && echo "Slack notification sent" || true ;;
+            *) echo "SLACK_CI_WEBHOOK_URL not set/https -- skipping notification" ;;
+          esac

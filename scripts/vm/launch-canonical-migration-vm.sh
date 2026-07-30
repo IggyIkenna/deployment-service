@@ -111,6 +111,26 @@
 #   MIGRATION_EXTRA_ARGS="--only-day 2025-01-01:2025-01-02:2025-01-03:2025-01-04:2025-01-05" \
 #     VM_NAME_SUFFIX=d01to05 bash launch-canonical-migration-vm.sh defi-relabel 2025-01-01 2025-01-17 full
 #
+#   # defi-relabel-lending (2026-07-29): the KAMINO/SOLEND legacy instrument_type=lending
+#   # lending_indices fake-history relabel-forward migration
+#   # (relabel_kamino_solend_lending_fabrication_2026_07_29.py), per
+#   # defi_kamino_solend_lending_indices_legacy_shape_fabricated_history_2026_07_28.md todo 3.
+#   # SAME wiring convention as defi-relabel (reuses the already-registered
+#   # canonical-migration-defi- VM-name prefix, no new registry entry). Population is
+#   # per-venue day windows confirmed FINAL by a full day-by-day scan (todo 2): KAMINO
+#   # 2025-01-01..17 (17 days, ~935 objects), SOLEND 2025-01-01..16 (16 days, ~9,520
+#   # objects) -- ~10,455 total, an order of magnitude smaller than dex_pools' 241,281 but
+#   # still over the CLAUDE.md heavy-I/O few-hundred-object threshold. No --shard-of; shard
+#   # via MIGRATION_EXTRA_ARGS="--only-venue KAMINO|SOLEND" (SOLEND is ~10x the volume, so a
+#   # natural 2-way split is one VM per venue) and/or "--only-day <colon-list>" within a
+#   # venue exactly like defi-relabel. START_DATE/END_DATE are cosmetic (VM labels only) --
+#   # the script scopes its own worklist from the fixed per-venue windows.
+#   bash launch-canonical-migration-vm.sh defi-relabel-lending 2025-01-01 2025-01-17 dry
+#   MIGRATION_EXTRA_ARGS="--only-venue KAMINO" VM_NAME_SUFFIX=kamino \
+#     bash launch-canonical-migration-vm.sh defi-relabel-lending 2025-01-01 2025-01-17 full
+#   MIGRATION_EXTRA_ARGS="--only-venue SOLEND" VM_NAME_SUFFIX=solend \
+#     bash launch-canonical-migration-vm.sh defi-relabel-lending 2025-01-01 2025-01-16 full
+#
 #   # defi-marker-cleanup (2026-07-24): in-region READ-ONLY dry-run safety report for
 #   # scripts/one_offs/delete_migrated_defi_markers_2026_07_23.py's `_migrated_*` R3 retirement
 #   # markers. DRY-RUN ONLY, HARD -- $MODE is ignored, forced to "dry"; there is NO reachable --apply
@@ -337,7 +357,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -1139,6 +1159,14 @@ _script_for() {
         # day-sub-range sharding across several VMs is strongly preferred over one VM walking serially).
         # DRY-BY-DEFAULT + --apply for full (same convention as defi/cefi/tradfi-cid below).
         defi-relabel) echo "python -u scripts/relabel_solana_dex_pools_fake_history.py" ;;
+        # KAMINO/SOLEND legacy lending_indices fake-history relabel-forward migration
+        # (2026-07-29) -- scripts/relabel_kamino_solend_lending_fabrication_2026_07_29.py, per
+        # defi_kamino_solend_lending_indices_legacy_shape_fabricated_history_2026_07_28.md
+        # todo 3. Per-venue affected-day windows are fixed in the script itself
+        # (_AFFECTED_WINDOWS), confirmed FINAL via a full day-by-day scan (todo 2) -- NOT
+        # re-derived here. No --shard-of; MIGRATION_EXTRA_ARGS="--only-venue KAMINO|SOLEND"
+        # and/or "--only-day <colon-list>" shard exactly like defi-relabel.
+        defi-relabel-lending) echo "python -u scripts/relabel_kamino_solend_lending_fabrication_2026_07_29.py" ;;
         # Sports derived_features post-floor residue census+purge (2026-07-27, Track F
         # follow-up, sports_consolidated_native_ao_extract_2026_07_25.md). Runs from
         # features-service (VM_SERVICE=features_service below re-homes the dispatcher's
@@ -1436,7 +1464,7 @@ _launch() {
               # --apply-prod --confirm-prod-write directly into the full-mode command itself (a
               # single statement, not a compound chain) -- suppressed anyway so the generic
               # --apply/--dry-run append never double-flags it.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
+        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
@@ -1684,7 +1712,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

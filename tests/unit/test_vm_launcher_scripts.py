@@ -1644,6 +1644,206 @@ export -f stat
         assert "status=completed" in result.stdout
 
 
+class TestCefiFundingTimestampFixStallDetection:
+    """Real incident 2026-07-29 (a genuinely NEW instance of the exact bug class
+    /plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md's
+    Gap 2 documents -- this launcher did not exist yet when that doc's todo 5 audited
+    the other 103 launch-*-vm.sh scripts): a BINANCE-FUTURES
+    canonical-migration-cefi-fts-* VM's migration script printed its own final
+    "=== SUMMARY (APPLIED) ..." line, then the process never actually exited -- the
+    VM sat GCE-RUNNING for 3+ hours with zero real progress (only the always-on
+    PIPELINE_HEARTBEAT emitter kept the tee'd log growing) before being noticed and
+    manually killed. Same root cause, same fix shape as todo 4's cefi-content-apply
+    fix: this launcher already routes through the shared setup-data-pipeline-vm.sh ->
+    _launch_with_tee() -> vm-exec-with-gcs-tee.sh stall-kill (VM_TASK=canonical-
+    migration), but had no STALL_PROGRESS_REGEX set, so it fell back to the
+    byte-growth-only default that heartbeat noise permanently defeats.
+
+    Mirrors TestCanonicalMigrationStallDetection's proof shape: (1) the launcher
+    wires the metadata key for both the N=1 and sharded launch paths; (2) the exact
+    regex matches this script's real per-object progress-log line
+    (reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py line
+    ~592); (3) against the REAL shipped vm-exec-with-gcs-tee.sh (not a
+    reimplementation), a simulated post-completion hang IS killed with the regex set
+    and is NOT killed under the byte-growth-only default -- the exact historical
+    incident, reproduced small-scale."""
+
+    LAUNCHER = "scripts/vm/launch-cefi-funding-timestamp-fix-vm.sh"
+    WATCHDOG = "scripts/vm/vm-exec-with-gcs-tee.sh"
+    REGEX = "action="
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    @pytest.fixture
+    def watchdog_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.WATCHDOG
+
+    # ---- half 1: the launcher wires the metadata key, for N=1 and sharded alike ----
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_n1_default_launch_sets_the_stall_progress_regex(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(launcher_path, ["BYBIT", "2020-01-01", "2020-01-05"], tmp_path)
+        assert f"STALL_PROGRESS_REGEX={self.REGEX}" in call
+
+    def test_sharded_launch_sets_the_stall_progress_regex_for_every_shard(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        call = self._created_metadata(launcher_path, ["--shards", "3", "BYBIT", "2020-01-01", "2020-01-10"], tmp_path)
+        assert call.count(f"STALL_PROGRESS_REGEX={self.REGEX}") == 3
+
+    # ---- half 2: the regex itself, against the real log-line format ----
+
+    @pytest.mark.parametrize(
+        "line,expect_match",
+        [
+            # reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py's real
+            # per-object line (script line ~592), across every action= value it emits.
+            (
+                "  BINANCE-FUTURES: action=corrected rows=69947 populated=69946 shifted=69946 "
+                "cadence_registered=True staged=... backup=...",
+                True,
+            ),
+            (
+                "  BINANCE-FUTURES: action=skipped_next_funding_timestamp_already_present "
+                "rows=27205 populated=0 shifted=0 cadence_registered=True",
+                True,
+            ),
+            ("  DERIBIT: action=skipped_all_null_no_forward_value rows=100 populated=0 shifted=0", True),
+            ("  EXTENDED-STARKNET: action=skipped_no_funding_timestamp_column rows=0", True),
+            # The always-on heartbeat noise that defeated byte-growth mode in the real incident --
+            # must NEVER count as progress.
+            ("PIPELINE_HEARTBEAT vm=canonical-migration-cefi-fts-binance-futures-x ts=2026-07-29T10:00:00Z", False),
+            # The final one-time summary line -- also must not match (it is emitted exactly once,
+            # right before the observed hang, so treating it as recurring progress would mask the
+            # exact failure mode this fix closes).
+            ("=== SUMMARY (APPLIED) run_ts=20260729-090941 venue=BINANCE-FUTURES window=... ===", False),
+        ],
+    )
+    def test_regex_matches_exactly_the_intended_lines(self, line: str, expect_match: bool) -> None:
+        """Checks the exact production regex case-sensitively against the real line shapes,
+        using the SAME `grep -qE` matcher vm-exec-with-gcs-tee.sh itself uses (line 260)."""
+        result = subprocess.run(["grep", "-qE", self.REGEX], input=line, text=True)
+        matched = result.returncode == 0
+        assert matched == expect_match, f"line={line!r} expected_match={expect_match} got={matched}"
+
+    # ---- half 3: the real watchdog, against the exact observed incident shape ----
+
+    def _mock_bin_functions(self) -> str:
+        return """
+python() {
+    if [[ "$1" == "-c" ]]; then
+        echo "00000000-0000-0000-0000-000000000000"
+        return 0
+    fi
+    return 0
+}
+export -f python
+gsutil() { return 0; }
+export -f gsutil
+stat() {
+    if [[ "$1" == "-c" && "$2" == "%s" ]]; then
+        wc -c < "$3" 2>/dev/null | tr -d ' '
+        return 0
+    fi
+    return 1
+}
+export -f stat
+"""
+
+    def _run_watchdog(
+        self,
+        watchdog_path: Path,
+        workload: str,
+        stall_progress_regex: str | None,
+        tmp_path: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        env = {
+            **os.environ,
+            "VM_NAME": f"cefi-fts-stall-unit-test-{tmp_path.name}",
+            "VM_ASSET_GROUP": "CEFI",
+            "VM_TASK": "canonical-migration",
+            "VM_MODE": "full",
+            "PYTHON_BIN": "python",
+            "STALL_TIMEOUT_SEC": "3",
+            "STALL_POLL_SEC": "1",
+        }
+        if stall_progress_regex is not None:
+            env["STALL_PROGRESS_REGEX"] = stall_progress_regex
+        else:
+            env.pop("STALL_PROGRESS_REGEX", None)
+        script = self._mock_bin_functions() + (
+            f"bash {shlex.quote(str(watchdog_path))} {shlex.quote(gcs_log_uri)} bash -c {shlex.quote(workload)}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=25)
+
+    def test_post_completion_hang_is_killed_when_regex_is_set(self, watchdog_path: Path, tmp_path: Path) -> None:
+        """The exact incident: the migration script prints its final SUMMARY line, then the
+        process itself never exits -- only heartbeat-shaped noise keeps appearing afterward."""
+        workload = (
+            'echo "=== SUMMARY (APPLIED) run_ts=x venue=BINANCE-FUTURES window=... ==="; '
+            'for i in $(seq 1 10); do echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; done; echo DONE_NORMALLY'
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        assert result.returncode == 124, (
+            f"expected the stall-kill (rc=124), got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=failed" in result.stdout
+
+    def test_same_hang_is_not_caught_by_the_byte_growth_only_default(self, watchdog_path: Path, tmp_path: Path) -> None:
+        """Regression baseline proving the bug: the IDENTICAL post-completion hang, but with
+        STALL_PROGRESS_REGEX unset (this launcher's behavior before this fix) -- the heartbeat
+        noise itself keeps the log growing, so byte-growth mode never fires. This is exactly how
+        the real BINANCE-FUTURES VM sat hung 3+ hours undetected."""
+        workload = (
+            'echo "=== SUMMARY (APPLIED) run_ts=x venue=BINANCE-FUTURES window=... ==="; '
+            'for i in $(seq 1 6); do echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; done; echo DONE_NORMALLY'
+        )
+        result = self._run_watchdog(watchdog_path, workload, None, tmp_path)
+        assert result.returncode == 0, (
+            f"byte-growth-only mode should let the noisy-but-hung run finish on its own, "
+            f"got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+
+    def test_genuinely_healthy_run_with_real_action_lines_is_not_false_killed(
+        self, watchdog_path: Path, tmp_path: Path
+    ) -> None:
+        """No-false-positive check: a run emitting real per-object action= lines interleaved with
+        heartbeat noise must not be killed."""
+        workload = (
+            "for i in 1 2 3 4 5 6; do "
+            'echo "PIPELINE_HEARTBEAT tick=$i"; sleep 1; '
+            'echo "  BINANCE-FUTURES: action=corrected rows=$i populated=$i shifted=$i "; sleep 1; '
+            "done; echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(watchdog_path, workload, self.REGEX, tmp_path)
+        assert result.returncode == 0, (
+            f"a genuinely-progressing worker must not be killed, got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+
+
 class TestDefiLaunchersSpotPreemptionContract:
     """SPOT preemption contract for the two DeFi backfill launchers
     (defi_mvp_backfill_optimization_ready_2026_07_20.md defect #2 — "Both DeFi
@@ -2042,6 +2242,52 @@ class TestCanonicalMigrationServiceKeyedWorkspaceDir:
         assert self._resolved_dir_for(setup_script_path, "some_future_service") == "mtds"
 
 
+class TestMtdsBackfillMvpModeFlag:
+    """Regression guard for the mtds-backfill VM_TASK branch's `--mvp-mode` wiring
+    (operator-ruled 2026-07-29, tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md): the MTDS
+    download CLI's `--mvp-mode` flag was fully wired end-to-end but had NO caller passing it,
+    making it an unreachable dead gate. Extracts the REAL `VM_MVP_MODE=$(_meta VM_MVP_MODE)` +
+    conditional-append lines straight out of the setup script (not a hand-duplicated copy) so a
+    future edit can't silently drift out of sync with this test.
+    """
+
+    SETUP_SCRIPT = "scripts/vm/setup-data-pipeline-vm.sh"
+
+    @pytest.fixture
+    def setup_script_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.SETUP_SCRIPT
+
+    def _base_cli_for(self, setup_script_path: Path, vm_mvp_mode: str) -> str:
+        content = setup_script_path.read_text()
+        lines = content.splitlines()
+        read_line = next(ln.strip() for ln in lines if ln.strip().startswith("VM_MVP_MODE=$(_meta VM_MVP_MODE)"))
+        append_line = next(ln.strip() for ln in lines if '"$VM_MVP_MODE" == "true"' in ln and "--mvp-mode" in ln)
+        script = "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f'_meta() {{ [[ "$1" == "VM_MVP_MODE" ]] && echo "{vm_mvp_mode}" || echo ""; }}',
+                "BASE_CLI=''",
+                read_line,
+                append_line,
+                'echo "$BASE_CLI"',
+            ]
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_vm_mvp_mode_true_appends_the_flag(self, setup_script_path: Path) -> None:
+        assert "--mvp-mode" in self._base_cli_for(setup_script_path, "true")
+
+    def test_vm_mvp_mode_absent_does_not_append_the_flag(self, setup_script_path: Path) -> None:
+        """No metadata (the default for every OTHER launcher) must produce identical CLI to today."""
+        assert "--mvp-mode" not in self._base_cli_for(setup_script_path, "")
+
+    def test_vm_mvp_mode_false_does_not_append_the_flag(self, setup_script_path: Path) -> None:
+        assert "--mvp-mode" not in self._base_cli_for(setup_script_path, "false")
+
+
 class TestCefiFtsDateSharding:
     """Tests for `_cefi-fts-launcher-lib.sh`'s `cefi_fts_split_date_shards` (the
     pure date-range-split arithmetic) and its wiring into
@@ -2291,6 +2537,65 @@ class TestCefiFtsDateSharding:
             "registered prefix missing/renamed in vm_prefix_registry.py — sharded VM names "
             "must still resolve via longest-prefix-match"
         )
+
+
+class TestChunkedBranchesScopeVmNamePerChunk:
+    """manifest_writer_vm_launcher_audit_followups_2026_07_28.md — audit every
+    chunked branch in setup-data-pipeline-vm.sh (not just single-shot dispatches)
+    for the same reused-VM_NAME-across-chunks OOM exposure
+    per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md already fixed for
+    the sports FIXTURES backfill (and, pre-existing, instruments_chunk_loop.sh):
+    unified-trading-library ManifestWriter's per-VM shard
+    (_index/per_vm/{VM_NAME}.parquet) accumulates every chunk's rows under one
+    ever-growing filename unless VM_NAME is re-scoped per chunk. Reads the REAL
+    generated script text directly (grep-then-assert on source, not a hand-copied
+    excerpt) so this can't silently drift from the shipped file.
+    """
+
+    @staticmethod
+    def _script_text() -> str:
+        script = Path(__file__).parent.parent.parent / "scripts" / "vm" / "setup-data-pipeline-vm.sh"
+        assert script.exists(), "fixture assumes setup-data-pipeline-vm.sh exists in scripts/vm/"
+        return script.read_text()
+
+    @staticmethod
+    def _chunk_loop_body(content: str, *, chunk_script_var: str) -> str:
+        """Slice out one CHUNK_SCRIPT heredoc body by its unique here-doc marker."""
+        start = content.index(f'CHUNK_SCRIPT="$WORKSPACE/{chunk_script_var}"')
+        # Heredoc opens `<<XXX_EOF` right after; its body ends at the matching
+        # `XXX_EOF` closing line. Slice a generous window and locate the marker.
+        eof_marker = content[start : start + 200].split("<<", 1)[1].splitlines()[0].strip()
+        end = content.index(f"\n{eof_marker}\n", start)
+        return content[start:end]
+
+    def test_mtds_chunk_loop_scopes_vm_name_per_chunk(self) -> None:
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="mtds_chunk_loop.sh")
+        invoke = body.index("-m market_tick_data_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding, (
+            "mtds_chunk_loop.sh's market_tick_data_service invocation must scope VM_NAME "
+            "per chunk (else every chunk across the whole multi-chunk backfill accumulates "
+            "into one ever-growing per-VM manifest shard — the confirmed OOM root cause)"
+        )
+
+    def test_cefi_hl_aster_loop_scopes_vm_name_per_chunk(self) -> None:
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="cefi_hl_aster_loop.sh")
+        invoke = body.index("-m market_tick_data_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding, (
+            "cefi_hl_aster_loop.sh's market_tick_data_service invocation must scope VM_NAME "
+            "per chunk (day-by-day chunking, VM_CHUNK_DAYS default 1 — a wide date-range "
+            "launch is exactly the exposure this branch was audited for)"
+        )
+
+    def test_instruments_chunk_loop_already_scopes_vm_name_per_chunk(self) -> None:
+        """Pre-existing fix (confirmed still present, not re-implemented here) — the
+        audit's own done-when requires confirming every chunked branch, including
+        already-low-risk ones, not just the 2 newly-fixed above."""
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="instruments_chunk_loop.sh")
+        invoke = body.index("-m instruments_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding
 
 
 if __name__ == "__main__":

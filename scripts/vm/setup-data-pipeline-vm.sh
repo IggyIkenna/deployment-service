@@ -243,6 +243,20 @@ log "uv (system, used for venv installs): $(uv --version)"
 
 # ── 2b. Read VM metadata early (needed for selective tarball install) ──
 _meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+# _meta_project(): fallback used ONLY for DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE (never
+# the generic _meta() behavior for other keys). Reads the per-VM instance attribute first
+# (a launcher's explicit --metadata=... still wins); when absent, falls back to PROJECT-level
+# metadata (gcloud compute project-info add-metadata), which is how the flag now defaults
+# to "true" fleet-wide without every one of the ~164 launch-*.sh scripts needing an edit.
+# SSOT: plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md.
+_meta_project() {
+  local val
+  val=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null)
+  if [[ -z "$val" ]]; then
+    val=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/attributes/$1" 2>/dev/null)
+  fi
+  echo "${val:-${2:-}}"
+}
 VM_TASK=$(_meta VM_TASK)
 VM_VENUE=$(_meta VM_VENUE)
 VM_START_DATE=$(_meta VM_START_DATE)
@@ -271,6 +285,10 @@ VM_LOOKBACK_DAYS=$(_meta VM_LOOKBACK_DAYS)
 VM_LOOKAHEAD_DAYS=$(_meta VM_LOOKAHEAD_DAYS)
 VM_FORCE_WINDOW=$(_meta VM_FORCE_WINDOW)
 VM_FORCE=$(_meta VM_FORCE)
+# Opt-in, default-off (operator-ruled 2026-07-29, tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md)
+# — wires the MTDS download CLI's already-shipped but never-called --mvp-mode flag to the
+# mtds-backfill branch only, mirroring VM_FORCE's metadata->CLI-flag pattern above.
+VM_MVP_MODE=$(_meta VM_MVP_MODE)
 # Tardis adapter feature flag — when "true", per-symbol downloads use the
 # streaming finalize path (chunked HTTP → temp parquet → per-row-group
 # canonical write) instead of the legacy full-materialise path. Set in VM
@@ -444,13 +462,15 @@ export DEPLOYMENT_ENV_SHORT
 # unified_trading_library/config_interface/cloud_config.py — read by
 # UnifiedCloudConfig via pydantic AliasChoices, so any process env var of this
 # exact name is picked up automatically). Mirrors the DEPLOYMENT_ENV plumbing
-# above: launchers pass it via --metadata=DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=true,
-# this reads it off GCE metadata and exports it into the process env BEFORE
-# the heartbeat daemon (which constructs DeploymentsRegistry) starts. Default
-# "false" when absent — matches UTL's own field default, so unmigrated
-# launchers keep writing GCS-only until explicitly opted in (see
-# plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md "Link 2").
-DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)
+# above: an instance-level --metadata=DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=true
+# still wins per-VM, but _meta_project() now also falls back to the PROJECT-level
+# metadata default (set fleet-wide 2026-07-30) so the ~164 launch-*.sh scripts that
+# never pass this key stop defaulting to "false" — this reads it off GCE metadata
+# and exports it into the process env BEFORE the heartbeat daemon (which constructs
+# DeploymentsRegistry) starts. Falls through to "false" only if the project-level
+# default itself is ever unset (see
+# plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md).
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta_project DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)
 export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
 # Stall-watchdog timeout override. Sports MDPS processes long empty-date
 # stretches (no betting events → no log output) that would falsely trigger
@@ -1638,6 +1658,13 @@ print('true' if '${VM_VENUE^^}' in ONCHAIN_PERP_VENUE_CHAIN else 'false')
   VM_LEAGUE=$(_meta VM_LEAGUE)
   [[ -n "$VM_LEAGUE" ]] && BASE_CLI="$BASE_CLI --league ${VM_LEAGUE//;/,}"
   [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+  # --mvp-mode: OPT-IN, DEFAULT-OFF (operator-ruled 2026-07-29,
+  # tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md). The CLI flag already exists and is
+  # fully wired end-to-end (cli/main.py -> tick_data_handler.py -> orchestrator -> venue_fetch
+  # -> databento_enrichment) but had NO caller ever passing it, making it an unreachable dead
+  # gate. launch-tradfi-forward-poll.sh is the only launcher that sets VM_MVP_MODE metadata;
+  # absent/empty metadata is a no-op — identical CLI to today for every other launcher.
+  [[ "$VM_MVP_MODE" == "true" ]] && BASE_CLI="$BASE_CLI --mvp-mode"
   # --batch-date-concurrency: OPT-IN, DEFAULT-OFF. The flag is a UTL ServiceCLI
   # addition shipped separately — the deployed UTL on a given tarball may not yet
   # recognize it, and passing it unconditionally would error "unrecognized
@@ -1672,7 +1699,15 @@ HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+  # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
+  # tee-wrapper/heartbeat use for vm-logs/PROGRESS.json is untouched) bounds
+  # unified-trading-library ManifestWriter's per-VM shard
+  # (_index/per_vm/{VM_NAME}.parquet) to just THIS chunk's rows instead of
+  # accumulating the whole multi-chunk backfill into one ever-growing shard —
+  # the same OOM root cause + fix already applied to instruments_chunk_loop.sh
+  # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
+  # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
+  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
       --start-date "\${CS}" --end-date "\${CE}" 2>&1
@@ -1749,7 +1784,12 @@ HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+  # Per-chunk VM_NAME suffix — same OOM root cause + fix as mtds_chunk_loop.sh
+  # above (this is a day-by-day chunk loop, VM_CHUNK_DAYS default 1, so a wide
+  # date-range launch is exactly the "already-chunked but unscoped VM_NAME"
+  # exposure manifest_writer_vm_launcher_audit_followups_2026_07_28.md's audit
+  # named this branch as its own example of).
+  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
       --start-date "\${CS}" --end-date "\${CE}" 2>&1
@@ -2055,6 +2095,26 @@ elif [[ "$VM_TASK" == "sports-derived-features-census" ]]; then
     _launch_with_tee "$FULL_CMD" "$LOGS/sports-derived-features-census.log"
   else
     log "ERROR: sports-derived-features-census task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "batch-live-recon" ]]; then
+  # Nightly T+1 batch-live reconciliation — launch-batch-live-recon-cron-vm.sh
+  # prepares the correct `python -m batch_live_reconciliation_service --operation
+  # reconcile ...` invocation in VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch
+  # shape as datapoint-validation/orphan-sweep above). Found 2026-07-30 (first
+  # real launch-run, soak-testing the dualwrite Firestore fix): this VM_TASK had
+  # NO dispatch branch here — same root-cause class as the branches above, the
+  # VM self-deleted rc=1 within ~3 minutes without ever running the
+  # reconciliation. Target workspace dir is batch-live-reconciliation-service's
+  # own tarball (TARBALL_DIRS["batch-live-reconciliation-service-code"]="blr"
+  # above).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/blr" || { log "ERROR: $WORKSPACE/blr missing — batch-live-reconciliation-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/batch-live-recon.log"
+  else
+    log "ERROR: batch-live-recon task without VM_BACKFILL_CMD metadata"
   fi
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12

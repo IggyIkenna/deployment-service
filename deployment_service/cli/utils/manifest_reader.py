@@ -145,6 +145,22 @@ _EXTRA_BUCKET_KINDS: dict[str, dict[str, list[str]]] = {
             "eigenlayer-rewards",
         ],
     },
+    # market-data-processing-service / sports: MDPS's own ManifestWriter
+    # (reprocess_sports_odds.py::_resolve_manifest_bucket(), fixed 2026-07-13)
+    # writes odds_horizon_bucket/trades manifest rows to the INSTRUMENTS-STORE
+    # bucket (resolve_bucket_name(kind="instruments-store")), not the market-data
+    # bucket this service's primary _SERVICE_TO_CANONICAL_KIND entry resolves —
+    # data placement there is correct (per
+    # sports_odds_ownership_registry_split_brain_and_bogus_api_football_denominator_2026_07_15.md
+    # § D), but this reader was never updated to match, so the coverage/data-status
+    # endpoint under-reported real captured coverage
+    # (sports_mdps_coverage_reader_wrong_bucket_2026_07_28.md). Union, not replace —
+    # MTDS-owned data types may still have legitimate legacy rows in the data bucket.
+    "market-data-processing-service": {
+        "sports": [
+            "instruments-store",
+        ],
+    },
 }
 
 # Venue aliases — instruments-service sometimes writes bare exchange names

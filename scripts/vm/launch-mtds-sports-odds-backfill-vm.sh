@@ -28,9 +28,22 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# e2-highmem-4 (32GB), not e2-standard-4 (16GB): a real odds_api fetch day fans out
+# over many (bookmaker, league, fixture) shards with no aggregate byte-budget cap
+# (same root cause as mtds_backfill_vm_memory_hang_large_chunk_2026_07_22.md's CEFI
+# Tardis OOM — confirmed recurrence here: chunk 9/9 of a live gap-fill run climbed
+# 52%->90% RSS on e2-standard-4 during one real fetch day and was kernel-OOM-killed,
+# exit=137). That doc's validated fix (e2-highmem-4, ~2.2x headroom over the ~14.6GB
+# CEFI peak, weeks of zero-recurrence) was only ever applied to launch-mtds-backfill-vm.sh's
+# CEFI branch — this separate sports-odds launcher needed the same bump independently.
+MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-4}"
 DRY_RUN=false
-START_DATE="${START_DATE:-2020-06-01}"
+# Floor-clamped default (codex/02-data/sports-2020-06-data-floor.md): odds_api is
+# NOT in instruments-service get_venue_epoch()'s defense-in-depth clamp list (only
+# api_football/soccerfootball_info/footystats are), so a bare run of this launcher
+# with no --start override is the ONLY defense against fabricating pre-floor rows
+# for this venue. Was 2020-06-01 (5 days before the ruled 2020-06-06 floor).
+START_DATE="${START_DATE:-2020-06-06}"
 END_DATE="${END_DATE:-2026-03-28}"
 # RESUME_FORCE / RESUME_ALLOW_PARALLEL env fallbacks (SPOT-preemption relaunch
 # support, cefi_completion_program_2026_07_15.md pattern): RelaunchPreemptedVm

@@ -19,6 +19,7 @@ bytes interface. Follows shard-level failure isolation (no network/subprocess).
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -30,6 +31,7 @@ from deployment_service.sports_latency_observation import (
     FIRST_SUCCESS_EARLY_INTERVAL_MIN,
     FIRST_SUCCESS_MAX_WINDOW_H,
     FirstSuccessPendingEntry,
+    FirstSuccessPoller,
     LatencyObservation,
     LatencyObservationRecorder,
     compute_lag_seconds,
@@ -150,10 +152,22 @@ def _make_scheduler_with_recorder(storage: _InMemoryBytesStorage):
     from deployment_service.sports_trigger_scheduler import SportsTriggerScheduler
 
     rec = LatencyObservationRecorder(bucket="b", run_tag="run1", storage=storage, enabled=True)
+    # state_bucket is a per-call UNIQUE value (not left to resolve_state_bucket()'s
+    # fixed "deployment-scripts-<project>" default): CLOUD_MOCK_MODE=true's storage
+    # backend persists to a real (mock-provider) location keyed by bucket+blob-path,
+    # which is durable ACROSS test invocations in the same session — a fixed bucket
+    # would let one test's FirstSuccessPoller._pending / PeriodicTierState writes
+    # leak into every other test that goes through this same helper (both
+    # _build_periodic_state and _build_first_success_poller resolve a real bucket +
+    # touch real storage even with periodic_state=None passed explicitly, since that
+    # is the class default, not an override). A fresh UUID per call keeps every
+    # test's state isolated, matching the actual production shape (one real bucket
+    # per environment, not shared across unrelated scheduler instances).
     sched = SportsTriggerScheduler(
         config_path="configs/sports-trigger-tiers.yaml",
         dry_run=False,
         periodic_state=None,
+        state_bucket=f"deployment-scripts-test-{uuid.uuid4().hex}",
         latency_recorder=rec,
     )
     return sched
@@ -423,3 +437,108 @@ def test_poll_first_success_noop_without_recorder() -> None:
         mock_dispatch.assert_not_called()
     # Entry untouched (no recorder → early return before processing)
     assert key in sched._first_success_poller.pending  # pyright: ignore[reportPrivateUsage]
+
+
+# --------------------------------------------------------------------------- #
+# FirstSuccessPoller persistence (2026-07-29) — the --one-shot state-loss fix
+# sports_stats_delayed_live_capture_still_dead_post_fix_2026_07_29.md root cause A:
+# a plain in-process dict cannot survive a fresh Cloud Run Job invocation every
+# 5 minutes, so first_success=True could structurally never be confirmed.
+# --------------------------------------------------------------------------- #
+
+
+class _MemStateStorage:
+    """In-memory ``SchedulerStateStorage`` stub — matches ``PeriodicTierState``'s
+    own test double shape (upload_string/download_string keyed by (bucket, key))."""
+
+    def __init__(self) -> None:
+        self._data: dict[tuple[str, str], str] = {}
+
+    def upload_string(self, bucket: str, key: str, body: str) -> None:
+        self._data[(bucket, key)] = body
+
+    def download_string(self, bucket: str, key: str) -> str:
+        val = self._data.get((bucket, key))
+        if val is None:
+            raise FileNotFoundError(f"not found: {bucket}/{key}")
+        return val
+
+
+def _event(*, fixture_id: str = "fx1", entity: str = "FIXTURE_STATS") -> dict[str, object]:
+    return {
+        "trigger_name": "stats_immediate",
+        "fixture_id": fixture_id,
+        "league_id": "EPL",
+        "kickoff_utc": (datetime.now(UTC) - timedelta(minutes=200)).isoformat(),
+        "services": [{"service": "features-service", "args": {"--sports-entity": entity}}],
+    }
+
+
+def _build_cmd(**_kw: object) -> str:
+    return "python -m features_service compute --asset-group SPORTS"
+
+
+def test_first_success_poller_no_bucket_stays_in_memory_only() -> None:
+    # bucket=None (the default, back-compat) — no storage at all, matches the
+    # original in-memory-only behavior exactly. Never touches _MemStateStorage.
+    poller = FirstSuccessPoller(None, None, 90)
+    assert poller._storage is None  # pyright: ignore[reportPrivateUsage]
+    poller.register_from_event({}, "2026-07-01", _build_cmd)  # recorder=None → no-op, no crash
+    assert poller.pending == {}
+
+
+def test_first_success_poller_register_persists_to_storage() -> None:
+    storage = _MemStateStorage()
+    recorder = LatencyObservationRecorder(bucket="b", run_tag="run1", storage=_InMemoryBytesStorage(), enabled=True)
+    poller = FirstSuccessPoller(recorder, lambda **_kw: True, 90, bucket="bkt", storage=storage)
+    poller.register_from_event(_event(), "2026-07-01", _build_cmd)
+    assert "fx1:FIXTURE_STATS:api_football" in poller.pending
+    # Persisted — the raw JSON blob now exists in the fake GCS-backed storage.
+    raw = storage.download_string("bkt", poller._key)  # pyright: ignore[reportPrivateUsage]
+    assert "fx1:FIXTURE_STATS:api_football" in raw
+
+
+def test_first_success_poller_survives_fresh_instance_across_one_shot_restart() -> None:
+    """The core regression test: a FRESH poller instance (simulating the NEXT
+    ``--one-shot`` Cloud Run Job invocation, a brand-new process) reading the SAME
+    bucket/storage picks up the pending entry the PRIOR instance registered —
+    without ever calling register_from_event again. Before the fix this was
+    structurally impossible (a plain dict dies with the process)."""
+    storage = _MemStateStorage()
+    recorder = LatencyObservationRecorder(bucket="b", run_tag="run1", storage=_InMemoryBytesStorage(), enabled=True)
+    poller_a = FirstSuccessPoller(recorder, lambda **_kw: True, 90, bucket="bkt", storage=storage)
+    poller_a.register_from_event(_event(), "2026-07-01", _build_cmd)
+    assert "fx1:FIXTURE_STATS:api_football" in poller_a.pending
+
+    # A brand-new instance — poller_a is discarded entirely, simulating the
+    # process exit/restart between --one-shot invocations.
+    poller_b = FirstSuccessPoller(recorder, lambda **_kw: True, 90, bucket="bkt", storage=storage)
+    assert "fx1:FIXTURE_STATS:api_football" in poller_b.pending
+    entry = poller_b.pending["fx1:FIXTURE_STATS:api_football"]
+    assert entry.fixture_id == "fx1"
+    assert entry.data_type == "FIXTURE_STATS"
+
+
+def test_first_success_poller_poll_persists_removal_on_success() -> None:
+    storage = _MemStateStorage()
+    recorder = LatencyObservationRecorder(bucket="b", run_tag="run1", storage=_InMemoryBytesStorage(), enabled=True)
+    poller_a = FirstSuccessPoller(recorder, lambda **_kw: True, 90, bucket="bkt", storage=storage)
+    key = "fx1:FIXTURE_STATS:api_football"
+    poller_a.pending[key] = _make_pending_entry()
+    poller_a._persist()  # pyright: ignore[reportPrivateUsage] — seed persisted state directly (no register call)
+
+    with patch.object(poller_a, "_dispatch_fn", return_value=True):
+        poller_a.poll()
+    assert key not in poller_a.pending
+
+    # A fresh instance reading the same storage must NOT resurrect the resolved
+    # entry — the removal itself was persisted, not just the in-memory dict.
+    poller_b = FirstSuccessPoller(recorder, lambda **_kw: True, 90, bucket="bkt", storage=storage)
+    assert key not in poller_b.pending
+
+
+def test_first_success_poller_malformed_state_starts_fresh() -> None:
+    storage = _MemStateStorage()
+    storage.upload_string("bkt", "sports_scheduler_state/first_success_pending.json", "not json{{{")
+    poller = FirstSuccessPoller(None, None, 90, bucket="bkt", storage=storage)
+    assert poller.pending == {}

@@ -17,6 +17,9 @@
 #   KRAKEN-FUTURES:  trades, book_snapshot_5, derivative_ticker
 #   OKX-FUTURES:     trades, book_snapshot_5, derivative_ticker
 #   DERIBIT:         derivative_ticker (options_chain live WS is a future Phase 3.5 item)
+#   ASTER:           book_snapshot_5, liquidations (live-only feeds, operator ruling 2026-07-28 —
+#                    folded into this consolidated launch; see /codex/04-architecture/
+#                    instruments-service-as-ssot-for-mtds.md-adjacent connector aster_book_liq_ws.py)
 #
 # Each shard launches its own "python -m market_tick_data_service
 #   --operation websocket-streaming --mode live --asset-group CEFI
@@ -85,8 +88,25 @@ log "Venv Python: $(python --version)"
 
 # ── 2b. Read VM metadata ──
 _meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+# _meta_project(): fallback used ONLY for DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE (never
+# the generic _meta() behavior for other keys) — instance attribute first, then PROJECT-level
+# metadata (gcloud compute project-info add-metadata). SSOT:
+# plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md.
+_meta_project() {
+  local val
+  val=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null)
+  if [[ -z "$val" ]]; then
+    val=$(curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/attributes/$1" 2>/dev/null)
+  fi
+  echo "${val:-${2:-}}"
+}
 VM_NAME_SELF=$(_meta VM_NAME "$(curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo unknown)")
 DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE (P1 registry-migration flag, read by
+# UnifiedCloudConfig via pydantic AliasChoices) — same project-metadata-fallback
+# plumbing as setup-data-pipeline-vm.sh, exported below for any subprocess that
+# constructs DeploymentsRegistry.
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta_project DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)
 log "VM name: $VM_NAME_SELF  env: $DEPLOYMENT_ENV"
 
 # ── 3. Deploy code from GCS tarballs ──
@@ -139,6 +159,11 @@ fi
 #   KRAKEN-FUTURES:  trades + book_snapshot_5 + derivative_ticker
 #   OKX-FUTURES:     trades + book_snapshot_5 + derivative_ticker
 #   DERIBIT:         derivative_ticker ONLY (options_chain WS not yet wired; trades/book5 NOT in MVP)
+#   ASTER:           book_snapshot_5 + liquidations ONLY (operator ruling 2026-07-28, folded into this
+#     consolidated launch per infra_capture_and_devops_leftovers_2026_07_06.md's BLK-26ed6571 mandate —
+#     both are LIVE-ONLY data_types per aster_book_liq_ws.py; NOT trades, which stays batch-captured;
+#     book_snapshot_5 already has a UAC BATCH capability entry (start_date 2026-06-23), liquidations is
+#     deliberately live-only per the 2026-07-15 "live-only feeds must NOT seed the batch denominator" ruling)
 MVP_SHARDS=(
   "BINANCE-FUTURES:trades"
   "BINANCE-FUTURES:book_snapshot_5"
@@ -155,6 +180,8 @@ MVP_SHARDS=(
   "OKX-FUTURES:book_snapshot_5"
   "OKX-FUTURES:derivative_ticker"
   "DERIBIT:derivative_ticker"
+  "ASTER:book_snapshot_5"
+  "ASTER:liquidations"
 )
 
 # ── 7. Export shared env for all shard processes ──
@@ -163,6 +190,7 @@ export CLOUD_PROVIDER="gcp"
 export CLOUD_MOCK_MODE="false"
 export MANIFEST_PER_VM_SHARDS="true"
 export DEPLOYMENT_ENV="$DEPLOYMENT_ENV"
+export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE="$DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE"
 export MTDS_STREAMING_REDIS_URL="redis://127.0.0.1:6379"
 export VM_NAME="$VM_NAME_SELF"
 export PYTHONPATH="${WORKSPACE}/uac:${WORKSPACE}/utl:${WORKSPACE}/mtds:${PYTHONPATH:-}"
@@ -190,6 +218,7 @@ LOG_FILE="$LOGS/supervisor.log"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') SUPERVISOR $*" | tee -a "$LOG_FILE"; }
 
 # MVP shards — MUST MATCH setup-cefi-live-consolidated-vm.sh §6
+# ASTER book_snapshot_5 + liquidations added per operator ruling 2026-07-28 (see §6 comment for the full rationale).
 MVP_SHARDS=(
   "BINANCE-FUTURES:trades"
   "BINANCE-FUTURES:book_snapshot_5"
@@ -206,6 +235,8 @@ MVP_SHARDS=(
   "OKX-FUTURES:book_snapshot_5"
   "OKX-FUTURES:derivative_ticker"
   "DERIBIT:derivative_ticker"
+  "ASTER:book_snapshot_5"
+  "ASTER:liquidations"
 )
 
 declare -A SHARD_PIDS=()

@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from unified_trading_library import MaintenanceWindow
 
 from deployment_service.data_pipeline_monitors import (
     _gcs,
@@ -2472,6 +2473,62 @@ def test_consolidator_scheduler_paused_empty_lister_no_page(monkeypatch):
     )
     assert paused == []
     assert emitted == []
+
+
+# ── DP-WATCHER-003 maintenance-window awareness (2026-07-29) ─────────────────
+_MW_JOB = "uts-prod-manifest-consolidator-market-data-prediction-cron"
+
+
+def _fake_window(*, covers: str) -> MaintenanceWindow:
+    return MaintenanceWindow(
+        surface="market-data-prediction",
+        scheduler_jobs=(covers,),
+        reason="cross-asset available_at backfill",
+        locked_by="slot-10",
+        acquired_at="2026-07-29T00:00:00+00:00",
+        expires_at="2026-07-29T02:00:00+00:00",
+    )
+
+
+def test_consolidator_scheduler_paused_suppressed_by_live_maintenance_window(monkeypatch):
+    # A live window whose scheduler_jobs names this exact job → sanctioned pause,
+    # downgrade to INFO, do not page, and exclude it from the "unexpected" list.
+    emitted = _capture_emits(monkeypatch)
+    window = _fake_window(covers=_MW_JOB)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: [_MW_JOB],
+        scheduler_state_reader=lambda _job: "PAUSED",
+        maintenance_window_reader=lambda _job: window,
+    )
+    assert paused == []
+    assert emitted == []
+
+
+def test_consolidator_scheduler_paused_pages_when_window_does_not_cover_job(monkeypatch):
+    # A live window exists but names a DIFFERENT job — this job's pause is still
+    # unregistered/unexpected, so it must page exactly as with no window at all.
+    emitted = _capture_emits(monkeypatch)
+    window = _fake_window(covers="uts-prod-manifest-consolidator-market-data-tradfi-cron")
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: [_MW_JOB],
+        scheduler_state_reader=lambda _job: "PAUSED",
+        maintenance_window_reader=lambda _job: window,
+    )
+    assert paused == [_MW_JOB]
+    assert any(e[0] == "DP_CONSOLIDATOR_SCHEDULER_PAUSED" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_consolidator_scheduler_paused_pages_when_no_live_window(monkeypatch):
+    # A reader IS injected but reports no live window (absent/expired) — an
+    # expired/absent window still pages exactly as today.
+    emitted = _capture_emits(monkeypatch)
+    paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
+        scheduler_job_lister=lambda: [_MW_JOB],
+        scheduler_state_reader=lambda _job: "PAUSED",
+        maintenance_window_reader=lambda _job: None,
+    )
+    assert paused == [_MW_JOB]
+    assert any(e[0] == "DP_CONSOLIDATOR_SCHEDULER_PAUSED" and e[1] == "CRITICAL" for e in emitted)
 
 
 # ── KEY #1: DP_VM_GONE_NO_CAPTURE is now run.log-reason-aware ─────────────────

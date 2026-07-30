@@ -29,6 +29,27 @@ from deployment_service.cloud.storage_client import StorageClient
 logger = logging.getLogger("gcs_upload_cli")
 
 
+def _verify_upload(client: StorageClient, bucket: str, blob_path: str, local_path: Path) -> bool:
+    """Re-download the just-uploaded blob and byte-compare it to the local source.
+
+    ``upload_file`` returning a URI only means the SDK call didn't raise — it does
+    NOT prove the bytes GCS now serves match what was sent (partial upload, retry
+    landing a stale object, etc.). Hash/etag compare via an actual round-trip read
+    closes that gap (vm_startup_scripts_no_auto_rollout_to_gcs_2026_07_19.md —
+    "verify post-upload rather than assuming the gsutil cp succeeded silently").
+    Returns True iff the round-tripped bytes are byte-identical to the local file.
+    """
+    raw_client = client.client
+    if raw_client is None:
+        return False
+    try:
+        remote_bytes = raw_client.download_bytes(bucket=bucket, blob_path=blob_path)
+    except (OSError, ValueError, RuntimeError) as exc:
+        logger.warning("Verify download failed for gs://%s/%s: %s", bucket, blob_path, exc)
+        return False
+    return remote_bytes == local_path.read_bytes()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bucket", required=True, help="Destination GCS bucket (no gs:// prefix)")
@@ -42,6 +63,14 @@ def main(argv: list[str] | None = None) -> int:
             "explicitly (the caller resolves it via `gcloud config get-value project`) rather than relying on env."
         ),
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "After each upload, re-download the blob and byte-compare it to the local file — "
+            "fails loudly on a mismatch instead of trusting the SDK call's return value alone."
+        ),
+    )
     parser.add_argument("files", nargs="+", help="Local file paths to upload")
     raw_args = parser.parse_args(argv)
 
@@ -49,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     bucket = str(cast(object, raw_args.bucket))
     prefix = str(cast(object, raw_args.prefix)).strip("/")
     project = cast(str | None, raw_args.project)
+    verify = bool(cast(object, raw_args.verify))
     files = cast("list[str]", raw_args.files)
 
     client = StorageClient(project_id=project, provider="gcs")
@@ -68,8 +98,12 @@ def main(argv: list[str] | None = None) -> int:
         if uri is None:
             print(f"FAILED {path.name} -> {cloud_path}", file=sys.stderr)  # noqa: qg-print
             failures.append(f)
-        else:
-            print(f"Uploaded {path.name} -> {uri}")  # noqa: qg-print
+            continue
+        if verify and not _verify_upload(client, bucket, blob_path, path):
+            print(f"VERIFY_FAILED {path.name} -> {cloud_path} (round-trip byte mismatch)", file=sys.stderr)  # noqa: qg-print
+            failures.append(f)
+            continue
+        print(f"Uploaded {path.name} -> {uri}{' (verified)' if verify else ''}")  # noqa: qg-print
 
     if failures:
         print(f"{len(failures)} upload(s) failed: {failures}", file=sys.stderr)  # noqa: qg-print

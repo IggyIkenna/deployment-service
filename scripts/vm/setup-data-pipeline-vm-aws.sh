@@ -65,8 +65,22 @@ MANIFEST_PER_VM_SHARDS="${MANIFEST_PER_VM_SHARDS:-true}"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 CLOUD_PROVIDER="aws"
 
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE (P1 registry-migration flag, read by
+# UnifiedCloudConfig via pydantic AliasChoices). AWS launchers set env vars directly
+# via user-data — there is no GCE-metadata equivalent to read at boot — so when a
+# launcher hasn't exported this explicitly, fall back to an account-wide SSM Parameter
+# Store parameter (the AWS analogue of the GCP project-metadata fallback in
+# setup-data-pipeline-vm.sh's _meta_project()). A per-launcher `export
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=...` in user-data still wins outright. SSOT:
+# plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md.
+if [[ -z "${DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE:-}" ]]; then
+    DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(aws ssm get-parameter \
+        --name "/uts/deployment-registry/firestore-dualwrite" \
+        --region "$AWS_REGION" --query 'Parameter.Value' --output text 2>/dev/null || echo "false")
+fi
+
 export CLOUD_PROVIDER CLOUD_MOCK_MODE=false DEPLOYMENT_ENV AWS_DEFAULT_REGION="$AWS_REGION"
-export MANIFEST_PER_VM_SHARDS VM_NAME
+export MANIFEST_PER_VM_SHARDS VM_NAME DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 

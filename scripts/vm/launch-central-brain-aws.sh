@@ -162,6 +162,27 @@ bash "\${ORCH_DIR}/scripts/bootstrap_vm.sh" \
   --role planning \
   --cloud-provider aws
 
+# ── Re-provision the self-hosted GitHub Actions glue/glue-writer CI runner pool ──
+# This box ALSO hosts a separate, manually-installed self-hosted runner pool
+# (unified-trading-pm/scripts/self-hosted-runners/) that ~39 unified-trading-pm CI workflows
+# route through via runs-on:[self-hosted,glue*]. That pool's registration lives ONLY on this
+# VM — bootstrap_vm.sh above has no knowledge of it — so without this step a relaunch brings
+# AO back online but leaves every glue-routed workflow queued forever until someone notices
+# and reinstalls manually. Runs AFTER the AO backend is up (bootstrap_vm.sh already cloned
+# unified-trading-pm into WORKSPACE_ROOT as part of its own Step 3). Best-effort: a failure
+# here does not fail the whole VM bootstrap (AO coming up is the higher-priority outcome) —
+# it falls back to the manual runbook step, same as before this fix existed.
+# SSOT: unified-trading-pm/codex/15-runbooks/central-vm-relaunch-glue-runner-reinstall.md
+#       + plans/active/issues/central_vm_relaunch_does_not_reregister_glue_runners_2026_07_24.md
+GLUE_DIR="\${WORKSPACE_ROOT}/unified-trading-pm/scripts/self-hosted-runners"
+if [[ -f "\${GLUE_DIR}/setup-glue-runners.sh" ]]; then
+  echo "=== Installing glue/glue-writer CI runner pool ==="
+  ( cd "\${GLUE_DIR}" && GH_TOKEN_SECRET=GH_PAT bash ./setup-glue-runners.sh install ) \
+    || echo "WARN: glue-runner install failed — CI workflows routed via runs-on:[self-hosted,glue] will queue until 'sudo GH_TOKEN_SECRET=GH_PAT ./setup-glue-runners.sh install' is re-run manually (see codex/15-runbooks/central-vm-relaunch-glue-runner-reinstall.md)." >&2
+else
+  echo "WARN: setup-glue-runners.sh not found at \${GLUE_DIR} — skipping glue-runner install (unified-trading-pm clone may have failed upstream in bootstrap_vm.sh Step 3)." >&2
+fi
+
 # NOTE: nginx :443 → :8765 (Let's Encrypt for api.agent-orchestrator.odum-research.com) is expected
 # from a prebaked AMI. If launching on a bare Ubuntu AMI, provision the cert here once DNS resolves:
 #   certbot --nginx -d api.agent-orchestrator.odum-research.com --non-interactive --agree-tos -m ops@odum-research.com

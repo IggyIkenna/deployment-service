@@ -40,6 +40,11 @@
 #   bash launch-tradfi-forward-poll.sh                       # yesterday (T-1)
 #   bash launch-tradfi-forward-poll.sh 2026-04-15 2026-04-18 # explicit window
 #   bash launch-tradfi-forward-poll.sh --force ...           # bypass singleton
+#   bash launch-tradfi-forward-poll.sh --mvp-mode ...        # opt-in MVP-filtered
+#                                                             # instrument set (operator-ruled
+#                                                             # 2026-07-29, see
+#                                                             # tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md) —
+#                                                             # NOT the default; unchanged behavior with no flag.
 #
 # Cost: e2-standard-4 ~10-20 min per run.
 #
@@ -54,6 +59,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 DRY_RUN=false
+MVP_MODE=false
 
 _positional=()
 while [[ $# -gt 0 ]]; do
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
+    --mvp-mode) MVP_MODE=true; shift ;;
     *) _positional+=("$1"); shift ;;
   esac
 done
@@ -134,6 +141,13 @@ METADATA="${METADATA},VM_START_DATE=${START_DATE}"
 METADATA="${METADATA},VM_END_DATE=${END_DATE}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+# Opt-in, default-off (operator-ruled 2026-07-29,
+# tradfi_mvp_mode_unreachable_dead_gate_2026_07_08.md) — wires the CLI's already-shipped
+# but never-called --mvp-mode flag to this launcher only. No flag = today's unfiltered
+# full-universe fetch, unchanged. launch-tradfi-bf-cme-ohlcv-1m.sh (no-client-side-filters
+# ruling) and launch-tradfi-backfill-vm.sh (its own --instrument-ids mechanism) are NOT
+# touched by this — both coexist unchanged.
+[[ "$MVP_MODE" == "true" ]] && METADATA="${METADATA},VM_MVP_MODE=true"
 
 if $DRY_RUN; then
   echo "[DRY-RUN] Would create VM: $VM_NAME"

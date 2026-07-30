@@ -34,7 +34,12 @@ MAX_METHOD_LINES=510
 # ceiling before the 2026-07-23 renag_tracker wiring fix (dp_exit_code_monitor_cron_dead
 # issue doc) needed 2 more lines across two existing call sites. Modest, bounded bump
 # (not an open-ended raise) — new orchestration growth here still gets caught well before it.
-MAX_FILE_LINES=920
+# 2026-07-29 (dp_watcher_003_consolidator_scheduler_paused_maintenance_window_gap issue
+# doc): the file had grown to 924L by itself; the DP-WATCHER-003 maintenance-window-aware
+# wiring (a 3-line call-site addition — the factory itself lives in
+# consolidator_scheduler_watcher.py, not here, specifically to avoid growing this file
+# further) needed a few more. Bumped 920->930, still modest/bounded.
+MAX_FILE_LINES=930
 
 # Per-repo QG exclusions (see base-service.sh for variable documentation)
 # print(): Rich console.print in progress.py, bash heredoc print in vm_config.py

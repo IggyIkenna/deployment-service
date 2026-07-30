@@ -448,3 +448,14 @@ class MockCloudClient(CloudClient):
                     result.append(f"{provider}://{bucket}/{prefix}/{f}".rstrip("/"))
 
         return result[:max_results]
+
+    def file_exists(self, cloud_path: str) -> bool:
+        """Return True if `cloud_path` is registered in any mock file list.
+
+        Single-file (non-prefix) dependency/catalog checks call `file_exists`
+        rather than `list_files` — without this override those checks always
+        fell through to the real ``StorageClient.file_exists``'s mock-mode
+        branch, which unconditionally returns False regardless of seeded
+        files, making a passing single-file mock check impossible to test.
+        """
+        return any(cloud_path in files for files in self._mock_files.values())

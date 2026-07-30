@@ -56,12 +56,29 @@
 # predicted count, so no naming scheme, bundling shape, or future estimator drift can
 # evade it — the launcher can only create as many Tardis VMs as it can reserve slots for.
 #
-# CAP-EXEMPT venues: HYPERLIQUID / ASTER / LIGHTER-ZKSYNC / EXTENDED-STARKNET do NOT
-# fetch from datasets.tardis.dev (S3 requester-pays + venue REST), so their launcher
+# CAP-EXEMPT venues: HYPERLIQUID / ASTER / EXTENDED-STARKNET do NOT fetch from
+# datasets.tardis.dev (S3 requester-pays + venue REST — HYPERLIQUID's funding fetch is
+# hyperliquid_s3.py's own REST path; EXTENDED-STARKNET writes its own distinct
+# pipeline_mode=batch_extended, never batch_tardis), so their launcher
 # (launch-cefi-hl-aster-historical-backfill.sh) neither sources this guard nor stamps
 # VM_TARDIS_CONSUMER=1, and its VM names (cefi-<venue>-<year|YYYYMMDD>-<ts>) do not
 # match TARDIS_VM_NAME_PATTERN. Do NOT add the guard there and do NOT widen the name
 # pattern to catch them — over-restricting them starves work that never contends.
+#
+# LIGHTER-ZKSYNC REMOVED from this list 2026-07-30 (was wrongly bundled in — its own
+# _onchain_perp_batch_lighter.py docstring states plainly: "derivative_ticker (funding)
+# has NO native-REST source at all — its only batch source is Tardis", and its
+# (now UAC-excluded) trades/book_snapshot_5 legs ALSO delegated to the same
+# TardisAdapter.download_batch(), writing pipeline_mode=batch_tardis — confirmed live
+# via a real production backfill, see
+# lighter_zksync_derivative_ticker_tardis_numeric_market_id_leaks_into_symbol_schema_2026_07_29.md).
+# A LIGHTER-ZKSYNC derivative_ticker launch genuinely contends for the single Tardis IP
+# and must go through the same pre-flight count + refusal every other Tardis-CeFi venue
+# does — leaving it exempt let a `--venues LIGHTER-ZKSYNC` launch skip the cap check
+# entirely (though the launcher's own VM_TARDIS_CONSUMER=1 metadata stamp still marks
+# it correctly for OTHER launches' guard checks, so the live blast radius was narrower
+# than a fully-blind gap — but a second concurrent LIGHTER-ZKSYNC-only launch would
+# ALSO skip its own pre-flight check and never see the first one running).
 
 # CAP = 1 (operator, 2026-07-16). Was 3 (operator 2026-07-14) — that figure was calibrated
 # on the WRONG regime: the 3-VM wave it was measured against was re-walking already-captured
@@ -88,8 +105,10 @@ TARDIS_VM_NAME_PATTERN='^(cefi|tradfi)-.*-(heavy|light)-|^cefi-queue-|^mtds-back
 # and do not contend for the single-IP slot. A small, rarely-changing set —
 # kept as a bash mirror here (rather than shelling to python3 to import UAC)
 # because every caller of this guard is bash and the set changes only on a
-# deliberate operator-ruled venue add/remove.
-TARDIS_CAP_EXEMPT_VENUES=(HYPERLIQUID ASTER LIGHTER-ZKSYNC EXTENDED-STARKNET COINBASE-CDE)
+# deliberate operator-ruled venue add/remove. LIGHTER-ZKSYNC removed 2026-07-30
+# (see the prose above) — it DOES fetch from datasets.tardis.dev for
+# derivative_ticker (and the now-excluded trades/book_snapshot_5 legs).
+TARDIS_CAP_EXEMPT_VENUES=(HYPERLIQUID ASTER EXTENDED-STARKNET COINBASE-CDE)
 
 # tardis_venue_list_needs_guard <space-separated venue list, or empty>
 # Returns 0 (true — guard IS needed) if the list is empty (== "all venues for

@@ -44,18 +44,27 @@ shard-level failure isolation; a missing observation never blocks a fetch.
 from __future__ import annotations
 
 import io
+import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 from unified_trading_library import StorageClient, get_storage_client
 
+from .sports_trigger_state import SchedulerStateStorage, default_state_storage
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_FIRST_SUCCESS_STATE_KEY = "sports_scheduler_state/first_success_pending.json"
+"""GCS key for ``FirstSuccessPoller``'s persisted ``_pending`` map — same bucket
+convention as ``PeriodicTierState.DEFAULT_STATE_KEY`` (a sibling blob under
+``sports_scheduler_state/``, not the same key, so the two independent JSON
+documents never collide)."""
 
 LATENCY_OBSERVATIONS_PREFIX: str = "_index/latency_observations"
 """GCS prefix under the sports instruments-store bucket where observation
@@ -388,6 +397,19 @@ class FirstSuccessPoller:
 
     Pass ``dispatch_fn=None`` (or ``recorder=None``) to disable — ``poll()``
     and ``register_from_event()`` become no-ops.
+
+    **Persistence (2026-07-29)**: the deployed scheduler runs as a
+    ``--one-shot`` Cloud Run Job re-invoked fresh every 5 minutes — a plain
+    in-process ``_pending`` dict is discarded before it can ever be polled, so
+    ``first_success=True`` could structurally never be confirmed (0/1382 in
+    production over 28+ hours;
+    sports_stats_delayed_live_capture_still_dead_post_fix_2026_07_29.md, root
+    cause A). Passing ``bucket`` (mirrors ``PeriodicTierState``'s GCS-backed
+    ``last_run`` map, same bucket, a sibling JSON key) makes ``_pending``
+    survive across invocations: loaded on construction, persisted after every
+    mutation in ``register_from_event`` / ``poll``. ``bucket=None`` (the
+    default) preserves the original in-memory-only behavior — used by tests
+    and any caller that can't resolve a bucket (creds-less context).
     """
 
     def __init__(
@@ -395,15 +417,79 @@ class FirstSuccessPoller:
         recorder: LatencyObservationRecorder | None,
         dispatch_fn: Callable[..., bool] | None,
         match_end_offset_min: int,
+        *,
+        bucket: str | None = None,
+        key: str = DEFAULT_FIRST_SUCCESS_STATE_KEY,
+        storage: SchedulerStateStorage | None = None,
     ) -> None:
         self._recorder = recorder
         self._dispatch_fn = dispatch_fn
         self._match_end_offset_min = match_end_offset_min
-        self._pending: dict[str, FirstSuccessPendingEntry] = {}
+        self._bucket = bucket
+        self._key = key
+        self._storage: SchedulerStateStorage | None = (
+            (storage if storage is not None else default_state_storage()) if bucket is not None else None
+        )
+        self._pending: dict[str, FirstSuccessPendingEntry] = self._load() if self._storage is not None else {}
 
     @property
     def pending(self) -> dict[str, FirstSuccessPendingEntry]:
         return self._pending
+
+    def _load(self) -> dict[str, FirstSuccessPendingEntry]:
+        """Load a persisted ``_pending`` map, or start fresh (first-boot / no state yet)."""
+        if self._storage is None or self._bucket is None:
+            return {}
+        try:
+            raw = self._storage.download_string(self._bucket, self._key)
+        except Exception as exc:
+            # First-boot / no state file yet — same "treat any download failure as
+            # no state" convention PeriodicTierState._load uses (404 shapes differ
+            # across GCS SDK / local / in-memory storage backends).
+            logger.info(
+                "No existing first-success poll state at gs://%s/%s (%s) — starting fresh",
+                self._bucket,
+                self._key,
+                type(exc).__name__,
+            )
+            return {}
+        try:
+            data: object = cast(object, json.loads(raw))
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Malformed first-success poll state at gs://%s/%s: %s — starting fresh",
+                self._bucket,
+                self._key,
+                exc,
+            )
+            return {}
+        entries_raw = data.get("pending", {}) if isinstance(data, dict) else {}
+        if not isinstance(entries_raw, dict):
+            return {}
+        loaded: dict[str, FirstSuccessPendingEntry] = {}
+        for k, v in cast("dict[str, object]", entries_raw).items():
+            if not isinstance(v, dict):
+                continue
+            try:
+                loaded[str(k)] = FirstSuccessPendingEntry(**cast("dict[str, object]", v))
+            except TypeError:
+                continue  # malformed entry (schema drift) — drop it, don't crash the whole load
+        return loaded
+
+    def _persist(self) -> None:
+        if self._storage is None or self._bucket is None:
+            return
+        body = json.dumps({"pending": {k: asdict(v) for k, v in self._pending.items()}}, sort_keys=True)
+        try:
+            self._storage.upload_string(self._bucket, self._key, body)
+        except Exception as exc:
+            # Persistence is best-effort; register_from_event()/poll() are
+            # called from the live dispatch path (fire_trigger -> register_from_event, the polling tick -> poll),
+            # so a transient storage failure here (credential hiccup, network blip, an SDK exception type outside
+            # the narrower (OSError, ValueError) this mirrored from PeriodicTierState._persist()) must degrade to
+            # "resets on next restart" — exactly like _load()'s own already-broad except Exception above — never
+            # crash the caller and silently drop a real post-match trigger dispatch.
+            logger.warning("Failed to persist first-success poll state to gs://%s/%s: %s", self._bucket, self._key, exc)
 
     def register_from_event(
         self,
@@ -425,6 +511,7 @@ class FirstSuccessPoller:
         except (TypeError, ValueError):
             return
 
+        registered_any = False
         for svc in event["services"]:  # type: ignore[union-attr]
             svc_obj = cast("dict[str, object]", svc)
             args_obj = svc_obj.get("args", {})
@@ -464,6 +551,9 @@ class FirstSuccessPoller:
                 next_poll_utc=next_poll_utc_for_attempt(0, now).isoformat(),
                 expires_utc=expires_utc,
             )
+            registered_any = True
+        if registered_any:
+            self._persist()
 
     def poll(self) -> None:
         """Retry pending entries; write a genuine observation on rc==0.
@@ -568,3 +658,5 @@ class FirstSuccessPoller:
         for key in to_remove:
             self._pending.pop(key, None)
         self._pending.update(to_update)
+        if to_remove or to_update:
+            self._persist()

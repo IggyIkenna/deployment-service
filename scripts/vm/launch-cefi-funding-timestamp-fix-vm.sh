@@ -192,6 +192,24 @@ _launch_one_vm() {
   metadata="${metadata},VM_NAME=${vm_name}"
   metadata="${metadata},VM_SHUTDOWN_ON_COMPLETION=true"
   metadata="${metadata},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
+  # STALL_PROGRESS_REGEX (real incident 2026-07-29: a BINANCE-FUTURES shard's migration script
+  # printed its own final "=== SUMMARY (APPLIED) ..." line, then the process never actually
+  # exited -- the VM sat RUNNING for 3+ hours with zero real progress before being noticed and
+  # manually killed). setup-data-pipeline-vm.sh's VM_TASK=canonical-migration dispatch already
+  # routes this launcher through vm-exec-with-gcs-tee.sh's stall-kill unconditionally (confirmed,
+  # see migration_vm_hung_detection_monitoring_gap_2026_07_27.md Gap 2 + its CORRECTION note), but
+  # with no STALL_PROGRESS_REGEX set it falls back to raw log-BYTE-GROWTH detection -- permanently
+  # defeated by the always-on PIPELINE_HEARTBEAT emitter writing a line every 60s into the SAME
+  # tee'd log regardless of whether the real workload is alive (the exact mechanism that doc's
+  # Gap 2 documents for the cefi-content-apply campaign; this launcher independently hit the
+  # identical bug class). Fix: a content-aware regex matching this script's real per-object
+  # progress line (reprocess_bulk_tardis_derivative_ticker_funding_timestamp_2026_07_28.py line
+  # ~592: "  {venue}: action=<corrected|skipped_...|would_correct> rows=... ..."), which fires
+  # many times per second during real work and never again after the final SUMMARY line -- so a
+  # post-completion hang (or any other genuine stall) now trips the existing STALL_TIMEOUT_SEC
+  # (1800s default) instead of running for hours. No "wedged worker" warning string exists in this
+  # script to accidentally match (grep confirms), so no exclusion pattern is needed.
+  metadata="${metadata},STALL_PROGRESS_REGEX=action="
 
   lc_verify_tarball_freshness "$CODE_BUCKET" \
       market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
@@ -241,4 +259,7 @@ else
   done < <(cefi_fts_split_date_shards "$START_DATE" "$END_DATE" "$SHARD_COUNT")
 fi
 
-$DRY_RUN && exit 0
+if $DRY_RUN; then
+  exit 0
+fi
+exit 0
