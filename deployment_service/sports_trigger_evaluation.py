@@ -1,0 +1,175 @@
+# SCHEMA_PROVENANCE_EXEMPT: Service-internal types — not cross-repo contracts.
+"""Pre-match / post-match trigger evaluation for the sports trigger scheduler.
+
+Extracted from ``sports_trigger_scheduler.py`` to keep that module under the
+900-line codex cap (mirrors the earlier ``PeriodicTierDispatcher`` /
+``FirstSuccessPoller`` extractions). Pure evaluation: given fixtures, the
+trigger-tier YAML config, and already-fired state, determine which trigger
+events are due right now. No dispatch, no IO.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from typing import TypedDict, cast
+
+from .sports_trigger_state import FixtureInfo, as_int
+
+
+class TriggerEvent(TypedDict):  # CORRECT-LOCAL: scheduler-internal event dict, never exported
+    """A trigger that should fire for a specific fixture."""
+
+    trigger_name: str
+    fixture_id: str
+    league_id: str
+    kickoff_utc: str
+    fire_at_utc: str
+    services: list[dict[str, str]]
+
+
+@dataclass
+class TriggerState:
+    """Tracks which triggers have already fired to avoid duplicates."""
+
+    fired: set[str] = field(default_factory=set)
+
+    def key(self, trigger_name: str, fixture_id: str) -> str:
+        """Generate a unique key for a trigger+fixture combination."""
+        return f"{trigger_name}:{fixture_id}"
+
+    def has_fired(self, trigger_name: str, fixture_id: str) -> bool:
+        return self.key(trigger_name, fixture_id) in self.fired
+
+    def mark_fired(self, trigger_name: str, fixture_id: str) -> None:
+        self.fired.add(self.key(trigger_name, fixture_id))
+
+
+def evaluate_pre_match_triggers(
+    config: dict[str, object],
+    state: TriggerState,
+    fixtures: list[FixtureInfo],
+) -> list[TriggerEvent]:
+    """Determine which pre-match triggers should fire now."""
+    now = datetime.now(UTC)
+    events: list[TriggerEvent] = []
+
+    pre_match = config.get("pre_match", {})
+    if not isinstance(pre_match, dict):
+        return events
+
+    triggers = pre_match.get("triggers", [])
+    if not isinstance(triggers, list):
+        return events
+
+    for trigger in triggers:
+        if not isinstance(trigger, dict):
+            continue
+
+        name = str(trigger.get("name", ""))
+        offset_hours = float(trigger.get("offset_hours", 0))
+        tolerance_minutes = int(trigger.get("tolerance_minutes", 30))
+
+        for fixture in fixtures:
+            fixture_id = fixture["fixture_id"]
+
+            # Skip if already fired
+            if state.has_fired(name, fixture_id):
+                continue
+
+            try:
+                kickoff = datetime.fromisoformat(fixture["kickoff_utc"].replace("Z", "+00:00"))
+            except ValueError:
+                continue
+
+            # Calculate when this trigger should fire
+            fire_at = kickoff + timedelta(hours=offset_hours)
+            delta_minutes = abs((now - fire_at).total_seconds()) / 60
+
+            # Fire if we're within tolerance window
+            if delta_minutes <= tolerance_minutes:
+                services = trigger.get("services", [])
+                if not isinstance(services, list):
+                    services = []
+
+                events.append(
+                    TriggerEvent(
+                        trigger_name=name,
+                        fixture_id=fixture_id,
+                        league_id=fixture["league_id"],
+                        kickoff_utc=fixture["kickoff_utc"],
+                        fire_at_utc=fire_at.isoformat(),
+                        services=[s for s in services if isinstance(s, dict)],
+                    )
+                )
+
+    return events
+
+
+def evaluate_post_match_triggers(
+    config: dict[str, object],
+    state: TriggerState,
+    fixtures: list[FixtureInfo],
+    match_end_offset_min: int,
+) -> list[TriggerEvent]:
+    """Determine which post-match triggers should fire now."""
+    now = datetime.now(UTC)
+    events: list[TriggerEvent] = []
+
+    post_match = config.get("post_match", {})
+    if not isinstance(post_match, dict):
+        return events
+
+    triggers = post_match.get("triggers", [])
+    if not isinstance(triggers, list):
+        return events
+
+    for trigger_raw in triggers:
+        if not isinstance(trigger_raw, dict):
+            continue
+        trigger = cast("dict[str, object]", trigger_raw)
+
+        name = str(trigger.get("name", ""))
+        # Post-match offsets can be minutes or hours
+        offset_minutes = int(trigger.get("offset_minutes", 0))
+        offset_hours = int(trigger.get("offset_hours", 0))
+        total_offset_minutes = offset_minutes + (offset_hours * 60)
+        tolerance_minutes = as_int(trigger.get("tolerance_minutes"), default=30)
+
+        for fixture in fixtures:
+            fixture_id = fixture["fixture_id"]
+
+            if state.has_fired(name, fixture_id):
+                continue
+
+            try:
+                kickoff = datetime.fromisoformat(fixture["kickoff_utc"].replace("Z", "+00:00"))
+            except ValueError:
+                continue
+
+            # Estimate match end: kickoff + match_end_offset_min (90 min play + 15 min HT + ~stoppage)
+            match_end = kickoff + timedelta(minutes=match_end_offset_min)
+            fire_at = match_end + timedelta(minutes=total_offset_minutes)
+
+            delta_minutes = abs((now - fire_at).total_seconds()) / 60
+
+            if delta_minutes <= tolerance_minutes:
+                services = trigger.get("services", [])
+                if not isinstance(services, list):
+                    services = []
+
+                events.append(
+                    TriggerEvent(
+                        trigger_name=name,
+                        fixture_id=fixture_id,
+                        league_id=fixture["league_id"],
+                        kickoff_utc=fixture["kickoff_utc"],
+                        fire_at_utc=fire_at.isoformat(),
+                        services=[s for s in services if isinstance(s, dict)],
+                    )
+                )
+
+    return events
+
+
+__all__ = ["TriggerEvent", "TriggerState", "evaluate_post_match_triggers", "evaluate_pre_match_triggers"]

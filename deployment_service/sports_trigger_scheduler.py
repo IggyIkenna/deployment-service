@@ -25,10 +25,9 @@ import shlex
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 
 import yaml
 from unified_trading_library import get_bucket_name
@@ -38,6 +37,13 @@ from .sports_latency_observation import (
     FirstSuccessPoller,
     LatencyObservationRecorder,
     build_observations_for_fire,
+)
+from .sports_trigger_evaluation import TriggerEvent, TriggerState
+from .sports_trigger_evaluation import (
+    evaluate_post_match_triggers as _evaluate_post_match_triggers,
+)
+from .sports_trigger_evaluation import (
+    evaluate_pre_match_triggers as _evaluate_pre_match_triggers,
 )
 from .sports_trigger_periodic import PeriodicTierDispatcher
 from .sports_trigger_state import (
@@ -69,39 +75,6 @@ MATCH_END_OFFSET_MIN: int = 105
 # ``features-service-sports-job`` running the multi-family dispatcher. SSOT:
 # unified-trading-pm/plans/active/features_sports_service_consolidation_deploy_2026_07_15.md
 _MULTI_FAMILY_DISPATCH_SERVICES: frozenset[str] = frozenset({"features-service"})
-
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
-
-
-class TriggerEvent(TypedDict):  # CORRECT-LOCAL: scheduler-internal event dict, never exported
-    """A trigger that should fire for a specific fixture."""
-
-    trigger_name: str
-    fixture_id: str
-    league_id: str
-    kickoff_utc: str
-    fire_at_utc: str
-    services: list[dict[str, str]]
-
-
-@dataclass
-class TriggerState:
-    """Tracks which triggers have already fired to avoid duplicates."""
-
-    fired: set[str] = field(default_factory=set)
-
-    def key(self, trigger_name: str, fixture_id: str) -> str:
-        """Generate a unique key for a trigger+fixture combination."""
-        return f"{trigger_name}:{fixture_id}"
-
-    def has_fired(self, trigger_name: str, fixture_id: str) -> bool:
-        return self.key(trigger_name, fixture_id) in self.fired
-
-    def mark_fired(self, trigger_name: str, fixture_id: str) -> None:
-        self.fired.add(self.key(trigger_name, fixture_id))
-
 
 # ---------------------------------------------------------------------------
 # Scheduler
@@ -273,123 +246,25 @@ class SportsTriggerScheduler:
         self,
         fixtures: list[FixtureInfo],
     ) -> list[TriggerEvent]:
-        """Determine which pre-match triggers should fire now."""
-        now = datetime.now(UTC)
-        events: list[TriggerEvent] = []
+        """Determine which pre-match triggers should fire now.
 
-        pre_match = self._config.get("pre_match", {})
-        if not isinstance(pre_match, dict):
-            return events
-
-        triggers = pre_match.get("triggers", [])
-        if not isinstance(triggers, list):
-            return events
-
-        for trigger in triggers:
-            if not isinstance(trigger, dict):
-                continue
-
-            name = str(trigger.get("name", ""))
-            offset_hours = float(trigger.get("offset_hours", 0))
-            tolerance_minutes = int(trigger.get("tolerance_minutes", 30))
-
-            for fixture in fixtures:
-                fixture_id = fixture["fixture_id"]
-
-                # Skip if already fired
-                if self._state.has_fired(name, fixture_id):
-                    continue
-
-                try:
-                    kickoff = datetime.fromisoformat(fixture["kickoff_utc"].replace("Z", "+00:00"))
-                except ValueError:
-                    continue
-
-                # Calculate when this trigger should fire
-                fire_at = kickoff + timedelta(hours=offset_hours)
-                delta_minutes = abs((now - fire_at).total_seconds()) / 60
-
-                # Fire if we're within tolerance window
-                if delta_minutes <= tolerance_minutes:
-                    services = trigger.get("services", [])
-                    if not isinstance(services, list):
-                        services = []
-
-                    events.append(
-                        TriggerEvent(
-                            trigger_name=name,
-                            fixture_id=fixture_id,
-                            league_id=fixture["league_id"],
-                            kickoff_utc=fixture["kickoff_utc"],
-                            fire_at_utc=fire_at.isoformat(),
-                            services=[s for s in services if isinstance(s, dict)],
-                        )
-                    )
-
-        return events
+        Thin instance wrapper around the module-level
+        :func:`sports_trigger_evaluation.evaluate_pre_match_triggers` (extracted
+        to keep this module under the 900-line codex cap; the logic uses no
+        instance state beyond ``self._config``/``self._state``).
+        """
+        return _evaluate_pre_match_triggers(self._config, self._state, fixtures)
 
     def evaluate_post_match_triggers(
         self,
         fixtures: list[FixtureInfo],
     ) -> list[TriggerEvent]:
-        """Determine which post-match triggers should fire now."""
-        now = datetime.now(UTC)
-        events: list[TriggerEvent] = []
+        """Determine which post-match triggers should fire now.
 
-        post_match = self._config.get("post_match", {})
-        if not isinstance(post_match, dict):
-            return events
-
-        triggers = post_match.get("triggers", [])
-        if not isinstance(triggers, list):
-            return events
-
-        for trigger_raw in triggers:
-            if not isinstance(trigger_raw, dict):
-                continue
-            trigger = cast("dict[str, object]", trigger_raw)
-
-            name = str(trigger.get("name", ""))
-            # Post-match offsets can be minutes or hours
-            offset_minutes = int(trigger.get("offset_minutes", 0))
-            offset_hours = int(trigger.get("offset_hours", 0))
-            total_offset_minutes = offset_minutes + (offset_hours * 60)
-            tolerance_minutes = as_int(trigger.get("tolerance_minutes"), default=30)
-
-            for fixture in fixtures:
-                fixture_id = fixture["fixture_id"]
-
-                if self._state.has_fired(name, fixture_id):
-                    continue
-
-                try:
-                    kickoff = datetime.fromisoformat(fixture["kickoff_utc"].replace("Z", "+00:00"))
-                except ValueError:
-                    continue
-
-                # Estimate match end: kickoff + 105 min (90 + 15 HT + stoppage)
-                match_end = kickoff + timedelta(minutes=MATCH_END_OFFSET_MIN)
-                fire_at = match_end + timedelta(minutes=total_offset_minutes)
-
-                delta_minutes = abs((now - fire_at).total_seconds()) / 60
-
-                if delta_minutes <= tolerance_minutes:
-                    services = trigger.get("services", [])
-                    if not isinstance(services, list):
-                        services = []
-
-                    events.append(
-                        TriggerEvent(
-                            trigger_name=name,
-                            fixture_id=fixture_id,
-                            league_id=fixture["league_id"],
-                            kickoff_utc=fixture["kickoff_utc"],
-                            fire_at_utc=fire_at.isoformat(),
-                            services=[s for s in services if isinstance(s, dict)],
-                        )
-                    )
-
-        return events
+        Thin instance wrapper around the module-level
+        :func:`sports_trigger_evaluation.evaluate_post_match_triggers`.
+        """
+        return _evaluate_post_match_triggers(self._config, self._state, fixtures, MATCH_END_OFFSET_MIN)
 
     # ------------------------------------------------------------------
     # Execution
