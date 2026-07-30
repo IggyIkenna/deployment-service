@@ -834,9 +834,12 @@ def main(argv: list[str] | None = None) -> int:
             # page when a non-`-legacy-` manifest-consolidator scheduler is PAUSED
             # (an accidental pause silently starves an entire asset_group/bucket
             # pair; root-caused 2026-07-13 on the 2 sports consolidator schedulers).
+            # maintenance_window_reader (2026-07-29): a live, plan-tracked pause
+            # downgrades to INFO instead of paging — see its factory's docstring.
             consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
                 scheduler_job_lister=_make_consolidator_scheduler_lister(),
                 scheduler_state_reader=scheduler_state_reader,
+                maintenance_window_reader=consolidator_scheduler_watcher.make_consolidator_maintenance_window_reader(),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
