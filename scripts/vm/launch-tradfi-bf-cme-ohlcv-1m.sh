@@ -2,14 +2,19 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Launch CME OHLCV-1m backfill VMs (one per (root, year-shard)).
+# Launch CME OHLCV-1m backfill VMs (one per (root-group, year-shard) — roots
+# are BUNDLED into OHLCV_ROOT_GROUPS contiguous groups, not one VM per root;
+# see `ohlcv_split_root_groups` in _tradfi-ohlcv-launcher-lib.sh).
 #
 # Full CME root universe (49 futures + options roots + 9 event-contract roots).
 # Each root entry: "ROOT|ROOT.FUT;ROOT.OPT" — the ES root already covers both
 # ES futures and ES options (ES.OPT); there is no separate ES_OPT root key.
 #
 # Symbol-set: Databento parent symbology — one symbol per root pulls the full
-# chain for the date window. Futures-only roots yield an empty OPT bundle.
+# chain for the date window. Futures-only roots yield an empty OPT bundle. Each
+# VM's VM_INSTRUMENT_IDS is the semicolon-union of every root's symbols in its
+# group (--root-groups N / OHLCV_ROOT_GROUPS=N to change the bundle size;
+# N=root count restores the legacy one-VM-per-root fan-out).
 #
 # Window: 2019-01-01 → today by default (per operator direction "full period
 # for tradfi"). Override with `--start-floor YYYY-MM-DD`.
@@ -21,6 +26,7 @@
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --dry-run
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --env staging --start-floor 2020-01-01
+#   bash launch-tradfi-bf-cme-ohlcv-1m.sh --root-groups 20  # smaller bundles
 #
 # SSOT: tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
@@ -139,9 +145,16 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
-for spec in "${CME_ROOTS[@]}"; do
-    root="${spec%%|*}"
-    syms="${spec##*|}"
+# Bundle roots into fewer, larger VMs (tradfi_backfill_throughput_followups_2026_07_24.md
+# "Bundle roots into fewer larger VMs" — a SINGLE_VM_QUEUE-analog): group the
+# CME root universe into OHLCV_ROOT_GROUPS contiguous groups, one VM per
+# (group, year-shard) carrying every group root's symbols in VM_INSTRUMENT_IDS,
+# instead of one VM per (root, year). --root-groups N / OHLCV_ROOT_GROUPS=N
+# overrides (N=root count restores the legacy one-VM-per-root behavior).
+mapfile -t _ROOT_GROUPS < <(ohlcv_split_root_groups "$OHLCV_ROOT_GROUPS" "${CME_ROOTS[@]}")
+
+for group_line in "${_ROOT_GROUPS[@]}"; do
+    IFS='|' read -r group_idx first_root last_root syms <<< "$group_line"
     for shard in "${_shards[@]}"; do
         start="${shard%%:*}"
         end="${shard##*:}"
@@ -149,9 +162,10 @@ for spec in "${CME_ROOTS[@]}"; do
         run_ts="$(date +%Y%m%d-%H%M%S)"
         # bash-3-compat (${var,,} is bash 4+; macOS + many Ubuntu images ship bash 3).
         # gcloud VM names can't contain '.' either — `ES.FUT` → `es-fut`.
-        root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
-        root_safe="${root_lower//./-}"
-        vm_name="tradfi-bf-cme-ohlcv-1m-${root_safe}-${year}-${run_ts}"
+        first_safe="$(echo "$first_root" | tr '[:upper:]' '[:lower:]' | tr '.' '-')"
+        last_safe="$(echo "$last_root" | tr '[:upper:]' '[:lower:]' | tr '.' '-')"
+        group_idx_padded="$(printf '%02d' "$group_idx")"
+        vm_name="tradfi-bf-cme-ohlcv-1m-g${group_idx_padded}-${first_safe}-${last_safe}-${year}-${run_ts}"
         ohlcv_create_vm "$vm_name" "CME" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
     done
 done

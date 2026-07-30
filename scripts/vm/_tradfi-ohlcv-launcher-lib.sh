@@ -210,6 +210,18 @@ TRADFI_OHLCV_STALL_TIMEOUT_SEC="${TRADFI_OHLCV_STALL_TIMEOUT_SEC:-3900}"
 # `ohlcv_split_ticker_groups` for why equity venues shard by ticker-group.
 OHLCV_TICKER_GROUPS="${OHLCV_TICKER_GROUPS:-5}"
 
+# Default number of (root-group x year) shards for a per-root venue (CME/ICE).
+# See `ohlcv_split_root_groups` below. CME's 58-root universe otherwise spawns
+# one VM per (root, year) — embarrassingly parallel but with per-VM boot/
+# teardown overhead paid 58x for no throughput reason (unlike the equity case,
+# CME is not critical-path-bound per tick-26; this is pure VM-count reduction).
+# 10 groups collapses 58 -> ~6 roots/VM (406 -> ~70 total CME VMs across 7 year
+# shards) while staying comfortably inside e2-highmem-16's 128GB RAM (measured
+# single-root peak 15.3GB RSS on a heavy CME expiry date; 6 concurrent roots'
+# worth of headroom is not a bottleneck at that scale). Override via
+# --root-groups / OHLCV_ROOT_GROUPS=N (N=root_count restores one-VM-per-root).
+OHLCV_ROOT_GROUPS="${OHLCV_ROOT_GROUPS:-10}"
+
 # Equity sharding mode: "date-range" (default) or "ticker-group" (legacy,
 # kept as an escape hatch for the pathological single-VM-memory-ceiling
 # case). MEASURED (tick-26 throughput re-analysis,
@@ -435,6 +447,52 @@ ohlcv_split_ticker_groups() {
     done
 }
 
+# --- Per-root venue sharding (CME/ICE root bundling) ------------------------
+# Bundle N "ROOT|SYM1;SYM2;..." specs into GROUPS contiguous groups, each
+# group's instrument-ids being the semicolon-UNION of every root's own
+# symbol-list in that group — one VM then fetches an entire group of roots
+# for a given year-shard instead of one VM per root
+# (tradfi_backfill_throughput_followups_2026_07_24.md "Bundle roots into fewer
+# larger VMs", a SINGLE_VM_QUEUE-analog: accumulate multiple roots' symbol-
+# sets into one VM's VM_INSTRUMENT_IDS per year-shard). Same contiguous,
+# load-balanced grouping rule as `ohlcv_split_ticker_groups` (sizes differ by
+# at most 1, never a fat tail group) — kept as a SEPARATE function (not a
+# reuse of ohlcv_split_ticker_groups) because each spec's symbol-list already
+# contains internal `;` (e.g. "6A.FUT;6A.OPT"), so specs are grouped as whole
+# array elements rather than semicolon-split individually. Echoes one group
+# per line: "<1-based index>|<first-root>|<last-root>|<semicolon-joined instrument-ids>"
+#   $1 group_count — desired group count (clamped to [1, spec_count])
+#   $@ (from $2)   — root specs, each "ROOT|SYM1;SYM2;..."
+ohlcv_split_root_groups() {
+    local groups="$1"; shift
+    local -a specs=("$@")
+    local total="${#specs[@]}"
+    (( total == 0 )) && return 0
+    [[ "$groups" =~ ^[0-9]+$ ]] || groups=1
+    (( groups < 1 )) && groups=1
+    (( groups > total )) && groups="$total"
+
+    local base=$(( total / groups ))
+    local rem=$(( total % groups ))
+    local idx=0 g i size chunk first last root syms
+    for (( g = 0; g < groups; g++ )); do
+        size="$base"
+        # Spread the remainder over the first `rem` groups so sizes differ by
+        # at most 1 — never a fat tail group.
+        (( g < rem )) && size=$(( size + 1 ))
+        chunk=""; first=""; last=""
+        for (( i = 0; i < size; i++ )); do
+            root="${specs[idx]%%|*}"
+            syms="${specs[idx]##*|}"
+            [[ -z "$first" ]] && first="$root"
+            last="$root"
+            chunk="${chunk}${chunk:+;}${syms}"
+            idx=$(( idx + 1 ))
+        done
+        printf '%s|%s|%s|%s\n' "$(( g + 1 ))" "$first" "$last" "$chunk"
+    done
+}
+
 # --- Date-range sharding (the default equity shard axis) --------------------
 # Split a single [start_iso, end_iso] window into N contiguous date-range
 # slices with no day lost or duplicated (same base+remainder distribution as
@@ -553,6 +611,7 @@ ohlcv_parse_common_args() {
             --start-floor)      START_FLOOR="$2"; shift 2 ;;
             --year)             ONLY_YEAR="$2"; shift 2 ;;
             --ticker-groups)    OHLCV_TICKER_GROUPS="$2"; shift 2 ;;
+            --root-groups)      OHLCV_ROOT_GROUPS="$2"; shift 2 ;;
             --shard-mode)       OHLCV_SHARD_MODE="$2"; shift 2 ;;
             --date-slices)      OHLCV_DATE_SLICES="$2"; shift 2 ;;
             --help|-h)
@@ -561,7 +620,7 @@ ohlcv_parse_common_args() {
                 ;;
             *)
                 echo "Unknown arg: $1" >&2
-                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--shard-mode date-range|ticker-group] [--date-slices N] [--ticker-groups N] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
+                echo "Usage: ${BASH_SOURCE[1]##*/} [--dry-run] [--force] [--force-recapture] [--on-demand] [--no-force-window] [--year YYYY] [--shard-mode date-range|ticker-group] [--date-slices N] [--ticker-groups N] [--root-groups N] [--env prod|staging|dev] [--start-floor YYYY-MM-DD]" >&2
                 exit 1
                 ;;
         esac
@@ -578,6 +637,10 @@ ohlcv_parse_common_args() {
 
     if ! [[ "$OHLCV_TICKER_GROUPS" =~ ^[0-9]+$ ]] || (( OHLCV_TICKER_GROUPS < 1 )); then
         echo "ERROR: --ticker-groups must be a positive integer (got: $OHLCV_TICKER_GROUPS)" >&2; exit 1
+    fi
+
+    if ! [[ "$OHLCV_ROOT_GROUPS" =~ ^[0-9]+$ ]] || (( OHLCV_ROOT_GROUPS < 1 )); then
+        echo "ERROR: --root-groups must be a positive integer (got: $OHLCV_ROOT_GROUPS)" >&2; exit 1
     fi
 
     case "$OHLCV_SHARD_MODE" in
