@@ -163,13 +163,19 @@ _EVENT_VM_EXIT_NONZERO = "DP_VM_EXIT_NONZERO"
 _EVENT_VM_STALL = "DP_VM_STALL"
 # DP_VM_PREEMPTED is deliberately NOT a UTL-exported constant (unlike
 # DP_VM_EXIT_NONZERO/DP_VM_GONE_NO_CAPTURE/DP_VM_STALL) — this fix is scoped to
-# deployment-service only; ``log_event`` takes a plain string, no registry
-# validates it. Mirrors the existing local-string-constant pattern above. Its
-# failure-path sibling ``DP_VM_PREEMPTED_NO_RELAUNCH`` is emitted directly by
-# the actuator (``relaunch_backfill_vm.RelaunchPreemptedVm``), not routed
-# through here, so it has no constant in this module.
+# deployment-service only; ``log_event`` takes a plain string, no PYTHON TYPE
+# validates it. It IS registered in the UAC ``DATA_PIPELINE_ALERT_RULES``
+# routing contract as of DP-VM-008 (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
+# item 5 — before that fix this event, its failure-path sibling
+# ``DP_VM_PREEMPTED_NO_RELAUNCH``, and ``DP_VM_PARTIAL_UNCONFIRMED`` were all
+# UNregistered, so alerting-service's ``data_pipeline_rule_for()`` exact-match
+# missed them and they fell through to the generic catch-all router instead of
+# ``#data-pipeline-alerts``). Mirrors the existing local-string-constant pattern
+# above. Its failure-path sibling ``DP_VM_PREEMPTED_NO_RELAUNCH`` is emitted
+# directly by the actuator (``relaunch_backfill_vm.RelaunchPreemptedVm``), not
+# routed through here, so it has no constant in this module.
 _EVENT_VM_PREEMPTED = "DP_VM_PREEMPTED"
-# DP_VM_PARTIAL_UNCONFIRMED (DP-VM-008) — same local-string-constant pattern as
+# DP_VM_PARTIAL_UNCONFIRMED (DP-VM-010) — same local-string-constant pattern as
 # DP_VM_PREEMPTED. Fires when a terminated VM has NO durable exit marker
 # (exit_code is None) but its captured count climbed — ambiguous between "really
 # finished, the terminal write raced teardown" and "premature kill with real
@@ -418,7 +424,7 @@ def _recover_preempted_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     """Auto-recover ``DP_VM_PREEMPTED`` → re-launch the SPOT-reclaimed backfill VM.
 
     Also wired (see ``_DP_RECOVERY_ACTIONS`` below) as the actuator for
-    ``DP_VM_PARTIAL_UNCONFIRMED`` (DP-VM-008) — a terminated VM with NO durable
+    ``DP_VM_PARTIAL_UNCONFIRMED`` (DP-VM-010) — a terminated VM with NO durable
     exit marker but climbing captured, which needs the exact same
     checkpoint-resume relaunch (read ``details["launch_env"]`` /
     ``details["progress_checkpoint"]`` unconditionally, replay through the

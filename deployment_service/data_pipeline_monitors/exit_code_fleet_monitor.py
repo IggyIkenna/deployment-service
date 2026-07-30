@@ -1,4 +1,4 @@
-"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002 / DP-VM-007 / DP-VM-008).
+"""Exit_code-aware fleet monitor (DP-VM-001 / DP-VM-002 / DP-VM-008 / DP-VM-010).
 
 Closes the self-delete-masks-OOM blind spot (CLAUDE.md 2026-06-22): a batch/live
 VM launched with ``VM_SHUTDOWN_ON_COMPLETION=true`` self-deletes on exit whether
@@ -143,7 +143,7 @@ def classify_terminated_vm(
           checked BEFORE exit_code so a preempted VM never false-fires DP-VM-001.
       - ``exit_code != 0`` (incl. 137 OOM)            → EXIT_NONZERO  (DP-VM-001)
       - captured CLIMBED + ``exit_code == 0``         → CLEAN (a durable terminal marker CONFIRMS the completion)
-      - captured CLIMBED + ``exit_code is None``      → PARTIAL_UNCONFIRMED (DP-VM-008)
+      - captured CLIMBED + ``exit_code is None``      → PARTIAL_UNCONFIRMED (DP-VM-010)
           A VM with NO durable terminal marker at all (no ``EXIT_STATUS`` blob, no
           ``command exited rc=<n>`` line in ``run.log``) is indistinguishable, from
           this signal alone, between "finished but the terminal write raced the
@@ -284,7 +284,7 @@ def _finding_for(
                 "the Tardis/launcher concurrency guard"
             ),
             details=preempted_details,
-            registry_id="DP-VM-007",
+            registry_id="DP-VM-008",
         )
     if result.verdict is TerminationVerdict.PARTIAL_UNCONFIRMED:
         # Same relaunch shape as PREEMPTED (reuses the checkpoint-resume actuator —
@@ -311,7 +311,7 @@ def _finding_for(
                 "progress; resuming from checkpoint to be safe"
             ),
             details=partial_details,
-            registry_id="DP-VM-008",
+            registry_id="DP-VM-010",
         )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
@@ -526,7 +526,7 @@ def sweep(
         if result.verdict is TerminationVerdict.PREEMPTED:
             logger.info(
                 "exit_code_fleet_monitor: %s preempted (SPOT reclaim) — dispatching a "
-                "preemption-aware relaunch via the auto_recover tier (DP-VM-007); a "
+                "preemption-aware relaunch via the auto_recover tier (DP-VM-008); a "
                 "CRITICAL DP_VM_PREEMPTED_NO_RELAUNCH fires only if that relaunch fails",
                 name,
             )
@@ -534,7 +534,7 @@ def sweep(
             logger.warning(
                 "exit_code_fleet_monitor: %s terminated with NO durable exit marker but "
                 "captured climbed (%d->%d) — cannot confirm CLEAN vs premature kill; "
-                "dispatching a checkpoint-resume relaunch via the auto_recover tier (DP-VM-008)",
+                "dispatching a checkpoint-resume relaunch via the auto_recover tier (DP-VM-010)",
                 name,
                 result.captured_before,
                 result.captured_after,

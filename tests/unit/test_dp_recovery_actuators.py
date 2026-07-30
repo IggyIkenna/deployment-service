@@ -316,7 +316,10 @@ def test_preempted_relaunch_replays_captured_launch_env(tmp_path: Path, monkeypa
     assert result["status"] == "SUCCEEDED"
     assert launched == [("launch-cefi-sharded-backfill.sh", captured_env)]
     # Success is QUIET — INFO only, never CRITICAL (SPOT reclaim is benign/expected).
-    assert any(e[0] == "DP_VM_PREEMPTED" and e[1] == "INFO" and e[2].get("relaunched") for e in emitted)
+    # The final success emits the DISTINCT resolved-bookend event (DP-VM-011), not a
+    # re-emission of the open-alert DP_VM_PREEMPTED — see relaunch_backfill_vm.py's
+    # _EVENT_VM_PREEMPTED_RECOVERED docstring.
+    assert any(e[0] == "DP_VM_PREEMPTED_RECOVERED" and e[1] == "INFO" and e[2].get("relaunched") for e in emitted)
     assert not any(e[1] == "CRITICAL" for e in emitted)
 
 
@@ -363,6 +366,9 @@ def test_preempted_relaunch_guard_refusal_emits_critical_no_relaunch(tmp_path: P
     assert result["status"] == "FAILED"
     assert result["returncode"] == 1
     assert any(e[0] == "DP_VM_PREEMPTED_NO_RELAUNCH" and e[1] == "CRITICAL" for e in emitted)
+    # A FAILED relaunch must NEVER also emit the resolved bookend — only the
+    # CRITICAL no-relaunch alert above.
+    assert not any(e[0] == "DP_VM_PREEMPTED_RECOVERED" for e in emitted)
 
 
 def test_preempted_relaunch_launcher_exception_emits_critical_no_relaunch(tmp_path: Path, monkeypatch):
@@ -398,7 +404,7 @@ def test_preempted_relaunch_generous_budget_then_pages(tmp_path: Path, monkeypat
 
 
 def test_preempted_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch):
-    _patch_log_event(monkeypatch)
+    emitted = _patch_log_event(monkeypatch)
     launched: list[str] = []
     actuator = RelaunchPreemptedVm(
         budget_dir=tmp_path,
@@ -408,6 +414,9 @@ def test_preempted_relaunch_dry_run_does_not_execute(tmp_path: Path, monkeypatch
     result = actuator.relaunch("cefi-queue-heavy-x-1", launcher="launch-cefi-sharded-backfill.sh", dry_run=True)
     assert result["status"] == "DRY_RUN"
     assert launched == []
+    # A dry-run plans the relaunch but never touches the launcher or the alert
+    # log — neither the resolved bookend NOR any other DP_* event fires.
+    assert emitted == []
 
 
 # ── progress-checkpoint resume (the SPOT day-one-replay durable fix) ─────────
@@ -824,7 +833,7 @@ def test_route_auto_recover_preempted_relaunch_via_finding(tmp_path: Path, monke
             "asset_group": "cefi",
             "launch_env": launch_env,
         },
-        registry_id="DP-VM-007",
+        registry_id="DP-VM-008",
     )
     result = escalation.route_finding(finding)
     assert result["effective_tier"] == "auto_recover"
@@ -859,7 +868,7 @@ def test_route_auto_recover_preempted_relaunch_failure_falls_through(tmp_path: P
             "relaunch_launcher": "launch-cefi-sharded-backfill.sh",
             "asset_group": "cefi",
         },
-        registry_id="DP-VM-007",
+        registry_id="DP-VM-008",
     )
     result = escalation.route_finding(finding, pm_repo_path=str(pm))
     assert result["recovery"]["recovered"] is False
