@@ -404,9 +404,13 @@ echo "Post-backfill manifest rebuild (one per features bucket):"
 # 'sports_features/by_date'). Copy-pasting it ran a manifest rebuild against nothing.
 # Fixed 2026-07-20; same class as the stale features tarball bucket hint.
 # Bucket-naming SSOT: codex/05-infrastructure/bucket-isolation-model.md.
+echo "ADDITIVE merge only — rebuild_manifest_from_canonical_paths() wholesale-replaces a shared"
+echo "bucket's WHOLE manifest index; features-{ag} is a Group-B folded bucket co-locating"
+echo "multiple families under ONE index, so a wholesale rebuild would delete every OTHER family's"
+echo "rows — see rebuild_manifest_from_canonical_paths_prefix_scoped_wipe_2026_07_27.md."
 echo "  python -c \"from unified_trading_library import resolve_bucket_name; \\"
-echo "    from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths( \\"
+echo "    from unified_trading_library.manifest_writer import merge_manifest_from_canonical_paths; \\"
+echo "    merge_manifest_from_canonical_paths( \\"
 echo "      resolve_bucket_name(cloud='gcp', kind='features', asset_group='${ASSET_GROUP_LOWER}'), \\"
-echo "      service_name='features-service')\""
+echo "      service_name='features-service', prefix='<real-family-prefix>/by_date')\""
 echo "  (do NOT hardcode a prefix — sports is 'sports_features/by_date', not 'features/by_date')"
