@@ -97,6 +97,10 @@
 #   FORCE=1                   rewrite parquets even if manifest shows captured
 #   MAX_WORKERS=<N>           within-VM multiproc (delta_one/volatility/onchain only —
 #                             the CLI default is 4; passthrough added learning-from-cefi)
+#   OOM_MONITOR=1             opt-in on-VM ps/free/dmesg poller (3s interval, uploaded to
+#                             gs://.../vm-logs/<vm>/oom-hang-monitor.log every 15s) — for
+#                             settling OOM-vs-hang repros, not a default-on production knob.
+#                             See deployment-service/scripts/vm/oom-hang-monitor.sh.
 
 set -euo pipefail
 
@@ -158,6 +162,7 @@ Optional env overrides:
   SKIP_DEPENDENCY_CHECK=1   bypass global preflight (narrow-scope runs only)
   FORCE=1                   rewrite parquets even if manifest shows captured
   MAX_WORKERS=<N>           within-VM multiproc (delta_one/volatility/onchain only)
+  OOM_MONITOR=1             opt-in on-VM ps/free/dmesg poller for OOM-vs-hang repros
 EOF
 }
 
@@ -359,6 +364,9 @@ MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
 # Version-pin UAC into VM metadata (P0 contract-propagation fix) — setup reads
 # UAC_TARBALL_SHA and pulls the exact SHA-pinned unified-api-contracts tarball.
 [[ -n "${UAC_TARBALL_SHA:-}" ]] && MD="${MD},UAC_TARBALL_SHA=${UAC_TARBALL_SHA}"
+# Opt-in on-VM ps/free/dmesg monitor for OOM-vs-hang repros (see OOM_MONITOR
+# env override above; setup-data-pipeline-vm.sh reads this as VM_OOM_MONITOR).
+[[ -n "${OOM_MONITOR:-}" ]] && MD="${MD},VM_OOM_MONITOR=true"
 
 # Durable pin registry — instance metadata dies with the instance; this record is
 # what survives into the preemption-relaunch window and exempts the pinned UAC
