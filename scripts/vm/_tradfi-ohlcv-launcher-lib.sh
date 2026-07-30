@@ -189,6 +189,23 @@ OHLCV_FLEET_CONCURRENCY_CAP="${OHLCV_FLEET_CONCURRENCY_CAP:-150}"
 # a heavy CME expiry date that streams for >30 min before its first write.
 TRADFI_OHLCV_STALL_PROGRESS_REGEX="${TRADFI_OHLCV_STALL_PROGRESS_REGEX:-uploaded|streamed}"
 
+# Stall-watchdog TIMEOUT override (found + fixed 2026-07-30, tradfi_es_cme_ohlcv_zero_capture_2026_07_30.md).
+#
+# vm-exec-with-gcs-tee.sh's STALL_TIMEOUT_SEC default is 1800s (30min). But the
+# manifest read path (unified_trading_library.manifest_writer._read_index's
+# _wait_for_in_flight_cycle_then_reread) has its own legitimate, by-design
+# bounded wait on a live consolidator lock — up to
+# consolidator_inflight_horizon_for_bucket()'s tradfi default of 3600s (1hr).
+# A VM that starts up during exactly that window (heavy concurrent fleet
+# activity holding the lock) can spend its ENTIRE first 30+ minutes in that
+# documented-safe wait, never emitting an `uploaded`/`streamed` progress line —
+# so the stall watchdog kills it as WORKER_STALLED before the lock it is
+# correctly waiting on ever clears. Observed live 2026-07-30: 3 of 7
+# tradfi-bf-cme-ohlcv-1m-es-* VMs killed this way, 0/7 completed a single real
+# fetch attempt. Fix: give the watchdog headroom past the lock's own horizon
+# (3600s + 300s buffer) instead of the generic 1800s default.
+TRADFI_OHLCV_STALL_TIMEOUT_SEC="${TRADFI_OHLCV_STALL_TIMEOUT_SEC:-3900}"
+
 # Default number of (ticker-group x year) shards per equity venue. See
 # `ohlcv_split_ticker_groups` for why equity venues shard by ticker-group.
 OHLCV_TICKER_GROUPS="${OHLCV_TICKER_GROUPS:-5}"
@@ -281,6 +298,10 @@ ohlcv_create_vm() {
     # PIPELINE_HEARTBEAT noise makes a hung VM look alive forever (see
     # TRADFI_OHLCV_STALL_PROGRESS_REGEX above).
     metadata="${metadata},STALL_PROGRESS_REGEX=${TRADFI_OHLCV_STALL_PROGRESS_REGEX}"
+    # Headroom past the manifest-consolidator-lock's own bounded-wait horizon
+    # (see TRADFI_OHLCV_STALL_TIMEOUT_SEC above) — without it, a VM correctly
+    # waiting on that lock gets killed as a false-positive stall.
+    metadata="${metadata},STALL_TIMEOUT_SEC=${TRADFI_OHLCV_STALL_TIMEOUT_SEC}"
     # Date-concurrency (the measured 1.56x lever). Explicit env wins; otherwise
     # the machine-derived default applies to databento-sourced launches and is
     # empty for FX/Yahoo (see ohlcv_default_date_concurrency above). Resolved

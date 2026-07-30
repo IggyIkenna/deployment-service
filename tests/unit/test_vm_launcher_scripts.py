@@ -2598,5 +2598,62 @@ class TestChunkedBranchesScopeVmNamePerChunk:
         assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding
 
 
+class TestTradfiOhlcvStallTimeoutHeadroom:
+    """tradfi_es_cme_ohlcv_zero_capture_2026_07_30.md — root-caused live: 3 of 7 re-launched
+    tradfi-bf-cme-ohlcv-1m-es-* VMs were killed as WORKER_STALLED before ever attempting a real
+    Databento fetch, because vm-exec-with-gcs-tee.sh's STALL_TIMEOUT_SEC default (1800s) is
+    SHORTER than the manifest-consolidator-lock's own legitimate bounded-wait horizon
+    (consolidator_inflight_horizon_for_bucket()'s tradfi default of 3600s) -- a VM that boots
+    while the lock is held can spend its entire first 30+ minutes in that documented-safe wait,
+    emitting no `uploaded`/`streamed` progress line, and gets stall-killed before the lock it is
+    correctly waiting on ever clears. Fix: _tradfi-ohlcv-launcher-lib.sh now also sets
+    STALL_TIMEOUT_SEC=3900 (3600s horizon + 300s buffer) alongside the existing
+    STALL_PROGRESS_REGEX metadata -- scoped to the shared tradfi-OHLCV launcher family only
+    (CME/ICE/NASDAQ/NYSE), not vm-exec-with-gcs-tee.sh's global default (which cefi/mdps/sfi/
+    gas-fees also depend on)."""
+
+    LAUNCHER = "scripts/vm/launch-tradfi-bf-cme-ohlcv-1m.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path, env: dict) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_default_sets_headroom_past_the_consolidator_lock_horizon(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        call = self._created_metadata(launcher_path, ["--only-root", "ES"], tmp_path, {**os.environ})
+        assert "STALL_TIMEOUT_SEC=3900" in call
+        assert "STALL_PROGRESS_REGEX=uploaded|streamed" in call
+
+    def test_env_override_still_wins(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(
+            launcher_path,
+            ["--only-root", "ES"],
+            tmp_path,
+            {**os.environ, "TRADFI_OHLCV_STALL_TIMEOUT_SEC": "5000"},
+        )
+        assert "STALL_TIMEOUT_SEC=5000" in call
+        assert "STALL_TIMEOUT_SEC=3900" not in call
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
