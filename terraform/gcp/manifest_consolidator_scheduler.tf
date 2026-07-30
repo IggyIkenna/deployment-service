@@ -202,6 +202,38 @@ locals {
     "market-data-cefi"   = "1200"
   }
 
+  # Cadence reduction (manifest_consolidator_cadence_cost_audit_2026_07_20.md, operator
+  # RULED 2026-07-29 "proceed"). Root problem: cost tracks INVOCATION COUNT, not data
+  # volume (a no-op */1 tick costs ~the same as a real merge, ~$180/day across 18 jobs
+  # on a uniform */1 cadence). 12 of 18 are genuinely low-risk to widen to hourly,
+  # confirmed via the audit's live per-VM-shard write-activity check (2026-07-20) + this
+  # module's own `AG_STALENESS_BUDGET_SEC` coverage (unified_trading_library/
+  # manifest_writer/_staleness_budget.py): every category below either (a) had NO live
+  # per-VM writer at audit time (nothing to race against a slower cron), or (b) is
+  # cefi-labeled and gets the code-level 86400s staleness-budget override regardless.
+  # EXCLUDED (stay at */1, NOT in this map): the 4 live market-data buckets
+  # (defi/tradfi/sports/prediction — near-real-time freshness IS their purpose) and
+  # instruments-sports/features-sports (actively-written at audit time; sports has SINCE
+  # gained its own AG_STALENESS_BUDGET_SEC=1800s override — fd87daa1, 2026-07-24 — but
+  # the ruling's own text names exactly "the 12 low-risk jobs" from the original audit,
+  # so sports stays at */1 here pending its own explicit review, not silently widened).
+  # Consumed by both scheduler resources below via `lookup(..., "*/1 * * * *")` — a
+  # category absent from this map keeps the original per-minute cadence.
+  manifest_consolidator_schedule = {
+    "instruments-cefi"       = "0 * * * *"
+    "instruments-tradfi"     = "0 * * * *"
+    "instruments-defi"       = "0 * * * *"
+    "instruments-prediction" = "0 * * * *"
+    "market-data-cefi"       = "0 * * * *"
+    "features-cefi"          = "0 * * * *"
+    "features-defi"          = "0 * * * *"
+    "features-tradfi"        = "0 * * * *"
+    "features-calendar"      = "0 * * * *"
+    "strategy"               = "0 * * * *"
+    "execution"              = "0 * * * *"
+    "ml-training-artifacts"  = "0 * * * *"
+  }
+
   # Phase D — derived-data buckets (Group B naming: flat — env-split ROLLED BACK per
   # cloud-providers.yaml comment "Drop ${DEPLOYMENT_ENV_SHORT}- for ALL Group B kinds".
   # Exception: features-sports + features-calendar remain env-tiered per yaml SSOT.
@@ -315,17 +347,20 @@ module "manifest_consolidator_job" {
 }
 
 # -------------------------------------------------------
-# Cloud Scheduler crons — one per bucket, every minute
+# Cloud Scheduler crons — one per bucket, every minute by default
 # -------------------------------------------------------
-# `*/1 * * * *` is "every minute". The reader-fallback staleness
-# threshold is 120s, so one missed cycle still keeps readers correct
-# (they fall back to live shard merge for that read).
+# `*/1 * * * *` is "every minute" — the default for every category NOT in
+# `local.manifest_consolidator_schedule` (live market-data + instruments-sports,
+# see that local's own comment for why). The reader-fallback staleness threshold
+# is 120s, so one missed cycle still keeps readers correct (they fall back to
+# live shard merge for that read). Widened categories rely on their own
+# `AG_STALENESS_BUDGET_SEC` override instead (manifest_consolidator_cadence_cost_audit_2026_07_20.md).
 resource "google_cloud_scheduler_job" "manifest_consolidator_cron" {
   for_each = local.manifest_consolidator_buckets
 
   name        = "${local.env_prefix}-manifest-consolidator-${each.key}-cron"
   description = "Consolidate per-VM manifest shards in ${each.value} into the canonical _index/availability_index.parquet."
-  schedule    = "*/1 * * * *"
+  schedule    = lookup(local.manifest_consolidator_schedule, each.key, "*/1 * * * *")
   time_zone   = "UTC"
   region      = var.region
 
@@ -413,7 +448,7 @@ resource "google_cloud_scheduler_job" "manifest_consolidator_cron_extended" {
 
   name        = "${local.env_prefix}-manifest-consolidator-${each.key}-cron"
   description = "Consolidate per-VM manifest shards in ${each.value} into the canonical _index/availability_index.parquet."
-  schedule    = "*/1 * * * *"
+  schedule    = lookup(local.manifest_consolidator_schedule, each.key, "*/1 * * * *")
   time_zone   = "UTC"
   region      = var.region
 
