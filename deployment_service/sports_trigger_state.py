@@ -223,7 +223,15 @@ class _UTLStateAdapter:
         return data.decode("utf-8")
 
 
-def _default_state_storage() -> SchedulerStateStorage:
+def default_state_storage() -> SchedulerStateStorage:
+    """Default GCS-backed storage adapter — shared by any scheduler-state consumer.
+
+    Public (no longer module-private): ``FirstSuccessPoller``
+    (``sports_latency_observation.py``) also uses this to persist its
+    ``_pending`` map in the same ``deployment-scripts-<project>`` bucket
+    ``PeriodicTierState`` already uses (sibling JSON key, not the same one) —
+    sports_stats_delayed_live_capture_still_dead_post_fix_2026_07_29.md.
+    """
     return _UTLStateAdapter(get_storage_client())
 
 
@@ -248,7 +256,7 @@ class PeriodicTierState:
     ) -> None:
         self._bucket = bucket
         self._key = key
-        self._storage: SchedulerStateStorage = storage if storage is not None else _default_state_storage()
+        self._storage: SchedulerStateStorage = storage if storage is not None else default_state_storage()
         self._last_run: dict[str, str] = {}
         self._load()
 
@@ -379,6 +387,7 @@ __all__ = [
     "SchedulerStateStorage",
     "as_float",
     "as_int",
+    "default_state_storage",
     "resolve_source_key",
     "resolve_state_bucket",
 ]
