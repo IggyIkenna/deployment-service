@@ -21,8 +21,6 @@ Usage:
 from __future__ import annotations
 
 import logging
-import shlex
-import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -38,6 +36,11 @@ from .sports_latency_observation import (
     FirstSuccessPoller,
     LatencyObservationRecorder,
     build_observations_for_fire,
+)
+from .sports_trigger_dispatch_backends import (
+    dispatch_local,
+    get_cloud_run_backend,
+    strip_python_module_prefix,
 )
 from .sports_trigger_periodic import PeriodicTierDispatcher
 from .sports_trigger_state import (
@@ -634,47 +637,20 @@ class SportsTriggerScheduler:
     def _get_cloud_run_backend(self, job_name: str) -> CloudRunBackend | None:
         """Return a cached CloudRunBackend for the given Cloud Run job name.
 
-        Returns None and logs a warning if cloud_run_config is missing required keys.
-        Backends are cached per job_name so repeated calls share one client instance.
+        Delegates to :func:`sports_trigger_dispatch_backends.get_cloud_run_backend`
+        (extracted to keep this module under the 930-line codex cap; the
+        scheduler still owns the backend cache dict and config, passed
+        through explicitly).
         """
-        if job_name in self._cloud_run_backends:
-            return self._cloud_run_backends[job_name]
-        required = ("project_id", "region", "service_account_email")
-        missing = [k for k in required if not self._cloud_run_config.get(k)]
-        if missing:
-            logger.warning(
-                "cloud_run_config missing keys %s — cannot create backend for job %s",
-                missing,
-                job_name,
-            )
-            return None
-        try:
-            backend = CloudRunBackend(
-                project_id=self._cloud_run_config["project_id"],
-                region=self._cloud_run_config["region"],
-                service_account_email=self._cloud_run_config["service_account_email"],
-                job_name=job_name,
-            )
-            self._cloud_run_backends[job_name] = backend
-            return backend
-        except Exception as exc:
-            logger.warning("Failed to create CloudRunBackend for job %s: %s", job_name, exc)
-            return None
+        return get_cloud_run_backend(job_name, self._cloud_run_config, self._cloud_run_backends)
 
     @staticmethod
     def _strip_python_module_prefix(cmd: str) -> list[str]:
         """Strip the ``python -m <module>`` prefix ``_build_cli_cmd`` always emits.
 
-        Cloud Run Jobs V2 execution overrides can only replace a job's
-        ``args``, never its ``command``/entrypoint — every real target job
-        here (verified via ``gcloud run jobs describe
-        uts-prod-instruments-service-t1-recon``: ``command: None``, ``args:
-        ['--operation=instruments', ...]``) bakes the module invocation into
-        the image's own ENTRYPOINT, so the override must be CLI flags only.
+        Delegates to :func:`sports_trigger_dispatch_backends.strip_python_module_prefix`.
         """
-        all_tokens = shlex.split(cmd)
-        # _build_cli_cmd always starts with ["python", "-m", "<module>", ...]
-        return all_tokens[3:] if len(all_tokens) > 3 else all_tokens
+        return strip_python_module_prefix(cmd)
 
     def _dispatch_local(
         self,
@@ -685,108 +661,10 @@ class SportsTriggerScheduler:
     ) -> bool:
         """Dispatch a CLI command as a local subprocess.
 
-        Uses the service repo's .venv python if ``workspace_root`` is set,
-        otherwise falls back to the system python on PATH.
-
-        Returns True on success, False on failure. Never raises — shard-level
-        failure isolation ensures one service failure does not block others.
+        Delegates to :func:`sports_trigger_dispatch_backends.dispatch_local`
+        (extracted to keep this module under the 930-line codex cap).
         """
-        # Resolve service repo directory and venv python
-        if self._workspace_root:
-            service_dir = Path(self._workspace_root) / service
-            venv_python = service_dir / ".venv" / "bin" / "python"
-
-            if not service_dir.is_dir():
-                logger.warning(
-                    "Service repo not found at %s — skipping %s for %s:%s",
-                    service_dir,
-                    service,
-                    trigger_name,
-                    fixture_id,
-                )
-                return False
-
-            # Use repo venv python instead of generic "python -m ..."
-            # shlex.split the full command, then replace python path
-            raw_tokens = shlex.split(cmd)
-            # raw_tokens[0] is "python", replace with venv python
-            raw_tokens[0] = str(venv_python)
-            cmd_tokens = raw_tokens
-            cwd = str(service_dir)
-        else:
-            # No workspace_root: assumes `service` is importable in THIS
-            # process's own environment. Loud WARNING (not silent) — a
-            # deployment-service-only container (e.g. the Cloud Run Job
-            # image) hits FileNotFoundError below on every call otherwise
-            # (the 2026-07-08 silent-zero-dispatch root cause).
-            logger.warning(
-                "Local dispatch for %s with no workspace_root — assumes %s is "
-                "importable here; use --backend cloud in a container that "
-                "only ships deployment-service.",
-                service,
-                service,
-            )
-            cmd_tokens = shlex.split(cmd)
-            cwd = None
-
-        logger.info(
-            "Dispatching local subprocess: %s (cwd=%s)",
-            " ".join(cmd_tokens),
-            cwd or "<inherited>",
-        )
-
-        process: subprocess.Popen[bytes] | None = None
-        try:
-            process = subprocess.Popen(
-                cmd_tokens,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-
-            _, stderr_bytes = process.communicate(timeout=3600)
-
-            if process.returncode != 0:
-                stderr_text = stderr_bytes.decode("utf-8", errors="replace")[:500]
-                logger.warning(
-                    "Trigger dispatch failed for %s (trigger=%s fixture=%s) exit_code=%d stderr=%s",
-                    service,
-                    trigger_name,
-                    fixture_id,
-                    process.returncode,
-                    stderr_text,
-                )
-                return False
-
-            logger.info(
-                "Trigger dispatch succeeded for %s (trigger=%s fixture=%s pid=%d)",
-                service,
-                trigger_name,
-                fixture_id,
-                process.pid,
-            )
-            return True
-
-        except subprocess.TimeoutExpired:
-            logger.warning(
-                "Trigger dispatch timed out for %s (trigger=%s fixture=%s) — killing",
-                service,
-                trigger_name,
-                fixture_id,
-            )
-            if process is not None:
-                process.kill()
-                process.wait(timeout=10)
-            return False
-        except (FileNotFoundError, PermissionError, OSError):
-            logger.warning(
-                "Executable not found for %s (trigger=%s fixture=%s) — cmd=%s",
-                service,
-                trigger_name,
-                fixture_id,
-                " ".join(cmd_tokens),
-            )
-            return False
+        return dispatch_local(cmd, service, trigger_name, fixture_id, self._workspace_root)
 
     # ------------------------------------------------------------------
     # Periodic tiers — delegated to PeriodicTierDispatcher
