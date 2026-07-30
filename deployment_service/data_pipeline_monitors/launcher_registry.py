@@ -249,6 +249,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # distinct from opt-deribit- (historical Tardis batch). Wired under
     # infra_capture_and_devops_leftovers_2026_07_06 Plan 6 task 002.
     "deribit-opts-fwd-": "launch-deribit-options-chain-daily.sh",
+    # Deribit DVOL (BTC/ETH implied-vol index) FULL 2021-03-24->now historical
+    # batch backfill. One-off; wired under vol_dvol_backtestable_engines_2026_07_13.md
+    # Todo 3.
+    "dvol-deribit-": "launch-deribit-dvol-backfill-vm.sh",
     "opt-okx-": "launch-targeted-options-chain-backfill.sh",
     "opt-cboe-": "launch-targeted-options-chain-backfill.sh",
     "opt-cme-": "launch-targeted-options-chain-backfill.sh",
