@@ -139,7 +139,12 @@ ARCHETYPE_ARG=""
 if [[ "$ARCHETYPE" != "all" ]]; then
     ARCHETYPE_ARG="--archetype ${ARCHETYPE}"
 fi
-RUNNER_CMD="cd /app/e2e-testing && python scripts/defi/run_dr_drill_cutover.py ${ARCHETYPE_ARG}"
+# setup_data_pipeline_vm_dispatch_gap_batch_live_recon_chaos_drill_2026_07_30.md
+# (same bug class found in the sibling launch-disaster-drill-cron-vm.sh):
+# "/app/e2e-testing" is NOT the real VM path — setup-data-pipeline-vm.sh
+# extracts every tarball under $WORKSPACE="/home/ikennaigboaka/workspace"
+# (TARBALL_DIRS["e2e-testing-code"]="e2e-testing").
+RUNNER_CMD="cd /home/ikennaigboaka/workspace/e2e-testing && python scripts/defi/run_dr_drill_cutover.py ${ARCHETYPE_ARG}"
 
 SHUTDOWN_SCRIPT=$(cat <<'SHUTDOWN_EOF'
 #!/usr/bin/env bash

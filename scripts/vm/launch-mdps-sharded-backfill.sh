@@ -360,6 +360,11 @@ launch_year_shard() {
     # =/space/comma-free → metadata-safe.
     [[ "$cat" == "sports" ]] && md="${md},STALL_PROGRESS_REGEX=Processing|Skipping"
 
+    # SPOT preemption contract (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
+    # item 9): lc_write_preemption_signal_file marks a SPOT shutdown as an expected
+    # preemption for fleet monitors (instead of an unexplained DP_VM_GONE_NO_CAPTURE).
+    lc_write_preemption_signal_file
+
     # shellcheck disable=SC2086
     # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
     # boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
@@ -377,6 +382,7 @@ launch_year_shard() {
         --scopes=cloud-platform \
         ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=${STARTUP},${md}" \
+        --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
         --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
         > /dev/null
     echo "  → RUNNING"

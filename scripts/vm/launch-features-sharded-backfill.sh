@@ -274,6 +274,11 @@ launch_year_shard() {
         "UTL_TARBALL_SHA=${UTL_TARBALL_SHA:-}" \
         "UAC_TARBALL_SHA=${UAC_TARBALL_SHA:-}"
 
+    # SPOT preemption contract (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
+    # item 9): lc_write_preemption_signal_file marks a SPOT shutdown as an expected
+    # preemption for fleet monitors (instead of an unexplained DP_VM_GONE_NO_CAPTURE).
+    lc_write_preemption_signal_file
+
     # Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY (learning-from-cefi;
     # see header). Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
     # shellcheck disable=SC2086
@@ -287,6 +292,7 @@ launch_year_shard() {
         --image-project=ubuntu-os-cloud \
         --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
+        --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
         --labels=purpose=features-sharded-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
         > /dev/null
     echo "  -> RUNNING"

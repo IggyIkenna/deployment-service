@@ -586,6 +586,17 @@ declare -A SERVICE_TARBALLS=(
   ["deployment_service"]="deployment-service-code"
   ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
   ["alerting_service"]="alerting-service-code"
+  # setup_data_pipeline_vm_dispatch_gap_batch_live_recon_chaos_drill_2026_07_30.md:
+  # launch-disaster-drill-cron-vm.sh sets VM_SERVICE=chaos-drill (its RUNNER_CMD is
+  # `cd /app/e2e-testing && python scripts/defi/run_chaos_drill.py` — see that
+  # launcher's own header, "Pulls UAC + UTL + e2e-testing tarballs"). Without this
+  # mapping VM_SERVICE=chaos-drill fell through to "install all available tarballs"
+  # (the same WARNING branch below), wasting ~2 minutes of boot before the run ever
+  # hit the actual VM_TASK dispatch gap.
+  ["chaos-drill"]="e2e-testing-code"
+  # launch-dr-drill-cutover-vm.sh — same bug class + same fix as chaos-drill
+  # above, found adjacent while fixing it (identical hardcoded-/app-path defect).
+  ["dr-drill-cutover"]="e2e-testing-code"
 )
 # NOTE: unified-events-interface entry intentionally removed 2026-04-17 —
 # UEI was folded into unified-trading-library.events. No repo/pyproject depends
@@ -2115,6 +2126,36 @@ elif [[ "$VM_TASK" == "batch-live-recon" ]]; then
     _launch_with_tee "$FULL_CMD" "$LOGS/batch-live-recon.log"
   else
     log "ERROR: batch-live-recon task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "chaos-drill" ]]; then
+  # Nightly Phase 6.A chaos drill — launch-disaster-drill-cron-vm.sh prepares
+  # `cd /app/e2e-testing && python scripts/defi/run_chaos_drill.py` in
+  # VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as datapoint-validation/
+  # orphan-sweep/batch-live-recon above). Found 2026-07-30 (soak-testing the
+  # dualwrite Firestore fix): this VM_TASK had NO dispatch branch here — same
+  # root-cause class as the branches above, the VM self-deleted rc=1 within
+  # ~3 minutes without ever running the drill. Target workspace dir is
+  # e2e-testing's own tarball (TARBALL_DIRS["e2e-testing-code"]="e2e-testing"
+  # above; VM_SERVICE=chaos-drill maps to it via SERVICE_TARBALLS above too).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    _launch_with_tee "$FULL_CMD" "$LOGS/chaos-drill.log"
+  else
+    log "ERROR: chaos-drill task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "dr-drill-cutover" ]]; then
+  # launch-dr-drill-cutover-vm.sh — same missing-dispatch-branch bug class as
+  # chaos-drill above, found adjacent while fixing it. VM_BACKFILL_CMD already
+  # embeds its own `cd .../e2e-testing` (fixed alongside this branch).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    _launch_with_tee "$FULL_CMD" "$LOGS/dr-drill-cutover.log"
+  else
+    log "ERROR: dr-drill-cutover task without VM_BACKFILL_CMD metadata"
   fi
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12

@@ -119,7 +119,13 @@ if ! $DRY_RUN; then
     fi
 fi
 
-RUNNER_CMD="cd /app/e2e-testing && python scripts/defi/run_chaos_drill.py"
+# setup_data_pipeline_vm_dispatch_gap_batch_live_recon_chaos_drill_2026_07_30.md:
+# "/app/e2e-testing" is NOT the real VM path — setup-data-pipeline-vm.sh extracts
+# every tarball under $WORKSPACE="/home/ikennaigboaka/workspace" (TARBALL_DIRS
+# ["e2e-testing-code"]="e2e-testing"), matching the pattern already used correctly
+# by launch-batch-live-recon-cron-vm.sh's RECON_MODULE_PATH. A real launch would
+# have hit "No such file or directory" here even after the dispatch-branch fix.
+RUNNER_CMD="cd /home/ikennaigboaka/workspace/e2e-testing && python scripts/defi/run_chaos_drill.py"
 
 SHUTDOWN_SCRIPT=$(cat <<'SHUTDOWN_EOF'
 #!/usr/bin/env bash

@@ -30,6 +30,9 @@
 # vm_zombie_watchdog.VM_PREFIX_TO_BUCKET (EPHEMERAL_BATCH).
 set -euo pipefail
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 PROJECT_ID="${PROJECT_ID:-central-element-323112}"
 ZONE="${ZONE:-asia-northeast1-c}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
@@ -111,6 +114,10 @@ for SHARD in "${SHARDS[@]}"; do
   PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE"
   if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
   echo "  launching [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
+  # SPOT preemption contract (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
+  # item 9): lc_write_preemption_signal_file marks a SPOT shutdown as an expected
+  # preemption for fleet monitors (instead of an unexplained DP_VM_GONE_NO_CAPTURE).
+  lc_write_preemption_signal_file
   # shellcheck disable=SC2086
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
@@ -123,7 +130,8 @@ for SHARD in "${SHARDS[@]}"; do
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --labels="purpose=instruments-backfill,asset-group=tradfi,venue=$(echo "${VENUE}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
-    --metadata="${METADATA}"
+    --metadata="${METADATA}" \
+    --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
   echo "  created. log: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"
   sleep 2
 done
