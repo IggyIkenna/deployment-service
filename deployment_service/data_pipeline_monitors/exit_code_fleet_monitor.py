@@ -21,8 +21,12 @@ This monitor is census-diffing + durable-signal-reading:
        - ``DP_VM_GONE_NO_CAPTURE`` (CRITICAL) when the VM drained but captured did
          NOT climb (``exit_code == 0`` but flat captured — the silent-zero class).
        - ``DP_VM_PREEMPTED`` (INFO, ``auto_recover``) when the durable ``PREEMPTED``
-         signal blob is present (SPOT reclaim) — dispatches a preemption-aware
-         relaunch (``relaunch_backfill_vm.RelaunchPreemptedVm``, replaying the
+         signal blob is present (SPOT reclaim), OR — when the blob is absent AND
+         a ``project_id`` was supplied — the Compute Operations API confirms a
+         ``compute.instances.preempted`` event for this VM (``_gcp_ops.py``; a
+         fallback for the guest-shutdown-script race on an early-boot
+         preemption). Dispatches a preemption-aware relaunch
+         (``relaunch_backfill_vm.RelaunchPreemptedVm``, replaying the
          launch-time env captured by ``lc_write_launch_params``) THROUGH the
          launcher's own ``tardis_concurrency_guard``. Closes the P0 "SPOT
          preemption DELETES waves and nothing relaunches them" gap
@@ -75,7 +79,7 @@ from unified_trading_library.events import (  # noqa: qg-deep-import
     DP_VM_GONE_NO_CAPTURE,
 )
 
-from deployment_service.data_pipeline_monitors import _gcs
+from deployment_service.data_pipeline_monitors import _gcp_ops, _gcs
 from deployment_service.data_pipeline_monitors._gcs import NoCaptureReason
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -426,6 +430,8 @@ def sweep(
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
+    project_id: str = "",
+    preemption_operations_checker: Callable[[str, str], bool] | None = None,
 ) -> list[TerminationResult]:
     """Run one exit-code-aware fleet sweep.
 
@@ -450,6 +456,13 @@ def sweep(
             ``live_stream_watcher.py`` DP-LIVE-001/002.
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
+        project_id: GCP project for the Compute Operations API preemption
+            fallback (see ``_gcp_ops.py``). Empty string (the default) skips
+            the fallback entirely — behavior is then identical to before this
+            parameter existed (blob-only preemption detection).
+        preemption_operations_checker: optional ``(project_id, vm_name) -> bool``
+            override for ``_gcp_ops.was_vm_preempted_via_operations_api`` — a
+            test injection point; production callers leave this ``None``.
 
     Returns the list of TerminationResult for VMs that terminated since last tick.
     """
@@ -485,6 +498,29 @@ def sweep(
         # so we don't download the run.log for those (keeps the per-tick download
         # count low, mirrors the OOM-fix double-download discipline).
         is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
+        if (
+            not is_preempted
+            and not is_live_vm
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+            and project_id
+        ):
+            # Fallback: the guest-written PREEMPTED blob can race an
+            # early-boot preemption's shutdown grace window (confirmed
+            # 2026-07-30 — see _gcp_ops.py docstring for the incident). Only
+            # worth the extra Compute Operations API call for the candidate
+            # class that would otherwise resolve GONE_NO_CAPTURE — a
+            # non-zero exit or a climbing capture is already unambiguous
+            # without it.
+            checker = preemption_operations_checker or _gcp_ops.was_vm_preempted_via_operations_api
+            is_preempted = checker(project_id, name)
+            if is_preempted:
+                logger.info(
+                    "exit_code_fleet_monitor: %s — PREEMPTED blob absent but the Compute "
+                    "Operations API confirms a compute.instances.preempted event; classifying "
+                    "as benign SPOT reclaim instead of DP_VM_GONE_NO_CAPTURE",
+                    name,
+                )
         # A terminated VM with NO durable exit marker AND climbing captured is the
         # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
         # SAME relaunch-replay env as PREEMPTED. Resolve the gate here (mirrors the
