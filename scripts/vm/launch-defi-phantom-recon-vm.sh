@@ -47,11 +47,18 @@
 #                                                                  # pyth_oracle_prices_stale_ghost_
 #                                                                  # failure_rows_2026_07_28.md)
 #
-# Cost: e2-standard-4 + 50GB. ~13 min for full DEFI per CLAUDE.md
-# (~222 prefixes/sec on same-region GCE). Larger asset_groups (CEFI ~313k
-# rows) take 30-60 min. MACHINE_TYPE/VENUES env vars override the default box
-# size / venue scope (the initial manifest load is asset_group-wide regardless
-# of VENUES -- it only trims the downstream audit-loop scope, not the load).
+# Cost: e2-standard-4 + 50GB (defi defaults to e2-highmem-8/64GB instead --
+#   reconcile_phantom_manifest_rows_all.py's full-wide-schema manifest read
+#   OOM-killed at 15.4GB RSS on e2-standard-4 and stalled at 96% mem even on a
+#   64GB e2-highmem-8 box under the heavier 3-4-script chain -- see
+#   /plans/active/issues/reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md;
+#   this bumped default is the largest size that DIDN'T hard-OOM-kill in that
+#   incident, not a guaranteed-sufficient floor). ~13 min for full DEFI per
+# CLAUDE.md (~222 prefixes/sec on same-region GCE). Larger asset_groups (CEFI
+# ~313k rows) take 30-60 min. MACHINE_TYPE/VENUES env vars override the default
+# box size / venue scope (the initial manifest load is asset_group-wide
+# regardless of VENUES -- it only trims the downstream audit-loop scope, not
+# the load).
 #
 # Singleton lock: refuses to launch if another defi-phantom-recon-* VM is
 # RUNNING in the zone. The audit script reads the canonical manifest +
@@ -124,7 +131,13 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# defi's manifest read materializes the full wide schema and has OOM-killed at
+# 16GB (e2-standard-4) — default it to a bigger box per
+# reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md; other
+# asset_groups are unaffected and keep the smaller default.
+_DEFAULT_MACHINE_TYPE="e2-standard-4"
+[ "$ASSET_GROUP" = "defi" ] && _DEFAULT_MACHINE_TYPE="e2-highmem-8"
+MACHINE_TYPE="${MACHINE_TYPE:-$_DEFAULT_MACHINE_TYPE}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 VENUES="${VENUES:-}"
 

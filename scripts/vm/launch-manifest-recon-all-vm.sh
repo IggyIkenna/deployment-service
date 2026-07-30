@@ -45,12 +45,19 @@
 #   bash launch-manifest-recon-all-vm.sh --force cefi     # bypass singleton lock
 #   bash launch-manifest-recon-all-vm.sh --env staging cefi
 #
-# Cost: e2-standard-4 + 50GB (override via MACHINE_TYPE=e2-highmem-8 etc. — the
+# Cost: e2-standard-4 + 50GB (defi defaults to e2-highmem-8/64GB instead — see
+#   below; override either via MACHINE_TYPE=... — the
 #   merge_canonical_with_outstanding_shards manifest read scales with the CURRENT
 #   count of outstanding per-VM shards across the fleet, not just corpus size; a
 #   defi dry-run OOM-killed at 15.4GB RSS on 2026-07-28 under elevated concurrent-
 #   backfill load, so 16GB is not a safe floor when other DeFi VMs are actively
-#   writing shards). Estimated runtime (read-only, same-region):
+#   writing shards; a follow-up e2-highmem-8/64GB run on the SAME corpus stalled
+#   at 96% mem instead of completing — see
+#   /plans/active/issues/reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md
+#   — so even this bumped default is not a guaranteed-sufficient floor for the
+#   full 3-4-script chain, just the largest size this incident actually tested
+#   without a hard kernel OOM-kill; the real fix is the column-pruned read path
+#   tracked as that doc's P3 follow-on). Estimated runtime (read-only, same-region):
 #   cefi/tradfi: ~45-60 min | defi: ~15 min | sports/prediction: ~10 min
 set -euo pipefail
 
@@ -85,7 +92,13 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# defi's manifest read materializes the full wide schema and has OOM-killed at
+# 16GB (e2-standard-4) — default it to a bigger box per
+# reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md; other
+# asset_groups are unaffected and keep the smaller default.
+_DEFAULT_MACHINE_TYPE="e2-standard-4"
+[ "$ASSET_GROUP" = "defi" ] && _DEFAULT_MACHINE_TYPE="e2-highmem-8"
+MACHINE_TYPE="${MACHINE_TYPE:-$_DEFAULT_MACHINE_TYPE}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Singleton check per-asset-group (different asset_groups may run in parallel).
