@@ -56,10 +56,13 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader"
 # nothing publishes here any more. Removing this dead HCL block now (rather than leaving it)
 # because a future `tofu apply` that happened to touch this resource would 404 trying to
 # read/create IAM on a topic that is gone. Live-mode publish access to `service-lifecycle-events`
-# is confirmed WORKING today (real, growing message throughput on `service-lifecycle-events-sub`,
-# verified via Cloud Monitoring 2026-07-30) via whatever mechanism already grants it — this file
-# never declared a `t1_batch`-specific publisher grant for the OLD topic's replacement and none
-# was needed, so none is added here either.
+# is confirmed WORKING today — verified two independent ways: real, growing message throughput
+# on `service-lifecycle-events-sub` (Cloud Monitoring, 2026-07-30), and directly via SSH into a
+# running live-mode VM (mtds-live-cefi-consolidated-20260730-010147), where every shard logs
+# "Live mode: using PubSubEventSink topic=service-lifecycle-events" and has run clean for 4+
+# hours with zero PERMISSION_DENIED/NotFound crashes — via whatever mechanism already grants it;
+# this file never declared a `t1_batch`-specific publisher grant for the OLD topic's replacement
+# and none was needed, so none is added here either.
 
 # Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) — secondary topic
 # referenced in the PubSubEventSink initialisation. Same root cause as above.
