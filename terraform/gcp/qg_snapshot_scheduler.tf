@@ -46,16 +46,20 @@ resource "google_storage_bucket_iam_member" "t1_batch_deployment_scripts_reader"
   member = "serviceAccount:${google_service_account.t1_batch.email}"
 }
 
-# Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) in live mode, which
-# publishes to market-tick-data-service-events via PubSubEventSink. Without this the
-# VM process crashes with PERMISSION_DENIED at startup before any data collection.
-# Granted ad-hoc 2026-06-23 via gcloud pubsub topics add-iam-policy-binding.
-resource "google_pubsub_topic_iam_member" "t1_batch_market_tick_events_publisher" {
-  project = var.project_id
-  topic   = "market-tick-data-service-events"
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${google_service_account.t1_batch.email}"
-}
+# REMOVED 2026-07-30 (live_mode_event_sink_topic_missing_2026_06_21.md P3 todo): this
+# resource granted IAM on the interim, unmanaged "market-tick-data-service-events" topic
+# (created ad-hoc 2026-06-23, never terraform-imported/tracked in EITHER dev or prod
+# state — confirmed via `tofu state list` on both). That topic itself no longer exists
+# (`gcloud pubsub topics describe market-tick-data-service-events` -> NOT_FOUND, 2026-07-30) —
+# the Option-A fix (unified-trading-library@9bdcf7a2) repointed the UTL sink at the shared,
+# terraform-managed `service-lifecycle-events` topic instead of this per-service name, so
+# nothing publishes here any more. Removing this dead HCL block now (rather than leaving it)
+# because a future `tofu apply` that happened to touch this resource would 404 trying to
+# read/create IAM on a topic that is gone. Live-mode publish access to `service-lifecycle-events`
+# is confirmed WORKING today (real, growing message throughput on `service-lifecycle-events-sub`,
+# verified via Cloud Monitoring 2026-07-30) via whatever mechanism already grants it — this file
+# never declared a `t1_batch`-specific publisher grant for the OLD topic's replacement and none
+# was needed, so none is added here either.
 
 # Required for UTL ServiceRuntime bootstrap (log_event("STARTED")) — secondary topic
 # referenced in the PubSubEventSink initialisation. Same root cause as above.
@@ -210,15 +214,15 @@ resource "google_cloud_scheduler_job" "qg_snapshot_daily" {
       }]
       metadata = {
         items = [
-          { key = "startup-script-url",        value = local.qg_snapshot_startup_url },
-          { key = "VM_TASK",                   value = "qg-snapshot" },
-          { key = "VM_SERVICE",                value = "qg_snapshot" },
-          { key = "VM_OPERATION",              value = "qg-snapshot" },
-          { key = "VM_BACKFILL_CMD",           value = local.qg_snapshot_backfill_cmd },
-          { key = "DEPLOYMENT_ENV",            value = var.environment },
+          { key = "startup-script-url", value = local.qg_snapshot_startup_url },
+          { key = "VM_TASK", value = "qg-snapshot" },
+          { key = "VM_SERVICE", value = "qg_snapshot" },
+          { key = "VM_OPERATION", value = "qg-snapshot" },
+          { key = "VM_BACKFILL_CMD", value = local.qg_snapshot_backfill_cmd },
+          { key = "DEPLOYMENT_ENV", value = var.environment },
           { key = "VM_SHUTDOWN_ON_COMPLETION", value = "true" },
-          { key = "GCP_PROJECT_ID",            value = var.project_id },
-          { key = "WORKSPACE_ROOT",            value = "/home/unified/workspace" },
+          { key = "GCP_PROJECT_ID", value = var.project_id },
+          { key = "WORKSPACE_ROOT", value = "/home/unified/workspace" },
         ]
       }
       labels = { purpose = "qg-snapshot", env = var.environment }
