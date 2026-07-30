@@ -228,7 +228,10 @@ class ManifestReader:
             # env-tiered ``instruments-store-cefi-prd-{pid}`` canonical probe bucket
             # (never the legacy no-env form decommissioned at the cefi cutover).
             probe_bucket = get_bucket_name("instruments", "CEFI")
-            read_availability_index(probe_bucket)
+            # Result is never inspected — only whether the read succeeds — so
+            # project to the single cheapest column instead of decoding the
+            # whole (multi-GB for defi) index just to discard it.
+            read_availability_index(probe_bucket, columns=["date"])
             self._available = True
         except Exception:
             self._available = False
@@ -258,7 +261,11 @@ class ManifestReader:
             frames: list[pd.DataFrame] = []
             for bkt in all_buckets:
                 try:
-                    idx = read_availability_index(bkt)
+                    # Projected to the columns this method actually reads
+                    # (confirmed by direct read below): date/service_name for
+                    # the completion-window filter, venue for the returned
+                    # venue list.
+                    idx = read_availability_index(bkt, columns=["date", "service_name", "venue"])
                     if not idx.empty:
                         frames.append(idx)
                 except Exception:
@@ -324,7 +331,12 @@ class ManifestReader:
             primary_bucket = all_buckets[0] if all_buckets else ""
             for bkt in all_buckets:
                 try:
-                    idx = read_availability_index(bkt)
+                    # Projected to the columns this method actually reads
+                    # (confirmed by direct read below): date/venue/service_name
+                    # for the completion filter + per-venue breakdown,
+                    # league_id for the per-league sub-breakdown
+                    # (_build_league_breakdown).
+                    idx = read_availability_index(bkt, columns=["date", "venue", "service_name", "league_id"])
                     if not idx.empty:
                         frames.append(idx)
                 except Exception:
@@ -597,8 +609,10 @@ class ManifestReader:
             if date:
                 target_date = date
             else:
-                # Scan for latest date with this venue
-                index = read_availability_index(bucket_name)
+                # Scan for latest date with this venue — projected to the
+                # columns actually read below (venue for the lookup mask,
+                # date for the max()).
+                index = read_availability_index(bucket_name, columns=["venue", "date"])
                 if not index.empty and "venue" in index.columns:
                     index["venue"] = index["venue"].replace(_VENUE_ALIASES)
                     v_mask = index["venue"] == venue
@@ -687,7 +701,11 @@ class ManifestReader:
             frames: list[pd.DataFrame] = []
             for bkt in all_buckets:
                 try:
-                    idx = read_availability_index(bkt)
+                    # Projected to the columns this method actually reads
+                    # (confirmed by direct read below): date/venue for the
+                    # shard/date/venue counts, instrument_count for the
+                    # total-rows sum.
+                    idx = read_availability_index(bkt, columns=["date", "venue", "instrument_count"])
                     if not idx.empty:
                         frames.append(idx)
                 except Exception:
