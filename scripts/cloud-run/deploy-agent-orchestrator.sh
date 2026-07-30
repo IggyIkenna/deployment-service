@@ -96,12 +96,21 @@ if [[ "${USE_CLOUD_BUILD}" == true ]]; then
 else
   echo "=== Local Docker Build (linux/amd64 → ${IMAGE_REF}) ==="
   gcloud auth configure-docker europe-west4-docker.pkg.dev --quiet 2>/dev/null || true
+  # GAR token for the Dockerfile's `uv pip install --system .` layer
+  # (RUN --mount=type=secret,id=gar_token, added alongside the fleet-wide
+  # cloud_build_unified_api_contracts_publish_ordering_race fix).
+  GAR_TOKEN_FILE="$(mktemp)"
+  trap 'rm -f "${GAR_TOKEN_FILE}"' EXIT
+  gcloud auth print-access-token > "${GAR_TOKEN_FILE}"
   docker buildx build \
     --platform linux/amd64 \
+    --secret "id=gar_token,src=${GAR_TOKEN_FILE}" \
     --build-arg "PROJECT_ID=${PROJECT_ID}" \
     -t "${IMAGE_REF}" \
     --load \
     "${REPO_ROOT}"
+  rm -f "${GAR_TOKEN_FILE}"
+  trap - EXIT
   echo "=== Pushing image ==="
   docker push "${IMAGE_REF}"
 fi

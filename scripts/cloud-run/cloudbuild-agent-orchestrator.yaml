@@ -24,10 +24,26 @@ steps:
       - "-c"
       - "docker pull ${_IMAGE} || echo 'No prior image for ${_IMAGE} — cold build.'"
 
+  # Mint a GAR access token for the Dockerfile's `uv pip install --system .` layer
+  # (RUN --mount=type=secret,id=gar_token, added alongside the fleet-wide
+  # cloud_build_unified_api_contracts_publish_ordering_race fix). This step's image
+  # has gcloud; the "build" step's image (gcr.io/cloud-builders/docker) does not.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:alpine"
+    id: "mint-gar-token"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -e
+        gcloud auth print-access-token > /workspace/.gar_token
+    waitFor: ["-"]
+
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
     args:
       - "build"
+      - "--secret"
+      - "id=gar_token,src=/workspace/.gar_token"
       - "--cache-from"
       - "${_IMAGE}"
       - "--build-arg"
@@ -37,7 +53,7 @@ steps:
       - "-t"
       - "${_IMAGE}"
       - "."
-    waitFor: ["pull-cache"]
+    waitFor: ["pull-cache", "mint-gar-token"]
 
 images:
   - "${_IMAGE}"
