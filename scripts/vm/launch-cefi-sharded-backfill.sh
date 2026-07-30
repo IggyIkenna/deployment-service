@@ -45,11 +45,17 @@
 #
 # Observability (MUST match):
 #   - startup-script-url=gs://deployment-scripts.../vm/setup-data-pipeline-vm.sh
-#   - VM_TASK=cefi-backfill → routes through setup-data-pipeline-vm.sh line 424
-#     elif branch which assembles --operation/--mode/--asset-group/--venues/... CLI
+#   - VM_TASK=cefi-coverage-backfill → routes through setup-data-pipeline-vm.sh's
+#     dedicated `elif [[ "$VM_TASK" == "cefi-coverage-backfill" ]]` branch (renamed off
+#     the generic, ~15-launcher-shared VM_TASK=cefi-backfill label 2026-07-30, per
+#     cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md todo 2, so this
+#     launcher gets its own day-chunked loop + PROGRESS.json checkpoint emission
+#     without touching the other unrelated launchers still using the shared label)
 #   - VM_INSTRUMENT_IDS comma-separated (setup script expands to space-sep
 #     --instrument-ids nargs='+' argparse)
 #   - heartbeat + watchdog are in the GCS tee wrapper; nothing to add here
+#   - PROGRESS.json checkpoint: emitted per day-chunk by setup-data-pipeline-vm.sh's
+#     cefi-coverage-backfill branch (gs://deployment-scripts.../vm-logs/{vm}/PROGRESS.json)
 #
 # Dry-run:  DRY_RUN=1 bash scripts/vm/launch-cefi-sharded-backfill.sh
 set -e
@@ -406,7 +412,7 @@ launch_cefi_shard() {
   local vm_name="cefi-${venue_lower}-${year}-${group}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
-  meta+="|VM_TASK=cefi-backfill"
+  meta+="|VM_TASK=cefi-coverage-backfill"
   meta+="|VM_SERVICE=market_tick_data_service"
   meta+="|VM_OPERATION=download"
   meta+="|VM_ASSET_GROUP=CEFI"
@@ -745,7 +751,7 @@ _launch_queued_vm() {
   local vm_name="cefi-queue-${group}-${_vt_tag}-${RUN_TS}"
 
   local meta="startup-script-url=$STARTUP"
-  meta+=",VM_TASK=cefi-backfill"
+  meta+=",VM_TASK=cefi-coverage-backfill"
   meta+=",VM_SERVICE=market_tick_data_service"
   meta+=",VM_OPERATION=download"
   meta+=",VM_ASSET_GROUP=CEFI"
