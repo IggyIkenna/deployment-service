@@ -20,6 +20,10 @@
 #     OKX-FUTURES:     trades, book_snapshot_5, derivative_ticker
 #   Deribit BTC/ETH options → derivative_ticker ONLY (options_chain WS not yet wired):
 #     DERIBIT:         derivative_ticker
+#   ASTER → book_snapshot_5 + liquidations ONLY, both LIVE-ONLY data_types (added
+#   2026-07-28 per operator ruling folding the ASTER live-connector ask into this
+#   consolidation instead of a standalone VM; trades stays batch-captured):
+#     ASTER:           book_snapshot_5, liquidations
 #
 # Note: Deribit trades + book_snapshot_5 are NOT in the MVP CeFi live scope (MVP spec:
 # Deribit = options_chain only; options_chain live WS is a future Phase 3.5 item).
