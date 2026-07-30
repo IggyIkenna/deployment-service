@@ -38,7 +38,7 @@ output "webhook_urls" {
 
 output "setup_instructions" {
   description = "Post-apply setup instructions"
-  value = <<-EOT
+  value       = <<-EOT
     ============================================================
     AWS CodeBuild Setup Complete!
     ============================================================

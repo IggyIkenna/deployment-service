@@ -1,7 +1,51 @@
 # Terraform configuration for AWS CodeBuild projects
-# Creates build projects for all 11 services
+# Creates build projects for all 18 live services (1:1 with locals.services below)
 #
 # Equivalent to GCP Cloud Build triggers
+#
+# =============================================================================
+# ⛔ DO NOT `terraform apply` THIS MODULE — NOT APPLY-CLEAN (measured 2026-07-30)
+# =============================================================================
+# The 18 CodeBuild projects + the IAM role/policy + the CodeArtifact domain/repo were all created
+# IMPERATIVELY (out-of-band), never from this module. The S3 backend below was stood up 2026-07-30
+# and is live, but the state is deliberately left EMPTY — the import was NOT completed, because a
+# full dry-run import into a throwaway local state measured, against this exact file:
+#
+#     Plan: 19 to add, 22 to change, 0 to destroy
+#
+# (As first measured it was 20/21/1 — the aws_iam_role_policy rename below removed the destroy.)
+# Leaving the state empty is the safety property: with no state, an accidental `apply` fails fast
+# on already-exists instead of silently converging live CI onto the diffs listed here.
+#
+# Several of those diffs would BREAK live CI for all 18 repos if applied. The blocking ones:
+#
+#  1. `aws_iam_role_policy.codebuild_policy` — in-place UPDATE of the policy body. This block
+#     narrows secretsmanager:GetSecretValue from the live `secret:*` to `secret:github-token*`. Every
+#     project below injects `GH_PAT` as a SECRETS_MANAGER env var, and the buildspecs also read
+#     `github-pat` + `unified-trading/github-actions-sa-key` — NONE of which match `github-token*`.
+#     Applying would revoke secret access and fail every build at start. It also drops the live
+#     `ecr:CreateRepository` grant.
+#  2. `aws_codebuild_webhook.services` (18) — CREATE. ZERO webhooks exist live, on the CodeBuild
+#     side or the GitHub side (verified across all 18 repos, 2026-07-30). Builds are dispatched by
+#     the GitHub Actions router (`aws codebuild start-build`), NOT by push webhooks. Creating these
+#     would switch on a second, duplicate trigger path for every repo.
+#  3. `market-tick-data-service` + `unified-trading-library` — the two heavy base builds run live on
+#     BUILD_GENERAL1_LARGE / aws/codebuild/standard:7.0. This module would downgrade both to
+#     BUILD_GENERAL1_MEDIUM / amazonlinux2-x86_64-standard:5.0.
+#  4. `build_timeout` — live is 60 min on 16 of 18 projects; this module would cut them to 30/45.
+#
+# The rest of the 22 changes are cosmetic (description, `Service`/`Project`/`Environment`/`ManagedBy`
+# default_tags, git_clone_depth, logs_config) plus two that look like LIVE is the side that drifted:
+# `unified-trading-library` has no source_version at all (should be live-defi-rollout) and
+# `instruments-service` still points at the pre-canonical `buildspec.yml`.
+#
+# Resolving each diff is a per-attribute "is live right, or is this file right?" decision (it is
+# genuinely a mix of both) and is operator-gated — it is NOT determinable from the code alone.
+# Until it is resolved, treat this module as documentation, not as an executable SSOT.
+#
+# Full per-attribute drift inventory + the decision list:
+#   /plans/active/issues/aws_codebuild_terraform_import_pending_2026_07_22.md
+# =============================================================================
 
 terraform {
   required_version = ">= 1.0.0"
@@ -13,14 +57,21 @@ terraform {
     }
   }
 
-  # Uncomment after setting up state bucket
-  # backend "s3" {
-  #   bucket         = "unified-trading-terraform-state-ACCOUNT_ID"
-  #   key            = "cloud-build/terraform.tfstate"
-  #   region         = "ap-northeast-1"
-  #   encrypt        = true
-  #   dynamodb_table = "unified-trading-terraform-locks"
-  # }
+  # State backend — stood up 2026-07-30.
+  #
+  # `bucket` is the state bucket that ALREADY EXISTS and already holds this estate's real state
+  # (terraform/state, .../dev, .../prod, .../staging) — `uts-terraform-state-<account_id>`, the
+  # `uts-terraform-state-{project_id}` template in configs/bucket_config.yaml. The name previously
+  # stubbed here (`unified-trading-terraform-state-ACCOUNT_ID`) has NEVER existed in this account;
+  # pointing at it would have forked the convention into a second state bucket. `key` is distinct
+  # from every existing key, so this module gets its own isolated state file.
+  backend "s3" {
+    bucket         = "uts-terraform-state-427895769566"
+    key            = "cloud-build/terraform.tfstate"
+    region         = "ap-northeast-1"
+    encrypt        = true
+    dynamodb_table = "unified-trading-terraform-locks"
+  }
 }
 
 provider "aws" {
@@ -71,16 +122,16 @@ locals {
     # deployment-ui builds NO standalone image — its buildspec.aws.yaml dispatches a deployment-api
     # build (the SPA is bundled into deployment-api). Mirrors GCP deployment-ui-main-deploy. The
     # codebuild_role's DispatchDeploymentApiBuild statement grants the StartBuild.
-    "deployment-ui"                     = { build_timeout = 30, build_branch = "main" }
-    "execution-service"                 = { build_timeout = 45, build_branch = "main" }
-    "features-service"                  = { build_timeout = 30, build_branch = "main" }
-    "fund-administration-service"       = { build_timeout = 30, build_branch = "main" }
-    "greeks-service"                    = { build_timeout = 30, build_branch = "main" }
-    "instruments-service"               = { build_timeout = 30, build_branch = "main" }
-    "market-data-processing-service"    = { build_timeout = 30, build_branch = "main" }
-    "ml-service"                        = { build_timeout = 45, build_branch = "main" }
-    "strategy-service"                  = { build_timeout = 30, build_branch = "main" }
-    "trading-agent-service"             = { build_timeout = 30, build_branch = "main" }
+    "deployment-ui"                  = { build_timeout = 30, build_branch = "main" }
+    "execution-service"              = { build_timeout = 45, build_branch = "main" }
+    "features-service"               = { build_timeout = 30, build_branch = "main" }
+    "fund-administration-service"    = { build_timeout = 30, build_branch = "main" }
+    "greeks-service"                 = { build_timeout = 30, build_branch = "main" }
+    "instruments-service"            = { build_timeout = 30, build_branch = "main" }
+    "market-data-processing-service" = { build_timeout = 30, build_branch = "main" }
+    "ml-service"                     = { build_timeout = 45, build_branch = "main" }
+    "strategy-service"               = { build_timeout = 30, build_branch = "main" }
+    "trading-agent-service"          = { build_timeout = 30, build_branch = "main" }
   }
 }
 
@@ -106,7 +157,16 @@ resource "aws_iam_role" "codebuild_role" {
 }
 
 resource "aws_iam_role_policy" "codebuild_policy" {
-  name = "unified-trading-codebuild-policy"
+  # Renamed 2026-07-30 from "unified-trading-codebuild-policy" to match the LIVE inline policy name
+  # on unified-trading-codebuild-role. Direction chosen deliberately: renaming the live policy
+  # instead would mean a put+delete of the inline policy on the role that all 18 active CodeBuild
+  # projects assume — a live IAM mutation with a window where an in-flight build loses permissions.
+  # Editing this string is zero-risk and achieves the same reconciliation, so the code moved.
+  #
+  # NOTE: the name now matches, but the policy BODY below still does not (see the DO-NOT-APPLY
+  # banner at the top of this file — the secretsmanager scope in particular would break every
+  # build). Matching the name only downgrades this resource from replace to in-place update.
+  name = "codebuild-permissions"
   role = aws_iam_role.codebuild_role.id
 
   policy = jsonencode({
@@ -233,7 +293,7 @@ resource "aws_codebuild_project" "services" {
     compute_type                = var.compute_type
     image                       = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
     type                        = "LINUX_CONTAINER"
-    privileged_mode             = true  # Required for Docker builds
+    privileged_mode             = true # Required for Docker builds
     image_pull_credentials_type = "CODEBUILD"
 
     environment_variable {
