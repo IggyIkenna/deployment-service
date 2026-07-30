@@ -95,8 +95,10 @@ locals {
 
   # Canonical live CodeBuild set — reconciled 1:1 with workspace-manifest.json live repos (2026-06-19).
   # Replaces the stale list (archived per-family features-* / mis-named execution-services) that matched
-  # NEITHER the live AWS projects NOR GCP. The live projects were created imperatively (see § "terraform import"
-  # in plans/active/test_fleet_image_builds_from_current_code_2026_06_17.md) — apply/import against THIS set.
+  # NEITHER the live AWS projects NOR GCP. The live projects were created imperatively — see the import
+  # status + drift inventory in /plans/active/issues/aws_codebuild_terraform_import_pending_2026_07_22.md
+  # (the originating plan, test_fleet_image_builds_from_current_code_2026_06_17, archived to
+  # /plans/archive/2026_07/ once that work was migrated to the issue doc).
   #
   # build_branch mirrors the GCP firing model exactly. GCP fires three triggers on live-defi-rollout —
   # unified-trading-library (base image), unified-api-contracts (base wheel) and market-tick-data-service
