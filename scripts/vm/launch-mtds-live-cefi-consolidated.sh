@@ -42,6 +42,11 @@
 # all MVP shards in-process. If RSS stays well under 96 GB after 15 min, shrink to
 # n2-highmem-8. Cost: e2-highmem-16 ≈ $0.71/hr = ~$17/day on-demand.
 #
+# Zone: default asia-northeast1-c. On a ZONE_RESOURCE_POOL_EXHAUSTED stockout, retry
+# with --zone asia-northeast1-b (or -a) — same-region fallback ONLY, cross-region is
+# forbidden (all GCS data lives in asia-northeast1). SSOT: codex/05-infrastructure/
+# strategy-shard-vm-topology.md § Zone.
+#
 # Monitoring:
 #   gcloud compute ssh <VM_NAME> --zone=asia-northeast1-c --command 'ps aux | grep market_tick'
 #   gcloud compute ssh <VM_NAME> --zone=asia-northeast1-c --command 'cat /home/ikennaigboaka/logs/live-*.log | tail -50'
@@ -57,6 +62,10 @@ DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
 FORCE=false
 DRY_RUN=false
 MACHINE_TYPE="${MACHINE_TYPE:-e2-highmem-16}"
+# Same-region stockout fallback ONLY (asia-northeast1-b/-a) — cross-region is FORBIDDEN,
+# all GCS data lives in asia-northeast1 (codex/05-infrastructure/strategy-shard-vm-topology.md
+# § Zone). Default stays -c; override only when GCE returns ZONE_RESOURCE_POOL_EXHAUSTED.
+ZONE_OVERRIDE="${ZONE_OVERRIDE:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --machine-type) MACHINE_TYPE="$2"; shift 2 ;;
     --env) DEPLOYMENT_ENV="$2"; shift 2 ;;
     --force) FORCE=true; shift ;;
+    --zone) ZONE_OVERRIDE="$2"; shift 2 ;;
     *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -74,6 +84,12 @@ case "$DEPLOYMENT_ENV" in
 esac
 
 ZONE="asia-northeast1-c"
+if [[ -n "$ZONE_OVERRIDE" ]]; then
+  case "$ZONE_OVERRIDE" in
+    asia-northeast1-*) ZONE="$ZONE_OVERRIDE" ;;
+    *) echo "ERROR: --zone must stay in asia-northeast1 (same-region stockout fallback only — all GCS data lives in asia-northeast1; got: $ZONE_OVERRIDE)" >&2; exit 1 ;;
+  esac
+fi
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 VM_PREFIX="mtds-live-cefi-consolidated"
