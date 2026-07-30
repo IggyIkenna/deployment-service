@@ -247,6 +247,15 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # FRED macro backfill (launch-tradfi-bf-fred.sh emits tradfi-bf-fred-{full,YYYY}-{ts})
+    # writes the same TRADFI market-data bucket as the generic tradfi-bf- family; split out
+    # so the LONGER prefix wins longest-prefix match in launcher_registry.py (a FRED VM must
+    # resolve to its own dedicated single-VM launcher, not the CME/BTC/ETH sharded one — see
+    # the launcher_registry.py entry for why this mattered live, DP-VM-001 2026-07-30).
+    "tradfi-bf-fred-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     "tradfi-fwd-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
