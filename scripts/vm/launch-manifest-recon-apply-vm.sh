@@ -50,9 +50,13 @@
 #   bash launch-manifest-recon-apply-vm.sh --force cefi   # bypass singleton lock
 #   bash launch-manifest-recon-apply-vm.sh --env staging cefi
 #
-# Cost: e2-standard-4 + 50GB (override via MACHINE_TYPE=e2-highmem-8 etc. — see
-#   launch-manifest-recon-all-vm.sh's Cost comment for the 2026-07-28 OOM finding).
-#   Estimated runtime (apply mode, same-region):
+# Cost: defi defaults to e2-standard-8 (32GB/8vCPU — matches
+#   cf_manifest_audit_scheduler.tf's proven sizing for this corpus; see
+#   reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md).
+#   Other asset_groups default to e2-standard-4 + 50GB (override via
+#   MACHINE_TYPE=e2-highmem-8 etc. — see launch-manifest-recon-all-vm.sh's Cost
+#   comment for the 2026-07-28 OOM finding). Estimated runtime (apply mode,
+#   same-region):
 #   cefi: ~30-60 min (2,223 phantom flips + 3,146 null-reason stamps)
 #   defi: ~15-20 min (1,298 phantom flips, 0 null-reason)
 #   tradfi: ~20-30 min (3,976 phantom flips, 0 null-reason, 5,212 legacy-blank flips)
@@ -93,7 +97,17 @@ esac
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# defi defaults to a 32Gi/8vCPU-equivalent box (e2-standard-8) -- matches
+# cf_manifest_audit_scheduler.tf's proven provisioning for this exact corpus
+# (4Gi/16Gi OOM'd / e2-highmem-8(64GB) stalled loading the full defi manifest --
+# see reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md).
+# Other asset_groups keep the e2-standard-4 default; MACHINE_TYPE still
+# overrides for any asset_group.
+if [[ "$ASSET_GROUP" == "defi" ]]; then
+    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+else
+    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+fi
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Singleton check per-asset-group (different asset_groups may run in parallel).
