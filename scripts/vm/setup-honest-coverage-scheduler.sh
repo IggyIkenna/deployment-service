@@ -18,6 +18,15 @@
 # Cloud Run Job:  honest-coverage-daily-launcher (CREATED 2026-05-15)
 # Plan:           plans/active/issues/honest_coverage_cron_vm_scheduling_2026_05_14.md
 #
+# NOTE (deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md):
+# this script is a one-time, human-run `gcloud scheduler jobs create/update` invocation —
+# it never runs ON a GCE VM and never reads instance/project metadata, so the
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE project-metadata fallback (_meta_project(),
+# added to the sibling setup-*.sh scripts) does not apply here. Both VM launchers this
+# scheduler ultimately triggers (launch-honest-coverage-vm.sh and
+# launch-measure-honest-coverage-vm.sh) already pass
+# `startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh` — that script carries the fix.
+#
 # Usage (run as Ikenna / owner account):
 #   bash setup-honest-coverage-scheduler.sh              # create scheduler job
 #   bash setup-honest-coverage-scheduler.sh --dry-run    # print command only
