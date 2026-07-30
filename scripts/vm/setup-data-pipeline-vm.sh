@@ -2096,6 +2096,26 @@ elif [[ "$VM_TASK" == "sports-derived-features-census" ]]; then
   else
     log "ERROR: sports-derived-features-census task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "batch-live-recon" ]]; then
+  # Nightly T+1 batch-live reconciliation — launch-batch-live-recon-cron-vm.sh
+  # prepares the correct `python -m batch_live_reconciliation_service --operation
+  # reconcile ...` invocation in VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch
+  # shape as datapoint-validation/orphan-sweep above). Found 2026-07-30 (first
+  # real launch-run, soak-testing the dualwrite Firestore fix): this VM_TASK had
+  # NO dispatch branch here — same root-cause class as the branches above, the
+  # VM self-deleted rc=1 within ~3 minutes without ever running the
+  # reconciliation. Target workspace dir is batch-live-reconciliation-service's
+  # own tarball (TARBALL_DIRS["batch-live-reconciliation-service-code"]="blr"
+  # above).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/blr" || { log "ERROR: $WORKSPACE/blr missing — batch-live-reconciliation-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/batch-live-recon.log"
+  else
+    log "ERROR: batch-live-recon task without VM_BACKFILL_CMD metadata"
+  fi
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12
   # sports-v9-migration, 2026-07-13 defi-paper, 2026-07-21 datapoint-validation —
