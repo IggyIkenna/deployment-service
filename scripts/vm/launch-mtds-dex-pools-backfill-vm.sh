@@ -162,6 +162,11 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
         || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
 fi
 
+# SPOT preemption contract (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
+# item 9): lc_write_preemption_signal_file marks a SPOT shutdown as an expected
+# preemption for fleet monitors (instead of an unexplained DP_VM_GONE_NO_CAPTURE).
+lc_write_preemption_signal_file
+
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
   --zone="${ZONE}" \
@@ -173,7 +178,8 @@ gcloud compute instances create "${VM_NAME}" \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
   --labels="purpose=mtds-dex-pools-backfill,env=${DEPLOYMENT_ENV}" \
-  --metadata="^;^${METADATA}"
+  --metadata="^;^${METADATA}" \
+  --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
 
 echo ""
 echo "  VM created: ${VM_NAME}"
