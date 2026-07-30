@@ -2273,6 +2273,11 @@ elif [ -n "$VM_TASK" ]; then
   # --max-duration-seconds N) so it actually terminates instead of running forever — only
   # meaningful for websocket-streaming; a real (non-test) live producer never sets this.
   [[ -n "$VM_MAX_DURATION_SECONDS" ]] && CLI_ARGS="$CLI_ARGS --max-duration-seconds $VM_MAX_DURATION_SECONDS"
+  # VM_BATCH_DATE_CONCURRENCY: OPT-IN, DEFAULT-OFF (mirrors the mtds-backfill branch's
+  # identically-named forward above) — only appended when a launcher explicitly opts in.
+  # An unset/older UTL build has no such flag, so this must stay absent by default.
+  VM_BATCH_DATE_CONCURRENCY=$(_meta VM_BATCH_DATE_CONCURRENCY)
+  [[ -n "$VM_BATCH_DATE_CONCURRENCY" ]] && CLI_ARGS="$CLI_ARGS --batch-date-concurrency $VM_BATCH_DATE_CONCURRENCY"
   _LAUNCH_LOG="$LOGS/backfill.log"
   [[ "${VM_OPERATION:-}" == "live_websocket" ]] && _LAUNCH_LOG="$LOGS/live.log"
   if [[ "$_FANOUT" == "1" ]]; then

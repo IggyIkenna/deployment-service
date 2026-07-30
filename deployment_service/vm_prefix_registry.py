@@ -722,6 +722,12 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # batch). Wired by launch-deribit-options-chain-daily.sh under Plan 6
     # infra_capture_and_devops_leftovers_2026_07_06 task 002.
     "deribit-opts-fwd-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # Deribit DVOL (BTC/ETH implied-vol index) FULL 2021-03-24->now historical
+    # batch backfill via the `collect-deribit-volatility-index` MTDS operation
+    # (handler shipped mtds@77ff475a). One-off; feeds VOL_CARRY / VOL_ARB_RV_IV
+    # DVOL-backtestable engines. Wired by launch-deribit-dvol-backfill-vm.sh
+    # under vol_dvol_backtestable_engines_2026_07_13.md Todo 3.
+    "dvol-deribit-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # OKX BTC/ETH options_chain historical Tardis batch backfill — added
     # 2026-07-12 (cefi_deribit_combo_and_okx_bare_venue_gaps_2026_07_12.md
     # todo 2) once the options_chain/futures_chain exchange resolution
