@@ -120,6 +120,22 @@ def test_tradfi_ohlcv_stall_carries_a_launcher() -> None:
     assert launcher_path(launcher).exists()
 
 
+def test_tradfi_bf_fred_resolves_to_its_own_dedicated_launcher() -> None:
+    """A FRED macro-backfill VM resolves to launch-tradfi-bf-fred.sh, NOT the generic launcher.
+
+    Regression guard for a live 2026-07-30 DP-VM-001 finding: tradfi-bf-fred- had no registry
+    entry, so longest-prefix match fell back to the generic ``tradfi-bf-`` -> CME/BTC/ETH
+    launcher (which defaults --root-symbol=ES and has no FRED root at all) instead of FRED's
+    own single-VM launcher — a relaunch would have silently backfilled the wrong venue.
+    """
+    launcher = resolve_launcher_for_vm("tradfi-bf-fred-full-20260730-064542")
+    assert launcher == "launch-tradfi-bf-fred.sh"
+    assert launcher_path(launcher).exists()
+
+    year_smoke_launcher = resolve_launcher_for_vm("tradfi-bf-fred-2024-20260730-014447")
+    assert year_smoke_launcher == "launch-tradfi-bf-fred.sh"
+
+
 def test_longest_prefix_wins() -> None:
     """A more-specific prefix wins over its parent (longest-prefix match).
 

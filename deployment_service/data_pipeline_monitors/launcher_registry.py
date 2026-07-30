@@ -103,6 +103,15 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # tradfi-bf-* fans out across per-(venue,schedule) launchers; re-run via the
     # canonical generic backfill launcher (asset-group/source scoped).
     "tradfi-bf-": "launch-tradfi-backfill-vm.sh",
+    # FRED macro backfill is its OWN single-VM launcher (VM_NAME=tradfi-bf-fred-{full,YYYY}-{ts},
+    # see launch-tradfi-bf-fred.sh) — NOT a shard of the generic CME/BTC/ETH launcher above.
+    # Longest-prefix match makes this win for tradfi-bf-fred-* names. Without this entry a
+    # FRED VM's relaunch finding resolved to the WRONG launcher (the generic one defaults
+    # --root-symbol=ES and has no FRED root at all), which would have launched an unrelated ES
+    # backfill instead of resuming FRED — confirmed live 2026-07-30 (DP-VM-001 escalation
+    # agt-f421bc): tradfi-bf-fred-full-20260730-064542's relaunch finding carried
+    # relaunch_launcher=launch-tradfi-backfill-vm.sh via this exact gap.
+    "tradfi-bf-fred-": "launch-tradfi-bf-fred.sh",
     "tradfi-fwd-": "launch-tradfi-forward-poll.sh",
     "tradfi-recent-": "launch-tradfi-forward-poll.sh",
     "tradfi-event-contract-backfill-": "launch-tradfi-event-contract-backfill.sh",
