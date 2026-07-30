@@ -2,7 +2,7 @@
 # Epic: infrastructure_master
 # Lifecycle: permanent
 # Delete-when: NA
-# Launch CME OHLCV-1m backfill VMs (one per (root, year-shard)).
+# Launch CME OHLCV-1m backfill VMs (one per (root-group, year-shard)).
 #
 # Full CME root universe (49 futures + options roots + 9 event-contract roots).
 # Each root entry: "ROOT|ROOT.FUT;ROOT.OPT" — the ES root already covers both
@@ -10,6 +10,15 @@
 #
 # Symbol-set: Databento parent symbology — one symbol per root pulls the full
 # chain for the date window. Futures-only roots yield an empty OPT bundle.
+#
+# Sharding: ROOT-GROUP bundling (SINGLE_VM_QUEUE-analog) — `--root-groups N`
+# (default 8) accumulates multiple roots' symbol-sets into ONE VM's
+# `VM_INSTRUMENT_IDS` per year-shard instead of one VM per root (CME is
+# embarrassingly parallel and was OVER-sharded: ~58 roots x 7 years =~ 406
+# VMs). Default fan-out: 8 root-groups x 7 years =~ 56 VMs. See
+# `ohlcv_split_root_groups` in the lib for the full rationale. Use
+# `--only-root ROOT` for a surgical single-root rollout (bypasses bundling —
+# clamps to a 1-root group).
 #
 # Window: 2019-01-01 → today by default (per operator direction "full period
 # for tradfi"). Override with `--start-floor YYYY-MM-DD`.
@@ -21,6 +30,8 @@
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --dry-run
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh
 #   bash launch-tradfi-bf-cme-ohlcv-1m.sh --env staging --start-floor 2020-01-01
+#   bash launch-tradfi-bf-cme-ohlcv-1m.sh --root-groups 12    # finer root shards
+#   bash launch-tradfi-bf-cme-ohlcv-1m.sh --only-root ES      # surgical single-root run
 #
 # SSOT: tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
@@ -139,30 +150,45 @@ if (( ${#_shards[@]} == 0 )); then
     echo "ERROR: no year-shards match --year=${ONLY_YEAR}" >&2; exit 1
 fi
 
+# Bundle roots into contiguous groups (SINGLE_VM_QUEUE-analog) — fewer,
+# larger, saturated VMs instead of one VM per root. `--only-root` already
+# clamped CME_ROOTS to a single entry above, so bundling there is a no-op
+# (1 root -> 1 group), preserving the surgical single-root path unchanged.
+ROOT_SPECS=""
 for spec in "${CME_ROOTS[@]}"; do
-    root="${spec%%|*}"
-    syms="${spec##*|}"
+    ROOT_SPECS="${ROOT_SPECS}${ROOT_SPECS:+$'\n'}${spec}"
+done
+ROOT_GROUPS_OUT="$(ohlcv_split_root_groups "$ROOT_SPECS" "$OHLCV_ROOT_GROUPS")"
+group_count="$(printf '%s\n' "$ROOT_GROUPS_OUT" | grep -c .)"
+echo "Bundling ${#CME_ROOTS[@]} CME root(s) into $group_count root-group(s) x ${#_shards[@]} year(s) = $(( group_count * ${#_shards[@]} )) VM(s)."
+
+while IFS='|' read -r gidx gfirst glast gsyms; do
+    [[ -z "$gidx" ]] && continue
+    gtag="$(printf 'g%02d' "$gidx")"
+    # bash-3-compat (${var,,} is bash 4+; macOS + many Ubuntu images ship bash 3).
+    # gcloud VM names can't contain '.' either — `ES.FUT` → `es-fut`.
+    gfirst_lower="$(echo "$gfirst" | tr '[:upper:]' '[:lower:]')"
+    glast_lower="$(echo "$glast" | tr '[:upper:]' '[:lower:]')"
+    gfirst_safe="${gfirst_lower//./-}"
+    glast_safe="${glast_lower//./-}"
     for shard in "${_shards[@]}"; do
         start="${shard%%:*}"
         end="${shard##*:}"
         year="${start:0:4}"
         run_ts="$(date +%Y%m%d-%H%M%S)"
-        # bash-3-compat (${var,,} is bash 4+; macOS + many Ubuntu images ship bash 3).
-        # gcloud VM names can't contain '.' either — `ES.FUT` → `es-fut`.
-        root_lower="$(echo "$root" | tr '[:upper:]' '[:lower:]')"
-        root_safe="${root_lower//./-}"
-        vm_name="tradfi-bf-cme-ohlcv-1m-${root_safe}-${year}-${run_ts}"
-        ohlcv_create_vm "$vm_name" "CME" "$start" "$end" "$syms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
+        vm_name="tradfi-bf-cme-ohlcv-1m-${gtag}-${gfirst_safe}-${glast_safe}-${year}-${run_ts}"
+        echo "  ${gtag} (${gfirst}..${glast}) ${year}"
+        ohlcv_create_vm "$vm_name" "CME" "$start" "$end" "$gsyms" "$DRY_RUN" "$DEPLOYMENT_ENV" "$FORCE_WINDOW"
     done
-done
+done <<< "$ROOT_GROUPS_OUT"
 
 echo ""
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "=========================================="
-    echo "DRY-RUN: CME OHLCV-1m year-shards (${START_FLOOR}..today)"
+    echo "DRY-RUN: CME OHLCV-1m root-group x year-shards (${START_FLOOR}..today)"
     echo "=========================================="
 else
-    echo "CME OHLCV-1m year-shards launched in ${TRADFI_OHLCV_ZONE}."
+    echo "CME OHLCV-1m root-group x year-shards launched in ${TRADFI_OHLCV_ZONE}."
     echo "Manifest check (post-drain):"
     echo "  gsutil cp gs://market-data-tick-tradfi-${TRADFI_OHLCV_PROJECT}/_index/availability_index.parquet /tmp/t.parquet"
     echo "  python -c \"import pandas as pd; df=pd.read_parquet('/tmp/t.parquet'); print(df[(df.venue=='CME')&(df.data_type=='ohlcv_1m')].groupby(['symbol','capture_status']).size())\""
