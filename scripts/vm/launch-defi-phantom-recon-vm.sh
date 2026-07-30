@@ -47,11 +47,13 @@
 #                                                                  # pyth_oracle_prices_stale_ghost_
 #                                                                  # failure_rows_2026_07_28.md)
 #
-# Cost: e2-standard-4 + 50GB. ~13 min for full DEFI per CLAUDE.md
-# (~222 prefixes/sec on same-region GCE). Larger asset_groups (CEFI ~313k
-# rows) take 30-60 min. MACHINE_TYPE/VENUES env vars override the default box
-# size / venue scope (the initial manifest load is asset_group-wide regardless
-# of VENUES -- it only trims the downstream audit-loop scope, not the load).
+# Cost: defi defaults to e2-standard-8 (32GB/8vCPU, see MACHINE_TYPE below);
+# other asset_groups default to e2-standard-4. + 50GB boot disk. ~13 min for
+# full DEFI per CLAUDE.md (~222 prefixes/sec on same-region GCE). Larger
+# asset_groups (CEFI ~313k rows) take 30-60 min. MACHINE_TYPE/VENUES env vars
+# override the default box size / venue scope (the initial manifest load is
+# asset_group-wide regardless of VENUES -- it only trims the downstream
+# audit-loop scope, not the load).
 #
 # Singleton lock: refuses to launch if another defi-phantom-recon-* VM is
 # RUNNING in the zone. The audit script reads the canonical manifest +
@@ -124,7 +126,17 @@ fi
 ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+# defi defaults to a 32Gi/8vCPU-equivalent box (e2-standard-8) -- matches
+# cf_manifest_audit_scheduler.tf's proven provisioning for this exact corpus
+# (4Gi/16Gi OOM'd / e2-highmem-8(64GB) stalled loading the full defi manifest --
+# see reconcile_phantom_manifest_rows_all_defi_memory_footprint_2026_07_28.md).
+# Other asset_groups keep the e2-standard-4 default; MACHINE_TYPE still
+# overrides for any asset_group.
+if [[ "$ASSET_GROUP" == "defi" ]]; then
+    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
+else
+    MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
+fi
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 VENUES="${VENUES:-}"
 
