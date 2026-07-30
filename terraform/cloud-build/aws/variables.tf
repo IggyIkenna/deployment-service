@@ -7,7 +7,7 @@ variable "region" {
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment name (feeds the provider default_tags Environment tag)"
   type        = string
   default     = "prod"
 }
@@ -18,15 +18,8 @@ variable "github_owner" {
   default     = "IggyIkenna"
 }
 
-variable "branch_pattern" {
-  description = "Branch pattern to trigger builds (regex)"
-  type        = string
-  default     = "^refs/heads/main$"
-}
-
-variable "compute_type" {
-  description = "CodeBuild compute type"
-  type        = string
-  default     = "BUILD_GENERAL1_MEDIUM"
-  # Options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
-}
+# NOTE: `branch_pattern` and `compute_type` were removed 2026-07-30.
+#   * branch_pattern only fed the aws_codebuild_webhook HEAD_REF filter; the webhooks were deleted
+#     live on 2026-07-03 and removed from this module (dispatch is the GitHub Actions router).
+#   * compute_type was a single fleet-wide knob, but compute size is genuinely per-service
+#     (the two heavy base builds run LARGE), so it now lives in locals.services in main.tf.

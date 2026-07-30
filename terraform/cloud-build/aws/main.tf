@@ -1,50 +1,44 @@
 # Terraform configuration for AWS CodeBuild projects
-# Creates build projects for all 18 live services (1:1 with locals.services below)
+# Manages the 18 live services (1:1 with locals.services below) + the shared CodeBuild IAM role
+# and the CodeArtifact domain/repo the UAC wheel publishes to.
 #
-# Equivalent to GCP Cloud Build triggers
+# GCP analogue: Cloud Build triggers (see terraform/cloud-build/gcp).
 #
 # =============================================================================
-# ⛔ DO NOT `terraform apply` THIS MODULE — NOT APPLY-CLEAN (measured 2026-07-30)
+# STATE: IMPORTED + RECONCILED — this module IS apply-clean (2026-07-30)
 # =============================================================================
-# The 18 CodeBuild projects + the IAM role/policy + the CodeArtifact domain/repo were all created
-# IMPERATIVELY (out-of-band), never from this module. The S3 backend below was stood up 2026-07-30
-# and is live, but the state is deliberately left EMPTY — the import was NOT completed, because a
-# full dry-run import into a throwaway local state measured, against this exact file:
+# The 18 CodeBuild projects, the IAM role/policy and the CodeArtifact domain/repo were originally
+# created IMPERATIVELY (out-of-band). On 2026-07-30 they were imported into the S3 state below and
+# every per-attribute drift was ruled on with evidence; `terraform plan` is a no-op.
 #
-#     Plan: 19 to add, 22 to change, 0 to destroy
+# The four rulings, so a future reader does not re-litigate them:
 #
-# (As first measured it was 20/21/1 — the aws_iam_role_policy rename below removed the destroy.)
-# Leaving the state empty is the safety property: with no state, an accidental `apply` fails fast
-# on already-exists instead of silently converging live CI onto the diffs listed here.
+#  1. IAM policy body — ADOPT LIVE, with `secretsmanager:GetSecretValue` NARROWED from the live
+#     `secret:*` to exactly the three secrets the fleet actually reads (`GH_PAT` as a
+#     SECRETS_MANAGER env var on 17 projects; `github-pat` + `unified-trading/github-actions-sa-key`
+#     read by the buildspecs via the AWS CLI). The previous `secret:github-token*` scope matched
+#     NONE of them and would have failed every build at start. `ecr:CreateRepository` is KEPT —
+#     15 buildspecs call `aws ecr create-repository`. The `logs` scope stays at
+#     `log-group:/aws/codebuild/*`, which is where CodeBuild actually writes (verified live).
 #
-# Several of those diffs would BREAK live CI for all 18 repos if applied. The blocking ones:
+#  2. CodeBuild webhooks — REMOVED from this module. Zero webhooks exist; CloudTrail shows all 18
+#     were deliberately deleted 2026-07-03, matching the operator decision that AWS image builds are
+#     switched OFF (PM Actions variable `AWS_BUILDS_ENABLED`, unset = disabled; GCP Cloud Build is
+#     the production path). Re-creating them would switch a retired trigger path back on.
+#     /codex/05-infrastructure/dual-cloud-image-builds.md is explicit: "Do not add new PUSH webhooks".
+#     `aws_codestarconnections_connection` was removed for the same reason — no live counterpart, no
+#     referrer, and creating one leaves a PENDING connection needing manual console authorization.
 #
-#  1. `aws_iam_role_policy.codebuild_policy` — in-place UPDATE of the policy body. This block
-#     narrows secretsmanager:GetSecretValue from the live `secret:*` to `secret:github-token*`. Every
-#     project below injects `GH_PAT` as a SECRETS_MANAGER env var, and the buildspecs also read
-#     `github-pat` + `unified-trading/github-actions-sa-key` — NONE of which match `github-token*`.
-#     Applying would revoke secret access and fail every build at start. It also drops the live
-#     `ecr:CreateRepository` grant.
-#  2. `aws_codebuild_webhook.services` (18) — CREATE. ZERO webhooks exist live, on the CodeBuild
-#     side or the GitHub side (verified across all 18 repos, 2026-07-30). Builds are dispatched by
-#     the GitHub Actions router (`aws codebuild start-build`), NOT by push webhooks. Creating these
-#     would switch on a second, duplicate trigger path for every repo.
-#  3. `market-tick-data-service` + `unified-trading-library` — the two heavy base builds run live on
-#     BUILD_GENERAL1_LARGE / aws/codebuild/standard:7.0. This module would downgrade both to
-#     BUILD_GENERAL1_MEDIUM / amazonlinux2-x86_64-standard:5.0.
-#  4. `build_timeout` — live is 60 min on 16 of 18 projects; this module would cut them to 30/45.
+#  3. Compute size / timeout / clone depth / logs / description / env vars — ADOPT LIVE. `timeout=60`
+#     is the uniform creation-time value (CloudTrail CreateProject, both provisioning sweeps); no
+#     build in 1,300+ inspected has ever TIMED_OUT (longest: 11.8 min). `logs_config` was dropped:
+#     the module previously declared `/codebuild/unified-trading`, a group the IAM policy does not
+#     authorize, so applying it would have silently killed build logging.
 #
-# The rest of the 22 changes are cosmetic (description, `Service`/`Project`/`Environment`/`ManagedBy`
-# default_tags, git_clone_depth, logs_config) plus two that look like LIVE is the side that drifted:
-# `unified-trading-library` has no source_version at all (should be live-defi-rollout) and
-# `instruments-service` still points at the pre-canonical `buildspec.yml`.
+#  4. `unified-trading-library` source_version + `instruments-service` buildspec — LIVE had drifted;
+#     both are now declared here and were converged. See the per-service notes in locals.services.
 #
-# Resolving each diff is a per-attribute "is live right, or is this file right?" decision (it is
-# genuinely a mix of both) and is operator-gated — it is NOT determinable from the code alone.
-# Until it is resolved, treat this module as documentation, not as an executable SSOT.
-#
-# Full per-attribute drift inventory + the decision list:
-#   /plans/active/issues/aws_codebuild_terraform_import_pending_2026_07_22.md
+# Rulings + evidence: /plans/active/issues/aws_codebuild_terraform_import_pending_2026_07_22.md
 # =============================================================================
 
 terraform {
@@ -52,8 +46,11 @@ terraform {
 
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0.0"
+      source = "hashicorp/aws"
+      # Pinned to the v5 line to match every sibling module (terraform/aws pins ~> 5.82 → v5.100.0).
+      # The previous open `>= 5.0.0` floated to v6.x, which renames the `aws_region` data source's
+      # `name` attribute (used at locals.region) and would silently break this module on a fresh init.
+      version = "~> 5.82"
     }
   }
 
@@ -93,47 +90,180 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
 
-  # Canonical live CodeBuild set — reconciled 1:1 with workspace-manifest.json live repos (2026-06-19).
-  # Replaces the stale list (archived per-family features-* / mis-named execution-services) that matched
-  # NEITHER the live AWS projects NOR GCP. The live projects were created imperatively — see the import
-  # status + drift inventory in /plans/active/issues/aws_codebuild_terraform_import_pending_2026_07_22.md
-  # (the originating plan, test_fleet_image_builds_from_current_code_2026_06_17, archived to
-  # /plans/archive/2026_07/ once that work was migrated to the issue doc).
+  # ---------------------------------------------------------------------------
+  # Environment-variable sets. Three real variants exist live; they are NOT drift.
   #
-  # build_branch mirrors the GCP firing model exactly. GCP fires three triggers on live-defi-rollout —
-  # unified-trading-library (base image), unified-api-contracts (base wheel) and market-tick-data-service
-  # (which also has a `-build` main trigger) — and every other service on `^main$`. ECR repo and GitHub repo
-  # both equal the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
-  #
-  # unified-api-contracts builds the UAC wheel (no Docker image) and publishes it to the CodeArtifact domain
-  # `unified-trading` / repo `unified-libraries` (the AWS analogue of GCP's AR python index) — see the
-  # aws_codeartifact_* resources + the CodeArtifactPublish IAM statement below. It fires on live-defi-rollout
-  # like the other base lib, matching GCP's UAC LDR trigger.
-  services = {
-    # Fire on live-defi-rollout (GCP parity: base image + UAC wheel + the mtds LDR-tip build)
-    "unified-trading-library"  = { build_timeout = 45, build_branch = "live-defi-rollout" }
-    "unified-api-contracts"    = { build_timeout = 30, build_branch = "live-defi-rollout" }
-    "market-tick-data-service" = { build_timeout = 30, build_branch = "live-defi-rollout" }
+  #  * standard — the 15 Docker service builds.
+  #  * mock     — market-tick-data-service + unified-trading-library. Their buildspecs run the
+  #               quality gates inside the built image and pass CLOUD_BUILD/CLOUD_MOCK_MODE to
+  #               `docker run` explicitly, so the project-level var is CLOUD_MOCK_MODE, not
+  #               CLOUD_BUILD. Ordering mirrors live.
+  #  * wheel    — unified-api-contracts. Deliberately has NO GH_PAT: it builds and publishes only
+  #               its own wheel (no repo clones), and the previous `secrets-manager` binding
+  #               JSON-parsed the plain-string `github-pat` secret and hard-failed the build at
+  #               DOWNLOAD_SOURCE ("invalid character 'g'"). See its buildspec.aws.yaml header.
+  # ---------------------------------------------------------------------------
+  env_standard = [
+    { name = "AWS_ACCOUNT_ID", value = data.aws_caller_identity.current.account_id, type = "PLAINTEXT" },
+    { name = "AWS_DEFAULT_REGION", value = data.aws_region.current.name, type = "PLAINTEXT" },
+    { name = "CLOUD_BUILD", value = "true", type = "PLAINTEXT" },
+    { name = "CLOUD_PROVIDER", value = "aws", type = "PLAINTEXT" },
+    { name = "GH_PAT", value = "GH_PAT", type = "SECRETS_MANAGER" },
+  ]
 
-    # Deployable services — fire on main (GCP parity: services build on promotion to main)
-    "alerting-service"                  = { build_timeout = 30, build_branch = "main" }
-    "batch-live-reconciliation-service" = { build_timeout = 30, build_branch = "main" }
-    "client-reporting-api"              = { build_timeout = 30, build_branch = "main" }
-    "deployment-api"                    = { build_timeout = 30, build_branch = "main" }
-    "deployment-service"                = { build_timeout = 30, build_branch = "main" }
+  env_mock = [
+    { name = "AWS_DEFAULT_REGION", value = data.aws_region.current.name, type = "PLAINTEXT" },
+    { name = "AWS_ACCOUNT_ID", value = data.aws_caller_identity.current.account_id, type = "PLAINTEXT" },
+    { name = "CLOUD_MOCK_MODE", value = "true", type = "PLAINTEXT" },
+    { name = "CLOUD_PROVIDER", value = "aws", type = "PLAINTEXT" },
+    { name = "GH_PAT", value = "GH_PAT", type = "SECRETS_MANAGER" },
+  ]
+
+  env_wheel = [
+    { name = "AWS_ACCOUNT_ID", value = data.aws_caller_identity.current.account_id, type = "PLAINTEXT" },
+    { name = "AWS_DEFAULT_REGION", value = data.aws_region.current.name, type = "PLAINTEXT" },
+    { name = "CLOUD_PROVIDER", value = "aws", type = "PLAINTEXT" },
+  ]
+
+  # ---------------------------------------------------------------------------
+  # Canonical live CodeBuild set — 1:1 with workspace-manifest.json live repos (reconciled
+  # 2026-06-19, imported + attribute-reconciled 2026-07-30).
+  #
+  # build_branch mirrors the GCP firing model: GCP fires three triggers on live-defi-rollout —
+  # unified-trading-library (base image), unified-api-contracts (base wheel) and
+  # market-tick-data-service — and every other service on main. ECR repo and GitHub repo both equal
+  # the map key; the canonical buildspec.aws.yaml derives the ECR repo via basename.
+  #
+  # Per-service keys are all explicitly present (null = "leave unset live"), because Terraform
+  # requires a single object type across the for_each map.
+  #   compute_type / image : LARGE + standard:7.0 on the two heavy base builds (mtds, utl); every
+  #                          other project is MEDIUM + amazonlinux2:5.0. Long-standing live state
+  #                          (unchanged across 600 builds each); adopted, not re-litigated.
+  #   clone_depth          : null = full clone. deployment-service's buildspec runs
+  #                          `git describe --tags`, which a depth-1 clone would break — do NOT
+  #                          blanket-set 1.
+  #   privileged           : false for unified-api-contracts (wheel build, no Docker).
+  #   log_group            : only market-tick-data-service pins the CloudWatch group explicitly;
+  #                          everything else uses the CodeBuild default /aws/codebuild/<project>,
+  #                          which is what the IAM policy authorizes.
+  # ---------------------------------------------------------------------------
+  services = {
+    # --- Fire on live-defi-rollout (GCP parity: base image + UAC wheel + the mtds LDR-tip build)
+    #
+    # unified-trading-library had NO source_version live (so it built the repo default branch,
+    # `main`) while its own buildspec clones unified-api-contracts and unified-trading-pm from
+    # live-defi-rollout, and GCP runs a `unified-trading-library-live-defi-rollout` trigger.
+    # CloudTrail shows it was simply missed by the 2026-06-19 sourceVersion sweep that set the
+    # other eight — i.e. LIVE was the side that drifted. Converged to live-defi-rollout 2026-07-30.
+    "unified-trading-library" = {
+      build_timeout = 60, build_branch = "live-defi-rollout", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_LARGE", image = "aws/codebuild/standard:7.0"
+      privileged = true, clone_depth = 1, description = null, log_group = null, env = "mock"
+    }
+    "unified-api-contracts" = {
+      build_timeout = 30, build_branch = "live-defi-rollout", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = false, clone_depth = null, description = null, log_group = null, env = "wheel"
+    }
+    "market-tick-data-service" = {
+      build_timeout = 60, build_branch = "live-defi-rollout", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_LARGE", image = "aws/codebuild/standard:7.0"
+      privileged = true, clone_depth = 1
+      description  = "Build market-tick-data-service — runs quality gates inside Docker image then pushes to ECR"
+      log_group    = "/aws/codebuild/market-tick-data-service", env = "mock"
+    }
+
+    # --- Deployable services — fire on main (GCP parity: services build on promotion to main)
+    "alerting-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "batch-live-reconciliation-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "client-reporting-api" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "deployment-api" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "deployment-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
     # deployment-ui builds NO standalone image — its buildspec.aws.yaml dispatches a deployment-api
     # build (the SPA is bundled into deployment-api). Mirrors GCP deployment-ui-main-deploy. The
     # codebuild_role's DispatchDeploymentApiBuild statement grants the StartBuild.
-    "deployment-ui"                  = { build_timeout = 30, build_branch = "main" }
-    "execution-service"              = { build_timeout = 45, build_branch = "main" }
-    "features-service"               = { build_timeout = 30, build_branch = "main" }
-    "fund-administration-service"    = { build_timeout = 30, build_branch = "main" }
-    "greeks-service"                 = { build_timeout = 30, build_branch = "main" }
-    "instruments-service"            = { build_timeout = 30, build_branch = "main" }
-    "market-data-processing-service" = { build_timeout = 30, build_branch = "main" }
-    "ml-service"                     = { build_timeout = 45, build_branch = "main" }
-    "strategy-service"               = { build_timeout = 30, build_branch = "main" }
-    "trading-agent-service"          = { build_timeout = 30, build_branch = "main" }
+    "deployment-ui" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "execution-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "features-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "fund-administration-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "greeks-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    # instruments-service pointed at the pre-canonical `buildspec.yml` while all 17 other projects
+    # use `buildspec.aws.yaml` — LIVE was the side that drifted (the canonical rollout landed the
+    # file in the repo but the project was never repointed). Converged 2026-07-30, after the repo's
+    # own buildspec.aws.yaml was refreshed from templates/buildspec.aws.yaml — the copy on main was
+    # a stale variant binding `env.secrets-manager: gcp-sa-key:json`, a secret that does not exist
+    # in this account, which would have hard-failed at DOWNLOAD_SOURCE.
+    "instruments-service" = {
+      build_timeout = 30, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = 1, description = null, log_group = null, env = "standard"
+    }
+    "market-data-processing-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "ml-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "strategy-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+    "trading-agent-service" = {
+      build_timeout = 60, build_branch = "main", buildspec = "buildspec.aws.yaml"
+      compute_type = "BUILD_GENERAL1_MEDIUM", image = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+      privileged = true, clone_depth = null, description = null, log_group = null, env = "standard"
+    }
+  }
+
+  env_sets = {
+    standard = local.env_standard
+    mock     = local.env_mock
+    wheel    = local.env_wheel
   }
 }
 
@@ -159,15 +289,10 @@ resource "aws_iam_role" "codebuild_role" {
 }
 
 resource "aws_iam_role_policy" "codebuild_policy" {
-  # Renamed 2026-07-30 from "unified-trading-codebuild-policy" to match the LIVE inline policy name
-  # on unified-trading-codebuild-role. Direction chosen deliberately: renaming the live policy
-  # instead would mean a put+delete of the inline policy on the role that all 18 active CodeBuild
-  # projects assume — a live IAM mutation with a window where an in-flight build loses permissions.
-  # Editing this string is zero-risk and achieves the same reconciliation, so the code moved.
-  #
-  # NOTE: the name now matches, but the policy BODY below still does not (see the DO-NOT-APPLY
-  # banner at the top of this file — the secretsmanager scope in particular would break every
-  # build). Matching the name only downgrades this resource from replace to in-place update.
+  # Name matches the LIVE inline policy on unified-trading-codebuild-role (renamed here 2026-07-30
+  # from "unified-trading-codebuild-policy"; renaming the live policy instead would have meant a
+  # put+delete on the role all 18 active projects assume — a window where an in-flight build loses
+  # permissions — whereas editing this string is zero-risk and reconciles identically).
   name = "codebuild-permissions"
   role = aws_iam_role.codebuild_role.id
 
@@ -175,50 +300,66 @@ resource "aws_iam_role_policy" "codebuild_policy" {
     Version = "2012-10-17"
     Statement = [
       {
+        # CodeBuild writes to /aws/codebuild/<project-name> (the service default). Scoped to that
+        # prefix — NOT "*". A logs_config pointing anywhere else (e.g. /codebuild/unified-trading)
+        # would be unauthorized and silently kill build logging.
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
+        Resource = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/codebuild/*"
+      },
+      {
+        # GetAuthorizationToken has no resource-level permissions — must be "*".
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
         Resource = "*"
       },
       {
+        # ecr:CreateRepository is REQUIRED, not vestigial: 15 buildspecs run
+        # `aws ecr describe-repositories ... || aws ecr create-repository ...` in pre_build.
         Effect = "Allow"
         Action = [
-          "ecr:GetAuthorizationToken",
           "ecr:BatchCheckLayerAvailability",
           "ecr:GetDownloadUrlForLayer",
-          "ecr:GetRepositoryPolicy",
-          "ecr:DescribeRepositories",
-          "ecr:ListImages",
-          "ecr:DescribeImages",
           "ecr:BatchGetImage",
+          "ecr:PutImage",
           "ecr:InitiateLayerUpload",
           "ecr:UploadLayerPart",
           "ecr:CompleteLayerUpload",
-          "ecr:PutImage"
+          "ecr:CreateRepository",
+          "ecr:DescribeRepositories"
         ]
-        Resource = "*"
+        Resource = "arn:aws:ecr:${local.region}:${local.account_id}:repository/*"
       },
       {
+        # Least privilege over the live `secret:*`. These are the ONLY three secrets the fleet
+        # reads, enumerated from all 18 buildspecs + every project's SECRETS_MANAGER env vars:
+        #   GH_PAT                                — SECRETS_MANAGER env var on 17 of 18 projects
+        #   github-pat                            — `aws secretsmanager get-secret-value` in 14 buildspecs
+        #   unified-trading/github-actions-sa-key — same, GCP Artifact Registry pull auth
+        # The `-??????` suffix is Secrets Manager's 6-character random ARN suffix, so this survives
+        # secret rotation/recreation without widening to a prefix wildcard.
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:github-token*"
+        Resource = [
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:GH_PAT-??????",
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:github-pat-??????",
+          "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:unified-trading/github-actions-sa-key-??????"
+        ]
       },
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:PutObject"
+          "s3:PutObject",
+          "s3:GetObjectVersion"
         ]
-        Resource = [
-          "arn:aws:s3:::unified-trading-*",
-          "arn:aws:s3:::unified-trading-*/*"
-        ]
+        Resource = "arn:aws:s3:::unified-trading-*/*"
       },
       {
         # deployment-ui's buildspec dispatches a deployment-api build instead of building its own
@@ -264,26 +405,18 @@ resource "aws_codeartifact_repository" "libraries" {
 }
 
 # =============================================================================
-# GitHub Connection (CodeStar)
-# =============================================================================
-
-resource "aws_codestarconnections_connection" "github" {
-  name          = "unified-trading-github"
-  provider_type = "GitHub"
-
-  # Note: After creating, you must manually authorize the connection in AWS Console
-  # This is a one-time setup step
-}
-
-# =============================================================================
 # CodeBuild Projects
+#
+# Builds are dispatched by the GitHub Actions router (`aws codebuild start-build`), never by PUSH
+# webhooks — see the ruling in the header. There is deliberately no aws_codebuild_webhook resource
+# and no aws_codestarconnections_connection in this module.
 # =============================================================================
 
 resource "aws_codebuild_project" "services" {
   for_each = local.services
 
   name          = each.key
-  description   = "Build and push Docker image for ${each.key}"
+  description   = each.value.description
   build_timeout = each.value.build_timeout
   service_role  = aws_iam_role.codebuild_role.arn
 
@@ -292,86 +425,40 @@ resource "aws_codebuild_project" "services" {
   }
 
   environment {
-    compute_type                = var.compute_type
-    image                       = "aws/codebuild/amazonlinux2-x86_64-standard:5.0"
+    compute_type                = each.value.compute_type
+    image                       = each.value.image
     type                        = "LINUX_CONTAINER"
-    privileged_mode             = true # Required for Docker builds
+    privileged_mode             = each.value.privileged
     image_pull_credentials_type = "CODEBUILD"
 
-    environment_variable {
-      name  = "AWS_ACCOUNT_ID"
-      value = local.account_id
-    }
-
-    environment_variable {
-      name  = "AWS_DEFAULT_REGION"
-      value = local.region
-    }
-
-    environment_variable {
-      name  = "CLOUD_BUILD"
-      value = "true"
-    }
-
-    environment_variable {
-      name  = "CLOUD_PROVIDER"
-      value = "aws"
-    }
-
-    # Buildspec reads github-pat + unified-trading/github-actions-sa-key directly via the AWS CLI;
-    # GH_PAT here gates the optional post_build deploy-dispatch (see templates/buildspec.aws.yaml).
-    environment_variable {
-      name  = "GH_PAT"
-      value = "GH_PAT"
-      type  = "SECRETS_MANAGER"
+    dynamic "environment_variable" {
+      for_each = local.env_sets[each.value.env]
+      content {
+        name  = environment_variable.value.name
+        value = environment_variable.value.value
+        type  = environment_variable.value.type
+      }
     }
   }
 
   source {
-    type            = "GITHUB"
-    location        = "https://github.com/${var.github_owner}/${each.key}.git"
-    git_clone_depth = 1
-    buildspec       = "buildspec.aws.yaml"
-
-    git_submodules_config {
-      fetch_submodules = false
-    }
+    type                = "GITHUB"
+    location            = "https://github.com/${var.github_owner}/${each.key}.git"
+    git_clone_depth     = each.value.clone_depth
+    buildspec           = each.value.buildspec
+    report_build_status = true
   }
 
   # Branch name (not a regex) — GCP-parity firing: base lib on live-defi-rollout, services on main.
   source_version = each.value.build_branch
 
-  logs_config {
-    cloudwatch_logs {
-      group_name  = "/codebuild/unified-trading"
-      stream_name = each.key
-    }
-  }
-
-  tags = {
-    Service = each.key
-  }
-}
-
-# =============================================================================
-# CodeBuild Webhooks (triggered on push to main)
-# =============================================================================
-
-resource "aws_codebuild_webhook" "services" {
-  for_each = local.services
-
-  project_name = aws_codebuild_project.services[each.key].name
-  build_type   = "BUILD"
-
-  filter_group {
-    filter {
-      type    = "EVENT"
-      pattern = "PUSH"
-    }
-
-    filter {
-      type    = "HEAD_REF"
-      pattern = "^refs/heads/${each.value.build_branch}$"
+  dynamic "logs_config" {
+    for_each = each.value.log_group == null ? [] : [each.value.log_group]
+    content {
+      cloudwatch_logs {
+        status     = "ENABLED"
+        group_name = logs_config.value
+      }
     }
   }
 }
