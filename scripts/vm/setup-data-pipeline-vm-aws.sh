@@ -68,6 +68,19 @@ CLOUD_PROVIDER="aws"
 export CLOUD_PROVIDER CLOUD_MOCK_MODE=false DEPLOYMENT_ENV AWS_DEFAULT_REGION="$AWS_REGION"
 export MANIFEST_PER_VM_SHARDS VM_NAME
 
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE — AWS SSM Parameter Store equivalent of
+# setup-data-pipeline-vm.sh's GCE-project-metadata fallback (see
+# plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md).
+# Per-instance override wins first (export before calling this script — mirrors
+# the GCE per-instance --metadata key); absent that, falls back to the account-wide
+# SSM default at /uts/deployment-registry/firestore-dualwrite (set 2026-07-30);
+# final fallback "false" matches UTL's own field default. Exported BEFORE
+# heartbeat_daemon.py starts below so its DeploymentsRegistry construction picks
+# it up from this process's env (same ordering requirement as the GCE side).
+_ssm_param() { aws ssm get-parameter --region "$AWS_REGION" --name "$1" --query 'Parameter.Value' --output text 2>/dev/null || echo "${2:-}"; }
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE="${DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE:-$(_ssm_param /uts/deployment-registry/firestore-dualwrite false)}"
+export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
+
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
 
 log "=== AWS Data Pipeline VM Setup: ${VM_NAME} ==="

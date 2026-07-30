@@ -16,6 +16,14 @@
 #   (uploaded to GCS: gs://deployment-scripts-central-element-323112/vm/launch-honest-coverage-vm.sh)
 # Ad-hoc:        deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh  (supports --asset-group filter)
 # Cloud Run Job:  honest-coverage-daily-launcher (CREATED 2026-05-15)
+#
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE note (2026-07-30, deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md):
+# this script has no VM-metadata-reading code — it only creates the Cloud Scheduler HTTP
+# trigger. Both launch-honest-coverage-vm.sh and launch-measure-honest-coverage-vm.sh boot
+# their GCE VM via `startup-script-url=gs://.../vm/setup-data-pipeline-vm.sh`, so the
+# project-metadata fallback added there (+ the project-level default set on
+# central-element-323112) already covers the honest-coverage VM path end-to-end. No
+# change needed in THIS file.
 # Plan:           plans/active/issues/honest_coverage_cron_vm_scheduling_2026_05_14.md
 #
 # Usage (run as Ikenna / owner account):

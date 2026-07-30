@@ -243,6 +243,14 @@ log "uv (system, used for venv installs): $(uv --version)"
 
 # ── 2b. Read VM metadata early (needed for selective tarball install) ──
 _meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+# _meta_project — PROJECT-level metadata fallback (gcloud compute project-info
+# add-metadata), used ONLY for keys that need a fleet-wide default when a launcher
+# omits the per-instance --metadata key (today: DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
+# only — see plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md).
+# Deliberately NOT folded into _meta()'s own fallback chain — every other key's
+# absence should keep meaning "use MY hardcoded default", not silently pick up
+# whatever another key of the same name happens to carry at the project level.
+_meta_project() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/attributes/$1" 2>/dev/null || echo "${2:-}"; }
 VM_TASK=$(_meta VM_TASK)
 VM_VENUE=$(_meta VM_VENUE)
 VM_START_DATE=$(_meta VM_START_DATE)
@@ -450,11 +458,17 @@ export DEPLOYMENT_ENV_SHORT
 # exact name is picked up automatically). Mirrors the DEPLOYMENT_ENV plumbing
 # above: launchers pass it via --metadata=DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=true,
 # this reads it off GCE metadata and exports it into the process env BEFORE
-# the heartbeat daemon (which constructs DeploymentsRegistry) starts. Default
-# "false" when absent — matches UTL's own field default, so unmigrated
-# launchers keep writing GCS-only until explicitly opted in (see
-# plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md "Link 2").
-DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)
+# the heartbeat daemon (which constructs DeploymentsRegistry) starts. Instance
+# metadata wins when a launcher opts in/out explicitly; absent that, falls back
+# to the PROJECT-level default (gcloud compute project-info add-metadata on
+# central-element-323112, set 2026-07-30) so unmigrated launchers — the ~137+
+# that call `gcloud compute instances create` directly without this key — pick
+# up the fleet default instead of silently staying GCS-only forever. Final
+# fallback "false" matches UTL's own field default (see
+# plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md "Link 2",
+# and plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md
+# for why the project-level fallback was added).
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE "$(_meta_project DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)")
 export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
 # Stall-watchdog timeout override. Sports MDPS processes long empty-date
 # stretches (no betting events → no log output) that would falsely trigger

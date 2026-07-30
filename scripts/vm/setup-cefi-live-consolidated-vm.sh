@@ -88,8 +88,19 @@ log "Venv Python: $(python --version)"
 
 # ── 2b. Read VM metadata ──
 _meta() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" 2>/dev/null || echo "${2:-}"; }
+# _meta_project — PROJECT-level metadata fallback, mirrors setup-data-pipeline-vm.sh's
+# helper of the same name. Used ONLY for DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE below.
+_meta_project() { curl -sf -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/attributes/$1" 2>/dev/null || echo "${2:-}"; }
 VM_NAME_SELF=$(_meta VM_NAME "$(curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo unknown)")
 DEPLOYMENT_ENV=$(_meta DEPLOYMENT_ENV prod)
+# DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE — same project-metadata-fallback pattern as
+# setup-data-pipeline-vm.sh (see plans/active/issues/deployment_registry_dualwrite_flag_not_propagated_to_vm_launchers_2026_07_30.md).
+# NOTE: this VM's only registry-adjacent writer today is the GCS-only vm_heartbeat_sidecar.sh
+# below (§5a) — it does not construct a DeploymentsRegistry, so this export has no observable
+# effect yet. Exported now so the flag is fleet-consistent and ready the moment this VM type
+# is wired to a DeploymentsRegistry-backed heartbeat (deployment_heartbeat.py / heartbeat_daemon.py).
+DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE=$(_meta DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE "$(_meta_project DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE false)")
+export DEPLOYMENT_REGISTRY_FIRESTORE_DUALWRITE
 log "VM name: $VM_NAME_SELF  env: $DEPLOYMENT_ENV"
 
 # ── 3. Deploy code from GCS tarballs ──
