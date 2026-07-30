@@ -12,11 +12,18 @@
 # series) — corrects the stale "macro_result" declaration (never emitted by the
 # adapter); see unified-api-contracts@0c0f6953 / market-tick-data-service@407f69f1.
 #
-# Window: 1962-01-02 (coverage_starts.py's declared FRED floor) -> yesterday by
-# default. Override with --start-floor. FRED has no per-venue UAC discovery-start
-# override (get_instrument_discovery_start("FRED") is unset), so no floor clamp
-# applies — the coverage_starts.py floor is the honest-coverage SSOT used here
-# directly.
+# Window: 2020-01-01 (matches the rest of tradfi's Databento-sourced group —
+# CME/FX/ICE, tradfi-databento-sourcing-ssot.md) -> yesterday by default.
+# Override with --start-floor. Deliberately NOT coverage_starts.py's full
+# 1962-01-02 FRED-availability floor: some FRED series genuinely have decades
+# more history than the rest of this bucket, but co-locating that much deeper
+# history in the SAME manifest inflated the consolidator's incremental-merge
+# chunk count ~9x (tradfi_manifest_consolidator_fred_widespan_stall_2026_07_30.md)
+# — coverage_starts.py's 1962-01-02 remains the honest AVAILABILITY floor (do
+# not change it, it documents a true fact about FRED), this is a separate
+# BACKFILL-SCOPE choice: capture only the window that matches the rest of
+# tradfi's coverage, consistent with CME/CBOE/NASDAQ/NYSE all being clamped to
+# their own venue-specific start (get_instrument_discovery_start()).
 #
 # Single-VM default (NOT year-sharded): FRED's rate limit is per-API-KEY, not
 # per-IP like Databento (one shared `fred-api-key` Secret Manager credential for
@@ -34,7 +41,7 @@
 #
 # Usage:
 #   bash launch-tradfi-bf-fred.sh --dry-run
-#   bash launch-tradfi-bf-fred.sh                      # full 1962-01-02..yesterday, one VM
+#   bash launch-tradfi-bf-fred.sh                      # full 2020-01-01..yesterday, one VM
 #   bash launch-tradfi-bf-fred.sh --year 2024 --dry-run  # single-year smoke test
 #
 # SSOT: unified-trading-pm/plans/active/issues/macro_micro_econ_data_capture_audit_2026_06_05.md,
@@ -72,15 +79,17 @@ ohlcv_parse_common_args "$@"
 
 ohlcv_check_singleton_lock "$FORCE" "$DRY_RUN"
 
-# coverage_starts.py's declared FRED floor — NOT clamped via
-# ohlcv_clamp_floor_to_venue (FRED has no venue_start_dates /
-# venue_instrument_discovery_overrides entry, so that lookup is fail-open/no-op
-# for FRED; the coverage_starts.py value is the real SSOT floor here).
-START_FLOOR="${START_FLOOR:-1962-01-02}"
+# Backfill-scope floor (2026-07-30 ruling — see header comment): matches the
+# rest of tradfi's Databento group (CME/FX/ICE = 2020-01-01), NOT
+# coverage_starts.py's full 1962-01-02 FRED-availability floor. FRED has no
+# venue_start_dates / venue_instrument_discovery_overrides entry, so
+# ohlcv_clamp_floor_to_venue is still a no-op for FRED — this is a direct
+# literal default, the same mechanism CME/ICE/FX use via their own clamp.
+START_FLOOR="${START_FLOOR:-2020-01-01}"
 if [[ "$START_FLOOR" == "2019-01-01" ]]; then
     # ohlcv_parse_common_args's own hardcoded default (not FRED-aware) — only
     # override when the caller didn't pass an explicit --start-floor.
-    START_FLOOR="1962-01-02"
+    START_FLOOR="2020-01-01"
 fi
 
 if [[ -n "$ONLY_YEAR" ]]; then
