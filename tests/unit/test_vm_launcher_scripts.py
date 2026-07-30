@@ -2655,5 +2655,52 @@ export -f gsutil
         assert "STALL_TIMEOUT_SEC=3900" not in call
 
 
+class TestFredBackfillDateFloor:
+    """tradfi_es_cme_ohlcv_zero_capture_2026_07_30.md / tradfi_manifest_consolidator_fred_widespan_stall_2026_07_30.md:
+    the FRED launcher's default backfill window used coverage_starts.py's full 1962-01-02
+    FRED-AVAILABILITY floor as its BACKFILL-SCOPE floor too, co-locating 64 years of history in a
+    manifest whose other tradfi rows only span ~2019-2026 -- this inflated the manifest
+    consolidator's incremental-merge chunk count ~9x and stalled the whole bucket's reads.
+    Fix: the launcher's backfill-scope floor is now 2020-01-01, matching the rest of tradfi's
+    Databento group (CME/FX/ICE). coverage_starts.py's 1962-01-02 constant is UNCHANGED (it
+    documents FRED's true data availability, a separate fact from how much of it we choose to
+    backfill into this bucket)."""
+
+    LAUNCHER = "scripts/vm/launch-tradfi-bf-fred.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path, env: dict) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_default_floor_is_2020_not_1962(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(launcher_path, [], tmp_path, {**os.environ})
+        assert "2020-01-01" in call
+        assert "1962-01-02" not in call
+
+    def test_explicit_start_floor_override_still_wins(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(launcher_path, ["--start-floor", "2015-06-01"], tmp_path, {**os.environ})
+        assert "2015-06-01" in call
+        assert "2020-01-01" not in call
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
