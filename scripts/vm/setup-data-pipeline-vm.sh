@@ -1683,7 +1683,15 @@ HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+  # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
+  # tee-wrapper/heartbeat use for vm-logs/PROGRESS.json is untouched) bounds
+  # unified-trading-library ManifestWriter's per-VM shard
+  # (_index/per_vm/{VM_NAME}.parquet) to just THIS chunk's rows instead of
+  # accumulating the whole multi-chunk backfill into one ever-growing shard —
+  # the same OOM root cause + fix already applied to instruments_chunk_loop.sh
+  # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
+  # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
+  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
       --start-date "\${CS}" --end-date "\${CE}" 2>&1
@@ -1760,7 +1768,12 @@ HAD_FAILURE=0
 echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
-  CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+  # Per-chunk VM_NAME suffix — same OOM root cause + fix as mtds_chunk_loop.sh
+  # above (this is a day-by-day chunk loop, VM_CHUNK_DAYS default 1, so a wide
+  # date-range launch is exactly the "already-chunked but unscoped VM_NAME"
+  # exposure manifest_writer_vm_launcher_audit_followups_2026_07_28.md's audit
+  # named this branch as its own example of).
+  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
       --start-date "\${CS}" --end-date "\${CE}" 2>&1

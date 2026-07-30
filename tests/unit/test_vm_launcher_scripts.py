@@ -2539,5 +2539,64 @@ class TestCefiFtsDateSharding:
         )
 
 
+class TestChunkedBranchesScopeVmNamePerChunk:
+    """manifest_writer_vm_launcher_audit_followups_2026_07_28.md — audit every
+    chunked branch in setup-data-pipeline-vm.sh (not just single-shot dispatches)
+    for the same reused-VM_NAME-across-chunks OOM exposure
+    per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md already fixed for
+    the sports FIXTURES backfill (and, pre-existing, instruments_chunk_loop.sh):
+    unified-trading-library ManifestWriter's per-VM shard
+    (_index/per_vm/{VM_NAME}.parquet) accumulates every chunk's rows under one
+    ever-growing filename unless VM_NAME is re-scoped per chunk. Reads the REAL
+    generated script text directly (grep-then-assert on source, not a hand-copied
+    excerpt) so this can't silently drift from the shipped file.
+    """
+
+    @staticmethod
+    def _script_text() -> str:
+        script = Path(__file__).parent.parent.parent / "scripts" / "vm" / "setup-data-pipeline-vm.sh"
+        assert script.exists(), "fixture assumes setup-data-pipeline-vm.sh exists in scripts/vm/"
+        return script.read_text()
+
+    @staticmethod
+    def _chunk_loop_body(content: str, *, chunk_script_var: str) -> str:
+        """Slice out one CHUNK_SCRIPT heredoc body by its unique here-doc marker."""
+        start = content.index(f'CHUNK_SCRIPT="$WORKSPACE/{chunk_script_var}"')
+        # Heredoc opens `<<XXX_EOF` right after; its body ends at the matching
+        # `XXX_EOF` closing line. Slice a generous window and locate the marker.
+        eof_marker = content[start : start + 200].split("<<", 1)[1].splitlines()[0].strip()
+        end = content.index(f"\n{eof_marker}\n", start)
+        return content[start:end]
+
+    def test_mtds_chunk_loop_scopes_vm_name_per_chunk(self) -> None:
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="mtds_chunk_loop.sh")
+        invoke = body.index("-m market_tick_data_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding, (
+            "mtds_chunk_loop.sh's market_tick_data_service invocation must scope VM_NAME "
+            "per chunk (else every chunk across the whole multi-chunk backfill accumulates "
+            "into one ever-growing per-VM manifest shard — the confirmed OOM root cause)"
+        )
+
+    def test_cefi_hl_aster_loop_scopes_vm_name_per_chunk(self) -> None:
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="cefi_hl_aster_loop.sh")
+        invoke = body.index("-m market_tick_data_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding, (
+            "cefi_hl_aster_loop.sh's market_tick_data_service invocation must scope VM_NAME "
+            "per chunk (day-by-day chunking, VM_CHUNK_DAYS default 1 — a wide date-range "
+            "launch is exactly the exposure this branch was audited for)"
+        )
+
+    def test_instruments_chunk_loop_already_scopes_vm_name_per_chunk(self) -> None:
+        """Pre-existing fix (confirmed still present, not re-implemented here) — the
+        audit's own done-when requires confirming every chunked branch, including
+        already-low-risk ones, not just the 2 newly-fixed above."""
+        body = self._chunk_loop_body(self._script_text(), chunk_script_var="instruments_chunk_loop.sh")
+        invoke = body.index("-m instruments_service")
+        preceding = body[max(0, invoke - 120) : invoke]
+        assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
