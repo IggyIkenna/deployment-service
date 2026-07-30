@@ -5,16 +5,6 @@ output "codebuild_role_arn" {
   value       = aws_iam_role.codebuild_role.arn
 }
 
-output "github_connection_arn" {
-  description = "GitHub CodeStar connection ARN"
-  value       = aws_codestarconnections_connection.github.arn
-}
-
-output "github_connection_status" {
-  description = "GitHub CodeStar connection status (must be AVAILABLE after manual authorization)"
-  value       = aws_codestarconnections_connection.github.connection_status
-}
-
 output "codebuild_projects" {
   description = "Map of service names to CodeBuild project ARNs"
   value = {
@@ -28,37 +18,34 @@ output "codebuild_project_names" {
   value       = [for name, project in aws_codebuild_project.services : project.name]
 }
 
-output "webhook_urls" {
-  description = "Webhook URLs for GitHub integration"
-  value = {
-    for name, webhook in aws_codebuild_webhook.services :
-    name => webhook.payload_url
-  }
+output "codeartifact_repository_arn" {
+  description = "CodeArtifact repository the unified-api-contracts wheel publishes to"
+  value       = aws_codeartifact_repository.libraries.arn
 }
 
-output "setup_instructions" {
-  description = "Post-apply setup instructions"
+output "dispatch_instructions" {
+  description = "How builds in this module are triggered"
   value       = <<-EOT
     ============================================================
-    AWS CodeBuild Setup Complete!
+    AWS CodeBuild — dispatch model
     ============================================================
 
-    REQUIRED: Manual steps to complete setup:
+    Builds are started by the GitHub Actions router, NOT by PUSH webhooks:
 
-    1. Authorize GitHub Connection:
-       - Go to AWS Console > Developer Tools > Connections
-       - Find 'unified-trading-github' connection
-       - Click 'Update pending connection' and authorize with GitHub
+      unified-trading-pm/.github/workflows/cloud-build-router-aws.yml
+        -> aws codebuild start-build --project-name <repo>-<env>
 
-    2. Set GitHub Token Secret:
-       aws secretsmanager put-secret-value \
-         --secret-id github-token \
-         --secret-string 'YOUR_GITHUB_TOKEN'
+    The router is gated on the PM Actions variable AWS_BUILDS_ENABLED
+    (unset / anything but 'true' == disabled). AWS image builds were
+    switched OFF on 2026-07-03 (GCP Cloud Build is the production path);
+    all 18 CodeBuild webhooks were deleted the same day. Do NOT re-add
+    PUSH webhooks -- see /codex/05-infrastructure/dual-cloud-image-builds.md.
 
-    3. Ensure buildspec.aws.yaml exists in each service repo
+    Manual dispatch:
+      aws codebuild start-build --project-name instruments-service
 
-    4. Test a build:
-       aws codebuild start-build --project-name instruments-service
+    Secrets the fleet reads (the only three the IAM policy grants):
+      GH_PAT, github-pat, unified-trading/github-actions-sa-key
 
     ============================================================
   EOT
