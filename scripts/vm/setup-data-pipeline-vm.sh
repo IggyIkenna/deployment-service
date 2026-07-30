@@ -1109,6 +1109,26 @@ else
   log "WARNING: vm_heartbeat_sidecar.sh not found in GCS — external zombie-watchdog will fall back to manifest shard staleness"
 fi
 
+# Opt-in ps/free/dmesg on-VM monitor (VM_OOM_MONITOR=true instance metadata) --
+# settles OOM-vs-hang questions on a repro run without needing SSH to still be
+# live at the moment of a kill. NOT started by default (small but real
+# per-VM gsutil-upload cost); a launcher sets VM_OOM_MONITOR=true only for a
+# deliberate diagnostic repro. SSOT:
+# unified-trading-pm/plans/active/issues/features_service_defi_backfill_vm_oom_unexplained_2026_07_26.md.
+VM_OOM_MONITOR="$(_meta VM_OOM_MONITOR "")"
+if [[ "$VM_OOM_MONITOR" == "true" ]]; then
+  OOM_MONITOR_SCRIPT="/tmp/oom-hang-monitor.sh"
+  if gsutil -q cp "gs://${CODE_BUCKET}/vm/oom-hang-monitor.sh" "$OOM_MONITOR_SCRIPT" 2>/dev/null; then
+    chmod +x "$OOM_MONITOR_SCRIPT"
+    OOM_MONITOR_LOCAL_LOG="$LOGS/oom-hang-monitor.log"
+    OOM_MONITOR_GCS_URI="gs://deployment-scripts-central-element-323112/vm-logs/${VM_NAME_SELF}/oom-hang-monitor.log"
+    nohup bash "$OOM_MONITOR_SCRIPT" "$OOM_MONITOR_LOCAL_LOG" "$OOM_MONITOR_GCS_URI" >/dev/null 2>&1 &
+    log "OOM/hang monitor started (ps/free/dmesg every 3s, uploaded to ${OOM_MONITOR_GCS_URI} every 15s)"
+  else
+    log "WARNING: oom-hang-monitor.sh not found in GCS — VM_OOM_MONITOR=true requested but monitor not started"
+  fi
+fi
+
 # Download the debug-log wrapper (tees stdout+stderr to GCS every 30s so we can
 # monitor any VM task from outside even when SSH is broken).
 if gsutil -q cp "gs://${CODE_BUCKET}/vm/vm-exec-with-gcs-tee.sh" "$TEE_WRAPPER" 2>/dev/null; then
