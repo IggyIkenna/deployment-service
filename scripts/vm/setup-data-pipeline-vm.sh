@@ -1756,6 +1756,81 @@ echo "mtds-backfill loop complete: \$(date -u)"
 MTDS_CHUNK_LOOP_EOF
   chmod +x "$CHUNK_SCRIPT"
   _launch_with_tee "bash $CHUNK_SCRIPT" "$LOGS/mtds-backfill.log"
+elif [[ "$VM_TASK" == "cefi-coverage-backfill" ]]; then
+  # CeFi coverage-backfill (launch-cefi-sharded-backfill.sh, both the per-shard and
+  # SINGLE_VM_QUEUE combined-VM paths). Previously stamped the generic, widely-reused
+  # VM_TASK=cefi-backfill label (also used verbatim by ~15 UNRELATED launchers spanning
+  # tradfi/prediction/defi/solana — a historical copy-paste constant, not a real dispatch
+  # key), which fell through to the single-shot generic `elif [ -n "$VM_TASK" ]` fallback
+  # below: one CLI call over the ENTIRE date range, no day-chunk boundary to hang a
+  # PROGRESS.json checkpoint on. Renamed to this launcher-specific value
+  # (cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md) so a dedicated branch can
+  # exist WITHOUT touching the other 15 launchers still using the generic label. Mirrors the
+  # mtds-backfill chunk-loop above verbatim (Tardis ≤7-day window; PROGRESS.json marker
+  # gated on HAD_FAILURE) — same generic `--operation download` CLI path, same
+  # PartitionedGroupWriter.record_captured_from_counts aggregation that does NOT thread
+  # through record_vm_progress, so the shell-level marker is required here too.
+  VM_CHUNK_DAYS=$(_meta VM_CHUNK_DAYS 7)
+  if [[ -n "${VM_NUM_WORKERS:-}" && "${VM_NUM_WORKERS}" -gt 1 ]]; then
+    log "cefi-coverage-backfill: VM_NUM_WORKERS=${VM_NUM_WORKERS} requested but the checkpointed chunk-loop path does not yet support multi-process fan-out (scoping decision, cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md todo 2) -- running single-process. Correctness unaffected, only throughput; extend the chunk-loop with a per-chunk fan-out sub-loop (mirroring cefi_fanout.sh) if this is needed."
+  fi
+  BASE_CLI="--operation download --mode batch --asset-group $VM_ASSET_GROUP"
+  [[ -n "$VM_VENUE" ]] && BASE_CLI="$BASE_CLI --venues $VM_VENUE"
+  [[ -n "$VM_DATA_TYPES" ]] && BASE_CLI="$BASE_CLI --data-types ${VM_DATA_TYPES//[,;]/ }"
+  [[ -n "$VM_INSTRUMENT_IDS" ]] && BASE_CLI="$BASE_CLI --instrument-ids ${VM_INSTRUMENT_IDS//[,;]/ }"
+  [[ "$VM_FORCE" == "true" ]] && BASE_CLI="$BASE_CLI --force"
+  VM_BATCH_DATE_CONCURRENCY=$(_meta VM_BATCH_DATE_CONCURRENCY)
+  [[ -n "$VM_BATCH_DATE_CONCURRENCY" ]] && BASE_CLI="$BASE_CLI --batch-date-concurrency $VM_BATCH_DATE_CONCURRENCY"
+
+  CEFI_CHUNK_SCRIPT="$WORKSPACE/cefi_coverage_chunk_loop.sh"
+  cat >"$CEFI_CHUNK_SCRIPT" <<CEFI_COVERAGE_CHUNK_LOOP_EOF
+#!/usr/bin/env bash
+set -uo pipefail
+CHUNKS=\$("$VENV/bin/python" -c "
+from datetime import datetime, timedelta
+start = datetime.strptime('$VM_START_DATE', '%Y-%m-%d')
+end   = datetime.strptime('$VM_END_DATE',   '%Y-%m-%d')
+chunk_days = int($VM_CHUNK_DAYS)
+cur = start
+while cur <= end:
+    cend = min(cur + timedelta(days=chunk_days - 1), end)
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    cur = cend + timedelta(days=1)
+")
+TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
+CHUNK_NUM=0
+# Tracks whether any EARLIER chunk in this run failed -- gates the checkpoint below so
+# a later chunk's success can never paper over an earlier gap (mirrors mtds-backfill).
+HAD_FAILURE=0
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+  CHUNK_NUM=\$((CHUNK_NUM + 1))
+  echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
+  # Per-chunk VM_NAME suffix (subprocess-scoped only) bounds the per-VM manifest shard
+  # to just THIS chunk's rows, same OOM-prevention rationale as mtds_chunk_loop.sh.
+  VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
+    "$VENV/bin/python" -m market_tick_data_service \\
+      $BASE_CLI \\
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1
+  CHUNK_RC=\$?
+  if [[ \$CHUNK_RC -eq 137 ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
+  elif [[ \$CHUNK_RC -ne 0 ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
+  fi
+  # SPOT-preemption resume checkpoint (cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md
+  # todo 2). Gated on BOTH this chunk succeeding AND no EARLIER chunk having failed -- see the
+  # identical comment on the mtds-backfill branch above for the full rationale.
+  if [[ \$CHUNK_RC -eq 0 && \$HAD_FAILURE -eq 0 ]]; then
+    echo "[[VM_PROGRESS]] last_completed_date=\${CE} monotonic=true"
+  fi
+  echo "PROGRESS: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+done
+echo "cefi-coverage-backfill loop complete: \$(date -u)"
+CEFI_COVERAGE_CHUNK_LOOP_EOF
+  chmod +x "$CEFI_CHUNK_SCRIPT"
+  _launch_with_tee "bash $CEFI_CHUNK_SCRIPT" "$LOGS/cefi-coverage-backfill.log"
 elif [[ "$VM_TASK" == "cefi-hl-aster-backfill" ]]; then
   # CeFi HYPERLIQUID/ASTER on-chain-perp historical backfill via the dedicated
   # OnchainPerpBatchHandler (--operation collect-onchain-perp-batch). Drives the
