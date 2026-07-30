@@ -200,14 +200,16 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.bootstrap.started",
-            cluster_name=cluster_name,
-            mode=mode,
-            service_count=len(cluster.services),
-            cloud_provider=self.cloud_provider,
-            client_id=client_id or "",
-            sla_tier=plan.sla_tier or "",
-            isolated_services=",".join(plan.isolated_services),
-            shared_services=",".join(plan.shared_services),
+            details={
+                "cluster_name": cluster_name,
+                "mode": mode,
+                "service_count": len(cluster.services),
+                "cloud_provider": self.cloud_provider,
+                "sla_tier": plan.sla_tier or "",
+                "isolated_services": ",".join(plan.isolated_services),
+                "shared_services": ",".join(plan.shared_services),
+            },
+            client_id=client_id,
         )
         if client_id:
             logger.info(
@@ -242,11 +244,13 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.bootstrap.completed",
-            cluster_name=cluster_name,
-            running_count=status.running_count,
-            total_count=status.total_count,
-            all_healthy=status.all_healthy,
-            client_id=client_id or "",
+            details={
+                "cluster_name": cluster_name,
+                "running_count": status.running_count,
+                "total_count": status.total_count,
+                "all_healthy": status.all_healthy,
+            },
+            client_id=client_id,
         )
 
         return status
@@ -278,8 +282,7 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.teardown.started",
-            cluster_name=cluster_name,
-            service_count=len(cluster.services),
+            details={"cluster_name": cluster_name, "service_count": len(cluster.services)},
         )
 
         # Reverse dependency order for teardown
@@ -289,10 +292,7 @@ class ClusterOrchestrator:
         for service_name in ordered_services:
             self.stop_service(service_name)
 
-        log_event(
-            "cluster.teardown.completed",
-            cluster_name=cluster_name,
-        )
+        log_event("cluster.teardown.completed", details={"cluster_name": cluster_name})
 
     def status(self, cluster_name: str) -> ClusterStatus:
         """Check health of all services in a cluster.
@@ -342,9 +342,11 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.batch.started",
-            cluster_name=cluster_name,
-            as_of_date=as_of_date,
-            service_count=len(batch_services),
+            details={
+                "cluster_name": cluster_name,
+                "as_of_date": as_of_date,
+                "service_count": len(batch_services),
+            },
         )
 
         # Use T1Orchestrator for dependency-aware execution
@@ -384,11 +386,13 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.batch.completed",
-            cluster_name=cluster_name,
-            as_of_date=as_of_date,
-            all_succeeded=result.all_succeeded,
-            failed_services=result.failed_services,
-            total_duration_seconds=result.total_duration_seconds,
+            details={
+                "cluster_name": cluster_name,
+                "as_of_date": as_of_date,
+                "all_succeeded": result.all_succeeded,
+                "failed_services": result.failed_services,
+                "total_duration_seconds": result.total_duration_seconds,
+            },
         )
 
         return result
@@ -413,11 +417,7 @@ class ClusterOrchestrator:
         )
         self._schedules[cluster_name] = schedule
 
-        log_event(
-            "cluster.schedule.created",
-            cluster_name=cluster_name,
-            cron=cron,
-        )
+        log_event("cluster.schedule.created", details={"cluster_name": cluster_name, "cron": cron})
 
         return schedule
 
@@ -444,10 +444,7 @@ class ClusterOrchestrator:
 
         schedule.enabled = False
 
-        log_event(
-            "cluster.schedule.disabled",
-            cluster_name=cluster_name,
-        )
+        log_event("cluster.schedule.disabled", details={"cluster_name": cluster_name})
 
         return True
 
@@ -610,11 +607,13 @@ class ClusterOrchestrator:
 
             log_event(
                 "cluster.service.started",
-                service_name=service_name,
-                pid=process.pid,
-                mode=mode,
-                client_id=env_overrides.get("CLIENT_ID", ""),
-                isolation=env_overrides.get("ISOLATION_POLICY", ""),
+                details={
+                    "service_name": service_name,
+                    "pid": process.pid,
+                    "mode": mode,
+                    "isolation": env_overrides.get("ISOLATION_POLICY", ""),
+                },
+                client_id=env_overrides.get("CLIENT_ID") or None,
             )
 
         except FileNotFoundError as e:
@@ -649,11 +648,7 @@ class ClusterOrchestrator:
                 process.kill()
                 process.wait(timeout=10)
 
-            log_event(
-                "cluster.service.stopped",
-                service_name=service_name,
-                pid=process.pid,
-            )
+            log_event("cluster.service.stopped", details={"service_name": service_name, "pid": process.pid})
         except OSError as e:
             logger.warning("Error stopping service %s: %s", service_name, e)
 
@@ -712,9 +707,7 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.batch.service.started",
-            service_name=service_name,
-            as_of_date=as_of_date,
-            asset_group=asset_group,
+            details={"service_name": service_name, "as_of_date": as_of_date, "asset_group": asset_group},
         )
 
         if self.mock_mode:
@@ -724,9 +717,7 @@ class ClusterOrchestrator:
 
             log_event(
                 "cluster.batch.service.completed",
-                service_name=service_name,
-                as_of_date=as_of_date,
-                mock_mode=True,
+                details={"service_name": service_name, "as_of_date": as_of_date, "mock_mode": True},
             )
             return result
 
@@ -777,10 +768,12 @@ class ClusterOrchestrator:
 
         log_event(
             "cluster.batch.service.completed",
-            service_name=service_name,
-            as_of_date=as_of_date,
-            success=result.success,
-            error_message=result.error_message,
+            details={
+                "service_name": service_name,
+                "as_of_date": as_of_date,
+                "success": result.success,
+                "error_message": result.error_message,
+            },
         )
 
         return result
