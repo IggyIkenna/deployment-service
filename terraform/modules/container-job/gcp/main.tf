@@ -111,5 +111,18 @@ resource "google_cloud_run_v2_job" "job" {
   lifecycle {
     # Prevent accidental deletion
     prevent_destroy = false
+    # client / client_version: every job in this module is ALSO deployed
+    # out-of-band at runtime via `backends/cloud_run.py` (this main.tf's own
+    # header: "Cloud Run Job definitions are intentionally absent here... deployed
+    # at runtime"), and each `gcloud run jobs deploy`/`execute` call stamps these
+    # provider-computed metadata fields (e.g. "gcloud"/"572.0.0"), which the
+    # committed config never sets — so every `tofu plan` perpetually shows this
+    # as cosmetic drift that reappears immediately after the next real deploy,
+    # not a spec change `tofu apply` should ever revert
+    # (prod_terraform_drift_backlog_reconcile_2026_07_24.md).
+    ignore_changes = [
+      client,
+      client_version,
+    ]
   }
 }

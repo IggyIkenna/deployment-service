@@ -77,6 +77,12 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
   lifecycle {
     ignore_changes = [
       launch_stage,
+      # client / client_version: out-of-band `gcloud run jobs deploy`/`execute`
+      # calls stamp these metadata fields — not spec `tofu` controls — so a
+      # committed config with neither set perpetually shows cosmetic drift on
+      # every `tofu plan` (prod_terraform_drift_backlog_reconcile_2026_07_24.md).
+      client,
+      client_version,
     ]
   }
 }
