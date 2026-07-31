@@ -281,7 +281,11 @@ lc_gcloud_create() {
 
     # PRE-LAUNCH guard against the setup-script publish race (see
     # lc_verify_setup_script_freshness below) — checked here, not per-launcher,
-    # so every caller of lc_gcloud_create (~80 launchers) inherits it automatically.
+    # so every caller of lc_gcloud_create (4 launchers, measured 2026-07-31; the
+    # other ~139 launchers call `gcloud compute instances create` directly and do
+    # NOT inherit this guard — see
+    # plans/active/issues/vm_launcher_setup_script_freshness_gap_2026_07_31.md)
+    # inherits it automatically.
     if ! lc_verify_setup_script_freshness "$(lc_code_bucket "$project")" "$metadata_str"; then
         return 1
     fi
