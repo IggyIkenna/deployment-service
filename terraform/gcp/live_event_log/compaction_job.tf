@@ -17,6 +17,13 @@ resource "google_cloud_run_v2_job" "live_event_log_compactor" {
       containers {
         image = var.compactor_image
 
+        # Shared deployment-service maintenance-jobs image (see variables.tf) defaults its CMD
+        # to a generic import-check; override per-job like uts-prod-tarball-cleanup /
+        # vm-log-archival-prd do. deployment_service/jobs/ is a proper package (has __init__.py),
+        # so -m invocation (not a file path) is correct here.
+        command = ["python"]
+        args    = ["-m", "deployment_service.jobs.live_event_log_compactor"]
+
         env {
           name  = "WARM_BUCKET"
           value = var.warm_gcs_bucket
