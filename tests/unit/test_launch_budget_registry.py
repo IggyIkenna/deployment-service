@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 import pytest
 
 from deployment_service.data_pipeline_monitors.launch_budget_registry import (
+    CLOUD_RUN_MEMORY_TIER_LADDER,
+    DEFAULT_CLOUD_RUN_MEMORY_TIER,
     DEFAULT_MEMORY_TIER,
     MEMORY_TIER_LADDER,
     SOURCE_DAILY_QUOTA,
@@ -36,10 +38,12 @@ from deployment_service.data_pipeline_monitors.launch_budget_registry import (
     FleetBudgetExceededError,
     allocate_rate_budget,
     assert_fleet_within_budget,
+    cloud_run_memory_tier_by_name,
     gce_machine_ram_gb,
     key_pool_capacity_for_source,
     machine_type_for,
     memory_tier_for_machine_type,
+    next_cloud_run_memory_tier,
     next_memory_tier,
     per_ip_rate_for_source,
     resolve_memory_tier,
@@ -357,6 +361,53 @@ def test_memory_tier_reverse_lookup() -> None:
     assert tier is not None
     assert tier.ram_gb == 128
     assert memory_tier_for_machine_type("e2-micro") is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Part 3 — Cloud Run Job machine-sizing ladder (manifest-consolidator OOM
+# AUTO-ESCALATE safety net, operator idea 2026-06-24).
+# ──────────────────────────────────────────────────────────────────────────
+def test_cloud_run_ladder_matches_operator_rungs() -> None:
+    """Ladder = the exact operator ladder [16Gi/cpu4 -> 32Gi/cpu8 -> 64Gi/cpu16]."""
+    rungs = [(t.cpu, t.memory) for t in CLOUD_RUN_MEMORY_TIER_LADDER]
+    assert rungs == [("4", "16Gi"), ("8", "32Gi"), ("16", "64Gi")]
+    rams = [t.ram_gb for t in CLOUD_RUN_MEMORY_TIER_LADDER]
+    assert rams == sorted(set(rams))  # strictly ascending, no dupes
+
+
+def test_cloud_run_ladder_duckdb_memory_moves_in_lockstep() -> None:
+    """Every rung carries a duckdb_memory below its container ceiling (2026-07-14 gotcha)."""
+    for tier in CLOUD_RUN_MEMORY_TIER_LADDER:
+        assert tier.duckdb_memory.endswith("GB")
+        assert int(tier.duckdb_memory[:-2]) < tier.ram_gb
+
+
+def test_default_cloud_run_tier_is_bottom_rung() -> None:
+    assert CLOUD_RUN_MEMORY_TIER_LADDER[0].name == DEFAULT_CLOUD_RUN_MEMORY_TIER
+
+
+def test_next_cloud_run_memory_tier_steps_up_one_rung() -> None:
+    assert next_cloud_run_memory_tier("cloud-run-16gb-cpu4").name == "cloud-run-32gb-cpu8"
+    assert next_cloud_run_memory_tier("cloud-run-32gb-cpu8").name == "cloud-run-64gb-cpu16"
+
+
+def test_next_cloud_run_memory_tier_stops_at_top() -> None:
+    """At the 64Gi/cpu16 top there is no higher rung (the actuator pages instead)."""
+    assert next_cloud_run_memory_tier("cloud-run-64gb-cpu16") is None
+
+
+def test_next_cloud_run_memory_tier_unknown_starts_from_bottom() -> None:
+    """No recorded prior tier -> treated as the bottom rung, escalates to the 2nd rung."""
+    assert next_cloud_run_memory_tier("").name == "cloud-run-32gb-cpu8"
+    assert next_cloud_run_memory_tier("not-a-tier").name == "cloud-run-32gb-cpu8"
+
+
+def test_cloud_run_tier_by_name_lookup() -> None:
+    tier = cloud_run_memory_tier_by_name("cloud-run-32gb-cpu8")
+    assert tier is not None
+    assert tier.cpu == "8"
+    assert tier.memory == "32Gi"
+    assert cloud_run_memory_tier_by_name("nope") is None
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -29,6 +29,27 @@ sentinel in ``tempfile.gettempdir()`` records the last relaunch time; a relaunch
 inside the cooldown window is skipped (``relaunch_skipped=cooldown``). Bounded
 ``_MAX_RELAUNCHES_PER_WINDOW`` (=1) per asset_group per window — exactly the
 ``refetch_feed`` 120s-cooldown idiom.
+
+AUTO-ESCALATE safety net (operator idea 2026-06-24)
+-----------------------------------------------------
+A plain re-execute is the wrong fix for an OOM signature (terminal exit
+137/signal-9 in the persisted ``run.log`` AND the ``_index`` mtime did NOT
+advance) — a same-tier relaunch just re-OOMs. ``relaunch_with_escalation``
+bumps the job to a GIVEN (cpu, memory, duckdb_memory) tier via
+``gcloud run jobs update`` (reached through the sanctioned GCP SDK boundary),
+moving the DuckDB memory ceiling in lockstep, THEN executes. This actuator
+does NOT itself decide which tier to escalate TO — mirroring
+``relaunch_backfill_vm``'s ``MACHINE_TYPE``-via-``launcher_env`` shape, the
+ladder-climbing decision (mirrors VM ``lifecycle_class`` + the
+autonomous-recovery-matrix ``auto_cooldown`` idiom — capped at the top rung,
+page rather than loop forever) lives in
+``data_pipeline_monitors/escalation.py::_recover_consolidator`` via the
+canonical ``launch_budget_registry.CLOUD_RUN_MEMORY_TIER_LADDER``
+(``[16Gi/cpu4 -> 32Gi/cpu8 -> 64Gi/cpu16]``), keeping ONE registry the launcher
+and the OOM actuator both climb so they can never drift. This is the safety
+net UNDER the bounded-canonical design (the per-VM-shard purge), NOT a
+substitute for it — Cloud Run "autoscaling" is parallelism across executions,
+not per-execution RAM, so it can never bump memory on its own.
 """
 
 from __future__ import annotations
@@ -61,6 +82,11 @@ _MAX_RELAUNCHES_PER_WINDOW: int = 1
 
 _VALID_ASSET_GROUPS: frozenset[str] = frozenset(("cefi", "defi", "tradfi", "sports", "prediction"))
 
+# DuckDB's own memory_limit env var — must move in lockstep with the container
+# --memory bump (2026-07-14 gotcha; see the module docstring's AUTO-ESCALATE
+# section + manifest-consolidator-ssot.md).
+_DUCKDB_MEMORY_ENV: str = "CONSOLIDATOR_DUCKDB_MEMORY_LIMIT"
+
 
 def _default_cooldown_dir() -> Path:
     return Path(tempfile.gettempdir()) / "uts_consolidator_relaunch_cooldown"
@@ -91,6 +117,36 @@ def _default_run_job(job_name: str, *, project_id: str, region: str) -> str:
     return str(getattr(execution, "name", name))
 
 
+def _default_update_job(
+    job_name: str, *, project_id: str, region: str, cpu: str, memory: str, duckdb_memory: str
+) -> None:
+    """Bump a Cloud Run Job's cpu/memory + DuckDB memory ceiling, then block until it lands.
+
+    Cloud Run Job resource sizing (unlike a Service) lives on the job's task
+    template, not on ``RunJobRequest``'s per-execution overrides — it MUST be
+    set via ``update_job`` before the next ``run_job`` picks it up. Fetches the
+    live ``Job`` first (never hand-builds one — that would silently drop every
+    other field, e.g. the image digest / other env vars) and mutates only the
+    resource limits + the DuckDB memory-limit env var (moved in lockstep — see
+    the module docstring's AUTO-ESCALATE section). Raises on SDK failure (the
+    caller maps that to a FAILED verdict).
+    """
+    from deployment_service.backends import _gcp_sdk as _gcp_sdk_mod  # noqa: qg-deep-import
+
+    run_v2 = _gcp_sdk_mod.run_v2
+    client = run_v2.JobsClient()
+    name = f"projects/{project_id}/locations/{region}/jobs/{job_name}"
+    job = client.get_job(name=name)
+    container = job.template.template.containers[0]
+    container.resources = run_v2.ResourceRequirements(limits={"cpu": cpu, "memory": memory})
+    container.env = [
+        *(e for e in container.env if getattr(e, "name", "") != _DUCKDB_MEMORY_ENV),
+        run_v2.EnvVar(name=_DUCKDB_MEMORY_ENV, value=duckdb_memory),
+    ]
+    operation = client.update_job(job=job)
+    operation.result(timeout=120)
+
+
 class RelaunchConsolidator:
     """Re-execute the ``manifest-consolidator-{ag}`` Cloud Run Job once per window."""
 
@@ -104,6 +160,7 @@ class RelaunchConsolidator:
         project_id: str | None = None,
         now: Callable[[], datetime] | None = None,
         run_job: Callable[..., str] | None = None,
+        update_job: Callable[..., None] | None = None,
     ) -> None:
         self._cooldown_dir = cooldown_dir or _default_cooldown_dir()
         self._cooldown_seconds = cooldown_seconds
@@ -112,6 +169,7 @@ class RelaunchConsolidator:
         self._project_id = project_id if project_id is not None else _resolve_project_id()
         self._now = now or (lambda: datetime.now(UTC))
         self._run_job = run_job or _default_run_job
+        self._update_job = update_job or _default_update_job
 
     def job_name(self, asset_group: str) -> str:
         return f"manifest-consolidator-{asset_group}"
@@ -190,6 +248,71 @@ class RelaunchConsolidator:
             "job_name": job,
             "execution": execution_name,
         }
+
+    def relaunch_with_escalation(
+        self,
+        asset_group: str,
+        *,
+        cpu: str,
+        memory: str,
+        duckdb_memory: str,
+        dry_run: bool = False,
+    ) -> dict[str, str | bool | int | None]:
+        """OOM-signature relaunch: bump the job to the GIVEN tier, then re-execute.
+
+        The caller (``escalation.py::_recover_consolidator``) has already
+        confirmed the OOM signature and resolved the next ladder rung to
+        escalate to (or self-emitted CRITICAL + returned a PAGE verdict without
+        calling this at all, when already at the top rung) — this method only
+        actuates the given tier, it does not walk the ladder itself. Never
+        raises: an ``update_job`` SDK failure is captured as a FAILED verdict
+        (file_issue fallthrough) rather than crashing the escalation hop.
+        """
+        if asset_group not in _VALID_ASSET_GROUPS:
+            return {
+                "status": "FAILED",
+                "asset_group": asset_group,
+                "detail": f"unknown asset_group {asset_group!r}; valid: {sorted(_VALID_ASSET_GROUPS)}",
+            }
+
+        if dry_run:
+            plan = self.dry_run_plan(asset_group)
+            return {
+                "status": "DRY_RUN",
+                **plan,
+                "escalate_to_cpu": cpu,
+                "escalate_to_memory": memory,
+                "escalate_to_duckdb_memory": duckdb_memory,
+            }
+
+        if not self._project_id:
+            return {
+                "status": "FAILED",
+                "asset_group": asset_group,
+                "detail": "no GCP project id resolvable (UnifiedCloudConfig.gcp_project_id empty)",
+            }
+
+        job = self.job_name(asset_group)
+        try:
+            self._update_job(
+                job,
+                project_id=self._project_id,
+                region=self._region,
+                cpu=cpu,
+                memory=memory,
+                duckdb_memory=duckdb_memory,
+            )
+        except Exception as exc:  # SDK failure → FAILED (file_issue fallthrough)
+            logger.warning("relaunch_consolidator: update_job(%s) failed: %s", job, exc)
+            return {
+                "status": "FAILED",
+                "asset_group": asset_group,
+                "job_name": job,
+                "detail": f"update_job failed: {exc!r}"[:500],
+            }
+
+        result = self.relaunch(asset_group, dry_run=False)
+        return {**result, "escalated_cpu": cpu, "escalated_memory": memory, "escalated_duckdb_memory": duckdb_memory}
 
     # ── cooldown sentinel (mirrors refetch_feed) ───────────────────────────
 

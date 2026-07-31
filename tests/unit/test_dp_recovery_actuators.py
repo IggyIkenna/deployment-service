@@ -112,6 +112,158 @@ def test_consolidator_relaunch_unknown_ag_fails(tmp_path: Path, monkeypatch):
     assert result["status"] == "FAILED"
 
 
+# ── relaunch_consolidator — AUTO-ESCALATE safety net (operator idea 2026-06-24) ─
+
+
+def test_consolidator_escalate_bumps_resources_then_executes(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    updates: list[dict[str, str]] = []
+    runs: list[str] = []
+
+    def fake_update_job(job_name: str, *, project_id: str, region: str, cpu: str, memory: str, duckdb_memory: str):
+        updates.append({"job": job_name, "cpu": cpu, "memory": memory, "duckdb_memory": duckdb_memory})
+
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path,
+        project_id="my-proj",
+        now=lambda: _FIXED_NOW,
+        run_job=lambda j, **_: runs.append(j) or "exec",
+        update_job=fake_update_job,
+    )
+    result = actuator.relaunch_with_escalation("cefi", cpu="8", memory="32Gi", duckdb_memory="24GB")
+    assert result["status"] == "SUCCEEDED"
+    assert result["escalated_cpu"] == "8"
+    assert result["escalated_memory"] == "32Gi"
+    assert updates == [{"job": "manifest-consolidator-cefi", "cpu": "8", "memory": "32Gi", "duckdb_memory": "24GB"}]
+    assert runs == ["manifest-consolidator-cefi"]
+
+
+def test_consolidator_escalate_dry_run_does_not_call_sdk(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    updates: list[str] = []
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path,
+        project_id="p",
+        now=lambda: _FIXED_NOW,
+        update_job=lambda j, **_: updates.append(j),
+    )
+    result = actuator.relaunch_with_escalation("defi", cpu="8", memory="32Gi", duckdb_memory="24GB", dry_run=True)
+    assert result["status"] == "DRY_RUN"
+    assert updates == []
+
+
+def test_consolidator_escalate_update_job_failure_falls_through(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+
+    def failing_update(*_a, **_k):
+        raise RuntimeError("quota exceeded")
+
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW, update_job=failing_update
+    )
+    result = actuator.relaunch_with_escalation("cefi", cpu="8", memory="32Gi", duckdb_memory="24GB")
+    assert result["status"] == "FAILED"
+
+
+def test_consolidator_escalate_unknown_ag_fails(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    actuator = RelaunchConsolidator(cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW)
+    result = actuator.relaunch_with_escalation("nonsense", cpu="8", memory="32Gi", duckdb_memory="24GB")
+    assert result["status"] == "FAILED"
+
+
+def test_route_auto_recover_consolidator_oom_escalates_one_rung(tmp_path: Path, monkeypatch):
+    """An OOM CONSOLIDATOR_DOWN finding at the bottom rung escalates to 32Gi/cpu8."""
+    emitted = _patch_log_event(monkeypatch)
+    updates: list[dict[str, str]] = []
+    runs: list[str] = []
+
+    def fake_actuator_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchConsolidator(
+            cooldown_dir=tmp_path,
+            project_id="p",
+            now=lambda: _FIXED_NOW,
+            run_job=lambda j, **_: runs.append(j) or "exec",
+            update_job=lambda j, **kw: updates.append(
+                {"job": j, "cpu": kw["cpu"], "memory": kw["memory"], "duckdb_memory": kw["duckdb_memory"]}
+            ),
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class)
+    finding = PipelineFinding(
+        event="CONSOLIDATOR_DOWN",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="consolidator OOM",
+        details={"asset_group": "cefi", "oom": True, "consolidator_memory_tier": "cloud-run-16gb-cpu4"},
+        registry_id="DP-MANIFEST-001",
+    )
+    result = escalation.route_finding(finding)
+    assert result["effective_tier"] == "auto_recover"
+    recovery = result["recovery"]
+    assert recovery["recovered"] is True
+    assert recovery["escalated_tier"] == "cloud-run-32gb-cpu8"
+    assert updates == [{"job": "manifest-consolidator-cefi", "cpu": "8", "memory": "32Gi", "duckdb_memory": "24GB"}]
+    assert runs == ["manifest-consolidator-cefi"]
+    assert any(e[0] == "CONSOLIDATOR_DOWN" for e in emitted)
+
+
+def test_route_auto_recover_consolidator_oom_at_ceiling_pages(tmp_path: Path, monkeypatch):
+    """A repeat OOM already at the top rung self-emits CRITICAL + falls through, no loop."""
+    emitted = _patch_log_event(monkeypatch)
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+
+    def fake_actuator_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchConsolidator(cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW)
+
+    monkeypatch.setattr("scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class)
+    finding = PipelineFinding(
+        event="CONSOLIDATOR_DOWN",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="consolidator OOM",
+        details={"asset_group": "cefi", "oom": True, "consolidator_memory_tier": "cloud-run-64gb-cpu16"},
+        registry_id="DP-MANIFEST-001",
+    )
+    result = escalation.route_finding(finding, pm_repo_path=str(pm))
+    assert result["recovery"]["recovered"] is False
+    assert result["recovery"]["result"]["status"] == "PAGE"
+    assert result["recovery"]["result"]["reason"] == "escalation_ceiling"
+    assert result["effective_tier"] == "file_issue"  # not recovered -> falls through, worker picks it up
+    # The actuator self-emitted its own CRITICAL page (mirrors RelaunchBackfillVm's budget-exceeded page).
+    assert any(
+        e[0] == "CONSOLIDATOR_DOWN" and e[1] == "CRITICAL" and e[2].get("relaunch_escalation_ceiling") for e in emitted
+    )
+
+
+def test_route_auto_recover_consolidator_non_oom_unaffected(tmp_path: Path, monkeypatch):
+    """A CONSOLIDATOR_DOWN finding with no oom flag takes the ordinary same-tier path."""
+    _patch_log_event(monkeypatch)
+    runs: list[str] = []
+
+    def fake_actuator_class(*_a, **_k):  # noqa: ANN002, ANN003
+        return RelaunchConsolidator(
+            cooldown_dir=tmp_path,
+            project_id="p",
+            now=lambda: _FIXED_NOW,
+            run_job=lambda j, **_: runs.append(j) or "exec",
+        )
+
+    monkeypatch.setattr("scripts.recovery.relaunch_consolidator.RelaunchConsolidator", fake_actuator_class)
+    finding = PipelineFinding(
+        event="CONSOLIDATOR_DOWN",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="consolidator down (scheduler paused)",
+        details={"asset_group": "sports"},
+        registry_id="DP-MANIFEST-001",
+    )
+    result = escalation.route_finding(finding)
+    assert result["recovery"]["actuator"] == "relaunch_consolidator"  # same-tier path, not escalate
+    assert runs == ["manifest-consolidator-sports"]
+
+
 # ── relaunch_backfill_vm ────────────────────────────────────────────────────
 
 
