@@ -34,7 +34,19 @@ REGION="${REGION:-asia-northeast1}"
 SERVICE_NAME="${SERVICE_NAME:-uts-shared-deployment-api}"
 IMAGE="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/unified-trading-system/deployment-api:latest"
 BRANCH="${BRANCH:-live-defi-rollout}"
-SA="unified-trading-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+# Per-tier prod SA (bucket_iam_write_protection_per_tier_2026_06_09.md, hybrid
+# ruling BLK-0c84ceac "C") — replaces the god-SA unified-trading-sa per
+# issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md
+# P2. Live-verified (2026-07-31) to hold the 7 non-storage roles
+# unified-trading-sa's declared grants cover (secretmanager.secretAccessor,
+# pubsub.editor, bigquery.dataEditor, run.invoker, iam.serviceAccountUser,
+# compute.instanceAdmin.v1, artifactregistry.reader) plus bigquery.jobUser
+# (needed for deployment-api's BQ query-job path, a gap the original P1 grant
+# missed) and bucket-level storage.objectAdmin on the 2 non-tier buckets
+# deployment-api's runtime actually writes to (unified-deployment-state-*,
+# deployment-scripts-*), in addition to its existing Group A/B -prd- write
+# scope + project-wide storage.objectViewer read.
+SA="uts-prd-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 ROLLUP_JOB_NAME="${ROLLUP_JOB_NAME:-uts-prod-data-status-rollup}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
