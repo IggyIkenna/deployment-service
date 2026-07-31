@@ -22,6 +22,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_book_depth_bands" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -45,6 +49,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_candle" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -70,6 +78,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_cme_gap" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -93,6 +105,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_composite_sr" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -118,6 +134,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_cross_asset_correla
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -141,6 +161,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_cross_venue_spreads
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -166,6 +190,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_economic_events" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -189,6 +217,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_execution_fills" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -214,6 +246,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_execution_pnl" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -237,6 +273,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_execution_positions
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -262,6 +302,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_flow_interaction" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -285,6 +329,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_futures_basis" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -310,6 +358,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_futures_term_struct
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -333,6 +385,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_liquidation_cluster
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -358,6 +414,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_liquidity_walls" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -381,6 +441,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_microstructure" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -406,6 +470,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_moving_averages" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -429,6 +497,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_options_iv" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -454,6 +526,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_options_term_struct
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -477,6 +553,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_paper_ledger" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -502,6 +582,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_per_strategy_signal
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -525,6 +609,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_realized_implied_vo
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -550,6 +638,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_regime_detection" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -573,6 +665,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_technical_indicator
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -598,6 +694,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_tf_momentum_alignme
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -621,6 +721,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_tf_structure_contex
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -646,6 +750,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_tf_vol_compression"
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -669,6 +777,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_all_time_features" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -694,6 +806,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_cefi_book_snapshot_5" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -717,6 +833,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_cefi_derivative_ticker"
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -742,6 +862,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_cefi_liquidations" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -765,6 +889,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_cefi_trades" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -790,6 +918,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_commodity_storage_alpha
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -813,6 +945,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_commodity_weather_delta
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -838,6 +974,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_arbitrage_price_di
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -861,6 +1001,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_book_snapshot_5" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -886,6 +1030,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_dex_pools" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -909,6 +1057,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_dex_swaps" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -934,6 +1086,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_lending_indices" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -957,6 +1113,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_liquidations" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -982,6 +1142,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_lst_native_rates" 
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1005,6 +1169,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_lst_rates" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -1030,6 +1198,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_lst_yields" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1053,6 +1225,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_defi_trades" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -1078,6 +1254,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_prediction_book_snapsho
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1101,6 +1281,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_prediction_book_snapsho
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -1126,6 +1310,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_prediction_trades" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1149,6 +1337,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_sports_derived_features
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -1174,6 +1366,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_sports_fixture_features
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1197,6 +1393,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_sports_odds_features" {
   }
 
   message_retention_duration = "604800s"
+
+  expiration_policy {
+    ttl = ""
+  }
 
   labels = {
     managed_by  = "terraform"
@@ -1222,6 +1422,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_sports_trades" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1246,6 +1450,10 @@ resource "google_pubsub_subscription" "warm_sink_persist_tradfi_trades" {
 
   message_retention_duration = "604800s"
 
+  expiration_policy {
+    ttl = ""
+  }
+
   labels = {
     managed_by  = "terraform"
     sink_type   = "warm-gcs"
@@ -1253,4 +1461,3 @@ resource "google_pubsub_subscription" "warm_sink_persist_tradfi_trades" {
     data_type   = "trades"
   }
 }
-
