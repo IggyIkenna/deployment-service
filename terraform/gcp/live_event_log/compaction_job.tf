@@ -33,7 +33,7 @@ resource "google_cloud_run_v2_job" "live_event_log_compactor" {
           value = var.cold_gcs_bucket
         }
         env {
-          name  = "GCP_PROJECT"
+          name  = "GCP_PROJECT_ID"
           value = var.project_id
         }
         env {
