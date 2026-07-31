@@ -197,3 +197,98 @@ resource "google_project_iam_member" "uts_migration_objectviewer" {
   role    = "roles/storage.objectViewer"
   member  = "serviceAccount:${google_service_account.uts_migration.email}"
 }
+
+# ---------------------------------------------------------------------------
+# P2.2b — non-storage roles for uts-prd-sa / uts-test-sa / uts-migration-sa
+# (plans/active/bucket_iam_write_protection_per_tier_2026_06_09.md).
+#
+# Operator ruling 2026-07-31 (BLK-0c84ceac, "C: hybrid"): per-tier SAs stay
+# the write-owner for the Group A/B raw-data buckets this plan already
+# covers; per-service SAs (deployment-service/configs/gcp_service_accounts.yaml)
+# own already-migrated domain services — see
+# issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md
+# "Hybrid (C) boundary proposal" for the full bucket->scheme table.
+#
+# That issue doc's Finding 1 (live-verified 2026-07-30): uts-prd-sa/
+# uts-test-sa/uts-migration-sa held ONLY storage.objectAdmin/objectViewer —
+# wiring any real runtime to them (P2.2c Cloud Run / P2.2d VM launchers,
+# both still open + gated on this todo) would immediately break that
+# runtime's Secret Manager / Pub/Sub / BigQuery / Cloud Run access. This
+# grants the 7 non-storage roles unified-trading-sa currently holds
+# (main.tf's unified_trading_* project members) to the 3 live per-tier SAs —
+# same roles, same project-wide scope (none of these 7 carry a bucket-tier
+# IAM Condition on unified-trading-sa either, so there is nothing
+# tier-specific to condition here). uts-dev-sa/uts-stg-sa are intentionally
+# excluded (permanently unbound/historical, see the file header comment).
+#
+# INERT until P2.2c/P2.2d actually wire a runtime to authenticate as one of
+# these 3 SAs — granting these roles today does not change any live
+# runtime's identity or behavior.
+#
+# LIVE-APPLIED 2026-07-31 (slot-14): `tofu apply` against terraform/state/prod
+# already ran these 21 grants into both GCP IAM and the remote state before
+# this session restarted and lost the uncommitted .tf source — re-adding the
+# declaration here to bring config back in sync with state + live reality
+# (confirmed via `tofu state list` + a live `gcloud projects get-iam-policy`
+# read: all 21 bindings present). A clean `tofu plan` after this commit shows
+# 0 changes.
+locals {
+  uts_tier_sa_non_storage_grantees = {
+    prd       = google_service_account.uts_prd.email
+    test      = google_service_account.uts_test.email
+    migration = google_service_account.uts_migration.email
+  }
+}
+
+resource "google_project_iam_member" "uts_tier_sa_bq_editor" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/bigquery.dataEditor"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "uts_tier_sa_secret_accessor" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/secretmanager.secretAccessor"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "uts_tier_sa_run_invoker" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "uts_tier_sa_pubsub_editor" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/pubsub.editor"
+  member   = "serviceAccount:${each.value}"
+}
+
+# compute.instanceAdmin.v1 + iam.serviceAccountUser mirror unified-trading-sa's
+# self-impersonating VM-launch path (main.tf's unified_trading_compute_instance_admin
+# / unified_trading_service_account_user comment) — required for P2.2d VM launchers
+# to eventually run `--service-account=uts-{prd,test}-sa@...`.
+resource "google_project_iam_member" "uts_tier_sa_compute_instance_admin" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/compute.instanceAdmin.v1"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "uts_tier_sa_service_account_user" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/iam.serviceAccountUser"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "uts_tier_sa_artifactregistry_reader" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/artifactregistry.reader"
+  member   = "serviceAccount:${each.value}"
+}
