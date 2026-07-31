@@ -231,13 +231,25 @@ fi
 if $DO_DEPLOY; then
   echo
   echo "==> [2/2] Cloud Run deploy — rolling new revision (~30s)"
+  # --memory=16Gi/--cpu=4: MUST match cloudbuild.yaml's deploy step (the CI/promote path for
+  # this same service) — this script's own prior --memory=4Gi/--cpu=2 was stale (predated the
+  # 2026-07-17 8Gi->16Gi OOM fix documented in cloudbuild.yaml, whose comment explains why
+  # data-status's concurrent heavy-catalogue reads need it and why --cpu=4 is REQUIRED with
+  # --memory=16Gi, gen2 caps memory at 8Gi for 2 CPU). Confirmed live 2026-07-31: every
+  # revision this script deployed at the stale 4Gi/2cpu size failed every cold start
+  # (health-check timeout, zero exceptions — under-provisioned, not code-broken). NOTE: sizing
+  # alone did not fully resolve fresh-instance cold-start reliability for this service — a
+  # separate, still-open issue remains (see
+  # plans/active/issues/deployment_api_cloud_run_coldstart_flaky_exit0_blocks_prd_sa_cutover_2026_07_31.md,
+  # likely == deployment_api_sigabrt_crash_loop_2026_07_24.md). Keep this sizing regardless —
+  # it's independently correct and required.
   gcloud run deploy "$SERVICE_NAME" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$IMAGE" \
     --port=8080 \
-    --memory=4Gi \
-    --cpu=2 \
+    --memory=16Gi \
+    --cpu=4 \
     --min-instances=1 \
     --max-instances=20 \
     --concurrency=80 \
