@@ -27,12 +27,14 @@ Terraform: ``terraform/gcp/live_event_log/compaction_job.tf``.
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from datetime import UTC, date, datetime, timedelta
 
+import pandas as pd
 from unified_api_contracts.events.persist import RetentionClass  # noqa: qg-deep-import
 from unified_api_contracts.events.sink_matrix import SINK_MATRIX, SinkConfig  # noqa: qg-deep-import
-from unified_trading_library import UnifiedCloudConfig, resolve_bucket_name
+from unified_trading_library import UnifiedCloudConfig, get_storage_client, resolve_bucket_name
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +45,26 @@ logger = logging.getLogger(__name__)
 
 
 def _warm_bucket(cfg: UnifiedCloudConfig) -> str:
-    """Resolve the warm-sink GCS bucket name via the canonical resolver."""
-    name: str = resolve_bucket_name(cloud="gcp", kind="events", asset_group="warm")
+    """Resolve the warm-sink GCS bucket name via the canonical resolver.
+
+    ``events`` is a flat cross-asset_group template (``${GCP_PROJECT_ID}-events``,
+    one shared bucket for every asset_group) — passing an ``asset_group=`` here
+    raises (only ``cefi``/``defi``/``prediction``/``sports``/``tradfi`` are valid
+    values; "warm" is not one).
+    """
+    del cfg
+    name: str = resolve_bucket_name(cloud="gcp", kind="events")
     return name
 
 
 def _cold_bucket(cfg: UnifiedCloudConfig) -> str:
-    """Resolve the cold-compacted GCS bucket name via the canonical resolver."""
-    name: str = resolve_bucket_name(cloud="gcp", kind="events", asset_group="cold")
+    """Resolve the cold-compacted GCS bucket name via the canonical resolver.
+
+    Same bucket as the warm sink (single ``events`` bucket, split by the
+    ``live-events/{warm,cold}/`` prefix) — see :func:`_warm_bucket`.
+    """
+    del cfg
+    name: str = resolve_bucket_name(cloud="gcp", kind="events")
     return name
 
 
@@ -78,8 +92,22 @@ def cold_object_path(asset_group: str, data_type: str, target_date: date) -> str
 
 
 # ---------------------------------------------------------------------------
-# Shard compaction (scaffold — IO wired via UTL cloud_interface)
+# Shard compaction
 # ---------------------------------------------------------------------------
+
+
+def _warm_blob_matches_date(blob_name: str, prefix: str, target_date: date) -> bool:
+    """True if a warm-sink object's embedded timestamp falls on ``target_date`` (UTC).
+
+    The Pub/Sub Cloud Storage subscription's default object naming is
+    ``{filename_prefix}{ISO8601_timestamp}_{uuid}{filename_suffix}`` — a flat
+    listing under the prefix, NOT a ``{YYYY}/{MM}/{DD}/`` subfolder layout
+    (verified live: e.g. ``live-events/warm/prediction/trades/2026-07-30T06:00:14+00:00_59fc0c.parquet``).
+    So filtering by date means checking the leading ``YYYY-MM-DD`` of the
+    filename remainder after the prefix, not a path-segment prefix.
+    """
+    remainder = blob_name[len(prefix) :] if blob_name.startswith(prefix) else blob_name
+    return remainder.startswith(target_date.isoformat())
 
 
 async def compact_shard(
@@ -92,33 +120,31 @@ async def compact_shard(
     cold_bucket_name: str,
     dry_run: bool = False,
 ) -> bool:
-    """Compact all warm-sink 5-minute parquet files for one shard into a daily cold file.
+    """Compact all warm-sink parquet files for one shard into a single daily cold file.
 
     Returns ``True`` if the shard was compacted (files found + written), ``False``
     if the shard had no warm files for ``target_date`` (skip, not an error).
 
-    Uses UTL ``gcs_copy_object`` / ``gcs_describe_object`` (never ``subprocess gcloud``).
+    Uses UTL ``get_storage_client()`` (``list_blobs`` / ``download_bytes`` /
+    ``upload_bytes``), never ``subprocess gcloud``.
     """
     prefix = warm_prefix(asset_group, data_type)
-    date_infix = target_date.strftime("%Y/%m/%d")
-    date_prefix = f"{prefix}{date_infix}/"
 
     logger.info(
         "compact_shard: shard=(%s, %s) date=%s warm_prefix=%s",
         asset_group,
         data_type,
         target_date,
-        date_prefix,
+        prefix,
     )
 
-    # --- scaffold: list warm files for target_date ---
-    # Real implementation: use UTL gcs_describe_object / storage_client.list_objects
-    # to enumerate all objects under date_prefix. Concat parquet bytes with pyarrow.
-    # Then write the concatenated bytes to the cold path via UTL gcs_copy_object.
-    #
-    # Skeleton left here to be wired in Plan 04 (compactor implementation).
-    warm_files: list[str] = []  # TODO(Plan 04): populate via UTL storage_client.list_objects
-    if not warm_files:
+    storage_client = get_storage_client()
+    warm_blob_names = [
+        blob.name
+        for blob in storage_client.list_blobs(warm_bucket_name, prefix=prefix)
+        if _warm_blob_matches_date(blob.name, prefix, target_date)
+    ]
+    if not warm_blob_names:
         logger.info(
             "compact_shard: no warm files for shard=(%s, %s) date=%s — skipping",
             asset_group,
@@ -140,7 +166,7 @@ async def compact_shard(
         asset_group,
         data_type,
         target_date,
-        len(warm_files),
+        len(warm_blob_names),
         cold_path,
         retention_label,
         ttl_note,
@@ -150,8 +176,11 @@ async def compact_shard(
         logger.info("compact_shard: DRY RUN — not writing cold file")
         return True
 
-    # TODO(Plan 04): write concatenated parquet to cold_bucket_name/cold_path
-    # via UTL gcs_copy_object or storage_client.write_bytes.
+    frames = [
+        pd.read_parquet(io.BytesIO(storage_client.download_bytes(warm_bucket_name, name))) for name in warm_blob_names
+    ]
+    combined = pd.concat(frames, ignore_index=True)
+    storage_client.upload_bytes(cold_bucket_name, cold_path, combined.to_parquet(index=False))
     return True
 
 
