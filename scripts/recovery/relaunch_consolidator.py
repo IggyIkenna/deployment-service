@@ -34,21 +34,16 @@ AUTO-ESCALATE safety net (operator idea 2026-06-24)
 -----------------------------------------------------
 A plain re-execute is the wrong fix for an OOM signature (terminal exit
 137/signal-9 in the persisted ``run.log`` AND the ``_index`` mtime did NOT
-advance) — a same-tier relaunch just re-OOMs. ``relaunch_with_escalation``
-bumps the job to a GIVEN (cpu, memory, duckdb_memory) tier via
-``gcloud run jobs update`` (reached through the sanctioned GCP SDK boundary),
-moving the DuckDB memory ceiling in lockstep, THEN executes. This actuator
-does NOT itself decide which tier to escalate TO — mirroring
-``relaunch_backfill_vm``'s ``MACHINE_TYPE``-via-``launcher_env`` shape, the
-ladder-climbing decision (mirrors VM ``lifecycle_class`` + the
-autonomous-recovery-matrix ``auto_cooldown`` idiom — capped at the top rung,
-page rather than loop forever) lives in
-``data_pipeline_monitors/escalation.py::_recover_consolidator`` via the
-canonical ``launch_budget_registry.CLOUD_RUN_MEMORY_TIER_LADDER``
-(``[16Gi/cpu4 -> 32Gi/cpu8 -> 64Gi/cpu16]``), keeping ONE registry the launcher
-and the OOM actuator both climb so they can never drift. This is the safety
-net UNDER the bounded-canonical design (the per-VM-shard purge), NOT a
-substitute for it — Cloud Run "autoscaling" is parallelism across executions,
+advance) — a same-tier relaunch just re-OOMs. ``relaunch_oom_aware`` climbs
+``launch_budget_registry.CLOUD_RUN_MEMORY_TIER_LADDER``
+(``[16Gi/cpu4 -> 32Gi/cpu8 -> 64Gi/cpu16]``) one rung via
+``relaunch_with_escalation`` (``gcloud run jobs update`` through the sanctioned
+GCP SDK boundary, DuckDB memory ceiling moved in lockstep) before executing.
+Mirrors VM ``lifecycle_class`` + the autonomous-recovery-matrix
+``auto_cooldown`` idiom: capped at the top rung — already there → self-emit
+CRITICAL (pages via the alerting-service router) + PAGE, no infinite loop.
+This is the safety net UNDER the bounded-canonical design (the per-VM-shard
+purge), NOT a substitute — Cloud Run "autoscaling" is execution parallelism,
 not per-execution RAM, so it can never bump memory on its own.
 """
 
@@ -63,6 +58,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from deployment_service.data_pipeline_monitors.launch_budget_registry import (  # noqa: qg-deep-import
+    next_cloud_run_memory_tier,
+)
 from unified_trading_library import (
     UnifiedCloudConfig,
     log_event,
@@ -313,6 +311,36 @@ class RelaunchConsolidator:
 
         result = self.relaunch(asset_group, dry_run=False)
         return {**result, "escalated_cpu": cpu, "escalated_memory": memory, "escalated_duckdb_memory": duckdb_memory}
+
+    def relaunch_oom_aware(
+        self, asset_group: str, *, current_tier_name: str, dry_run: bool = False
+    ) -> dict[str, str | bool | int | None]:
+        """Owns the ladder-climbing decision for an OOM ``CONSOLIDATOR_DOWN`` finding.
+
+        Steps ``current_tier_name`` one rung up ``CLOUD_RUN_MEMORY_TIER_LADDER``
+        then calls ``relaunch_with_escalation``. Already at the top rung → self-emit
+        CRITICAL + return ``status=PAGE`` (no relaunch, no infinite loop) instead.
+        """
+        next_tier = next_cloud_run_memory_tier(current_tier_name)
+        if next_tier is None:
+            if not dry_run:
+                log_event(
+                    CONSOLIDATOR_DOWN,
+                    severity="CRITICAL",
+                    details={
+                        "asset_group": asset_group,
+                        "job_name": self.job_name(asset_group),
+                        "current_memory_tier": current_tier_name,
+                        "recovery_action": "relaunch_consolidator_escalate",
+                        "relaunch_escalation_ceiling": True,
+                        "detail": "consolidator OOM at the top Cloud Run tier — page operator",
+                    },
+                )
+            return {"status": "PAGE", "reason": "escalation_ceiling", "asset_group": asset_group}
+        result = self.relaunch_with_escalation(
+            asset_group, cpu=next_tier.cpu, memory=next_tier.memory, duckdb_memory=next_tier.duckdb_memory, dry_run=dry_run
+        )
+        return {**result, "escalated_tier": next_tier.name}
 
     # ── cooldown sentinel (mirrors refetch_feed) ───────────────────────────
 

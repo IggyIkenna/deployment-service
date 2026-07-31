@@ -225,24 +225,11 @@ def _slugify(text: str) -> str:
 def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
     """Auto-recover ``CONSOLIDATOR_DOWN`` → re-execute the consolidator Cloud Run Job.
 
-    AUTO-ESCALATE safety net (operator idea 2026-06-24): when the finding
-    carries the OOM signature (``details["oom"]`` — the caller/watcher already
-    confirmed terminal exit 137/signal-9 in the persisted ``run.log`` AND the
-    ``_index`` mtime did NOT advance), a plain same-tier re-execute would just
-    re-OOM. Climb ``launch_budget_registry.CLOUD_RUN_MEMORY_TIER_LADDER`` one
-    rung (``details["consolidator_memory_tier"]`` names the current rung, or
-    the terraform default when absent) and bump the job's cpu/memory/DuckDB
-    ceiling BEFORE re-executing. Capped at the top rung
-    (``cloud-run-64gb-cpu16``) — a repeat OOM already there self-emits CRITICAL
-    (pages via the alerting-service router, mirrors ``RelaunchBackfillVm``'s
-    budget-exceeded page) and returns without relaunching, rather than looping
-    the ladder forever. Non-OOM ``CONSOLIDATOR_DOWN`` (scheduler paused, a
-    plain crash) takes the ordinary same-tier re-execute path unchanged.
-
-    Returns the actuator result dict (carries ``status``). ``recovered`` is True
-    only when the relaunch SUCCEEDED (or was skipped by its own cooldown — the
-    job is already in-flight). A FAILED/PAGE verdict → ``recovered=False`` so the
-    caller falls through to file_issue.
+    AUTO-ESCALATE safety net (operator idea 2026-06-24): an OOM-signature finding
+    (``details["oom"]``) routes to ``RelaunchConsolidator.relaunch_oom_aware`` —
+    it owns the ladder-climb-then-relaunch-or-page decision. Non-OOM findings
+    take the plain same-tier re-execute path. ``recovered=False`` falls through
+    to file_issue.
     """
     if not _ACTUATORS_AVAILABLE:
         return {
@@ -255,52 +242,17 @@ def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     _mod = importlib.import_module("scripts.recovery.relaunch_consolidator")
 
     asset_group = str(finding.details.get("asset_group", "")).strip()
-    # cast to the TYPE_CHECKING-only import above — basedpyright can then type
-    # every actuator call below (mirrors _recover_preempted_vm's actuator_cls).
+    # cast to the TYPE_CHECKING-only import above (mirrors _recover_preempted_vm).
     actuator_cls = cast("type[_RelaunchConsolidatorType]", _mod.RelaunchConsolidator)
     actuator = actuator_cls()
 
     if bool(finding.details.get("oom")):
         current_tier = str(finding.details.get("consolidator_memory_tier", ""))
-        next_tier = next_cloud_run_memory_tier(current_tier)
-        if next_tier is None:
-            if not dry_run:
-                log_event(
-                    _EVENT_CONSOLIDATOR_DOWN,
-                    severity="CRITICAL",
-                    details={
-                        "asset_group": asset_group,
-                        "job_name": actuator.job_name(asset_group),
-                        "current_memory_tier": current_tier,
-                        "recovery_action": "relaunch_consolidator_escalate",
-                        "relaunch_escalation_ceiling": True,
-                        "detail": "consolidator OOM at the top Cloud Run machine-size tier "
-                        "(cloud-run-64gb-cpu16) — page operator, the bounded-canonical design needs review",
-                    },
-                )
-            return {
-                "recovered": False,
-                "actuator": "relaunch_consolidator_escalate",
-                "result": {
-                    "status": "PAGE",
-                    "reason": "escalation_ceiling",
-                    "asset_group": asset_group,
-                    "current_memory_tier": current_tier,
-                },
-            }
-        result = actuator.relaunch_with_escalation(
-            asset_group,
-            cpu=next_tier.cpu,
-            memory=next_tier.memory,
-            duckdb_memory=next_tier.duckdb_memory,
-            dry_run=dry_run,
-        )
-        recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+        result = actuator.relaunch_oom_aware(asset_group, current_tier_name=current_tier, dry_run=dry_run)
         return {
-            "recovered": recovered,
+            "recovered": result.get("status") in ("SUCCEEDED", "DRY_RUN"),
             "actuator": "relaunch_consolidator_escalate",
             "result": result,
-            "escalated_tier": next_tier.name,
         }
 
     result = actuator.relaunch(asset_group, dry_run=dry_run)
@@ -325,7 +277,6 @@ from deployment_service.data_pipeline_monitors.launch_budget_registry import (  
     MEMORY_TIER_LADDER,
     gce_machine_ram_gb,
     memory_tier_for_machine_type,
-    next_cloud_run_memory_tier,
     next_memory_tier,
 )
 
