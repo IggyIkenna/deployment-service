@@ -26,6 +26,8 @@
 #   SERVICE_NAME      (default: uts-shared-deployment-api)
 #   BRANCH            (default: live-defi-rollout)
 #   ROLLUP_JOB_NAME   (default: uts-prod-data-status-rollup)
+#   RUNTIME_SA        (default: uts-prd-sa — per-tier runtime identity, bucket_iam_write_protection_per_tier
+#                      Hybrid(C) ruling; set to unified-trading-sa@<project>.iam.gserviceaccount.com to revert)
 
 set -euo pipefail
 
@@ -45,8 +47,9 @@ BRANCH="${BRANCH:-live-defi-rollout}"
 # missed) and bucket-level storage.objectAdmin on the 2 non-tier buckets
 # deployment-api's runtime actually writes to (unified-deployment-state-*,
 # deployment-scripts-*), in addition to its existing Group A/B -prd- write
-# scope + project-wide storage.objectViewer read.
-SA="uts-prd-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+# scope + project-wide storage.objectViewer read. RUNTIME_SA overrides for an
+# instant revert (e.g. RUNTIME_SA=unified-trading-sa@<project>.iam.gserviceaccount.com).
+SA="${RUNTIME_SA:-uts-prd-sa@${PROJECT_ID}.iam.gserviceaccount.com}"
 ROLLUP_JOB_NAME="${ROLLUP_JOB_NAME:-uts-prod-data-status-rollup}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
