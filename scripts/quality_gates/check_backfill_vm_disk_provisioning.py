@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: cefi backfill throughput
+# Lifecycle: permanent
+# Delete-when: NA
 """Fail if a download-heavy backfill VM launcher provisions an inadequate boot disk.
 
 Epic: cefi backfill throughput

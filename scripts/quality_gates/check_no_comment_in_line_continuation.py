@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: cefi backfill throughput
+# Lifecycle: permanent
+# Delete-when: NA
 """Fail if a shell comment sits INSIDE a backslash-continued command.
 
 Epic: cefi backfill throughput
