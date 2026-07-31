@@ -2164,6 +2164,51 @@ def test_stale_backlog_annotated_in_finding_details_not_suppressed(monkeypatch):
     assert any("STATIC BACKLOG" in s for s in captured_summaries)
 
 
+def test_stale_backlog_static_when_fresh_trickle_below_materiality_floor(monkeypatch):
+    # Real incident (DP-FETCH-009 re-fire 2026-07-31, cefi/book_snapshot_5): a huge OLD
+    # backlog (300,458 total) plus a small, decaying TODAY trickle (91 rows/24h, well below
+    # ATTEMPTED_FAILED_ABS_THRESHOLD=500) must still read STATIC BACKLOG — a bare
+    # stale_days==0 check would call this "Fresh" forever, blocking the already-shipped
+    # severity downgrade (cefi_high_attempted_failed_batch_cluster_2026_07_23.md).
+    old_ts = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_old = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 500
+    n_fresh_trickle = 91  # real 2026-07-31 last-24h count — below the materiality floor
+    rows = [("book_snapshot_5", "attempted_failed", old_ts)] * n_old
+    rows += [("book_snapshot_5", "attempted_failed", fresh_ts)] * n_fresh_trickle
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "book_snapshot_5")
+    assert cell.stale_days == 0  # newest row IS today ...
+    assert cell.recent_attempted_failed == n_fresh_trickle
+    dp_details = [d for d in captured_details if d.get("data_type") == "book_snapshot_5"]
+    assert dp_details[0]["is_static_backlog"] is True  # ... but the trickle is below the floor
+
+
+def test_fresh_pages_uncapped_when_recent_volume_crosses_materiality_floor(monkeypatch):
+    # Mirror case: today's volume ALONE crosses MIN_ATTEMPTED_FAILED_FOR_RATIO -> a genuine
+    # fresh regression, not backlog noise -> stays "Fresh", not STATIC BACKLOG.
+    fresh_ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_fresh = meta_watchers.ATTEMPTED_FAILED_ABS_THRESHOLD + 5
+    rows = [("book_snapshot_5", "attempted_failed", fresh_ts)] * n_fresh
+    storage = FakeStorage({(_MD_BUCKET, _AVAIL_INDEX): (_index_parquet(rows), 0.0)})
+    captured_details: list[dict] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: captured_details.append(details or {}),
+    )
+    cells = meta_watchers.check_high_attempted_failed(storage_client=storage, targets=[_af_target()])
+    cell = next(c for c in cells if c.data_type == "book_snapshot_5")
+    assert cell.recent_attempted_failed == n_fresh
+    dp_details = [d for d in captured_details if d.get("data_type") == "book_snapshot_5"]
+    assert dp_details[0]["is_static_backlog"] is False
+
+
 def test_high_attempted_failed_consecutive_miss_suppresses_first_then_pages_second(monkeypatch):
     # A SINGLE high sweep (a transient consolidator blip) must NOT page; only a
     # SUSTAINED high condition (>= min_consecutive sweeps) does. Mirrors the catalogue gate.

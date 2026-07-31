@@ -56,6 +56,7 @@ from deployment_service.data_pipeline_monitors._miss_tracker import (
     MissTracker,
 )
 from deployment_service.data_pipeline_monitors.attempted_failed_staleness import (
+    recent_activity_mask,
     stale_backlog_annotation,
     stale_days_since,
 )
@@ -471,6 +472,7 @@ class AttemptedFailedCell:
     known_dead: bool = False  # registered dead cell, no activity since narrowing (known_dead_cells_registry.py)
     max_attempted_at: str = ""  # newest attempted_failed row's attempted_at (ISO-8601); "" = none/unknown
     stale_days: int | None = None  # days since max_attempted_at; None when unparseable/empty (never asserted)
+    recent_attempted_failed: int = 0  # attempted_failed rows within STATIC_BACKLOG_STALE_DAYS_THRESHOLD of now
 
 
 def _read_attempted_failed_cells(
@@ -520,7 +522,9 @@ def _read_attempted_failed_cells(
         high = attempted_failed >= ATTEMPTED_FAILED_ABS_THRESHOLD or (
             attempted_failed >= MIN_ATTEMPTED_FAILED_FOR_RATIO and ratio >= ATTEMPTED_FAILED_RATIO_THRESHOLD
         )
-        max_attempted_at = max(attempted_at_col[dt_mask & failed_mask], default="")
+        failed_attempted_at = attempted_at_col[dt_mask & failed_mask]
+        max_attempted_at = max(failed_attempted_at, default="")
+        recent_attempted_failed = int(recent_activity_mask(failed_attempted_at).sum())
         cells.append(
             AttemptedFailedCell(
                 asset_group=asset_group,
@@ -532,6 +536,7 @@ def _read_attempted_failed_cells(
                 known_dead=is_known_dead(asset_group, data_type, max_attempted_at=max_attempted_at),
                 max_attempted_at=max_attempted_at,
                 stale_days=stale_days_since(max_attempted_at),
+                recent_attempted_failed=recent_attempted_failed,
             )
         )
     return cells
@@ -617,7 +622,16 @@ def check_high_attempted_failed(
                 event=DP_RUN_MOSTLY_EMPTY,
             ):
                 continue
-            is_static_backlog, staleness_note = stale_backlog_annotation(cell.stale_days)
+            # Reuse ATTEMPTED_FAILED_ABS_THRESHOLD (the SAME bar the alert itself uses to
+            # decide "high") as the recent-window materiality floor — a cell only reads
+            # genuinely "Fresh" when its OWN last-24h volume would independently justify a
+            # CRITICAL page; MIN_ATTEMPTED_FAILED_FOR_RATIO (a much smaller micro-cell-noise
+            # guard for the ratio path) would under-suppress a real-but-smaller daily trickle.
+            is_static_backlog, staleness_note = stale_backlog_annotation(
+                cell.stale_days,
+                recent_attempted_failed=cell.recent_attempted_failed,
+                materiality_floor=ATTEMPTED_FAILED_ABS_THRESHOLD,
+            )
             summary = (
                 f"high attempted_failed batch — asset_group={cell.asset_group} "
                 f"data_type={cell.data_type}: {cell.attempted_failed} attempted_failed cells "
@@ -648,6 +662,7 @@ def check_high_attempted_failed(
                         "blob_path": target.blob_path or AVAILABILITY_INDEX_BLOB,
                         "max_attempted_at": cell.max_attempted_at,
                         "stale_days": cell.stale_days,
+                        "recent_attempted_failed": cell.recent_attempted_failed,
                         "is_static_backlog": is_static_backlog,
                     },
                     registry_id="DP-FETCH-009",
