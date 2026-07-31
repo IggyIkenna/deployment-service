@@ -423,6 +423,7 @@ def sweep(
     asset_group_for_vm: Callable[[str], str],
     launcher_for_vm: Callable[[str], str] | None = None,
     umbrella_for_vm: Callable[[str], str] | None = None,
+    preemption_op_checker: Callable[[str], bool] | None = None,
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
@@ -448,6 +449,20 @@ def sweep(
             ``captured`` count is the instrument count (~15, stable by design), not a
             batch instrument-days counter.  Live capture health is owned by
             ``live_stream_watcher.py`` DP-LIVE-001/002.
+        preemption_op_checker: optional ``vm_name -> was-actually-preempted`` resolver
+            backed by the Compute Engine Operations API (``was_instance_preempted``).
+            Consulted ONLY as a fallback when the in-guest GCS ``PREEMPTED`` marker
+            (``_gcs.is_vm_preempted``) is absent AND the VM would otherwise resolve
+            to the GONE_NO_CAPTURE candidate path (exit_code None/0, captured flat,
+            not a live VM) — closes the race where a VM reclaimed within seconds of
+            insert is preempted BEFORE its shutdown-script (guest env + metadata-
+            server round-trip + gcloud auth all needed) ever runs, so the in-guest
+            marker never gets written for a genuinely benign SPOT reclaim and the
+            VM false-fires a CRITICAL DP_VM_GONE_NO_CAPTURE page instead of the
+            benign DP_VM_PREEMPTED auto_recover path (found 2026-07-31,
+            ``tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-060117`` — preempted
+            106s post-insert, zero run.log lines, no PREEMPTED blob). Absent, the
+            monitor behaves exactly as before (GCS-marker-only).
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
 
@@ -485,6 +500,29 @@ def sweep(
         # so we don't download the run.log for those (keeps the per-tick download
         # count low, mirrors the OOM-fix double-download discipline).
         is_preempted = _gcs.is_vm_preempted(storage_client, log_bucket, name)
+        if (
+            not is_preempted
+            and not is_live_vm
+            and (exit_code is None or exit_code == 0)
+            and captured_after <= captured_before
+            and preemption_op_checker is not None
+        ):
+            # The GCS marker is written by an IN-GUEST shutdown-script (needs the
+            # guest env + a metadata-server round-trip + gcloud auth all already
+            # up) — a VM reclaimed within seconds of insert can be preempted
+            # before that script ever runs, so the marker never gets written for
+            # a genuinely benign SPOT reclaim. Only consulted on the
+            # GONE_NO_CAPTURE candidate path (bounded extra API call), and only
+            # when the GCS marker itself is absent.
+            try:
+                is_preempted = preemption_op_checker(name)
+            except Exception:
+                logger.warning(
+                    "exit_code_fleet_monitor: preemption_op_checker(%s) failed — "
+                    "falling through to the normal classification path",
+                    name,
+                    exc_info=True,
+                )
         # A terminated VM with NO durable exit marker AND climbing captured is the
         # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
         # SAME relaunch-replay env as PREEMPTED. Resolve the gate here (mirrors the
