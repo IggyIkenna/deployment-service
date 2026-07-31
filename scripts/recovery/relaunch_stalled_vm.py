@@ -224,7 +224,20 @@ class RelaunchStalledVm:
                 resume_date = last
 
         if resume_date:
+            # Most launchers read a bare START_DATE env var, but a subset
+            # (launch-canonical-migration-vm.sh, launch-api-football-backfill-vm.sh,
+            # launch-features-sports-backfill-vm.sh, launch-mdps-build-continuous-vm.sh,
+            # launch-mdps-backfill-vm.sh) resolve their positional start-date arg as
+            # ``"${2:-${RESUME_START_DATE:-}}"`` and NEVER consult a bare START_DATE —
+            # so a bare-re-invocation relaunch (zero positional args, per the RESUME_*
+            # fallback contract) silently ignored this checkpoint override for those
+            # five launchers (confirmed live 2026-07-31, DP-VM-003 agt-5a8706:
+            # canonical-migration-cefi-content-13 resumed from its ORIGINAL start_date
+            # every relaunch instead of the checkpoint frontier). Setting BOTH keys
+            # covers either convention; the unused one is simply ignored by the launcher
+            # that doesn't read it.
             env["START_DATE"] = resume_date
+            env["RESUME_START_DATE"] = resume_date
             log_event(
                 DP_VM_STALL,
                 severity="INFO",
