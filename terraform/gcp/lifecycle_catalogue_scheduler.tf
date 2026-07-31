@@ -298,9 +298,22 @@ module "lifecycle_catalogue_full_job" {
   cpu             = local.lifecycle_catalogue_full_cpu[each.key]
   memory          = local.lifecycle_catalogue_full_memory[each.key]
   timeout_seconds = 21600 # 6h — full tradfi walk is 2h17m and grows; Jobs ceiling is 24h
-  max_retries     = 1
-  parallelism     = 1
-  task_count      = 1
+  # max_retries 1->2 (2026-07-31, tradfi_catalogue_full_regen_job_failing_2026_07_31.md):
+  # every execution checked across ALL five full-mode jobs (not just tradfi) shows the
+  # identical NonZeroExitCode/exit-1 signature with ZERO application log output (confirmed
+  # cefi-7f24w, defi-7xwfq/krsmr, tradfi-hlvh9/8m6wx/z574m) — an abrupt, unlogged container
+  # termination unrelated to a code-path bug (verified across the smallest 4Gi/short-runtime
+  # AGs too, ruling out a pure memory-pressure explanation). Every SUCCESSFUL tradfi full run
+  # checked (incl. mh959, the one green cycle) needed its 1 retry to land — tradfi essentially
+  # never survives attempt 1 — so 3 consecutive Failed weeks (07-11/07-18/07-25) means BOTH
+  # attempts under max_retries=1 were unlucky on each of those Saturdays. Raising to 2 (3 total
+  # attempts) meaningfully lowers the odds all attempts fail together, while the underlying
+  # abrupt-kill mechanism is chased via the new [BISECT-C-PROGRESS] heartbeat (see
+  # build_instrument_catalogue.py) so the NEXT failure (if any) finally carries diagnostic
+  # signal instead of a silent log blackout.
+  max_retries = 2
+  parallelism = 1
+  task_count  = 1
 
   command = ["python"]
   args = concat(
