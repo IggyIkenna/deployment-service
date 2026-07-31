@@ -6,10 +6,19 @@
 #
 # Provides:
 #   lc_validate_env <env>                  — validate prod|staging|dev; exit 1 on bad value
+#   lc_tier_service_account <env> <project> — emit the per-tier runtime SA email for <env>
+#                                            (uts-prd-sa for prod, uts-test-sa for staging/dev);
+#                                            env-overridable via LC_RUNTIME_SA= for an instant
+#                                            revert, mirrors scripts/cloud-run/deploy-shared.sh's
+#                                            RUNTIME_SA= pattern (bucket_iam_write_protection_per_tier
+#                                            P2.2d)
 #   lc_singleton_check <prefix> <zone> <project> [force=false]
 #                                          — refuse duplicate launch unless force=true
 #   lc_gcloud_create <vm_name> <project> <zone> <machine_type> <disk_gb> <metadata> <labels>
-#                                          — standard gcloud compute instances create wrapper
+#                    [service_account]
+#                                          — standard gcloud compute instances create wrapper;
+#                                            optional 8th arg sets --service-account (omit/empty
+#                                            preserves the prior default-compute-SA behavior)
 #   lc_code_bucket <project>               — emit deployment-scripts-<project>
 #   lc_run_ts                              — emit YYYYmmdd-HHMMSS timestamp
 #   lc_tarball_name_for_repo <repo>        — canonical GCS code-tarball basename
@@ -94,6 +103,37 @@ lc_validate_env() {
     case "$env" in
         prod|staging|dev) ;;
         *) echo "ERROR: --env must be one of prod/staging/dev (got: ${env})" >&2; exit 1 ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# lc_tier_service_account <env> <project>
+# ---------------------------------------------------------------------------
+# Emit the per-tier runtime SA email for <env>: uts-prd-sa for prod,
+# uts-test-sa for staging/dev (bucket_iam_write_protection_per_tier_2026_06_09.md
+# P2.2d — mirrors scripts/cloud-run/deploy-shared.sh's RUNTIME_SA= pattern on
+# the VM-launcher side). Env-overridable via LC_RUNTIME_SA= for an instant
+# per-launcher revert to the prior default-compute-SA behavior (pass "" through
+# to lc_gcloud_create's service_account arg to opt out entirely).
+#
+# Scope note: only for launchers that write exclusively into Group A/B
+# raw-data buckets (market-data-tick-*, instruments-store-*, features-*, per
+# the ratified bucket->scheme table in
+# issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md).
+# A launcher writing into a per-service-scoped bucket (ml-store/execution-store/
+# strategy-store/portfolio-state, or a named domain service) should NOT use
+# this — that classification pass is separate, ongoing P2.2d work.
+lc_tier_service_account() {
+    local env="${1:?lc_tier_service_account: env required}"
+    local project="${2:?lc_tier_service_account: project required}"
+    if [[ -n "${LC_RUNTIME_SA:-}" ]]; then
+        echo "$LC_RUNTIME_SA"
+        return 0
+    fi
+    case "$env" in
+        prod) echo "uts-prd-sa@${project}.iam.gserviceaccount.com" ;;
+        staging|dev) echo "uts-test-sa@${project}.iam.gserviceaccount.com" ;;
+        *) echo "ERROR: lc_tier_service_account: env must be one of prod/staging/dev (got: ${env})" >&2; exit 1 ;;
     esac
 }
 
@@ -244,18 +284,24 @@ EOF
 
 # ---------------------------------------------------------------------------
 # lc_gcloud_create <vm_name> <project> <zone> <machine_type> <disk_gb>
-#                  <metadata_str> <labels_str>
+#                  <metadata_str> <labels_str> [service_account]
 # ---------------------------------------------------------------------------
 # Standard gcloud compute instances create call with the workspace's canonical
 # image (ubuntu-2404-lts-amd64), cloud-platform scope, and no-restart-on-failure.
 #
-# <metadata_str> : comma-separated key=value pairs (e.g. "VM_TASK=foo,ENV=prod")
-# <labels_str>   : comma-separated key=value pairs (e.g. "purpose=foo,env=prod")
+# <metadata_str>    : comma-separated key=value pairs (e.g. "VM_TASK=foo,ENV=prod")
+# <labels_str>      : comma-separated key=value pairs (e.g. "purpose=foo,env=prod")
+# [service_account] : optional runtime SA email — pass the output of
+#                      lc_tier_service_account to run as a tier SA instead of
+#                      the GCP default compute SA. Omit/empty preserves the
+#                      prior default-compute-SA behavior (no --service-account
+#                      flag at all, exactly as before this arg was added).
 #
 # Example:
 #   lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "e2-standard-4" "50" \
 #       "VM_TASK=foo,DEPLOYMENT_ENV=prod" \
-#       "purpose=foo,env=prod"
+#       "purpose=foo,env=prod" \
+#       "$(lc_tier_service_account "$DEPLOYMENT_ENV" "$PROJECT")"
 lc_gcloud_create() {
     local vm_name="${1:?lc_gcloud_create: vm_name required}"
     local project="${2:?lc_gcloud_create: project required}"
@@ -264,6 +310,7 @@ lc_gcloud_create() {
     local disk_gb="${5:?lc_gcloud_create: disk_gb required}"
     local metadata_str="${6:?lc_gcloud_create: metadata_str required}"
     local labels_str="${7:?lc_gcloud_create: labels_str required}"
+    local service_account="${8:-}"
 
     # Every deployment-service launch carries a standardized managed-by label so the deployments
     # cockpit can PROVE provenance: a live GCE instance WITHOUT this label is provably ad-hoc (WS-D
@@ -284,6 +331,7 @@ lc_gcloud_create() {
         echo "[DRY-RUN]   project=${project} zone=${zone} machine=${machine_type} disk=${disk_gb}GB"
         echo "[DRY-RUN]   metadata=${metadata_str}"
         echo "[DRY-RUN]   labels=${final_labels}"
+        echo "[DRY-RUN]   service_account=${service_account:-<default-compute-sa>}"
         return 0
     fi
 
@@ -298,17 +346,32 @@ lc_gcloud_create() {
         return 1
     fi
 
-    gcloud compute instances create "$vm_name" \
-        --project="$project" \
-        --zone="$zone" \
-        --machine-type="$machine_type" \
-        --image-family=ubuntu-2404-lts-amd64 \
-        --image-project=ubuntu-os-cloud \
-        --boot-disk-size="${disk_gb}GB" \
-        --scopes=cloud-platform \
-        --no-restart-on-failure \
-        --metadata="$metadata_str" \
-        --labels="$final_labels"
+    if [[ -n "$service_account" ]]; then
+        gcloud compute instances create "$vm_name" \
+            --project="$project" \
+            --zone="$zone" \
+            --machine-type="$machine_type" \
+            --image-family=ubuntu-2404-lts-amd64 \
+            --image-project=ubuntu-os-cloud \
+            --boot-disk-size="${disk_gb}GB" \
+            --scopes=cloud-platform \
+            --no-restart-on-failure \
+            --service-account="$service_account" \
+            --metadata="$metadata_str" \
+            --labels="$final_labels"
+    else
+        gcloud compute instances create "$vm_name" \
+            --project="$project" \
+            --zone="$zone" \
+            --machine-type="$machine_type" \
+            --image-family=ubuntu-2404-lts-amd64 \
+            --image-project=ubuntu-os-cloud \
+            --boot-disk-size="${disk_gb}GB" \
+            --scopes=cloud-platform \
+            --no-restart-on-failure \
+            --metadata="$metadata_str" \
+            --labels="$final_labels"
+    fi
 }
 
 # ---------------------------------------------------------------------------

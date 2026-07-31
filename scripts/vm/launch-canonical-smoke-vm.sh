@@ -87,7 +87,8 @@ launch_vm() {
 
     lc_gcloud_create "$vm_name" "$PROJECT" "$ZONE" "e2-standard-4" "30" \
         "startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-        "purpose=canonical-smoke,category=${cat},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
+        "purpose=canonical-smoke,category=${cat},env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
+        "$(lc_tier_service_account "$DEPLOYMENT_ENV" "$PROJECT")"
     echo "  → SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  → Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }
