@@ -7,9 +7,16 @@ Workflow
 --------
 1. Identify yesterday's date (UTC).
 2. For each ``(asset_group, data_type)`` shard in :data:`SINK_MATRIX`:
-   a. List all warm-sink 5-minute parquet files under the shard's warm prefix
-      for that date (``live-events/warm/{asset_group}/{data_type}/``).
-   b. Read and concat them into a single in-memory DataFrame.
+   a. List all warm-sink objects under the shard's warm prefix for that date
+      (``live-events/warm/{asset_group}/{data_type}/``). Each object is a raw
+      Pub/Sub ``CanonicalPersistEnvelope`` (JSON) written verbatim by the Cloud
+      Storage subscription — despite the ``.parquet`` filename suffix, the
+      subscription has no ``parquet_config``/``avro_config`` set, so the bytes
+      on the wire are exactly the JSON message data, never real Parquet.
+   b. Parse each envelope, extract ``payload_inline`` (JSON-encoded row or list
+      of rows), and concat all rows across the shard's warm files into a single
+      in-memory DataFrame — this is where the JSON->Parquet conversion actually
+      happens (the warm tier itself is never Parquet).
    c. Write a daily cold parquet file to the cold prefix
       (``live-events/cold/{asset_group}/{data_type}/date={YYYY-MM-DD}/data.parquet``).
 3. For REPRODUCIBLE shards: the cold-tier GCS lifecycle rule (set via terraform
@@ -18,6 +25,11 @@ Workflow
 4. For STREAM_ONLY shards: no TTL — files are kept forever (system of record).
 
 Skips shards with zero warm files (normal for shards not yet producing data).
+Skips (with a warning, never a crash) any individual warm file that fails to
+parse as a ``CanonicalPersistEnvelope`` or that carries ``payload_pointer``
+instead of ``payload_inline`` (no SINK_MATRIX shard sets ``hot=False`` today,
+so the pointer path is unexercised — logged, not silently dropped, so it is
+visible the moment a producer starts using it).
 Never deletes warm files — TTL is managed by the warm bucket lifecycle rule.
 
 Plan: ``live_data_persistence_central_event_log_2026_06_25.md`` Plan 03.
@@ -27,12 +39,14 @@ Terraform: ``terraform/gcp/live_event_log/compaction_job.tf``.
 from __future__ import annotations
 
 import asyncio
-import io
+import json
 import logging
 from datetime import UTC, date, datetime, timedelta
+from typing import cast
 
 import pandas as pd
-from unified_api_contracts.events.persist import RetentionClass  # noqa: qg-deep-import
+from pydantic import ValidationError
+from unified_api_contracts.events.persist import CanonicalPersistEnvelope, RetentionClass  # noqa: qg-deep-import
 from unified_api_contracts.events.sink_matrix import SINK_MATRIX, SinkConfig  # noqa: qg-deep-import
 from unified_trading_library import UnifiedCloudConfig, get_storage_client, resolve_bucket_name
 
@@ -110,6 +124,69 @@ def _warm_blob_matches_date(blob_name: str, prefix: str, target_date: date) -> b
     return remainder.startswith(target_date.isoformat())
 
 
+def _extract_rows(blob_name: str, raw_bytes: bytes) -> list[dict[str, object]]:
+    """Parse one warm-sink object's bytes as a ``CanonicalPersistEnvelope`` and return its rows.
+
+    Every warm-sink object is the raw Pub/Sub message the ``google_pubsub_subscription``
+    ``cloud_storage_config`` wrote verbatim (no ``parquet_config``/``avro_config`` is set on
+    any of the 52 subscriptions in ``warm_sink.tf``) — i.e. JSON, never Parquet, despite the
+    ``.parquet`` filename suffix. ``payload_inline`` carries either a single row dict or a
+    list of row dicts (the compactor is the actual JSON->Parquet conversion boundary).
+
+    Returns ``[]`` (never raises) on a malformed envelope, invalid JSON payload, a
+    payload whose JSON shape isn't a dict/list-of-dicts, or a ``payload_pointer``-only
+    envelope (no SINK_MATRIX shard sets ``hot=False`` today, so this path is unexercised
+    in production) — logs a warning so the gap stays visible instead of silently dropping
+    data or crashing the whole shard on one bad object.
+    """
+    try:
+        envelope = CanonicalPersistEnvelope.model_validate_json(raw_bytes)
+    except ValidationError:
+        logger.warning("_extract_rows: blob=%s failed CanonicalPersistEnvelope validation — skipping", blob_name)
+        return []
+
+    if envelope.payload_inline is None:
+        logger.warning(
+            "_extract_rows: blob=%s carries payload_pointer (%s), not payload_inline — "
+            "pointer dereferencing is not yet implemented, skipping",
+            blob_name,
+            envelope.payload_pointer,
+        )
+        return []
+
+    try:
+        payload = cast(object, json.loads(envelope.payload_inline))
+    except json.JSONDecodeError:
+        logger.warning("_extract_rows: blob=%s payload_inline is not valid JSON — skipping", blob_name)
+        return []
+
+    if isinstance(payload, dict):
+        return [cast(dict[str, object], payload)]
+    if isinstance(payload, list):
+        rows: list[dict[str, object]] = []
+        dropped = 0
+        for item in cast(list[object], payload):
+            if isinstance(item, dict):
+                rows.append(cast(dict[str, object], item))
+            else:
+                dropped += 1
+        if dropped:
+            logger.warning(
+                "_extract_rows: blob=%s payload_inline list has %d/%d non-dict entries — dropping them",
+                blob_name,
+                dropped,
+                dropped + len(rows),
+            )
+        return rows
+
+    logger.warning(
+        "_extract_rows: blob=%s payload_inline JSON is neither a dict nor a list (%s) — skipping",
+        blob_name,
+        type(payload).__name__,
+    )
+    return []
+
+
 async def compact_shard(
     *,
     asset_group: str,
@@ -176,11 +253,36 @@ async def compact_shard(
         logger.info("compact_shard: DRY RUN — not writing cold file")
         return True
 
-    frames = [
-        pd.read_parquet(io.BytesIO(storage_client.download_bytes(warm_bucket_name, name))) for name in warm_blob_names
-    ]
-    combined = pd.concat(frames, ignore_index=True)
+    records: list[dict[str, object]] = []
+    unusable = 0
+    for name in warm_blob_names:
+        rows = _extract_rows(name, storage_client.download_bytes(warm_bucket_name, name))
+        if not rows:
+            unusable += 1
+            continue
+        records.extend(rows)
+
+    if not records:
+        logger.warning(
+            "compact_shard: shard=(%s, %s) date=%s — all %d warm files yielded 0 usable rows, nothing to write",
+            asset_group,
+            data_type,
+            target_date,
+            len(warm_blob_names),
+        )
+        return False
+
+    combined = pd.DataFrame.from_records(records)
     storage_client.upload_bytes(cold_bucket_name, cold_path, combined.to_parquet(index=False))
+    if unusable:
+        logger.warning(
+            "compact_shard: shard=(%s, %s) date=%s — skipped %d/%d unusable warm files (see prior warnings)",
+            asset_group,
+            data_type,
+            target_date,
+            unusable,
+            len(warm_blob_names),
+        )
     return True
 
 
