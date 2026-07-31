@@ -224,10 +224,18 @@ def _slugify(text: str) -> str:
 def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
     """Auto-recover ``CONSOLIDATOR_DOWN`` → re-execute the consolidator Cloud Run Job.
 
+    **OOM AUTO-ESCALATE safety net (operator idea 2026-06-24)**: when the finding
+    carries ``details["oom"]`` truthy (the caller has diagnosed an OOM signature —
+    terminal exit 137/signal-9 with the manifest index un-advanced), the actuator
+    escalates the Job to the next machine tier before re-executing (mirrors
+    ``_recover_backfill_vm``'s ``bigger_machine``/KEY #4 pattern for VM backfills).
+    A same-tier relaunch after a genuine OOM would just re-OOM.
+
     Returns the actuator result dict (carries ``status``). ``recovered`` is True
     only when the relaunch SUCCEEDED (or was skipped by its own cooldown — the
-    job is already in-flight). A FAILED/PAGE verdict → ``recovered=False`` so the
-    caller falls through to file_issue.
+    job is already in-flight). A FAILED/PAGE verdict (incl. escalation exhausted
+    at the top machine tier) → ``recovered=False`` so the caller falls through to
+    file_issue.
     """
     if not _ACTUATORS_AVAILABLE:
         return {
@@ -240,8 +248,9 @@ def _recover_consolidator(finding: PipelineFinding, *, dry_run: bool) -> dict[st
     _mod = importlib.import_module("scripts.recovery.relaunch_consolidator")
 
     asset_group = str(finding.details.get("asset_group", "")).strip()
+    oom = bool(finding.details.get("oom"))
     actuator = _mod.RelaunchConsolidator()
-    result = actuator.relaunch(asset_group, dry_run=dry_run)
+    result = actuator.relaunch(asset_group, dry_run=dry_run, oom=oom)
     recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
     return {"recovered": recovered, "actuator": "relaunch_consolidator", "result": result}
 

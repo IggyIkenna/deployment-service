@@ -112,6 +112,98 @@ def test_consolidator_relaunch_unknown_ag_fails(tmp_path: Path, monkeypatch):
     assert result["status"] == "FAILED"
 
 
+# ── relaunch_consolidator OOM AUTO-ESCALATE safety net ──────────────────────
+
+
+def _oom_counter_now(counter: list[int]):
+    """A ``now`` fn that always advances well past the 120s cooldown per call."""
+    from datetime import timedelta
+
+    def _now() -> datetime:
+        value = _FIXED_NOW + timedelta(seconds=1000 * counter[0])
+        counter[0] += 1
+        return value
+
+    return _now
+
+
+def test_consolidator_relaunch_oom_escalates_tier_before_running(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    updates: list[tuple[str, str, str]] = []
+    runs: list[str] = []
+
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path,
+        project_id="p",
+        now=lambda: _FIXED_NOW,
+        run_job=lambda j, **_: runs.append(j) or "exec",
+        update_job_resources=lambda j, *, project_id, region, cpu, memory: updates.append((j, cpu, memory)),
+    )
+    assert actuator.current_tier_index("cefi") == 0
+    result = actuator.relaunch("cefi", oom=True)
+    assert result["status"] == "SUCCEEDED"
+    assert result["escalated_tier_cpu"] == "8"
+    assert result["escalated_tier_memory"] == "32Gi"
+    assert updates == [("manifest-consolidator-cefi", "8", "32Gi")]
+    assert runs == ["manifest-consolidator-cefi"]
+    # tier bump persists — sticky across calls (a later NON-oom relaunch never resets it).
+    assert actuator.current_tier_index("cefi") == 1
+
+
+def test_consolidator_relaunch_oom_climbs_to_top_then_pages(tmp_path: Path, monkeypatch):
+    emitted = _patch_log_event(monkeypatch)
+    updates: list[tuple[str, str]] = []
+    runs: list[str] = []
+    counter = [0]
+
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path,
+        project_id="p",
+        now=_oom_counter_now(counter),
+        run_job=lambda j, **_: runs.append(j) or "exec",
+        update_job_resources=lambda j, *, project_id, region, cpu, memory: updates.append((cpu, memory)),
+    )
+    first = actuator.relaunch("cefi", oom=True)  # tier 0 -> 1 (8 / 32Gi)
+    second = actuator.relaunch("cefi", oom=True)  # tier 1 -> 2 (16 / 64Gi, the top rung)
+    assert first["status"] == "SUCCEEDED"
+    assert second["status"] == "SUCCEEDED"
+    assert actuator.current_tier_index("cefi") == 2
+    assert updates == [("8", "32Gi"), ("16", "64Gi")]
+    assert len(runs) == 2
+
+    third = actuator.relaunch("cefi", oom=True)  # already at the top rung -> PAGE, no relaunch
+    assert third["status"] == "PAGED"
+    assert len(updates) == 2  # no further resize attempted
+    assert len(runs) == 2  # no further relaunch — no infinite loop
+    assert actuator.current_tier_index("cefi") == 2  # unchanged
+    paged = [e for e in emitted if e[0] == "CONSOLIDATOR_DOWN" and e[1] == "CRITICAL"]
+    assert len(paged) == 1
+    assert paged[0][2]["reason"] == "oom_escalation_exhausted"
+
+
+def test_consolidator_relaunch_oom_dry_run_reports_next_tier(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+    actuator = RelaunchConsolidator(cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW)
+    result = actuator.relaunch("cefi", dry_run=True, oom=True)
+    assert result["status"] == "DRY_RUN"
+    assert "cpu=8" in result["oom_effect"]
+    assert "memory=32Gi" in result["oom_effect"]
+
+
+def test_consolidator_relaunch_oom_update_failure_does_not_bump_tier(tmp_path: Path, monkeypatch):
+    _patch_log_event(monkeypatch)
+
+    def _boom(job_name: str, *, project_id: str, region: str, cpu: str, memory: str) -> None:
+        raise RuntimeError("update_job failed")
+
+    actuator = RelaunchConsolidator(
+        cooldown_dir=tmp_path, project_id="p", now=lambda: _FIXED_NOW, update_job_resources=_boom
+    )
+    result = actuator.relaunch("cefi", oom=True)
+    assert result["status"] == "FAILED"
+    assert actuator.current_tier_index("cefi") == 0  # never bumped — the SDK call failed
+
+
 # ── relaunch_backfill_vm ────────────────────────────────────────────────────
 
 
@@ -608,6 +700,38 @@ def test_route_auto_recover_invokes_consolidator_actuator(tmp_path: Path, monkey
     assert runs == ["manifest-consolidator-defi"]
     # The CONSOLIDATOR_DOWN event is still emitted.
     assert any(e[0] == "CONSOLIDATOR_DOWN" for e in emitted)
+
+
+def test_route_auto_recover_consolidator_oom_passes_escalation_flag(monkeypatch):
+    """OOM AUTO-ESCALATE safety net (operator idea 2026-06-24): a finding whose
+    ``details["oom"]`` is truthy must reach the actuator's ``oom=True`` kwarg —
+    the tier-escalation branch inside ``RelaunchConsolidator.relaunch``."""
+    _patch_log_event(monkeypatch)
+    calls: list[dict[str, object]] = []
+
+    class _FakeActuator:
+        def relaunch(self, asset_group: str, *, dry_run: bool = False, oom: bool = False) -> dict[str, object]:
+            calls.append({"asset_group": asset_group, "dry_run": dry_run, "oom": oom})
+            return {
+                "status": "SUCCEEDED",
+                "asset_group": asset_group,
+                "job_name": f"manifest-consolidator-{asset_group}",
+            }
+
+    monkeypatch.setattr(
+        "scripts.recovery.relaunch_consolidator.RelaunchConsolidator", lambda *_a, **_k: _FakeActuator()
+    )
+    finding = PipelineFinding(
+        event="CONSOLIDATOR_DOWN",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="consolidator OOM'd",
+        details={"asset_group": "defi", "oom": True},
+        registry_id="DP-MANIFEST-001",
+    )
+    result = escalation.route_finding(finding)
+    assert result["recovery"]["recovered"] is True
+    assert calls == [{"asset_group": "defi", "dry_run": False, "oom": True}]
 
 
 def test_route_auto_recover_no_actuator_falls_through_to_file_issue(tmp_path: Path, monkeypatch):
