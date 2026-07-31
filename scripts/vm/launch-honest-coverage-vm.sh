@@ -127,7 +127,7 @@ GCLOUD_CMD=(
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}"
     --scopes=cloud-platform
     "--metadata=startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
-    "--labels=purpose=honest-coverage,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
+    "--labels=purpose=honest-coverage,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}",managed-by=deployment-service
 )
 
 echo "Launching $VM_NAME: honest-coverage measurement (all asset groups, env=${DEPLOYMENT_ENV})"

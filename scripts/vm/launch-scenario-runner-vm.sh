@@ -156,7 +156,7 @@ for KEY in "${ARCHETYPES[@]}"; do
       --boot-disk-size=50GB \
       --scopes=cloud-platform \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-      --labels=purpose=scenario-matrix,archetype="${KEY}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+      --labels=purpose=scenario-matrix,archetype="${KEY}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
   fi
 
   launched+=("$VM_NAME")

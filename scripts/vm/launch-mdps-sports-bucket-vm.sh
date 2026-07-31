@@ -155,7 +155,7 @@ gcloud compute instances create "$VM_NAME" \
     --scopes=cloud-platform \
     ${PROVISIONING_FLAGS} \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-    --labels=purpose=mdps-sports-bucket,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=mdps-sports-bucket,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo ""
 echo "  SSH:    gcloud compute ssh ${VM_NAME} --zone=${ZONE}"

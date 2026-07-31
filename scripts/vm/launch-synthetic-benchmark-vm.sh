@@ -167,7 +167,7 @@ for SHAPE in $SHAPES; do
       --service-account="${SERVICE_ACCOUNT}" \
       --scopes=cloud-platform \
       --metadata="${METADATA}" \
-      --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+      --labels=purpose=synthetic-benchmark,archetype="${ARCH_SHORT}",shape="${SHAPE_SHORT}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service \
       --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
   fi
 done

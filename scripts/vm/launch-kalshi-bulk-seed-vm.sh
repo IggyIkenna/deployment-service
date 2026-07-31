@@ -77,7 +77,7 @@ else
       --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-      --labels=purpose=kalshi-bulk-seed,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+      --labels=purpose=kalshi-bulk-seed,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

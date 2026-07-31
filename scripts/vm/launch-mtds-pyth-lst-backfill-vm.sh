@@ -166,7 +166,7 @@ else
       --no-restart-on-failure \
       ${PROVISIONING_FLAGS} \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-      --labels=purpose=pyth-lst-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+      --labels=purpose=pyth-lst-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

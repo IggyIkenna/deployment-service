@@ -226,7 +226,7 @@ _launch_one_vm() {
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=cefi-funding-timestamp-fix,env=${DEPLOYMENT_ENV},venue=${VENUE_SLUG}" \
+    --labels="purpose=cefi-funding-timestamp-fix,env=${DEPLOYMENT_ENV},venue=${VENUE_SLUG}",managed-by=deployment-service \
     --metadata="${metadata}"
 
   # Best-effort exact-replay record for a SPOT-preemption relaunch (never fails the launch — see

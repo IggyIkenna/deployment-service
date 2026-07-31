@@ -219,7 +219,7 @@ else
       --no-restart-on-failure \
       ${PROVISIONING_FLAGS} \
       --metadata="^;^${METADATA}" \
-      --labels=purpose=mtds-lending-indices-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+      --labels=purpose=mtds-lending-indices-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

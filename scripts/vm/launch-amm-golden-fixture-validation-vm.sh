@@ -317,7 +317,7 @@ gcloud compute instances create "${VM_NAME}" \
   --metadata-from-file=startup-script="${STARTUP_FILE}" \
   --boot-disk-size=30GB \
   --boot-disk-type=pd-ssd \
-  --labels="purpose=amm-golden-validation,env=${DEPLOYMENT_ENV},shape=${SHAPE_SLUG},run-ts=${RUN_TS}"
+  --labels="purpose=amm-golden-validation,env=${DEPLOYMENT_ENV},shape=${SHAPE_SLUG},run-ts=${RUN_TS}",managed-by=deployment-service
 
 echo ""
 echo "============================================================"

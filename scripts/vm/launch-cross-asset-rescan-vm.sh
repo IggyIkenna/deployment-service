@@ -290,7 +290,7 @@ launch_single_vm() {
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${metadata}" \
-    --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",pass="${pass_num}"
+    --labels=purpose=cross-asset-rescan,asset-group="${ASSET_GROUP}",mode="${MODE_LABEL}",env="${DEPLOYMENT_ENV}",pass="${pass_num}",managed-by=deployment-service
 
   echo ""
   echo "VM launched: $vm_name"

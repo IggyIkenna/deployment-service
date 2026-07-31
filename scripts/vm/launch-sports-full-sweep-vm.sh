@@ -128,7 +128,7 @@ launch_vm() {
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=sports-full-sweep,env=${DEPLOYMENT_ENV}" \
+    --labels="purpose=sports-full-sweep,env=${DEPLOYMENT_ENV}",managed-by=deployment-service \
     --metadata="${METADATA}"
   echo "  Created: ${VM_NAME} (${START_DATE} → ${END_DATE})"
   echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"

@@ -164,7 +164,7 @@ METADATA="${METADATA},GCP_PROJECT_ID=${PROJECT}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=false"
 METADATA="${METADATA},VM_LIFECYCLE_CLASS=SCHEDULED_RECURRING"
 
-LABELS="purpose=tradfi-fwd-daily-cron,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS},lifecycle=scheduled-recurring"
+LABELS="purpose=tradfi-fwd-daily-cron,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS},lifecycle=scheduled-recurring,managed-by=deployment-service"
 
 echo "Launching ${VM_NAME}: TradFi forward-poll cron host (fires ${CRON_MIN} ${CRON_HOUR} UTC daily)"
 

@@ -383,7 +383,7 @@ launch_year_shard() {
         ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=${STARTUP},${md}" \
         --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-        --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+        --labels=purpose=mdps-sharded-backfill,asset_group="${cat}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service \
         > /dev/null
     echo "  → RUNNING"
 }

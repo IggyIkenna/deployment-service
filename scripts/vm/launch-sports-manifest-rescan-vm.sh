@@ -194,7 +194,7 @@ launch_vm() {
   # plans/active/issues/manifest_consolidator_stale_sports_bucket_2026_07_21.md
   metadata="${metadata},MANIFEST_CONSOLIDATED_STALENESS_SEC=1800"
 
-  local labels="purpose=sports-manifest-rescan,env=${DEPLOYMENT_ENV},run-id=${run_id_label}"
+  local labels="purpose=sports-manifest-rescan,env=${DEPLOYMENT_ENV},run-id=${run_id_label},managed-by=deployment-service"
   if [[ -n "$chunk_label" ]]; then
     labels="${labels},chunk=${chunk_label}"
   fi

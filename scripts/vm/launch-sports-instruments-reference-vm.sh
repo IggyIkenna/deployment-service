@@ -158,7 +158,7 @@ for cfg in "${VM_CONFIGS[@]}"; do
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=sports-instruments-reference,env=${DEPLOYMENT_ENV}" \
+    --labels="purpose=sports-instruments-reference,env=${DEPLOYMENT_ENV}",managed-by=deployment-service \
     --metadata="${METADATA}"
   echo "  VM created and RUNNING: ${VM_NAME}"
   echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"

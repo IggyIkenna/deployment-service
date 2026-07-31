@@ -273,7 +273,7 @@ gcloud compute instances create "${VM_NAME}" \
     --scopes=cloud-platform \
     --metadata="${METADATA_STR}" \
     --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
-    --labels=purpose=defi-recursive-live,variant="${VARIANT_SLUG}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=defi-recursive-live,variant="${VARIANT_SLUG}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 log ""
 log "VM created: ${VM_NAME}"

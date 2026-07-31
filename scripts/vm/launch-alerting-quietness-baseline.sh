@@ -183,7 +183,7 @@ TELEGRAM_CHAT_ID_SECRET=$([ "$DEPLOYMENT_ENV" = "staging" ] && echo "alerting-te
 DEPLOYMENT_ENV=${DEPLOYMENT_ENV},\
 CODE_BUCKET=${CODE_BUCKET},\
 PROJECT_ID=${PROJECT}" \
-    --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+    --labels=purpose=alerting-quietness-baseline,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service \
     --metadata-from-file="startup-script=$(dirname "$0")/setup-data-pipeline-vm.sh"
 fi
 

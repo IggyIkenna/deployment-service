@@ -32,7 +32,7 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
     task_count  = 1
 
     template {
-      timeout         = "1800s"  # 30 minutes
+      timeout         = "1800s" # 30 minutes
       service_account = google_service_account.unified_trading.email
 
       containers {
@@ -74,6 +74,12 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
     }
   }
 
+  labels = {
+    "managed-by" = "terraform"
+    "service"    = "vm-log-archival"
+    "purpose"    = "vm-log-archival"
+  }
+
   lifecycle {
     ignore_changes = [
       launch_stage,
@@ -90,7 +96,7 @@ resource "google_cloud_run_v2_job" "vm_log_archival" {
 resource "google_cloud_scheduler_job" "vm_log_archival" {
   name        = "vm-log-archival-${local.deployment_env_short}"
   description = "Daily archival of VM logs from 14-day TTL to durable storage"
-  schedule    = "0 2 * * *"  # Daily at 02:00 UTC
+  schedule    = "0 2 * * *" # Daily at 02:00 UTC
   time_zone   = "UTC"
   project     = var.project_id
   region      = var.region

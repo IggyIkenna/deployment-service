@@ -129,7 +129,7 @@ for SHARD in "${SHARDS[@]}"; do
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=instruments-backfill,asset-group=tradfi,venue=$(echo "${VENUE}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
+    --labels="purpose=instruments-backfill,asset-group=tradfi,venue=$(echo "${VENUE}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}",managed-by=deployment-service \
     --metadata="${METADATA}" \
     --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
   echo "  created. log: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"

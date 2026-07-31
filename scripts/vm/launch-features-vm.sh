@@ -399,7 +399,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",mode="${LAUNCH_MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=features-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",mode="${LAUNCH_MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"

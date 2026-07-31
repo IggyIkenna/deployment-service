@@ -110,7 +110,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-    --labels=purpose=session-stamp-migration,category=tradfi,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=session-stamp-migration,category=tradfi,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo "  SSH:     gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Log:     gsutil cat gs://${CODE_BUCKET}/vm-logs/$VM_NAME/run.log"

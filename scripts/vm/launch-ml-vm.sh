@@ -188,7 +188,7 @@ else
         --scopes=cloud-platform \
         $ACCELERATOR \
         --metadata="startup-script-url=${STARTUP},${METADATA}" \
-        --labels=purpose=ml,run-ts="${RUN_TS}",category="${ASSET_GROUP,,}",env="${DEPLOYMENT_ENV}"
+        --labels=purpose=ml,run-ts="${RUN_TS}",category="${ASSET_GROUP,,}",env="${DEPLOYMENT_ENV}",managed-by=deployment-service
     echo ""
     echo "VM launched: $VM_NAME"
     echo "Logs:        gcloud compute ssh $VM_NAME --zone=$ZONE --command 'tail -f /home/ikennaigboaka/logs/features-backfill.log'"

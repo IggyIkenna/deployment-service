@@ -402,7 +402,7 @@ _launch() {
         ${PROVISIONING_FLAGS} \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
         --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"${extra_labels}
+        --labels=purpose=mdps-backfill,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"${extra_labels},managed-by=deployment-service
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
     echo ""

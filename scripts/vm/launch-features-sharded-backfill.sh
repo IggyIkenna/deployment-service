@@ -293,7 +293,7 @@ launch_year_shard() {
         --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md}" \
         --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-        --labels=purpose=features-sharded-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}" \
+        --labels=purpose=features-sharded-backfill,family="${FAMILY_DASHED}",category="${ASSET_GROUP_LOWER}",year="${year}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service \
         > /dev/null
     echo "  -> RUNNING"
 }

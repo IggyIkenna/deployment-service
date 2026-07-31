@@ -389,7 +389,7 @@ ohlcv_create_vm() {
             --scopes=cloud-platform \
             --metadata="startup-script-url=${TRADFI_OHLCV_STARTUP},${metadata}" \
             --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-            --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="$(echo "$vm_venue" | tr '[:upper:]' '[:lower:]')"
+            --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="$(echo "$vm_venue" | tr '[:upper:]' '[:lower:]')",managed-by=deployment-service
         echo "  VM launched: $vm_name_safe"
         sleep 3
     fi
