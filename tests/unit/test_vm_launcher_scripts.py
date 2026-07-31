@@ -1644,6 +1644,82 @@ export -f stat
         assert "status=completed" in result.stdout
 
 
+class TestCefiContentApplyMachineTypeDefault:
+    """cefi_content_migration_fleet_half_incomplete_2026_07_26.md — 3 independent shards (17, 18,
+    41) OOM-killed on the launcher's plain e2-standard-8 default within one 21-VM relaunch wave
+    (2026-07-30); all 3 ran clean well past their prior death points after being individually
+    relaunched on e2-standard-16 (confirmed a genuine fix in that doc's Progress Log, not timing
+    coincidence). A LATER relaunch of shard 17 running BOTH the pyarrow-pool-release fix
+    (market-tick-data-service@9f4098b1) and the stall-timeout fix (@55d051bd) still died again
+    (canonical-migration-cefi-content-17-relaunch20260731-050700, DP-VM-003 agt-ad6632, 2026-07-31,
+    host_metrics_window.mem_pct climbing to 91.4% moments before the reaper found the VM gone) --
+    those two fixes close a wedge/freeze class and a slow leak respectively, but e2-standard-8's
+    32GB still isn't enough headroom for this script's working set on a large shard. Fix: make
+    e2-standard-16 the DEFAULT for cefi-content-apply specifically (every other canonical-migration
+    category keeps the plain e2-standard-8 default), so a future relaunch -- including an automated
+    DP-VM-003 one -- starts with adequate headroom instead of re-discovering the OOM per shard."""
+
+    LAUNCHER = TestCanonicalMigrationVmRelaunch.LAUNCHER
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path, env: dict) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_cefi_content_apply_defaults_to_e2_standard_16(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(
+            launcher_path, ["cefi-content-apply", "2019-03-30", "2026-07-27", "dry"], tmp_path, {**os.environ}
+        )
+        assert "--machine-type=e2-standard-16" in call
+        assert "--machine-type=e2-standard-8" not in call
+
+    def test_explicit_machine_type_env_still_wins(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(
+            launcher_path,
+            ["cefi-content-apply", "2019-03-30", "2026-07-27", "dry"],
+            tmp_path,
+            {**os.environ, "MACHINE_TYPE": "e2-standard-4"},
+        )
+        assert "--machine-type=e2-standard-4" in call
+        assert "--machine-type=e2-standard-16" not in call
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["cefi-late-renames", "2025-11-01", "2026-07-24", "dry"],
+            ["cefi-dedup-apply", "2026-07-27", "2026-07-27", "dry"],
+            ["cefi", "2020-01-01", "2026-01-01", "dry"],
+        ],
+    )
+    def test_other_categories_keep_the_plain_e2_standard_8_default(
+        self, launcher_path: Path, tmp_path: Path, args: list[str]
+    ) -> None:
+        """Regression guard for the narrow scoping: only cefi-content-apply's confirmed OOM
+        evidence justifies the bigger default -- broadening it onto an unverified category would
+        needlessly inflate cost for VMs that were never observed to OOM."""
+        call = self._created_metadata(launcher_path, args, tmp_path, {**os.environ})
+        assert "--machine-type=e2-standard-8" in call
+        assert "--machine-type=e2-standard-16" not in call
+
+
 class TestCefiFundingTimestampFixStallDetection:
     """Real incident 2026-07-29 (a genuinely NEW instance of the exact bug class
     /plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md's

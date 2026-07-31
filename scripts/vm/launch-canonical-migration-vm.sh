@@ -269,7 +269,11 @@
 #
 # Env overrides:
 #   MACHINE_TYPE=e2-standard-16  larger VM (default e2-standard-8; the 2026-07 tradfi content passes STREAM
-#                                the enumeration in bounded-memory chunks, so e2-standard-8 is fine)
+#                                the enumeration in bounded-memory chunks, so e2-standard-8 is fine).
+#                                cefi-content-apply DEFAULTS to e2-standard-16 already (its shared
+#                                in-memory catalogue + 12-worker concurrent decode OOMs on e2-standard-8
+#                                for large shards, confirmed 2026-07-30/31) -- pass MACHINE_TYPE=e2-standard-8
+#                                to opt back down for a known-small date-range shard.
 #   WORKERS=24                   migrator concurrency (tradfi default 24; other AGs keep their per-AG default)
 #   ON_DEMAND=true               opt out of the SPOT default (backfill/idempotent VMs → SPOT per HARD RULE)
 #   BOOT_DISK_GB=50              boot disk size
@@ -340,6 +344,10 @@ BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 # MACHINE_TYPE override (default e2-standard-8). TradFi v9 migration needs e2-standard-16
 # (64GB): the 2026-06-29 full-range run OOM-killed on e2-standard-8. Per-year chunking +
 # --workers 24 + 64GB is the fix (D3, instruments_completion_tracker_2026_07_06.md).
+# _MACHINE_TYPE_EXPLICIT tracks whether the CALLER passed MACHINE_TYPE (vs the bare default below)
+# so _launch()'s per-category bump (cefi-content-apply, see there) never clobbers an explicit
+# caller override -- same "explicit wins" convention as VM_NAME_OVERRIDE above.
+_MACHINE_TYPE_EXPLICIT="${MACHINE_TYPE+x}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-8}"
 # Backfill/idempotent migration VMs default to SPOT (HARD RULE: spot-vms-for-backfill) — the
 # migrator is idempotent (already-copied objects skip), so preemption just resumes on restart.
@@ -1229,6 +1237,25 @@ _script_for() {
 
 _launch() {
     local cat="$1"
+    # cefi-content-apply default MACHINE_TYPE bump (e2-standard-8 -> e2-standard-16), scoped to
+    # this ONE category only (every other canonical-migration category keeps the plain e2-standard-8
+    # default above). Root-caused in cefi_content_migration_fleet_half_incomplete_2026_07_26.md:
+    # 3 independent shards (17, 18, 41) OOM-killed on e2-standard-8 within one 21-VM relaunch wave
+    # (2026-07-30), all 3 ran clean well past their prior death points after being individually
+    # relaunched on e2-standard-16 -- confirmed as a genuine fix, not timing coincidence, in that
+    # doc's Progress Log. A LATER relaunch of shard 17 with BOTH the pyarrow-pool-release fix
+    # (market-tick-data-service@9f4098b1) and the stall-timeout fix (@55d051bd) still died again
+    # (canonical-migration-cefi-content-17-relaunch20260731-050700, DP-VM-003 agt-ad6632, 2026-07-31:
+    # host_metrics_window.mem_pct climbed to 91.4% moments before the reaper found the VM gone) --
+    # those two fixes close a wedge/freeze class and a slow leak respectively, but e2-standard-8's
+    # 32GB still isn't enough headroom for this script's working-set (the shared in-memory catalogue
+    # load + 12-worker concurrent pyarrow decode) on a large shard. Making this the DEFAULT (rather
+    # than a per-incident manual escalation) so every future cefi-content-apply launch — including an
+    # automated DP-VM-003 relaunch — starts with adequate headroom instead of re-discovering the OOM
+    # per shard. An explicit caller-supplied MACHINE_TYPE always wins (never overridden here).
+    if [[ "$cat" == "cefi-content-apply" && -z "$_MACHINE_TYPE_EXPLICIT" ]]; then
+        MACHINE_TYPE="e2-standard-16"
+    fi
     # VM_NAME_SUFFIX lets several shard VMs of the same category+second coexist without name collision
     # (e.g. one VM per date-shard / per --buckets). Prefix stays canonical-migration-<cat>- for the watchdog.
     # BUG FOUND 2026-07-22 (candle-apply adversarial self-test, SHARD_OF=3 preview): "<ag>-candle-apply"
