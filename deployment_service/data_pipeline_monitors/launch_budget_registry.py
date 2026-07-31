@@ -723,3 +723,70 @@ def gce_machine_ram_gb(machine_type: str) -> int:
         return ram
     tier = memory_tier_for_machine_type(machine_type)
     return tier.ram_gb if tier is not None else 0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Part 3 — Cloud Run Job machine-sizing ladder: manifest-consolidator OOM
+# AUTO-ESCALATE safety net (operator idea 2026-06-24,
+# cefi_hl_aster_batch_data_gaps_2026_06_22.md). A Cloud Run Job sizes on a
+# (cpu, memory) pair, not a GCE machine type — a SEPARATE ladder from
+# ``MEMORY_TIER_LADDER`` above (wrong unit to reuse directly). Rungs match
+# Cloud Run gen2's real vCPU:memory ceilings (per
+# ``manifest_consolidator_scheduler.tf``'s own comment: 4 vCPU->16Gi,
+# 8 vCPU->32Gi, 16 vCPU->64Gi) and the terraform-codified cpu/memory/
+# duckdb_memory triad (market-data-defi's live 8vCPU/32Gi/24GB bump) — the
+# 64Gi rung follows the same ~75%-of-container DuckDB ratio. ``duckdb_memory``
+# MUST escalate in lockstep with ``memory`` (2026-07-14 gotcha,
+# manifest-consolidator-ssot.md: bumping only the container leaves
+# ``CONSOLIDATOR_DUCKDB_MEMORY_LIMIT`` at its old value and DuckDB keeps
+# SIGKILLing even though the container has headroom) — this ladder carries
+# both dimensions on the same rung so they can never drift apart.
+@dataclass(frozen=True)
+class CloudRunMemoryTier:
+    """One rung of the Cloud Run Job (cpu, memory, duckdb_memory) escalation ladder."""
+
+    name: str
+    cpu: str
+    memory: str
+    duckdb_memory: str
+    ram_gb: int
+
+
+# Ascending by RAM. The consolidator OOM actuator consumes this via
+# ``next_cloud_run_memory_tier``.
+CLOUD_RUN_MEMORY_TIER_LADDER: tuple[CloudRunMemoryTier, ...] = (
+    CloudRunMemoryTier("cloud-run-16gb-cpu4", cpu="4", memory="16Gi", duckdb_memory="8GB", ram_gb=16),
+    CloudRunMemoryTier("cloud-run-32gb-cpu8", cpu="8", memory="32Gi", duckdb_memory="24GB", ram_gb=32),
+    CloudRunMemoryTier("cloud-run-64gb-cpu16", cpu="16", memory="64Gi", duckdb_memory="48GB", ram_gb=64),
+)
+
+_CLOUD_RUN_TIER_BY_NAME: dict[str, CloudRunMemoryTier] = {t.name: t for t in CLOUD_RUN_MEMORY_TIER_LADDER}
+_CLOUD_RUN_TIER_INDEX: dict[str, int] = {t.name: i for i, t in enumerate(CLOUD_RUN_MEMORY_TIER_LADDER)}
+
+# The bottom rung — the terraform-codified default for every consolidator
+# category not explicitly overridden (``manifest_consolidator_cpu``/``_memory``).
+DEFAULT_CLOUD_RUN_MEMORY_TIER: str = CLOUD_RUN_MEMORY_TIER_LADDER[0].name
+
+
+def cloud_run_memory_tier_by_name(name: str) -> CloudRunMemoryTier | None:
+    """Lookup a Cloud Run ladder rung by name (``None`` if unknown)."""
+    return _CLOUD_RUN_TIER_BY_NAME.get(name)
+
+
+def next_cloud_run_memory_tier(current_tier_name: str) -> CloudRunMemoryTier | None:
+    """Step UP one rung of the Cloud Run ladder (the consolidator OOM actuator's input).
+
+    Returns the next-larger tier, or ``None`` when already at the top rung
+    (``cloud-run-64gb-cpu16``) — the actuator then pages rather than loop
+    forever. An unknown ``current_tier_name`` (no prior escalation recorded —
+    the common case, since nothing durably tracks the live per-job tier today)
+    resolves to the SAME next step a bottom-rung job would take (the
+    ``cloud-run-32gb-cpu8`` rung) — the safest read of "tier unknown" is
+    "assume the terraform default and start escalating from there."
+    """
+    idx = _CLOUD_RUN_TIER_INDEX.get(current_tier_name)
+    if idx is None:
+        idx = 0
+    if idx + 1 >= len(CLOUD_RUN_MEMORY_TIER_LADDER):
+        return None
+    return CLOUD_RUN_MEMORY_TIER_LADDER[idx + 1]
