@@ -256,6 +256,50 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
+    # Per-venue OHLCV-1m/-24h backfill launchers (`_tradfi-ohlcv-launcher-lib.sh`
+    # `ohlcv_create_vm`, `launch-tradfi-bf-{cme,ice,nasdaq,nyse,cboe,cfe}-ohlcv-1m.sh` +
+    # `launch-tradfi-bf-{fx,krx-equities,cboe-indices}-ohlcv-24h.sh`) each need their OWN
+    # entry for the SAME reason FRED did above: without it, longest-prefix match falls
+    # back to the generic `tradfi-bf-` -> CME/BTC/ETH quarterly/monthly launcher (a
+    # DIFFERENT sharding scheme entirely — root-group year-shards vs quarterlies), so a
+    # relaunch would silently launch the wrong shape (2026-07-31 DP-VM-002 root-cause,
+    # `tradfi_bf_ohlcv_launchers_missing_registry_entry_2026_07_31.md`).
+    "tradfi-bf-cme-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-ice-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-nasdaq-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-nyse-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-cboe-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-cfe-ohlcv-1m-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-fx-ohlcv-24h-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-krx-eq-ohlcv-24h-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
+    "tradfi-bf-cboe-idx-ohlcv-24h-": VmPrefixSpec(
+        bucket=_TICK_TRADFI,
+        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
+    ),
     "tradfi-fwd-": VmPrefixSpec(
         bucket=_TICK_TRADFI,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
