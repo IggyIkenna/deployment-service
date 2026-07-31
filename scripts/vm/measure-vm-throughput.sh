@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Epic: data-pipeline observability
 # Lifecycle: PERMANENT — the canonical way to measure VM data throughput for ANY asset_group.
+# Delete-when: NA
 # Definitive VM throughput via the Cloud Monitoring network-RX counter.
 # Works for ANY asset_group / VM without SSH (IAP is often unavailable).
 # Usage: measure_vm_throughput.sh <vm-name> [zone] [project] [start-RFC3339]

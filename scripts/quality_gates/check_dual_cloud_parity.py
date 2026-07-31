@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Epic: infrastructure_master
+# Lifecycle: permanent
+# Delete-when: NA
 """Dual-cloud build parity check.
 
 For every repo whose cloudbuild.yaml performs a real Docker image build (detected
@@ -16,7 +19,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-
 
 _REAL_BUILD_MARKERS = ("docker push", "_AR_HOST", "_IMAGE_URI", "docker build")
 
@@ -55,10 +57,7 @@ def main() -> int:
         print("FAIL — missing buildspec.aws.yaml in the following repos:")
         for repo in missing:
             print(f"  {repo}")
-        print(
-            "Add a buildspec.aws.yaml to each repo. Template: "
-            "deployment-service/templates/buildspec.aws.yaml"
-        )
+        print("Add a buildspec.aws.yaml to each repo. Template: deployment-service/templates/buildspec.aws.yaml")
         return 1
 
     print(f"All {len(checked)} repos have both cloudbuild.yaml and buildspec.aws.yaml. ✓")

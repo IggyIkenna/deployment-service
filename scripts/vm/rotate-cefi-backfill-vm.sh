@@ -2,6 +2,7 @@
 # Epic: cefi backfill throughput
 # Lifecycle: PERMANENT — supervises the cap-1 CeFi backfill and rotates the VM before the
 #            Tardis per-session throughput cliff.
+# Delete-when: NA
 #
 # WHY THIS EXISTS (measured 2026-07-18, network-RX counter):
 #   A backfill VM sustains ~12 MB/s for its first ~7-8 GB, then collapses to ~2 MB/s and never
