@@ -83,9 +83,12 @@ def fetch_live(project: str) -> dict[str, dict[str, str]]:
         short_name = sub["name"].rsplit("/", 1)[-1]
         csc = sub.get("cloudStorageConfig", {})
         live[short_name] = {
-            "bucket": csc.get("bucket", ""),
-            "filename_prefix": csc.get("filenamePrefix", ""),
-            "filename_suffix": csc.get("filenameSuffix", ""),
+            # empty string is a meaningful "field absent from the live API response" sentinel here —
+            # the diff() below correctly reports it as a mismatch against the (always non-empty)
+            # declared tf value, never silently treated as a match.
+            "bucket": csc.get("bucket", ""),  # noqa: qg-empty-fallback
+            "filename_prefix": csc.get("filenamePrefix", ""),  # noqa: qg-empty-fallback
+            "filename_suffix": csc.get("filenameSuffix", ""),  # noqa: qg-empty-fallback
         }
     return live
 
