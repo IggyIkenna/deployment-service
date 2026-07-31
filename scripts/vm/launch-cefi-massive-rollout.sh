@@ -231,7 +231,7 @@ _launch_one() {
                 --image-project=ubuntu-os-cloud \
                 --scopes=cloud-platform \
                 --metadata="$meta" \
-                --labels=purpose=cefi-massive-rollout,env="${DEPLOYMENT_ENV}",run-ts="$RUN_TS",mode="$MODE" \
+                --labels=purpose=cefi-massive-rollout,env="${DEPLOYMENT_ENV}",run-ts="$RUN_TS",mode="$MODE",managed-by=deployment-service \
                 > /dev/null 2>&1; then
             echo "ok" > "$RESULTS_DIR/$vm_name"
             return 0

@@ -275,7 +275,7 @@ gcloud compute instances create "$VM_NAME" \
     --scopes=cloud-platform \
     --metadata="DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
     --metadata-from-file=startup-script="$STARTUP_FILE" \
-    --labels=purpose=vm-zombie-watchdog,tier=daemon,env="${DEPLOYMENT_ENV}" 2>&1 | tail -5
+    --labels=purpose=vm-zombie-watchdog,tier=daemon,env="${DEPLOYMENT_ENV}",managed-by=deployment-service 2>&1 | tail -5
 
 echo ""
 echo "VM running. Tail logs:"

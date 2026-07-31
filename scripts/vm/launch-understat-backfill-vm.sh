@@ -226,7 +226,7 @@ SHUTDOWN_EOF
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
     --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
-    --labels=purpose=understat-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=understat-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

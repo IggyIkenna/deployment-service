@@ -133,7 +133,7 @@ else
     --boot-disk-size=50GB \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=prediction-arb-detector,asset-group=prediction,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=prediction-arb-detector,asset-group=prediction,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

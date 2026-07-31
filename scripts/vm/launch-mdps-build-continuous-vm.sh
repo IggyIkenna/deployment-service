@@ -193,7 +193,7 @@ gcloud compute instances create "$VM_NAME" \
     --scopes=cloud-platform \
     ${PROVISIONING_FLAGS} \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-    --labels=purpose=mdps-build-continuous,root="$(echo "$ROOT" | tr '[:upper:]' '[:lower:]')",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=mdps-build-continuous,root="$(echo "$ROOT" | tr '[:upper:]' '[:lower:]')",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
 echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"

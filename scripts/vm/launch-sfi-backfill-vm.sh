@@ -275,7 +275,7 @@ launch_one_vm() {
   # that stay tight without false-killing.
   metadata="${metadata},STALL_PROGRESS_REGEX=league"
 
-  local labels="purpose=sfi-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
+  local labels="purpose=sfi-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id},managed-by=deployment-service"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
 
   if $DRY_RUN; then

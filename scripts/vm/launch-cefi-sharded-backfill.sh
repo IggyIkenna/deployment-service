@@ -599,7 +599,7 @@ launch_cefi_shard() {
       --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
       --scopes=cloud-platform --metadata="^|^${meta}" \
       --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-      --labels=env="${DEPLOYMENT_ENV}" \
+      --labels=env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
       --project="$PROJECT" --async 2>&1 | tail -1 &
     _stagger
     _batch_guard
@@ -828,7 +828,7 @@ _launch_queued_vm() {
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform --metadata="$meta" \
     --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-    --labels=env="${DEPLOYMENT_ENV}" \
+    --labels=env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
     --project="$PROJECT" --async 2>&1 | tail -1
 }
 

@@ -188,7 +188,7 @@ gcloud compute instances create "$VM_NAME" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels="purpose=bucket-rsync,source-hash=${SOURCE_HASH},dry-run=${DRY_RUN},run-ts=${RUN_TS}"
+    --labels="purpose=bucket-rsync,source-hash=${SOURCE_HASH},dry-run=${DRY_RUN},run-ts=${RUN_TS}",managed-by=deployment-service
 
 echo ""
 echo "VM launched: ${VM_NAME}"

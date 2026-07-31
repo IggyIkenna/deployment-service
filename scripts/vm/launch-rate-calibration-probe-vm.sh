@@ -66,7 +66,7 @@ gcloud compute instances create "${VM_NAME}" \
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels="purpose=rate-calibration,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}" \
+    --labels="purpose=rate-calibration,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}",managed-by=deployment-service \
     --no-address \
     && echo "=== VM created: ${VM_NAME} ==="
 

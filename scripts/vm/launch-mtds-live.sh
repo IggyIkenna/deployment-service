@@ -249,7 +249,7 @@ else
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=mtds-live,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",shard-slug="${SHARD_SLUG:0:63}"
+    --labels=purpose=mtds-live,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",shard-slug="${SHARD_SLUG:0:63}",managed-by=deployment-service
 fi
 
 echo ""

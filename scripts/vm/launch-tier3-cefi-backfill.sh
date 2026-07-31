@@ -203,7 +203,7 @@ create_vm() {
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
         --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" --scopes=cloud-platform \
         --metadata="startup-script-url=${STARTUP},${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}" \
-        --labels=purpose=cefi-tier3-fullbackfill,env="${DEPLOYMENT_ENV}" 2>&1 | tail -1
+        --labels=purpose=cefi-tier3-fullbackfill,env="${DEPLOYMENT_ENV}",managed-by=deployment-service 2>&1 | tail -1
     sleep 2
 }
 

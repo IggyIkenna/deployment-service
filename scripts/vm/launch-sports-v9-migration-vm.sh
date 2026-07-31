@@ -164,7 +164,7 @@ gcloud compute instances create "${VM_NAME}" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-  --labels="purpose=sports-v9-migration,surface=${SURFACE},year=${YEAR},mode=$(echo "${MODE_LABEL}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}" \
+  --labels="purpose=sports-v9-migration,surface=${SURFACE},year=${YEAR},mode=$(echo "${MODE_LABEL}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}",managed-by=deployment-service \
   --metadata="${METADATA}"
 
 echo ""

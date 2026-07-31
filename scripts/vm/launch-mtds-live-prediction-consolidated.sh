@@ -137,7 +137,7 @@ gcloud compute instances create "$VM_NAME" \
   --service-account="unified-trading-sa@${PROJECT}.iam.gserviceaccount.com" \
   --scopes=cloud-platform \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-prediction-live-consolidated-vm.sh,${METADATA}" \
-  --labels=purpose=mtds-live-consolidated,asset-group=prediction,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+  --labels=purpose=mtds-live-consolidated,asset-group=prediction,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo ""
 echo "VM launched: $VM_NAME"

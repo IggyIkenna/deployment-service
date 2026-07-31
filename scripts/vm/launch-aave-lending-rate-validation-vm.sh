@@ -264,7 +264,7 @@ gcloud compute instances create "${VM_NAME}" \
   --metadata-from-file=startup-script="${STARTUP_FILE}" \
   --boot-disk-size=50GB \
   --boot-disk-type=pd-ssd \
-  --labels="purpose=lending-rate-validation,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}"
+  --labels="purpose=lending-rate-validation,env=${DEPLOYMENT_ENV},run-ts=${RUN_TS}",managed-by=deployment-service
 
 rm "${STARTUP_FILE}"
 

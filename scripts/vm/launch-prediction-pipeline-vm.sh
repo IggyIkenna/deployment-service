@@ -429,7 +429,7 @@ else
     --scopes=cloud-platform \
     --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --labels=purpose=prediction-pipeline,env="${DEPLOYMENT_ENV}" \
+    --labels=purpose=prediction-pipeline,env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
     --no-restart-on-failure
 
   rm "$STARTUP_FILE"

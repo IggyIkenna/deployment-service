@@ -180,7 +180,7 @@ nohup gcloud compute instances create "${NEW_VM}" \
   --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
   --boot-disk-size=30GB --scopes=cloud-platform \
   --metadata="${META}" \
-  --labels="purpose=sports-scheduler,env=${DEPL_ENV},run-ts=${RUN_TS},tier=scheduler" \
+  --labels="purpose=sports-scheduler,env=${DEPL_ENV},run-ts=${RUN_TS},tier=scheduler",managed-by=deployment-service \
   --provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure \
   >/tmp/preempt-relaunch.log 2>&1 &
 SHUTDOWN_EOF
@@ -218,7 +218,7 @@ gcloud compute instances create "$VM_NAME" \
   ${PROVISIONING_FLAGS} \
   --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
   --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
-  --labels=purpose=sports-scheduler,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",tier=scheduler
+  --labels=purpose=sports-scheduler,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",tier=scheduler,managed-by=deployment-service
 
 echo ""
 echo "VM launched: $VM_NAME"

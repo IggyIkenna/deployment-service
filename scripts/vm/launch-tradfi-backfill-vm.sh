@@ -262,7 +262,7 @@ _create_vm() {
             --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
             --scopes=cloud-platform \
             --metadata="startup-script-url=${STARTUP},${metadata}" \
-            --labels=purpose=tradfi-backfill,env="${DEPLOYMENT_ENV}",run-ts="${run_ts}",root="${root,,}",tier="${tier}"
+            --labels=purpose=tradfi-backfill,env="${DEPLOYMENT_ENV}",run-ts="${run_ts}",root="${root,,}",tier="${tier}",managed-by=deployment-service
         echo "  VM launched."
         # Brief stagger so RUN_TS timestamps stay unique + gcloud create calls
         # don't race quota prechecks.

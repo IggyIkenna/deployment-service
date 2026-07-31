@@ -330,7 +330,7 @@ else
     --boot-disk-size=50GB \
     --metadata="${METADATA}" \
     --metadata-from-file=startup-script="${STARTUP_FILE}" \
-    --labels=purpose=prediction-features,env="${DEPLOYMENT_ENV}"
+    --labels=purpose=prediction-features,env="${DEPLOYMENT_ENV}",managed-by=deployment-service
 
   rm "$STARTUP_FILE"
   echo "  VM created: ${VM_NAME}"

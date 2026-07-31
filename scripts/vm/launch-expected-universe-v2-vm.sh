@@ -275,7 +275,7 @@ else
       --scopes=cloud-platform \
       "${PROVISIONING_ARGS[@]}" \
       --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-      --labels=purpose=expected-universe-v2,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+      --labels=purpose=expected-universe-v2,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

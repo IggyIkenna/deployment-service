@@ -122,7 +122,7 @@ launch_chain_vm() {
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=mtds-gas-fees-fleet,env=${DEPLOYMENT_ENV},chain=${CHAIN_NAME}" \
+    --labels="purpose=mtds-gas-fees-fleet,env=${DEPLOYMENT_ENV},chain=${CHAIN_NAME}",managed-by=deployment-service \
     --metadata="${METADATA}"
   echo "  VM ${VM_NAME} created."
   echo "  Logs: gsutil cat gs://${CODE_BUCKET}/vm-logs/${VM_NAME}/run.log"

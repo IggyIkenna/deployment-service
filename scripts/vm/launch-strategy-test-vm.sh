@@ -249,7 +249,7 @@ else
         --scopes=cloud-platform \
         --metadata="${METADATA_STR}" \
         --metadata-from-file="shutdown-script=${SHUTDOWN_FILE}" \
-        --labels=purpose=strategy-test,strategy="${STRATEGY_SLUG}",env="${DEPLOYMENT_ENV}"
+        --labels=purpose=strategy-test,strategy="${STRATEGY_SLUG}",env="${DEPLOYMENT_ENV}",managed-by=deployment-service
 
     log ""
     log "VM created: ${VM_NAME}"

@@ -204,7 +204,7 @@ launch_vm() {
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --labels="purpose=instruments-backfill,asset-group=$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}" \
+    --labels="purpose=instruments-backfill,asset-group=$(echo "${ASSET_GROUP}" | tr '[:upper:]' '[:lower:]'),env=${DEPLOYMENT_ENV}",managed-by=deployment-service \
     --metadata="${METADATA}" \
     --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}"
   echo "  VM ${VM_NAME} created."

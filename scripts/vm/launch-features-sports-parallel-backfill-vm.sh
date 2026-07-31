@@ -458,7 +458,7 @@ SHUTDOWN_EOF
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     ${SA_FLAG} \
     --metadata="${METADATA}" \
-    --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}"
+    --labels=purpose=features-sports-parallel-backfill,env="${DEPLOYMENT_ENV}",managed-by=deployment-service
 
   # Inject startup-script and shutdown-script in SEPARATE add-metadata calls.
   # gcloud SDK silently drops startup-script when both are in the same call

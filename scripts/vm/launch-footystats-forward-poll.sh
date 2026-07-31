@@ -134,7 +134,7 @@ else
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=footystats-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=footystats-forward-poll,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

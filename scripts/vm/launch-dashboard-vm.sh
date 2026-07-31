@@ -87,7 +87,7 @@ echo "Creating GCE VM with container..."
 # and keeps the env-var shape uniform across the fleet for grep + audit) +
 # `VM_NAME=${VM_NAME}` + `VM_SHUTDOWN_ON_COMPLETION=false` (container restart
 # policy is `always`; the VM is a long-running dashboard, not a backfill).
-gcloud compute instances create-with-container "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --machine-type="$MACHINE_TYPE" --tags=deployment-dashboard-vm --container-image="$IMAGE_URI" --container-env="GCP_PROJECT_ID=${PROJECT_ID},STATE_BUCKET=deployment-orchestration-${PROJECT_ID},WORKERS=${WORKERS},DEPLOYMENT_ENV=${DEPLOYMENT_ENV},PYTHONUNBUFFERED=1,VM_NAME=${VM_NAME},MANIFEST_PER_VM_SHARDS=true,VM_SHUTDOWN_ON_COMPLETION=false" --container-restart-policy=always --scopes=cloud-platform --labels=purpose=deployment-dashboard,env="${DEPLOYMENT_ENV}"
+gcloud compute instances create-with-container "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --machine-type="$MACHINE_TYPE" --tags=deployment-dashboard-vm --container-image="$IMAGE_URI" --container-env="GCP_PROJECT_ID=${PROJECT_ID},STATE_BUCKET=deployment-orchestration-${PROJECT_ID},WORKERS=${WORKERS},DEPLOYMENT_ENV=${DEPLOYMENT_ENV},PYTHONUNBUFFERED=1,VM_NAME=${VM_NAME},MANIFEST_PER_VM_SHARDS=true,VM_SHUTDOWN_ON_COMPLETION=false" --container-restart-policy=always --scopes=cloud-platform --labels=purpose=deployment-dashboard,env="${DEPLOYMENT_ENV}",managed-by=deployment-service
 
 IP=$(gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT_ID" --format="get(networkInterfaces[0].accessConfigs[0].natIP)")
 echo ""

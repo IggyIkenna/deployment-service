@@ -204,7 +204,7 @@ gcloud compute instances create "${VM_NAME}" \
     --image-project=ubuntu-os-cloud \
     --scopes=cloud-platform \
     --metadata="${METADATA_STR}" \
-    --labels=purpose=funding-ensemble-paper,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=funding-ensemble-paper,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 log ""
 log "VM created: ${VM_NAME}"

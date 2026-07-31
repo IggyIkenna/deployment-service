@@ -191,7 +191,7 @@ launch_one_vm() {
   # parquet write. Markers verified against a live gas-fees run.log; =/space/comma-free (metadata-safe).
   metadata="${metadata},STALL_PROGRESS_REGEX=sampled|Wrote"
 
-  local labels="purpose=mtds-gas-fees-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id}"
+  local labels="purpose=mtds-gas-fees-backfill,env=${DEPLOYMENT_ENV},run-id=${run_id},managed-by=deployment-service"
   [[ -n "$chunk_id" ]] && labels="${labels},chunk=${chunk_id}"
 
   if $DRY_RUN; then

@@ -532,7 +532,7 @@ else
     --scopes=cloud-platform \
     --metadata="${FULL_METADATA}" \
     --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
-    --labels=purpose=api-football-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=api-football-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 fi
 
 echo ""

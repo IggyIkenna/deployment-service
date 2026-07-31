@@ -110,7 +110,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
-    --labels=purpose=session-stamps,asset-group=tradfi,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
+    --labels=purpose=session-stamps,asset-group=tradfi,mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
 
 echo ""
 echo "VM:       $VM_NAME"

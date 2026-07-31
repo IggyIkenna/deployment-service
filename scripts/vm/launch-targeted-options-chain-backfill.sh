@@ -194,7 +194,7 @@ _launch_shard() {
               --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \
               --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
               --scopes=cloud-platform --metadata="${meta}" \
-              --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}" \
+              --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
               --project="${PROJECT}" --async 2>&1 | tail -1
         fi
         sleep 2

@@ -1674,7 +1674,7 @@ _launch() {
         --scopes=cloud-platform \
         --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${md}" \
         --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
-        --labels=purpose=canonical-migration,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS_LABEL}"
+        --labels=purpose=canonical-migration,category="${cat}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS_LABEL}",managed-by=deployment-service
     echo "  SSH: gcloud compute ssh $vm_name --zone=$ZONE"
     echo "  Delete: gcloud compute instances delete $vm_name --zone=$ZONE --quiet"
 }

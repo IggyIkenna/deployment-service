@@ -163,7 +163,7 @@ gcloud compute instances create "${VM_NAME}" \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size="${BOOT_DISK_SIZE}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-  --labels="purpose=cefi-extended-starknet-funding-timestamp-add,env=${DEPLOYMENT_ENV},lane=${LANE_SLUG}" \
+  --labels="purpose=cefi-extended-starknet-funding-timestamp-add,env=${DEPLOYMENT_ENV},lane=${LANE_SLUG}",managed-by=deployment-service \
   --metadata="${METADATA}"
 
 # Best-effort exact-replay record for a SPOT-preemption relaunch (never fails the launch — see
