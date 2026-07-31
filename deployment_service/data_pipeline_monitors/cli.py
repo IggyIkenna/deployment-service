@@ -46,6 +46,7 @@ from unified_trading_library import (
 from unified_trading_library.cloud_interface import get_compute_engine_client  # noqa: qg-deep-import
 
 from deployment_service.data_pipeline_monitors import (
+    _compute_ops,
     _gcs,
     consolidator_scheduler_watcher,
     exit_code_fleet_monitor,
@@ -616,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
                 asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
                 launcher_for_vm=_launcher_for_vm,
                 umbrella_for_vm=_umbrella_for_vm,
+                preemption_op_checker=_compute_ops.make_preemption_op_checker(_project_id()),
                 finding_sink=ec_findings,
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,

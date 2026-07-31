@@ -509,6 +509,78 @@ def test_sweep_preempted_vm_no_launcher_emits_critical_no_relaunch(monkeypatch):
     )
 
 
+def test_sweep_early_preemption_no_marker_falls_back_to_op_checker(monkeypatch):
+    # Reproduces the 2026-07-31 false-positive
+    # (tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-060117): a VM preempted
+    # ~106s post-insert, before its in-guest shutdown-script (needs the guest
+    # env + a metadata-server round-trip + gcloud auth all already up) ever ran
+    # — NO PREEMPTED blob, NO run.log, NO EXIT_STATUS. Without a fallback this
+    # false-fires CRITICAL DP_VM_GONE_NO_CAPTURE (a genuine benign SPOT
+    # reclaim). ``preemption_op_checker`` (Compute Operations API, immune to
+    # guest-boot-progress races) must override to PREEMPTED, no CRITICAL.
+    vm = "tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-060117"
+    census = json.dumps({"vms": {vm: 0}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            # No EXIT_STATUS blob, no run.log, no PREEMPTED blob — the VM never
+            # got far enough into boot to write any of them.
+        }
+    )
+    emitted = _patch_dp_log_event(monkeypatch)
+    checked: list[str] = []
+
+    def fake_op_checker(vm_name: str) -> bool:
+        checked.append(vm_name)
+        return vm_name == vm
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 0,  # flat — the false-positive shape
+        asset_group_for_vm=lambda _vm: "tradfi",
+        launcher_for_vm=lambda _vm: "",
+        preemption_op_checker=fake_op_checker,
+    )
+    assert checked == [vm], "the op-checker fallback must be consulted for the GONE_NO_CAPTURE candidate"
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+    assert not any(e[0] == "DP_VM_GONE_NO_CAPTURE" for e in emitted), (
+        f"an early SPOT preemption confirmed via the Operations API must NOT false-fire DP_VM_GONE_NO_CAPTURE: {emitted}"
+    )
+
+
+def test_sweep_op_checker_not_consulted_when_gcs_marker_already_present(monkeypatch):
+    # Bounded-cost invariant: when the primary GCS PREEMPTED marker IS present,
+    # the (more expensive) Operations-API fallback must be skipped entirely.
+    vm = "cefi-queue-heavy-binancefutu-x16-20260716-075338"
+    census = json.dumps({"vms": {vm: 50}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm=vm)): (b"preempted", 0.0),
+        }
+    )
+    _patch_dp_log_event(monkeypatch)
+    checked: list[str] = []
+
+    def fake_op_checker(vm_name: str) -> bool:
+        checked.append(vm_name)
+        return True
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],
+        captured_reader=lambda _vm: 50,
+        asset_group_for_vm=lambda _vm: "cefi",
+        launcher_for_vm=lambda _vm: "",
+        preemption_op_checker=fake_op_checker,
+    )
+    assert checked == [], "op-checker must not be called when the GCS PREEMPTED marker already resolved it"
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+
+
 def test_sweep_partial_unconfirmed_vm_relaunches_successfully_emits_warn_not_critical(tmp_path: Path, monkeypatch):
     # The reproduction of exit_code_fleet_monitor_clean_misclassifies_premature_kill_2026_07_21.md:
     # NO EXIT_STATUS blob, NO rc= line in run.log, NO PREEMPTED marker — but
