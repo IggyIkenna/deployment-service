@@ -259,6 +259,8 @@ EXCLUDES=(
 
 _skipped_repos=0
 _rebuilt_repos=0
+_skipped_dirty_repos=0
+_SKIPPED_DIRTY_NAMES=()
 
 # Best-effort: print the commit_sha recorded in the CURRENTLY DEPLOYED
 # manifest.json for this tarball, or nothing if it's missing/unreadable
@@ -324,14 +326,22 @@ create_tarball() {
         git_status_clean="false"
     fi
 
-    # Dirty-tree check: abort unless --allow-dirty-tarball override
+    # Dirty-tree check: SKIP this repo with a warning (per-repo, non-fatal) unless
+    # --allow-dirty-tarball is passed. Previously this did `return 1`, which under
+    # `set -e` aborted the WHOLE script the moment the FIRST dirty repo was hit —
+    # even already-built CLEAN tarballs sitting in $TMP_DIR (e.g. the CORE repos,
+    # built earlier in the same run) never reached the end-of-run upload step. Mirrors
+    # the not-found SKIP above: non-fatal, `return 0` so the outer loop continues to
+    # the next repo. See the P3 todo in cefi_hl_aster_batch_data_gaps_2026_06_22.md.
     if [[ "$git_status_clean" == "false" ]]; then
         if $ALLOW_DIRTY_TARBALL; then
             log "  WARNING: $repo_dir has uncommitted changes — --allow-dirty-tarball override active"
             log "  AUDIT: allow-dirty-tarball by $(whoami 2>/dev/null || echo unknown) at $(date -u '+%Y-%m-%dT%H:%M:%SZ') for $repo_dir@${commit_sha:0:12}"
         else
-            log "ERROR: $repo_dir has uncommitted changes. Commit or stash first, or use --allow-dirty-tarball."
-            return 1
+            log "SKIP $tarball_name.tar.gz from $repo_dir — uncommitted changes (commit/stash first, or use --allow-dirty-tarball)"
+            _skipped_dirty_repos=$((_skipped_dirty_repos + 1))
+            _SKIPPED_DIRTY_NAMES+=("$repo_dir")
+            return 0
         fi
     fi
 
@@ -446,6 +456,13 @@ if [[ "${SKIP_PREFLIGHT:-false}" != "true" ]]; then
     else
         log "  Pre-flight OK: no mis-floored peer-repo pins detected."
     fi
+fi
+
+if [[ "$_skipped_dirty_repos" -gt 0 ]]; then
+    log ""
+    log "WARNING: $_skipped_dirty_repos repo(s) skipped (uncommitted changes): ${_SKIPPED_DIRTY_NAMES[*]}"
+    log "  Their tarballs were NOT rebuilt/uploaded this run. Commit/stash + re-run for just those repos,"
+    log "  or pass --allow-dirty-tarball to force-include them."
 fi
 
 if $DRY_RUN; then
