@@ -16,6 +16,20 @@
 # SSOT: plans/active/tradfi_backfill_throughput_followups_2026_07_24.md.
 set -euo pipefail
 
+# lc_write_preemption_signal_file / lc_write_launch_params — this lib previously
+# created VMs with NO shutdown-script at all, so a genuine SPOT preemption left no
+# durable `vm-logs/{vm}/PREEMPTED` marker for exit_code_fleet_monitor.is_vm_preempted()
+# to find. The VM's abrupt mid-run disappearance (no exit_code, no rows-written/
+# honest-absence/rate-limit run.log signal) then fell through to the SILENT-reason
+# path and fired a false-CRITICAL DP_VM_GONE_NO_CAPTURE page instead of the benign
+# DP_VM_PREEMPTED auto_recover route (2026-07-31 DP-VM-002 escalation agt-d6540c,
+# `tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-000118`, confirmed via
+# `gcloud compute operations list` -> `compute.instances.preempted`). Every other
+# backfill launcher family (cefi/api-football/features-sports/footystats/openmeteo/
+# understat/sfi) already wires this; the tradfi OHLCV family never did.
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 # Caller-provided (each wrapper overrides if needed):
 TRADFI_OHLCV_ZONE="${TRADFI_OHLCV_ZONE:-asia-northeast1-c}"
 TRADFI_OHLCV_PROJECT="${TRADFI_OHLCV_PROJECT:-central-element-323112}"
@@ -345,6 +359,23 @@ ohlcv_create_vm() {
             provisioning_flags="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
         fi
         echo "Launching $vm_name_safe (venue=$vm_venue ${start_date}..${end_date}) [$([[ -n "$provisioning_flags" ]] && echo SPOT || echo on-demand)]"
+        # DP-VM-002 fix (2026-07-31, agt-d6540c): write the shutdown-script that
+        # marks a genuine SPOT reclaim in GCS (vm-logs/<vm>/PREEMPTED), so
+        # exit_code_fleet_monitor.is_vm_preempted() classifies it PREEMPTED/INFO
+        # instead of falling through to the false-CRITICAL GONE_NO_CAPTURE path.
+        lc_write_preemption_signal_file
+        # Best-effort scope record for LAUNCH_PARAMS.json — observability today
+        # (this launcher family does not yet read these as override envs, so a
+        # PREEMPTED auto_recover relaunch still runs with the launcher's bare
+        # defaults, gated by ohlcv_check_singleton_lock's fleet-cap + the MTDS
+        # download handler's own presence-skip idempotency — never fabricated).
+        lc_write_launch_params "$vm_name_safe" "$TRADFI_OHLCV_PROJECT" "$(basename "$0")" \
+            "VENUE=${vm_venue}" \
+            "START_DATE=${start_date}" \
+            "END_DATE=${end_date}" \
+            "INSTRUMENT_IDS=${instrument_ids}" \
+            "VM_FORCE=${OHLCV_FORCE_RECAPTURE}" \
+            "DEPLOYMENT_ENV=${deployment_env}"
         # shellcheck disable=SC2086
         gcloud compute instances create "$vm_name_safe" \
             --project="$TRADFI_OHLCV_PROJECT" \
@@ -357,6 +388,7 @@ ohlcv_create_vm() {
             --boot-disk-type="${TRADFI_OHLCV_BOOT_TYPE}" \
             --scopes=cloud-platform \
             --metadata="startup-script-url=${TRADFI_OHLCV_STARTUP},${metadata}" \
+            --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
             --labels=purpose=tradfi-bf-ohlcv,env="${deployment_env}",run-ts="${run_ts}",venue="$(echo "$vm_venue" | tr '[:upper:]' '[:lower:]')"
         echo "  VM launched: $vm_name_safe"
         sleep 3

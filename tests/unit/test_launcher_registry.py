@@ -108,16 +108,42 @@ def test_explicit_none_prefix_resolves_none() -> None:
 
 
 def test_tradfi_ohlcv_stall_carries_a_launcher() -> None:
-    """A tradfi-bf OHLCV stall VM resolves to a NON-None launcher.
+    """A tradfi-bf OHLCV stall VM resolves to its OWN dedicated launcher, not the generic one.
 
-    The driving acceptance case: a heartbeat/stall finding for
-    ``tradfi-bf-cme-ohlcv-1m-ym-2020-...`` must carry a ``relaunch_launcher`` so the
-    actuator relaunches it instead of falling through to file_issue.
+    Regression guard for a live 2026-07-31 DP-VM-002 finding (agt-d6540c,
+    ``tradfi_bf_ohlcv_launchers_missing_registry_entry_2026_07_31.md``): before the
+    dedicated ``tradfi-bf-cme-ohlcv-1m-`` entry existed, this VM name resolved to the
+    generic ``tradfi-bf-`` -> ``launch-tradfi-backfill-vm.sh`` (a DIFFERENT sharding
+    scheme — quarterly/monthly ES/BTC/ETH tiers, not root-group year-shard OHLCV) —
+    a relaunch would have silently launched the wrong shape. Mirrors the FRED fix below.
     """
-    launcher = resolve_launcher_for_vm("tradfi-bf-cme-ohlcv-1m-ym-2020-20260101-120000")
+    launcher = resolve_launcher_for_vm("tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-20260731-000118")
     assert launcher is not None
-    assert launcher == "launch-tradfi-backfill-vm.sh"
+    assert launcher == "launch-tradfi-bf-cme-ohlcv-1m.sh"
     assert launcher_path(launcher).exists()
+
+
+def test_tradfi_ohlcv_venues_resolve_to_their_own_dedicated_launchers() -> None:
+    """Every per-venue OHLCV launcher family resolves to ITS launcher, not the generic one.
+
+    Same class of bug as the CME case above and the FRED case below — each of these
+    families shares the ``tradfi-bf-`` prefix with the generic CME/BTC/ETH launcher and
+    needs its own longest-prefix-winning entry.
+    """
+    cases = {
+        "tradfi-bf-ice-ohlcv-1m-brn-2020-20260731-000000": "launch-tradfi-bf-ice-ohlcv-1m.sh",
+        "tradfi-bf-nasdaq-ohlcv-1m-2020-a-20260731-000000": "launch-tradfi-bf-nasdaq-ohlcv-1m.sh",
+        "tradfi-bf-nyse-ohlcv-1m-2020-a-20260731-000000": "launch-tradfi-bf-nyse-ohlcv-1m.sh",
+        "tradfi-bf-cboe-ohlcv-1m-vx-2020-20260731-000000": "launch-tradfi-bf-cboe-ohlcv-1m.sh",
+        "tradfi-bf-cfe-ohlcv-1m-2020-20260731-000000": "launch-tradfi-bf-cfe-ohlcv-1m.sh",
+        "tradfi-bf-fx-ohlcv-24h-2020-20260731-000000": "launch-tradfi-bf-fx-ohlcv-24h.sh",
+        "tradfi-bf-krx-eq-ohlcv-24h-2020-20260731-000000": "launch-tradfi-bf-krx-equities-ohlcv-24h.sh",
+        "tradfi-bf-cboe-idx-ohlcv-24h-2020-20260731-000000": "launch-tradfi-bf-cboe-indices-ohlcv-24h.sh",
+    }
+    for vm_name, expected_launcher in cases.items():
+        launcher = resolve_launcher_for_vm(vm_name)
+        assert launcher == expected_launcher, f"{vm_name} -> {launcher}, expected {expected_launcher}"
+        assert launcher_path(launcher).exists()
 
 
 def test_tradfi_bf_fred_resolves_to_its_own_dedicated_launcher() -> None:

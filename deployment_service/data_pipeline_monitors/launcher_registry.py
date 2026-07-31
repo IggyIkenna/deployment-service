@@ -112,6 +112,22 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # agt-f421bc): tradfi-bf-fred-full-20260730-064542's relaunch finding carried
     # relaunch_launcher=launch-tradfi-backfill-vm.sh via this exact gap.
     "tradfi-bf-fred-": "launch-tradfi-bf-fred.sh",
+    # Per-venue OHLCV-1m/-24h launchers — SAME reasoning as the FRED entry above (a more
+    # specific prefix so longest-prefix match wins over the generic `tradfi-bf-` ->
+    # CME/BTC/ETH quarterly launcher, which is a DIFFERENT sharding scheme). Confirmed live
+    # 2026-07-31 (DP-VM-002 escalation agt-d6540c): `tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-*`
+    # preempted with no dedicated entry here, so a PREEMPTED relaunch would have resolved to
+    # `launch-tradfi-backfill-vm.sh` (wrong shape — root-group year-shard OHLCV vs
+    # quarterly/monthly ES-BTC-ETH tiers) instead of the launcher that actually produced it.
+    "tradfi-bf-cme-ohlcv-1m-": "launch-tradfi-bf-cme-ohlcv-1m.sh",
+    "tradfi-bf-ice-ohlcv-1m-": "launch-tradfi-bf-ice-ohlcv-1m.sh",
+    "tradfi-bf-nasdaq-ohlcv-1m-": "launch-tradfi-bf-nasdaq-ohlcv-1m.sh",
+    "tradfi-bf-nyse-ohlcv-1m-": "launch-tradfi-bf-nyse-ohlcv-1m.sh",
+    "tradfi-bf-cboe-ohlcv-1m-": "launch-tradfi-bf-cboe-ohlcv-1m.sh",
+    "tradfi-bf-cfe-ohlcv-1m-": "launch-tradfi-bf-cfe-ohlcv-1m.sh",
+    "tradfi-bf-fx-ohlcv-24h-": "launch-tradfi-bf-fx-ohlcv-24h.sh",
+    "tradfi-bf-krx-eq-ohlcv-24h-": "launch-tradfi-bf-krx-equities-ohlcv-24h.sh",
+    "tradfi-bf-cboe-idx-ohlcv-24h-": "launch-tradfi-bf-cboe-indices-ohlcv-24h.sh",
     "tradfi-fwd-": "launch-tradfi-forward-poll.sh",
     "tradfi-recent-": "launch-tradfi-forward-poll.sh",
     "tradfi-event-contract-backfill-": "launch-tradfi-event-contract-backfill.sh",
