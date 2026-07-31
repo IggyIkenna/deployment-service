@@ -464,22 +464,18 @@ else
 
   # Preemption signal: write PREEMPTED blob so the exit-code fleet monitor
   # classifies a spot preemption as a benign relaunch (no DP_VM_GONE_NO_CAPTURE).
-  SHUTDOWN_FILE=$(mktemp)
-  trap 'rm -f "$SHUTDOWN_FILE"' EXIT
-  cat > "$SHUTDOWN_FILE" <<'SHUTDOWN_EOF'
-#!/usr/bin/env bash
-PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
-  'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
-[[ "$PREEMPTED" == "true" ]] || exit 0
-VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
-  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
-PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
-  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
-[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
-echo "preempted" | gcloud storage cp - \
-  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
-echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
-SHUTDOWN_EOF
+  # Was a hand-rolled inline duplicate of lc_write_preemption_signal_file's
+  # own logic (unlike the 14 other launchers that already call the shared
+  # helper) — a live sweep of every af-backfill preemption confirmed via
+  # `gcloud compute operations list` found the marker missing 5/5 times
+  # (issues/session_bound_vm_monitoring_reliability_gap_2026_07_26.md), so
+  # switched to the shared, hardened helper: VM_NAME/PROJECT are already
+  # known at this point in the launcher, so bake them in (skips 2 of 3
+  # metadata round-trips inside the ~30s preemption grace period) and the
+  # helper itself now uses a lightweight curl+retry upload instead of
+  # shelling out to the gcloud CLI.
+  lc_write_preemption_signal_file "$VM_NAME" "$PROJECT"
+  SHUTDOWN_FILE="$PREEMPTION_SIGNAL_FILE"
 
   echo "Launching VM $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]..."
   # shellcheck disable=SC2086
@@ -487,6 +483,20 @@ SHUTDOWN_EOF
       lc_verify_tarball_freshness "$CODE_BUCKET" \
           instruments-service unified-api-contracts unified-trading-library deployment-service \
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
+      # This launcher calls `gcloud compute instances create` directly rather
+      # than the lc_gcloud_create wrapper (Pattern-B, like 138 of 143 launchers
+      # in this tree — the wrapper's own auto-check only covers 4 callers
+      # today, not the "~80 launchers" its comment claims; filed as its own
+      # finding, see issues/vm_launcher_setup_script_freshness_gap_2026_07_31.md),
+      # so it never got the setup-script freshness guard automatically. Added
+      # explicitly here: this VM's ENTIRE preemption-recovery story (the
+      # fleet-wide uts-preemption-signal.service PLUS the shutdown-script
+      # below) depends on `vm/setup-data-pipeline-vm.sh` being CURRENT on GCS
+      # — a stale copy silently runs old startup logic with no error. Default
+      # mode is "warn" (LC_SETUP_SCRIPT_FRESHNESS=enforce to block on drift).
+      FULL_METADATA="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}"
+      lc_verify_setup_script_freshness "$CODE_BUCKET" "$FULL_METADATA" \
+          || { echo "ERROR: aborting launch on stale/missing setup script — see above" >&2; exit 1; }
   fi
 
   # SPOT-preemption relaunch support (cefi_completion_program_2026_07_15.md P0
@@ -520,7 +530,7 @@ SHUTDOWN_EOF
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
+    --metadata="${FULL_METADATA}" \
     --metadata-from-file=shutdown-script="${SHUTDOWN_FILE}" \
     --labels=purpose=api-football-backfill,env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}"
 fi
