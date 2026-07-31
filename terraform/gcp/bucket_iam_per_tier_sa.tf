@@ -292,3 +292,61 @@ resource "google_project_iam_member" "uts_tier_sa_artifactregistry_reader" {
   role     = "roles/artifactregistry.reader"
   member   = "serviceAccount:${each.value}"
 }
+
+# ---------------------------------------------------------------------------
+# P2 (issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md)
+# — wiring deploy-shared.sh (deployment-api's Cloud Run identity) to uts-prd-sa
+# surfaced 2 additional live gaps this todo's own P1 grant list (mirrored from
+# main.tf's *declared* unified_trading_bq_editor member) didn't cover, because
+# unified-trading-sa's LIVE role set is broader than its terraform-declared
+# grants (a separate, out-of-band `roles/bigquery.admin` grant exists live —
+# not reproduced here, since bigquery.admin is itself over-privileged; only the
+# specific capability deployment-api's code actually exercises is granted):
+#
+# 1. deployment-api's UTL GCP provider (execute_query() ->
+#    unified_trading_library/cloud_interface/providers/gcp.py:695, used by
+#    deployment_api/services/operational_data_queries.py's run_query() and the
+#    cost_observability routes) calls `bq.query(...)`, which creates a BigQuery
+#    QUERY JOB — this requires `bigquery.jobUser` (job-creation), which
+#    `bigquery.dataEditor` alone does NOT grant. Streaming-insert paths
+#    (operational_data_writer.py's insert_rows) only need dataEditor and
+#    already work under the P1 grant.
+resource "google_project_iam_member" "uts_tier_sa_bq_job_user" {
+  for_each = local.uts_tier_sa_non_storage_grantees
+  project  = var.project_id
+  role     = "roles/bigquery.jobUser"
+  member   = "serviceAccount:${each.value}"
+}
+
+# 2. deployment-api's runtime writes to 2 GCS buckets that are NOT part of the
+#    Group A/B -prd- prefix set uts-prd-sa's conditional storage.objectAdmin
+#    covers: `unified-deployment-state-{project}` (deployment lock/state —
+#    deployment_api/workers/auto_sync.py + deployment_processor.py +
+#    services/sync_service.py) and `deployment-scripts-{project}` (VM
+#    heartbeat/signal writes — deployment_api/routes/vm_admin.py, via UTL's
+#    DEFAULT_BUCKET). Both are single, non-tiered buckets shared across envs
+#    (no -prd-/-test- split), so they're granted here at the BUCKET level
+#    (not a new project-wide condition) — scoped to exactly what deployment-api
+#    needs, tighter than unified-trading-sa's current project-wide
+#    storage.admin. `deployment-scripts` already has a live precedent for this
+#    exact pattern (uts-prod-batch-sa holds the same 3 roles on it). Bucket
+#    referenced by literal name (not google_storage_bucket.deployment_scripts[0].name)
+#    deliberately, to keep this IAM-only grant's -target dependency graph clean
+#    of that resource's own unrelated pending soft-delete-policy drift
+#    (604800 -> 0, pre-existing, out of scope for this IAM-only change).
+resource "google_storage_bucket_iam_member" "uts_prd_deployment_scripts_object_admin" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.uts_prd.email}"
+}
+
+# unified-deployment-state-{project} predates Terraform and was never adopted
+# (no google_storage_bucket resource manages it — confirmed via `gcloud storage
+# buckets list`; tracked as its own IaC-adoption gap, out of scope here). This
+# grants IAM on it by literal name without taking ownership of the bucket
+# resource itself.
+resource "google_storage_bucket_iam_member" "uts_prd_deployment_state_object_admin" {
+  bucket = "unified-deployment-state-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.uts_prd.email}"
+}
