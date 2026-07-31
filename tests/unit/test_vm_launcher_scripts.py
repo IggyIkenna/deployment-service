@@ -2065,6 +2065,131 @@ export -f gcloud
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
 
+class TestApiFootballLauncherHardenedPreemptionSignal:
+    """af-backfill's two GCS best-effort writes made reliable
+    (infra_satellite_ao_dispatch_batch1_2026_07_26.md). A live sweep of every
+    af-backfill preemption confirmed via `gcloud compute operations list`
+    (5 events, 2026-07-25..2026-07-31) found the PREEMPTED marker missing 5/5
+    times. Root cause: this launcher hand-rolled its own inline shutdown-script
+    (unlike the 14 other launchers that already call
+    lc_write_preemption_signal_file) that queried VM_NAME/PROJECT live via
+    metadata and shelled out to `gcloud storage cp` — both add latency inside
+    the ~30s GCE preemption grace period. Fixed by switching to the shared
+    helper with baked-in identity + a lightweight curl-based upload with
+    retry. Separately, LAUNCH_PARAMS.json's own absence (also confirmed via a
+    live GCS sweep: 0/29 present before 2026-07-25, 21/21 present after) was
+    root-caused to the already-fixed WIF-token-expiry gsutil bug
+    (vm_tarball_upload_expired_wif_token_interactive_slot_2026_07_25.md) — no
+    further change needed there, just documented."""
+
+    LAUNCHER = "scripts/vm/launch-api-football-backfill-vm.sh"
+
+    def _mock_preamble(self, capture_dir: Path, gcloud_log: Path, shutdown_capture: Path) -> str:
+        return f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        for arg in "$@"; do
+            case "$arg" in
+                --metadata-from-file=shutdown-script=*)
+                    cp "${{arg#--metadata-from-file=shutdown-script=}}" "{shutdown_capture}"
+                    ;;
+            esac
+        done
+        return 0
+    fi
+    if [[ "$1 $2 $3" == "storage cp -" ]]; then
+        local uri="$4"
+        cat > "{capture_dir}/$(basename "$uri")"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+'''
+
+    def _run(self, args: list[str], tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Path, Path, Path]:
+        launcher_path = Path(__file__).parent.parent.parent / self.LAUNCHER
+        capture_dir = tmp_path / "gsutil_captures"
+        capture_dir.mkdir()
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        shutdown_capture = tmp_path / "shutdown_script.sh"
+        script = (
+            self._mock_preamble(capture_dir, gcloud_log, shutdown_capture)
+            + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        )
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        return result, capture_dir, gcloud_log, shutdown_capture
+
+    def test_launcher_writes_launch_params_with_replayable_scope(self, tmp_path: Path) -> None:
+        result, capture_dir, _gcloud_log, _shutdown = self._run(["2021-01-01", "2021-01-10"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        params_file = capture_dir / "LAUNCH_PARAMS.json"
+        assert params_file.exists(), "lc_write_launch_params must have been called"
+        import json
+
+        payload = json.loads(params_file.read_text())
+        assert payload["launcher"] == "launch-api-football-backfill-vm.sh"
+        env = payload["env"]
+        assert env["RESUME_START_DATE"] == "2021-01-01"
+        assert env["RESUME_END_DATE"] == "2021-01-10"
+
+    def test_launcher_gcloud_create_carries_preemption_shutdown_script(self, tmp_path: Path) -> None:
+        result, _capture_dir, gcloud_log, _shutdown = self._run(["2021-01-01", "2021-01-10"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert gcloud_log.exists()
+        call = gcloud_log.read_text()
+        assert "--metadata-from-file=shutdown-script=" in call
+        assert "startup-script-url=gs://" in call
+
+    def test_shutdown_script_bakes_in_vm_name_and_project_no_metadata_lookup(self, tmp_path: Path) -> None:
+        """The regression this fix closes: the shutdown-script must NOT query the
+        GCE metadata server for VM_NAME/PROJECT (2 of 3 round-trips inside the
+        ~30s preemption grace window) — both are already known at launch time,
+        so bake them in as literal shell assignments instead."""
+        result, _capture_dir, _gcloud_log, shutdown_capture = self._run(["2021-01-01", "2021-01-10"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        content = shutdown_capture.read_text()
+        assert "computeMetadata/v1/instance/name" not in content, (
+            "VM_NAME must be baked in at launch time, not queried live during the shutdown race"
+        )
+        assert "computeMetadata/v1/project/project-id" not in content, (
+            "PROJECT must be baked in at launch time, not queried live during the shutdown race"
+        )
+        assert "VM_NAME=af-backfill-" in content
+        assert "PROJECT=central-element-323112" in content
+        # Still gates on the actual preemption flag — only the identity lookup was removed.
+        assert "computeMetadata/v1/instance/preempted" in content
+
+    def test_shutdown_script_uses_lightweight_curl_upload_with_retry_not_gcloud_cli(self, tmp_path: Path) -> None:
+        """Replaces the `gcloud storage cp` subprocess (multi-second Python-CLI cold
+        start) with a direct curl PUT using the instance's own metadata-server OAuth
+        token, retried across a 3-iteration loop — both measured latency wins inside
+        the grace window."""
+        result, _capture_dir, _gcloud_log, shutdown_capture = self._run(["2021-01-01", "2021-01-10"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        content = shutdown_capture.read_text()
+        assert "gcloud storage cp" not in content
+        assert "storage.googleapis.com/upload/storage/v1/b/" in content
+        assert "for attempt in 1 2 3; do" in content
+        assert content.count("curl") == 3, "expected exactly 3 curl call sites: preempted-check, token, upload"
+
+    def test_shutdown_script_syntax_and_shellcheck_clean(self, tmp_path: Path) -> None:
+        result, _capture_dir, _gcloud_log, shutdown_capture = self._run(["2021-01-01", "2021-01-10"], tmp_path)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        syntax = subprocess.run(["bash", "-n", str(shutdown_capture)], capture_output=True, text=True)
+        assert syntax.returncode == 0, f"Syntax error: {syntax.stderr}"
+        shellcheck = subprocess.run(
+            ["shellcheck", "-S", "error", str(shutdown_capture)], capture_output=True, text=True
+        )
+        assert shellcheck.returncode == 0, f"shellcheck: {shellcheck.stdout}\n{shellcheck.stderr}"
+
+    def test_launcher_syntax_valid(self) -> None:
+        launcher_path = Path(__file__).parent.parent.parent / self.LAUNCHER
+        result = subprocess.run(["bash", "-n", str(launcher_path)], capture_output=True, text=True)
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+
 class TestCandleApplyCategory:
     """The `<ag>-candle-apply` category (2026-07-22, P7): the REAL --apply migration+purge pass over
     one asset_group's processed_candles/ corpus, distinct from `<ag>-candle-census` (always --dry-run,

@@ -30,11 +30,19 @@
 #                                            (a different job's live work landed on
 #                                            a reused name — see
 #                                            features_sports_parallel_backfill_vm_name_collision_2026_07_13.md)
-#   lc_write_preemption_signal_file        — write a shutdown-script (sets
+#   lc_write_preemption_signal_file [vm_name] [project]
+#                                          — write a shutdown-script (sets
 #                                            PREEMPTION_SIGNAL_FILE) that marks a
 #                                            SPOT preemption in GCS for fleet
 #                                            monitors; observability only, does
-#                                            NOT relaunch the VM
+#                                            NOT relaunch the VM. Optional
+#                                            vm_name/project bake the identity in
+#                                            at launch time (skips 2 of the 3
+#                                            metadata round-trips the shutdown
+#                                            script would otherwise need inside
+#                                            the ~30s preemption grace period);
+#                                            omit both to fall back to the
+#                                            original live-metadata-query form.
 #   lc_write_launch_params <vm_name> <project> <launcher> <K=V>...
 #                                          — persist the launcher name + the exact
 #                                            env vars this VM was launched with to
@@ -360,25 +368,51 @@ lc_write_startup_file() {
 # also needs its own shutdown-script cannot use this helper as-is — merge the
 # preemption check into that script instead (see the transfermarkt launcher
 # for the inline pattern).
+#
+# Hardened 2026-07-31 (issues/vm_billing_waste_first_audit_and_preflight_gate_design_2026_07_24.md
+# + issues/session_bound_vm_monitoring_reliability_gap_2026_07_26.md): a live sweep of every
+# af-backfill preemption confirmed via `gcloud compute operations list` found the marker missing
+# on 5/5 — the write was consistently losing the race against the GCE ~30s preemption grace
+# period, not a rare one-off. Two changes close most of that gap: (1) skip the VM_NAME/PROJECT
+# metadata round-trips when the caller already knows them (bake in at launch time — 2 fewer
+# HTTP round-trips inside the grace window); (2) replace the `gcloud storage cp` subprocess
+# (multi-second Python-CLI cold start) with a direct curl PUT to the GCS JSON API using the
+# instance's own metadata-server OAuth token — same identity/permissions, far less startup
+# overhead — plus a short retry loop for a transient failure within the remaining window.
 lc_write_preemption_signal_file() {
+    local vm_name_baked="${1:-}"
+    local project_baked="${2:-}"
     # Portable mktemp (see lc_write_startup_file's comment above for the full
     # rationale): a non-X-terminal template silently fails to randomize on
     # BSD/macOS mktemp, colliding across concurrent invocations.
     PREEMPTION_SIGNAL_FILE="$(mktemp -d)/preempt-shutdown.sh"
-    cat > "$PREEMPTION_SIGNAL_FILE" <<'PREEMPTION_EOF'
+    local resolve_ids
+    if [[ -n "$vm_name_baked" && -n "$project_baked" ]]; then
+        resolve_ids="$(printf 'VM_NAME=%q\nPROJECT=%q' "$vm_name_baked" "$project_baked")"
+    else
+        resolve_ids='VM_NAME=$(curl -sf -m 2 -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/name" 2>/dev/null || echo "")
+PROJECT=$(curl -sf -m 2 -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/project/project-id" 2>/dev/null || echo "")
+[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0'
+    fi
+    cat > "$PREEMPTION_SIGNAL_FILE" <<EOF
 #!/usr/bin/env bash
-PREEMPTED=$(curl -sf -H 'Metadata-Flavor: Google' \
+PREEMPTED=\$(curl -sf -m 2 -H 'Metadata-Flavor: Google' \\
   'http://metadata.google.internal/computeMetadata/v1/instance/preempted' 2>/dev/null || echo 'false')
-[[ "$PREEMPTED" == "true" ]] || exit 0
-VM_NAME=$(curl -sf -H 'Metadata-Flavor: Google' \
-  'http://metadata.google.internal/computeMetadata/v1/instance/name' 2>/dev/null || echo "")
-PROJECT=$(curl -sf -H 'Metadata-Flavor: Google' \
-  'http://metadata.google.internal/computeMetadata/v1/project/project-id' 2>/dev/null || echo "")
-[[ -n "$VM_NAME" && -n "$PROJECT" ]] || exit 0
-echo "preempted" | gcloud storage cp - \
-  "gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/PREEMPTED" --quiet 2>/dev/null || true
-echo "[preemption-shutdown] wrote PREEMPTED signal for ${VM_NAME}" >&2
-PREEMPTION_EOF
+[[ "\$PREEMPTED" == "true" ]] || exit 0
+${resolve_ids}
+TOKEN=\$(curl -sf -m 2 -H 'Metadata-Flavor: Google' \\
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' 2>/dev/null \\
+  | grep -o '"access_token"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+[[ -n "\$TOKEN" ]] || exit 0
+OBJECT="vm-logs%2F\${VM_NAME}%2FPREEMPTED"
+for attempt in 1 2 3; do
+  curl -sf -m 3 -X POST -H "Authorization: Bearer \${TOKEN}" \\
+    -H 'Content-Type: application/octet-stream' --data-binary 'preempted' \\
+    "https://storage.googleapis.com/upload/storage/v1/b/deployment-scripts-\${PROJECT}/o?uploadType=media&name=\${OBJECT}" \\
+    >/dev/null 2>&1 && break
+done
+echo "[preemption-shutdown] wrote PREEMPTED signal for \${VM_NAME}" >&2
+EOF
     # shellcheck disable=SC2064
     trap "rm -f '${PREEMPTION_SIGNAL_FILE}'" EXIT
     export PREEMPTION_SIGNAL_FILE
