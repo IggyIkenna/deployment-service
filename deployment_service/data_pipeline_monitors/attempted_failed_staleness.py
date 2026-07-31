@@ -18,7 +18,7 @@ distinction VISIBLE, deliberately leaving delivery behavior untouched.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -42,11 +42,44 @@ def stale_days_since(max_attempted_at: str, *, now: datetime | None = None) -> i
     return max(0, (moment - ts.to_pydatetime()).days)
 
 
-def stale_backlog_annotation(stale_days: int | None) -> tuple[bool, str]:
+def recent_activity_mask(attempted_at: pd.Series, *, now: datetime | None = None) -> pd.Series:
+    """Boolean mask, True where ``attempted_at`` (ISO-8601 strings) falls within
+    ``STATIC_BACKLOG_STALE_DAYS_THRESHOLD`` days of ``now``. NaT/unparseable rows are
+    False — never counted as recent, mirroring ``stale_days_since``'s fail-safe
+    convention. Lets a caller count how much of a cell's ``attempted_failed`` volume is
+    genuinely NEW, not just whether the single newest row is recent (see
+    ``stale_backlog_annotation``'s ``materiality_floor``)."""
+    ts = pd.to_datetime(attempted_at, utc=True, errors="coerce")
+    moment = now or datetime.now(UTC)
+    cutoff = pd.Timestamp(moment - timedelta(days=STATIC_BACKLOG_STALE_DAYS_THRESHOLD))
+    return ts >= cutoff
+
+
+def stale_backlog_annotation(
+    stale_days: int | None,
+    *,
+    recent_attempted_failed: int = 0,
+    materiality_floor: int = 0,
+) -> tuple[bool, str]:
     """Return ``(is_static_backlog, summary_suffix)`` for a cell's staleness — a one-line
     fact an alert body can append so a reader can tell "static, already-tracked backlog"
     from "fresh failure" at a glance. Never suppresses/changes paging (see module
-    docstring); ``stale_days=None`` (legacy/unknown) annotates nothing."""
+    docstring); ``stale_days=None`` (legacy/unknown) annotates nothing.
+
+    ``recent_attempted_failed`` / ``materiality_floor`` (both optional, default 0 —
+    exact prior behaviour when unset): a cell can have its single newest row land
+    today (``stale_days == 0``) while the OVERWHELMING majority of its
+    ``attempted_failed`` count is old, already-tracked debt and only a small, decaying
+    trickle of genuinely-new failures lands each day (confirmed live,
+    ``cefi_high_attempted_failed_batch_cluster_2026_07_23.md`` re-fire 2026-07-31: a
+    300k-row cefi/book_snapshot_5 cell whose fresh 24h volume was 16 rows, the residual
+    tail of an already-largely-fixed writer bug). A bare ``stale_days == 0`` check reads
+    that as permanently "Fresh" and never lets the already-shipped STATIC BACKLOG
+    severity-downgrade apply. When the caller supplies a ``materiality_floor`` (meta_watchers
+    passes its own ``ATTEMPTED_FAILED_ABS_THRESHOLD`` — the SAME bar the alert itself uses to
+    decide "high" in the first place, just applied to the recent window instead of the
+    all-time total), a trickle BELOW that floor is treated as backlog too, even at
+    ``stale_days == 0``."""
     if stale_days is None:
         return False, ""
     if stale_days >= STATIC_BACKLOG_STALE_DAYS_THRESHOLD:
@@ -54,4 +87,13 @@ def stale_backlog_annotation(stale_days: int | None) -> tuple[bool, str]:
             f" STATIC BACKLOG — no new attempted_failed activity in {stale_days}d; "
             f"already-tracked, not a fresh regression."
         )
-    return False, f" Fresh — newest attempted_failed activity {stale_days}d ago."
+    if recent_attempted_failed < materiality_floor:
+        return True, (
+            f" STATIC BACKLOG — only {recent_attempted_failed} attempted_failed row(s) in the last "
+            f"{STATIC_BACKLOG_STALE_DAYS_THRESHOLD}d (below the {materiality_floor}-row materiality floor); "
+            f"a decaying trickle on already-tracked backlog, not a fresh regression."
+        )
+    return (
+        False,
+        f" Fresh — {recent_attempted_failed} attempted_failed row(s) in the last {STATIC_BACKLOG_STALE_DAYS_THRESHOLD}d.",
+    )
