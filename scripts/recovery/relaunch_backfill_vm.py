@@ -596,7 +596,19 @@ class RelaunchPreemptedVm:
             # gcloud-metadata-only alias). Resume verbatim from the frontier — the
             # writer records the max date SEEN (the possibly-partial current day), so
             # redoing that one day guarantees no skip.
+            #
+            # That said, a subset of launchers (launch-canonical-migration-vm.sh,
+            # launch-api-football-backfill-vm.sh, launch-features-sports-backfill-vm.sh,
+            # launch-mdps-build-continuous-vm.sh, launch-mdps-backfill-vm.sh) resolve
+            # their positional start-date arg as ``"${2:-${RESUME_START_DATE:-}}"`` and
+            # never consult a bare START_DATE — so for these five, only this key takes
+            # effect (confirmed live 2026-07-31, DP-VM-003 agt-5a8706: a canonical-
+            # migration relaunch's LAUNCH_PARAMS.json persists RESUME_START_DATE, not
+            # START_DATE, and the checkpoint override was silently inert). Setting both
+            # keys covers either convention; the unused one is simply ignored by the
+            # launcher that doesn't read it.
             env["START_DATE"] = resume_date
+            env["RESUME_START_DATE"] = resume_date
             log_event(
                 _EVENT_VM_PREEMPTED,
                 severity="INFO",

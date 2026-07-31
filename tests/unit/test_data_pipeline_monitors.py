@@ -2477,7 +2477,7 @@ def test_zombie_watchdog_alive_when_fresh(monkeypatch):
     assert emitted == []
 
 
-# ── DP-WATCHER-003: a non-`-legacy-` consolidator scheduler is PAUSED ────────
+# ── DP-WATCHER-004: a non-`-legacy-` consolidator scheduler is PAUSED ────────
 def test_consolidator_scheduler_paused_pages_for_non_legacy_job(monkeypatch):
     emitted = _capture_emits(monkeypatch)
     paused = consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
@@ -2520,7 +2520,7 @@ def test_consolidator_scheduler_paused_empty_lister_no_page(monkeypatch):
     assert emitted == []
 
 
-# ── DP-WATCHER-003 maintenance-window awareness (2026-07-29) ─────────────────
+# ── DP-WATCHER-004 maintenance-window awareness (2026-07-29) ─────────────────
 _MW_JOB = "uts-prod-manifest-consolidator-market-data-prediction-cron"
 
 

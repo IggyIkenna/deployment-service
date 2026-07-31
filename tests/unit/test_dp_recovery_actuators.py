@@ -325,10 +325,47 @@ def test_stalled_relaunch_resumes_from_monotonic_checkpoint(tmp_path: Path, monk
     )
     assert result["status"] == "SUCCEEDED"
     assert launched[0][1]["START_DATE"] == "2026-05-01"
+    assert launched[0][1]["RESUME_START_DATE"] == "2026-05-01"
     assert launched[0][1]["VENUE"] == "CME"
     assert any(
         e[0] == "DP_VM_STALL" and e[1] == "INFO" and e[2].get("resume_from_checkpoint") == "2026-05-01" for e in emitted
     )
+
+
+def test_stalled_relaunch_resume_start_date_launcher_checkpoint_overrides_stale_original(tmp_path: Path, monkeypatch):
+    """Regression test for DP-VM-003 agt-5a8706 (2026-07-31, canonical-migration-cefi-content-13):
+
+    launch-canonical-migration-vm.sh (and 4 other launchers — see the relaunch() comment)
+    resolve their positional start-date arg as ``"${2:-${RESUME_START_DATE:-}}"`` and never
+    consult a bare START_DATE. A caller's ``launch_env`` for these launchers carries the
+    ORIGINAL ``RESUME_START_DATE`` (from the failed VM's own LAUNCH_PARAMS.json) — before the
+    fix, the checkpoint override only ever wrote ``START_DATE`` (a key these launchers ignore),
+    so the stale original RESUME_START_DATE always won and the checkpoint had zero effect.
+    """
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchStalledVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "canonical-migration-cefi-content-13-relaunch20260731-032349",
+        launcher="launch-canonical-migration-vm.sh",
+        asset_group="cefi",
+        launch_env={
+            "RESUME_ASSET_GROUP": "cefi-content-apply",
+            "RESUME_START_DATE": "2026-01-16",
+            "RESUME_END_DATE": "2026-02-13",
+            "RESUME_MODE": "full",
+        },
+        checkpoint={"last_completed_date": "2026-01-18", "monotonic": "true"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    # the stale original must be OVERRIDDEN, not left to win via env.update-style precedence
+    assert launched[0][1]["RESUME_START_DATE"] == "2026-01-18"
+    assert launched[0][1]["RESUME_END_DATE"] == "2026-02-13"
 
 
 def test_stalled_relaunch_force_run_no_checkpoint_pages(tmp_path: Path, monkeypatch):
@@ -536,11 +573,45 @@ def test_preempted_relaunch_resumes_from_monotonic_checkpoint(tmp_path: Path, mo
     # START_DATE overridden to the checkpoint frontier (NOT the original genesis);
     # the rest of the captured scope is preserved.
     assert launched[0][1]["START_DATE"] == "2026-02-15"
+    assert launched[0][1]["RESUME_START_DATE"] == "2026-02-15"
     assert launched[0][1]["VENUES"] == "BINANCE-FUTURES"
     assert any(
         e[0] == "DP_VM_PREEMPTED" and e[1] == "INFO" and e[2].get("resume_from_checkpoint") == "2026-02-15"
         for e in emitted
     )
+
+
+def test_preempted_relaunch_resume_start_date_launcher_checkpoint_overrides_stale_original(tmp_path: Path, monkeypatch):
+    """Regression test for DP-VM-003 agt-5a8706 (2026-07-31) — same gap as the RelaunchStalledVm
+    sibling test, for the preemption-relaunch path: launch-canonical-migration-vm.sh's
+    ``VM_NAME_OVERRIDE`` self-relaunch persists ``RESUME_START_DATE`` (not a bare START_DATE) in
+    its LAUNCH_PARAMS.json, which ``launch_env`` replays verbatim on a preemption. Before the
+    fix, the checkpoint override only wrote ``START_DATE`` — a key this launcher family never
+    reads — so a preempted canonical-migration VM would ALSO have silently ignored its
+    checkpoint and replayed the stale original start date forever.
+    """
+    _patch_log_event(monkeypatch)
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    actuator = RelaunchPreemptedVm(budget_dir=tmp_path, now=lambda: _FIXED_NOW, run_launcher=launcher)
+    result = actuator.relaunch(
+        "canonical-migration-cefi-content-13-relaunch20260731-032349",
+        launcher="launch-canonical-migration-vm.sh",
+        launch_env={
+            "VM_NAME_OVERRIDE": "canonical-migration-cefi-content-13-relaunch20260731-032349",
+            "RESUME_ASSET_GROUP": "cefi-content-apply",
+            "RESUME_START_DATE": "2026-01-16",
+            "RESUME_END_DATE": "2026-02-13",
+        },
+        checkpoint={"last_completed_date": "2026-01-18", "monotonic": "true"},
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert launched[0][1]["RESUME_START_DATE"] == "2026-01-18"
+    assert launched[0][1]["RESUME_END_DATE"] == "2026-02-13"
 
 
 def test_preempted_relaunch_force_run_with_checkpoint_auto_resumes(tmp_path: Path, monkeypatch):
@@ -1327,7 +1398,7 @@ def test_route_auto_recover_stalled_relaunch_resumes_from_checkpoint(tmp_path: P
     result = escalation.route_finding(finding)
     assert result["effective_tier"] == "auto_recover"
     assert result["recovery"]["recovered"] is True
-    assert launched == [("launch-tradfi-bf-cme.sh", {"START_DATE": "2026-05-01"})]
+    assert launched == [("launch-tradfi-bf-cme.sh", {"START_DATE": "2026-05-01", "RESUME_START_DATE": "2026-05-01"})]
 
 
 # ── route_finding: OOM successful relaunch also files an investigate doc ────

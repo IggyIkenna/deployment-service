@@ -133,7 +133,7 @@ def check_consolidator_scheduler_paused(
                 tier=EscalationTier.PAGE_OPERATOR,
                 summary=f"manifest-consolidator scheduler '{job_name}' is PAUSED (not -legacy-)",
                 details={"scheduler_job": job_name},
-                registry_id="DP-WATCHER-003",
+                registry_id="DP-WATCHER-004",
             ),
             pm_repo_path=pm_repo_path,
             dry_run=dry_run,
