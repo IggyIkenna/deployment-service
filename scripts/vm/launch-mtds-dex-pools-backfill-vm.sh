@@ -32,7 +32,7 @@ ON_DEMAND=false
 # spreads load across the 9-key thegraph-api-key[-2..9] SM pool — each VM begins
 # on a distinct key, and the handler round-robins the full pool per request.
 SHARD_INDEX="${SHARD_INDEX:-250}"
-FLEET_VMS="${FLEET_VMS:-250}"
+FLEET_VMS="${FLEET_VMS:-1}"
 # --protocols: comma-separated allowlist for dex_pools_handler.py's
 # --dex-pools-protocols (nargs='+'), same VM_*_PROTOCOLS passthrough pattern
 # as launch-mtds-lending-indices-backfill-vm.sh. Scopes a backfill to specific

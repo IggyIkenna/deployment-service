@@ -96,7 +96,7 @@ DRY_RUN=false
 # accidental over-subscription, but set --fleet-vms N when you DELIBERATELY fan
 # out N api-football VMs (--force). REMAINING_DAILY_QUOTA is optional (omit ⇒ the
 # per-minute cap is the only constraint, fine when the day is fresh).
-FLEET_VMS="${FLEET_VMS:-250}"
+FLEET_VMS="${FLEET_VMS:-1}"
 # Tracks whether the operator SET the divisor, vs it being the default. When unset we
 # DERIVE it from the measured running fleet (below) instead of assuming this VM is alone.
 FLEET_VMS_EXPLICIT=false
