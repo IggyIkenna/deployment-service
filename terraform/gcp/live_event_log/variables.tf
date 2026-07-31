@@ -28,9 +28,9 @@ variable "cold_gcs_bucket" {
 }
 
 variable "compactor_image" {
-  description = "Container image for the daily cold compaction Cloud Run Job"
+  description = "Container image for the daily cold compaction Cloud Run Job. Reuses the shared deployment-service maintenance-jobs image (same one used by uts-prod-tarball-cleanup / vm-log-archival-prd) rather than a dedicated never-built image — no new build pipeline needed; the CMD is overridden per-job (see compaction_job.tf's container command/args)."
   type        = string
-  default     = "gcr.io/central-element-323112/live-event-log-compactor:latest"
+  default     = "asia-northeast1-docker.pkg.dev/central-element-323112/unified-trading-system/deployment-service:latest"
 }
 
 variable "compactor_sa_email" {
