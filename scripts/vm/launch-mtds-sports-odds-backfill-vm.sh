@@ -181,6 +181,7 @@ lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-mtds-sports-odds-bac
 
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
+  --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT_ID}")" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   ${PROVISIONING_FLAGS} \

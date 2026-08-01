@@ -81,6 +81,8 @@ REGION="asia-northeast1"
 ZONES=("asia-northeast1-a" "asia-northeast1-b" "asia-northeast1-c")
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
 # Resolve machine type via the empirical resource matrix in MTDS unless the
 # operator overrides via env. e2-standard-8 (32 GB) deterministically OOMs on
@@ -224,6 +226,7 @@ _launch_one() {
         # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
         if gcloud compute instances create "$vm_name" \
                 --project="$PROJECT" --zone="$zone" \
+                --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
                 --machine-type="$MACHINE_TYPE" \
                 ${prov_flags} \
                 --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \

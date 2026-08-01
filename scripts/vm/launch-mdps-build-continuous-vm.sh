@@ -185,6 +185,7 @@ lc_write_launch_params "$VM_NAME" "$PROJECT" "launch-mdps-build-continuous-vm.sh
 # shellcheck disable=SC2086
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \

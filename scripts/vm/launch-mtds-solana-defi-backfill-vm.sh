@@ -181,6 +181,7 @@ lc_write_launch_params "${VM_NAME}" "${PROJECT_ID}" "launch-mtds-solana-defi-bac
 
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
+  --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT_ID}")" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \

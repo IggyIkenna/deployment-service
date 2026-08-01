@@ -207,6 +207,7 @@ _launch_vm() {
         --metadata="${meta}" \
         --labels=env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
         --project="${PROJECT}" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")" \
         --async 2>&1 | tail -1 &
     running_jobs=$((running_jobs + 1))
 }
