@@ -257,7 +257,28 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
             # marker (heartbeat/empty noise) does NOT reset → a hung worker trips.
             made_progress=0
             if [[ "$cur_size" -gt "$last_progress_size" ]]; then
-                if tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null | grep -qE "$STALL_PROGRESS_REGEX"; then
+                # CAPTURE THEN GREP, not a live pipe (root cause,
+                # tradfi_backfill_oom_remediation_2026_06_24.md, isolated 2026-08-01):
+                # under this script's inherited `set -o pipefail`, `tail | grep -qE`
+                # silently misreports "no progress" whenever the scanned window is
+                # large enough that `grep -q` exits right after its first match while
+                # `tail` still has more buffered output to write — `tail` gets SIGPIPE
+                # (exit 141), and pipefail reports the PIPELINE's exit as 141 (the
+                # rightmost non-zero status) even though grep found a real match and
+                # exited 0. Reproduced directly: a >64KB scan window with a match near
+                # the start flips `if tail ... | grep -qE ...` to the false branch
+                # despite ${PIPESTATUS[*]}="141 0". This is exactly what a fast
+                # multi-chunk backfill (many "uploaded"/"streamed" lines accumulating
+                # between 60s polls) can trigger — matching lines existed in the log
+                # every <=232s the whole time, but this bug silently zeroed
+                # `made_progress` on any poll whose scan window happened to be large,
+                # letting `last_change_epoch` go stale despite continuous real
+                # progress, until the accumulated "no progress" streak crossed
+                # STALL_TIMEOUT_SEC and the watchdog false-positive-killed a healthy
+                # VM. Capturing into a variable first removes the live pipe entirely
+                # (no consumer to SIGPIPE the producer), independent of pipefail.
+                _progress_chunk="$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null)"
+                if grep -qE "$STALL_PROGRESS_REGEX" <<< "$_progress_chunk"; then
                     made_progress=1
                 fi
                 last_progress_size=$cur_size
