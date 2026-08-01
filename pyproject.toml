@@ -129,9 +129,8 @@ pythonVersion = "3.13"
 pythonPlatform = "All"
 extraPaths = [
     ".",
-    "../unified-cloud-interface",
-    "../unified-config-interface",
     "../unified-trading-library",
+    "../unified-api-contracts",
 ]
 
 [tool.pytest.ini_options]
