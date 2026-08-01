@@ -220,14 +220,10 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
 # point with no relationship to line boundaries. A literal marker string
 # (e.g. "streamed") that happens to straddle that cut is invisible to BOTH
 # the window that ends mid-string and the window that starts mid-string, so
-# that single progress line is silently dropped. Reproduced locally.
-# Delegate the byte-exact "only consume complete lines" lookup to python
-# (already a proven dependency of this script -- see the DEPLOYMENT_ID
-# uuid4 generation above); falls back to the previous exact-cutoff behavior
-# if python is unavailable (same availability-check pattern as that
-# generation).
-_PYTHON_AVAILABLE=0
-command -v "$PYTHON_BIN" >/dev/null 2>&1 && _PYTHON_AVAILABLE=1
+# that single progress line is silently dropped. Reproduced locally. Fixed
+# purely with coreutils (tr/wc/head), matching this file's existing
+# capture-then-grep pattern (no live pipe feeding an `if`) rather than
+# adding a new python dependency to the hot path.
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
 # ever writing the STALL: breadcrumb. Any intermediate command returning
@@ -303,46 +299,37 @@ command -v "$PYTHON_BIN" >/dev/null 2>&1 && _PYTHON_AVAILABLE=1
                 # invisible to BOTH the window that ends mid-string and the one
                 # that starts mid-string, silently dropping that single line.
                 #
-                # Both are closed by doing the whole scan inside one python
-                # call (already a proven dependency — see DEPLOYMENT_ID uuid4
-                # generation above): it reads the window directly via
-                # file.seek()/read() with NO bash pipe at all (so a #1-class
-                # SIGPIPE misreport is structurally impossible, not just
-                # avoided-by-convention), and only "consumes" (advances
+                # Both are closed together: only "consume" (advance
                 # last_progress_size past) whichever bytes fall before the
-                # LAST complete newline in that window (closing #2) — any
-                # trailing partial line is left unconsumed so it gets
+                # LAST complete newline in this tick's window (closing #2) --
+                # any trailing partial line is left unconsumed so it gets
                 # rescanned WHOLE, together with whatever's appended next, on
-                # the following tick. Falls back to the previous exact-cutoff
-                # scan (the #1-vulnerable live pipe) only if python is
-                # unavailable on this image.
-                if [[ "$_PYTHON_AVAILABLE" == "1" ]]; then
-                    read -r _consumable _hit < <("$PYTHON_BIN" -c '
-import re, sys
-path, start, end, pattern = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
-with open(path, "rb") as f:
-    f.seek(start)
-    chunk = f.read(end - start)
-last_nl = chunk.rfind(b"\n")
-if last_nl == -1:
-    print(0, 0)
-else:
-    complete = chunk[: last_nl + 1]
-    print(last_nl + 1, 1 if re.search(pattern.encode(), complete) else 0)
-' "$LOCAL_LOG" "$last_progress_size" "$cur_size" "$STALL_PROGRESS_REGEX" 2>/dev/null)
-                    _consumable="${_consumable:-0}"
-                    _hit="${_hit:-0}"
-                    if [[ "$_consumable" -gt 0 ]]; then
-                        [[ "$_hit" == "1" ]] && made_progress=1
-                        last_progress_size=$((last_progress_size + _consumable))
-                    fi
-                else
-                    _progress_chunk="$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null)"
+                # the following tick -- and the actual match check captures
+                # into a variable first, same as the #1 fix above, so there is
+                # no live pipe feeding the `if` (closing #1, structurally, for
+                # this narrower window too). `head -c`/`head -n` are readers
+                # here, not gating an `if` on their own exit status, so an
+                # early-close SIGPIPE upstream (e.g. `head -n` closing before
+                # `head -c` finishes) cannot corrupt what they already read --
+                # same principle as #1's fix, just extended one hop further.
+                _new_len=$((cur_size - last_progress_size))
+                _nl_count=$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                    | head -c "$_new_len" | tr -cd '\n' | wc -c)
+                _nl_count=${_nl_count:-0}
+                if [[ "$_nl_count" -gt 0 ]]; then
+                    _consumable=$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                        | head -c "$_new_len" | head -n "$_nl_count" | wc -c)
+                    _consumable=${_consumable:-0}
+                    _progress_chunk="$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                        | head -c "$_new_len" | head -n "$_nl_count")"
                     if grep -qE "$STALL_PROGRESS_REGEX" <<< "$_progress_chunk"; then
                         made_progress=1
                     fi
-                    last_progress_size=$cur_size
+                    last_progress_size=$((last_progress_size + _consumable))
                 fi
+                # else: the newly appended bytes don't contain a complete line
+                # yet -- leave last_progress_size untouched; next tick
+                # re-reads them whole together with whatever's appended by then.
             fi
             echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress last_progress_size=$last_progress_size ts=$now" >> "$WATCHDOG_HEARTBEAT"
             gsutil -q cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" 2>/dev/null || true
