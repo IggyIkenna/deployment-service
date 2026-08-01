@@ -1137,19 +1137,52 @@ _script_for() {
         # DeFi R3 per-instrument split, SINGLE date-range scope — one VM per QUARTER for a parallel fan-out
         # (wall-time = the slowest quarter, not the sum). Same migrate_defi_batch_to_per_instrument tool as
         # defi-per-instrument, but scoped to the positional <start-date>..<end-date> for ONE quarter with NO
-        # internal year-loop and NO chained rebuild — rebuild_defi_manifest is run ONCE over the whole corpus
-        # after every quarter-VM reaches terminal. Disjoint quarters ⇒ disjoint day partitions ⇒ no leaf /
-        # _needs_attribution write races, safe to parallelize. Idempotent (done cells' sources are already
-        # _migrated_*, invisible to the walk → fast skip). DRY-BY-DEFAULT + --apply appended by the flag block
-        # below (a single-command category, exactly like defi/tradfi). Distinct VM names via VM_NAME_SUFFIX.
+        # chained rebuild — rebuild_defi_manifest is run ONCE over the whole corpus after every quarter-VM
+        # reaches terminal. Disjoint quarters ⇒ disjoint day partitions ⇒ no leaf / _needs_attribution write
+        # races, safe to parallelize. Idempotent (done cells' sources are already _migrated_*, invisible to
+        # the walk → fast skip). Distinct VM names via VM_NAME_SUFFIX.
+        # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md P3
+        # "defi-pi-range/defi-rebuild PROGRESS.json gap"): unlike defi-per-instrument's per-year loop, this
+        # category was a SINGLE invocation over the whole quarter with no chunk boundary, so a preemption
+        # relaunch replayed the whole quarter from $START_DATE. Precompute N-day sub-windows of
+        # [$START_DATE, $END_DATE] HERE, at launch time on this (Linux) host — not inside the remote command
+        # string — and bake them as a literal "start:end" pair list into a for-loop, mirroring
+        # defi-per-instrument's literal ${y} year list (option (a) from the todo: "wrap the single
+        # invocation in an artificial N-way date-sub-chunk loop"). Emits the generic
+        # vm-exec-with-gcs-tee.sh [[VM_PROGRESS]] marker after each successful window, full-mode only (a
+        # dry-run preview writes nothing real, so its "progress" must not seed a checkpoint a later --apply
+        # run would trust). Flag-append + MIGRATION_EXTRA_ARGS are SUPPRESSED for this category below (same
+        # reasoning as defi-per-instrument: a --apply/EXTRA_ARGS append to a compound `for … done; exit …`
+        # string is a syntax error) — --apply is baked into the loop body itself instead. Window size
+        # overridable via MIGRATION_PI_RANGE_CHUNK_DAYS (default 30 — a quarter is ~90 days, so this yields
+        # ~3 resumable sub-chunks per VM by default).
         defi-pi-range)
-            echo "python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE --workers ${WORKERS:-16}" ;;
+            local _apply=""; [[ "$MODE" == "full" ]] && _apply=" --apply"
+            local _bkt="market-data-tick-defi-prd-central-element-323112"
+            local _chunk_days="${MIGRATION_PI_RANGE_CHUNK_DAYS:-30}"
+            local _windows="" _cur="$START_DATE" _chunk_end
+            while [[ "$(date -u -d "$_cur" +%s)" -le "$(date -u -d "$END_DATE" +%s)" ]]; do
+                _chunk_end="$(date -u -d "$_cur + $((_chunk_days - 1)) days" +%Y-%m-%d)"
+                [[ "$(date -u -d "$_chunk_end" +%s)" -gt "$(date -u -d "$END_DATE" +%s)" ]] && _chunk_end="$END_DATE"
+                _windows="${_windows}${_cur}:${_chunk_end} "
+                _cur="$(date -u -d "$_chunk_end + 1 day" +%Y-%m-%d)"
+            done
+            local _progress_emit=""
+            [[ "$MODE" == "full" ]] && _progress_emit="echo \\[\\[VM_PROGRESS\\]\\] last_completed_date=\${w_end} monotonic=true; "
+            printf '%s' "rc_all=0; for w in ${_windows}; do w_start=\${w%%:*}; w_end=\${w#*:}; echo \"=== PI-RANGE CHUNK \${w_start}..\${w_end} START ts=\$(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"; python -u -m market_tick_data_service.scripts.migrate_defi_batch_to_per_instrument --bucket ${_bkt} --start-date \${w_start} --end-date \${w_end} --workers ${WORKERS:-16}${_apply}; rc=\$?; echo \"=== PI-RANGE CHUNK \${w_start}..\${w_end} DONE rc=\${rc} ===\"; if [ \"\${rc}\" -eq 0 ]; then ${_progress_emit}:; else rc_all=1; fi; done; echo \"=== PI-RANGE ALL-CHUNKS COMPLETE rc_all=\${rc_all} ===\"; exit \${rc_all}" ;;
         # DeFi manifest rebuild ONLY (rebuild_defi_manifest) over the whole corpus — the post-migration step
         # run ONCE after every per-quarter migrate VM is terminal. Re-derives per-instrument instrument_id=stem
         # from the actual leaves. Write-by-default (falls to the else branch → dry appends --dry-run, full
         # writes). START_DATE/END_DATE positional args scope the rebuild (pass the whole corpus range).
+        # --chunk-days (infra_satellite_ao_dispatch_batch1_2026_07_26.md P3 "defi-pi-range/defi-rebuild
+        # PROGRESS.json gap"): the tool's own --chunk-days flushes + emits a [[VM_PROGRESS]] marker after
+        # each sub-window (rebuild_defi_manifest.py's _run_chunked), so a preemption relaunch resumes from
+        # the last completed chunk instead of replaying the whole corpus range. Overridable via
+        # REBUILD_CHUNK_DAYS; 90 (one quarter) balances resume-granularity against per-chunk GCS-scan
+        # overhead. 0/unset would be the tool's own unchunked back-compat default -- deliberately not used
+        # here since that reintroduces exactly the gap this todo closes.
         defi-rebuild)
-            echo "python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE" ;;
+            echo "python -u -m market_tick_data_service.scripts.rebuild_defi_manifest --bucket market-data-tick-defi-prd-central-element-323112 --start-date $START_DATE --end-date $END_DATE --chunk-days ${REBUILD_CHUNK_DAYS:-90}" ;;
         # DeFi Solana dex_pools fake-history relabel-forward migration (2026-07-23) --
         # scripts/relabel_solana_dex_pools_fake_history.py, per
         # defi_solana_dex_pools_fake_history_recurrence_prd_bucket_2026_07_23.md todo 3. Population is
@@ -1479,26 +1512,28 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
               # error, so BOTH the flag-append and MIGRATION_EXTRA_ARGS below are deliberately suppressed.
-              # sports-features-purge's own if/full else/dry branches are the SAME class of compound
-              # statement (ends in `exit ${rc}` on the full branch) -- same suppression reasoning.
-              # sports-k1k2-casing-revert's full-mode 3-step chain is the SAME class again (ends in
-              # `exit ${rc}`) -- same suppression reasoning. sports-k1k2-uppercase-delete bakes
-              # --apply-prod --confirm-prod-write directly into the full-mode command itself (a
-              # single statement, not a compound chain) -- suppressed anyway so the generic
-              # --apply/--dry-run append never double-flags it.
-        elif [[ "$cat" == "defi" || "$cat" == "defi-pi-range" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
+              # defi-pi-range's own N-day sub-window for-loop (infra_satellite_ao_dispatch_batch1_2026_07_26.md
+              # P3) is the SAME class of compound statement -- same suppression reasoning, --apply baked
+              # into the loop body by _script_for instead. sports-features-purge's own if/full else/dry
+              # branches are the SAME class of compound statement (ends in `exit ${rc}` on the full branch)
+              # -- same suppression reasoning. sports-k1k2-casing-revert's full-mode 3-step chain is the
+              # SAME class again (ends in `exit ${rc}`) -- same suppression reasoning.
+              # sports-k1k2-uppercase-delete bakes --apply-prod --confirm-prod-write directly into the
+              # full-mode command itself (a single statement, not a compound chain) -- suppressed anyway so
+              # the generic --apply/--dry-run append never double-flags it.
+        elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
             [[ "$MODE" == "dry" ]] && cmd="$cmd --dry-run"
         fi
         # MIGRATION_EXTRA_ARGS forwards extra flags to the migration tool — for the defi v9 discover→shard
         # flow: `--phase discover` (once per bucket) then N× `--phase migrate --buckets <one>` date-shards.
-        [[ "$cat" != "defi-per-instrument" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
+        [[ "$cat" != "defi-per-instrument" && "$cat" != "defi-pi-range" && -n "${MIGRATION_EXTRA_ARGS:-}" ]] && cmd="$cmd ${MIGRATION_EXTRA_ARGS}"
     fi
 
     echo "Launching $vm_name — $cmd"
