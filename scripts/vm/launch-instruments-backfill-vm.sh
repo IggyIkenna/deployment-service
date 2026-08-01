@@ -26,6 +26,9 @@
 #   bash launch-instruments-backfill-vm.sh --asset-group CEFI --venues BINANCE-FUTURES \
 #       --start 2026-07-01 --end 2026-07-01 --vm-name instr-backfill-cefi-pipelinecheck-1 \
 #       --test-run                                                             # Scoped single-shard smoke check (test bucket)
+#   bash launch-instruments-backfill-vm.sh --asset-group SPORTS --sports-provider API_FOOTBALL \
+#       --start 2025-12-20 --end 2025-12-20 --vm-name instr-backfill-sports-pipelinecheck-1 \
+#       --test-run                       # SPORTS provider-routed venue (--venues is for BETFAIR only)
 #
 # NOTE: instruments-service has no `--data-types` CLI flag — do not add one here.
 set -euo pipefail
@@ -44,6 +47,14 @@ START_OVERRIDE=""
 END_OVERRIDE=""
 CHUNK_DAYS="${CHUNK_DAYS:-250}"
 VENUES=""
+# SPORTS provider-routed venues (API_FOOTBALL/OPEN_METEO/TRANSFERMARKT/
+# SOCCER_FOOTBALL_INFO/UNDERSTAT/FOOTYSTATS) go through --sports-provider, not
+# --venues — the real instruments-service CLI does not recognise them as a
+# --venues value. setup-data-pipeline-vm.sh already reads VM_SPORTS_PROVIDER
+# and threads it to --sports-provider; this launcher was the missing half
+# (closes the gap pipeline_e2e_check.py's module docstring calls out as
+# "known infra gaps... NOT fixable from this file").
+SPORTS_PROVIDER=""
 VM_NAME_OVERRIDE=""
 # Guards against a name collision: some asset groups (CEFI) have >1 predefined
 # VM slot in the VMS array below, all matching the same --asset-group filter.
@@ -71,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --chunk-days)  CHUNK_DAYS="$2"; shift 2 ;;
     --on-demand)   ON_DEMAND=true; shift ;;
     --venues)      VENUES="$2"; shift 2 ;;
+    --sports-provider) SPORTS_PROVIDER="$2"; shift 2 ;;
     --vm-name)     VM_NAME_OVERRIDE="$2"; shift 2 ;;
     --test-run)    TEST_RUN=true; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
@@ -84,9 +96,9 @@ if [[ -n "${START_OVERRIDE}" || -n "${END_OVERRIDE}" ]]; then
   fi
 fi
 
-if [[ -n "${VENUES}" || -n "${VM_NAME_OVERRIDE}" ]]; then
+if [[ -n "${VENUES}" || -n "${SPORTS_PROVIDER}" || -n "${VM_NAME_OVERRIDE}" ]]; then
   if [[ -z "${ASSET_GROUP_FILTER}" ]]; then
-    echo "ERROR: --venues/--vm-name requires --asset-group to scope the override." >&2
+    echo "ERROR: --venues/--sports-provider/--vm-name requires --asset-group to scope the override." >&2
     exit 1
   fi
 fi
@@ -114,6 +126,7 @@ echo "  Force:    ${FORCE}"
 echo "  Chunk:    ${CHUNK_DAYS} days"
 echo "  Env:      ${DEPLOYMENT_ENV}"
 echo "  Venues:   ${VENUES:-all}"
+echo "  SportsProvider: ${SPORTS_PROVIDER:-<none>}"
 echo "  VM name:  ${VM_NAME_OVERRIDE:-<default>}"
 echo "  TestRun:  ${TEST_RUN}"
 echo "  Tarball:  gs://${CODE_BUCKET}/code/instruments-service-code.tar.gz"
@@ -157,6 +170,7 @@ launch_vm() {
     echo "  [DRY RUN] Would create VM: ${VM_NAME}"
     echo "  VM_TASK=instruments-backfill  VM_ASSET_GROUP=${ASSET_GROUP}"
     [[ -n "${VENUES}" ]] && echo "  VM_VENUE=${VENUES}"
+    [[ -n "${SPORTS_PROVIDER}" ]] && echo "  VM_SPORTS_PROVIDER=${SPORTS_PROVIDER}"
     $TEST_RUN && echo "  IS_TEST_RUN=true"
     return 0
   fi
@@ -174,6 +188,7 @@ launch_vm() {
   METADATA="${METADATA},VM_START_DATE=${START_DATE}"
   METADATA="${METADATA},VM_END_DATE=${END_DATE}"
   [[ -n "${VENUES}" ]] && METADATA="${METADATA},VM_VENUE=${VENUES}"
+  [[ -n "${SPORTS_PROVIDER}" ]] && METADATA="${METADATA},VM_SPORTS_PROVIDER=${SPORTS_PROVIDER}"
   $FORCE && METADATA="${METADATA},VM_FORCE=true"
   $TEST_RUN && METADATA="${METADATA},IS_TEST_RUN=true,MANIFEST_ALLOW_STALE_FALLBACK=true"
 
