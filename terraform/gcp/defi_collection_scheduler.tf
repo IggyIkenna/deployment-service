@@ -56,7 +56,7 @@
 #   00:45 collect-lending-indices    Aave/Compound RPC + Subgraph
 #   01:00 collect-lst-rates          Lido / RocketPool / Mantle RPC
 #   01:10 collect-vault-share-price  ERC-4626 convertToAssets (Yearn/Ethena/Maker/Frax/Morpho)
-#   01:15 collect-perp-funding       Hyperliquid / dYdX / GMX REST
+#   01:15 collect-perp-funding       Hyperliquid / Kalshi-Perp / Polymarket-Perp REST
 #   01:30 collect-liquidations       Aave subgraph
 #   01:45 collect-eigenlayer-rewards EigenLayer RPC
 #   01:50 collect-staking-yields     Lido / EtherFi / EigenLayer public REST APIs
@@ -147,7 +147,7 @@ locals {
       cpu         = "1"
       memory      = "2Gi"
       timeout     = 1500
-      description = "DeFi collect-perp-funding — Hyperliquid + dYdX + GMX perpetual funding rates."
+      description = "DeFi collect-perp-funding — Hyperliquid + Kalshi-Perp + Polymarket-Perp perpetual funding rates (dYdX never implemented; GMX removed 2026-07-25 — see perp_funding_handler.py docstring)."
     }
     "liquidations" = {
       schedule    = "30 1 * * *"
