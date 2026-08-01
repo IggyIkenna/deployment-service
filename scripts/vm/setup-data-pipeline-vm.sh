@@ -2423,7 +2423,45 @@ elif [ -n "$VM_TASK" ]; then
     chmod +x "$_FANOUT_SCRIPT"
     _launch_with_tee "bash $_FANOUT_SCRIPT" "$_LAUNCH_LOG"
   else
-    _launch_with_tee "$VENV/bin/python -m $VM_SERVICE $CLI_ARGS" "$_LAUNCH_LOG"
+    # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
+    # "Close the mtds-dex-swaps-backfill/af-backfill PROGRESS.json gap"). This generic
+    # single-shot branch (no chunk loop) is what VM_TASK=defi-backfill
+    # (launch-mtds-dex-swaps-backfill-vm.sh, among others sharing that VM_TASK label) and
+    # VM_TASK=sports-backfill (launch-api-football-backfill-vm.sh's af-backfill path,
+    # among others) route through, so a preempt-then-relaunch of either replays
+    # VM_START_DATE from genesis even after a run that fully completed. Emitting a
+    # per-chunk marker here would need a NEW chunk loop scoped to just these two
+    # launchers' exact metadata combo (VM_TASK is a copy-paste constant shared by ~10-18
+    # UNRELATED launchers each — see the mtds-backfill/cefi-coverage-backfill branches'
+    # own comments on this same pattern), a much wider-blast-radius change than this P3
+    # warrants. Minimal alternative instead: emit ONE end-of-run marker, keyed off
+    # VM_END_DATE, gated on the whole range having completed successfully (rc=0) — weaker
+    # than per-chunk (a mid-range preemption still replays from genesis) but closes the
+    # "replays from genesis after a run that fully finished" case, and applies safely to
+    # EVERY launcher sharing this generic fallback (additive-only; a no-op for anything
+    # that never sets VM_END_DATE, e.g. live/websocket tasks).
+    #
+    # RELIABILITY NOTE (found while implementing this): vm-exec-with-gcs-tee.sh's
+    # PROGRESS.json watchdog only scans for `[[VM_PROGRESS]]` markers on an iteration
+    # where `kill -0 "$CMD_PID"` still finds the process ALIVE after its 60s
+    # STALL_POLL_SEC sleep — `while kill -0 "$CMD_PID"; do sleep "$STALL_POLL_SEC"; kill
+    # -0 "$CMD_PID" || break; ...scan...; done`. A process that writes its marker and then
+    # exits within that same ~60s window dies DURING the sleep, so the post-sleep check
+    # finds it dead and `break`s WITHOUT scanning — the marker is silently never captured.
+    # The existing chunked loops (mtds-backfill etc.) are largely insulated from this
+    # (an earlier chunk's marker already landed even if the FINAL chunk's is lost to the
+    # race), but a single end-of-run-only marker has no earlier marker to fall back on, so
+    # this race would make it capture close to never. Fix: after echoing the marker, sleep
+    # 75s (STALL_POLL_SEC's documented 60s default + margin) before the wrapped command
+    # actually exits — guarantees at least one watchdog poll finds the process still alive
+    # and scans the marker before a LATER poll observes it has ended. Verified by
+    # simulation (a scaled-down poll loop against a real log file — no VM launched): the
+    # marker is captured with this delay in place, and is NOT captured without it.
+    _GENERIC_CMD="$VENV/bin/python -m $VM_SERVICE $CLI_ARGS"
+    if [[ -n "$VM_END_DATE" ]]; then
+      _GENERIC_CMD="$_GENERIC_CMD; _GENERIC_RC=\$?; if [[ \$_GENERIC_RC -eq 0 ]]; then echo \"[[VM_PROGRESS]] last_completed_date=$VM_END_DATE monotonic=true\"; sleep 75; fi; exit \$_GENERIC_RC"
+    fi
+    _launch_with_tee "$_GENERIC_CMD" "$_LAUNCH_LOG"
   fi
 else
   log "No VM_TASK metadata — setup complete, ready for manual launch"

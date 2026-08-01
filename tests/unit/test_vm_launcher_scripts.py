@@ -2806,6 +2806,72 @@ class TestChunkedBranchesScopeVmNamePerChunk:
         assert 'VM_NAME="\\${VM_NAME}-c\\${CHUNK_NUM}"' in preceding
 
 
+class TestGenericFallbackEndOfRunProgressMarker:
+    """infra_satellite_ao_dispatch_batch1_2026_07_26.md — "Close the
+    mtds-dex-swaps-backfill/af-backfill PROGRESS.json gap." Both VM_TASK=defi-backfill
+    (launch-mtds-dex-swaps-backfill-vm.sh, among other DeFi launchers sharing that
+    copy-paste label) and VM_TASK=sports-backfill (launch-api-football-backfill-vm.sh's
+    af-backfill path, among other sports launchers) route through the generic
+    single-shot `elif [ -n "$VM_TASK" ]` fallback in setup-data-pipeline-vm.sh — no chunk
+    loop exists there, so a SPOT preemption after a run that fully completed still
+    replays VM_START_DATE from genesis on relaunch. Fix: emit ONE end-of-run
+    `[[VM_PROGRESS]]` marker (keyed off VM_END_DATE, gated on rc=0) from the non-fanout
+    dispatch, followed by a reliability delay before the wrapped process exits — without
+    it, vm-exec-with-gcs-tee.sh's watchdog can drop a single end-of-run marker entirely
+    (a `kill -0`-during-sleep race; the process dies mid-poll-sleep and the post-sleep
+    check `break`s without scanning). Verified separately by simulation (a scaled-down
+    replica of the real watchdog poll loop against a real log file, no VM launched) — not
+    re-proven here; these tests only guard the shipped script's structure. Reads the REAL
+    generated script text (not a hand-copied excerpt).
+    """
+
+    @staticmethod
+    def _script_text() -> str:
+        script = Path(__file__).parent.parent.parent / "scripts" / "vm" / "setup-data-pipeline-vm.sh"
+        assert script.exists(), "fixture assumes setup-data-pipeline-vm.sh exists in scripts/vm/"
+        return script.read_text()
+
+    @classmethod
+    def _generic_fallback_body(cls, content: str) -> str:
+        start = content.index('elif [ -n "$VM_TASK" ]; then')
+        end = content.index('log "No VM_TASK metadata', start)
+        return content[start:end]
+
+    def test_marker_emitted_gated_on_vm_end_date_and_success(self) -> None:
+        body = self._generic_fallback_body(self._script_text())
+        assert '[[ -n "$VM_END_DATE" ]]' in body
+        assert "[[VM_PROGRESS]] last_completed_date=$VM_END_DATE monotonic=true" in body
+        assert "_GENERIC_RC -eq 0" in body
+
+    def test_marker_followed_by_reliability_delay_before_exit(self) -> None:
+        body = self._generic_fallback_body(self._script_text())
+        marker_idx = body.index("[[VM_PROGRESS]] last_completed_date=$VM_END_DATE")
+        tail = body[marker_idx : marker_idx + 100]
+        assert "sleep 75" in tail, (
+            "the marker echo must be followed by a delay exceeding vm-exec-with-gcs-tee.sh's "
+            "60s STALL_POLL_SEC default — without it the watchdog's kill-0-during-sleep race "
+            "can drop a single end-of-run marker entirely"
+        )
+        assert "exit \\$_GENERIC_RC" in tail
+        assert tail.index("sleep 75") < tail.index("exit \\$_GENERIC_RC"), (
+            "the reliability delay must run BEFORE the wrapped process exits, else the "
+            "watchdog never gets the extra poll cycle it needs to observe the marker"
+        )
+
+    def test_marker_not_applied_to_fanout_path(self) -> None:
+        """Fanout is gated to market_tick_data_service download/batch cefi-style launches
+        only — neither of the two named launchers ever fans out (mtds-dex-swaps-backfill
+        sets VM_OPERATION=collect-dex-swaps, not download; af-backfill sets
+        VM_SERVICE=instruments_service) — scoping the marker fix to the non-fanout
+        dispatch keeps the fanout supervisor script (a distinct multi-worker aggregate-rc
+        script) untouched."""
+        content = self._script_text()
+        fanout_start = content.index('if [[ "$_FANOUT" == "1" ]]; then')
+        fanout_end = content.index('_launch_with_tee "bash $_FANOUT_SCRIPT"', fanout_start)
+        fanout_body = content[fanout_start:fanout_end]
+        assert "[[VM_PROGRESS]]" not in fanout_body
+
+
 class TestTradfiOhlcvStallTimeoutHeadroom:
     """tradfi_es_cme_ohlcv_zero_capture_2026_07_30.md — root-caused live: 3 of 7 re-launched
     tradfi-bf-cme-ohlcv-1m-es-* VMs were killed as WORKER_STALLED before ever attempting a real
