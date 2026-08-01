@@ -76,6 +76,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=cme-expiry-calendars.sh
 source "${SCRIPT_DIR}/cme-expiry-calendars.sh"
+# shellcheck source=lib/launcher_common.sh
+source "${SCRIPT_DIR}/lib/launcher_common.sh"
 
 # ── Defaults + arg parsing ──
 FORCE=false
@@ -254,6 +256,7 @@ _create_vm() {
         # shellcheck disable=SC2086
         gcloud compute instances create "$vm_name_safe" \
             --project="$PROJECT" \
+            --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
             --zone="$ZONE" \
             --machine-type="$MACHINE_TYPE" \
             ${PROVISIONING_FLAGS} \
