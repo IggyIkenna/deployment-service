@@ -501,8 +501,15 @@ class RelaunchPreemptedVm:
         - launcher subprocess raises, or returns non-zero (incl. the launcher's
           OWN ``tardis_concurrency_guard`` refusing the cap) → ``status=FAILED``
           + CRITICAL.
-        - else → ``status=SUCCEEDED`` — a quiet INFO ``DP_VM_PREEMPTED_RECOVERED``
-          resolved-bookend (the routine, benign case; SPOT reclaim is expected).
+        - else → ``status=SUCCEEDED``, ``DP_VM_PREEMPTED_RECOVERED`` — INFO when the
+          relaunch RESUMED from a monotonic checkpoint (``checkpoint_resumed: true``
+          in details), WARN when it had no usable checkpoint to resume from and
+          instead replayed the captured ``launch_env`` verbatim
+          (``checkpoint_resumed: false`` — relies entirely on the launcher's own
+          presence-skip, never independently confirmed here). A non-erroring
+          launcher subprocess exit looks identical to the actuator either way, so
+          this is the one signal that distinguishes "resumed correctly" from
+          "wastefully replayed" — see `vm_billing_waste_first_audit_and_preflight_gate_design_2026_07_24.md`.
         """
         prefix = vm_prefix(vm_name)
         base: dict[str, str | bool | int | None] = {
@@ -739,9 +746,18 @@ class RelaunchPreemptedVm:
                 "stderr": (result.stderr or "")[-500:],
             }
 
+        # Distinguish "resumed correctly" from "wastefully replayed" — a rc=0
+        # launcher subprocess looks identical to the actuator either way, so
+        # `checkpoint_resumed` (derived from the SAME `resume_date` gate above) is
+        # the one signal an operator has. `force` with no checkpoint already PAGEd
+        # above (never reaches here), so `not checkpoint_resumed` here always means
+        # a normal run replayed verbatim on nothing but the launcher's own
+        # presence-skip — worth flagging, not worth paging (2026-08-01,
+        # `infra_satellite_ao_dispatch_batch1_2026_07_26.md`).
+        checkpoint_resumed = bool(resume_date)
         log_event(
             _EVENT_VM_PREEMPTED_RECOVERED,
-            severity="INFO",
+            severity="INFO" if checkpoint_resumed else "WARN",
             details={
                 **base,
                 "recovery_action": "relaunch_preempted_vm",
@@ -749,6 +765,14 @@ class RelaunchPreemptedVm:
                 "launcher": launcher,
                 "relaunches_today": count_today + 1,
                 "max_per_day": self._max_per_day,
+                "checkpoint_resumed": checkpoint_resumed,
+                "detail": (
+                    "resumed from the monotonic PROGRESS checkpoint frontier"
+                    if checkpoint_resumed
+                    else "no usable checkpoint — replayed the captured launch_env verbatim, relying "
+                    "entirely on the launcher's own presence-skip to avoid redoing already-captured "
+                    "work (not independently confirmed here)"
+                ),
             },
         )
         return {
