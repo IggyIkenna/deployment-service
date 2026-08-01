@@ -773,8 +773,8 @@ def is_vm_preempted(
 # ── no-capture-reason classification (DP-VM-002 false-positive killer) ────────
 #
 # A terminated VM with a FLAT consolidated/per-VM captured count is NOT
-# necessarily a silent failure. The run.log distinguishes three benign cases
-# from a genuine silent-zero (the 2026-06-23 false-positive flood diagnosis):
+# necessarily a silent failure. The run.log distinguishes four benign/explained
+# cases from a genuine silent-zero (the 2026-06-23 false-positive flood diagnosis):
 #
 #   (a) PROGRESS    — the run actually WROTE rows ("Wrote N rows …" / record_captured /
 #       "captured" climbing). The consolidated count can lag the writer's own
@@ -786,15 +786,29 @@ def is_vm_preempted(
 #   (c) RATE_LIMITED — an API-Football / HTTP-429 throttle wrote a partial result
 #       (exit 0 but "Too many requests" / "HTTP 429" / DP_SOURCE_RATE_LIMITED).
 #       This is real-transient → backoff-retry, NOT a silent-zero.
+#   (d) CONSOLIDATOR_BLOCKED — every payload's preflight guard raised
+#       ``ManifestConsolidatorStaleError`` (``assert_consolidator_healthy``,
+#       DP-MANIFEST-001) because the bucket's consolidated index is stale/DOWN
+#       (e.g. a Cloud Scheduler consolidator cron intentionally paused under a
+#       registered maintenance window — ``scheduler_maintenance.pause_for_maintenance``
+#       — for an in-flight backfill/migration plan). The VM structurally could not
+#       ATTEMPT a real fetch on any date; this is explained by the consolidator's
+#       own state, not an adapter/auth/0-universe bug (found live 2026-08-01,
+#       ``tradfi-bf-cme-ohlcv-1m-g01-gc-gc-2026-20260801-121314`` — every one of its
+#       31 chunks hit this exact error, escalation agt-408ff4, DP-VM-002 paged with
+#       the misleading "auth fail / 0-universe / unexpected empty" framing when the
+#       run.log's first 30 lines already named the real cause).
 #
-# Anything else (no progress + no honest-absence + no rate-limit signal) is a
-# GENUINE silent zero (auth fail / 0-universe / unexpected empty) → still alerts.
+# Anything else (no progress + no honest-absence + no rate-limit + no
+# consolidator-block signal) is a GENUINE silent zero (auth fail / 0-universe /
+# unexpected empty) → still alerts.
 class NoCaptureReason(StrEnum):
     """Why a terminated VM's captured count stayed flat (run.log-derived)."""
 
     PROGRESS = "progress"  # run.log shows rows were written → benign (consolidated lag)
     HONEST_ABSENCE = "honest_absence"  # source legitimately empty / already-complete → benign
     RATE_LIMITED = "rate_limited"  # HTTP-429 / API-Football throttle → backoff-retry, not silent
+    CONSOLIDATOR_BLOCKED = "consolidator_blocked"  # ManifestConsolidatorStaleError → DP-MANIFEST-001, not silent
     SILENT = "silent"  # no benign signal → genuine silent-zero → ALERT
 
 
@@ -866,6 +880,18 @@ _RATE_LIMIT_RE = re.compile(
     r"|quota exceeded|throttl(ed|ing)\b",
     re.IGNORECASE,
 )
+# The manifest-consolidator preflight guard (``assert_consolidator_healthy``,
+# DP-MANIFEST-001) refused every payload because the bucket's consolidated
+# index is stale/DOWN — a structural block on ATTEMPTING any real fetch, not an
+# adapter/auth/0-universe bug. Matches the exact exception class + its wrapping
+# log lines (``market_tick_data_service`` preflight guard and its
+# ``unified_trading_library.manifest_writer._state`` raise site).
+_CONSOLIDATOR_BLOCKED_RE = re.compile(
+    r"ManifestConsolidatorStaleError"
+    r"|Manifest consolidator appears DOWN"
+    r"|manifest consolidator is behind or DOWN",
+    re.IGNORECASE,
+)
 
 
 def classify_no_capture_reason(log: str | None) -> NoCaptureReason:
@@ -875,6 +901,9 @@ def classify_no_capture_reason(log: str | None) -> NoCaptureReason:
       RATE_LIMITED  — a throttle wrote partial (backoff-retry, not silent) wins, so a
                       rate-limited run is never mistaken for benign honest-absence.
       PROGRESS      — rows were written (consolidated count merely lags).
+      CONSOLIDATOR_BLOCKED — the manifest-consolidator preflight guard blocked every
+                      payload (structural, not a bug — but not benign-complete
+                      either, so checked before HONEST_ABSENCE).
       HONEST_ABSENCE — source legitimately empty / shard already complete.
       SILENT        — none of the above → genuine silent-zero → the caller ALERTS.
 
@@ -887,6 +916,8 @@ def classify_no_capture_reason(log: str | None) -> NoCaptureReason:
         return NoCaptureReason.RATE_LIMITED
     if _PROGRESS_RE.search(log):
         return NoCaptureReason.PROGRESS
+    if _CONSOLIDATOR_BLOCKED_RE.search(log):
+        return NoCaptureReason.CONSOLIDATOR_BLOCKED
     if _HONEST_ABSENCE_RE.search(log):
         return NoCaptureReason.HONEST_ABSENCE
     return NoCaptureReason.SILENT

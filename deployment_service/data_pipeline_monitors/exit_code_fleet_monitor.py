@@ -60,6 +60,7 @@ GCS/compute I/O is injected so the sweep is credential-free + block-network safe
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from collections.abc import Callable, Iterable
@@ -68,14 +69,15 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import cast
 
-from unified_trading_library import StorageClient
+from unified_trading_library import MaintenanceWindow, StorageClient
 from unified_trading_library.events import (  # noqa: qg-deep-import
+    CONSOLIDATOR_DOWN,
     DP_SOURCE_RATE_LIMITED,
     DP_VM_EXIT_NONZERO,
     DP_VM_GONE_NO_CAPTURE,
 )
 
-from deployment_service.data_pipeline_monitors import _gcs
+from deployment_service.data_pipeline_monitors import _gcs, meta_targets, scheduler_maintenance
 from deployment_service.data_pipeline_monitors._gcs import NoCaptureReason
 from deployment_service.data_pipeline_monitors.escalation import (
     EscalationTier,
@@ -95,6 +97,7 @@ class TerminationVerdict(StrEnum):
     EXIT_NONZERO = "exit_nonzero"  # DP-VM-001
     GONE_NO_CAPTURE = "gone_no_capture"  # DP-VM-002 — genuine silent zero → ALERT
     RATE_LIMITED = "rate_limited"  # flat captured but run.log shows a 429/throttle → backoff-retry
+    CONSOLIDATOR_BLOCKED = "consolidator_blocked"  # flat captured but run.log shows ManifestConsolidatorStaleError (DP-MANIFEST-001) — structural block, not a bug
     EXPECTED_NO_CAPTURE = "expected_no_capture"  # flat captured but benign (honest-absence / shard already complete / rows written but consolidated lags) → NO alert
     CLEAN = (
         "clean"  # exit 0 + captured climbed → healthy completion (CONFIRMED — a durable terminal marker was observed)
@@ -170,6 +173,11 @@ def classify_terminated_vm(
             (a 429/throttle wrote partial → backoff-retry tier, NOT a silent zero)
           * ``no_capture_reason == PROGRESS``         → EXPECTED_NO_CAPTURE
             (the writer's own shard wrote rows; the CONSOLIDATED count merely lags)
+          * ``no_capture_reason == CONSOLIDATOR_BLOCKED`` → CONSOLIDATOR_BLOCKED
+            (every payload's preflight guard raised ``ManifestConsolidatorStaleError``
+            — DP-MANIFEST-001 — a structural block on attempting any fetch, NOT an
+            adapter/auth/0-universe bug; the finding builder checks for a live
+            maintenance window before deciding severity)
           * ``no_capture_reason == HONEST_ABSENCE``   → EXPECTED_NO_CAPTURE
             (source legitimately empty / shard already complete / off-season)
           * ``no_capture_reason == SILENT`` (default) → GONE_NO_CAPTURE
@@ -201,6 +209,8 @@ def classify_terminated_vm(
         verdict = TerminationVerdict.EXPECTED_NO_CAPTURE
     elif no_capture_reason is NoCaptureReason.RATE_LIMITED:
         verdict = TerminationVerdict.RATE_LIMITED
+    elif no_capture_reason is NoCaptureReason.CONSOLIDATOR_BLOCKED:
+        verdict = TerminationVerdict.CONSOLIDATOR_BLOCKED
     elif no_capture_reason in (NoCaptureReason.PROGRESS, NoCaptureReason.HONEST_ABSENCE):
         verdict = TerminationVerdict.EXPECTED_NO_CAPTURE
     else:  # NoCaptureReason.SILENT — genuine silent zero (incl. exit_code is None)
@@ -224,6 +234,7 @@ def _finding_for(
     umbrella: str = "",
     launch_env: dict[str, str] | None = None,
     progress_checkpoint: dict[str, str] | None = None,
+    maintenance_window: MaintenanceWindow | None = None,
 ) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
