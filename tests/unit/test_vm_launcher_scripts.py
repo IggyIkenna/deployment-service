@@ -2929,6 +2929,160 @@ export -f gsutil
         assert "STALL_TIMEOUT_SEC=3900" not in call
 
 
+class TestWatchdogGcsUploadHangDoesNotFalsePositiveStall:
+    """tradfi_backfill_oom_remediation_2026_06_24.md, 2026-08-01 finding: a real
+    `tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-*` VM was WORKER_STALLED-killed
+    ("no progress in 3927s", threshold=3900s) while it was genuinely, continuously
+    progressing -- a direct scan of its own run.log found real STALL_PROGRESS_REGEX
+    matches (`uploaded|streamed`) at most 232s apart, end to end.
+
+    Root cause isolated by code-reading vm-exec-with-gcs-tee.sh's watchdog loop
+    (lines 254-269 at the time of the incident): `now` was captured ONCE per
+    iteration, BEFORE the SPOT-resume-checkpoint block's `gsutil cp -
+    .../PROGRESS.json` upload -- a synchronous network round-trip with no bound.
+    The staleness this introduces does NOT surface on the very next tick if that
+    tick ALSO sees fresh growth (its own `made_progress==1` path re-stamps
+    `last_change_epoch` with an accurate fresh `now` and `continue`s past the
+    stall check entirely) -- it only surfaces the first time a tick genuinely
+    sees NO new growth (a normal, tolerable quiet stretch between progress
+    lines, e.g. mid-chunk-fetch): that tick's `stalled_for = now -
+    last_change_epoch` is computed against the EARLIER, pre-hang `last_change_epoch`,
+    so it counts the hang's own duration as ADDITIONAL silence on top of the
+    genuinely-quiet stretch -- inflating an otherwise-tolerable gap past
+    STALL_TIMEOUT_SEC. (At the real incident's scale -- 3927s reported vs 232s
+    measured max real gap -- the underlying `gsutil` call was effectively fully
+    hung, not merely slow; this class reproduces the identical mechanism at
+    compressed, test-speed timings.)
+
+    This class proves the fix against the real, shipped watchdog script (not a
+    reimplementation): a workload that (a) emits a VM_PROGRESS marker immediately
+    followed by one genuine progress line (triggering the PROGRESS.json upload,
+    which the mock hangs on), then (b) goes quiet for a stretch that is itself
+    well under STALL_TIMEOUT_SEC before resuming genuine progress lines to
+    completion -- must run to normal completion. Verified this test reproduces
+    the actual incident mechanism by running it against the pre-fix script
+    (`git show`'d from HEAD before this session's fix): it reliably returns
+    rc=124 (WORKER_STALLED) there and rc=0 against the fixed script."""
+
+    WATCHDOG = "scripts/vm/vm-exec-with-gcs-tee.sh"
+    REGEX = "uploaded|streamed"
+
+    @pytest.fixture
+    def watchdog_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.WATCHDOG
+
+    def _mock_bin_functions(self, gsutil_progress_upload_hang_seconds: float) -> str:
+        """Same portable `stat`/`python`/`gsutil` shims as
+        TestCanonicalMigrationStallDetection._mock_bin_functions, except `gsutil` here
+        additionally simulates a slow/hung network call SPECIFICALLY on the
+        PROGRESS.json stdin-pipe upload (`gsutil -q cp - <path>`, `$3 == "-"`) --
+        the exact call this incident traced the false stall to -- while every other
+        `gsutil` invocation (the durable WATCHDOG_HEARTBEAT copy, the final log
+        upload) still returns immediately, so only the ONE call under test is
+        slow."""
+        return f"""
+python() {{
+    if [[ "$1" == "-c" ]]; then
+        echo "00000000-0000-0000-0000-000000000000"
+        return 0
+    fi
+    return 0
+}}
+export -f python
+gsutil() {{
+    if [[ "$1" == "-q" && "$2" == "cp" && "$3" == "-" ]]; then
+        sleep {gsutil_progress_upload_hang_seconds}
+    fi
+    return 0
+}}
+export -f gsutil
+stat() {{
+    if [[ "$1" == "-c" && "$2" == "%s" ]]; then
+        wc -c < "$3" 2>/dev/null | tr -d ' '
+        return 0
+    fi
+    return 1
+}}
+export -f stat
+"""
+
+    def _run_watchdog(
+        self,
+        watchdog_path: Path,
+        workload: str,
+        tmp_path: Path,
+        gsutil_progress_upload_hang_seconds: float,
+        stall_timeout_sec: int,
+        stall_poll_sec: int,
+    ) -> subprocess.CompletedProcess[str]:
+        gcs_log_uri = f"gs://fake-test-bucket/vm-logs/{tmp_path.name}/run.log"
+        env = {
+            **os.environ,
+            "VM_NAME": f"gcs-hang-stall-test-{tmp_path.name}",
+            "VM_ASSET_GROUP": "TRADFI",
+            "VM_TASK": "vm-exec",
+            "VM_MODE": "full",
+            "PYTHON_BIN": "python",
+            "STALL_PROGRESS_REGEX": self.REGEX,
+            # Compressed timings for test speed -- production defaults are
+            # STALL_TIMEOUT_SEC=3900 (tradfi OHLCV) / STALL_POLL_SEC=60; only the
+            # thresholds are compressed, the watchdog logic under test is
+            # byte-for-byte the shipped production script (no reimplementation).
+            "STALL_TIMEOUT_SEC": str(stall_timeout_sec),
+            "STALL_POLL_SEC": str(stall_poll_sec),
+        }
+        script = self._mock_bin_functions(gsutil_progress_upload_hang_seconds) + (
+            f"bash {shlex.quote(str(watchdog_path))} {shlex.quote(gcs_log_uri)} bash -c {shlex.quote(workload)}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=40)
+
+    def test_gsutil_progress_upload_hang_does_not_false_positive_stall(
+        self, watchdog_path: Path, tmp_path: Path
+    ) -> None:
+        # Shape (verified empirically against BOTH the pre-fix and fixed script,
+        # not just reasoned about): a VM_PROGRESS marker + one real progress line
+        # land in the log BEFORE the watchdog's first tick, so that tick's
+        # `made_progress` check sees them and stamps `last_change_epoch` --
+        # concurrently, the SAME tick's marker-scan is what fires the (mocked,
+        # 6s-hung) PROGRESS.json upload. The workload then goes quiet for 11s
+        # (deliberately just under the poll math needs, see below) before
+        # resuming -- a realistic, ON ITS OWN tolerable mid-chunk-fetch gap.
+        #
+        # With STALL_POLL_SEC=1 / STALL_TIMEOUT_SEC=5 / hang=6:
+        #   pre-fix: `now` is captured BEFORE the hang (~tick 1, t=1) and gets
+        #     stamped into `last_change_epoch` once `made_progress==1` fires for
+        #     that same tick. The very next tick (t=1+6+1=8, still inside the
+        #     11s-quiet window, so made_progress=0) computes
+        #     stalled_for = 8 - 1 = 7 >= 5 -> false WORKER_STALLED kill (rc=124).
+        #   fixed: `now` is captured AFTER the hang resolves (~t=7), so the next
+        #     tick (t=8) computes stalled_for = 8 - 7 = 1 << 5 -> no kill; the
+        #     workload keeps running to its own normal completion.
+        workload = (
+            'echo "[[VM_PROGRESS]] last_completed_date=2026-01-01 monotonic=true"; '
+            'echo "streamed chunk 0 -- N rows"; '
+            "sleep 11; "
+            'echo "streamed chunk 1 -- N rows"; sleep 1; '
+            'echo "streamed chunk 2 -- N rows"; sleep 1; '
+            'echo "streamed chunk 3 -- N rows"; sleep 1; '
+            'echo "streamed chunk 4 -- N rows"; '
+            "echo DONE_NORMALLY"
+        )
+        result = self._run_watchdog(
+            watchdog_path,
+            workload,
+            tmp_path,
+            gsutil_progress_upload_hang_seconds=6,
+            stall_timeout_sec=5,
+            stall_poll_sec=1,
+        )
+        assert result.returncode == 0, (
+            "a genuinely-progressing worker must not be false-killed by a slow "
+            f"PROGRESS.json upload, got rc={result.returncode}\nstdout={result.stdout}"
+        )
+        assert "status=completed" in result.stdout
+        assert "WORKER_STALLED" not in result.stdout
+
+
 class TestFredBackfillDateFloor:
     """tradfi_es_cme_ohlcv_zero_capture_2026_07_30.md / tradfi_manifest_consolidator_fred_widespan_stall_2026_07_30.md:
     the FRED launcher's default backfill window used coverage_starts.py's full 1962-01-02

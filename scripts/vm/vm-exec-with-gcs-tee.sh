@@ -231,7 +231,6 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
         iteration=$((iteration + 1))
         sleep "$STALL_POLL_SEC"
         kill -0 "$CMD_PID" 2>/dev/null || break
-        now=$(date +%s)
         cur_size=$(stat -c %s "$LOCAL_LOG" 2>/dev/null)
         cur_size=${cur_size:-0}
         # Persist the latest SPOT resume checkpoint (best-effort). Scans ONLY the
@@ -246,11 +245,37 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
                 last_progress_marker="$_marker"
                 _lcd="${_marker#*last_completed_date=}"; _lcd="${_lcd%% *}"
                 _mono="${_marker##*monotonic=}"
+                # Bounded: an ungated `gsutil cp` here can block the whole watchdog
+                # loop on transient GCS/auth slowness (see the `now` capture note
+                # below for why an unbounded block here is a correctness bug, not
+                # just a latency nit).
                 printf '{"last_completed_date":"%s","monotonic":%s,"vm_name":"%s","updated":"%s"}\n' \
                     "$_lcd" "$_mono" "$VM_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                    | gsutil -q cp - "${GCS_DIR}/PROGRESS.json" 2>/dev/null || true
+                    | timeout --kill-after=10 30 bash -c 'gsutil -q cp - "$1"' _ "${GCS_DIR}/PROGRESS.json" \
+                        2>/dev/null || true
             fi
         fi
+        # `now` is captured HERE — AFTER the PROGRESS.json upload above, never
+        # before it. Root cause (isolated 2026-08-01, tradfi_backfill_oom_remediation
+        # doc, `tradfi-bf-cme-ohlcv-1m-g01-es-es-2020-*`): `now` used to be captured
+        # ONCE at the top of the iteration, before this same block's `gsutil cp -
+        # PROGRESS.json` call. That call is a synchronous network round-trip with no
+        # bound on this line (still true even after the `timeout` wrap above closes
+        # the possibility of an unbounded hang — a merely SLOW-but-bounded call has
+        # the same effect at smaller scale). Whenever it took any real wall-clock
+        # time (transient GCS/auth latency on a shared fleet hitting GCS every
+        # ~4-5min per VM), the STALE pre-call `now` got stamped into
+        # `last_change_epoch` below on a tick that legitimately detected progress —
+        # so the VERY NEXT tick's `stalled_for = now - last_change_epoch` counted
+        # the entire blocking duration as silence, even though the workload kept
+        # writing real progress lines throughout. Confirmed live: watchdog reported
+        # "no progress in 3927s" (threshold 3900s) while a direct scan of the same
+        # run.log found real progress lines (`uploaded|streamed`) at most 232s
+        # apart, end to end — the workload was never actually silent; the clock
+        # bookkeeping was. Capturing `now` after any blocking call in this iteration
+        # (there is only the one, above) closes this for both branches below, since
+        # both stamp `last_change_epoch` and compute `stalled_for` from it.
+        now=$(date +%s)
         if [[ -n "$STALL_PROGRESS_REGEX" ]]; then
             # Progress-marker mode: reset ONLY on a real progress line, scanning just
             # the bytes appended since the last check (bounded). Raw growth WITHOUT a
@@ -263,12 +288,23 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
                 last_progress_size=$cur_size
             fi
             echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress ts=$now" > "$WATCHDOG_HEARTBEAT"
+            # Durable copy (2026-08-01, tradfi_backfill_oom_remediation doc): the
+            # per-tick cur_size/last_progress_size/made_progress trace used to be
+            # LOCAL-ONLY, so a false-positive stall-kill's own VM self-delete erased
+            # the exact evidence needed to root-cause it post-hoc (hit exactly this
+            # gap trying to diagnose the incident above). Bounded the same way as
+            # the PROGRESS.json upload — a diagnostics-only, best-effort copy must
+            # never itself become a new source of watchdog-loop stall.
+            timeout --kill-after=5 15 bash -c 'gsutil -q cp "$1" "$2"' _ \
+                "$WATCHDOG_HEARTBEAT" "${GCS_DIR}/WATCHDOG_HEARTBEAT" 2>/dev/null || true
             if [[ "$made_progress" == "1" ]]; then
                 last_change_epoch=$now
                 continue
             fi
         else
             echo "watchdog iter=$iteration mode=size size=$cur_size last=$last_size ts=$now" > "$WATCHDOG_HEARTBEAT"
+            timeout --kill-after=5 15 bash -c 'gsutil -q cp "$1" "$2"' _ \
+                "$WATCHDOG_HEARTBEAT" "${GCS_DIR}/WATCHDOG_HEARTBEAT" 2>/dev/null || true
             if [[ "$cur_size" != "$last_size" ]]; then
                 last_size=$cur_size
                 last_change_epoch=$now
