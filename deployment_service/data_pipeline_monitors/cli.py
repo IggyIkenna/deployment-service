@@ -26,6 +26,7 @@ import io
 import json
 import logging
 import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
@@ -264,9 +265,27 @@ def _is_data_vm(vm_name: str) -> bool:
     return any(lowered.startswith(p) for p in _DATA_VM_PREFIXES)
 
 
-def _shard_bucket_for_vm(vm_name: str) -> str | None:
-    ag = _asset_group_for_vm(vm_name)
-    if ag == "unknown":
+def _shard_bucket_for_vm(vm_name: str, ag_resolver: Callable[[str], str] | None = None) -> str | None:
+    """Resolve the per-VM shard's market-data bucket.
+
+    ``ag_resolver`` defaults to the substring-only ``_asset_group_for_vm`` — it
+    returns "unknown" for backfill VMs whose name doesn't literally embed the
+    asset_group (e.g. ``fs-backfill-*`` / ``fts-backfill-*`` for sports, no
+    "sports" substring), which silently made ``_shard_bucket_for_vm`` (and
+    therefore every reader built on it) return ``None`` for those VMs — the
+    captured-count cross-check then read a permanent 0 regardless of how many
+    rows the VM actually captured, reproducing the exact DP_VM_GONE_NO_CAPTURE
+    consolidation-lag false-positive Finding 3 fixed for the general case
+    (`data_pipeline_alerts_dp_not_v9_and_rate_limited_false_positives_2026_06_27.md`)
+    — confirmed: the incident's own VM, ``fs-backfill-20260627-193904``, is one
+    of the exact names this fails on. Pass ``_make_shard_backed_ag_fn`` (which
+    falls back to a bounded per-AG shard probe when the substring match misses)
+    to close this. "multi" (ambiguous across >1 AG) still resolves to None —
+    there is no single correct bucket to read.
+    """
+    resolve_ag = ag_resolver or _asset_group_for_vm
+    ag = resolve_ag(vm_name)
+    if ag in ("unknown", "multi"):
         return None
     try:
         return resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag)
@@ -274,17 +293,19 @@ def _shard_bucket_for_vm(vm_name: str) -> str | None:
         return None
 
 
-def _make_captured_reader(storage_client: StorageClient):
+def _make_captured_reader(storage_client: StorageClient, ag_resolver: Callable[[str], str] | None = None):
     """Return ``vm_name -> captured_cum`` reading the per-VM manifest shard.
 
     Reads ``_index/per_vm/{vm}.parquet`` from the VM's asset_group market-data
     bucket and counts ``capture_status == "captured"`` rows. Returns 0 on any
     read miss (a VM with no shard yet / heartbeat-only VM) — the cross-check then
-    treats it as "no captured progress", the fail-safe direction.
+    treats it as "no captured progress", the fail-safe direction. ``ag_resolver``
+    is forwarded to ``_shard_bucket_for_vm`` — see its docstring for why passing
+    ``_make_shard_backed_ag_fn`` matters for backfill VMs like ``fs-backfill-*``.
     """
 
     def _read(vm_name: str) -> int:
-        bucket = _shard_bucket_for_vm(vm_name)
+        bucket = _shard_bucket_for_vm(vm_name, ag_resolver=ag_resolver)
         if not bucket:
             return 0
         blob_path = _PER_VM_SHARD.format(vm=vm_name)
@@ -302,7 +323,7 @@ def _make_captured_reader(storage_client: StorageClient):
     return _read
 
 
-def _make_shard_mtime_reader(storage_client: StorageClient):
+def _make_shard_mtime_reader(storage_client: StorageClient, ag_resolver: Callable[[str], str] | None = None):
     """Return ``vm_name -> per-VM manifest-shard mtime AGE (min)`` (None on miss).
 
     Age of ``_index/per_vm/{vm}.parquet`` in the VM's asset_group market-data
@@ -312,11 +333,13 @@ def _make_shard_mtime_reader(storage_client: StorageClient):
     the ``PIPELINE_HEARTBEAT`` marker from the GCS-TEE'd run.log, which can lag the
     on-VM log by tens of minutes (incident 2026-06-23: a tradfi-bf VM capturing
     114k rows + heartbeating on-box every 60s false-STALLed on a 42m-behind tee'd
-    run.log). ``None`` ⇒ no shard / read miss ⇒ no override (fail-safe).
+    run.log). ``None`` ⇒ no shard / read miss ⇒ no override (fail-safe). ``ag_resolver``
+    is forwarded to ``_shard_bucket_for_vm`` — see its docstring (same bucket-resolution
+    gap as ``_make_captured_reader`` for backfill VM names like ``fs-backfill-*``).
     """
 
     def _read(vm_name: str) -> float | None:
-        bucket = _shard_bucket_for_vm(vm_name)
+        bucket = _shard_bucket_for_vm(vm_name, ag_resolver=ag_resolver)
         if not bucket:
             return None
         blob_path = _PER_VM_SHARD.format(vm=vm_name)
