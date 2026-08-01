@@ -45,7 +45,7 @@ from .sports_trigger_evaluation import (
 from .sports_trigger_evaluation import (
     evaluate_pre_match_triggers as _evaluate_pre_match_triggers,
 )
-from .sports_trigger_periodic import PeriodicTierDispatcher
+from .sports_trigger_periodic import PeriodicTierDispatcher, _scope_to_leagues
 from .sports_trigger_state import (
     FixtureInfo,
     PeriodicTierState,
@@ -308,8 +308,19 @@ class SportsTriggerScheduler:
         except (TypeError, ValueError):
             fixture_date = datetime.now(UTC).strftime("%Y-%m-%d")
 
+        # Scope the fixture-proximate `market-tick-data-service` dispatch to the ONE
+        # triggering league instead of the adapter's unscoped all-Prediction-tier-leagues
+        # default (root cause of the SPORTS fast-t1-recon Cloud Run Job OOM,
+        # sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md) — every other
+        # service entry (e.g. instruments-service) keeps its own args untouched.
+        scoped_services = [
+            _scope_to_leagues(cast("dict[str, object]", svc), [league_id])
+            if svc.get("service") == "market-tick-data-service"
+            else cast("dict[str, object]", svc)
+            for svc in event["services"]
+        ]
         dispatched = self._dispatch_services(
-            services=list(event["services"]),
+            services=scoped_services,
             start_date=fixture_date,
             end_date=fixture_date,
             trigger_name=trigger_name,
