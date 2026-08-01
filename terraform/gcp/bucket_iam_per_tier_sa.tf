@@ -76,11 +76,31 @@ locals {
   # personally enumerated 2026-07-25 (bucket_iam_write_protection_per_tier_
   # 2026_06_09.md Phase-1 scoping note): {prd,test}-tiered only, no
   # -dev-/-stg- suffix exists for this family.
-  group_a_bucket_prefixes = [
-    "market-data-tick-",
+  #
+  # FIXED 2026-08-01 (bucket_iam_group_a_market_data_tick_prefix_missing_
+  # asset_group_2026_08_01.md): unlike instruments-store-/features-calendar-
+  # (genuinely flat, non-AG-scoped families), market-data-tick- IS AG-scoped
+  # (`market-data-tick-{ag}-{prd,test}-{project}` — confirmed live +
+  # cross-checked against docs/GCS_PATHS.md, cloud-providers.yaml's `tick-data`
+  # kind, and this file's own canonical_buckets.tf derivation). A flat
+  # `market-data-tick-` prefix can never match a real bucket, because the AG
+  # segment sits BETWEEN the family prefix and the tier — live-confirmed as a
+  # 100%-write-failure regression (4425 PERMISSION_DENIED 403s) for
+  # uts-prd-sa/uts-test-sa against every market-data-tick-{ag} bucket, both
+  # tiers, every asset group. Split into its own per-AG list here, mirroring
+  # Group B's per-AG treatment below.
+  group_a_flat_bucket_prefixes = [
     "instruments-store-",
     "features-calendar-",
   ]
+  group_a_market_data_tick_ag_prefixes = [
+    "market-data-tick-cefi-",
+    "market-data-tick-defi-",
+    "market-data-tick-tradfi-",
+    "market-data-tick-sports-",
+    "market-data-tick-pred-",
+  ]
+  group_a_bucket_prefixes = concat(local.group_a_flat_bucket_prefixes, local.group_a_market_data_tick_ag_prefixes)
 
   # Group B canonical bucket-name family prefixes (derived data) — the ONE
   # per-AG folded kind that is env-tiered today: `features-{ag}` (Wave-3 Fold A,
