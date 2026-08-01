@@ -391,6 +391,7 @@ fi
 # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
     ${PROVISIONING_FLAGS} \

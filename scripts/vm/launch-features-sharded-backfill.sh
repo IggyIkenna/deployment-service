@@ -284,6 +284,7 @@ launch_year_shard() {
     # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
         --zone="$ZONE" \
         --machine-type="$MACHINE_TYPE" \
         ${prov_flags} \

@@ -201,8 +201,12 @@ else
           || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
   fi
 
+  # service-account hardcodes "prod" (not ${DEPLOYMENT_ENV}) -- BUCKET above is hardcoded
+  # features-sports-prd- regardless of --env, so the matching SA must be prod-tier too, else a
+  # --env staging/dev run would carry uts-test-sa while writing the prd bucket and 403.
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "prod" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type=e2-standard-4 \
     ${PROVISIONING_FLAGS} \
