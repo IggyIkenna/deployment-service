@@ -210,6 +210,7 @@ launch_vm() {
 
   gcloud compute instances create "$vm_name" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type=e2-standard-4 \
     ${PROVISIONING_FLAGS} \

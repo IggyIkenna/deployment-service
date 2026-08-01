@@ -147,6 +147,7 @@ echo "  Provisioning: $([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-d
 
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type="${MACHINE_TYPE}" \
     --image-family=ubuntu-2404-lts-amd64 \

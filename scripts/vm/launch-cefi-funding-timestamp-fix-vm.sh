@@ -218,6 +218,7 @@ _launch_one_vm() {
   # shellcheck disable=SC2086
   gcloud compute instances create "${vm_name}" \
     --project="${PROJECT_ID}" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT_ID}")" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
     --scopes=cloud-platform \

@@ -198,6 +198,7 @@ create_vm() {
     # shellcheck disable=SC2086
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" --zone="$ZONE" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
         --machine-type="${MACHINE_TYPE:-e2-highmem-8}" \
         ${PROVISIONING_FLAGS} \
         --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud \

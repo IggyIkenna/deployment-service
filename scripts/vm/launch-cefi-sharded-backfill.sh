@@ -600,7 +600,9 @@ launch_cefi_shard() {
       --scopes=cloud-platform --metadata="^|^${meta}" \
       --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
       --labels=env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
-      --project="$PROJECT" --async 2>&1 | tail -1 &
+      --project="$PROJECT" \
+      --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
+      --async 2>&1 | tail -1 &
     _stagger
     _batch_guard
   fi
@@ -829,7 +831,9 @@ _launch_queued_vm() {
     --scopes=cloud-platform --metadata="$meta" \
     --metadata-from-file="shutdown-script=${PREEMPTION_SIGNAL_FILE}" \
     --labels=env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
-    --project="$PROJECT" --async 2>&1 | tail -1
+    --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
+    --async 2>&1 | tail -1
 }
 
 if [[ "${SINGLE_VM_QUEUE:-0}" == "1" ]]; then

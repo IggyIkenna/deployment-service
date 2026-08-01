@@ -45,6 +45,8 @@ PROJECT="central-element-323112"
 # Tardis concurrent-VM cap (HARD RULE, at most 1). Enforced before the shard loops.
 # shellcheck source=./tardis-concurrency-guard.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tardis-concurrency-guard.sh"
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
 # 2026-05-01: bumped from e2-standard-2 (8GB) to e2-standard-4 (16GB) after
@@ -195,7 +197,9 @@ _launch_shard() {
               --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
               --scopes=cloud-platform --metadata="${meta}" \
               --labels=purpose=targeted-options-chain-backfill,env="${DEPLOYMENT_ENV}",managed-by=deployment-service \
-              --project="${PROJECT}" --async 2>&1 | tail -1
+              --project="${PROJECT}" \
+              --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT}")" \
+              --async 2>&1 | tail -1
         fi
         sleep 2
     fi

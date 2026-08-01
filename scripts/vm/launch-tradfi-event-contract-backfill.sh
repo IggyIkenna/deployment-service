@@ -153,6 +153,7 @@ else
 
   ~/google-cloud-sdk/bin/gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type=e2-standard-4 \
     ${PROVISIONING_FLAGS} \

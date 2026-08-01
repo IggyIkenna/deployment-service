@@ -393,6 +393,7 @@ _launch() {
     fi
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
         --zone="$ZONE" \
         --machine-type="$MACHINE_TYPE" \
         --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
