@@ -107,6 +107,12 @@ PID_FILE="/tmp/vm-exec-$$.pid"
 EXIT_STATUS_FILE="/tmp/vm-exec-$$.exit_status"
 STALL_BREADCRUMB="/tmp/vm-exec-$$.stalled"
 WATCHDOG_HEARTBEAT="/tmp/vm-exec-$$.watchdog_alive"
+# Durable copy of WATCHDOG_HEARTBEAT (tradfi_backfill_oom_remediation_2026_06_24.md
+# candidate fix): the local-only breadcrumb above was lost on VM self-delete
+# during the last false-stall investigation, blocking post-hoc root-cause.
+# Appended + re-uploaded every watchdog tick so a future occurrence's full
+# made_progress/cur_size/last_progress_size history survives self-delete.
+WATCHDOG_TRACE_URI="${GCS_DIR}/WATCHDOG_TRACE.log"
 DAEMON_ALIVE_FILE="/tmp/vm-exec-$$.daemon_alive"
 
 # ---- structured deployment metadata (registry + events) ----
@@ -206,6 +212,18 @@ STALL_POLL_SEC="${STALL_POLL_SEC:-60}"
 # (e.g. a date-advance / "wrote .* rows" / "record_(captured|empty)" marker). Unset ⇒
 # identical size-based behavior (fully backward compatible).
 STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
+# Byte-boundary safety for the STALL_PROGRESS_REGEX scan below (SECOND,
+# independent defect found alongside the SIGPIPE/pipefail root cause fixed at
+# the tail|grep call: tradfi_backfill_oom_remediation_2026_06_24.md). The
+# byte-offset tracking (last_progress_size) advances to the EXACT
+# stat()-observed file size on every poll tick -- an arbitrary mid-stream cut
+# point with no relationship to line boundaries. A literal marker string
+# (e.g. "streamed") that happens to straddle that cut is invisible to BOTH
+# the window that ends mid-string and the window that starts mid-string, so
+# that single progress line is silently dropped. Reproduced locally. Fixed
+# purely with coreutils (tr/wc/head), matching this file's existing
+# capture-then-grep pattern (no live pipe feeding an `if`) rather than
+# adding a new python dependency to the hot path.
 # Disabling `set -e` inside the watchdog subshell because v1 of this
 # watchdog (5b881bc) silently died on 3 TradFi VMs 2026-04-19 without
 # ever writing the STALL: breadcrumb. Any intermediate command returning
@@ -257,39 +275,71 @@ STALL_PROGRESS_REGEX="${STALL_PROGRESS_REGEX:-}"
             # marker (heartbeat/empty noise) does NOT reset → a hung worker trips.
             made_progress=0
             if [[ "$cur_size" -gt "$last_progress_size" ]]; then
-                # CAPTURE THEN GREP, not a live pipe (root cause,
-                # tradfi_backfill_oom_remediation_2026_06_24.md, isolated 2026-08-01):
-                # under this script's inherited `set -o pipefail`, `tail | grep -qE`
-                # silently misreports "no progress" whenever the scanned window is
-                # large enough that `grep -q` exits right after its first match while
-                # `tail` still has more buffered output to write — `tail` gets SIGPIPE
-                # (exit 141), and pipefail reports the PIPELINE's exit as 141 (the
-                # rightmost non-zero status) even though grep found a real match and
-                # exited 0. Reproduced directly: a >64KB scan window with a match near
-                # the start flips `if tail ... | grep -qE ...` to the false branch
-                # despite ${PIPESTATUS[*]}="141 0". This is exactly what a fast
-                # multi-chunk backfill (many "uploaded"/"streamed" lines accumulating
-                # between 60s polls) can trigger — matching lines existed in the log
-                # every <=232s the whole time, but this bug silently zeroed
-                # `made_progress` on any poll whose scan window happened to be large,
-                # letting `last_change_epoch` go stale despite continuous real
-                # progress, until the accumulated "no progress" streak crossed
-                # STALL_TIMEOUT_SEC and the watchdog false-positive-killed a healthy
-                # VM. Capturing into a variable first removes the live pipe entirely
-                # (no consumer to SIGPIPE the producer), independent of pipefail.
-                _progress_chunk="$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null)"
-                if grep -qE "$STALL_PROGRESS_REGEX" <<< "$_progress_chunk"; then
-                    made_progress=1
+                # ROOT CAUSE #1 (SIGPIPE/pipefail, isolated 2026-08-01): the prior
+                # `tail | grep -qE` live pipe silently misreported "no progress"
+                # whenever the scanned window was large enough that `grep -q`
+                # exited right after its first match while `tail` still had more
+                # buffered output to write — `tail` got SIGPIPE (exit 141), and
+                # this script's inherited `set -o pipefail` reported the
+                # PIPELINE's exit as 141 (rightmost non-zero) even though grep
+                # found a real match and exited 0. Reproduced directly: a >64KB
+                # scan window with a match near the start flipped the `if`
+                # to false despite ${PIPESTATUS[*]}="141 0" — exactly what a
+                # fast multi-chunk backfill (many "uploaded"/"streamed" lines
+                # accumulating between 60s polls) triggers, silently zeroing
+                # made_progress on any large-window poll until the accumulated
+                # streak crossed STALL_TIMEOUT_SEC and the watchdog
+                # false-positive-killed a healthy VM.
+                #
+                # ROOT CAUSE #2 (byte-boundary splitting, found alongside #1):
+                # independent of the pipe, `last_progress_size` used to always
+                # jump to the exact stat()-observed cur_size — an arbitrary
+                # mid-stream cut with no relationship to line boundaries. A
+                # literal marker (e.g. "streamed") straddling that cut is
+                # invisible to BOTH the window that ends mid-string and the one
+                # that starts mid-string, silently dropping that single line.
+                #
+                # Both are closed together: only "consume" (advance
+                # last_progress_size past) whichever bytes fall before the
+                # LAST complete newline in this tick's window (closing #2) --
+                # any trailing partial line is left unconsumed so it gets
+                # rescanned WHOLE, together with whatever's appended next, on
+                # the following tick -- and the actual match check captures
+                # into a variable first, same as the #1 fix above, so there is
+                # no live pipe feeding the `if` (closing #1, structurally, for
+                # this narrower window too). `head -c`/`head -n` are readers
+                # here, not gating an `if` on their own exit status, so an
+                # early-close SIGPIPE upstream (e.g. `head -n` closing before
+                # `head -c` finishes) cannot corrupt what they already read --
+                # same principle as #1's fix, just extended one hop further.
+                _new_len=$((cur_size - last_progress_size))
+                _nl_count=$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                    | head -c "$_new_len" | tr -cd '\n' | wc -c)
+                _nl_count=${_nl_count:-0}
+                if [[ "$_nl_count" -gt 0 ]]; then
+                    _consumable=$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                        | head -c "$_new_len" | head -n "$_nl_count" | wc -c)
+                    _consumable=${_consumable:-0}
+                    _progress_chunk="$(tail -c "+$((last_progress_size + 1))" "$LOCAL_LOG" 2>/dev/null \
+                        | head -c "$_new_len" | head -n "$_nl_count")"
+                    if grep -qE "$STALL_PROGRESS_REGEX" <<< "$_progress_chunk"; then
+                        made_progress=1
+                    fi
+                    last_progress_size=$((last_progress_size + _consumable))
                 fi
-                last_progress_size=$cur_size
+                # else: the newly appended bytes don't contain a complete line
+                # yet -- leave last_progress_size untouched; next tick
+                # re-reads them whole together with whatever's appended by then.
             fi
-            echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress ts=$now" > "$WATCHDOG_HEARTBEAT"
+            echo "watchdog iter=$iteration mode=progress size=$cur_size progress=$made_progress last_progress_size=$last_progress_size ts=$now" >> "$WATCHDOG_HEARTBEAT"
+            gsutil -q cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" 2>/dev/null || true
             if [[ "$made_progress" == "1" ]]; then
                 last_change_epoch=$now
                 continue
             fi
         else
-            echo "watchdog iter=$iteration mode=size size=$cur_size last=$last_size ts=$now" > "$WATCHDOG_HEARTBEAT"
+            echo "watchdog iter=$iteration mode=size size=$cur_size last=$last_size ts=$now" >> "$WATCHDOG_HEARTBEAT"
+            gsutil -q cp "$WATCHDOG_HEARTBEAT" "$WATCHDOG_TRACE_URI" 2>/dev/null || true
             if [[ "$cur_size" != "$last_size" ]]; then
                 last_size=$cur_size
                 last_change_epoch=$now

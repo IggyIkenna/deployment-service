@@ -444,11 +444,18 @@ def test_preempted_relaunch_replays_captured_launch_env(tmp_path: Path, monkeypa
     )
     assert result["status"] == "SUCCEEDED"
     assert launched == [("launch-cefi-sharded-backfill.sh", captured_env)]
-    # Success is QUIET — INFO only, never CRITICAL (SPOT reclaim is benign/expected).
-    # The final success emits the DISTINCT resolved-bookend event (DP-VM-011), not a
-    # re-emission of the open-alert DP_VM_PREEMPTED — see relaunch_backfill_vm.py's
-    # _EVENT_VM_PREEMPTED_RECOVERED docstring.
-    assert any(e[0] == "DP_VM_PREEMPTED_RECOVERED" and e[1] == "INFO" and e[2].get("relaunched") for e in emitted)
+    # Success never PAGEs (CRITICAL) — SPOT reclaim is benign/expected. But this
+    # run had NO checkpoint to resume from (the silent-gap condition), so the
+    # resolved-bookend event (DP-VM-011) is WARN, not INFO — distinguishing a
+    # blind verbatim replay from a genuinely checkpoint-resumed relaunch. See
+    # relaunch_backfill_vm.py's _EVENT_VM_PREEMPTED_RECOVERED docstring.
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_RECOVERED"
+        and e[1] == "WARN"
+        and e[2].get("relaunched")
+        and e[2].get("checkpoint_resumed") is False
+        for e in emitted
+    )
     assert not any(e[1] == "CRITICAL" for e in emitted)
 
 
@@ -579,6 +586,13 @@ def test_preempted_relaunch_resumes_from_monotonic_checkpoint(tmp_path: Path, mo
         e[0] == "DP_VM_PREEMPTED" and e[1] == "INFO" and e[2].get("resume_from_checkpoint") == "2026-02-15"
         for e in emitted
     )
+    # The resolved-bookend event ALSO reflects the checkpoint resume — INFO, with
+    # checkpoint_resumed=True — distinguishing this from a no-checkpoint blind
+    # replay (see test_preempted_relaunch_non_force_no_checkpoint_replays_verbatim).
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_RECOVERED" and e[1] == "INFO" and e[2].get("checkpoint_resumed") is True
+        for e in emitted
+    )
 
 
 def test_preempted_relaunch_resume_start_date_launcher_checkpoint_overrides_stale_original(tmp_path: Path, monkeypatch):
@@ -688,8 +702,12 @@ def test_preempted_relaunch_force_run_non_monotonic_checkpoint_pages(tmp_path: P
 def test_preempted_relaunch_non_force_no_checkpoint_replays_verbatim(tmp_path: Path, monkeypatch):
     """A normal (non-force) run with no checkpoint keeps today's behavior — a
     verbatim replay of the captured launch env (presence-skip resumes it). No
-    START_DATE override, no PAGE."""
-    _patch_log_event(monkeypatch)
+    START_DATE override, no PAGE. This IS the exact "silent-gap condition" from
+    infra_satellite_ao_dispatch_batch1_2026_07_26.md's severity-hardening todo —
+    the actuator cannot tell "resumed correctly" from "wastefully replayed" from
+    a clean subprocess exit alone, so the resolved-bookend event downgrades to
+    WARN + checkpoint_resumed=False rather than staying an indistinguishable INFO."""
+    emitted = _patch_log_event(monkeypatch)
     launched: list[tuple[str, dict[str, str]]] = []
 
     def launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -704,6 +722,11 @@ def test_preempted_relaunch_non_force_no_checkpoint_replays_verbatim(tmp_path: P
     )
     assert result["status"] == "SUCCEEDED"
     assert launched[0][1]["START_DATE"] == "2026-02-01"  # unchanged — verbatim replay
+    assert any(
+        e[0] == "DP_VM_PREEMPTED_RECOVERED" and e[1] == "WARN" and e[2].get("checkpoint_resumed") is False
+        for e in emitted
+    )
+    assert not any(e[1] == "CRITICAL" for e in emitted)  # flagged, never paged
 
 
 def test_preempted_relaunch_budget_separate_from_oom_budget(tmp_path: Path, monkeypatch):

@@ -295,6 +295,32 @@ def test_read_progress_checkpoint_non_dict_is_none():
     assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) is None
 
 
+def test_read_progress_checkpoint_ignores_cdlap_non_standard_checkpoint_filename():
+    """The `canonical-migration-*-cdlap` (`*-candle-apply`) launcher family writes a
+    REAL checkpoint, just not at this literal `PROGRESS.json` path or schema — it
+    lives at `MIGRATION_PROGRESS-shard{N}.json` with a line-index schema, not a
+    date. This function deliberately does NOT recognize it (documented accepted
+    exception, `spot-vms-for-backfill.md` § "Per-launcher-family conformance") —
+    the migration script resumes on its own via the shared `vm_name`
+    (`VM_NAME_OVERRIDE`), independent of this reader. Regression test proving that
+    intentional blind spot stays a `None` (not a crash / not a misparse), per
+    `infra_satellite_ao_dispatch_batch1_2026_07_26.md` "Close the two fleet-monitor
+    blind spots"."""
+    vm = "canonical-migration-cefi-cdlap-20260801-shard2of10"
+    migration_blob = json.dumps(
+        {
+            "last_processed_line_index": 70247,
+            "processed_count": 70248,
+            "shard_index": 2,
+            "shard_of": 10,
+        }
+    ).encode()
+    storage = FakeStorage({(LOG_BUCKET, f"vm-logs/{vm}/MIGRATION_PROGRESS-shard2.json"): (migration_blob, 0.0)})
+    # The literal PROGRESS.json path this function actually reads is absent — the
+    # checkpoint above sits under a different name entirely.
+    assert _gcs.read_progress_checkpoint(storage, LOG_BUCKET, vm) is None
+
+
 # ── _gcs.recent_log_summary ──────────────────────────────────────────────────
 def test_recent_log_summary_counts_error_lines_and_last_line():
     vm = "defi-recursive-backfill-2026"

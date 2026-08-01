@@ -718,6 +718,33 @@ def read_progress_checkpoint(storage_client: StorageClient, bucket: str, vm_name
     becomes ``"false"`` so the relauncher fails safe — it will NOT skip START_DATE
     forward on a run whose recorded dates were out of order (which would drop the
     undone dates behind the frontier).
+
+    **Accepted per-launcher naming exception (documented 2026-08-01,
+    `infra_satellite_ao_dispatch_batch1_2026_07_26.md` "Close the two fleet-monitor
+    blind spots"):** the ``canonical-migration-*-cdlap`` VMs (the ``*-candle-apply``
+    categories in ``launch-canonical-migration-vm.sh``) write a REAL, working
+    checkpoint — just not at this literal ``PROGRESS.json`` path. Their checkpoint
+    lives at ``vm-logs/{vm}/MIGRATION_PROGRESS-shard{shard_index}.json``
+    (``migrate_candle_canonical_2026_07.py``'s ``_CHECKPOINT_BLOB_TPL``) and carries
+    a STRUCTURALLY DIFFERENT schema — ``last_processed_line_index``/
+    ``processed_count``/``shard_index``/``shard_of`` (a 0-based line offset into
+    ONE shard's deterministic object enumeration), not a calendar date. This
+    function deliberately does NOT special-case that filename/schema: the two
+    checkpoint mechanisms are not interchangeable (there is no date to extract from
+    a line-index checkpoint), so "generalizing" this reader would require a second,
+    parallel consumption path in ``relaunch_backfill_vm.py`` for a resume style that
+    isn't date-based at all — disproportionate to the actual gap, because the
+    resume already works WITHOUT this function's help: ``RelaunchPreemptedVm``
+    relaunches the SAME ``vm_name`` (via ``VM_NAME_OVERRIDE``, captured in
+    ``LAUNCH_PARAMS.json``), and ``migrate_candle_canonical_2026_07.py`` reads its
+    OWN checkpoint (``checkpoint_uri_for_shard`` + ``read_migration_checkpoint``)
+    keyed on that same ``vm_name`` — independent of whether this function ever sees
+    it. The observable effect of this exception is purely cosmetic: a
+    ``DP_VM_PREEMPTED``/``DP_VM_PREEMPTED_RECOVERED`` finding for one of these VMs
+    never carries a ``progress_checkpoint`` detail even though a real checkpoint
+    exists on disk — never a resume-safety gap. SSOT:
+    `codex/05-infrastructure/spot-vms-for-backfill.md` § "Per-launcher-family
+    conformance".
     """
     raw = read_text(storage_client, bucket, PROGRESS_BLOB.format(vm=vm_name))
     if not raw:
