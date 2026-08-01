@@ -132,6 +132,11 @@ ON_DEMAND=false
 VM_NAME_OVERRIDE="${VM_NAME_OVERRIDE:-}"
 TEST_SINK_BUCKET=""
 TEST_SOURCE_BUCKET=""
+# Derived below once --sink-bucket/--source-bucket are parsed: forces the launch
+# VM's service-account to uts-test-sa (DP-VM-002 fix — see launcher_common.sh's
+# lc_tier_service_account docstring; a -test--bucket-routed run under the
+# default DEPLOYMENT_ENV=prod otherwise 403s on every manifest/event write).
+IS_TEST_RUN_FLAG="false"
 
 print_usage() {
     cat <<'EOF'
@@ -325,6 +330,7 @@ fi
 # (ManifestConsolidatorStaleError). Test buckets are always small, so the per-VM-shard
 # merge this unblocks can't hit the OOM the guard exists to prevent on prod buckets.
 if [[ -n "$TEST_SINK_BUCKET" || -n "$TEST_SOURCE_BUCKET" ]]; then
+    IS_TEST_RUN_FLAG="true"
     ENV_PREFIX="IS_TEST_RUN=true MANIFEST_ALLOW_STALE_FALLBACK=true"
     if [[ -n "$TEST_SINK_BUCKET" ]]; then
         ENV_PREFIX="$ENV_PREFIX PROTOCOL_DATA_SINK_BUCKET_${ASSET_GROUP}=${TEST_SINK_BUCKET} PROTOCOL_DATA_SINK_BUCKET=${TEST_SINK_BUCKET}"
@@ -391,7 +397,7 @@ fi
 # scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
 gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
-    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT" "${IS_TEST_RUN_FLAG}")" \
     --zone="$ZONE" \
     --machine-type="$MACHINE_TYPE" \
     ${PROVISIONING_FLAGS} \
