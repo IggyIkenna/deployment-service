@@ -107,6 +107,48 @@ if $DRY_RUN; then
     exit 0
 fi
 
+# ── Ensure gcs_upload_via_adc.py's import target is available before any repo needs uploading ──
+# create-code-tarballs.sh resolves GCS_UPLOAD_PY as "${DS_ROOT}/.venv/bin/python", falling back to
+# bare `python3` when no venv exists — true for THIS job's container, whose bootstrap sparse-
+# checkouts only scripts/vm/ (no venv, no deployment_service source). Bare python3 has never had
+# `deployment_service` installed, so every upload has silently crashed with ModuleNotFoundError
+# since at least 2026-07-30 while the tarball BUILD itself kept succeeding (job reports
+# succeededCount=1 throughout — see
+# plans/active/issues/code_tarball_refresh_job_silently_failing_since_2026_07_30_2026_08_01.md).
+# Gated on CHANGED being non-empty (never pay this on an idle SHA-skip tick) and skipped entirely
+# when `deployment_service` is ALREADY importable (a real venv — e.g. an interactive dev session
+# invoking this same script directly).
+ensure_deployment_service_importable() {
+    python3 -c "import deployment_service" >/dev/null 2>&1 && return 0
+    log "deployment_service not importable by python3 -- installing from the internal wheel index..."
+    if ! python3 -m pip --version >/dev/null 2>&1; then
+        log "  python3 has no pip -- installing python3-pip via apt"
+        apt-get -qq update >/dev/null && apt-get -qq install -y python3-pip >/dev/null
+    fi
+    local target token
+    target="/tmp/ds-pydeps"
+    mkdir -p "$target"
+    token="$(gcloud auth print-access-token 2>/dev/null)"
+    if [[ -z "$token" ]]; then
+        log "ERROR: could not mint an access token (gcloud auth print-access-token) -- cannot install deployment_service"
+        return 1
+    fi
+    if ! python3 -m pip install --quiet --no-input --target "$target" \
+        --index-url "https://pypi.org/simple/" \
+        --extra-index-url "https://oauth2accesstoken:${token}@asia-northeast1-python.pkg.dev/${PROJECT_ID}/unified-libraries/simple/" \
+        deployment-service; then
+        log "ERROR: pip install deployment-service (from internal wheel index) failed"
+        return 1
+    fi
+    export PYTHONPATH="${target}${PYTHONPATH:+:${PYTHONPATH}}"
+    if ! python3 -c "import deployment_service" >/dev/null 2>&1; then
+        log "ERROR: deployment_service still not importable after install -- aborting"
+        return 1
+    fi
+    log "  deployment_service now importable via PYTHONPATH=${target}"
+}
+ensure_deployment_service_importable || { log "ERROR: cannot proceed without a working deployment_service import -- aborting before any upload attempt"; exit 1; }
+
 # ── Phase 2+3: rebuild the changed repos in BOUNDED PARALLEL — clone → build+upload → cleanup ──
 # Serial (~3-4 min/repo, clone-bound) can't keep up with LDR's churn (~9-11 repos change between
 # runs). Run MAX_PAR at a time: each build is independent (its own temp workspace; create-code-
