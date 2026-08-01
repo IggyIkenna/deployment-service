@@ -287,7 +287,7 @@ class PeriodicTierDispatcher:
         open_leagues = [lg.league_id for lg in leagues if is_transfer_window_open(lg.league_id, today)]
         if not open_leagues:
             return None, "no transfer windows open"
-        return [_scope_to_leagues(svc, open_leagues)], f"transfer windows open for {len(open_leagues)} leagues"
+        return [scope_to_leagues(svc, open_leagues)], f"transfer windows open for {len(open_leagues)} leagues"
 
     def _gate_by_season_boundary(
         self,
@@ -315,7 +315,7 @@ class PeriodicTierDispatcher:
                     break
         if not triggering:
             return None, "no season boundary within tolerance"
-        return [_scope_to_leagues(svc, triggering)], f"season boundary near for {len(triggering)} leagues"
+        return [scope_to_leagues(svc, triggering)], f"season boundary near for {len(triggering)} leagues"
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +335,13 @@ def _args_of(svc: dict[str, object]) -> dict[str, object]:
     return args_raw if isinstance(args_raw, dict) else {}
 
 
-def _scope_to_leagues(svc: dict[str, object], leagues: list[str]) -> dict[str, object]:
-    """Return a copy of ``svc`` with ``--league`` populated from ``leagues``."""
+def scope_to_leagues(svc: dict[str, object], leagues: list[str]) -> dict[str, object]:
+    """Return a copy of ``svc`` with ``--league`` populated from ``leagues``.
+
+    Public (not module-private) — also reused by ``sports_trigger_scheduler.
+    fire_trigger`` to scope per-fixture dispatch to the ONE triggering league
+    (sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md).
+    """
     scoped = dict(svc)
     args = dict(_args_of(scoped))
     args["--league"] = ",".join(sorted(leagues))
@@ -344,4 +349,4 @@ def _scope_to_leagues(svc: dict[str, object], leagues: list[str]) -> dict[str, o
     return scoped
 
 
-__all__ = ["PeriodicTierDispatcher", "SchedulerDispatchAdapter"]
+__all__ = ["PeriodicTierDispatcher", "SchedulerDispatchAdapter", "scope_to_leagues"]

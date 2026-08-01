@@ -45,7 +45,7 @@ from .sports_trigger_evaluation import (
 from .sports_trigger_evaluation import (
     evaluate_pre_match_triggers as _evaluate_pre_match_triggers,
 )
-from .sports_trigger_periodic import PeriodicTierDispatcher, _scope_to_leagues
+from .sports_trigger_periodic import PeriodicTierDispatcher, scope_to_leagues
 from .sports_trigger_state import (
     FixtureInfo,
     PeriodicTierState,
@@ -314,7 +314,7 @@ class SportsTriggerScheduler:
         # sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md) — every other
         # service entry (e.g. instruments-service) keeps its own args untouched.
         scoped_services = [
-            _scope_to_leagues(cast("dict[str, object]", svc), [league_id])
+            scope_to_leagues(cast("dict[str, object]", svc), [league_id])
             if svc.get("service") == "market-tick-data-service"
             else cast("dict[str, object]", svc)
             for svc in event["services"]
