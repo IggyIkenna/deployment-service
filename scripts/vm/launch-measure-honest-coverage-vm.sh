@@ -27,30 +27,39 @@
 #   bash launch-measure-honest-coverage-vm.sh cefi                   # cefi only
 #   bash launch-measure-honest-coverage-vm.sh --env staging          # staging manifests
 #   bash launch-measure-honest-coverage-vm.sh --force                # bypass singleton lock
-#   bash launch-measure-honest-coverage-vm.sh --machine-type e2-standard-4  # override machine type
-#                                                                     # (default below; used for the
-#                                                                     # 16GB-vs-32GB right-sizing verification —
-#                                                                     # see honest_coverage_nightly_cron_undersized_and_launcher_ssot_drift_2026_07_16.md)
+#   bash launch-measure-honest-coverage-vm.sh --machine-type e2-highmem-4  # override machine type
+#                                                                     # (default below is now e2-standard-4;
+#                                                                     # use this to force the old 32GB size if a
+#                                                                     # future regression reintroduces the OOM)
 #   bash launch-measure-honest-coverage-vm.sh --oom-monitor           # opt-in ps/free/dmesg peak-RSS
 #                                                                     # capture (oom-hang-monitor.sh) for a
 #                                                                     # right-sizing verification run
 #
-# Cost: e2-highmem-4 (4 vCPU / 32 GiB) for ~5-15 minutes depending on manifest sizes.
+# Cost: e2-standard-4 (4 vCPU / 16 GiB) for ~5-15 minutes depending on manifest sizes.
 # THIS is the nightly-cron launcher — Cloud Scheduler `honest-coverage-daily` (00:30 UTC)
 # → Cloud Run Job `honest-coverage-daily-launcher` fetches THIS file from
 # gs://deployment-scripts-central-element-323112/vm/ and runs it (NOT
 # launch-honest-coverage-vm.sh). Re-upload via create-code-tarballs.sh after any edit.
 #
-# Right-sizing history + CURRENT rationale (2026-07-16, plan
-# data_status_page_ux_and_canonicalisation_2026_07_16 P1): the per-AG manifest loads
-# (cefi availability_index ~35.8M rows) OOM-killed even a 32 GiB box PRE the eu-only
-# secondary read; the eu-only pushdown (measure_honest_coverage._read_parquet_eu_only)
-# now bounds the oracle read to ~4.1M eu rows, and a manual e2-highmem-4 (32 GiB) run
-# measured ALL 5 asset groups on 2026-07-16. The 2026-06-16 downsize to e2-standard-4
-# (16 GiB) cited a column-pruned reader that was NEVER shipped (the writer still reads
-# instrument_id/instrument_type) — 16 GiB empirically OOM'd most AGs, so the nightly
-# wrote 1-AG partial coverage.json for weeks. Reverting to the PROVEN 32 GiB. A real
-# column-prune (plan DATA P2) would let this drop back to 16 GiB.
+# Right-sizing history (2026-07-16 → 2026-08-01): the per-AG manifest loads (cefi
+# availability_index ~35.8M rows) OOM-killed even a 32 GiB box PRE the eu-only secondary
+# read; the eu-only pushdown (measure_honest_coverage._read_parquet_eu_only) bounded the
+# oracle read to ~4.1M eu rows, and a manual e2-highmem-4 (32 GiB) run measured ALL 5
+# asset groups on 2026-07-16. The 2026-06-16 downsize to e2-standard-4 (16 GiB) at that
+# time cited a column-pruned reader that was NEVER shipped — 16 GiB empirically OOM'd
+# most AGs, so the nightly wrote 1-AG partial coverage.json for weeks, and the machine
+# type reverted to 32 GiB. The REAL memory bound landed 2026-08-01
+# (instruments-service@12825e81, defi_consolidated_native_ao_extract_2026_07_25.md INFRA
+# P2): main() now reads/computes/releases ONE asset_group's primary manifest at a time
+# instead of holding all 5 in memory simultaneously, bounding peak RSS to the single
+# largest asset_group's read. Empirically re-verified same-day: a control run on
+# e2-highmem-4 (32 GiB) peaked at 7.53 GB RSS; a test run on e2-standard-4 (16 GiB), same
+# commit, same --asset-group all, produced a coverage.json whose per-(venue,
+# instrument_type, data_type) leaf shard counts were byte-identical to the control run for
+# cefi/tradfi/sports/prediction and differed only for defi (4/193 leaf shards, all
+# monotonic growth from live capture activity in the ~8min gap between runs, zero
+# regressions, zero shard-set drift) — peaked at 8.20 GB RSS, no OOM. Downsized back to
+# e2-standard-4 on this evidence.
 set -euo pipefail
 
 # shellcheck source=lib/launcher_common.sh
@@ -59,7 +68,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 FORCE=false
 ASSET_GROUP="all"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
-MACHINE_TYPE="e2-highmem-4"
+MACHINE_TYPE="e2-standard-4"
 OOM_MONITOR=false
 
 DRY_RUN=false
