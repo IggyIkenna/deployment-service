@@ -1252,7 +1252,23 @@ _launch_with_tee() {
 # Composes with todo (b) in vm_zombie_watchdog_diagnosis_2026_05_28.md:
 # this is the "option (b) shell preflight" variant; option (a) (in-Python
 # fail-fast at UTL ManifestReader) remains a future hardening.
-if [[ "${VM_SERVICE:-}" == "market_tick_data_service" && "${VM_OPERATION:-}" == "download" ]]; then
+#
+# SKIP under IS_TEST_RUN (2026-08-01,
+# pipeline_e2e_check_missing_env_flag_test_bucket_403_2026_08_01.md): this
+# preflight's own bucket-name formula (${DEPLOYMENT_ENV_SHORT}) can never match
+# the REAL `--test-run` output bucket, which is always the dedicated `-test-`
+# tier (`market-data-tick-{ag}-test-{project}`, gated by IS_TEST_RUN — see the
+# IS_TEST_RUN comment above), not `-stg-`/`-prd-` (DEPLOYMENT_ENV_SHORT's only
+# two real values). So this block previously always missed the real bucket and
+# silently proceeded (the "not found" WARNING branch) — masking, rather than
+# guarding against, exactly the staleness this preflight exists to catch. But
+# per the same rationale already codified for MANIFEST_ALLOW_STALE_FALLBACK
+# just above ("test buckets are always small — smoke-test data only — so the
+# OOM concern doesn't apply there"), the correct fix is not to repoint the
+# bucket name at `-test-` but to skip the check outright: a test-run's per-VM
+# shard count is orders of magnitude below the 1700+-shard prod scenario this
+# preflight guards against, so there is no OOM risk here to catch.
+if [[ "${VM_SERVICE:-}" == "market_tick_data_service" && "${VM_OPERATION:-}" == "download" && -z "${IS_TEST_RUN:-}" ]]; then
     _AG_LOWER=$(echo "${VM_ASSET_GROUP:-}" | tr '[:upper:]' '[:lower:]')
     # cloud-providers.yaml uses 'pred' (not 'prediction') in the bucket short name.
     [[ "$_AG_LOWER" == "prediction" ]] && _AG_LOWER="pred"
