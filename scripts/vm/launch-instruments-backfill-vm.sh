@@ -211,7 +211,7 @@ launch_vm() {
 
   gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
-    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT_ID}")" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "${PROJECT_ID}" "${TEST_RUN}")" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
     ${PROVISIONING_FLAGS} \

@@ -6,12 +6,17 @@
 #
 # Provides:
 #   lc_validate_env <env>                  — validate prod|staging|dev; exit 1 on bad value
-#   lc_tier_service_account <env> <project> — emit the per-tier runtime SA email for <env>
+#   lc_tier_service_account <env> <project> [test_run=false]
+#                                          — emit the per-tier runtime SA email for <env>
 #                                            (uts-prd-sa for prod, uts-test-sa for staging/dev);
-#                                            env-overridable via LC_RUNTIME_SA= for an instant
-#                                            revert, mirrors scripts/cloud-run/deploy-shared.sh's
-#                                            RUNTIME_SA= pattern (bucket_iam_write_protection_per_tier
-#                                            P2.2d)
+#                                            test_run=true FORCES uts-test-sa regardless of <env>
+#                                            (a --test-run/IS_TEST_RUN launch routes GCS writes to
+#                                            the -test- bucket sibling, which uts-prd-sa's IAM
+#                                            condition does NOT cover — see DP-VM-002 fix note on
+#                                            the function itself); env-overridable via LC_RUNTIME_SA=
+#                                            for an instant revert, mirrors
+#                                            scripts/cloud-run/deploy-shared.sh's RUNTIME_SA=
+#                                            pattern (bucket_iam_write_protection_per_tier P2.2d)
 #   lc_singleton_check <prefix> <zone> <project> [force=false]
 #                                          — refuse duplicate launch unless force=true
 #   lc_gcloud_create <vm_name> <project> <zone> <machine_type> <disk_gb> <metadata> <labels>
@@ -107,7 +112,7 @@ lc_validate_env() {
 }
 
 # ---------------------------------------------------------------------------
-# lc_tier_service_account <env> <project>
+# lc_tier_service_account <env> <project> [test_run=false]
 # ---------------------------------------------------------------------------
 # Emit the per-tier runtime SA email for <env>: uts-prd-sa for prod,
 # uts-test-sa for staging/dev (bucket_iam_write_protection_per_tier_2026_06_09.md
@@ -116,18 +121,27 @@ lc_validate_env() {
 # per-launcher revert to the prior default-compute-SA behavior (pass "" through
 # to lc_gcloud_create's service_account arg to opt out entirely).
 #
-# Scope note: only for launchers that write exclusively into Group A/B
-# raw-data buckets (market-data-tick-*, instruments-store-*, features-*, per
-# the ratified bucket->scheme table in
-# issues/bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md).
-# A launcher writing into a per-service-scoped bucket (ml-store/execution-store/
-# strategy-store/portfolio-state, or a named domain service) should NOT use
-# this — that classification pass is separate, ongoing P2.2d work.
+# test_run=true FORCES uts-test-sa regardless of <env> (fix for DP-VM-002,
+# 2026-08-01: a --test-run/IS_TEST_RUN launch routes the VM's GCS writes to the
+# -test- bucket sibling via get_write_bucket_name(), but every caller of this
+# helper still passed the launcher's own DEPLOYMENT_ENV — which defaults to
+# "prod" and is never overridden by the pipeline_e2e_check.py smoke-check
+# harnesses that drive --test-run. uts-prd-sa's storage.objectAdmin grant is an
+# IAM CONDITION scoped to Group A/B `*-prd-*` bucket-name prefixes ONLY
+# (bucket_iam_per_tier_sa.tf) — by design, not an oversight — so every such run
+# 403'd on its manifest/event writes while still self-deleting with exit_code=0,
+# which is exactly the DP-VM-002 "self-delete masking a 0-row run" shape.
+# Root-cause incident: instr-backfill-sports-pchk-0801100312-f-betfair (agt-e2fffb).
 lc_tier_service_account() {
     local env="${1:?lc_tier_service_account: env required}"
     local project="${2:?lc_tier_service_account: project required}"
+    local test_run="${3:-false}"
     if [[ -n "${LC_RUNTIME_SA:-}" ]]; then
         echo "$LC_RUNTIME_SA"
+        return 0
+    fi
+    if [[ "$test_run" == "true" ]]; then
+        echo "uts-test-sa@${project}.iam.gserviceaccount.com"
         return 0
     fi
     case "$env" in
