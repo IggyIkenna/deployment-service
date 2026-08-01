@@ -14,31 +14,21 @@
 #   * Sequential per-repo (clone→build→cleanup) so peak scratch is one repo (LDR is highly
 #     active — many repos can change between runs; /tmp is memory-backed in Cloud Run).
 #
-# The job uses the cloud-sdk image (git + gsutil + gcloud), reads GH_PAT from Secret Manager
-# to clone private repos, and bootstraps by cloning deployment-service@LDR for the scripts
-# (so the cron always runs the latest refresh logic — no stale bucket copy).
-#
 # Created imperatively 2026-06-17 (ADC admin); this file is the IaC SSOT.
+#
+# IMAGE (changed 2026-08-01, see code_tarball_refresh_job_silently_failing_since_2026_07_30_2026_08_01.md):
+# reuses deployment-service:latest — same maintenance-jobs image tarball_cleanup_scheduler.tf /
+# vm_log_archival_scheduler.tf already use, built by cloud-build/deployment-service-jobs-image.cloudbuild.yaml
+# (`code-tarball-refresh` added to that config's redeploy-jobs list so future builds keep it in sync).
+# The ORIGINAL design used the stock `gcr.io/google.com/cloudsdktool/google-cloud-cli:latest` image with a
+# bootstrap that sparse-checked-out ONLY scripts/vm/ from deployment-service@LDR (to avoid a slow full clone) —
+# this silently broke `gcs_upload_via_adc.py`'s `from deployment_service... import main`: the sparse checkout
+# never included the `deployment_service` PACKAGE itself, so every upload crashed with ModuleNotFoundError
+# while the tarball BUILD step (which doesn't need the package) kept succeeding, masking the failure for 2+
+# days. `deployment-service:latest` already has the full `deployment_service` package installed (Python
+# 3.13.14, matching the package's own `requires-python`) AND git/bash/tar/gcloud (all verified present) — no
+# bootstrap/sparse-checkout needed at all; the job just runs the script straight from the baked-in image.
 # SSOT: codex/05-infrastructure/vm-tarball-deployment.md.
-
-locals {
-  # cloud-sdk image: has git, gsutil, gcloud, bash, tar. The job clones deployment-service@LDR
-  # for the refresh scripts, then runs refresh_code_tarballs.sh.
-  # NOTE: avoid the `|` character (e.g. `||`) — the imperative `gcloud run jobs ... --args=^|^`
-  # deploy uses `|` as the list delimiter, and `||` fragments the command (incident 2026-06-17:
-  # the job silently ran only `command -v git` → no-op exit 0). Use `if/fi` instead.
-  # Bootstrap: SPARSE-checkout only scripts/vm/ from deployment-service@LDR (a few KB), NOT the
-  # full ~1.9 GiB repo — the full clone was ~14 min of every run's startup. Then run the refresh
-  # script (always the latest LDR logic — no stale bucket copy).
-  code_tarball_refresh_bootstrap = <<-EOT
-    set -e
-    if ! command -v git >/dev/null 2>&1; then apt-get -qq update >/dev/null && apt-get -qq install -y git >/dev/null; fi
-    PAT=$(gcloud secrets versions access latest --secret=GH_PAT --project="$GCP_PROJECT_ID")
-    git clone -q --depth 1 -b live-defi-rollout --filter=blob:none --sparse "https://x-access-token:$PAT@github.com/IggyIkenna/deployment-service.git" /tmp/ds
-    git -C /tmp/ds sparse-checkout set scripts/vm
-    exec bash /tmp/ds/scripts/vm/refresh_code_tarballs.sh --project "$GCP_PROJECT_ID"
-  EOT
-}
 
 module "code_tarball_refresh_job" {
   source = "../modules/container-job/gcp"
@@ -48,15 +38,17 @@ module "code_tarball_refresh_job" {
   region                = var.region
   service_account_email = google_service_account.unified_trading.email # secretAccessor(GH_PAT) + storage.objectAdmin(code bucket)
 
-  image = "gcr.io/google.com/cloudsdktool/google-cloud-cli:latest"
+  # deployment-service jobs image — see the IMAGE note above. WORKDIR is /app, so the script
+  # path below resolves as scripts/vm/... (mirrors tarball_cleanup_scheduler.tf's convention).
+  image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/deployment-service:latest"
 
   cpu             = "4"
-  memory          = "16Gi" # memory-backed /tmp: sparse bootstrap (KB) + 1 repo's clone+tarball at a time (per-repo bounded)
-  timeout_seconds = 3600    # 60 min — LDR is high-churn (~9 repos can change between runs) at ~3-4 min/repo serial
-  max_retries     = 0       # SHA-skip + idempotent overwrite → a timed-out run just rebuilds fewer; next tick converges
+  memory          = "16Gi" # memory-backed /tmp: 1 repo's clone+tarball at a time (per-repo bounded)
+  timeout_seconds = 3600   # 60 min — LDR is high-churn (~9 repos can change between runs) at ~3-4 min/repo serial
+  max_retries     = 0      # SHA-skip + idempotent overwrite → a timed-out run just rebuilds fewer; next tick converges
 
-  command = ["/bin/sh"]
-  args    = ["-c", local.code_tarball_refresh_bootstrap]
+  command = ["bash"]
+  args    = ["scripts/vm/refresh_code_tarballs.sh", "--project", var.project_id]
 
   environment_variables = {
     GCP_PROJECT_ID = var.project_id

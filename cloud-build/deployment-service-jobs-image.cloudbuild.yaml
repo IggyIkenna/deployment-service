@@ -9,6 +9,9 @@
 #   - terraform/gcp/tarball_cleanup_scheduler.tf   -> scripts/vm/cleanup_old_tarballs.py
 #   - terraform/gcp/vm_log_archival_scheduler.tf   -> python -m scripts.vm.vm_log_archival_cron
 #   - terraform/gcp/live_event_log/compaction_job.tf -> python -m deployment_service.jobs.live_event_log_compactor
+#   - terraform/gcp/code_tarball_refresh_scheduler.tf -> bash scripts/vm/refresh_code_tarballs.sh (added
+#     2026-08-01 — see code_tarball_refresh_job_silently_failing_since_2026_07_30_2026_08_01.md; the stock
+#     cloud-sdk image it used before never had `deployment_service` importable)
 # The jobs run in every environment off the SAME image (one GCP project, env via TF var).
 #
 # Run:
@@ -102,7 +105,7 @@ steps:
       - "-c"
       - |
         IMG="${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REGISTRY_REPO}/${_IMAGE_NAME}:latest"
-        for job in uts-prod-tarball-cleanup vm-log-archival-prd live-event-log-compactor; do
+        for job in uts-prod-tarball-cleanup vm-log-archival-prd live-event-log-compactor code-tarball-refresh; do
           echo "Re-resolving $${job} -> $${IMG}"
           gcloud run jobs update "$${job}" --image="$${IMG}" --region="${_REGION}" --project="${PROJECT_ID}" \
             || echo "WARN: could not update $${job} (may not exist in this env) — image push still succeeded"
