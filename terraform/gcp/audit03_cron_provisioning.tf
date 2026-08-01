@@ -38,8 +38,13 @@ module "mtds_fast_t1_recon_job" {
   region                = var.region
   service_account_email = google_service_account.unified_trading.email
   image                 = local.mtds_image
-  cpu                   = "2"
-  memory                = "8Gi" # 4Gi OOM-killed on 2026-05-22; 8Gi verified SUCCEEDED
+  cpu                   = "4"
+  memory                = "16Gi" # 4Gi OOM-killed 2026-05-22; 8Gi OOM-killed (SPORTS, unscoped 30-league fetch per
+  # single-fixture trigger, exposed by 410d7569) from ~2026-07-27 through 2026-08-01 -- see
+  # plans/active/issues/sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md. OPERATOR-approved stop-gap
+  # 2026-08-01 (msg 3112): bump to 16Gi/4cpu, applied live via `gcloud run jobs update`, verified writing real
+  # raw_tick_data for the current day. Memory bump alone masks the root cause (unscoped fetch) -- the --league
+  # scoping fix in sports_trigger_scheduler.py is the real fix, tracked separately in the same issue doc.
   timeout_seconds       = 3600
   max_retries           = 1
   parallelism           = 1
