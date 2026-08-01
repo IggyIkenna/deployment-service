@@ -75,9 +75,22 @@ locals {
   # asset_group → { instruments-store catalogue bucket, MTDS manifest bucket (shard target), per-AG enumerator args }.
   # Buckets are the canonical env-short shapes per resolve_bucket_name / cloud-providers.yaml
   # (matches lifecycle_catalogue_scheduler.tf; prediction = the "pred" short key).
+  #
+  # cpu/memory default to the shared 2/8Gi tier below (module defaults) — DeFi
+  # overrides to 8/32Gi (documented memory-bump stopgap, 2026-08-01,
+  # plans/active/issues/defi_v2_expected_universe_enumerator_oom_2026_08_01.md):
+  # even after streaming BOTH the write path (Todo 1) and the manifest read
+  # path, the enumerator's in-memory present_set/captured_set (built from
+  # DeFi's ~29.96M-row consolidated index, ~30M present-set string-tuples) is
+  # itself several-GB-to-tens-of-GB in pure Python object overhead, independent
+  # of how the manifest is READ — streaming the read only bounds the transient
+  # per-batch DataFrame, not the accumulated output sets. Per this craft's
+  # EFFICIENCY north-star (stream first, scale hardware second) this is a
+  # scoped, DeFi-only stopgap, not a blanket bump — cefi/tradfi/sports/
+  # prediction stay on the working 2/8Gi tier.
   expected_universe_v2_asset_groups = {
     cefi       = { catalogue_bucket = "instruments-store-cefi-prd-central-element-323112", manifest_bucket = "market-data-tick-cefi-prd-central-element-323112" }
-    defi       = { catalogue_bucket = "instruments-store-defi-prd-central-element-323112", manifest_bucket = "market-data-tick-defi-prd-central-element-323112" }
+    defi       = { catalogue_bucket = "instruments-store-defi-prd-central-element-323112", manifest_bucket = "market-data-tick-defi-prd-central-element-323112", cpu = "8", memory = "32Gi" }
     tradfi     = { catalogue_bucket = "instruments-store-tradfi-prd-central-element-323112", manifest_bucket = "market-data-tick-tradfi-prd-central-element-323112" }
     sports     = { catalogue_bucket = "instruments-store-sports-prd-central-element-323112", manifest_bucket = "instruments-store-sports-prd-central-element-323112" }
     prediction = { catalogue_bucket = "instruments-store-pred-prd-central-element-323112", manifest_bucket = "market-data-tick-pred-prd-central-element-323112" }
@@ -137,9 +150,12 @@ module "expected_universe_v2_job" {
   # /app/instruments-service/scripts/ (same image as lifecycle-catalogue-regen).
   image = "${var.region}-docker.pkg.dev/${var.project_id}/unified-trading-system/instruments-service:latest"
 
-  cpu             = "2"
-  memory          = "8Gi" # 222k-instrument cefi catalogue × window × data_types cross-product is RAM-heavy
-  timeout_seconds = 3600  # 60 min — catalogue load + cross-join + per-VM shard write
+  # 222k-instrument cefi catalogue × window × data_types cross-product is RAM-heavy;
+  # per-AG override (DeFi only, see the locals block above) for the present_set/
+  # captured_set memory-bump stopgap.
+  cpu             = try(each.value.cpu, "2")
+  memory          = try(each.value.memory, "8Gi")
+  timeout_seconds = 3600 # 60 min — catalogue load + cross-join + per-VM shard write
   max_retries     = 1
   parallelism     = 1
   task_count      = 1
