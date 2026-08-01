@@ -27,6 +27,13 @@
 #   bash launch-measure-honest-coverage-vm.sh cefi                   # cefi only
 #   bash launch-measure-honest-coverage-vm.sh --env staging          # staging manifests
 #   bash launch-measure-honest-coverage-vm.sh --force                # bypass singleton lock
+#   bash launch-measure-honest-coverage-vm.sh --machine-type e2-standard-4  # override machine type
+#                                                                     # (default below; used for the
+#                                                                     # 16GB-vs-32GB right-sizing verification —
+#                                                                     # see honest_coverage_nightly_cron_undersized_and_launcher_ssot_drift_2026_07_16.md)
+#   bash launch-measure-honest-coverage-vm.sh --oom-monitor           # opt-in ps/free/dmesg peak-RSS
+#                                                                     # capture (oom-hang-monitor.sh) for a
+#                                                                     # right-sizing verification run
 #
 # Cost: e2-highmem-4 (4 vCPU / 32 GiB) for ~5-15 minutes depending on manifest sizes.
 # THIS is the nightly-cron launcher — Cloud Scheduler `honest-coverage-daily` (00:30 UTC)
@@ -52,6 +59,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 FORCE=false
 ASSET_GROUP="all"
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
+MACHINE_TYPE="e2-highmem-4"
+OOM_MONITOR=false
 
 DRY_RUN=false
 
@@ -66,13 +75,21 @@ while [[ $# -gt 0 ]]; do
       DEPLOYMENT_ENV="$2"
       shift 2
       ;;
+    --machine-type)
+      MACHINE_TYPE="$2"
+      shift 2
+      ;;
+    --oom-monitor)
+      OOM_MONITOR=true
+      shift
+      ;;
     cefi|defi|tradfi|sports|prediction|all)
       ASSET_GROUP="$1"
       shift
       ;;
     *)
       echo "ERROR: unknown arg: $1" >&2
-      echo "Usage: $0 [--force] [--env prod|staging|dev] [cefi|defi|tradfi|sports|prediction|all]" >&2
+      echo "Usage: $0 [--force] [--env prod|staging|dev] [--machine-type TYPE] [--oom-monitor] [cefi|defi|tradfi|sports|prediction|all]" >&2
       exit 1
       ;;
   esac
@@ -130,8 +147,11 @@ METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP}"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 METADATA="${METADATA},VM_SHUTDOWN_ON_COMPLETION=true"
+if $OOM_MONITOR; then
+  METADATA="${METADATA},VM_OOM_MONITOR=true"
+fi
 
-echo "Launching $VM_NAME: measure-honest-coverage asset_group=${ASSET_GROUP} env=${DEPLOYMENT_ENV}"
+echo "Launching $VM_NAME: measure-honest-coverage asset_group=${ASSET_GROUP} env=${DEPLOYMENT_ENV} machine_type=${MACHINE_TYPE}"
 
 if [[ "${DRY_RUN:-false}" == "true" ]]; then
   echo "[DRY-RUN] Would create VM: "$VM_NAME""
@@ -147,13 +167,13 @@ else
     --project="$PROJECT" \
     --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
-    --machine-type=e2-highmem-4 \
+    --machine-type="${MACHINE_TYPE}" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
     --boot-disk-size="${BOOT_DISK_SIZE:-250GB}" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
-    --labels=purpose=measure-honest-coverage,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
+    --labels=purpose=measure-honest-coverage,asset-group="${ASSET_GROUP}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service,machine-type="${MACHINE_TYPE//./-}"
 fi
 
 echo ""
