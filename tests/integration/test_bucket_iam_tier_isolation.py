@@ -28,7 +28,7 @@ matching every other test in this module's "skip, don't fail, on a permission ga
 environment.
 
 To run:
-    RUN_INTEGRATION=true GCP_PROJECT_ID=central-element-323112 \
+    RUN_INTEGRATION=true GCP_PROJECT_ID=<your-gcp-project-id> \
         pytest tests/integration/test_bucket_iam_tier_isolation.py -v
 """
 
