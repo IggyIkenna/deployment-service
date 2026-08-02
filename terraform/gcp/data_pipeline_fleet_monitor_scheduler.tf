@@ -128,14 +128,21 @@ module "data_pipeline_heartbeat_watcher_job" {
 
   image = local.data_pipeline_monitor_image
 
-  # 8Gi/cpu2 (bumped from 2Gi/cpu1 2026-06-23) — the heartbeat sweep reads the full VM
-  # census + per-VM shard rows for the whole RUNNING fleet, so it OOM'd at 2Gi AND 4Gi on
-  # every */5 run ("configured memory limit was reached") → its last-run sentinel was never
-  # written → DP_CRON_DID_NOT_FIRE (heartbeat). Cloud Run requires cpu>=2 at 8Gi.
-  # exit-code + meta ALSO need 8Gi/cpu2 (bumped 2026-06-23) — they OOM'd at 2Gi AND 4Gi too
-  # (signal 9 on every run) → stale sentinels → deadman pages all 3 "never ran".
-  cpu             = "2"
-  memory          = "8Gi"
+  # 16Gi/cpu4 (bumped from 8Gi/cpu2 2026-08-02, DP-WATCHER-002 escalation agt-4cb519) — the
+  # fleet grew past what 8Gi supports: `gcloud run jobs executions list` showed the sweep
+  # flapping between OOM ("configured memory limit was reached", exit 0) and success from
+  # 2026-08-02T10:04Z onward (continuous OOM 10:18-11:33Z, 15 straight failed */5 runs), the
+  # exact same growth-past-the-current-ceiling pattern the meta-watcher hit on 2026-06-24 (also
+  # fixed by doubling memory, 8Gi->16Gi/cpu4 there). A failed run never reaches the sentinel
+  # write (`_gcs.write_monitor_last_run`), so every OOM'd sweep silently drops a heartbeat
+  # tick — the meta sweep's `check_monitor_crons_fired` sees the sentinel go stale past its
+  # 2x-cadence (10 min) budget and pages DP_CRON_DID_NOT_FIRE (DP-WATCHER-002). Was 8Gi/cpu2
+  # (bumped from 2Gi/cpu1 2026-06-23) — the heartbeat sweep reads the full VM census +
+  # per-VM shard rows for the whole RUNNING fleet, so it OOM'd at 2Gi AND 4Gi on every */5 run
+  # before that fix too. exit-code stays 8Gi/cpu2 (bumped 2026-06-23, no OOM observed there
+  # currently) — re-bump it too if the same flapping pattern recurs there.
+  cpu             = "4"
+  memory          = "16Gi"
   timeout_seconds = 300
   max_retries     = 0
   parallelism     = 1
