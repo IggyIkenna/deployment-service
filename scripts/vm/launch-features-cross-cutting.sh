@@ -16,13 +16,19 @@
 # `min(stream_watermarks) > target_window_close + grace`, propagates degraded
 # / STALE per Phase 6.2 worst-of rules.
 #
-# Bucket-naming SSOT: this launcher uses the (b+) env-aware shape codified
-# 2026-05-11 per `bucket_name_ssot_canonicalisation_2026_05_10.md`.
-# Cross-cutting features write to `features-cross-instrument-{env}-{pid}` +
-# `features-multi-timeframe-{env}-{pid}` buckets (aliased shorter kind names
-# per Q5 resolution: `features-xinstr` / `features-mtf` to fit AWS 63-char
-# limit). Resolver: `unified_trading_library.cloud_interface.bucket_naming.resolve_bucket_name(
-# cloud=, kind=, asset_group=, env=)`.
+# Bucket-naming: the CrossCuttingFeaturesRunner this VM runs (UTL
+# `feature_service_base.live_aggregator.CrossCuttingFeaturesRunner`, wired via
+# `features_service.common.live_cross_cutting.build_cross_cutting_runner`) is EVENT-ONLY —
+# it subscribes to per-asset_group Redis Streams and emits `FeaturesComputedEvent` through
+# an injected `emission_publisher` callable; it contains no GCS/`resolve_bucket_name` call
+# anywhere (verified by reading `unified_trading_library/feature_service_base/
+# live_aggregator.py` in full, P2.2d2c). The stale `features-cross-instrument-{env}-{pid}` /
+# `features-multi-timeframe-{env}-{pid}` bucket names previously documented here do not
+# exist in the current `cloud-providers.yaml` (a pre-Fold-A shape — see P2.2d2b's disposition
+# note in bucket_iam_write_protection_per_tier_2026_06_09.md). So this VM's only GCS writes
+# are the standard heartbeat/run.log/LAUNCH_PARAMS.json observability writes every launcher
+# makes to deployment-scripts-<project> — covered by the tier SA wired below, no per-family
+# feature-bucket grant needed.
 #
 # Singleton-locked: refuses to launch if a same-prefix VM (`features-xc-*`) is
 # already RUNNING in the zone. The cross-cutting consumer-group is intentionally
@@ -123,6 +129,7 @@ else
 
   gcloud compute instances create "$VM_NAME" \
     --project="$PROJECT" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
     --zone="$ZONE" \
     --machine-type=e2-standard-8 \
     --image-family=ubuntu-2404-lts-amd64 \
