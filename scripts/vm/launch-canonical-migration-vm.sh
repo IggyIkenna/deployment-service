@@ -1698,8 +1698,19 @@ _launch() {
         return 0
     fi
 
+    # Tier-SA wiring (P2.2d2c, bucket_iam_write_protection_per_tier_2026_06_09.md): this
+    # launcher writes BOTH env-tiered Group A/B raw-data buckets (the migration targets
+    # themselves) AND the control-plane deployment-scripts-<project> bucket (mapping-TSV
+    # staging via CODE_BUCKET, plus every VM's standard heartbeat/run.log/LAUNCH_PARAMS.json
+    # writes). Confirmed via terraform/gcp/bucket_iam_per_tier_sa.tf +
+    # issues/pipeline_e2e_check_missing_env_flag_test_bucket_403_2026_08_01.md that BOTH
+    # tier SAs already hold a non-tier-conditioned deployment-scripts grant (uts-prd-sa via
+    # the declared uts_prd_deployment_scripts_object_admin resource; uts-test-sa via a live,
+    # equivalent grant made 2026-08-01 — now also terraform-declared, see this same commit)
+    # — no second --service-account is needed for the CODE_BUCKET writes.
     gcloud compute instances create "$vm_name" \
         --project="$PROJECT" \
+        --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
         --zone="$ZONE" \
         --machine-type="$MACHINE_TYPE" \
         "${PROVISIONING_ARGS[@]}" \

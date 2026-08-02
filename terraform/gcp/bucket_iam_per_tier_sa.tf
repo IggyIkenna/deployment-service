@@ -373,6 +373,25 @@ resource "google_storage_bucket_iam_member" "uts_prd_deployment_scripts_object_a
   member = "serviceAccount:${google_service_account.uts_prd.email}"
 }
 
+# uts-test-sa mirror of the uts-prd-sa grant above — LIVE-APPLIED 2026-08-01 (ad-hoc
+# `gcloud storage buckets add-iam-policy-binding`, per
+# issues/pipeline_e2e_check_missing_env_flag_test_bucket_403_2026_08_01.md) but never
+# terraform-declared until now (P2.2d2c, bucket_iam_write_protection_per_tier_2026_06_09.md):
+# a -test--tier VM (uts-test-sa, e.g. any launcher run with --env staging, or a
+# pipeline_e2e_check.py --test-run leg) needs the SAME deployment-scripts write access as
+# uts-prd-sa for its heartbeat/run.log/LAUNCH_PARAMS.json/EXIT_STATUS observability writes —
+# the bucket lacks Uniform Bucket-Level Access, so this is unconditional like its prd sibling
+# (an IAM Condition scoped to vm-logs/vm-heartbeat/deployments prefixes was attempted live
+# and rejected with a 412 for exactly that reason, per the cited issue doc). Adding the
+# declaration here brings config back in sync with already-live state; a `tofu plan` after
+# this commit should show 0 changes for this resource (import if the live binding predates
+# this declaration and tofu reports it as a new create).
+resource "google_storage_bucket_iam_member" "uts_test_deployment_scripts_object_admin" {
+  bucket = "deployment-scripts-${var.project_id}"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.uts_test.email}"
+}
+
 # unified-deployment-state-{project} predates Terraform and was never adopted
 # (no google_storage_bucket resource manages it — confirmed via `gcloud storage
 # buckets list`; tracked as its own IaC-adoption gap, out of scope here). This
