@@ -853,6 +853,7 @@ _HONEST_ABSENCE_RE = re.compile(
     r"honest.?absence|record_empty|all (entities|expected sentinels|venues) already (captured|covered)"
     r"|already captured\b|0 trades\b|off.?season|EXPECTED_PAUSED_LEAGUE|EXPECTED_NO_PROVIDER_COVERAGE"
     r"|fetching \[\]|Nothing to do\b|Skipping .* already captured|no fixtures"
+    r"|no fixture venue"  # SINGULAR weather.py OPEN_METEO honest-absence — false-fired DP_VM_GONE_NO_CAPTURE 2026-08-02, agt-299005
     # MTDS idempotent-skip pre-flight: a re-run found the (venue, date) already fully
     # captured and correctly skipped re-fetching → captured 0→0 is benign already-done,
     # NOT a silent zero (venue_fetch.py:248). Without this the classifier false-positived
