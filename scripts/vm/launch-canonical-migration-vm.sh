@@ -1712,6 +1712,11 @@ _launch() {
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
+        # sports-features-purge's script lives in features-service, not MTDS (see VM_SERVICE
+        # override above) -- found 2026-07-27 when a launch silently staged a stale
+        # features-service tarball (missing a just-shipped script) because this override was
+        # missing and the default _fresh_repos list never checks features-service at all.
+        [[ "$cat" == "sports-features-purge" ]] && _fresh_repos=(features-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
