@@ -240,6 +240,11 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "orphan-sweep-defi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-tradfi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-prediction-": "launch-orphan-sweep-vm.sh",
+    # features-service GCS→manifest orphan sweep (feature_orphan_sweep.py) — read-only,
+    # checkpoint-resumable per family x asset_group cell. One prefix covers every cell
+    # (VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-{ts}), same reasoning as the
+    # single "gcs-migration-phase0-" entry above.
+    "feat-orph-": "launch-feature-orphan-sweep-vm.sh",
     # Sports derived_features post-floor residue census — read-only + idempotent
     # (re-running just re-scans and overwrites the same fixed report path), so a
     # SPOT preemption relaunch is a safe restart-from-scratch.
