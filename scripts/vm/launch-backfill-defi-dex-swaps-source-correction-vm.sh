@@ -133,10 +133,20 @@ METADATA="${METADATA},VM_OPERATION=backfill-defi-dex-swaps"
 METADATA="${METADATA},VM_ASSET_GROUP=DEFI"
 METADATA="${METADATA},VM_NAME=${VM_NAME}"
 # the tool logs "day=<d>: already_covered=... needs_copy=..." for every non-empty
-# day and "checkpoint: N/M days done" every 20 days -- "checkpoint" recurs
-# throughout a full --apply run, matching the launcher convention of keying the
-# stall timer on a token that repeats, not just once at the top.
-METADATA="${METADATA},STALL_PROGRESS_REGEX=checkpoint"
+# day and only logs "checkpoint: N/M days done" every 20th day (backfill_defi_
+# dex_pool_swaps_source_correction.py::run_remediate, `if i % 20 == 0`) -- at the
+# observed ~2-7min/day processing rate, 20 days can take 40-140min, comfortably
+# exceeding STALL_TIMEOUT_SEC=3600s (60min) BEFORE the first "checkpoint" line is
+# ever written. A prior STALL_PROGRESS_REGEX=checkpoint config assumed the token
+# "recurs throughout a full run", which was wrong for this cadence -- it self-
+# killed a genuinely healthy, actively-processing VM
+# (backfill-defi-dex-swaps-20260803-092530, confirmed via its own
+# WATCHDOG_TRACE.log: progress=0 for all 58 iterations across ~60min while the
+# log kept growing). Using "day=" instead keys the stall timer on the
+# per-day-processed line, which recurs far more frequently than the periodic
+# checkpoint write. See
+# plans/active/issues/vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md.
+METADATA="${METADATA},STALL_PROGRESS_REGEX=day="
 METADATA="${METADATA},STALL_TIMEOUT_SEC=3600"
 METADATA="${METADATA},VM_BACKFILL_CMD=${BACKFILL_CMD}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
