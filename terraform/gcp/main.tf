@@ -655,6 +655,216 @@ resource "google_project_iam_member" "unified_trading_artifactregistry_reader" {
   member  = "serviceAccount:${google_service_account.unified_trading.email}"
 }
 
+# ---------------------------------------------------------------------------
+# Drift reconciliation (2026-08-03) — unified_trading_sa_live_iam_drift_vs_terraform_2026_07_31.md P2.
+# These 29 roles were already live on unified-trading-sa's project IAM policy (granted outside
+# terraform — console/gcloud/an untracked process — before this checkout ever declared them) but
+# had zero terraform declaration anywhere in this repo, so `tofu plan` never saw them as drift.
+# Per the doc's P1 operator ruling (2026-08-03): KEEP as-is, import don't remove — audit-log
+# provenance for 21 of the original 24 (incl. both self-escalation-capable roles below) is
+# permanently unrecoverable (predates the 400-day Cloud Audit Log retention floor), so revocation
+# would be speculative. This block documents CURRENT reality so future `tofu plan` runs catch any
+# further drift instead of staying blind to it. Re-verified live via a fresh
+# `gcloud projects get-iam-policy` query at landing time (2026-08-03) rather than trusting the
+# 2026-07-31 audit numbers verbatim — the live count had already grown from 24 to 29 undeclared
+# roles in the 3 intervening days (confirms the doc's own "live, still-open leak" finding), so this
+# import covers the CURRENT set, not the original one. Matching `import {}` blocks live in
+# _imports_reconcile.tf (this repo's established home for binding already-live resources into state
+# without a destroy/recreate). `roles/resourcemanager.projectIamAdmin` and
+# `roles/iam.serviceAccountAdmin` are the two self-escalation-capable roles flagged in the doc —
+# kept per the P1 ruling, not because they were re-justified.
+resource "google_project_iam_member" "unified_trading_artifactregistry_admin" {
+  project = var.project_id
+  role    = "roles/artifactregistry.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_bigquery_admin" {
+  project = var.project_id
+  role    = "roles/bigquery.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_bigquery_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudbuild_builds_editor" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.editor"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudbuild_builds_viewer" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudfunctions_viewer" {
+  project = var.project_id
+  role    = "roles/cloudfunctions.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudkms_viewer" {
+  project = var.project_id
+  role    = "roles/cloudkms.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudscheduler_admin" {
+  project = var.project_id
+  role    = "roles/cloudscheduler.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudscheduler_viewer" {
+  project = var.project_id
+  role    = "roles/cloudscheduler.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_cloudsql_admin" {
+  project = var.project_id
+  role    = "roles/cloudsql.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_compute_admin" {
+  project = var.project_id
+  role    = "roles/compute.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_datastore_owner" {
+  project = var.project_id
+  role    = "roles/datastore.owner"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_datastore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Self-escalation-capable — KEPT per the doc's P1 operator ruling (insufficient certainty to safely
+# revoke; audit-log provenance unrecoverable). Do not remove without a fresh operator ruling.
+resource "google_project_iam_member" "unified_trading_service_account_admin" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountAdmin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_iap_tunnel_resource_accessor" {
+  project = var.project_id
+  role    = "roles/iap.tunnelResourceAccessor"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_logging_config_writer" {
+  project = var.project_id
+  role    = "roles/logging.configWriter"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_logging_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Not present in the 2026-07-31 audit's 34-role snapshot — appeared live between then and this
+# 2026-08-03 landing (further confirmation of the doc's "live, still-open leak" finding). Imported
+# per the same "current reality, don't judge" P2 scope rather than left undeclared.
+resource "google_project_iam_member" "unified_trading_logging_view_accessor" {
+  project = var.project_id
+  role    = "roles/logging.viewAccessor"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_logging_viewer" {
+  project = var.project_id
+  role    = "roles/logging.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_monitoring_alert_policy_editor" {
+  project = var.project_id
+  role    = "roles/monitoring.alertPolicyEditor"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_pubsub_admin" {
+  project = var.project_id
+  role    = "roles/pubsub.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Self-granted by unified-trading-sa itself on 2026-07-31T13:07:44Z per the doc's audit-log trace —
+# kept per the same P1 "current reality, don't judge" ruling, not because the self-grant was
+# separately re-justified.
+resource "google_project_iam_member" "unified_trading_pubsub_publisher" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_pubsub_viewer" {
+  project = var.project_id
+  role    = "roles/pubsub.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Self-escalation-capable — KEPT per the doc's P1 operator ruling (plausibly enables this
+# workspace's own documented ambient-identity IAM-self-service pattern,
+# codex/05-infrastructure/orchestrator-cloud-identity-self-service.md). Do not remove without a
+# fresh operator ruling.
+resource "google_project_iam_member" "unified_trading_project_iam_admin" {
+  project = var.project_id
+  role    = "roles/resourcemanager.projectIamAdmin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_run_admin" {
+  project = var.project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_run_developer" {
+  project = var.project_id
+  role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Self-granted by unified-trading-sa itself on 2026-07-31T01:00:41Z per the doc's audit-log trace —
+# kept per the same P1 "current reality, don't judge" ruling, not because the self-grant was
+# separately re-justified.
+resource "google_project_iam_member" "unified_trading_secretmanager_admin" {
+  project = var.project_id
+  role    = "roles/secretmanager.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+resource "google_project_iam_member" "unified_trading_secretmanager_viewer" {
+  project = var.project_id
+  role    = "roles/secretmanager.viewer"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
+# Distinct from unified_trading_storage_admin above (that resource's role is the narrower
+# roles/storage.objectAdmin, despite its resource-label name) — roles/storage.admin is full bucket
+# administration including bucket-level IAM, a materially broader grant.
+resource "google_project_iam_member" "unified_trading_storage_full_admin" {
+  project = var.project_id
+  role    = "roles/storage.admin"
+  member  = "serviceAccount:${google_service_account.unified_trading.email}"
+}
+
 # Granted 2026-07-24 — Link 3 of the deployment-registry Firestore dual-write migration
 # (plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md). VMs write the
 # deployment registry via the DEFAULT compute SA (155/156 launchers under
