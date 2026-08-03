@@ -577,6 +577,18 @@ declare -A SERVICE_TARBALLS=(
   ["risk_and_exposure_service"]="risk-and-exposure-service-code"
   ["ml_training_service"]="ml-training-service-code"
   ["ml_inference_service"]="ml-inference-service-code"
+  # ml-service is the REAL, current repo (ml-training-service/ml-inference-service above
+  # are stale keys — no such repos/tarballs exist anymore, per create-code-tarballs.sh's
+  # CEFI_REPOS/SPORTS_REPOS/ML_TRAINING_REPOS arrays, which all list bare `ml-service` ->
+  # default `${repo}-code` derivation = ml-service-code). Found 2026-08-03 while building
+  # launch-ml-strategy-orphan-sweep-vm.sh (todo 3b of
+  # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md): launch-ml-vm.sh has
+  # set VM_SERVICE=ml_service since before this fix, but with no SERVICE_TARBALLS entry it
+  # silently fell through to the "install all available tarballs" WARNING branch below,
+  # which itself only iterates TARBALL_DIRS keys — and ml-service-code was ALSO missing
+  # from that table (see TARBALL_DIRS below), so ml-service code was never actually
+  # extracted on ANY VM_SERVICE=ml_service VM until this fix.
+  ["ml_service"]="ml-service-code"
   ["position_balance_monitor_service"]="position-balance-monitor-service-code"
   ["features_volatility_service"]="features-volatility-service-code"
   ["features_cross_instrument_service"]="features-cross-instrument-service-code"
@@ -617,6 +629,10 @@ declare -A TARBALL_DIRS=(
   ["risk-and-exposure-service-code"]="risk"
   ["ml-training-service-code"]="ml-train"
   ["ml-inference-service-code"]="ml-infer"
+  # ml-service-code -- the REAL, current tarball (see SERVICE_TARBALLS["ml_service"]
+  # above for the full "was missing" incident note). "ml" (not "ml-service") to match
+  # the short single-word convention every other entry in this table uses.
+  ["ml-service-code"]="ml"
   ["position-balance-monitor-service-code"]="pbm"
   ["features-volatility-service-code"]="fvol"
   ["features-cross-instrument-service-code"]="fci"
@@ -2182,6 +2198,39 @@ elif [[ "$VM_TASK" == "feature-orphan-sweep" ]]; then
     _launch_with_tee "$FULL_CMD" "$LOGS/feature-orphan-sweep.log"
   else
     log "ERROR: feature-orphan-sweep task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "ml-orphan-sweep" ]]; then
+  # ml-service GCS→manifest orphan sweep — launch-ml-strategy-orphan-sweep-vm.sh
+  # (--target ml) prepares the correct ml_orphan_sweep.py invocation in
+  # VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as feature-orphan-sweep
+  # above — sibling launcher, added 2026-08-03, todo 3b of
+  # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md). Target script
+  # lives in ml-service's ml workspace dir (see TARBALL_DIRS["ml-service-code"]
+  # above — this VM_TASK is also what surfaced that entry being missing).
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/ml" || { log "ERROR: $WORKSPACE/ml missing — ml-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/ml-orphan-sweep.log"
+  else
+    log "ERROR: ml-orphan-sweep task without VM_BACKFILL_CMD metadata"
+  fi
+elif [[ "$VM_TASK" == "strategy-orphan-sweep" ]]; then
+  # strategy-service GCS→manifest orphan sweep — launch-ml-strategy-orphan-sweep-vm.sh
+  # (--target strategy) prepares the correct strategy_orphan_sweep.py invocation in
+  # VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as feature-orphan-sweep
+  # above — sibling launcher, added 2026-08-03, todo 3b of
+  # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md). Target script
+  # lives in strategy-service's strategy workspace dir.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/strategy" || { log "ERROR: $WORKSPACE/strategy missing — strategy-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/strategy-orphan-sweep.log"
+  else
+    log "ERROR: strategy-orphan-sweep task without VM_BACKFILL_CMD metadata"
   fi
 elif [[ "$VM_TASK" == "feature-orphan-backfill" ]]; then
   # features-service class-E orphan record_captured backfill —

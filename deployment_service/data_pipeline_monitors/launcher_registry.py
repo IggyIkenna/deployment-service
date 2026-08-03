@@ -244,6 +244,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # (VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-{ts}), same reasoning as the
     # single "gcs-migration-phase0-" entry above.
     "feat-orph-": "launch-feature-orphan-sweep-vm.sh",
+    # ml-service / strategy-service GCS→manifest orphan sweep (ml_orphan_sweep.py /
+    # strategy_orphan_sweep.py) — read-only, checkpoint-resumable, one global cell each.
+    "ml-orph-": "launch-ml-strategy-orphan-sweep-vm.sh",
+    "strat-orph-": "launch-ml-strategy-orphan-sweep-vm.sh",
     # features-service class-E orphan record_captured backfill (backfill_feature_orphan_
     # class_e.py) — READ+WRITE (record_captured only, never re-shapes/deletes source
     # objects), idempotent re-run (reverify_against_index() drops already-covered cells).

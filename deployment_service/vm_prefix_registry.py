@@ -691,6 +691,22 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "feat-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # ml-service / strategy-service GCS->manifest orphan sweep
+    # (launch-ml-strategy-orphan-sweep-vm.sh) -- runs
+    # ml-service/scripts/ml_orphan_sweep.py (target=ml) or
+    # strategy-service/scripts/strategy_orphan_sweep.py (target=strategy) for ONE
+    # global cell each (todo 3b of
+    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md). Two prefixes
+    # (not one shared, unlike feat-orph-'s single prefix covering many cells) because
+    # each target is its own repo/corpus/singleton scope, not sub-cells of one corpus.
+    # Writes a FIXED per-target report path staged under CODE_BUCKET (mirrors
+    # feat-orph-'s own staging choice), so bucket=None (heartbeat-only).
+    # SSOT: unified-trading-pm/plans/active/issues/
+    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md todo 3b.
+    # ------------------------------------------------------------------
+    "ml-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    "strat-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # features-service class-E orphan record_captured backfill (launch-feature-orphan-
     # backfill-vm.sh) -- runs features-service/scripts/backfill_feature_orphan_class_e.py
     # --feature-family <family> [--asset-group <ag>] --report-uri <uri> --apply for ONE
