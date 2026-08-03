@@ -133,6 +133,18 @@ md="${md},VM_MIGRATION_CMD=${CMD}"
 md="${md},VM_MIGRATION_MODE=${MODE}"
 md="${md},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
 md="${md},VM_SHUTDOWN_ON_COMPLETION=true"
+# Long-running multi-hour reprocess: without this, ManifestWriter's
+# _CANONICAL_CACHE_TTL falls back to the 60s default (_resolve_canonical_cache_ttl()
+# in unified_trading_library/manifest_writer/_state.py), so `full` mode's
+# per-day manifest pre-flight (writer.lookup()) re-downloads + re-decodes the
+# ~6.5GB full-schema sports index roughly every 60s for the entire run instead
+# of once — this OOM-killed 3 consecutive relaunches (workers=16/32GB,
+# workers=8/64GB, workers=2/32GB — near-identical ~31.7GB RSS ceiling on both
+# 32GB runs, disproving a worker-count-driven theory) before this fix.
+# Matches the established convention already used by ~30 sibling
+# backfill/reprocess launchers (see mdps_full_mode_reprocess_manifest_cache_oom_2026_08_03.md
+# "Third occurrence").
+md="${md},MANIFEST_CONSOLIDATED_STALENESS_SEC=86400"
 
 if [[ "${DRY_RUN:-false}" != "true" ]]; then
     lc_verify_tarball_freshness "$CODE_BUCKET" \
