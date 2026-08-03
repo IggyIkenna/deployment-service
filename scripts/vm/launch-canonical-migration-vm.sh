@@ -291,6 +291,10 @@
 #   CANARY_DAY=2024-01-15        narrow the fresh walk to one day= prefix (single-day canary scope)
 #   TRADFI_TICK_BUCKET=<name>    override the resolved tradfi tick bucket (default:
 #                                market-data-tick-tradfi-<prd|stg|dev>-<project>, == resolve_bucket_name)
+#   # *-candle-apply only:
+#   CANDLE_APPLY_NO_GATES=true   full mode: suppress the default --quarantine --content-repair gates
+#                                (opt-in; default keeps both ON). Use for a scoped mop-up pass already
+#                                known to reclassify as MIGRATE/SPLIT_BRAIN_DUPLICATE only.
 #
 # Bucket-naming SSOT: env-aware shape codified 2026-05-11 per
 # `bucket_name_ssot_canonicalisation_2026_05_10.md` Phase 0f. `--env $DEPLOYMENT_ENV`
@@ -960,7 +964,18 @@ _candle_apply_cmd() {
     local mode_flag gate_flags
     if [[ "$MODE" == "full" ]]; then
         mode_flag="--apply"
-        gate_flags=" --quarantine --content-repair"
+        # CANDLE_APPLY_NO_GATES (2026-08-03, CEFI KEPT_SRC mop-up,
+        # candle_feature_canonical_path_divergence_2026_07_20.md #19): the residual class this
+        # opt-out targets reclassifies as MIGRATE/SPLIT_BRAIN_DUPLICATE only, never QUARANTINE/
+        # CONTENT_REPAIR -- enabling those gates for a scoped mop-up pass is unnecessary
+        # (no quarantine moves or content-repair reads expected) and widens the change surface
+        # beyond what the residual actually needs. Opt-in only; default (full) behavior is
+        # unchanged so every other candle-apply category keeps both gates ON.
+        if [[ "${CANDLE_APPLY_NO_GATES:-false}" == "true" ]]; then
+            gate_flags=""
+        else
+            gate_flags=" --quarantine --content-repair"
+        fi
     else
         mode_flag="--dry-run"
         gate_flags=""
