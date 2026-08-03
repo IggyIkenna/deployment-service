@@ -101,6 +101,7 @@ if TYPE_CHECKING:
     # actuator class below without violating the load-safe-packaging HARD RULE
     # documented above (scripts.recovery is absent from the packaged wheel).
     from scripts.recovery.relaunch_backfill_vm import RelaunchPreemptedVm as _RelaunchPreemptedVmType
+    from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm as _RelaunchStalledVmType
 
 
 # The Layer-0 recovery actuators live in the top-level ``scripts/recovery/`` dir,
@@ -354,7 +355,10 @@ def _recover_known_safe_nonoom_exit(finding: PipelineFinding, *, dry_run: bool) 
         }
     # Dynamic import (NOT a function-level `import` statement) — load-safe
     # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    # cast to the TYPE_CHECKING-only import above (mirrors _recover_preempted_vm)
+    # so basedpyright types the actuator properly instead of cascading `Any`.
     _mod = importlib.import_module("scripts.recovery.relaunch_stalled_vm")
+    actuator_cls = cast("type[_RelaunchStalledVmType]", _mod.RelaunchStalledVm)
 
     details = finding.details
     launcher = str(details.get("relaunch_launcher", "")).strip()
@@ -367,7 +371,7 @@ def _recover_known_safe_nonoom_exit(finding: PipelineFinding, *, dry_run: bool) 
     if isinstance(checkpoint_raw, dict):
         checkpoint = {str(k): str(v) for k, v in cast("dict[object, object]", checkpoint_raw).items()}
 
-    actuator = _mod.RelaunchStalledVm()
+    actuator = actuator_cls()
     result = actuator.relaunch(
         str(details.get("vm_name", "")),
         launcher=launcher,
