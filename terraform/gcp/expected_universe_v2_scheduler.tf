@@ -26,11 +26,17 @@
 # `VM_NAME=enum-universe-v2-<ag>` are passed (the enumerator hard-requires both for
 # `--apply-write`).
 #
-# WINDOW: `--start-date` is a bounded recent window (default 120 days back, set per
-# the `EXPECTED_UNIVERSE_START_DATE` var) so the LIVE denominator is honest without
-# the full-history per-instrument blow-up (~190M rows fleet-wide — the unbounded
-# 2018→today v2 universe; tracked as a gated follow-up, NOT materialised by this
-# recurring job). The window slides forward each day so recent coverage stays current.
+# WINDOW: `--start-date` is a bounded recent window, 120 days back from the day of the
+# most recent `terraform apply` (`local.expected_universe_start_date`, genuinely
+# recomputed via `timestamp()`/`timeadd()` every apply — NOT a frozen literal that
+# silently stops sliding until someone hand-bumps it; `var.expected_universe_start_date`
+# stays available as an explicit override, e.g. for the gated historical backfill). This
+# keeps the LIVE denominator honest without the full-history per-instrument blow-up
+# (~190M rows fleet-wide — the unbounded 2018→today v2 universe; tracked as a gated
+# follow-up, NOT materialised by this recurring job). Fixed 2026-08-03 per
+# `plans/active/issues/sports_manifest_2026_h1_vs_2025_h1_enumeration_grain_persists_2026_07_27.md`
+# job (1) — the prior static `"2026-02-20"` default never advanced without a fresh
+# `terraform apply` changing the literal, so the window silently stopped sliding.
 #
 # AG-PARAMETRIC: one Cloud Run Job + Scheduler per asset_group (for_each) so a
 # per-AG failure/retry is isolated (every AG GREEN independently, data-pipeline
@@ -66,12 +72,23 @@
 #   deployment-service/terraform/gcp/lifecycle_catalogue_scheduler.tf  (the catalogue half)
 
 variable "expected_universe_start_date" {
-  description = "Bounded recent window start (YYYY-MM-DD) for the v2 expected_unattempted enumeration. Keeps the live denominator honest without the full-history per-instrument blow-up."
+  description = "Explicit override (YYYY-MM-DD) for the v2 expected_unattempted enumeration window start. Leave null (default) for the genuinely rolling `today - 120d` window computed in local.expected_universe_start_date; set only for a deliberate one-off override (e.g. a gated historical backfill floor)."
   type        = string
-  default     = "2026-02-20" # ~120 days before the 2026-06-19 wiring; slides forward conceptually each rebuild
+  default     = null
 }
 
 locals {
+  # Rolling 120-day window start, recomputed from the current apply-time clock every
+  # `terraform apply` (2880h = 120 days * 24h) — NOT a frozen literal default that
+  # requires a human to hand-bump it. `timestamp()`/`formatdate()` aren't allowed inside
+  # a variable's own `default` (Terraform requires variable defaults to be plan-time
+  # constants), so the rolling computation lives here and var.expected_universe_start_date
+  # stays a plain optional override slot.
+  expected_universe_start_date = coalesce(
+    var.expected_universe_start_date,
+    formatdate("YYYY-MM-DD", timeadd(timestamp(), "-2880h")),
+  )
+
   # asset_group → { instruments-store catalogue bucket, MTDS manifest bucket (shard target), per-AG enumerator args }.
   # Buckets are the canonical env-short shapes per resolve_bucket_name / cloud-providers.yaml
   # (matches lifecycle_catalogue_scheduler.tf; prediction = the "pred" short key).
@@ -166,7 +183,7 @@ module "expected_universe_v2_job" {
     "--asset-group", each.key,
     "--enumerator-version", "v2",
     "--catalog-path", "gs://${each.value.catalogue_bucket}/${var.environment}/catalog.parquet",
-    "--start-date", var.expected_universe_start_date,
+    "--start-date", local.expected_universe_start_date,
     "--apply-write",
     "--max-writes-per-run", "50000000",
   ]

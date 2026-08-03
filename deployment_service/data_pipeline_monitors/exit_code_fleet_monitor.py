@@ -257,6 +257,7 @@ def _finding_for(
     launch_env: dict[str, str] | None = None,
     progress_checkpoint: dict[str, str] | None = None,
     worker_stall_safe: bool = False,
+    stall_marker: bool = False,
 ) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
@@ -267,6 +268,19 @@ def _finding_for(
     actuator skips and the finding falls through to ``file_issue`` (the
     escalation hop guarantees no auto_recover finding is lost). A non-OOM
     non-zero exit stays ``page_operator``.
+
+    ``stall_marker`` disambiguates a genuine OOM from a stall-induced SIGKILL
+    that also happens to exit 137 (``fred_backfill_early_date_indefinite_stall_
+    2026_07_30.md``'s Progress Log: ``deployment_id bdd2f745-...`` had
+    ``mem_pct`` flat at 17.0% the whole run — nowhere near OOM — yet the
+    in-guest no-progress watchdog's SIGKILL still exits 137, and the durable
+    ``EXIT_STATUS`` blob is written from that raw ``$?`` BEFORE
+    ``vm-exec-with-gcs-tee.sh``'s own stall-breadcrumb correction to RC=124
+    ever reaches it, so the monitor only ever sees 137 for this case too).
+    Sourced from the run.log's own ``WORKER_STALLED``/``cause=stall`` marker
+    (``_gcs.run_log_shows_stall``) — a positive stall signal overrides the pure
+    ``exit_code == 137`` equality check so ``details["oom"]``/``bigger_machine``
+    are only stamped when there is no evidence the kill was stall-induced.
 
     A **PREEMPTED** verdict (SPOT reclaim) ALSO routes to ``auto_recover`` — see
     ``cefi_completion_program_2026_07_15.md`` P0 "Close the SPOT-preemption
@@ -347,7 +361,12 @@ def _finding_for(
             registry_id="DP-VM-010",
         )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
-        oom = result.exit_code == 137
+        # 137 alone is a pure SIGKILL signature — it does NOT prove OOM. A
+        # stall-induced kill (the in-guest no-progress watchdog) exits the
+        # same way, and the durable EXIT_STATUS blob never gets corrected to
+        # RC=124 (see docstring above), so `stall_marker` is the only signal
+        # left to tell the two apart before stamping details["oom"]/bigger_machine.
+        oom = result.exit_code == 137 and not stall_marker
         # WORKER_STALLED self-delete (vm-exec-with-gcs-tee.sh's in-guest stall
         # watchdog, RC=124 — see WORKER_STALLED_EXIT_CODE) on a launcher already
         # proven idempotent + checkpoint-resumable. Gated on BOTH the exit-code
@@ -355,9 +374,12 @@ def _finding_for(
         # pre-existing default (page_operator) — see
         # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8.
         worker_stalled = result.exit_code == WORKER_STALLED_EXIT_CODE and worker_stall_safe
+        stall_induced_sigkill = result.exit_code == 137 and stall_marker
         summary = (
             f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
-            f"{' (OOM)' if oom else ''}{' (WORKER_STALLED, vetted launcher)' if worker_stalled else ''}"
+            f"{' (OOM)' if oom else ''}"
+            f"{' (stall-induced SIGKILL, not OOM)' if stall_induced_sigkill else ''}"
+            f"{' (WORKER_STALLED, vetted launcher)' if worker_stalled else ''}"
             " — captured did not complete cleanly"
         )
         oom_details: dict[str, object] = {**base_details, "oom": oom}
@@ -628,6 +650,17 @@ def sweep(
         )
         results.append(result)
 
+        # 137 is the OOM candidate signature but is NOT proof of OOM — a
+        # stall-induced SIGKILL exits the same way (see _finding_for's
+        # docstring). Only pay for the extra run.log read on that exact
+        # candidate path (mirrors the no_capture_reason / launch_env gating
+        # above): a genuine OOM's log has no WORKER_STALLED/cause=stall marker.
+        stall_marker = (
+            _gcs.run_log_shows_stall(storage_client, log_bucket, name)
+            if result.verdict is TerminationVerdict.EXIT_NONZERO and exit_code == 137
+            else False
+        )
+
         if result.verdict is TerminationVerdict.PREEMPTED:
             logger.info(
                 "exit_code_fleet_monitor: %s preempted (SPOT reclaim) — dispatching a "
@@ -661,6 +694,7 @@ def sweep(
             launch_env=launch_env,
             progress_checkpoint=progress_checkpoint,
             worker_stall_safe=launcher in worker_stall_safe_launchers,
+            stall_marker=stall_marker,
         )
 
         if finding is not None:

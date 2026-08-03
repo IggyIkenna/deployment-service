@@ -1170,6 +1170,20 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "tradfi-fwd-daily-cron-": None,
     "cefi-fwd-daily-cron-": None,
+    # CeFi on-chain-perp forward-poll daily cron host (ASTER + LIGHTER-ZKSYNC +
+    # EXTENDED-STARKNET + HYPERLIQUID) — SCHEDULED_RECURRING, same pattern as the
+    # two entries above. Fixes a real outage: this capture had NO scheduler at all
+    # (manual/ad-hoc re-triggering only), so a 5+ consecutive day silent gap across
+    # three of four venues went undetected until 2026-08-03. Heartbeat-only (None)
+    # — the cron host writes no manifest shards; the worker VMs it spawns
+    # (`aster-fwd-*` / `cefi-lighter-*` / `cefi-extended-*` / `cefi-hyperliquid-*`)
+    # carry the data output and already have their own VmPrefixSpec entries above.
+    # Launcher: launch-cefi-onchain-fwd-daily-cron-vm.sh (fires 08:00 UTC, staggered
+    # clear of tradfi-fwd 06:00 / cefi-fwd 09:00 / deribit-options 09:15).
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch the
+    # watchdog VM. Registered 2026-08-03 per
+    # plans/active/issues/cefi_onchain_perp_forward_capture_outage_2026_08_03.md.
+    "cefi-onchain-fwd-daily-cron-": None,
     # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
     # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.

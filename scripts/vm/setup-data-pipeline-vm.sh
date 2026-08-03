@@ -1750,7 +1750,7 @@ chunk_days = int($VM_CHUNK_DAYS)
 cur = start
 while cur <= end:
     cend = min(cur + timedelta(days=chunk_days - 1), end)
-    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d') + ' ' + str((cend - cur).days + 1))
     cur = cend + timedelta(days=1)
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
@@ -1759,7 +1759,7 @@ CHUNK_NUM=0
 # a later chunk's success can never paper over an earlier gap (see the checkpoint
 # comment further down for why this matters).
 HAD_FAILURE=0
-echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
   # Per-chunk VM_NAME suffix (subprocess-scoped only — the outer VM_NAME the
@@ -1770,11 +1770,24 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
   # the same OOM root cause + fix already applied to instruments_chunk_loop.sh
   # (plans/active/issues/per_vm_shard_growth_oom_long_running_backfills_2026_07_27.md,
   # manifest_writer_vm_launcher_audit_followups_2026_07_28.md).
+  # Output is ALSO teed to a scratch file (stdout still flows through unchanged for the
+  # outer tee/watchdog) so the partial-payload check below can grep the CLI's own
+  # "Batch complete: N results collected" line; PIPESTATUS[0] preserves the real
+  # subprocess exit code through the pipe.
+  CHUNK_OUT=\$(mktemp)
   VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1
-  CHUNK_RC=\$?
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
+  CHUNK_RC=\${PIPESTATUS[0]}
+  # Partial-payload-loss detection
+  # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): a chunk where
+  # SOME date-payloads fail and SOME succeed still exits 0 (the CLI's batch driver only
+  # returns non-zero when EVERY payload in the batch failed), so CHUNK_RC alone can't see
+  # a partial gap. Compare the CLI's own results-collected count against this chunk's
+  # expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
+  RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
+  rm -f "\$CHUNK_OUT"
   # Fail loud instead of silently swallowing a killed/failed chunk (was \`|| true\`
   # with no exit-code capture — a child OOM-kill (exit 137) or any other non-zero
   # exit left no log signal at all beyond staleness, see
@@ -1786,6 +1799,9 @@ echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
     HAD_FAILURE=1
   elif [[ \$CHUNK_RC -ne 0 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
+  elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     HAD_FAILURE=1
   fi
   # SPOT-preemption resume checkpoint (infra_satellite_ao_dispatch_batch1_2026_07_26.md
@@ -1846,7 +1862,7 @@ chunk_days = int($VM_CHUNK_DAYS)
 cur = start
 while cur <= end:
     cend = min(cur + timedelta(days=chunk_days - 1), end)
-    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d'))
+    print(cur.strftime('%Y-%m-%d') + ' ' + cend.strftime('%Y-%m-%d') + ' ' + str((cend - cur).days + 1))
     cur = cend + timedelta(days=1)
 ")
 TOTAL=\$(echo "\$CHUNKS" | wc -l | tr -d ' ')
@@ -1854,21 +1870,35 @@ CHUNK_NUM=0
 # Tracks whether any EARLIER chunk in this run failed -- gates the checkpoint below so
 # a later chunk's success can never paper over an earlier gap (mirrors mtds-backfill).
 HAD_FAILURE=0
-echo "\$CHUNKS" | while IFS=' ' read -r CS CE; do
+echo "\$CHUNKS" | while IFS=' ' read -r CS CE EXPECTED_DAYS; do
   CHUNK_NUM=\$((CHUNK_NUM + 1))
   echo "--- Chunk \${CHUNK_NUM}/\${TOTAL}: \${CS} → \${CE} ---"
   # Per-chunk VM_NAME suffix (subprocess-scoped only) bounds the per-VM manifest shard
   # to just THIS chunk's rows, same OOM-prevention rationale as mtds_chunk_loop.sh.
+  # Output is ALSO teed to a scratch file so the partial-payload check below can grep
+  # the CLI's own "Batch complete: N results collected" line (mirrors mtds_chunk_loop.sh);
+  # PIPESTATUS[0] preserves the real subprocess exit code through the pipe.
+  CHUNK_OUT=\$(mktemp)
   VM_NAME="\${VM_NAME}-c\${CHUNK_NUM}" CLOUD_PROVIDER=gcp CLOUD_MOCK_MODE=false \\
     "$VENV/bin/python" -m market_tick_data_service \\
       $BASE_CLI \\
-      --start-date "\${CS}" --end-date "\${CE}" 2>&1
-  CHUNK_RC=\$?
+      --start-date "\${CS}" --end-date "\${CE}" 2>&1 | tee "\$CHUNK_OUT"
+  CHUNK_RC=\${PIPESTATUS[0]}
+  # Partial-payload-loss detection
+  # (mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md): mirrors the
+  # mtds-backfill branch's fix above -- a chunk where SOME date-payloads fail and SOME
+  # succeed still exits 0, so compare the CLI's results-collected count against this
+  # chunk's expected day-count and treat a shortfall the same as CHUNK_RC!=0 below.
+  RESULTS_COLLECTED=\$(grep -oE 'Batch complete: [0-9]+ results collected' "\$CHUNK_OUT" | tail -1 | grep -oE '[0-9]+' || true)
+  rm -f "\$CHUNK_OUT"
   if [[ \$CHUNK_RC -eq 137 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=137 reason=OOM_KILLED time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     HAD_FAILURE=1
   elif [[ \$CHUNK_RC -ne 0 ]]; then
     echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=\${CHUNK_RC} reason=NONZERO_EXIT time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    HAD_FAILURE=1
+  elif [[ -n "\$RESULTS_COLLECTED" && \$RESULTS_COLLECTED -lt \$EXPECTED_DAYS ]]; then
+    echo "CHUNK_FAILED: chunk=\${CHUNK_NUM}/\${TOTAL} range=\${CS}→\${CE} exit=0 reason=PARTIAL_PAYLOAD_LOSS results_collected=\${RESULTS_COLLECTED} expected=\${EXPECTED_DAYS} time=\$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     HAD_FAILURE=1
   fi
   # SPOT-preemption resume checkpoint (cefi_track2_backfill_vm_preempted_no_recovery_2026_07_30.md

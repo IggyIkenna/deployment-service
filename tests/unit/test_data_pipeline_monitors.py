@@ -436,6 +436,45 @@ def test_finding_for_worker_stalled_off_by_default_when_flag_omitted():
     assert finding.tier == EscalationTier.PAGE_OPERATOR
 
 
+# ── _finding_for: exit_code=137 stall_marker disambiguation
+# (fred_backfill_early_date_indefinite_stall_2026_07_30.md — a stall-induced
+# SIGKILL exits 137 same as a genuine OOM; deployment_id bdd2f745-... had
+# mem_pct flat at 17.0% the whole run but was still labeled details.oom=True).
+def test_finding_for_137_without_stall_marker_is_oom():
+    # Pre-existing behavior preserved: no positive stall evidence -> still OOM.
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "mtds-backfill-tradfi-20260730", exit_code=137, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination, asset_group="tradfi", relaunch_launcher="launch-tradfi-bf-fred.sh"
+    )
+    assert finding is not None
+    assert finding.details["oom"] is True
+    assert finding.details["bigger_machine"] is True
+    assert finding.tier == EscalationTier.AUTO_RECOVER
+    assert "(OOM)" in finding.summary
+
+
+def test_finding_for_137_with_stall_marker_is_not_oom():
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "tradfi-bf-fred-full-20260730-064542", exit_code=137, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="tradfi",
+        relaunch_launcher="launch-tradfi-bf-fred.sh",
+        stall_marker=True,
+    )
+    assert finding is not None
+    assert finding.details["oom"] is False
+    assert "bigger_machine" not in finding.details
+    # Not vetted for WORKER_STALLED auto_recover (that gate is exit_code=124
+    # only) -- a stall-induced 137 keeps the safe pre-existing page_operator
+    # default rather than silently reclassifying itself into auto_recover.
+    assert finding.tier == EscalationTier.PAGE_OPERATOR
+    assert "(stall-induced SIGKILL, not OOM)" in finding.summary
+
+
 def test_classify_clean_when_exit0_and_climb():
     res = exit_code_fleet_monitor.classify_terminated_vm("vm", exit_code=0, captured_before=10, captured_after=200)
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.CLEAN
@@ -798,6 +837,50 @@ def test_sweep_emits_exit_nonzero_on_137_run_log(monkeypatch):
     assert len(results) == 1
     assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
     assert any(e[0] == "DP_VM_EXIT_NONZERO" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_sweep_137_with_worker_stalled_run_log_not_flagged_oom(monkeypatch):
+    """End-to-end reproduction of fred_backfill_early_date_indefinite_stall_2026_07_30.md:
+    a VM killed by the in-guest no-progress watchdog exits 137 (the durable
+    EXIT_STATUS blob is written from the raw SIGKILL $? before the wrapper's
+    own stall-breadcrumb RC=124 correction ever reaches it) but its run.log
+    carries the WORKER_STALLED/cause=stall marker -- sweep() must read that
+    marker and NOT stamp details["oom"]/bigger_machine."""
+    vm = "tradfi-bf-fred-full-20260730-064542"
+    census = json.dumps({"vms": {vm: 34}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _exit_status_blob(vm)): (b"137\n", 0.0),
+            (LOG_BUCKET, _run_log_blob(vm)): (
+                b"[vm-exec] WORKER_STALLED (no-progress-marker): no progress in 1800s\n"
+                b"[vm-exec] DEPLOYMENT_FAILED cause=stall reason=WORKER_STALLED "
+                b"mode=no-progress-marker stalled_for=1800 threshold=1800\n",
+                0.0,
+            ),
+        }
+    )
+    sink: list[object] = []
+    monkeypatch.setattr(
+        "deployment_service.data_pipeline_monitors.escalation.log_event",
+        lambda event, severity="INFO", details=None: None,
+    )
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],  # VM is gone now
+        captured_reader=lambda _vm: 34,  # flat -- doesn't matter, exit_code!=0 routes first
+        asset_group_for_vm=lambda _vm: "tradfi",
+        launcher_for_vm=lambda _vm: "launch-tradfi-bf-fred.sh",
+        finding_sink=sink,
+    )
+    assert len(results) == 1
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    assert len(sink) == 1
+    finding = sink[0]
+    assert finding.details["oom"] is False
+    assert "bigger_machine" not in finding.details
+    assert finding.tier == EscalationTier.PAGE_OPERATOR
 
 
 def test_sweep_emits_gone_no_capture_on_flat_captured(monkeypatch):
