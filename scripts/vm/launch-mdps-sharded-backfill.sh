@@ -345,8 +345,13 @@ launch_year_shard() {
     # Sports MDPS processes long empty-date stretches (no betting events) that
     # produce no log output, triggering the stall watchdog at the default 1800s.
     # 7200s = 2h gives enough headroom for a full year's empty-season gap
-    # without letting a truly stalled VM idle indefinitely.
-    [[ "$cat" == "sports" ]] && md="${md},STALL_TIMEOUT_SEC=7200"
+    # without letting a truly stalled VM idle indefinitely. Applied to all 5
+    # categories (cefi/tradfi/defi/sports/prediction) — they all run through the
+    # same `--operation process --mode batch` entrypoint (see cmd construction
+    # above), so the same headroom rationale holds regardless of category
+    # (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 6:
+    # was gated to sports only for no category-specific reason).
+    md="${md},STALL_TIMEOUT_SEC=7200"
     # Per-shard progress watchdog (backfill_vm_silent_worker_stall_watchdog P2): with the blunt 2h
     # threshold above, a GENUINE mid-date hang (a stalled provider socket) idles for up to 2h before
     # the size-based watchdog trips. Reset the timer only on a real per-date PROGRESS line instead.
@@ -356,9 +361,15 @@ launch_year_shard() {
     # date). The per-date loop logs exactly one of these for EVERY date it touches
     # (process_handler.py:517/540/582 — proven invariant), so the marker resets on every healthy date
     # advance and only fails to reset during a genuine mid-date hang; it errs toward NOT killing.
-    # Category-agnostic shared-orchestration markers (verified against a live mdps-sports run.log);
+    # Category-agnostic shared-orchestration markers (verified against a live mdps-sports run.log).
+    # Applied to all 5 categories: cefi/tradfi/defi/sports/prediction all invoke the IDENTICAL
+    # entrypoint (`python -m market_data_processing_service --operation process --mode batch`)
+    # through the same process_handler.py per-date loop, so the "proven invariant" cited above for
+    # sports holds identically for the other 4 — they were previously left on the default 1800s
+    # timeout with zero regex, exposed to the always-on PIPELINE_HEARTBEAT byte-growth-defeat gap
+    # (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 6).
     # =/space/comma-free → metadata-safe.
-    [[ "$cat" == "sports" ]] && md="${md},STALL_PROGRESS_REGEX=Processing|Skipping"
+    md="${md},STALL_PROGRESS_REGEX=Processing|Skipping"
 
     # SPOT preemption contract (vm_fleet_preemption_autorecovery_gap_2026_07_23.md
     # item 9): lc_write_preemption_signal_file marks a SPOT shutdown as an expected
