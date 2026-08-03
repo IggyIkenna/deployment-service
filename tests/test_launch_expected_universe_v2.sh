@@ -97,10 +97,8 @@ _run() {
     local expected_exit="$1"; shift
     local match_pattern="${1:-}"
     [[ -n "$match_pattern" ]] && shift || true
-    set +e
     OUTPUT="$("$@" 2>&1)"
     ACTUAL_EXIT=$?
-    set -e
     OK=true
     if [[ "$ACTUAL_EXIT" != "$expected_exit" ]]; then
         OK=false
@@ -151,11 +149,9 @@ _run "(a) singleton-lock blocks duplicate → exit 1" 1 "already running" \
 #     downstream issues (catalog read, tarball check) so we accept any non-1
 #     exit that isn't the singleton-lock guard. Capture stdout for the lack of
 #     the "already running" message.
-set +e
 STUB_INSTANCES_LIST_OUT="expected-universe-v2-cefi-20260516-080000" \
     OUTPUT="$(bash "$LAUNCHER" --force cefi --scan-only 2>&1)"
 EXIT=$?
-set -e
 if ! grep -q "already running" <<<"$OUTPUT"; then
     PASS=$((PASS + 1))
     $VERBOSE && echo "  ✅ (b) --force bypasses singleton check"
