@@ -78,6 +78,7 @@
 #   bash launch-feature-orphan-sweep-vm.sh --feature-family onchain          # fixed: defi
 #   bash launch-feature-orphan-sweep-vm.sh --feature-family sports           # fixed: sports
 #   bash launch-feature-orphan-sweep-vm.sh --feature-family calendar         # global, no --asset-group
+#   bash launch-feature-orphan-sweep-vm.sh --feature-family commodity       # global, no --asset-group
 #   bash launch-feature-orphan-sweep-vm.sh --feature-family cross_instrument --asset-group prediction
 #   bash launch-feature-orphan-sweep-vm.sh --feature-family multi_timeframe --asset-group defi
 #   bash launch-feature-orphan-sweep-vm.sh --force --feature-family delta_one --asset-group cefi
@@ -117,10 +118,10 @@ if [[ -z "$FEATURE_FAMILY" ]]; then
 fi
 
 # Mirrors feature_orphan_sweep.py's own _FAMILY_CONFIGS / resolve_feature_group_asset_group
-# validation (todo 2b: cross_instrument + multi_timeframe wired 2026-08-03). commodity is
-# a KNOWN family with no verified bucket/prefix config yet (flat JSON signal file, not
-# parquet -- see the tool's own module docstring) -- rejected here, mirroring the tool's
-# own --feature-family choices gate, so a bad launch fails BEFORE a VM boots.
+# validation (todo 2b: cross_instrument + multi_timeframe wired 2026-08-03; todo 2c: commodity
+# wired 2026-08-03, features-service@fa18180b -- global bucket, no --asset-group, same shape
+# as calendar below). The python side's _UNSUPPORTED_FAMILIES is now empty; this launcher's
+# per-family case block must stay in lockstep so a bad launch fails BEFORE a VM boots.
 ASSET_GROUP_ABBREV=""
 FAMILY_ABBREV=""
 case "$FEATURE_FAMILY" in
@@ -173,13 +174,13 @@ case "$FEATURE_FAMILY" in
         fi
         ;;
     commodity)
-        echo "ERROR: commodity is a KNOWN family with NO verified bucket/prefix config yet" >&2
-        echo "(flat JSON signal.json, not parquet -- see feature_orphan_sweep.py's module docstring)." >&2
-        echo "File a design-pass follow-up before wiring it; this launcher refuses to guess at its shape." >&2
-        exit 2
+        FAMILY_ABBREV="cm"
+        if [[ -n "$ASSET_GROUP" ]]; then
+            echo "ERROR: commodity is global -- omit --asset-group (got: '$ASSET_GROUP')" >&2; exit 2
+        fi
         ;;
     *)
-        echo "ERROR: --feature-family must be one of delta_one/volatility/onchain/sports/calendar/cross_instrument/multi_timeframe (got: '$FEATURE_FAMILY')" >&2
+        echo "ERROR: --feature-family must be one of delta_one/volatility/onchain/sports/calendar/commodity/cross_instrument/multi_timeframe (got: '$FEATURE_FAMILY')" >&2
         exit 2
         ;;
 esac
@@ -247,7 +248,7 @@ SCRIPTS="/home/ikennaigboaka/workspace/features/scripts"
 # Single `python ` token -> setup-data-pipeline-vm.sh substitutes it to $VENV/bin/python.
 BACKFILL_CMD="python ${SCRIPTS}/feature_orphan_sweep.py"
 BACKFILL_CMD="${BACKFILL_CMD} --feature-family ${FEATURE_FAMILY}"
-if [[ -n "$ASSET_GROUP" && "$FEATURE_FAMILY" != "calendar" ]]; then
+if [[ -n "$ASSET_GROUP" && "$FEATURE_FAMILY" != "calendar" && "$FEATURE_FAMILY" != "commodity" ]]; then
     BACKFILL_CMD="${BACKFILL_CMD} --asset-group ${ASSET_GROUP}"
 fi
 BACKFILL_CMD="${BACKFILL_CMD} --report-out ${REPORT_OUT}"

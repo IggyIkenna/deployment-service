@@ -690,10 +690,11 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # family's own features bucket -- several families share a folded per-ag
     # `features-{ag}` bucket, so a fixed in-bucket path would collide across
     # families), so bucket=None (heartbeat-only), same as orphan-sweep-* above.
-    # Singleton-locked per (family, asset_group) cell. commodity is EXCLUDED (no
-    # verified bucket/prefix config yet -- flat JSON signal file, not parquet).
+    # Singleton-locked per (family, asset_group) cell. commodity (global, no
+    # asset_group) wired 2026-08-03 (todo 2c) -- covered by this same prefix,
+    # no separate registry entry needed (startswith prefix match).
     # SSOT: unified-trading-pm/plans/active/issues/
-    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md todo 2b.
+    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md todo 2c.
     # ------------------------------------------------------------------
     "feat-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
