@@ -2304,6 +2304,108 @@ elif [[ "$VM_TASK" == "dr-drill-cutover" ]]; then
   else
     log "ERROR: dr-drill-cutover task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "mdps-features-live" ]]; then
+  # launch-mdps-features-live.sh — co-located MDPS + features-service live
+  # consumers for one asset_group. Fixes both gaps in
+  # mdps_features_live_launcher_exec_dispatch_never_wired_2026_07_27.md: (Gap 1)
+  # this VM_TASK previously had no dispatch branch here and fell through to the
+  # generic fallback, which built a literal `python -m
+  # market_data_processing_service+features_service` — never a valid module
+  # path; (Gap 2) MDPS's live path needs one process per `--shard-spec
+  # ASSET_GROUP:VENUE:DATA_TYPE` (not a whole-asset_group run) and
+  # features-service's top-level CLI dispatches exactly one `--feature-family`
+  # per invocation, so a single co-located process per service can't work.
+  #
+  # Topology (operator-ruled 2026-07-29, option (a)): one MDPS process per live
+  # (venue, data_type) shard — discovered at boot via UAC's
+  # mdps_mvp_universe(asset_group), extended with the data_type axis per
+  # /plans/archive/2026_08/uac_mdps_mvp_universe_data_type_axis_2026_07_30.md
+  # (SSOT shard enumerator — no hand-maintained bash array) — plus one
+  # features-service process per --feature-family applicable to this
+  # asset_group per FEATURE_FAMILY_ASSET_GROUPS (features-service@ebd43939,
+  # operator-supplied family<->asset_group mapping). All processes subscribe/
+  # publish against the SAME asset_group's candle_computed/features_computed
+  # streams so MDPS->features handoff stays in-process/sub-ms per the
+  # launcher's own co-location premise. Mirrors the cefi fan-out supervisor
+  # pattern above: a self-contained bash script backgrounds every worker under
+  # ONE _launch_with_tee wrapper, waits each, and ORs their real exit codes.
+  _AG_LOWER=$(echo "$VM_ASSET_GROUP" | tr '[:upper:]' '[:lower:]')
+  _AG_UPPER=$(echo "$VM_ASSET_GROUP" | tr '[:lower:]' '[:upper:]')
+  _MFL_TODAY="$(date -u +%Y-%m-%d)"
+
+  # --- boot-time discovery (SSOT-derived, never hand-maintained) ---
+  mapfile -t _MDPS_SHARDS < <("$VENV/bin/python" -c "
+from unified_api_contracts import mdps_mvp_universe
+cells = mdps_mvp_universe('${_AG_LOWER}')
+for v, dt in sorted({(v, dt) for v, _it, dt in cells}):
+    print(f'{v}:{dt}')
+")
+  mapfile -t _LIVE_FAMILIES < <("$VENV/bin/python" -c "
+from features_service.common.live_runner import FEATURE_FAMILY_ASSET_GROUPS
+# performance_features has no --mode live CLI wiring yet — its run(argv) shim
+# (features_service/performance_features/__init__.py) always calls
+# run_batch() regardless of --mode (architecture-only scaffold, no upstream
+# StrategyPnlStreamEvent store connected today). Spawning it here would start
+# a process that exits immediately instead of staying up as a live consumer,
+# which the fan-out supervisor below would misread as a crashed worker.
+ag = '${_AG_LOWER}'
+for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
+    if ag in ags and family != 'performance_features':
+        print(family)
+")
+
+  log "mdps-features-live asset_group=${_AG_UPPER}: ${#_MDPS_SHARDS[@]} MDPS shard(s), ${#_LIVE_FAMILIES[@]} features-service famil(y/ies)"
+  if [[ "${#_MDPS_SHARDS[@]}" -eq 0 && "${#_LIVE_FAMILIES[@]}" -eq 0 ]]; then
+    log "ERROR: mdps-features-live has ZERO MDPS shards AND ZERO features-service families for asset_group=${_AG_UPPER} — nothing to launch"
+    exit 1
+  fi
+
+  _MFL_SCRIPT="$WORKSPACE/mdps_features_live_fanout.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -uo pipefail  # NOT -e: a false `[[ rc -ne 0 ]] &&` must not exit the supervisor'
+    echo 'PIDS=()'
+    _mfl_k=0
+    for _mfl_shard in "${_MDPS_SHARDS[@]}"; do
+      _mfl_venue="${_mfl_shard%%:*}"
+      _mfl_dtype="${_mfl_shard##*:}"
+      printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shard-spec=%s:%s:%s"\n' \
+        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
+      printf 'VM_NAME="%s-mdps-p%s" "%s" -m market_data_processing_service process --start-date %s --end-date %s --mode live --operation streaming-aggregation --shard-spec %s:%s:%s &\n' \
+        "$VM_NAME_SELF" "$_mfl_k" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
+      echo 'PIDS+=($!)'
+      _mfl_k=$((_mfl_k + 1))
+    done
+    for _mfl_family in "${_LIVE_FAMILIES[@]}"; do
+      # Mirrors launch-features-vm.sh's per-family CLI-flag construction: calendar's CLI
+      # does not accept --asset-group (global output); delta_one/volatility/onchain accept
+      # --feature-group (ALL = every group in the family); delta_one/volatility default
+      # --timeframe to "15s" which does not exist for TradFi candles, so TradFi needs it
+      # passed explicitly (codex: launch-features-vm.sh header comment).
+      _mfl_args="--operation compute --mode live --start-date $_MFL_TODAY --end-date $_MFL_TODAY"
+      [[ "$_mfl_family" != "calendar" ]] && _mfl_args="$_mfl_args --asset-group ${_AG_UPPER}"
+      case "$_mfl_family" in
+        delta_one | volatility | onchain) _mfl_args="$_mfl_args --feature-group ALL" ;;
+      esac
+      case "$_mfl_family" in
+        delta_one | volatility)
+          [[ "$_AG_LOWER" == "tradfi" ]] && _mfl_args="$_mfl_args --timeframe 1m"
+          ;;
+      esac
+      printf 'echo "[mdps-features-live] features worker %s (VM_NAME=%s-feat-%s) family=%s"\n' \
+        "$_mfl_k" "$VM_NAME_SELF" "$_mfl_family" "$_mfl_family"
+      printf 'VM_NAME="%s-feat-%s" "%s" -m features_service --feature-family %s %s &\n' \
+        "$VM_NAME_SELF" "$_mfl_family" "$VENV/bin/python" "$_mfl_family" "$_mfl_args"
+      echo 'PIDS+=($!)'
+      _mfl_k=$((_mfl_k + 1))
+    done
+    echo 'AGG=0'
+    echo 'for _pid in "${PIDS[@]}"; do wait "$_pid"; _rc=$?; echo "[mdps-features-live] pid=$_pid rc=$_rc"; [[ $_rc -ne 0 ]] && AGG=$_rc; done'
+    echo 'echo "[mdps-features-live] all ${#PIDS[@]} worker(s) exited aggregate_rc=$AGG"'
+    echo 'exit $AGG'
+  } >"$_MFL_SCRIPT"
+  chmod +x "$_MFL_SCRIPT"
+  _launch_with_tee "bash $_MFL_SCRIPT" "$LOGS/mdps-features-live.log"
 elif [ -n "$VM_TASK" ]; then
   # GUARD (added after the 3rd occurrence of this exact bug class: 2026-07-12
   # sports-v9-migration, 2026-07-13 defi-paper, 2026-07-21 datapoint-validation —
