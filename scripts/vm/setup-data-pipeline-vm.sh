@@ -2164,6 +2164,25 @@ elif [[ "$VM_TASK" == "orphan-sweep" ]]; then
   else
     log "ERROR: orphan-sweep task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "feature-orphan-sweep" ]]; then
+  # features-service GCS→manifest orphan sweep — launch-feature-orphan-sweep-vm.sh
+  # prepares the correct feature_orphan_sweep.py invocation in VM_BACKFILL_CMD (same
+  # VM_BACKFILL_CMD dispatch shape as orphan-sweep above — sibling launcher, added
+  # 2026-08-03 so this VM_TASK gets its OWN branch from day one rather than repeating
+  # the recurring no-dispatch-branch bug class documented on orphan-sweep above; caught
+  # on the first real launch-run before it could crash a fleet of VMs, todo 2b of
+  # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md). Unlike
+  # orphan-sweep (instruments-service), the target script lives in features-service's
+  # features workspace dir.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/features" || { log "ERROR: $WORKSPACE/features missing — features-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/feature-orphan-sweep.log"
+  else
+    log "ERROR: feature-orphan-sweep task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "backfill-orphan-e" ]]; then
   # class-E orphan record_captured backfill — launch-backfill-orphan-e-vm.sh prepares
   # the correct backfill_orphan_class_e.py invocation in VM_BACKFILL_CMD (same
