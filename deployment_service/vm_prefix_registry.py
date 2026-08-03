@@ -1132,10 +1132,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Launcher: deployment-service/terraform/gcp/batch_live_smoke_matrix_scheduler.tf.
     # Registered 2026-06-22 per CLAUDE.md "VM Naming Convention" HARD RULE.
     "batch-live-smoke-matrix-": None,
-    # Honest-coverage cron VM (B-018 Phase 8.A). Heartbeat-only; output is project-level JSON,
-    # not per-VM manifest shards. Launcher: launch-honest-coverage-vm.sh (Cloud Scheduler daily).
-    # Registered 2026-05-15 per CLAUDE.md "VM Naming Convention" HARD RULE.
-    "honest-coverage-": None,
     # ------------------------------------------------------------------
     # Forward-poll daily cron hosts — SCHEDULED_RECURRING long-lived VMs that
     # install a crontab firing the matching `launch-{tradfi,cefi}-forward-poll.sh`

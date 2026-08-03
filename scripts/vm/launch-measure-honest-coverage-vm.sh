@@ -36,10 +36,14 @@
 #                                                                     # right-sizing verification run
 #
 # Cost: e2-standard-4 (4 vCPU / 16 GiB) for ~5-15 minutes depending on manifest sizes.
-# THIS is the nightly-cron launcher — Cloud Scheduler `honest-coverage-daily` (00:30 UTC)
-# → Cloud Run Job `honest-coverage-daily-launcher` fetches THIS file from
-# gs://deployment-scripts-central-element-323112/vm/ and runs it (NOT
-# launch-honest-coverage-vm.sh). Re-upload via create-code-tarballs.sh after any edit.
+# THIS is the ONLY honest-coverage VM launcher (SSOT, 2026-08-03 cleanup — the prior
+# redundant launch-honest-coverage-vm.sh + honest-coverage-daily-workflow.yaml were
+# deleted; neither was on the live cron path). Cloud Scheduler `honest-coverage-daily`
+# (00:30 UTC) → Cloud Run Job `honest-coverage-daily-launcher` fetches THIS file from
+# gs://deployment-scripts-central-element-323112/code/deployment-service/scripts/vm/ —
+# the path create-code-tarballs.sh's bare-launcher loop auto-publishes on every run, so
+# this class of drift (edit here, forget to re-upload) can't silently recur. No manual
+# re-upload needed — just ship this file and run create-code-tarballs.sh as usual.
 #
 # Right-sizing history (2026-07-16 → 2026-08-01): the per-AG manifest loads (cefi
 # availability_index ~35.8M rows) OOM-killed even a 32 GiB box PRE the eu-only secondary

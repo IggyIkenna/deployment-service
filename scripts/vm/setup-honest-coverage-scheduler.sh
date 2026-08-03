@@ -12,9 +12,12 @@
 # which is Ikenna/owner territory — harshkantariya@odum-research.com gets PERMISSION_DENIED).
 #
 # Terraform SSOT: deployment-service/terraform/gcp/honest_coverage_scheduler.tf
-# VM Launcher:    deployment-service/scripts/vm/launch-honest-coverage-vm.sh  (cron, --asset-group all)
-#   (uploaded to GCS: gs://deployment-scripts-central-element-323112/vm/launch-honest-coverage-vm.sh)
-# Ad-hoc:        deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh  (supports --asset-group filter)
+# VM Launcher (cron AND ad-hoc, SSOT — one artifact):
+#   deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh (default --asset-group all
+#   when run by the Cloud Run Job; supports --asset-group filter for ad-hoc partial runs)
+#   Published by create-code-tarballs.sh's bare-launcher loop to
+#   gs://deployment-scripts-central-element-323112/code/deployment-service/scripts/vm/
+#   (the Cloud Run Job fetches from that exact path — see honest_coverage_scheduler.tf).
 # Cloud Run Job:  honest-coverage-daily-launcher (CREATED 2026-05-15)
 # Plan:           plans/active/issues/honest_coverage_cron_vm_scheduling_2026_05_14.md
 #

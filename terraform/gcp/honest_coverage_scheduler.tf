@@ -45,17 +45,26 @@ module "honest_coverage_daily_job" {
   # The launcher creates the GCE VM which runs measure_honest_coverage.py and
   # self-deletes via VM_SHUTDOWN_ON_COMPLETION=true.
   #
+  # 2026-08-03: repointed from the bucket-root vm/ path to the
+  # code/deployment-service/scripts/vm/ path — create-code-tarballs.sh's
+  # bare-launcher loop (all launch-*.sh + lib/*.sh) auto-publishes EVERY launcher
+  # to this exact path on every run, whereas the bucket-root vm/ path is only
+  # special-cased for setup-data-pipeline-vm.sh/vm-exec-with-gcs-tee.sh/
+  # heartbeat_daemon.py — an edit to this launcher landed there only via a
+  # one-off manual upload, which is exactly the drift class this fixes (see
+  # issues/honest_coverage_nightly_cron_undersized_and_launcher_ssot_drift_2026_07_16.md).
+  #
   # 2026-07-17: the launcher script gained a `source lib/launcher_common.sh`
   # dependency (fleet-wide launch-*.sh rollout, deployment-service@b5bd336),
-  # but this job's fetch command was never updated to also download the vm/lib/
+  # but this job's fetch command was never updated to also download the lib/
   # directory — it silently failed every run with "No such file or directory"
   # from the moment the new script was published (2026-07-16) until fixed here.
-  # `gsutil cp -r 'gs://.../vm/lib/*' /tmp/lib/` mirrors the launcher's own
-  # expectation (`source "$(dirname script)/lib/launcher_common.sh"`).
+  # `gsutil cp -r '.../lib/*' /tmp/lib/` mirrors the launcher's own expectation
+  # (`source "$(dirname script)/lib/launcher_common.sh"`).
   command = ["/bin/sh"]
   args = [
     "-c",
-    "mkdir -p /tmp/lib && gsutil cp gs://deployment-scripts-${var.project_id}/vm/launch-measure-honest-coverage-vm.sh /tmp/launcher.sh && gsutil -m cp -r 'gs://deployment-scripts-${var.project_id}/vm/lib/*' /tmp/lib/ && chmod +x /tmp/launcher.sh && bash /tmp/launcher.sh",
+    "mkdir -p /tmp/lib && gsutil cp gs://deployment-scripts-${var.project_id}/code/deployment-service/scripts/vm/launch-measure-honest-coverage-vm.sh /tmp/launcher.sh && gsutil -m cp -r 'gs://deployment-scripts-${var.project_id}/code/deployment-service/scripts/vm/lib/*' /tmp/lib/ && chmod +x /tmp/launcher.sh && bash /tmp/launcher.sh",
   ]
 
   environment_variables = {
