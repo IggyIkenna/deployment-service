@@ -270,6 +270,25 @@
 #   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 dry
 #   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 full
 #
+#   # {cefi,defi,tradfi,sports,prediction}-iah (2026-08-03): instrument_availability /
+#   # futures_contracts / market_lifecycle FLAT -> FULL-HIVE copy-and-verify migration (todo 7c,
+#   # plans/active/issues/instrument_availability_hive_canonicalisation_2026_07_21.md).
+#   # scripts/migrate_instrument_availability_hive_2026_08_03.py (instruments-service) copies each
+#   # flat `day={D}/venue={V}/...` object (server-side, no egress) to its full-hive
+#   # `day={D}/pipeline_mode={pm}/asset_group={ag}/venue={V}/...` target, then verifies parity via a
+#   # (crc32c, size) metadata compare. COPY-ONLY -- never deletes the flat source (that is the
+#   # separate, later, [OPERATOR]-gated todo 7d). One VM per asset_group (the tool's own
+#   # --asset-group flag; internal --workers ThreadPoolExecutor parallelism, no --shard-of needed).
+#   # Runs from $WORKSPACE/instruments (VM_SERVICE=instruments_service re-homes the dispatcher's
+#   # default `cd $WORKSPACE/mtds`, same trick as tradfi-catalogue-canon). START_DATE/END_DATE are
+#   # cosmetic (VM labels only) -- the tool scopes its own worklist via a bounded prefix listing
+#   # (the same prefixes todo 7b already sized: 452,793 instrument_availability + 12,582
+#   # market_lifecycle objects across the 5 buckets). dry -> scan + report counts only, no writes.
+#   # full -> --apply-prod --confirm-prod-write (the actual copy+verify). Category names use "-iah"
+#   # (not "-instr-avail-hive") to stay under GCE's 63-char vm_name limit.
+#   bash launch-canonical-migration-vm.sh cefi-iah 2026-08-03 2026-08-03 dry
+#   bash launch-canonical-migration-vm.sh cefi-iah 2026-08-03 2026-08-03 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -376,7 +395,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -1295,6 +1314,27 @@ _script_for() {
                 printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_del_dir}/delete_stale_uppercase_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS:-16}"
             fi
             ;;
+        # instrument_availability/futures_contracts/market_lifecycle FLAT -> FULL-HIVE copy-and-verify
+        # migration (todo 7c, plans/active/issues/instrument_availability_hive_canonicalisation_2026_07_21.md).
+        # COPY-ONLY (never deletes the flat source -- that is the separate, later, gated todo 7d).
+        # scripts/migrate_instrument_availability_hive_2026_08_03.py lives in instruments-service (NOT
+        # mtds) -- hence VM_SERVICE=instruments_service below re-homes the dispatcher's default `cd
+        # $WORKSPACE/mtds` into `$WORKSPACE/instruments`, same trick as tradfi-catalogue-canon. One VM
+        # per asset_group (the tool's own --asset-group flag; internal ThreadPoolExecutor --workers
+        # parallelism, no --shard-of needed). dry -> bounded prefix-listing scan only (no writes); full
+        # -> --apply-prod --confirm-prod-write (copy-if-missing + metadata verify). Category names
+        # abbreviated to "-iah" (not "-instr-avail-hive") to stay under GCE's 63-char vm_name limit
+        # (canonical-migration-prediction-instr-avail-hive-<ts> would be 64 chars); "-iah" still starts
+        # with the already-registered "canonical-migration-<ag>-" VM_PREFIX_TO_BUCKET prefix -- no new
+        # registry entry needed.
+        cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah)
+            local _iah_ag="${cat%-iah}"
+            if [[ "$MODE" == "full" ]]; then
+                printf '%s' "cd ${VM_WORKSPACE}/instruments && python -u scripts/migrate_instrument_availability_hive_2026_08_03.py --asset-group ${_iah_ag} --apply-prod --confirm-prod-write --workers ${WORKERS:-32}"
+            else
+                printf '%s' "cd ${VM_WORKSPACE}/instruments && python -u scripts/migrate_instrument_availability_hive_2026_08_03.py --asset-group ${_iah_ag}"
+            fi
+            ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -1543,7 +1583,7 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" || "$cat" == *-iah ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
@@ -1556,7 +1596,11 @@ _launch() {
               # SAME class again (ends in `exit ${rc}`) -- same suppression reasoning.
               # sports-k1k2-uppercase-delete bakes --apply-prod --confirm-prod-write directly into the
               # full-mode command itself (a single statement, not a compound chain) -- suppressed anyway so
-              # the generic --apply/--dry-run append never double-flags it.
+              # the generic --apply/--dry-run append never double-flags it. *-iah (instrument_availability
+              # hive migration) is the SAME class as sports-k1k2-uppercase-delete: not a compound chain, but
+              # its tool's flags are --apply-prod/--confirm-prod-write (not --apply/--dry-run), baked directly
+              # into the if/full else/dry branches by _script_for -- suppressed so the generic append never
+              # double-flags it.
         elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1572,7 +1616,7 @@ _launch() {
     # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
-    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _svc="instruments_service"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" || "$cat" == *-iah ]] && _svc="instruments_service"
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
@@ -1601,6 +1645,10 @@ _launch() {
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
+    # *-iah category names are "<ag>-iah" -- strip the suffix to recover the real asset group so
+    # dashboards/heartbeat classify these VMs with the rest of that asset group instead of a novel
+    # "<AG>-IAH" bucket (same suffix-strip convention as candle-census/candle-apply above).
+    [[ "$cat" == *-iah ]] && _ag="$(echo "${cat%-iah}" | tr '[:lower:]' '[:upper:]')"
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
     # SPORTS-K1K2-CASING-REVERT / SPORTS-ODDS-VENUE-MIG) so dashboards/heartbeat classify these
     # VMs with the rest of sports.
@@ -1710,7 +1758,7 @@ _launch() {
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" || "$cat" == *-iah ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
         # sports-features-purge's script lives in features-service, not MTDS (see VM_SERVICE
         # override above) -- found 2026-07-27 when a launch silently staged a stale
@@ -1821,7 +1869,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi
