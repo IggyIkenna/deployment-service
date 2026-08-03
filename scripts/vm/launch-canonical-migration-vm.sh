@@ -95,6 +95,12 @@
 #   # disposition counts before full.
 #   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 dry
 #   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 full
+#   # targeted mop-up (2026-08-03, todo 19): re-apply against a SMALL pre-built enumeration (e.g. the
+#   # handful of KEPT_SRC-class stragglers a fresh census reclassified as SPLIT_BRAIN_DUPLICATE) instead
+#   # of a fresh full-corpus walk -- skips --quarantine/--content-repair too (mop-up scope is
+#   # MIGRATE/SPLIT_BRAIN_DUPLICATE only). See CANDLE_MOPUP_ENUMERATION_GS below.
+#   CANDLE_MOPUP_ENUMERATION_GS=gs://deployment-scripts-central-element-323112/canonical-migration-candle-apply/mopup/cefi_residual_enum.txt \
+#     bash launch-canonical-migration-vm.sh cefi-candle-apply 2026-07-23 2026-08-03 full
 #   # sharded fan-out across N=8 VMs for a large corpus (e.g. tradfi):
 #   SHARD_OF=8 bash launch-canonical-migration-vm.sh tradfi-candle-apply 2020-01-01 2026-07-22 full
 #
@@ -289,6 +295,11 @@
 #   SHARD_INDEX=3                launch exactly this shard on ONE VM (canary / targeted relaunch)
 #   LIMIT=200                    process only the first N (post-shard) objects PER PASS (canary scope)
 #   CANARY_DAY=2024-01-15        narrow the fresh walk to one day= prefix (single-day canary scope)
+#   # *-candle-apply only:
+#   CANDLE_MOPUP_ENUMERATION_GS=<gs://path>  skip the fresh full-corpus walk; download this pre-built
+#                                enumeration instead (a small, already-known straggler set) and, in full
+#                                mode, drop --quarantine/--content-repair (mop-up scope is
+#                                MIGRATE/SPLIT_BRAIN_DUPLICATE only). See usage example above.
 #   TRADFI_TICK_BUCKET=<name>    override the resolved tradfi tick bucket (default:
 #                                market-data-tick-tradfi-<prd|stg|dev>-<project>, == resolve_bucket_name)
 #
@@ -947,6 +958,16 @@ _candle_census_cmd() {
 # MIGRATION_EXTRA_ARGS, since this emits a compound `&&` chain and a trailing append would silently
 # land on the final `gcloud storage cp` rather than the python pass (same reason as the tradfi/
 # candle-census branches).
+#
+# CANDLE_MOPUP_ENUMERATION_GS (2026-08-03, todo 19 mop-up --
+# candle_feature_canonical_path_divergence_2026_07_20.md): opt-in override for a SMALL, TARGETED
+# re-apply against a pre-built enumeration (e.g. just the ~149-object CEFI KEPT_SRC-class residual
+# reclassified via a fresh census dry-run) instead of a fresh full-corpus `gcloud storage ls` walk.
+# When set: (1) the enumeration step downloads that GCS file instead of re-walking the whole AG
+# corpus -- the residual is already a known, small, enumerated set, so a fresh multi-hundred-thousand-
+# object walk would be pure waste; (2) full mode drops `--quarantine --content-repair` -- a mop-up
+# targets ONLY the MIGRATE/SPLIT_BRAIN_DUPLICATE straggler class (plain `--apply`, no extra gates
+# needed), never the QUARANTINE/CONTENT_REPAIR classes a full corpus pass also has to handle.
 _candle_apply_cmd() {
     local ag="$1"       # cefi | defi | tradfi | prediction
     local vm_name="$2"
@@ -960,7 +981,11 @@ _candle_apply_cmd() {
     local mode_flag gate_flags
     if [[ "$MODE" == "full" ]]; then
         mode_flag="--apply"
-        gate_flags=" --quarantine --content-repair"
+        if [[ -n "${CANDLE_MOPUP_ENUMERATION_GS:-}" ]]; then
+            gate_flags=""
+        else
+            gate_flags=" --quarantine --content-repair"
+        fi
     else
         mode_flag="--dry-run"
         gate_flags=""
@@ -973,9 +998,15 @@ _candle_apply_cmd() {
     local mapd="${work}/mappings"
     local out="${mapd}/candle_apply_mapping.tsv"
     local stage="gs://${CODE_BUCKET}/canonical-migration-candle-apply/${RUN_TS}/${vm_name}/"
+    local enum_step
+    if [[ -n "${CANDLE_MOPUP_ENUMERATION_GS:-}" ]]; then
+        enum_step="gcloud storage cp \"${CANDLE_MOPUP_ENUMERATION_GS}\" ${enum}"
+    else
+        enum_step="gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum}"
+    fi
     # `\$(...)` stays LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
     # launcher locals expand host-side. No commas anywhere in the emitted string.
-    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && ${enum_step} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
 # Build the candle-orphan-sweep command (2026-07-27, todo 1 of
