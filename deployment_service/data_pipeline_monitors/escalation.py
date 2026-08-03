@@ -318,20 +318,26 @@ def _escalated_machine_type(current: str) -> str:
 
 
 def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
-    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM only) → re-launch the backfill VM.
+    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM, or a vetted-launcher WORKER_STALLED
+    self-delete) → re-launch the backfill VM. Anything else → ``recovered=False``
+    → file_issue (budget-exceeded too — the delegated actuator already paged).
 
-    Only the OOM subcase (``oom`` true / ``exit_code==137``) is recoverable here;
-    a non-OOM crash returns ``recovered=False`` → file_issue. A budget-exceeded
-    relaunch returns ``recovered=False`` too (the actuator already paged).
+    ``details["worker_stalled"]`` (set by ``exit_code_fleet_monitor._finding_for``
+    for exit_code==124 — ``vm-exec-with-gcs-tee.sh``'s deterministic in-guest
+    stall-kill signature — on an allowlisted launcher) delegates WHOLESALE to
+    ``_recover_stalled_vm``: the SAME actuator + budget (``RelaunchStalledVm``,
+    ≤2/(vm-prefix,day)) the EXTERNAL heartbeat-stall watcher already uses for
+    ``DP_VM_STALL`` — an in-guest self-kill and an external watchdog-kill are the
+    same remedy, just two different detectors reaching the same verdict. See
+    ``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todo 8 —
+    before this, every non-OOM ``EXIT_NONZERO`` always paged an operator.
 
-    **KEY #4 (operator 2026-06-23) — match the actuator to the failure MODE.** An
-    OOM relaunch escalates to a HIGHER-memory machine: when the finding carries a
-    ``bigger_machine`` hint, this passes a ``MACHINE_TYPE`` env (the next-bigger
-    tier, or a high-mem fallback) through ``launcher_env`` so the relaunched VM has
-    more memory — a same-machine relaunch would just re-OOM. The launcher reads
-    ``MACHINE_TYPE`` (env-overridable in every ``launch-*-vm.sh``).
+    **KEY #4 (2026-06-23)**: an OOM relaunch escalates to a HIGHER-memory machine
+    via a ``bigger_machine`` hint → ``MACHINE_TYPE`` env — same-machine re-OOMs.
     """
     details = finding.details
+    if details.get("worker_stalled"):
+        return _recover_stalled_vm(finding, dry_run=dry_run)
     exit_code_raw = details.get("exit_code")
     exit_code = (
         int(exit_code_raw)

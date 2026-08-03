@@ -1723,11 +1723,6 @@ _launch() {
     # permanently defeated by the always-on PIPELINE_HEARTBEAT emitter wired into the SAME tee'd log
     # (it writes a line every 60s regardless of whether the real workload is alive), which is exactly
     # how 10/42 cefi-content-apply VMs sat hung 1-2.5h+ with GCE reporting RUNNING and nothing paging.
-    # Only cefi-content-apply's script has had its real progress-log line format verified against a
-    # live run.log this session (migrate_cefi_content_instrument_id_catalogue_2026_07_17.py); the
-    # other ~20 VM_TASK=canonical-migration categories' scripts have NOT been individually checked
-    # (that per-category audit is todo 5's stated scope, deliberately left open there) so they
-    # intentionally do NOT get a regex here yet and keep the size-only 1800s default.
     #   "Discovery progress: day=%s cumulative_files=%d elapsed=%.1fs" -- once per scanned day
     #     (discovery phase).
     #   "Progress: %d/%d files (%.1f files/sec, %.1fs elapsed) stats=%s" -- every 200 completed
@@ -1744,6 +1739,110 @@ _launch() {
     # roughly every 20-70s -- >>25x headroom under the unchanged 1800s STALL_TIMEOUT_SEC default, so
     # this is a low false-positive-risk addition for legitimately-running VMs of this specific category.
     [[ "$cat" == "cefi-content-apply" ]] && md="${md},STALL_PROGRESS_REGEX=progress:|files/sec"
+    # Todo 5 sweep (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md) -- read the
+    # ACTUAL target-script logging source (not the launcher's own prior comments) for every
+    # remaining VM_TASK=canonical-migration category. A regex is added ONLY where the source has a
+    # genuine per-item/per-day/per-object marker (not a periodic every-N-items checkpoint token --
+    # that exact shape is the confirmed root cause this whole issue doc exists for) with either an
+    # in-source throughput figure or a tiny/fixed population that make the inter-marker gap provably
+    # << STALL_TIMEOUT_SEC. Categories NOT listed below were deliberately left unset because the
+    # sweep found one of: (a) only a periodic every-500/1000/2000-item checkpoint over an unmeasured
+    # or corpus-scale population (same shape as the original bug -- forcing a regex here risks a
+    # NEW false self-kill, since an unmatched regex is worse than the byte-growth fallback: the
+    # stall timer then never resets at all); (b) a single whole-index/whole-manifest vectorized
+    # read-transform-write with no internal per-item loop, so no per-item marker can exist even in
+    # principle (tradfi-manifest-cas, tradfi-manifest-retire, cefi-eu-twin-apply, cefi-bybit-spot-
+    # purge, manifest-restamp, defi-curve-optimism-reclassify); or (c) an architectural gap where the
+    # real per-item lines never reach the tee'd log the watchdog reads at all (tradfi-catalogue-canon
+    # forks each CANON_SHARDS shard to its OWN `/tmp/canon_shard{i}.log`, only tailed after ALL
+    # shards finish -- no STALL_PROGRESS_REGEX value can fix that; filed as todo 9 below, not
+    # attempted here). *-iah/*-iah-purge were also left unset: their "progress: N/M objects
+    # processed" line is gated `done % 5000 == 0`, but the per-asset_group candidate_count is
+    # unverified per bucket (452,793 IA + 12,582 ML objects split across 5 buckets total) -- an
+    # asset_group with <5000 candidates would NEVER match, which is the worse-than-fallback failure
+    # mode above; filed as todo 10 below rather than guessed at.
+    if [[ "$cat" == "tradfi-cme-monolith" ]]; then
+        # migrate_cme_monolith_trades_2026_07_26.py::run_migrate logs "day=%s groups=%d stats=%s"
+        # UNCONDITIONALLY per day (not gated by a modulus) against a fixed, tiny 30-day worklist.
+        md="${md},STALL_PROGRESS_REGEX=^day=\S+ groups=[0-9]+ stats="
+    elif [[ "$cat" == "tradfi-cme-monolith-delete" ]]; then
+        # Same tool's --delete-source path logs one of DELETED/REFUSING/would-delete per object,
+        # unconditionally, over the same fixed 30-object worklist.
+        md="${md},STALL_PROGRESS_REGEX=DELETED gs://|REFUSING delete|would delete"
+    elif [[ "$cat" == "tradfi-cme-options" ]]; then
+        # canonicalize_cme_options_chain_legacy_flat_2026_07_14.py::run logs
+        # "day=%s options=%d futures=%d unclassified=%d" unconditionally per real day processed
+        # (a separate every-10th-day "progress %d/%d" line exists too -- deliberately NOT used,
+        # same periodic-checkpoint shape as the bug this doc fixes).
+        md="${md},STALL_PROGRESS_REGEX=^day=\S+ options=[0-9]+ futures=[0-9]+ unclassified="
+    elif [[ "$cat" == "cefi-late-renames" ]]; then
+        # migrate_cefi_tardis_filename_canonical_2026_07_17.py's build_plan logs
+        # "Discovery progress: day=%s cumulative_objects=%d elapsed=%.1fs" once per day iterated;
+        # this doc's own top-of-file usage comment already measured ~65-90s/day for this category.
+        md="${md},STALL_PROGRESS_REGEX=Discovery progress: day="
+    elif [[ "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" ]]; then
+        # Both relabel_solana_dex_pools_fake_history.py and
+        # relabel_kamino_solend_lending_fabrication_2026_07_29.py log "%s -> %s" (blob.name, status)
+        # per processed .parquet object, unconditionally, inside the innermost per-blob loop --
+        # each script's own docstring cites a real multi-hour per-object-GCS-latency run, i.e. the
+        # per-object cadence is inherently far tighter than the stall window.
+        md="${md},STALL_PROGRESS_REGEX=\.parquet -> "
+    elif [[ "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" ]]; then
+        # rewrite_tradfi_content_id_2026_07_21.py / rewrite_tradfi_chain_bundle_content_id_2026_07_25.py
+        # both log "  progress %d/%d (%.1f%%) -- %.1f/s -- ETA %.0fs -- stats=%s" every 5000 (cid)
+        # / 500 (cid-cb) completed rows inside the per-row ThreadPoolExecutor loop. At this launcher
+        # family's typical concurrent-GCS-op throughput (tens of rows/s aggregate, same order as the
+        # other per-row tools audited this sweep), a 500-5000-row gap lands well under 1800s.
+        md="${md},STALL_PROGRESS_REGEX=progress [0-9]+/[0-9]+"
+    elif [[ "$cat" == *-candle-census || "$cat" == *-candle-apply ]]; then
+        # migrate_candle_canonical_2026_07.py's shared Pass -1/0/1 (path-string classify, cheap/
+        # CPU-bound, every 500k objects) covers *-candle-census (dry-only, stops here). *-candle-
+        # apply ALSO gets the denser "apply: %d processed" line (every 5000 objects; docstring
+        # measures ~8,500 parquets/min, i.e. ~35s/5000-object gap -- >>50x headroom under 1800s).
+        md="${md},STALL_PROGRESS_REGEX=Pass -?[0-9]/3|apply: [0-9]+ processed"
+    elif [[ "$cat" == *-candle-orphan-sweep ]]; then
+        # candle_orphan_sweep.py logs "%d candle objects swept (%.0f/s)" every 50000 objects inside
+        # a metadata-only GCS-listing walk (no content reads) -- listing throughput is normally
+        # 1000s/s, so this is a low-risk addition across all 5 asset_groups.
+        md="${md},STALL_PROGRESS_REGEX=candle objects swept"
+    elif [[ "$cat" == "sports-odds-venue-mig" ]]; then
+        # migrate_odds_horizon_bucket_venue_to_bookmaker_2026_07_27.py logs "resolved %d/%d shards"
+        # every 5000 completed shard-reads inside a 32-worker ThreadPoolExecutor over the doc's own
+        # measured 184,242-shard population.
+        md="${md},STALL_PROGRESS_REGEX=resolved [0-9]+/[0-9]+ shards"
+    elif [[ "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
+        # reclassify_odds_horizon_bucket_unresolvable_rows_2026_07_28.py logs "checked %d/%d rows"
+        # every 1000 rows over a tiny ~3,063-row population -- trivially fast regardless.
+        md="${md},STALL_PROGRESS_REGEX=checked [0-9]+/[0-9]+ rows"
+    elif [[ "$cat" == "sports-features-purge" ]]; then
+        # purge_sports_derived_features_post_floor_residue_2026_07_27.py's scan phase (the bulk of
+        # runtime -- ~2,385 days of per-day GCS listings) logs "scanned %d/%d days" every 200 days;
+        # the delete phase's own ticker may never fire on a small residue set, but the launcher's own
+        # "=== PURGE DONE ===" / "=== RE-CENSUS ===" step echoes are already an independent marker for
+        # that shorter step.
+        md="${md},STALL_PROGRESS_REGEX=scanned [0-9]+/[0-9]+ days"
+    elif [[ "$cat" == "sports-k1k2-casing-revert" ]]; then
+        # Both migrate_sports_casing_revert_2026_07_27.py and
+        # generate_casing_revert_manifest_report_2026_07_27.py log "progress: %d/%d objects
+        # processed"/"progress: %d/%d" every 5000/10000 over the ~260,298-object population (the
+        # manifest_swap step has no internal ticker of its own but is in-memory/pandas-bound, not
+        # per-object GCS calls, so its own "=== MANIFEST SWAP START/DONE ===" step echo suffices).
+        md="${md},STALL_PROGRESS_REGEX=progress: [0-9]+/[0-9]+"
+    elif [[ "$cat" == "sports-k1k2-uppercase-delete" ]]; then
+        # delete_stale_uppercase_2026_07_27.py logs "progress: %d/%d objects processed" every 5000
+        # over the same ~260k-object population.
+        md="${md},STALL_PROGRESS_REGEX=progress: [0-9]+/[0-9]+ objects processed"
+    elif [[ "$cat" == "defi-gmx-purge" ]]; then
+        # purge_gmx_venue_removal_2026_07_25.py logs "%d/%d object(s) backed up + deleted" every 250
+        # objects over a small ~5,374-row population -- each object does a bounded describe+copy+
+        # verify+delete+verify sequence, so even at conservative per-object latency the 250-object
+        # gap stays well under 1800s.
+        md="${md},STALL_PROGRESS_REGEX=object\(s\) backed up \+ deleted"
+    elif [[ "$cat" == "defi-lst-rates-fold" ]]; then
+        # fold_lst_rates_migrated_markers_2026_07_25.py logs "%d/%d processed in %ds -- %s" every 50
+        # markers over the tool's own fixed 346-marker population -- trivially fast.
+        md="${md},STALL_PROGRESS_REGEX=processed in [0-9]+s"
+    fi
     # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
     # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),
     # but it is still echoed verbatim into VM_MIGRATION_MODE metadata and the "mode=" GCE label

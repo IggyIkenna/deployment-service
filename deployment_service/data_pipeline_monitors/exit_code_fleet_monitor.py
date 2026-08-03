@@ -88,6 +88,38 @@ logger = logging.getLogger(__name__)
 # The census blob lives in the heartbeat/log bucket so it is durable + cheap.
 CENSUS_BLOB = "vm-census/exit-code-fleet-census.json"
 
+# ``vm-exec-with-gcs-tee.sh``'s in-guest stall watchdog writes exit_code=124
+# (the conventional shell "timeout" code) when it self-kills a VM for
+# STALL_PROGRESS_REGEX-derived WORKER_STALLED — a distinct, deterministic
+# signature exactly like OOM's 137 (see vm-exec-with-gcs-tee.sh:426, `RC=124`
+# on the STALL_BREADCRUMB path). See
+# vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8.
+WORKER_STALLED_EXIT_CODE: int = 124
+
+# Launchers whose target script is PROVEN idempotent + day/object-level
+# checkpoint-resumable (verified per-launcher in
+# vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todos 2/5) —
+# safe to auto-relaunch unconditionally on a WORKER_STALLED self-delete rather
+# than always paging. Deliberately narrow at first: a launcher NOT on this list
+# still pages (the safe, pre-existing default) — expanding it is its own
+# per-launcher idempotency review, not a blanket policy change.
+DEFAULT_WORKER_STALL_SAFE_LAUNCHERS: frozenset[str] = frozenset(
+    {
+        # This doc's own subject: idempotent copy-based writes + a day-level
+        # JSON checkpoint (`_dex_swaps_source_correction_checkpoint.json`),
+        # confirmed via a real relaunch's `RESUMING: N days already
+        # checkpointed as done` log line (todo 3's monitoring dispatch).
+        "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+        # Footer-read-based candle-manifest backfill — per-object skip-if-
+        # present design (todo 2's sweep), no genesis-replay risk.
+        "launch-backfill-candle-manifest-vm.sh",
+        # The fleet's original, most incident-hardened convention
+        # (`StreamingParquetWriter: uploaded ...` per finalized shard file) —
+        # per-shard idempotent writes (todo 2's sweep).
+        "launch-cefi-sharded-backfill.sh",
+    }
+)
+
 
 class TerminationVerdict(StrEnum):
     """Per terminated-VM classification outcome."""
@@ -224,6 +256,7 @@ def _finding_for(
     umbrella: str = "",
     launch_env: dict[str, str] | None = None,
     progress_checkpoint: dict[str, str] | None = None,
+    worker_stall_safe: bool = False,
 ) -> PipelineFinding | None:
     """Build the escalation finding for a non-clean termination (None when clean).
 
@@ -315,9 +348,17 @@ def _finding_for(
         )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
+        # WORKER_STALLED self-delete (vm-exec-with-gcs-tee.sh's in-guest stall
+        # watchdog, RC=124 — see WORKER_STALLED_EXIT_CODE) on a launcher already
+        # proven idempotent + checkpoint-resumable. Gated on BOTH the exit-code
+        # signature AND the allowlist so an unvetted launcher keeps the safe
+        # pre-existing default (page_operator) — see
+        # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8.
+        worker_stalled = result.exit_code == WORKER_STALLED_EXIT_CODE and worker_stall_safe
         summary = (
             f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
-            f"{' (OOM)' if oom else ''} — captured did not complete cleanly"
+            f"{' (OOM)' if oom else ''}{' (WORKER_STALLED, vetted launcher)' if worker_stalled else ''}"
+            " — captured did not complete cleanly"
         )
         oom_details: dict[str, object] = {**base_details, "oom": oom}
         if oom and relaunch_launcher:
@@ -329,10 +370,23 @@ def _finding_for(
             # higher-memory tier. KEY #4 (operator 2026-06-23): match the
             # actuator to the failure MODE — OOM → relaunch BIGGER, not same.
             oom_details["bigger_machine"] = True
+        if worker_stalled and relaunch_launcher:
+            oom_details["relaunch_launcher"] = relaunch_launcher
+            # Tells escalation._recover_backfill_vm to delegate wholesale to
+            # _recover_stalled_vm (the SAME RelaunchStalledVm actuator +
+            # budget the external heartbeat-stall watcher already uses for
+            # DP_VM_STALL) — unconditional relaunch, replaying launch_env /
+            # resuming from progress_checkpoint, never the OOM bigger-machine
+            # path (irrelevant here — the VM wasn't undersized, it was stuck).
+            oom_details["worker_stalled"] = True
+            if launch_env:
+                oom_details["launch_env"] = launch_env
+            if progress_checkpoint:
+                oom_details["progress_checkpoint"] = progress_checkpoint
         return PipelineFinding(
             event=DP_VM_EXIT_NONZERO,
             severity="CRITICAL",
-            tier=EscalationTier.AUTO_RECOVER if oom else EscalationTier.PAGE_OPERATOR,
+            tier=EscalationTier.AUTO_RECOVER if (oom or worker_stalled) else EscalationTier.PAGE_OPERATOR,
             summary=summary,
             details=oom_details,
             registry_id="DP-VM-001",
@@ -427,6 +481,7 @@ def sweep(
     finding_sink: list[PipelineFinding] | None = None,
     pm_repo_path: str | None = None,
     dry_run: bool = False,
+    worker_stall_safe_launchers: frozenset[str] = DEFAULT_WORKER_STALL_SAFE_LAUNCHERS,
 ) -> list[TerminationResult]:
     """Run one exit-code-aware fleet sweep.
 
@@ -465,6 +520,11 @@ def sweep(
             monitor behaves exactly as before (GCS-marker-only).
         pm_repo_path: optional PM clone path for the file_issue tier.
         dry_run: when True, classify + return but emit nothing / persist nothing.
+        worker_stall_safe_launchers: launcher-script names whose target script is
+            proven idempotent + checkpoint-resumable, so a WORKER_STALLED
+            in-guest self-delete (exit_code=124) on one of them auto-relaunches
+            instead of paging. Defaults to ``DEFAULT_WORKER_STALL_SAFE_LAUNCHERS``;
+            pass a narrower/wider set to override per-deployment.
 
     Returns the list of TerminationResult for VMs that terminated since last tick.
     """
@@ -525,10 +585,17 @@ def sweep(
                 )
         # A terminated VM with NO durable exit marker AND climbing captured is the
         # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
-        # SAME relaunch-replay env as PREEMPTED. Resolve the gate here (mirrors the
-        # verdict's own precedence: nonzero-exit already routes elsewhere, so this
-        # is exactly "would resolve PARTIAL_UNCONFIRMED").
-        needs_relaunch_env = is_preempted or (exit_code is None and captured_after > captured_before)
+        # SAME relaunch-replay env as PREEMPTED. A WORKER_STALLED self-delete
+        # (exit_code=124) needs it too — the auto_recover actuator resumes from
+        # progress_checkpoint instead of replaying START_DATE from genesis, same
+        # as PREEMPTED/PARTIAL_UNCONFIRMED (fetched regardless of the allowlist
+        # gate below; cheap, and _finding_for only USES it when the launcher is
+        # actually vetted).
+        needs_relaunch_env = (
+            is_preempted
+            or (exit_code is None and captured_after > captured_before)
+            or exit_code == WORKER_STALLED_EXIT_CODE
+        )
         # Only resolve the launch-params replay env when the verdict actually reads
         # it (PREEMPTED or PARTIAL_UNCONFIRMED) — keeps the per-tick GCS read count
         # down, same discipline as the run.log no-capture-reason gate just below.
@@ -593,6 +660,7 @@ def sweep(
             umbrella=umbrella,
             launch_env=launch_env,
             progress_checkpoint=progress_checkpoint,
+            worker_stall_safe=launcher in worker_stall_safe_launchers,
         )
 
         if finding is not None:

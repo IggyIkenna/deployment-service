@@ -57,7 +57,6 @@ _LAUNCHER_COMMON = _VM_SCRIPTS / "lib" / "launcher_common.sh"
 # contract package was previously left floating on service VMs.
 PINNING_LAUNCHERS = (
     "launch-canonical-migration-vm.sh",
-    "launch-legacy-bucket-migration-sharded.sh",
     "launch-mdps-backfill-vm.sh",
     "launch-mdps-sharded-backfill.sh",
     "launch-mtds-dex-swaps-backfill-vm.sh",

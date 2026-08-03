@@ -186,6 +186,7 @@ gcloud compute instances create "$VM_NAME" \
     --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
     --image-family=ubuntu-2404-lts-amd64 \
     --image-project=ubuntu-os-cloud \
+    --service-account="uts-migration-sa@${PROJECT}.iam.gserviceaccount.com" \
     --scopes=cloud-platform \
     --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${METADATA}" \
     --labels="purpose=bucket-rsync,source-hash=${SOURCE_HASH},dry-run=${DRY_RUN},run-ts=${RUN_TS}",managed-by=deployment-service

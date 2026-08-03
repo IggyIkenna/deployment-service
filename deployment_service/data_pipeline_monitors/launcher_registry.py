@@ -171,7 +171,6 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "strategy-paper-": None,  # paper VM (LONG_LIVED_LIVE) — promote-workflow owns lifecycle
     "greeks-compute-live-": None,  # streaming greeks — live service, not a backfill
     "greeks-compute-batch-": None,  # greeks recompute cron — scheduler-owned, not auto-relaunch
-    "gcs-migration-bundle-": None,  # generic prefix; the per-(ag,year) keys below carry the launcher
     "defi-backtest-": None,  # defi backtest — owned by its plan harness
     "defi-paper-": None,  # paper VM (LONG_LIVED_LIVE) — promote-workflow owns lifecycle
     "funding-ensemble-paper-": None,  # paper experiment — external scheduler re-launches it
@@ -245,6 +244,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # (VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-{ts}), same reasoning as the
     # single "gcs-migration-phase0-" entry above.
     "feat-orph-": "launch-feature-orphan-sweep-vm.sh",
+    # ml-service / strategy-service GCS→manifest orphan sweep (ml_orphan_sweep.py /
+    # strategy_orphan_sweep.py) — read-only, checkpoint-resumable, one global cell each.
+    "ml-orph-": "launch-ml-strategy-orphan-sweep-vm.sh",
+    "strat-orph-": "launch-ml-strategy-orphan-sweep-vm.sh",
     # features-service class-E orphan record_captured backfill (backfill_feature_orphan_
     # class_e.py) — READ+WRITE (record_captured only, never re-shapes/deletes source
     # objects), idempotent re-run (reverify_against_index() drops already-covered cells).
@@ -334,20 +337,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # perp_funding_data_semantics_and_cadence_2026_06_16.md.
     "canonical-migration-cefi-fts-": "launch-cefi-funding-timestamp-fix-vm.sh",
     "canonical-migration-cefi-fts-ext-": "launch-cefi-extended-starknet-funding-timestamp-vm.sh",
-    # legacy→canonical sharded migration VMs
-    "canonical-migration-legacy-cefi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-tradfi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-defi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-prediction-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-sports-": "launch-legacy-bucket-migration-sharded.sh",
     # ── Sports v9 migration VMs (E4 — year-sharded fleet, both surfaces) ──
     "sports-v9-migration-": "launch-sports-v9-migration-vm.sh",
-    # ── GCS migration bundle Phase 3 VMs (per-(ag, year)) ─────────────────
-    "gcs-migration-bundle-cefi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-defi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-tradfi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-sports-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-prediction-": "launch-gcs-migration-bundle-vm.sh",
     # ── MDPS sports bucket-pass ───────────────────────────────────────────
     "mdps-sports-bucket-": "launch-mdps-sports-bucket-vm.sh",
     # ── Live-pipeline VMs (per-AG live producer/consumer + singletons) ────

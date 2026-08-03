@@ -111,19 +111,23 @@ echo "  Env:       ${DEPLOYMENT_ENV}"
 echo "  Tarball:   gs://${CODE_BUCKET}/code/mtds-code.tar.gz"
 echo "============================================================"
 
-# ── Singleton lock ──
-if ! $FORCE && ! $ALLOW_PARALLEL; then
-  EXISTING="$(gcloud compute instances list \
-    --filter="name~\"^mtds-backfill-odds-\" AND status=RUNNING" \
-    --zones="${ZONE}" \
-    --project="${PROJECT_ID}" \
-    --format='value(name)' 2>/dev/null | head -1 || true)"
-  if [[ -n "$EXISTING" ]]; then
-    echo "WARN: Sports odds VM already running: ${EXISTING}" >&2
-    echo "      Use --allow-parallel to run alongside (no VM_FORCE), or --force to force-reprocess. Aborting." >&2
-    exit 1
-  fi
-fi
+# ── Concurrency / cost guard ──
+# Was a plain singleton lock (refuse if ANY other odds VM is RUNNING), bypassed
+# unconditionally by --force OR --allow-parallel with no limit on how many concurrent
+# VMs could then pile up. Root cause of
+# odds_api_key_quota_exhausted_4_days_after_provisioning_2026_08_02.md: --allow-parallel
+# is a legitimate way to run sharded VMs concurrently (5 parallel split1..5 shards was a
+# real, intentional launch) but left UNGATED, 5+ uncoordinated relaunches against the same
+# shared, unbudgeted odds-api-key burned the entire 5,000,000-credit/month allocation to
+# negative in under 4 days. --force no longer implicitly bypasses this guard (it only
+# controls VM_FORCE reprocessing metadata below) -- that implicit bypass was part of the
+# same root cause. Default cap (no --allow-parallel) stays 1, matching the old singleton
+# behaviour; --allow-parallel raises it to a small, documented cap instead of removing it.
+ODDS_API_MAX_CONCURRENT_VMS="${ODDS_API_MAX_CONCURRENT_VMS:-5}"
+ODDS_API_GUARD_CAP=1
+$ALLOW_PARALLEL && ODDS_API_GUARD_CAP="${ODDS_API_MAX_CONCURRENT_VMS}"
+source "${SCRIPT_DIR}/odds-api-concurrency-guard.sh"
+odds_api_concurrency_guard 1 "${ZONE}" "${PROJECT_ID}" "${ODDS_API_GUARD_CAP}" || exit 1
 
 if $DRY_RUN; then
   echo "[DRY RUN] Would launch VM ${VM_NAME} — skipping gcloud create."
