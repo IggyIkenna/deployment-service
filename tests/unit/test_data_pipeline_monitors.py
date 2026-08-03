@@ -429,6 +429,64 @@ def test_classify_preempted_overrides_gone_no_capture():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
 
 
+# ── non-OOM EXIT_NONZERO on a known-safe-relaunch launcher (DP-VM-001, todo 8) ─
+# vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8: a genuine
+# in-guest WORKER_STALLED self-delete on a PROVEN idempotent/checkpoint-resumable
+# launcher must auto-relaunch (through the same actuator as DP_VM_STALL) instead
+# of always paging like any other non-OOM crash.
+def test_finding_for_nonoom_exit_on_known_safe_launcher_routes_auto_recover():
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "backfill-defi-dex-swaps-20260803-103749", exit_code=1, captured_before=10, captured_after=10
+    )
+    assert termination.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="defi",
+        relaunch_launcher="launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+        launch_env={"START_DATE": "2023-12-28"},
+        progress_checkpoint={"last_completed_date": "2023-12-27", "monotonic": "true"},
+    )
+    assert finding is not None
+    assert finding.tier is EscalationTier.AUTO_RECOVER
+    assert finding.details["known_safe_relaunch"] is True
+    assert finding.details["relaunch_launcher"] == "launch-backfill-defi-dex-swaps-source-correction-vm.sh"
+    assert finding.details["launch_env"] == {"START_DATE": "2023-12-28"}
+    assert finding.details["progress_checkpoint"]["last_completed_date"] == "2023-12-27"
+    # Never an OOM re-machine-size hint on this path — that's the OOM-only branch.
+    assert "bigger_machine" not in finding.details
+
+
+def test_finding_for_nonoom_exit_on_unlisted_launcher_still_pages():
+    # The SAME non-OOM exit code on a launcher NOT in the closed allowlist must
+    # still page — this is deliberately a narrow allowlist, not "relaunch any
+    # non-zero exit".
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "some-other-backfill-20260803-100000", exit_code=1, captured_before=10, captured_after=10
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination, asset_group="cefi", relaunch_launcher="launch-some-unvetted-vm.sh"
+    )
+    assert finding is not None
+    assert finding.tier is EscalationTier.PAGE_OPERATOR
+    assert "known_safe_relaunch" not in finding.details
+
+
+def test_finding_for_oom_exit_never_treated_as_safe_relaunch():
+    # exit_code=137 must ALWAYS take the OOM (bigger_machine) branch even when the
+    # launcher happens to be in the safe-relaunch allowlist — the two paths are
+    # mutually exclusive.
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "launch-cefi-sharded-backfill-20260803", exit_code=137, captured_before=0, captured_after=0
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination, asset_group="cefi", relaunch_launcher="launch-cefi-sharded-backfill.sh"
+    )
+    assert finding is not None
+    assert finding.tier is EscalationTier.AUTO_RECOVER
+    assert finding.details["bigger_machine"] is True
+    assert "known_safe_relaunch" not in finding.details
+
+
 def test_is_vm_preempted_true_when_blob_exists():
     storage = FakeStorage({(LOG_BUCKET, _gcs.PREEMPTED_BLOB.format(vm="af-backfill-001")): (b"preempted", 0.0)})
     assert _gcs.is_vm_preempted(storage, LOG_BUCKET, "af-backfill-001") is True
@@ -731,6 +789,66 @@ def test_sweep_emits_exit_nonzero_on_137_run_log(monkeypatch):
     assert len(results) == 1
     assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
     assert any(e[0] == "DP_VM_EXIT_NONZERO" and e[1] == "CRITICAL" for e in emitted)
+
+
+def test_sweep_worker_stalled_nonoom_known_safe_launcher_auto_relaunches(tmp_path: Path, monkeypatch):
+    # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8: the
+    # exact incident shape — vm-exec-with-gcs-tee.sh's OWN stall watchdog kills the
+    # workload + self-deletes (a non-OOM, non-zero exit code), on a launcher this
+    # fleet has vetted as idempotent/checkpoint-resumable. Must auto-relaunch
+    # through relaunch_stalled_vm, not page.
+    vm = "backfill-defi-dex-swaps-20260803-103749"
+    census = json.dumps({"vms": {vm: 200}}).encode()
+    storage = FakeStorage(
+        {
+            (LOG_BUCKET, exit_code_fleet_monitor.CENSUS_BLOB): (census, 0.0),
+            (LOG_BUCKET, _gcs.EXIT_STATUS_BLOB.format(vm=vm)): (b"1\n", 0.0),  # WORKER_STALLED kill, not OOM
+            (LOG_BUCKET, _gcs.LAUNCH_PARAMS_BLOB.format(vm=vm)): (
+                json.dumps(
+                    {
+                        "launcher": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+                        "env": {"START_DATE": "2023-12-28"},
+                    }
+                ).encode(),
+                0.0,
+            ),
+        }
+    )
+    emitted: list[tuple[str, str, dict]] = []
+
+    def _capture(event, severity="INFO", details=None):
+        emitted.append((event, severity, details or {}))
+
+    monkeypatch.setattr("deployment_service.data_pipeline_monitors.escalation.log_event", _capture)
+    monkeypatch.setattr("scripts.recovery.relaunch_stalled_vm.log_event", _capture)
+
+    launched: list[tuple[str, dict[str, str]]] = []
+
+    def fake_run_launcher(name: str, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        launched.append((name, dict(env)))
+        return subprocess.CompletedProcess(args=["bash", name], returncode=0, stdout="ok", stderr="")
+
+    from scripts.recovery.relaunch_stalled_vm import RelaunchStalledVm as _RelaunchStalledVm
+
+    def fake_stalled_actuator(*_a, **_k):  # noqa: ANN002, ANN003
+        return _RelaunchStalledVm(budget_dir=tmp_path, run_launcher=fake_run_launcher)
+
+    monkeypatch.setattr("scripts.recovery.relaunch_stalled_vm.RelaunchStalledVm", fake_stalled_actuator)
+
+    results = exit_code_fleet_monitor.sweep(
+        storage_client=storage,
+        log_bucket=LOG_BUCKET,
+        running_vms=[],  # VM self-deleted
+        captured_reader=lambda _vm: 200,
+        asset_group_for_vm=lambda _vm: "defi",
+        launcher_for_vm=lambda _vm: "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+    )
+    assert results[0].verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+    # The DP_VM_EXIT_NONZERO event itself is always CRITICAL (severity is
+    # unconditional on tier) — what matters is that it did NOT page: the actuator
+    # actually relaunched, replaying the captured launch_env.
+    assert any(e[0] == "DP_VM_EXIT_NONZERO" and e[1] == "CRITICAL" for e in emitted)
+    assert launched == [("launch-backfill-defi-dex-swaps-source-correction-vm.sh", {"START_DATE": "2023-12-28"})]
 
 
 def test_sweep_emits_gone_no_capture_on_flat_captured(monkeypatch):
@@ -3609,6 +3727,104 @@ def test_oom_relaunch_passes_bigger_machine_env(monkeypatch):
     # e2-standard-8 (32 GB) → next canonical ladder rung n2-standard-16 (64 GB).
     assert captured["launcher_env"] == {"MACHINE_TYPE": "n2-standard-16"}
     assert out["escalated_machine_type"] == "n2-standard-16"
+
+
+def test_recover_backfill_vm_dispatches_relaunch_stalled_vm_for_known_safe_nonoom_exit(monkeypatch):
+    # vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8: a
+    # non-OOM exit carrying known_safe_relaunch must go through RelaunchStalledVm
+    # (checkpoint-resume, unconditional on exit code) — NOT RelaunchBackfillVm
+    # (OOM-only, would SKIP this exit code as not_oom).
+    stalled_calls: list[dict[str, object]] = []
+    backfill_calls: list[dict[str, object]] = []
+
+    class _FakeStalledActuator:
+        def relaunch(self, vm_name, *, launcher, asset_group="", launch_env=None, checkpoint=None, dry_run=False):
+            stalled_calls.append(
+                {
+                    "vm_name": vm_name,
+                    "launcher": launcher,
+                    "launch_env": launch_env,
+                    "checkpoint": checkpoint,
+                }
+            )
+            return {"status": "SUCCEEDED"}
+
+    class _FakeBackfillActuator:
+        def relaunch(self, vm_name, *, exit_code, launcher, asset_group="", launcher_env=None, dry_run=False):
+            backfill_calls.append({"vm_name": vm_name, "exit_code": exit_code})
+            return {"status": "SUCCEEDED"}
+
+    def fake_import_module(name: str):
+        if name == "scripts.recovery.relaunch_stalled_vm":
+            return type("M", (), {"RelaunchStalledVm": _FakeStalledActuator})
+        if name == "scripts.recovery.relaunch_backfill_vm":
+            return type("M", (), {"RelaunchBackfillVm": _FakeBackfillActuator})
+        raise AssertionError(f"unexpected import_module({name!r})")
+
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", fake_import_module)
+
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="WORKER_STALLED self-delete",
+        details={
+            "vm_name": "backfill-defi-dex-swaps-20260803-103749",
+            "exit_code": 1,
+            "relaunch_launcher": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+            "known_safe_relaunch": True,
+            "launch_env": {"START_DATE": "2023-12-28"},
+            "progress_checkpoint": {"last_completed_date": "2023-12-27", "monotonic": "true"},
+        },
+    )
+    out = escalation._recover_backfill_vm(finding, dry_run=False)
+
+    assert out["recovered"] is True
+    assert out["actuator"] == "relaunch_stalled_vm"
+    assert backfill_calls == [], "the OOM-only actuator must never be invoked for a known-safe non-OOM exit"
+    assert len(stalled_calls) == 1
+    assert stalled_calls[0]["vm_name"] == "backfill-defi-dex-swaps-20260803-103749"
+    assert stalled_calls[0]["launcher"] == "launch-backfill-defi-dex-swaps-source-correction-vm.sh"
+    assert stalled_calls[0]["launch_env"] == {"START_DATE": "2023-12-28"}
+    assert stalled_calls[0]["checkpoint"]["last_completed_date"] == "2023-12-27"
+    # No escalated_machine_type — this is not the OOM path, so route_finding's
+    # OOM-investigate-issue follow-up must never fire for it.
+    assert not out.get("escalated_machine_type")
+
+
+def test_recover_backfill_vm_still_uses_oom_actuator_when_exit_code_137(monkeypatch):
+    # A known_safe_relaunch launcher that ALSO happens to OOM (exit_code==137)
+    # must stay on the OOM/bigger-machine path — known_safe_relaunch never
+    # overrides an actual OOM.
+    backfill_calls: list[dict[str, object]] = []
+
+    class _FakeBackfillActuator:
+        def relaunch(self, vm_name, *, exit_code, launcher, asset_group="", launcher_env=None, dry_run=False):
+            backfill_calls.append({"vm_name": vm_name, "exit_code": exit_code, "launcher_env": launcher_env})
+            return {"status": "SUCCEEDED"}
+
+    fake_mod = type("M", (), {"RelaunchBackfillVm": _FakeBackfillActuator})
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", lambda _name: fake_mod)
+
+    finding = PipelineFinding(
+        event="DP_VM_EXIT_NONZERO",
+        severity="CRITICAL",
+        tier=EscalationTier.AUTO_RECOVER,
+        summary="OOM",
+        details={
+            "vm_name": "launch-cefi-sharded-backfill-20260803",
+            "exit_code": 137,
+            "relaunch_launcher": "launch-cefi-sharded-backfill.sh",
+            "oom": True,
+            "bigger_machine": True,
+        },
+    )
+    out = escalation._recover_backfill_vm(finding, dry_run=False)
+    assert out["actuator"] == "relaunch_backfill_vm"
+    assert len(backfill_calls) == 1
+    assert backfill_calls[0]["exit_code"] == 137
 
 
 # ── DP-VM-001/OOM ALWAYS files an issue doc, regardless of relaunch outcome

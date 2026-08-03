@@ -32,7 +32,17 @@ per-action cooldown / budget). Today wired:
     autonomous-recovery-matrix; bounded 1/cooldown).
   - ``DP_VM_EXIT_NONZERO`` with ``oom``/``exit_code==137`` →
     ``relaunch_backfill_vm`` (re-launch the OOM'd backfill via its launcher;
-    ≤2 relaunches per (vm-prefix, day) then page_operator).
+    ≤2 relaunches per (vm-prefix, day) then page_operator). A NON-OOM exit whose
+    finding carries ``details["known_safe_relaunch"]`` (set only for a closed
+    allowlist of individually-vetted, idempotent/checkpoint-resumable launchers —
+    ``exit_code_fleet_monitor._KNOWN_SAFE_RELAUNCH_LAUNCHERS``, e.g. a genuine
+    in-guest ``WORKER_STALLED`` self-delete) instead reuses ``relaunch_stalled_vm``
+    (checkpoint-resume, unconditional on exit code) — closes the gap where this
+    exact failure shape always paged even though the RUNNING-VM-detected version
+    of the same stall already auto-recovers via ``DP_VM_STALL``
+    (``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todo 8).
+    Any OTHER non-OOM exit stays ``page_operator`` at the finding-classification
+    layer (never reaches this actuator at all).
   - ``DP_VM_STALL`` → ``relaunch_stalled_vm`` (the heartbeat-stall watcher KILLS
     the hung VM; this RE-LAUNCHES it via its launcher — ≤2 per (vm-prefix, day)
     then page_operator; the relaunch is unconditional on exit code, the stall
@@ -317,12 +327,74 @@ def _escalated_machine_type(current: str) -> str:
     return _OOM_FALLBACK_MACHINE
 
 
-def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
-    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM only) → re-launch the backfill VM.
+def _recover_known_safe_nonoom_exit(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover a NON-OOM ``DP_VM_EXIT_NONZERO`` on a known-safe-relaunch launcher.
 
-    Only the OOM subcase (``oom`` true / ``exit_code==137``) is recoverable here;
-    a non-OOM crash returns ``recovered=False`` → file_issue. A budget-exceeded
-    relaunch returns ``recovered=False`` too (the actuator already paged).
+    ``exit_code_fleet_monitor._finding_for`` only sets ``details["known_safe_relaunch"]``
+    when the VM's launcher is in the closed ``_KNOWN_SAFE_RELAUNCH_LAUNCHERS``
+    allowlist (individually vetted as idempotent + checkpoint-resumable —
+    ``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todo 8). The
+    canonical case is a genuine in-guest ``WORKER_STALLED`` self-delete: the
+    launcher's own stall watchdog kills the workload and self-deletes the VM
+    BEFORE ``heartbeat_stall_watcher``'s next RUNNING-VM sweep ever sees it, so
+    ``DP_VM_STALL``'s own auto-recover path races and typically loses — this exit-
+    code-sweep path is what actually catches it.
+
+    Reuses ``RelaunchStalledVm`` (unconditional-on-exit-code, checkpoint-resume,
+    ≤2/(vm-prefix, day) budget) rather than ``RelaunchBackfillVm`` (OOM-only —
+    would SKIP this exit code as ``not_oom``) — same failure shape as a
+    watchdog-killed stall, just detected via the census-diff instead of a live
+    RUNNING-VM poll.
+    """
+    if not _ACTUATORS_AVAILABLE:
+        return {
+            "recovered": False,
+            "actuator": "relaunch_stalled_vm",
+            "result": {"status": "UNAVAILABLE", "reason": "actuators_not_in_runtime"},
+        }
+    # Dynamic import (NOT a function-level `import` statement) — load-safe
+    # where scripts.recovery is absent; guarded by _ACTUATORS_AVAILABLE above.
+    _mod = importlib.import_module("scripts.recovery.relaunch_stalled_vm")
+
+    details = finding.details
+    launcher = str(details.get("relaunch_launcher", "")).strip()
+    launch_env_raw = details.get("launch_env")
+    launch_env: dict[str, str] | None = None
+    if isinstance(launch_env_raw, dict):
+        launch_env = {str(k): str(v) for k, v in cast("dict[object, object]", launch_env_raw).items()}
+    checkpoint_raw = details.get("progress_checkpoint")
+    checkpoint: dict[str, str] | None = None
+    if isinstance(checkpoint_raw, dict):
+        checkpoint = {str(k): str(v) for k, v in cast("dict[object, object]", checkpoint_raw).items()}
+
+    actuator = _mod.RelaunchStalledVm()
+    result = actuator.relaunch(
+        str(details.get("vm_name", "")),
+        launcher=launcher,
+        asset_group=str(details.get("asset_group", "")),
+        launch_env=launch_env,
+        checkpoint=checkpoint,
+        dry_run=dry_run,
+    )
+    recovered = result.get("status") in ("SUCCEEDED", "DRY_RUN")
+    return {"recovered": recovered, "actuator": "relaunch_stalled_vm", "result": result}
+
+
+def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
+    """Auto-recover ``DP_VM_EXIT_NONZERO`` → re-launch the backfill VM.
+
+    Two subcases, dispatched to two DIFFERENT actuators:
+      - OOM (``exit_code == 137``) → ``RelaunchBackfillVm`` (escalates to a
+        bigger machine — see KEY #4 below).
+      - A non-OOM exit whose finding carries ``details["known_safe_relaunch"]``
+        (set only for a closed allowlist of individually-vetted launchers, see
+        ``exit_code_fleet_monitor._KNOWN_SAFE_RELAUNCH_LAUNCHERS``) →
+        ``_recover_known_safe_nonoom_exit`` (``RelaunchStalledVm``, checkpoint-
+        resume, unconditional on exit code).
+    Any other non-OOM crash returns ``recovered=False`` → file_issue (page tier
+    already set at the finding-classification layer for those). A budget-exceeded
+    relaunch on either path returns ``recovered=False`` too (the actuator already
+    paged / logged its own budget-exceeded event).
 
     **KEY #4 (operator 2026-06-23) — match the actuator to the failure MODE.** An
     OOM relaunch escalates to a HIGHER-memory machine: when the finding carries a
@@ -338,6 +410,9 @@ def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str
         if isinstance(exit_code_raw, (int, float, str)) and str(exit_code_raw).lstrip("-").isdigit()
         else None
     )
+    if exit_code != 137 and bool(details.get("known_safe_relaunch")):
+        return _recover_known_safe_nonoom_exit(finding, dry_run=dry_run)
+
     launcher = str(details.get("relaunch_launcher", "")).strip()
     if not launcher:
         # No launcher binding in the finding → cannot relaunch deterministically.

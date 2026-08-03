@@ -18,6 +18,14 @@ This monitor is census-diffing + durable-signal-reading:
      whether its manifest ``captured`` count climbed during the run.
   3. Emit, per terminated VM:
        - ``DP_VM_EXIT_NONZERO`` (CRITICAL) when ``exit_code != 0`` (incl. 137 OOM).
+         An OOM (137) always routes ``auto_recover``. A NON-OOM exit (e.g. a
+         genuine in-guest ``WORKER_STALLED`` self-delete —
+         ``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todo
+         8) ALSO routes ``auto_recover`` when the VM's launcher is in the closed
+         ``_KNOWN_SAFE_RELAUNCH_LAUNCHERS`` allowlist (a launcher whose target
+         script is PROVEN idempotent + checkpoint-resumable); any other non-OOM
+         exit still ``page_operator`` (this is deliberately a narrow allowlist,
+         never a blanket "relaunch any non-zero exit").
        - ``DP_VM_GONE_NO_CAPTURE`` (CRITICAL) when the VM drained but captured did
          NOT climb (``exit_code == 0`` but flat captured — the silent-zero class).
        - ``DP_VM_PREEMPTED`` (INFO, ``auto_recover``) when the durable ``PREEMPTED``
@@ -87,6 +95,28 @@ logger = logging.getLogger(__name__)
 
 # The census blob lives in the heartbeat/log bucket so it is durable + cheap.
 CENSUS_BLOB = "vm-census/exit-code-fleet-census.json"
+
+# Launchers with a PROVEN idempotent, checkpoint-resumable target script — vetted
+# individually (per-launcher, against the ACTUAL target-script logging/resume
+# code, not just the launcher's own comment) in
+# ``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todos 2/8. A
+# non-OOM ``EXIT_NONZERO`` (e.g. a genuine in-guest ``WORKER_STALLED`` self-delete
+# — the launcher's stall watchdog kills its own workload before the VM's next
+# census tick, so ``DP_VM_STALL``'s heartbeat_stall_watcher-fed actuator races and
+# usually loses) on one of these is safe to auto-relaunch through the SAME
+# checkpoint-resume actuator as a stall/preemption (see
+# ``escalation._recover_backfill_vm``) instead of always paging. Deliberately a
+# small CLOSED allowlist, not "relaunch any non-zero exit" — a launcher NOT here
+# still pages on any non-OOM exit. Extend only after vetting a launcher's target
+# script the same way (a per-item/per-day/per-shard log line that recurs well
+# inside the stall timeout, AND genuine idempotent resume on re-run).
+_KNOWN_SAFE_RELAUNCH_LAUNCHERS = frozenset(
+    {
+        "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+        "launch-backfill-candle-manifest-vm.sh",
+        "launch-cefi-sharded-backfill.sh",
+    }
+)
 
 
 class TerminationVerdict(StrEnum):
@@ -315,26 +345,44 @@ def _finding_for(
         )
     if result.verdict is TerminationVerdict.EXIT_NONZERO:
         oom = result.exit_code == 137
+        # A non-OOM exit on a launcher this fleet has individually vetted as
+        # idempotent + checkpoint-resumable (see _KNOWN_SAFE_RELAUNCH_LAUNCHERS)
+        # is ALSO safe to auto-relaunch — closes the gap where a genuine in-guest
+        # WORKER_STALLED self-delete always paged even though the same failure
+        # shape already auto-recovers via DP_VM_STALL when caught while the VM is
+        # still RUNNING (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md
+        # todo 8).
+        safe_relaunch = not oom and bool(relaunch_launcher) and relaunch_launcher in _KNOWN_SAFE_RELAUNCH_LAUNCHERS
         summary = (
             f"VM {result.vm_name} terminated with exit_code={result.exit_code}"
             f"{' (OOM)' if oom else ''} — captured did not complete cleanly"
         )
-        oom_details: dict[str, object] = {**base_details, "oom": oom}
+        nonzero_details: dict[str, object] = {**base_details, "oom": oom}
         if oom and relaunch_launcher:
-            oom_details["relaunch_launcher"] = relaunch_launcher
+            nonzero_details["relaunch_launcher"] = relaunch_launcher
             # OOM (exit-137) means the machine was too small — a same-machine
             # relaunch re-OOMs. Carry a bigger_machine hint the auto_recover
             # actuator honors (escalation._recover_backfill_vm maps it to a
             # MACHINE_TYPE env the launcher reads), so the relaunch lands on a
             # higher-memory tier. KEY #4 (operator 2026-06-23): match the
             # actuator to the failure MODE — OOM → relaunch BIGGER, not same.
-            oom_details["bigger_machine"] = True
+            nonzero_details["bigger_machine"] = True
+        elif safe_relaunch:
+            nonzero_details["relaunch_launcher"] = relaunch_launcher
+            # Tells escalation._recover_backfill_vm to dispatch through the
+            # checkpoint-resume RelaunchStalledVm actuator (unconditional on exit
+            # code) instead of the OOM-only RelaunchBackfillVm.
+            nonzero_details["known_safe_relaunch"] = True
+            if launch_env:
+                nonzero_details["launch_env"] = launch_env
+            if progress_checkpoint:
+                nonzero_details["progress_checkpoint"] = progress_checkpoint
         return PipelineFinding(
             event=DP_VM_EXIT_NONZERO,
             severity="CRITICAL",
-            tier=EscalationTier.AUTO_RECOVER if oom else EscalationTier.PAGE_OPERATOR,
+            tier=EscalationTier.AUTO_RECOVER if (oom or safe_relaunch) else EscalationTier.PAGE_OPERATOR,
             summary=summary,
-            details=oom_details,
+            details=nonzero_details,
             registry_id="DP-VM-001",
         )
     if result.verdict is TerminationVerdict.GONE_NO_CAPTURE:
@@ -440,6 +488,11 @@ def sweep(
             supplied, an OOM (exit-137) finding carries a ``relaunch_launcher``
             binding so the ``relaunch_backfill_vm`` auto_recover actuator can
             re-launch it; absent it, the OOM finding falls through to file_issue.
+            Also gates the non-OOM ``_KNOWN_SAFE_RELAUNCH_LAUNCHERS`` allowlist
+            check — a non-OOM exit on one of those launchers ALSO gets a
+            ``relaunch_launcher`` binding (plus ``launch_env``/
+            ``progress_checkpoint``) so escalation can dispatch a
+            checkpoint-resume relaunch instead of paging.
         umbrella_for_vm: optional ``vm_name -> umbrella`` resolver (LIVE/BATCH/...). When
             supplied, the DP_VM_* finding carries the umbrella so the alerting-service
             router splits LIVE → #uts-live-alerts vs BATCH → #data-pipeline-alerts;
@@ -523,12 +576,25 @@ def sweep(
                     name,
                     exc_info=True,
                 )
+        # Resolved here (rather than down at _finding_for call time) because the
+        # needs_relaunch_env gate below also needs it — a non-OOM EXIT_NONZERO on a
+        # known-safe-relaunch launcher needs the SAME replay env as PREEMPTED.
+        launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
         # A terminated VM with NO durable exit marker AND climbing captured is the
         # PARTIAL_UNCONFIRMED candidate (see classify_terminated_vm) — it needs the
-        # SAME relaunch-replay env as PREEMPTED. Resolve the gate here (mirrors the
-        # verdict's own precedence: nonzero-exit already routes elsewhere, so this
-        # is exactly "would resolve PARTIAL_UNCONFIRMED").
-        needs_relaunch_env = is_preempted or (exit_code is None and captured_after > captured_before)
+        # SAME relaunch-replay env as PREEMPTED. A non-OOM non-zero exit on a
+        # KNOWN_SAFE_RELAUNCH_LAUNCHERS launcher (the WORKER_STALLED-self-delete
+        # case, todo 8) needs it too — the actuator resumes from checkpoint instead
+        # of replaying START_DATE from genesis. Resolve the gate here (mirrors the
+        # verdict's own precedence: an OOM exit already routes elsewhere via its own
+        # bigger_machine path, so this is exactly "would resolve PARTIAL_UNCONFIRMED
+        # or a safe-relaunch EXIT_NONZERO").
+        is_safe_relaunch_exit = (
+            exit_code is not None and exit_code != 0 and exit_code != 137 and launcher in _KNOWN_SAFE_RELAUNCH_LAUNCHERS
+        )
+        needs_relaunch_env = (
+            is_preempted or (exit_code is None and captured_after > captured_before) or is_safe_relaunch_exit
+        )
         # Only resolve the launch-params replay env when the verdict actually reads
         # it (PREEMPTED or PARTIAL_UNCONFIRMED) — keeps the per-tick GCS read count
         # down, same discipline as the run.log no-capture-reason gate just below.
@@ -585,7 +651,6 @@ def sweep(
                 name,
             )
 
-        launcher = launcher_for_vm(name) if launcher_for_vm is not None else ""
         finding = _finding_for(
             result,
             asset_group=asset_group_for_vm(name),
