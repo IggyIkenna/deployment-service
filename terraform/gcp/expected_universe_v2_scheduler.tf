@@ -26,11 +26,16 @@
 # `VM_NAME=enum-universe-v2-<ag>` are passed (the enumerator hard-requires both for
 # `--apply-write`).
 #
-# WINDOW: `--start-date` is a bounded recent window (default 120 days back, set per
-# the `EXPECTED_UNIVERSE_START_DATE` var) so the LIVE denominator is honest without
-# the full-history per-instrument blow-up (~190M rows fleet-wide — the unbounded
-# 2018→today v2 universe; tracked as a gated follow-up, NOT materialised by this
-# recurring job). The window slides forward each day so recent coverage stays current.
+# WINDOW: `--start-date` is a bounded recent window (120 days back) so the LIVE
+# denominator is honest without the full-history per-instrument blow-up (~190M rows
+# fleet-wide — the unbounded 2018→today v2 universe; tracked as a gated follow-up,
+# NOT materialised by this recurring job). The window is `local.expected_universe_start_date_rolling`
+# — `today - 120d` recomputed at every `terraform plan`/`apply` (fixed 2026-08-03,
+# plans/active/issues/sports_manifest_2026_h1_vs_2025_h1_enumeration_grain_persists_2026_07_27.md
+# — the prior static "2026-02-20" literal default never advanced without a fresh
+# apply, so it silently stopped seeding `expected_unattempted` for any date before
+# it). `var.expected_universe_start_date` stays available as an explicit override to
+# pin the window if ever needed.
 #
 # AG-PARAMETRIC: one Cloud Run Job + Scheduler per asset_group (for_each) so a
 # per-AG failure/retry is isolated (every AG GREEN independently, data-pipeline
@@ -66,9 +71,20 @@
 #   deployment-service/terraform/gcp/lifecycle_catalogue_scheduler.tf  (the catalogue half)
 
 variable "expected_universe_start_date" {
-  description = "Bounded recent window start (YYYY-MM-DD) for the v2 expected_unattempted enumeration. Keeps the live denominator honest without the full-history per-instrument blow-up."
+  description = "Explicit override (YYYY-MM-DD) to pin the v2 expected_unattempted enumeration window start. Leave null (default) to use the genuinely rolling today-120d window computed in local.expected_universe_start_date_rolling."
   type        = string
-  default     = "2026-02-20" # ~120 days before the 2026-06-19 wiring; slides forward conceptually each rebuild
+  default     = null
+}
+
+locals {
+  # Genuinely rolling `today - 120d`, recomputed at every `terraform plan`/`apply` —
+  # replaces the prior frozen "2026-02-20" literal default, which never advanced
+  # without a fresh apply and so silently stopped seeding `expected_unattempted` for
+  # any date before it (120 days = 2880h).
+  expected_universe_start_date_rolling = coalesce(
+    var.expected_universe_start_date,
+    formatdate("YYYY-MM-DD", timeadd(timestamp(), "-2880h")),
+  )
 }
 
 locals {
@@ -166,7 +182,7 @@ module "expected_universe_v2_job" {
     "--asset-group", each.key,
     "--enumerator-version", "v2",
     "--catalog-path", "gs://${each.value.catalogue_bucket}/${var.environment}/catalog.parquet",
-    "--start-date", var.expected_universe_start_date,
+    "--start-date", local.expected_universe_start_date_rolling,
     "--apply-write",
     "--max-writes-per-run", "50000000",
   ]
