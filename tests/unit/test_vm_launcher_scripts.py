@@ -3188,5 +3188,154 @@ export -f gsutil
         assert "2020-01-01" not in call
 
 
+class TestChunkLoopPartialPayloadLossGating:
+    """Regression guard for
+    plans/active/issues/mtds_chunk_had_failure_blind_to_partial_payload_loss_2026_08_03.md: a
+    chunk where SOME date-payloads fail and SOME succeed still exits 0 (the batch CLI's driver
+    only returns non-zero when EVERY payload in the batch failed), so the shell chunk-loop's
+    HAD_FAILURE/checkpoint gating -- keyed only on CHUNK_RC -- silently advanced the monotonic
+    PROGRESS.json checkpoint straight through a real, uncaptured gap. Extracts the REAL
+    generated mtds_chunk_loop.sh / cefi_coverage_chunk_loop.sh heredoc bodies straight out of the
+    setup script (not a hand-duplicated copy) and runs them against a stub CLI that reports an
+    arbitrary results-collected count per chunk, so a future edit can't silently drift out of
+    sync with this test.
+    """
+
+    SETUP_SCRIPT = "scripts/vm/setup-data-pipeline-vm.sh"
+
+    GENERATORS = {
+        "mtds": ('cat >"$CHUNK_SCRIPT" <<MTDS_CHUNK_LOOP_EOF', "MTDS_CHUNK_LOOP_EOF"),
+        "cefi": ('cat >"$CEFI_CHUNK_SCRIPT" <<CEFI_COVERAGE_CHUNK_LOOP_EOF', "CEFI_COVERAGE_CHUNK_LOOP_EOF"),
+    }
+
+    @pytest.fixture
+    def setup_script_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.SETUP_SCRIPT
+
+    def _heredoc_body(self, setup_script_path: Path, generator: str) -> str:
+        cat_marker, eof_marker = self.GENERATORS[generator]
+        lines = setup_script_path.read_text().splitlines()
+        start = next(i for i, ln in enumerate(lines) if ln.strip() == cat_marker)
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == eof_marker)
+        return "\n".join(lines[start + 1 : end])
+
+    def _write_stub_python(self, venv_dir: Path, state_file: Path) -> None:
+        """A fake `$VENV/bin/python` that either delegates to the real interpreter (the
+        `-c` date-chunking call) or emulates the MTDS batch CLI's `Batch complete: N results
+        collected` line + exit code for the Nth chunk, per a canned outcomes file."""
+        bin_dir = venv_dir / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        stub = bin_dir / "python"
+        counter_file = state_file.with_suffix(state_file.suffix + ".counter")
+        lines = [
+            "#!/usr/bin/env bash",
+            'if [[ "$1" == "-c" ]]; then',
+            "  shift",
+            '  exec python3 -c "$@"',
+            "fi",
+            f'STATE_FILE="{state_file}"',
+            f'COUNTER_FILE="{counter_file}"',
+            'i=$(( $(cat "$COUNTER_FILE" 2>/dev/null || echo 0) + 1 ))',
+            'echo "$i" > "$COUNTER_FILE"',
+            'LINE=$(sed -n "${i}p" "$STATE_FILE")',
+            'RESULTS="${LINE%%:*}"',
+            'RC="${LINE##*:}"',
+            'echo "Batch complete: ${RESULTS} results collected"',
+            'exit "${RC}"',
+        ]
+        stub.write_text("\n".join(lines) + "\n")
+        stub.chmod(0o755)
+
+    def _run_chunk_loop(
+        self,
+        setup_script_path: Path,
+        tmp_path: Path,
+        generator: str,
+        start_date: str,
+        end_date: str,
+        chunk_days: int,
+        chunk_outcomes: list,
+    ) -> str:
+        """chunk_outcomes: list of (results_collected, exit_code) tuples, one per expected
+        chunk, in date order. Returns the generated chunk-loop script's captured stdout."""
+        body = self._heredoc_body(setup_script_path, generator)
+        venv_dir = tmp_path / "venv"
+        state_file = tmp_path / "outcomes.txt"
+        state_file.write_text("\n".join(f"{r}:{rc}" for r, rc in chunk_outcomes) + "\n")
+        self._write_stub_python(venv_dir, state_file)
+
+        # Reproduce the EXACT unquoted-heredoc expansion setup-data-pipeline-vm.sh performs:
+        # $VENV/$BASE_CLI/$VM_START_DATE/$VM_END_DATE/$VM_CHUNK_DAYS are substituted NOW (at
+        # generation time), while every `\$` in the body stays a literal `$` for the chunk
+        # script to evaluate later -- unquoted `<<SENTINEL` gives identical semantics.
+        generator_script = "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -uo pipefail",
+                f'VENV="{venv_dir}"',
+                'BASE_CLI="--operation download --mode batch --asset-group test"',
+                f'VM_START_DATE="{start_date}"',
+                f'VM_END_DATE="{end_date}"',
+                f'VM_CHUNK_DAYS="{chunk_days}"',
+                "cat <<CHUNK_LOOP_TEST_SENTINEL",
+                body,
+                "CHUNK_LOOP_TEST_SENTINEL",
+            ]
+        )
+        gen_result = subprocess.run(["bash", "-c", generator_script], capture_output=True, text=True)
+        assert gen_result.returncode == 0, f"heredoc generation failed: {gen_result.stderr}"
+
+        chunk_script = tmp_path / "chunk_loop.sh"
+        chunk_script.write_text(gen_result.stdout)
+        chunk_script.chmod(0o755)
+
+        run_result = subprocess.run(
+            ["bash", str(chunk_script)],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "VM_NAME": "test-vm"},
+        )
+        return run_result.stdout
+
+    @pytest.mark.parametrize("generator", ["mtds", "cefi"])
+    def test_full_success_advances_checkpoint(self, setup_script_path: Path, tmp_path: Path, generator: str) -> None:
+        out = self._run_chunk_loop(setup_script_path, tmp_path, generator, "2020-01-01", "2020-01-07", 7, [(7, 0)])
+        assert "[[VM_PROGRESS]] last_completed_date=2020-01-07 monotonic=true" in out
+        assert "CHUNK_FAILED" not in out
+
+    @pytest.mark.parametrize("generator", ["mtds", "cefi"])
+    def test_partial_payload_loss_blocks_checkpoint(
+        self, setup_script_path: Path, tmp_path: Path, generator: str
+    ) -> None:
+        """The exact bug: 3 of 7 days captured, subprocess still exits 0 -- must now be treated
+        as a failure instead of a silent checkpoint advance."""
+        out = self._run_chunk_loop(setup_script_path, tmp_path, generator, "2020-01-01", "2020-01-07", 7, [(3, 0)])
+        assert "reason=PARTIAL_PAYLOAD_LOSS" in out
+        assert "results_collected=3 expected=7" in out
+        assert "[[VM_PROGRESS]]" not in out
+
+    @pytest.mark.parametrize("generator", ["mtds", "cefi"])
+    def test_earlier_partial_loss_blocks_later_full_success_checkpoint(
+        self, setup_script_path: Path, tmp_path: Path, generator: str
+    ) -> None:
+        """A later chunk succeeding fully must never paper over an earlier partial-loss chunk --
+        the checkpoint must stay pinned before the gap."""
+        out = self._run_chunk_loop(
+            setup_script_path, tmp_path, generator, "2020-01-01", "2020-01-14", 7, [(3, 0), (7, 0)]
+        )
+        assert out.count("reason=PARTIAL_PAYLOAD_LOSS") == 1
+        assert "[[VM_PROGRESS]]" not in out
+
+    @pytest.mark.parametrize("generator", ["mtds", "cefi"])
+    def test_full_failure_still_detected_unchanged(
+        self, setup_script_path: Path, tmp_path: Path, generator: str
+    ) -> None:
+        """Regression: a fully-failed chunk (CHUNK_RC!=0) must still be caught exactly as before
+        this fix."""
+        out = self._run_chunk_loop(setup_script_path, tmp_path, generator, "2020-01-01", "2020-01-07", 7, [(0, 1)])
+        assert "reason=NONZERO_EXIT" in out
+        assert "[[VM_PROGRESS]]" not in out
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
