@@ -2198,6 +2198,23 @@ elif [[ "$VM_TASK" == "backfill-candle-manifest" ]]; then
   else
     log "ERROR: backfill-candle-manifest task without VM_BACKFILL_CMD metadata"
   fi
+elif [[ "$VM_TASK" == "backfill-defi-dex-swaps" ]]; then
+  # DeFi dex_pool_swaps mis-tagged pipeline_mode=batch_onchain_rpc source
+  # correction — launch-backfill-defi-dex-swaps-source-correction-vm.sh
+  # prepares the correct backfill_defi_dex_pool_swaps_source_correction.py
+  # invocation in VM_BACKFILL_CMD (same VM_BACKFILL_CMD dispatch shape as
+  # backfill-candle-manifest above — own VM_TASK branch from day one per the
+  # no-dispatch-branch recurring-bug precedent). Target script lives in
+  # market-data-processing-service's mdps workspace dir, same as its sibling.
+  VM_BACKFILL_CMD=$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/VM_BACKFILL_CMD" || echo "")
+  if [[ -n "$VM_BACKFILL_CMD" ]]; then
+    FULL_CMD="${VM_BACKFILL_CMD/python /$VENV/bin/python }"
+    cd "$WORKSPACE/mdps" || { log "ERROR: $WORKSPACE/mdps missing — market-data-processing-service tarball not extracted"; exit 1; }
+    _launch_with_tee "$FULL_CMD" "$LOGS/backfill-defi-dex-swaps.log"
+  else
+    log "ERROR: backfill-defi-dex-swaps task without VM_BACKFILL_CMD metadata"
+  fi
 elif [[ "$VM_TASK" == "sports-derived-features-census" ]]; then
   # Sports derived_features post-floor residue census —
   # launch-sports-derived-features-census-vm.sh prepares the correct

@@ -723,6 +723,18 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "backfill-candle-manifest-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "backfill-candle-manifest-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # DeFi dex_pool_swaps mis-tagged pipeline_mode=batch_onchain_rpc source
+    # correction (launch-backfill-defi-dex-swaps-source-correction-vm.sh) — runs
+    # market-data-processing-service/scripts/backfill_defi_dex_pool_swaps_source_correction.py
+    # --apply. Per-object destination-path existence check (own day-level
+    # checkpoint file, not a per-VM shard) -- bucket=None, heartbeat-only, same
+    # reasoning as its candle-manifest sibling above. defi-only (this specific
+    # source-registration bug never affected other asset_groups).
+    # SSOT: unified-trading-pm/plans/active/issues/mdps_candle_manifest_near_total_coverage_gap_2026_07_27.md
+    # (last open todo).
+    # ------------------------------------------------------------------
+    "backfill-defi-dex-swaps-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the
     # pre-audit doc (drift-axis histogram + manifest shape + phantom

@@ -255,6 +255,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "backfill-candle-manifest-defi-": "launch-backfill-candle-manifest-vm.sh",
     "backfill-candle-manifest-tradfi-": "launch-backfill-candle-manifest-vm.sh",
     "backfill-candle-manifest-prediction-": "launch-backfill-candle-manifest-vm.sh",
+    # DeFi dex_pool_swaps source correction (copy-not-move + record_captured) —
+    # own day-level checkpoint makes a SPOT preemption relaunch resume from
+    # measured progress rather than restart-from-scratch.
+    "backfill-defi-dex-swaps-": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",
