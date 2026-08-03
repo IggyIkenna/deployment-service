@@ -1501,21 +1501,117 @@ export -f gsutil
     @pytest.mark.parametrize(
         "args",
         [
-            ["cefi-late-renames", "2025-11-01", "2026-07-24", "dry"],
             ["cefi-dedup-apply", "2026-07-27", "2026-07-27", "dry"],
             ["cefi", "2020-01-01", "2026-01-01", "dry"],
+            # defi's row-split buckets (lst-rates/oracle-prices/perp-funding) have ZERO progress
+            # logging in --apply mode; the path-bucket checkpoint that DOES exist is unmeasured
+            # periodic (every 2000) -- deliberately left unset (todo 5).
+            ["defi", "2023-01-01", "2024-12-31", "dry"],
+            # tradfi-catalogue-canon: the script's own per-item marker is real, but is trapped
+            # inside each CANON_SHARDS shard's own redirected /tmp file and never reaches the
+            # tee'd log the watchdog reads -- an architectural gap (todo 9), not fixable by a
+            # metadata regex value.
+            ["tradfi-catalogue-canon", "2023-01-01", "2026-01-30", "dry"],
+            # *-iah: the script's "progress: N/M objects processed" marker is gated every 5000,
+            # but per-asset_group candidate_count is unverified and may never reach 5000 for the
+            # smaller buckets -- setting this blind risks a worse-than-fallback false kill (todo 10).
+            ["cefi-iah", "2026-08-03", "2026-08-03", "dry"],
         ],
     )
     def test_other_categories_get_no_stall_progress_regex_yet(
         self, launcher_path: Path, tmp_path: Path, args: list[str]
     ) -> None:
-        """Regression guard for the narrow scoping: only cefi-content-apply's real progress-log
-        format has been individually verified (todo 5's per-category audit is deliberately left
-        open for every other VM_TASK=canonical-migration category) -- broadening this regex onto
-        an unverified category's script would risk a false-positive stall-kill on a legitimately
-        slow/quiet phase of a DIFFERENT tool with a different log shape."""
+        """Regression guard for the narrow scoping: these categories were deliberately left
+        WITHOUT a STALL_PROGRESS_REGEX after todo 5's full per-category audit -- either their
+        target script has no genuine per-item marker at all, only an unmeasured periodic
+        checkpoint, or (tradfi-catalogue-canon/*-iah) a specific proven risk that setting one would
+        make stall detection WORSE than the byte-growth fallback it replaces. Broadening a regex
+        onto any of these without first closing that specific gap would risk a false-positive
+        stall-kill on a legitimately slow/quiet phase, or (the *-iah/tradfi-catalogue-canon cases)
+        guarantee one."""
         call = self._created_metadata(launcher_path, args, tmp_path)
         assert "STALL_PROGRESS_REGEX=" not in call
+
+    @pytest.mark.parametrize(
+        "args,expected_regex",
+        [
+            (
+                ["tradfi-cme-monolith", "2026-01-01", "2026-01-01", "dry"],
+                r"^day=\S+ groups=[0-9]+ stats=",
+            ),
+            (
+                ["tradfi-cme-monolith-delete", "2026-01-01", "2026-01-01", "dry"],
+                r"DELETED gs://|REFUSING delete|would delete",
+            ),
+            (
+                ["tradfi-cme-options", "2023-05-01", "2026-01-30", "dry"],
+                r"^day=\S+ options=[0-9]+ futures=[0-9]+ unclassified=",
+            ),
+            (
+                ["cefi-late-renames", "2025-11-01", "2026-07-24", "dry"],
+                r"Discovery progress: day=",
+            ),
+            (["defi-relabel", "2025-01-01", "2025-01-17", "dry"], r"\.parquet -> "),
+            (
+                ["defi-relabel-lending", "2025-01-01", "2025-01-17", "dry"],
+                r"\.parquet -> ",
+            ),
+            (["tradfi-cid", "2023-01-01", "2026-01-30", "dry"], r"progress [0-9]+/[0-9]+"),
+            (["tradfi-cid-cb", "2023-01-01", "2026-01-30", "dry"], r"progress [0-9]+/[0-9]+"),
+            (
+                ["cefi-candle-census", "2020-01-01", "2026-07-22", "dry"],
+                r"Pass -?[0-9]/3|apply: [0-9]+ processed",
+            ),
+            (
+                ["defi-candle-apply", "2020-01-01", "2026-07-22", "dry"],
+                r"Pass -?[0-9]/3|apply: [0-9]+ processed",
+            ),
+            (
+                ["cefi-candle-orphan-sweep", "2020-01-01", "2026-07-27", "dry"],
+                r"candle objects swept",
+            ),
+            (
+                ["sports-odds-venue-mig", "2026-07-27", "2026-07-27", "dry"],
+                r"resolved [0-9]+/[0-9]+ shards",
+            ),
+            (
+                ["sports-odds-reclassify-unresolvable", "2026-07-28", "2026-07-28", "dry"],
+                r"checked [0-9]+/[0-9]+ rows",
+            ),
+            (
+                ["sports-features-purge", "2020-06-06", "2026-07-27", "dry"],
+                r"scanned [0-9]+/[0-9]+ days",
+            ),
+            (
+                ["sports-k1k2-casing-revert", "2020-06-06", "2026-07-27", "dry"],
+                r"progress: [0-9]+/[0-9]+",
+            ),
+            (
+                ["sports-k1k2-uppercase-delete", "2020-06-06", "2026-07-27", "dry"],
+                r"progress: [0-9]+/[0-9]+ objects processed",
+            ),
+            (
+                ["defi-gmx-purge", "2020-01-01", "2026-01-01", "dry"],
+                r"object\(s\) backed up \+ deleted",
+            ),
+            (
+                ["defi-lst-rates-fold", "2020-01-01", "2026-07-25", "dry"],
+                r"processed in [0-9]+s",
+            ),
+        ],
+    )
+    def test_todo5_categories_get_their_verified_stall_progress_regex(
+        self, launcher_path: Path, tmp_path: Path, args: list[str], expected_regex: str
+    ) -> None:
+        """Todo 5's sweep (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md): each of
+        these categories' target script was read directly (not inferred from the launcher's own
+        prior comments) and found to have a genuine per-item/per-day/per-object marker with either
+        an in-source throughput figure or a tiny/fixed population proving the inter-marker gap
+        stays well under STALL_TIMEOUT_SEC -- see that doc's todo 5 writeup for the full per-script
+        citation. Pinning the exact literal value here (not just presence) so a future edit can't
+        silently drift the regex away from the verified source-line format."""
+        call = self._created_metadata(launcher_path, args, tmp_path)
+        assert f"STALL_PROGRESS_REGEX={expected_regex}" in call
 
     # ---- half 2: the regex itself, against the real log-line formats ----
 
