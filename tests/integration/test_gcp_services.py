@@ -56,6 +56,24 @@ def region():
     return os.environ.get("GCP_REGION", DEFAULT_REGION)
 
 
+def _gcp_client(factory):
+    """Construct a GCP client/credentials, skipping (not failing) on a missing-ADC environment.
+
+    A bare client constructor (or google.auth.default()) reaches google.auth.default() internally
+    and raises DefaultCredentialsError uncaught when no ADC/service-account is configured -- an
+    environment gap, not a test bug. Mirrors test_bucket_iam_tier_isolation.py's existing
+    skip-on-credential-gap convention so RUN_INTEGRATION=true is safe to flip on locally/
+    interactively even without CI credentials provisioned (plans/active/
+    bucket_iam_write_protection_per_tier_2026_06_09.md P2.3b).
+    """
+    from google.auth.exceptions import DefaultCredentialsError
+
+    try:
+        return factory()
+    except DefaultCredentialsError as e:
+        pytest.skip(f"No GCP credentials — skipping integration test: {e}")
+
+
 class TestCloudLoggingIntegration:
     """Integration tests for Cloud Logging access.
 
@@ -67,7 +85,7 @@ class TestCloudLoggingIntegration:
         """Test Cloud Logging client can be initialized."""
         from google.cloud import logging as cloud_logging
 
-        client = cloud_logging.Client(project=project_id)
+        client = _gcp_client(lambda: cloud_logging.Client(project=project_id))
         assert client is not None
         assert client.project == project_id
 
@@ -77,7 +95,7 @@ class TestCloudLoggingIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import logging as cloud_logging
 
-        client = cloud_logging.Client(project=project_id)
+        client = _gcp_client(lambda: cloud_logging.Client(project=project_id))
 
         # Query recent Cloud Run job logs (last 1 hour)
         filter_str = """
@@ -107,7 +125,7 @@ severity >= DEFAULT
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import logging as cloud_logging
 
-        client = cloud_logging.Client(project=project_id)
+        client = _gcp_client(lambda: cloud_logging.Client(project=project_id))
 
         # Query for any instruments-service logs
         filter_str = """
@@ -144,7 +162,7 @@ class TestComputeEngineIntegration:
         """Test Compute Engine client can be initialized."""
         from google.cloud import compute_v1
 
-        client = compute_v1.InstancesClient()
+        client = _gcp_client(compute_v1.InstancesClient)
         assert client is not None
 
     @pytest.mark.integration
@@ -153,7 +171,7 @@ class TestComputeEngineIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import compute_v1
 
-        client = compute_v1.InstancesClient()
+        client = _gcp_client(compute_v1.InstancesClient)
         zone = f"{region}-b"
 
         # List instances (may be empty, that's fine)
@@ -176,7 +194,7 @@ class TestComputeEngineIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import compute_v1
 
-        client = compute_v1.ZonesClient()
+        client = _gcp_client(compute_v1.ZonesClient)
 
         request = compute_v1.ListZonesRequest(
             project=project_id,
@@ -207,7 +225,7 @@ class TestCloudBuildIntegration:
             pytest.skip("google-cloud-build not installed (install with: pip install google-cloud-build)")
         from google.cloud.devtools import cloudbuild_v1
 
-        client = cloudbuild_v1.CloudBuildClient()
+        client = _gcp_client(cloudbuild_v1.CloudBuildClient)
         assert client is not None
 
     @pytest.mark.integration
@@ -218,7 +236,7 @@ class TestCloudBuildIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud.devtools import cloudbuild_v1
 
-        client = cloudbuild_v1.CloudBuildClient()
+        client = _gcp_client(cloudbuild_v1.CloudBuildClient)
         parent = f"projects/{project_id}/locations/{region}"
 
         request = cloudbuild_v1.ListBuildsRequest(
@@ -246,7 +264,7 @@ class TestCloudBuildIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud.devtools import cloudbuild_v1
 
-        client = cloudbuild_v1.CloudBuildClient()
+        client = _gcp_client(cloudbuild_v1.CloudBuildClient)
         parent = f"projects/{project_id}/locations/{region}"
 
         request = cloudbuild_v1.ListBuildTriggersRequest(
@@ -275,7 +293,7 @@ class TestCloudRunIntegration:
         """Test Cloud Run Jobs client can be initialized."""
         from google.cloud import run_v2
 
-        client = run_v2.JobsClient()
+        client = _gcp_client(run_v2.JobsClient)
         assert client is not None
 
     @pytest.mark.integration
@@ -284,7 +302,7 @@ class TestCloudRunIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import run_v2
 
-        client = run_v2.JobsClient()
+        client = _gcp_client(run_v2.JobsClient)
         parent = f"projects/{project_id}/locations/{region}"
 
         request = run_v2.ListJobsRequest(
@@ -321,8 +339,8 @@ class TestCloudRunIntegration:
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import run_v2
 
-        jobs_client = run_v2.JobsClient()
-        executions_client = run_v2.ExecutionsClient()
+        jobs_client = _gcp_client(run_v2.JobsClient)
+        executions_client = _gcp_client(run_v2.ExecutionsClient)
 
         parent = f"projects/{project_id}/locations/{region}"
 
@@ -362,7 +380,9 @@ class TestArtifactRegistryIntegration:
         import google.auth
         import google.auth.transport.requests
 
-        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials, _ = _gcp_client(
+            lambda: google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        )
 
         request = google.auth.transport.requests.Request()
         credentials.refresh(request)
@@ -378,7 +398,9 @@ class TestArtifactRegistryIntegration:
         import requests
 
         # Get auth token
-        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials, _ = _gcp_client(
+            lambda: google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        )
         request_obj = google.auth.transport.requests.Request()
         credentials.refresh(request_obj)
 
@@ -435,8 +457,8 @@ class TestLogsEndpointIntegration:
         from google.cloud import run_v2
 
         # Get a recent execution to query logs for
-        jobs_client = run_v2.JobsClient()
-        executions_client = run_v2.ExecutionsClient()
+        jobs_client = _gcp_client(run_v2.JobsClient)
+        executions_client = _gcp_client(run_v2.ExecutionsClient)
 
         parent = f"projects/{project_id}/locations/{region}"
         try:
@@ -463,7 +485,7 @@ class TestLogsEndpointIntegration:
             pytest.skip("No Cloud Run executions found")
 
         # Now query Cloud Logging for this execution
-        logging_client = cloud_logging.Client(project=project_id)
+        logging_client = _gcp_client(lambda: cloud_logging.Client(project=project_id))
 
         filter_str = f"""
 resource.type="cloud_run_job"
@@ -496,7 +518,7 @@ labels."run.googleapis.com/execution_name"="{execution_name}"
         from google.api_core.exceptions import Forbidden, PermissionDenied
         from google.cloud import compute_v1
 
-        client = compute_v1.InstancesClient()
+        client = _gcp_client(compute_v1.InstancesClient)
         zones = [f"{region}-a", f"{region}-b", f"{region}-c"]
 
         # Find any running instance

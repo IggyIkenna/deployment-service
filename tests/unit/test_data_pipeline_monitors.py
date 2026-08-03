@@ -2783,6 +2783,40 @@ def test_no_capture_reason_honest_absence_expected_unattempted_seeding():
     assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
 
 
+def test_no_capture_reason_honest_absence_open_meteo_no_fixture_venue():
+    # operator 2026-08-02 (agt-299005): instr-backfill-sports-pchk-0802162514-f-cab3-open-meteo
+    # drained with captured flat 0->0 and paged CRITICAL DP_VM_GONE_NO_CAPTURE. The real run.log
+    # shows instruments-service's OPEN_METEO weather short-circuit (weather.py:206) correctly
+    # skipped and recorded record_empty(EXPECTED_NO_FIXTURE) — genuine honest absence (the -test-
+    # bucket's probed date has no fixture venue_name data) — but the SINGULAR "no fixture venue..."
+    # phrasing wasn't covered by the plural-only `no fixtures` pattern, so the classifier fell
+    # through to SILENT. Verbatim excerpt from the VM's real run.log.
+    log = (
+        "2026-08-02 16:52:20,655 INFO Sports provider filter from CLI: OPEN_METEO (only this provider will run)\n"
+        "2026-08-02 16:52:21,213 INFO Sports provider filter: OPEN_METEO → venues ['OPEN_METEO']\n"
+        "2026-08-02 16:52:21,214 INFO OPEN_METEO short-circuit: skipping orchestrator for date=2025-12-24\n"
+        "2026-08-02 16:52:21,310 INFO Weather: no fixture venue_name data for date=2025-12-24 — skipping\n"
+        "2026-08-02 16:52:21,439 INFO ManifestWriter: per-VM shard updated (33 total entries, 33 new, "
+        "process_final=False) at instruments-store-sports-test-test-project/_index/per_vm/"
+        "instr-backfill-sports-pchk-0802162514-f-cab3-open-meteo-c1.parquet\n"
+        "2026-08-02 16:52:21,439 INFO OPEN_METEO DONE for date=2025-12-24: {}"
+    )
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.HONEST_ABSENCE
+
+
+def test_no_capture_reason_fixture_id_regression_warning_still_silent():
+    # Guard: the new `no fixture venue` pattern must stay narrow enough to NOT also match
+    # sports_reference_fixtures_write.py's genuine "no fixture-id column" data-shape-regression
+    # WARNING (a real upstream bug, never honest absence) — no "venue" token follows "no fixture"
+    # there, so it must fall through to SILENT (still alerts) exactly as before this fix.
+    log = (
+        "2026-08-02 WARNING FIXTURE_EVENTS bare-path fallback triggered for date=2026-08-02 — "
+        "data shape regression: no fixture-id column or empty af_fid->league map (rows=12). "
+        "Skipping bare write + manifest row to keep manifest honest."
+    )
+    assert _gcs.classify_no_capture_reason(log) is _gcs.NoCaptureReason.SILENT
+
+
 def test_no_capture_reason_benign_rate_limit_config_is_not_throttled():
     # REGRESSION (2026-06-27 false-positive flood): a clean run that merely MENTIONS rate-limiting
     # in a config/telemetry line — or echoes the event name DP_SOURCE_RATE_LIMITED — must NOT be

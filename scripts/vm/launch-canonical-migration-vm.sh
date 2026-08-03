@@ -95,6 +95,12 @@
 #   # disposition counts before full.
 #   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 dry
 #   bash launch-canonical-migration-vm.sh defi-candle-apply 2020-01-01 2026-07-22 full
+#   # targeted mop-up (2026-08-03, todo 19): re-apply against a SMALL pre-built enumeration (e.g. the
+#   # handful of KEPT_SRC-class stragglers a fresh census reclassified as SPLIT_BRAIN_DUPLICATE) instead
+#   # of a fresh full-corpus walk -- skips --quarantine/--content-repair too (mop-up scope is
+#   # MIGRATE/SPLIT_BRAIN_DUPLICATE only). See CANDLE_MOPUP_ENUMERATION_GS below.
+#   CANDLE_MOPUP_ENUMERATION_GS=gs://deployment-scripts-central-element-323112/canonical-migration-candle-apply/mopup/cefi_residual_enum.txt \
+#     bash launch-canonical-migration-vm.sh cefi-candle-apply 2026-07-23 2026-08-03 full
 #   # sharded fan-out across N=8 VMs for a large corpus (e.g. tradfi):
 #   SHARD_OF=8 bash launch-canonical-migration-vm.sh tradfi-candle-apply 2020-01-01 2026-07-22 full
 #
@@ -264,6 +270,25 @@
 #   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 dry
 #   bash launch-canonical-migration-vm.sh sports-odds-reclassify-unresolvable 2026-07-28 2026-07-28 full
 #
+#   # {cefi,defi,tradfi,sports,prediction}-iah (2026-08-03): instrument_availability /
+#   # futures_contracts / market_lifecycle FLAT -> FULL-HIVE copy-and-verify migration (todo 7c,
+#   # plans/active/issues/instrument_availability_hive_canonicalisation_2026_07_21.md).
+#   # scripts/migrate_instrument_availability_hive_2026_08_03.py (instruments-service) copies each
+#   # flat `day={D}/venue={V}/...` object (server-side, no egress) to its full-hive
+#   # `day={D}/pipeline_mode={pm}/asset_group={ag}/venue={V}/...` target, then verifies parity via a
+#   # (crc32c, size) metadata compare. COPY-ONLY -- never deletes the flat source (that is the
+#   # separate, later, [OPERATOR]-gated todo 7d). One VM per asset_group (the tool's own
+#   # --asset-group flag; internal --workers ThreadPoolExecutor parallelism, no --shard-of needed).
+#   # Runs from $WORKSPACE/instruments (VM_SERVICE=instruments_service re-homes the dispatcher's
+#   # default `cd $WORKSPACE/mtds`, same trick as tradfi-catalogue-canon). START_DATE/END_DATE are
+#   # cosmetic (VM labels only) -- the tool scopes its own worklist via a bounded prefix listing
+#   # (the same prefixes todo 7b already sized: 452,793 instrument_availability + 12,582
+#   # market_lifecycle objects across the 5 buckets). dry -> scan + report counts only, no writes.
+#   # full -> --apply-prod --confirm-prod-write (the actual copy+verify). Category names use "-iah"
+#   # (not "-instr-avail-hive") to stay under GCE's 63-char vm_name limit.
+#   bash launch-canonical-migration-vm.sh cefi-iah 2026-08-03 2026-08-03 dry
+#   bash launch-canonical-migration-vm.sh cefi-iah 2026-08-03 2026-08-03 full
+#
 # Boot disk: 50GB (MDPS/features launchers' default; 10GB default was
 # causing disk-pressure OOMs on long ranges).
 #
@@ -289,6 +314,11 @@
 #   SHARD_INDEX=3                launch exactly this shard on ONE VM (canary / targeted relaunch)
 #   LIMIT=200                    process only the first N (post-shard) objects PER PASS (canary scope)
 #   CANARY_DAY=2024-01-15        narrow the fresh walk to one day= prefix (single-day canary scope)
+#   # *-candle-apply only:
+#   CANDLE_MOPUP_ENUMERATION_GS=<gs://path>  skip the fresh full-corpus walk; download this pre-built
+#                                enumeration instead (a small, already-known straggler set) and, in full
+#                                mode, drop --quarantine/--content-repair (mop-up scope is
+#                                MIGRATE/SPLIT_BRAIN_DUPLICATE only). See usage example above.
 #   TRADFI_TICK_BUCKET=<name>    override the resolved tradfi tick bucket (default:
 #                                market-data-tick-tradfi-<prd|stg|dev>-<project>, == resolve_bucket_name)
 #
@@ -365,7 +395,7 @@ else
 fi
 
 if [[ -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
-    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
+    echo "Usage: $0 [--env prod|staging|dev] <cefi|cefi-drop-stale|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|tradfi|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|tradfi-cme-options|tradfi-catalogue-canon|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-apply|defi-candle-apply|tradfi-candle-apply|prediction-candle-apply|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah|all> <start-date> <end-date> [dry|full|smoke (cefi-bybit-spot-purge only)]"
     echo "  manifest-restamp requires RESTAMP_BUCKET=<bucket> in the environment (no asset-group inference)."
     exit 2
 fi
@@ -947,6 +977,16 @@ _candle_census_cmd() {
 # MIGRATION_EXTRA_ARGS, since this emits a compound `&&` chain and a trailing append would silently
 # land on the final `gcloud storage cp` rather than the python pass (same reason as the tradfi/
 # candle-census branches).
+#
+# CANDLE_MOPUP_ENUMERATION_GS (2026-08-03, todo 19 mop-up --
+# candle_feature_canonical_path_divergence_2026_07_20.md): opt-in override for a SMALL, TARGETED
+# re-apply against a pre-built enumeration (e.g. just the ~149-object CEFI KEPT_SRC-class residual
+# reclassified via a fresh census dry-run) instead of a fresh full-corpus `gcloud storage ls` walk.
+# When set: (1) the enumeration step downloads that GCS file instead of re-walking the whole AG
+# corpus -- the residual is already a known, small, enumerated set, so a fresh multi-hundred-thousand-
+# object walk would be pure waste; (2) full mode drops `--quarantine --content-repair` -- a mop-up
+# targets ONLY the MIGRATE/SPLIT_BRAIN_DUPLICATE straggler class (plain `--apply`, no extra gates
+# needed), never the QUARANTINE/CONTENT_REPAIR classes a full corpus pass also has to handle.
 _candle_apply_cmd() {
     local ag="$1"       # cefi | defi | tradfi | prediction
     local vm_name="$2"
@@ -960,7 +1000,11 @@ _candle_apply_cmd() {
     local mode_flag gate_flags
     if [[ "$MODE" == "full" ]]; then
         mode_flag="--apply"
-        gate_flags=" --quarantine --content-repair"
+        if [[ -n "${CANDLE_MOPUP_ENUMERATION_GS:-}" ]]; then
+            gate_flags=""
+        else
+            gate_flags=" --quarantine --content-repair"
+        fi
     else
         mode_flag="--dry-run"
         gate_flags=""
@@ -973,9 +1017,15 @@ _candle_apply_cmd() {
     local mapd="${work}/mappings"
     local out="${mapd}/candle_apply_mapping.tsv"
     local stage="gs://${CODE_BUCKET}/canonical-migration-candle-apply/${RUN_TS}/${vm_name}/"
+    local enum_step
+    if [[ -n "${CANDLE_MOPUP_ENUMERATION_GS:-}" ]]; then
+        enum_step="gcloud storage cp \"${CANDLE_MOPUP_ENUMERATION_GS}\" ${enum}"
+    else
+        enum_step="gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum}"
+    fi
     # `\$(...)` stays LITERAL in the metadata value (evaluated by the VM's bash), while ${...}
     # launcher locals expand host-side. No commas anywhere in the emitted string.
-    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && gcloud storage ls -r \"gs://${bucket}/processed_candles/**\" > ${enum} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
+    printf '%s' "cd ${VM_WORKSPACE}/mdps && mkdir -p ${mapd} && ${enum_step} && echo CANDLE_APPLY_ENUM_LINES=\$(wc -l < ${enum}) && python -u scripts/migrate_candle_canonical_2026_07.py ${mode_flag} --enumeration ${enum} --out ${out} ${sh}${limit_flag} --workers ${WORKERS:-16}${gate_flags} && gcloud storage cp -r ${mapd}/ ${stage}"
 }
 
 # Build the candle-orphan-sweep command (2026-07-27, todo 1 of
@@ -1264,6 +1314,27 @@ _script_for() {
                 printf '%s' "cd ${VM_WORKSPACE}/mtds && python -u ${_k1k2_del_dir}/delete_stale_uppercase_2026_07_27.py --start-date ${START_DATE} --end-date ${END_DATE} --workers ${WORKERS:-16}"
             fi
             ;;
+        # instrument_availability/futures_contracts/market_lifecycle FLAT -> FULL-HIVE copy-and-verify
+        # migration (todo 7c, plans/active/issues/instrument_availability_hive_canonicalisation_2026_07_21.md).
+        # COPY-ONLY (never deletes the flat source -- that is the separate, later, gated todo 7d).
+        # scripts/migrate_instrument_availability_hive_2026_08_03.py lives in instruments-service (NOT
+        # mtds) -- hence VM_SERVICE=instruments_service below re-homes the dispatcher's default `cd
+        # $WORKSPACE/mtds` into `$WORKSPACE/instruments`, same trick as tradfi-catalogue-canon. One VM
+        # per asset_group (the tool's own --asset-group flag; internal ThreadPoolExecutor --workers
+        # parallelism, no --shard-of needed). dry -> bounded prefix-listing scan only (no writes); full
+        # -> --apply-prod --confirm-prod-write (copy-if-missing + metadata verify). Category names
+        # abbreviated to "-iah" (not "-instr-avail-hive") to stay under GCE's 63-char vm_name limit
+        # (canonical-migration-prediction-instr-avail-hive-<ts> would be 64 chars); "-iah" still starts
+        # with the already-registered "canonical-migration-<ag>-" VM_PREFIX_TO_BUCKET prefix -- no new
+        # registry entry needed.
+        cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah)
+            local _iah_ag="${cat%-iah}"
+            if [[ "$MODE" == "full" ]]; then
+                printf '%s' "cd ${VM_WORKSPACE}/instruments && python -u scripts/migrate_instrument_availability_hive_2026_08_03.py --asset-group ${_iah_ag} --apply-prod --confirm-prod-write --workers ${WORKERS:-32}"
+            else
+                printf '%s' "cd ${VM_WORKSPACE}/instruments && python -u scripts/migrate_instrument_availability_hive_2026_08_03.py --asset-group ${_iah_ag}"
+            fi
+            ;;
         *) echo ""; return 1 ;;
     esac
 }
@@ -1512,7 +1583,7 @@ _launch() {
         # Flag convention differs by tool: the v9 tools (migrate_defi_full_v9_canonical +
         # migrate_prediction_to_pred_prd_v9) are DRY-BY-DEFAULT and take --apply to write; the others
         # are write-by-default + --dry-run.
-        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" ]]; then
+        if [[ "$cat" == "defi-per-instrument" || "$cat" == "defi-pi-range" || "$cat" == "tradfi-manifest-cas" || "$cat" == "tradfi-manifest-retire" || "$cat" == "sports-features-purge" || "$cat" == "sports-k1k2-casing-revert" || "$cat" == "sports-k1k2-uppercase-delete" || "$cat" == *-iah ]]; then
             : # apply/dry is baked into the per-attempt retry loop by _script_for ($MODE) for
               # tradfi-manifest-cas/tradfi-manifest-retire (mirrors defi-per-instrument's per-year loop) -- a
               # --apply/--dry-run/EXTRA_ARGS append to a compound `for … done; exit …` string is a syntax
@@ -1525,7 +1596,11 @@ _launch() {
               # SAME class again (ends in `exit ${rc}`) -- same suppression reasoning.
               # sports-k1k2-uppercase-delete bakes --apply-prod --confirm-prod-write directly into the
               # full-mode command itself (a single statement, not a compound chain) -- suppressed anyway so
-              # the generic --apply/--dry-run append never double-flags it.
+              # the generic --apply/--dry-run append never double-flags it. *-iah (instrument_availability
+              # hive migration) is the SAME class as sports-k1k2-uppercase-delete: not a compound chain, but
+              # its tool's flags are --apply-prod/--confirm-prod-write (not --apply/--dry-run), baked directly
+              # into the if/full else/dry branches by _script_for -- suppressed so the generic append never
+              # double-flags it.
         elif [[ "$cat" == "defi" || "$cat" == "defi-relabel" || "$cat" == "defi-relabel-lending" || "$cat" == "prediction" || "$cat" == "cefi" || "$cat" == "cefi-drop-stale" || "$cat" == "tradfi-cme-options" || "$cat" == "tradfi-cid" || "$cat" == "tradfi-cid-cb" || "$cat" == "sports-odds-venue-mig" || "$cat" == "sports-odds-reclassify-unresolvable" ]]; then
             [[ "$MODE" == "full" ]] && cmd="$cmd --apply"   # dry = tool default (no flag)
         else
@@ -1541,7 +1616,7 @@ _launch() {
     # The catalogue-canon one-off lives in instruments-service, not MTDS — VM_SERVICE drives which
     # service tarball setup-data-pipeline-vm.sh stages (SERVICE_TARBALLS map).
     local _svc="market_tick_data_service"
-    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _svc="instruments_service"
+    [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" || "$cat" == *-iah ]] && _svc="instruments_service"
     # candle-census / candle-apply both run migrate_candle_canonical_2026_07.py which lives in
     # market-data-processing-service, not MTDS -- so they need that tarball staged instead (see
     # _candle_census_cmd / _candle_apply_cmd comments).
@@ -1570,6 +1645,10 @@ _launch() {
     [[ "$cat" == *-candle-census ]] && _ag="$(echo "${cat%-candle-census}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-apply ]] && _ag="$(echo "${cat%-candle-apply}" | tr '[:lower:]' '[:upper:]')"
     [[ "$cat" == *-candle-orphan-sweep ]] && _ag="$(echo "${cat%-candle-orphan-sweep}" | tr '[:lower:]' '[:upper:]')"
+    # *-iah category names are "<ag>-iah" -- strip the suffix to recover the real asset group so
+    # dashboards/heartbeat classify these VMs with the rest of that asset group instead of a novel
+    # "<AG>-IAH" bucket (same suffix-strip convention as candle-census/candle-apply above).
+    [[ "$cat" == *-iah ]] && _ag="$(echo "${cat%-iah}" | tr '[:lower:]' '[:upper:]')"
     # Keep the fleet asset-group SPORTS (not the novel SPORTS-FEATURES-PURGE /
     # SPORTS-K1K2-CASING-REVERT / SPORTS-ODDS-VENUE-MIG) so dashboards/heartbeat classify these
     # VMs with the rest of sports.
@@ -1679,8 +1758,13 @@ _launch() {
         # Verify the tarballs this category actually stages (VM_SERVICE-driven), not a fixed list:
         # catalogue-canon runs instruments-service code and never touches MTDS.
         local _fresh_repos=(market-tick-data-service unified-api-contracts unified-trading-library deployment-service)
-        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
+        [[ "$cat" == "tradfi-catalogue-canon" || "$cat" == "tradfi-catalogue-promote" || "$cat" == "cefi-dedup-apply" || "$cat" == "cefi-eu-twin-apply" || "$cat" == "defi-curve-optimism-reclassify" || "$cat" == *-iah ]] && _fresh_repos=(instruments-service unified-api-contracts unified-trading-library deployment-service)
         [[ "$cat" == *-candle-census || "$cat" == *-candle-apply || "$cat" == *-candle-orphan-sweep ]] && _fresh_repos=(market-data-processing-service unified-api-contracts unified-trading-library deployment-service)
+        # sports-features-purge's script lives in features-service, not MTDS (see VM_SERVICE
+        # override above) -- found 2026-07-27 when a launch silently staged a stale
+        # features-service tarball (missing a just-shipped script) because this override was
+        # missing and the default _fresh_repos list never checks features-service at all.
+        [[ "$cat" == "sports-features-purge" ]] && _fresh_repos=(features-service unified-api-contracts unified-trading-library deployment-service)
         lc_verify_tarball_freshness "$CODE_BUCKET" "${_fresh_repos[@]}" \
             || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
     fi
@@ -1785,7 +1869,7 @@ case "$ASSET_GROUP" in
             _launch "$ASSET_GROUP"
         fi
         ;;
-    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable) _launch "$ASSET_GROUP" ;;
+    cefi|cefi-drop-stale|defi|defi-per-instrument|defi-pi-range|defi-relabel|defi-relabel-lending|defi-rebuild|defi-glued-reshard|defi-marker-cleanup|defi-gmx-purge|defi-lst-rates-fold|defi-dex-pool-leaf-purge|defi-curve-optimism-reclassify|prediction|sports|tradfi-cme-options|tradfi-catalogue-canon|tradfi-catalogue-promote|tradfi-manifest-cas|tradfi-manifest-retire|tradfi-cme-monolith|tradfi-cme-monolith-delete|cefi-candle-census|defi-candle-census|tradfi-candle-census|prediction-candle-census|cefi-candle-orphan-sweep|defi-candle-orphan-sweep|tradfi-candle-orphan-sweep|sports-candle-orphan-sweep|prediction-candle-orphan-sweep|cefi-dedup-apply|cefi-late-renames|cefi-content-apply|cefi-eu-twin-apply|cefi-bybit-spot-purge|manifest-restamp|sports-features-purge|sports-k1k2-casing-revert|sports-k1k2-uppercase-delete|sports-odds-venue-mig|sports-odds-reclassify-unresolvable|cefi-iah|defi-iah|tradfi-iah|sports-iah|prediction-iah) _launch "$ASSET_GROUP" ;;
     all)
         _launch cefi
         _launch tradfi

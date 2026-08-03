@@ -315,6 +315,19 @@ launch_cefi_shard() {
   else
     start_date="${year}-01-01"
     end_date="${year}-12-31"
+    # START_DATE override generalized to non-2026 years 2026-08-02 (same
+    # coverage_floor_new_backfill_gaps_found_2026_07_27.md [DATA] P2): DERIBIT's
+    # 2019 shard should start 2019-03-30 (Tardis's own availableSince for this
+    # venue), not 2019-01-01 — the first ~89 days have zero data at the vendor,
+    # so an un-overridden full-year launch would waste that stretch before
+    # reaching real coverage. Same YYYY-MM-DD-within-year validation as above.
+    if [[ -n "${START_DATE:-}" ]]; then
+      if [[ ! "$START_DATE" =~ ^${year}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "ERROR: START_DATE='$START_DATE' must be YYYY-MM-DD within year $year" >&2
+        return 1
+      fi
+      start_date="$START_DATE"
+    fi
   fi
 
   # Machine types — heavy groups (trades + book_snapshot_5 for 9 symbols).
@@ -626,7 +639,15 @@ YEARS_OVERRIDE="${YEARS:-}"
 # Per-venue genesis years (first full year with Tardis data).
 _venue_years() {
   case "$1" in
-    BINANCE-FUTURES|BINANCE-SPOT|DERIBIT|COINBASE-SPOT) echo "2020 2021 2022 2023 2024 2025 2026" ;;
+    # DERIBIT split out 2026-08-02 (coverage_floor_new_backfill_gaps_found_2026_07_27.md
+    # [DATA] P2): "2019" was never in this venue's year list even after the registry
+    # floor (unified_api_contracts venue_mapping.venue_start_dates) was corrected to
+    # 2019-05-08 — so no full-year sharded launch ever targeted 2019, and the Tardis
+    # public API (`GET /v1/exchanges/deribit`) confirms BTC-PERPETUAL/ETH-PERPETUAL
+    # trades + book_snapshot_5 + derivative_ticker are ALL availableSince 2019-03-30,
+    # denser than the sparse partial rows currently captured for 2019-05..2019-12.
+    DERIBIT)                                             echo "2019 2020 2021 2022 2023 2024 2025 2026" ;;
+    BINANCE-FUTURES|BINANCE-SPOT|COINBASE-SPOT)          echo "2020 2021 2022 2023 2024 2025 2026" ;;
     BITGET-SPOT|BITGET-FUTURES)                          echo "2023 2024 2025 2026" ;;
     UPBIT)                                               echo "2022 2023 2024 2025 2026" ;;
     *)                                                   echo "2021 2022 2023 2024 2025 2026" ;;

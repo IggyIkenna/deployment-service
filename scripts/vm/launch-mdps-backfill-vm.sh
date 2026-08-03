@@ -212,6 +212,36 @@ _category_upper_for() {
 _launch() {
     local cat="$1"
     local cat_upper; cat_upper="$(_category_upper_for "$cat")" || { echo "Unknown category: $cat"; return 1; }
+
+    # DP-VM-001 agt-4f0f41 (2026-08-02): a non-prod --env with no explicit bucket
+    # overrides is a GUARANTEED, silent 403 storm, never a genuine data-pipeline
+    # finding — `lc_tier_service_account` routes writes through uts-test-sa
+    # (staging/dev), whose IAM condition is -test-/-prd-tier-scoped only, while
+    # this launcher's own DEFAULTS (below) still target the prod-shaped output
+    # bucket AND the retired, nonexistent market-data-tick-<cat>-stg-... input
+    # bucket (-stg-/-dev- tiers were retired 2026-07-13; only -prd-/-test- are
+    # provisioned) unless the caller pins both explicitly. Root-caused live via
+    # mdps-backfill-sports-pipelinecheck-20260802-161417-d0c755's run.log: 90/90
+    # candle writes 403'd against market-data-tick-sports-prd-... under
+    # uts-test-sa, after a full ~47s of VM compute, because DEPLOYMENT_ENV=staging
+    # was set with neither --source-bucket nor --output-bucket. The already-correct
+    # reference invocation (market-data-processing-service's
+    # pipeline_e2e_check.py::_launcher_argv) always pairs `--env staging` with both
+    # flags — this guard makes that pairing a hard requirement instead of a
+    # code-comment-only convention, failing in <1s instead of burning a VM.
+    local _out_var="MDPS_OUTPUT_BUCKET_${cat_upper}_OVERRIDE"
+    local _out_val="${!_out_var:-}"
+    if [[ "$DEPLOYMENT_ENV" != "prod" ]]; then
+        if [[ -z "$OUTPUT_BUCKET_OVERRIDE" && -z "$_out_val" ]]; then
+            echo "ERROR: --env $DEPLOYMENT_ENV (category '$cat') requires --output-bucket (or MDPS_OUTPUT_BUCKET_${cat_upper}) — the ${DEPLOYMENT_ENV}-tier service account (uts-test-sa) cannot write the default prod-shaped output bucket; its IAM grant is -test-/-prd- tier-scoped only. Without this every candle write 403s after full VM spend. See pipeline_e2e_check.py::_launcher_argv for the reference invocation." >&2
+            return 1
+        fi
+        if [[ -z "$SOURCE_BUCKET_OVERRIDE" ]]; then
+            echo "ERROR: --env $DEPLOYMENT_ENV (category '$cat') requires --source-bucket — this launcher's default input-bucket mapping would target the nonexistent market-data-tick-${cat}-$([[ "$DEPLOYMENT_ENV" == "staging" ]] && echo stg || echo "$DEPLOYMENT_ENV")-${PROJECT} (only -prd-/-test- tiers are provisioned; -stg-/-dev- were retired 2026-07-13). Pin --source-bucket explicitly (typically the real PROD input bucket)." >&2
+            return 1
+        fi
+    fi
+
     local bucket_suffix=""
     if [[ -n "$SOURCE_BUCKET_OVERRIDE" ]]; then
         bucket_suffix="-$(echo "$SOURCE_BUCKET_OVERRIDE" | sed 's/-central-element-323112//' | sed "s/^market-data-tick-${cat}/main/" | sed 's/-central-element-323112//' | cut -c1-16 | tr '_' '-')"
@@ -277,8 +307,8 @@ _launch() {
     [[ -n "$MDPS_INSTRUMENT_IDS_OVERRIDE" ]] && cmd="$cmd MDPS_INSTRUMENT_IDS='$MDPS_INSTRUMENT_IDS_OVERRIDE'"
     [[ -n "$MDPS_MAX_WORKERS_OVERRIDE" ]]   && cmd="MAX_WORKERS=$MDPS_MAX_WORKERS_OVERRIDE $cmd"
     # MDPS_OUTPUT_BUCKET_{CAT} — per-asset-group output bucket override (test-isolation).
-    local _out_var="MDPS_OUTPUT_BUCKET_${cat_upper}_OVERRIDE"
-    local _out_val="${!_out_var:-}"
+    # (_out_var/_out_val resolved earlier, at the top of this function, for the
+    # non-prod bucket-override guard.)
     [[ -n "$_out_val" ]] && cmd="$cmd MDPS_OUTPUT_BUCKET_${cat_upper}=$_out_val"
     cmd="$cmd python -m market_data_processing_service --operation process --mode batch"
     cmd="$cmd --start-date $START_DATE --end-date $END_DATE"

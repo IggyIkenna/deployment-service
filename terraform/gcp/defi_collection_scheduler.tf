@@ -54,10 +54,12 @@
 #   00:15 collect-dex-pools          TheGraph subgraph (heavy memory)
 #   00:30 collect-dex-swaps          TheGraph subgraph (heavy memory)
 #   00:45 collect-lending-indices    Aave/Compound RPC + Subgraph
+#   00:50 collect-risk-params        Aave/Spark/Compound-V3 Subgraph + IS-catalogue fallback (Morpho/Fluid/Solana)
 #   01:00 collect-lst-rates          Lido / RocketPool / Mantle RPC
 #   01:10 collect-vault-share-price  ERC-4626 convertToAssets (Yearn/Ethena/Maker/Frax/Morpho)
 #   01:15 collect-perp-funding       Hyperliquid / Kalshi-Perp / Polymarket-Perp REST
 #   01:30 collect-liquidations       Aave subgraph
+#   01:35 collect-liquidation-events Aave V3 + Morpho LiquidationCall events via TheGraph subgraph
 #   01:45 collect-eigenlayer-rewards EigenLayer RPC
 #   01:50 collect-staking-yields     Lido / EtherFi / EigenLayer public REST APIs
 #   01:55 collect-evm-defi           Multi-source aggregate
@@ -128,6 +130,13 @@ locals {
       timeout     = 1800
       description = "DeFi collect-lending-indices — Aave/Compound/Morpho borrow/supply rates + utilization."
     }
+    "risk-params" = {
+      schedule    = "50 0 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 1800
+      description = "DeFi collect-risk-params — per-market reserve config (ltv/liquidation_threshold/liquidation_bonus/reserve_factor/emode_category_id) via Aave/Spark/Compound-V3 subgraph + IS-catalogue fallback (Morpho/Fluid/Solana)."
+    }
     "lst-rates" = {
       schedule    = "0 1 * * *"
       cpu         = "1"
@@ -155,6 +164,13 @@ locals {
       memory      = "2Gi"
       timeout     = 1500
       description = "DeFi collect-liquidations — Aave + Compound liquidation events via subgraph."
+    }
+    "liquidation-events" = {
+      schedule    = "35 1 * * *"
+      cpu         = "1"
+      memory      = "2Gi"
+      timeout     = 1500
+      description = "DeFi collect-liquidation-events — Aave V3 LiquidationCall + Morpho BadDebt/LiquidationEvent on-chain events via TheGraph subgraph."
     }
     "eigenlayer-rewards" = {
       schedule    = "45 1 * * *"
