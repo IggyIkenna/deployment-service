@@ -84,7 +84,7 @@
 #   bash launch-feature-orphan-sweep-vm.sh --env staging --feature-family sports
 #   ON_DEMAND=true bash launch-feature-orphan-sweep-vm.sh --feature-family onchain
 #
-# Cost: e2-standard-4 SPOT + 100GB. Read-only single walk, one family prefix
+# Cost: e2-standard-4 SPOT + 250GB. Read-only single walk, one family prefix
 # per invocation (never a whole-bucket or cross-family walk).
 set -euo pipefail
 
@@ -193,7 +193,10 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
-BOOT_DISK_GB="${BOOT_DISK_GB:-100}"
+# 250GB minimum (not 100GB): GCP PD throughput scales with disk SIZE (~0.28 MB/s per GB),
+# so a 100GB disk only sustains ~28 MB/s vs the ~70 MB/s this backfill-VM workload class
+# needs -- see plans/active/issues/backfill_vm_disk_starvation_misdiagnosed_as_tardis_quota_2026_07_18.md.
+BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # Backfill/idempotent VMs default to SPOT (HARD RULE: spot-vms-for-backfill) -- the
 # sweep is read-only (never deletes/patches), so a preemption relaunch is a safe
