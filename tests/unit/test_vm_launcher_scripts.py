@@ -994,6 +994,11 @@ class TestDurableLogStreamerCoverage:
         # --- Pure fan-out wrappers that delegate to a covered per-shard launcher ---
         "launch-cefi-week-test.sh": "Fan-out wrapper → launch-cefi-forward-poll.sh (covered) per day.",
         "launch-sku-matrix-v2-benchmark.sh": "Fan-out wrapper → launch-synthetic-benchmark-vm.sh (covered) per archetype.",
+        "launch-expected-universe-v2-historical-backfill-vm.sh": (
+            "Fan-out wrapper → launch-expected-universe-v2-vm.sh (covered, wires "
+            "setup-data-pipeline-vm.sh) per calendar-year chunk — never calls gcloud "
+            "directly itself."
+        ),
     }
 
     def _gcp_launchers(self) -> list[Path]:
