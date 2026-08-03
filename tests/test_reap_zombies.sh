@@ -49,9 +49,9 @@ STUB_DIR="$(mktemp -d)"
 trap 'rm -rf "$STUB_DIR"' EXIT
 
 INSTANCE="backfill-defi-dex-swaps-20260803-092530"
-PROJECT="central-element-323112"
+PROJECT="test-project"
 ZONE="asia-northeast1-c"
-BUCKET="deployment-scripts-central-element-323112"
+BUCKET="deployment-scripts-test-project"
 
 CAT_PATH_CAPTURE="$STUB_DIR/cat_paths.log"
 DELETE_CAPTURE="$STUB_DIR/delete_args.log"
