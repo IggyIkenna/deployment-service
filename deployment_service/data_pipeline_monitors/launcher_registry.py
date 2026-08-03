@@ -374,7 +374,6 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "client-reporting-cutover-": None,  # 24h attribution cutover — one-off
     "qg-snapshot-": None,  # QG snapshot cron — scheduler-owned
     "batch-live-smoke-matrix-": None,  # smoke-matrix cron — scheduler-owned
-    "honest-coverage-": None,  # honest-coverage cron — scheduler-owned
     "tradfi-fwd-daily-cron-": None,  # cron HOST (spawns tradfi-fwd-* workers) — not itself a backfill
     "cefi-fwd-daily-cron-": None,  # cron HOST (spawns cefi-fwd-* workers) — not itself a backfill
     "bucket-rsync-": None,  # one-off bucket rsync — campaign cutover, no recurring launcher
