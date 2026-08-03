@@ -334,20 +334,8 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # perp_funding_data_semantics_and_cadence_2026_06_16.md.
     "canonical-migration-cefi-fts-": "launch-cefi-funding-timestamp-fix-vm.sh",
     "canonical-migration-cefi-fts-ext-": "launch-cefi-extended-starknet-funding-timestamp-vm.sh",
-    # legacy→canonical sharded migration VMs
-    "canonical-migration-legacy-cefi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-tradfi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-defi-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-prediction-": "launch-legacy-bucket-migration-sharded.sh",
-    "canonical-migration-legacy-sports-": "launch-legacy-bucket-migration-sharded.sh",
     # ── Sports v9 migration VMs (E4 — year-sharded fleet, both surfaces) ──
     "sports-v9-migration-": "launch-sports-v9-migration-vm.sh",
-    # ── GCS migration bundle Phase 3 VMs (per-(ag, year)) ─────────────────
-    "gcs-migration-bundle-cefi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-defi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-tradfi-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-sports-": "launch-gcs-migration-bundle-vm.sh",
-    "gcs-migration-bundle-prediction-": "launch-gcs-migration-bundle-vm.sh",
     # ── MDPS sports bucket-pass ───────────────────────────────────────────
     "mdps-sports-bucket-": "launch-mdps-sports-bucket-vm.sh",
     # ── Live-pipeline VMs (per-AG live producer/consumer + singletons) ────

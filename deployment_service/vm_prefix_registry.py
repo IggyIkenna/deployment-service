@@ -466,13 +466,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Registered 2026-05-23 (operator-ACK'd Phase 5a of global_ledger discovery).
     "greeks-compute-live-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.LONG_LIVED_LIVE),
     "greeks-compute-batch-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    # GCS migration bundle VMs (launch-gcs-migration-bundle-vm.sh; plan:
-    # gcs_migration_bundle_pipeline_mode_2026_05_08.md Phase 3). VM name pattern:
-    # `gcs-migration-bundle-{asset_group}-{year}-{ts}`. Heartbeat-only — migration
-    # VMs write to per-asset-group market-data-tick buckets but the mapping is
-    # dynamic (asset_group is a runtime arg), so watchdog falls back to heartbeat.
-    # Registered 2026-05-19 (slot-8 fix pre-existing blindspot in remote fast-forward).
-    "gcs-migration-bundle-": None,
     # DeFi batch backtest VMs (launch-defi-backtest-vm.sh; plan:
     # batch_live_symmetry_2026_05_10.md Tab 8). VM name pattern:
     # `defi-backtest-{archetype-slug}-{ts}`. Heartbeat-only — writes backtest
@@ -989,23 +982,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "canonical-migration-cefi-fts-ext-": VmPrefixSpec(
         bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH
     ),
-    # legacy→canonical sharded migration VMs — launch-legacy-bucket-migration-sharded.sh
-    # naming: canonical-migration-legacy-{cefi|tradfi|defi|prediction|sports}-{shard}-{ts}
-    # (bucket_name_ssot_legacy_dual_write_remediation Phase 5; per-shard data-only copy).
-    "canonical-migration-legacy-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "canonical-migration-legacy-tradfi-": VmPrefixSpec(
-        bucket=_TICK_TRADFI,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
-    "canonical-migration-legacy-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "canonical-migration-legacy-prediction-": VmPrefixSpec(
-        bucket=_TICK_PRED,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
-    "canonical-migration-legacy-sports-": VmPrefixSpec(
-        bucket=_TICK_SPORTS,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
     # sports v9 migration VMs — launch-sports-v9-migration-vm.sh (E4)
     # naming: sports-v9-migration-{mdps|instruments}-{year}-{ts}
     # Two-phase: migrate_sports_canonical_v9 + rebuild_sports_manifest_v9
@@ -1013,28 +989,6 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # Registered 2026-06-28 (plan: sports_manifest_canonicalisation_2026_06_01.md § E4).
     "sports-v9-migration-": VmPrefixSpec(
         bucket=_TICK_SPORTS,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
-    # ------------------------------------------------------------------
-    # GCS migration bundle Phase 3 VMs — launch-gcs-migration-bundle-vm.sh
-    # naming: gcs-migration-bundle-{ag}-{year}-{ts}
-    # Runs gcs_migration_bundle_2026_05_08.py --apply for one year-slice
-    # per VM. Writes per-VM manifest shards under each ag's tick bucket.
-    # MANIFEST_PER_VM_SHARDS=true + unique VM_NAME ensure no collisions.
-    # Registered 2026-05-19 (slot 1 Phase 3 fleet launch).
-    # ------------------------------------------------------------------
-    "gcs-migration-bundle-cefi-": VmPrefixSpec(bucket=_TICK_CEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "gcs-migration-bundle-defi-": VmPrefixSpec(bucket=_TICK_DEFI, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
-    "gcs-migration-bundle-tradfi-": VmPrefixSpec(
-        bucket=_TICK_TRADFI,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
-    "gcs-migration-bundle-sports-": VmPrefixSpec(
-        bucket=_TICK_SPORTS,
-        lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
-    ),
-    "gcs-migration-bundle-prediction-": VmPrefixSpec(
-        bucket=_TICK_PRED,
         lifecycle_class=LifecycleClass.EPHEMERAL_BATCH,
     ),
     # ------------------------------------------------------------------

@@ -16,11 +16,11 @@ the code tarball no longer exists.
 attempt read pins from ``LAUNCH_PARAMS.json`` alone and was therefore INERT: the
 launchers that WRITE that blob and the launchers that PIN are disjoint sets. Only
 ``launch-cefi-sharded-backfill.sh`` calls ``lc_write_launch_params``, and it
-passes no ``*_TARBALL_SHA`` keys at all; the five launchers that DO pin
-(``launch-canonical-migration-vm.sh``, ``launch-legacy-bucket-migration-sharded.sh``,
-``launch-mdps-backfill-vm.sh``, ``launch-mdps-sharded-backfill.sh``,
-``launch-mtds-dex-swaps-backfill-vm.sh``) record the sha as GCE **instance
-metadata**. ``collect_in_use_pins`` returned an empty set for every VM, always.
+passes no ``*_TARBALL_SHA`` keys at all; the four launchers that DO pin
+(``launch-canonical-migration-vm.sh``, ``launch-mdps-backfill-vm.sh``,
+``launch-mdps-sharded-backfill.sh``, ``launch-mtds-dex-swaps-backfill-vm.sh``)
+record the sha as GCE **instance metadata**. ``collect_in_use_pins`` returned an
+empty set for every VM, always.
 
 So the two legs, each covering the window the other cannot:
 
