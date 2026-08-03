@@ -231,6 +231,22 @@ _read_exit_status() {
     gcloud storage cat "gs://deployment-scripts-${PROJECT}/vm-logs/${vm_name}/EXIT_STATUS" 2>/dev/null || echo ""
 }
 
+# _was_preempted <vm_name>
+# A SPOT VM (every backfill VM defaults to SPOT per the HARD RULE) reclaimed
+# by GCE before its startup script even reaches the log-upload trap leaves
+# EMPTY EXIT_STATUS — indistinguishable, from that marker alone, from a
+# genuine unknown failure. Confirmed live 2026-08-03: a manually-relaunched
+# chunk-2 retry VM was preempted ~2 min after creation with zero logs/events
+# written (compute.instances.preempted, verified via `gcloud compute
+# operations list`). Preemption is routine/expected for SPOT, not a bug —
+# check the operations log before treating a missing marker as fatal.
+_was_preempted() {
+    local vm_name="$1"
+    gcloud compute operations list \
+        --filter="targetLink~${vm_name} AND operationType=compute.instances.preempted" \
+        --format='value(name)' 2>/dev/null | grep -q .
+}
+
 _wait_for_vm_terminal() {
     local vm_name="$1"
     local waited=0
@@ -313,8 +329,16 @@ for chunk in "${CHUNKS[@]}"; do
                 echo "  -> ${VM_NAME}: enumerator EXIT_STATUS=5 (max-writes-per-run halt-safety — chunk partially seeded, safe to retry the same window)"
                 continue
                 ;;
+            "")
+                if _was_preempted "$VM_NAME"; then
+                    echo "  -> ${VM_NAME}: no EXIT_STATUS, but confirmed preempted (compute.instances.preempted — normal SPOT reclaim) — retrying the same window"
+                    continue
+                fi
+                echo "ERROR: ${VM_NAME} has no EXIT_STATUS marker and was NOT preempted (checked gcloud compute operations list) — a genuine unknown failure, not routine SPOT reclaim. Aborting the whole backfill; do NOT trust chunks after this one. Inspect gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/run.log (may be empty/absent) and the VM's serial console." >&2
+                exit 1
+                ;;
             *)
-                echo "ERROR: ${VM_NAME} enumerator EXIT_STATUS='${exit_status:-<missing>}' (expected 0=success or 5=retriable halt-safety) — aborting the whole backfill; do NOT trust chunks after this one. Inspect gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/run.log" >&2
+                echo "ERROR: ${VM_NAME} enumerator EXIT_STATUS='${exit_status}' (expected 0=success or 5=retriable halt-safety) — aborting the whole backfill; do NOT trust chunks after this one. Inspect gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/run.log" >&2
                 exit 1
                 ;;
         esac

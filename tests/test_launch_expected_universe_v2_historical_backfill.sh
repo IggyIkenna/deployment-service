@@ -44,7 +44,11 @@ trap 'rm -rf "$STUB_DIR"' EXIT
 # exits immediately. "storage cat ...EXIT_STATUS" pops the next value off
 # $STUB_DIR/exit_status_queue (one status per launch attempt); an empty/absent
 # queue defaults to "0" (success) so pre-existing tests that never touch the
-# queue keep seeing success, matching the original stub's behavior.
+# queue keep seeing success, matching the original stub's behavior. A queued
+# value of the literal "EMPTY" simulates a missing EXIT_STATUS marker (e.g. a
+# preempted SPOT VM that never reached the log-upload trap) by printing
+# nothing. "compute operations list" reports a fake preemption match when
+# $STUB_DIR/simulate_preempted exists, else nothing.
 export STUB_DIR
 cat > "$STUB_DIR/gcloud" <<'STUB'
 #!/usr/bin/env bash
@@ -53,11 +57,16 @@ case "${1:-}-${2:-}-${3:-}" in
     storage-cat-gs://*)
         QUEUE="${STUB_DIR}/exit_status_queue"
         if [[ -s "$QUEUE" ]]; then
-            head -1 "$QUEUE"
+            VAL="$(head -1 "$QUEUE")"
             tail -n +2 "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+            [[ "$VAL" != "EMPTY" ]] && echo "$VAL"
         else
             echo "0"
         fi
+        exit 0
+        ;;
+    compute-operations-list)
+        [[ -f "${STUB_DIR}/simulate_preempted" ]] && echo "op-preempted-stub"
         exit 0
         ;;
     *) exit 0 ;;
@@ -250,6 +259,46 @@ else
     FAIL=$((FAIL + 1))
     FAILED_CASES+=("(m) failing child launcher did not surface output / hard-abort as expected")
     echo "  ❌ (m) failing child launcher did not surface output / hard-abort as expected"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (n) missing EXIT_STATUS + confirmed preemption (compute.instances.preempted)
+# -> retry the same window, exactly like halt-safety. Live 2026-08-03: a SPOT
+# VM was preempted ~2min after creation with zero logs, and the pre-fix script
+# treated that as a fatal unknown failure and aborted the whole backfill.
+rm -f "$CHILD_CAPTURE_FILE"
+touch "$STUB_DIR/simulate_preempted"
+printf 'EMPTY\n0\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+rm -f "$STUB_DIR/simulate_preempted"
+if [[ "$EXIT" == "0" ]] && grep -q "confirmed preempted" <<<"$OUTPUT" \
+    && grep -q "All 1 chunks launched" <<<"$OUTPUT" \
+    && [[ -f "$CHILD_CAPTURE_FILE" ]] && [[ "$(wc -l < "$CHILD_CAPTURE_FILE")" == "2" ]]; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (n) missing EXIT_STATUS + confirmed preemption retries, then succeeds"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(n) preemption retry behavior mismatch")
+    echo "  ❌ (n) preemption retry behavior mismatch"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (o) missing EXIT_STATUS with NO preemption evidence -> hard-fail (a genuine
+# unknown failure must not be silently retried/absorbed as routine).
+rm -f "$CHILD_CAPTURE_FILE"
+printf 'EMPTY\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+if [[ "$EXIT" == "1" ]] && grep -q "was NOT preempted" <<<"$OUTPUT"; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (o) missing EXIT_STATUS without preemption hard-fails"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(o) missing EXIT_STATUS without preemption did not hard-fail as expected")
+    echo "  ❌ (o) missing EXIT_STATUS without preemption did not hard-fail as expected"
     $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
 fi
 
