@@ -697,6 +697,23 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "feat-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # features-service class-E orphan record_captured backfill (launch-feature-orphan-
+    # backfill-vm.sh) -- runs features-service/scripts/backfill_feature_orphan_class_e.py
+    # --feature-family <family> [--asset-group <ag>] --report-uri <uri> --apply for ONE
+    # (feature_family x asset_group) cell (todo 1 + todo 2 of
+    # features_service_manifest_coverage_gap_2026_08_03.md). VM_NAME =
+    # feat-orph-bf-{family_abbrev}-{ag_abbrev}-{ts} -- split out from "feat-orph-" above
+    # (same reasoning as "tradfi-bf-fred-" vs "tradfi-bf-": the LONGER prefix wins
+    # longest-prefix match in launcher_registry.py/deployment_classification.py, so a
+    # backfill VM resolves to its own launcher, not the read-only sweep's). bucket=None
+    # (heartbeat-only) -- writes a fixed per-cell report path under the family's own
+    # bucket (only written when --apply + recorded>0), not a per-VM registry-tracked path.
+    # Singleton-locked per (family, asset_group) cell.
+    # SSOT: unified-trading-pm/plans/active/issues/
+    # features_service_manifest_coverage_gap_2026_08_03.md.
+    # ------------------------------------------------------------------
+    "feat-orph-bf-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # Sports derived_features post-floor residue census (launch-sports-derived-
     # features-census-vm.sh) — runs features-service/scripts/purge_sports_derived_
     # features_post_floor_residue_2026_07_27.py in CENSUS mode (no --apply; read-only

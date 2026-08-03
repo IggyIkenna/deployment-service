@@ -245,6 +245,13 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     # (VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-{ts}), same reasoning as the
     # single "gcs-migration-phase0-" entry above.
     "feat-orph-": "launch-feature-orphan-sweep-vm.sh",
+    # features-service class-E orphan record_captured backfill (backfill_feature_orphan_
+    # class_e.py) — READ+WRITE (record_captured only, never re-shapes/deletes source
+    # objects), idempotent re-run (reverify_against_index() drops already-covered cells).
+    # Split out from "feat-orph-" above (same reasoning as "tradfi-bf-fred-" vs
+    # "tradfi-bf-": the LONGER prefix wins longest-prefix match so a backfill VM resolves
+    # to its own launcher, not the read-only sweep's).
+    "feat-orph-bf-": "launch-feature-orphan-backfill-vm.sh",
     # Sports derived_features post-floor residue census — read-only + idempotent
     # (re-running just re-scans and overwrites the same fixed report path), so a
     # SPOT preemption relaunch is a safe restart-from-scratch.
