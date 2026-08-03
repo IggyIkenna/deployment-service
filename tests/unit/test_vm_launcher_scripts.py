@@ -1212,7 +1212,15 @@ export -f gcloud
             ["bash", "-c", script],
             capture_output=True,
             text=True,
-            env={**os.environ, **env_extra},
+            # The mocked gcloud() above no-ops "storage cp" for the tarball
+            # manifest read too, so lc_verify_tarball_freshness always reads
+            # "cannot verify" -- under the current LC_TARBALL_FRESHNESS=warn
+            # default that's a silent continue, but a future default flip to
+            # auto/enforce would either abort the launch or shell out to a
+            # real (unmocked) create-code-tarballs.sh subprocess. Pin off so
+            # this class's tests -- which exercise relaunch/vm-name mechanics,
+            # not tarball freshness -- never depend on that default.
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off", **env_extra},
         )
         return result, capture_dir, gcloud_log
 
@@ -1356,7 +1364,12 @@ export -f gcloud
         script = self._mock_preamble_full_args(gcloud_log) + (
             f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 dry\n'
         )
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         call = gcloud_log.read_text()
         assert "VM_SERVICE=instruments_service" in call
@@ -1369,7 +1382,12 @@ export -f gcloud
         script = self._mock_preamble_full_args(gcloud_log) + (
             f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 full\n'
         )
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         call = gcloud_log.read_text()
         assert "reclassify_defi_curve_optimism_subgraph_deindexed_2026_07_24.py --apply" in call
@@ -1387,7 +1405,12 @@ export -f gcloud
         script = self._mock_preamble_full_args(gcloud_log) + (
             f'\nbash "{launcher_path}" defi-curve-optimism-reclassify 2026-07-27 2026-07-27 dry\n'
         )
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         call = gcloud_log.read_text()
         # `"$*"` logs the FULL invocation ("compute instances create <vm_name> --zone=... ..."),
@@ -1452,7 +1475,18 @@ gsutil() {{ return 0; }}
 export -f gsutil
 '''
         script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ})
+        # The mocked gcloud() above no-ops the tarball-manifest "storage cp"
+        # read too, so lc_verify_tarball_freshness always reads "cannot
+        # verify" for every repo -- harmless under today's warn default but a
+        # future flip to auto/enforce would abort the launch or shell out to
+        # a real create-code-tarballs.sh subprocess. Pin off: this class
+        # tests stall-detection metadata wiring, not tarball freshness.
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
         assert result.returncode == 0, f"stderr: {result.stderr}"
         return gcloud_log.read_text()
 
@@ -1976,7 +2010,11 @@ export -f gcloud
             ["bash", "-c", script],
             capture_output=True,
             text=True,
-            env={**os.environ, **env_extra},
+            # See TestCanonicalMigrationVmRelaunch._run's comment: the mocked
+            # gcloud() no-ops the tarball-manifest read too, so pin off so
+            # this class's SPOT-preemption-contract tests never depend on
+            # today's LC_TARBALL_FRESHNESS=warn default.
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off", **env_extra},
         )
         return result, capture_dir, gcloud_log
 
@@ -2230,7 +2268,16 @@ gsutil() {{ return 0; }}
 export -f gsutil
 '''
         script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
-        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, **env_extra})
+        # See TestCanonicalMigrationVmRelaunch._run's comment: the mocked
+        # gcloud() no-ops the tarball-manifest read too, so pin off so this
+        # class's candle-apply-category tests never depend on today's
+        # LC_TARBALL_FRESHNESS=warn default.
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off", **env_extra},
+        )
         return result, gcloud_log
 
     def test_non_sharded_dry_mode_does_not_crash_and_emits_dry_run(self, launcher_path: Path, tmp_path: Path) -> None:
