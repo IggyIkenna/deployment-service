@@ -171,7 +171,6 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "strategy-paper-": None,  # paper VM (LONG_LIVED_LIVE) — promote-workflow owns lifecycle
     "greeks-compute-live-": None,  # streaming greeks — live service, not a backfill
     "greeks-compute-batch-": None,  # greeks recompute cron — scheduler-owned, not auto-relaunch
-    "gcs-migration-bundle-": None,  # generic prefix; the per-(ag,year) keys below carry the launcher
     "defi-backtest-": None,  # defi backtest — owned by its plan harness
     "defi-paper-": None,  # paper VM (LONG_LIVED_LIVE) — promote-workflow owns lifecycle
     "funding-ensemble-paper-": None,  # paper experiment — external scheduler re-launches it
