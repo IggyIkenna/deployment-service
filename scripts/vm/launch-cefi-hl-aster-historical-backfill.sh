@@ -57,6 +57,9 @@
 # Dry-run: DRY_RUN=1 bash scripts/vm/launch-cefi-hl-aster-historical-backfill.sh
 set -e
 
+# shellcheck source=lib/launcher_common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
+
 PROJECT=central-element-323112
 ZONE=asia-northeast1-c
 STARTUP=gs://deployment-scripts-central-element-323112/vm/setup-data-pipeline-vm.sh
