@@ -318,11 +318,28 @@ def _escalated_machine_type(current: str) -> str:
 
 
 def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str, object]:
-    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM only) → re-launch the backfill VM.
+    """Auto-recover ``DP_VM_EXIT_NONZERO`` (OOM, or a vetted-launcher WORKER_STALLED
+    self-delete) → re-launch the backfill VM.
 
-    Only the OOM subcase (``oom`` true / ``exit_code==137``) is recoverable here;
-    a non-OOM crash returns ``recovered=False`` → file_issue. A budget-exceeded
-    relaunch returns ``recovered=False`` too (the actuator already paged).
+    Two recoverable subcases; anything else returns ``recovered=False`` →
+    file_issue (or budget-exceeded, which the delegated actuator already paged
+    on its own):
+
+    - **OOM** (``exit_code==137``) — see the machine-escalation logic below.
+    - **WORKER_STALLED self-delete on a vetted launcher** (``details["worker_stalled"]``
+      set by ``exit_code_fleet_monitor._finding_for`` — exit_code==124, the
+      deterministic in-guest stall-kill signature ``vm-exec-with-gcs-tee.sh``
+      writes, AND the launcher is on the known-idempotent-checkpoint-resumable
+      allowlist). Delegates WHOLESALE to ``_recover_stalled_vm`` — the SAME
+      actuator + budget (``RelaunchStalledVm``, ≤2/(vm-prefix,day)) the
+      EXTERNAL heartbeat-stall watcher already uses for ``DP_VM_STALL``: an
+      in-guest self-kill and an external watchdog-kill are the same remedy
+      ("the VM already died from stalling, relaunch it unconditionally,
+      replay launch_env/checkpoint"), just two different detectors reaching
+      the same verdict. See
+      ``vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md`` todo 8 —
+      before this, EVERY non-OOM ``EXIT_NONZERO`` (including this
+      deterministic, provably-safe-to-retry case) always paged an operator.
 
     **KEY #4 (operator 2026-06-23) — match the actuator to the failure MODE.** An
     OOM relaunch escalates to a HIGHER-memory machine: when the finding carries a
@@ -332,6 +349,8 @@ def _recover_backfill_vm(finding: PipelineFinding, *, dry_run: bool) -> dict[str
     ``MACHINE_TYPE`` (env-overridable in every ``launch-*-vm.sh``).
     """
     details = finding.details
+    if details.get("worker_stalled"):
+        return _recover_stalled_vm(finding, dry_run=dry_run)
     exit_code_raw = details.get("exit_code")
     exit_code = (
         int(exit_code_raw)

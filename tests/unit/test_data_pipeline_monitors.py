@@ -369,6 +369,73 @@ def test_classify_137_is_exit_nonzero():
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
 
 
+def test_classify_124_worker_stalled_is_exit_nonzero():
+    # RC=124 is vm-exec-with-gcs-tee.sh's own WORKER_STALLED self-delete
+    # signature (see WORKER_STALLED_EXIT_CODE) — classification treats it like
+    # any other nonzero exit; the auto_recover-vs-page split happens in
+    # _finding_for (gated on the launcher allowlist), not here.
+    res = exit_code_fleet_monitor.classify_terminated_vm("vm", exit_code=124, captured_before=0, captured_after=0)
+    assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.EXIT_NONZERO
+
+
+# ── _finding_for: WORKER_STALLED (exit_code=124) auto_recover gating ─────────
+# (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 8) — a
+# WORKER_STALLED self-delete only auto-recovers on a VETTED launcher; any other
+# launcher keeps the pre-existing safe default (page_operator), same as any
+# other non-OOM nonzero exit.
+def test_finding_for_worker_stalled_vetted_launcher_routes_auto_recover():
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "backfill-defi-dex-swaps-20260803-165010", exit_code=124, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="defi",
+        relaunch_launcher="launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+        launch_env={"START_DATE": "2023-01-01"},
+        progress_checkpoint={"last_completed_date": "2023-12-27"},
+        worker_stall_safe=True,
+    )
+    assert finding is not None
+    assert finding.tier == EscalationTier.AUTO_RECOVER
+    assert finding.details["worker_stalled"] is True
+    assert finding.details["relaunch_launcher"] == "launch-backfill-defi-dex-swaps-source-correction-vm.sh"
+    assert finding.details["launch_env"] == {"START_DATE": "2023-01-01"}
+    assert finding.details["progress_checkpoint"] == {"last_completed_date": "2023-12-27"}
+    # Never the OOM bigger-machine path — the VM wasn't undersized, it stalled.
+    assert "bigger_machine" not in finding.details
+
+
+def test_finding_for_worker_stalled_unvetted_launcher_stays_page_operator():
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "some-other-backfill-20260803", exit_code=124, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="cefi",
+        relaunch_launcher="launch-some-unvetted-vm.sh",
+        worker_stall_safe=False,
+    )
+    assert finding is not None
+    assert finding.tier == EscalationTier.PAGE_OPERATOR
+    assert "worker_stalled" not in finding.details
+
+
+def test_finding_for_worker_stalled_off_by_default_when_flag_omitted():
+    # The default (worker_stall_safe not passed) must stay the pre-existing
+    # PAGE_OPERATOR behavior — no caller regresses by upgrading this module
+    # without also wiring the allowlist check.
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "backfill-defi-dex-swaps-20260803-165010", exit_code=124, captured_before=5, captured_after=5
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="defi",
+        relaunch_launcher="launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+    )
+    assert finding is not None
+    assert finding.tier == EscalationTier.PAGE_OPERATOR
+
+
 def test_classify_clean_when_exit0_and_climb():
     res = exit_code_fleet_monitor.classify_terminated_vm("vm", exit_code=0, captured_before=10, captured_after=200)
     assert res.verdict is exit_code_fleet_monitor.TerminationVerdict.CLEAN
@@ -3717,6 +3784,59 @@ def test_oom_finding_always_files_issue_when_relaunch_budget_exhausted(monkeypat
     assert route_result["issue_path"] is not None
     written = list((pm / "plans" / "active" / "issues").glob("*.md"))
     assert len(written) == 1
+
+
+# ── DP-VM-001/WORKER_STALLED (exit_code=124, todo 8) delegates to the SAME
+# RelaunchStalledVm actuator DP_VM_STALL already uses — end-to-end through
+# classify -> _finding_for -> escalation.route_finding, mirroring the OOM tests
+# above (a real termination + finding, not a hand-built shortcut).
+def test_worker_stalled_finding_delegates_to_relaunch_stalled_vm(monkeypatch, tmp_path):
+    pm = tmp_path / "unified-trading-pm"
+    (pm / "plans" / "active" / "issues").mkdir(parents=True)
+    _silence_dispatch_and_emit(monkeypatch)
+
+    relaunch_calls: list[dict[str, object]] = []
+
+    class _FakeStalledActuator:
+        def relaunch(self, vm_name, *, launcher, asset_group="", launch_env=None, checkpoint=None, dry_run=False):
+            relaunch_calls.append(
+                {
+                    "vm_name": vm_name,
+                    "launcher": launcher,
+                    "launch_env": launch_env,
+                    "checkpoint": checkpoint,
+                }
+            )
+            return {"status": "SUCCEEDED"}
+
+    fake_mod = type("M", (), {"RelaunchStalledVm": _FakeStalledActuator})
+    monkeypatch.setattr(escalation, "_ACTUATORS_AVAILABLE", True)
+    monkeypatch.setattr(escalation.importlib, "import_module", lambda _name: fake_mod)
+
+    termination = exit_code_fleet_monitor.classify_terminated_vm(
+        "backfill-defi-dex-swaps-20260803-165010", exit_code=124, captured_before=200, captured_after=200
+    )
+    finding = exit_code_fleet_monitor._finding_for(
+        termination,
+        asset_group="defi",
+        relaunch_launcher="launch-backfill-defi-dex-swaps-source-correction-vm.sh",
+        launch_env={"START_DATE": "2023-01-01"},
+        progress_checkpoint={"last_completed_date": "2023-12-27"},
+        worker_stall_safe=True,
+    )
+    assert finding is not None
+    assert finding.tier == EscalationTier.AUTO_RECOVER
+
+    route_result = escalation.route_finding(finding, pm_repo_path=str(pm))
+
+    # The stall actuator (NOT the OOM one) was invoked, replaying launch_env
+    # and the checkpoint — same contract RelaunchPreemptedVm/RelaunchStalledVm
+    # already give DP_VM_PREEMPTED/DP_VM_STALL.
+    assert len(relaunch_calls) == 1
+    assert relaunch_calls[0]["launcher"] == "launch-backfill-defi-dex-swaps-source-correction-vm.sh"
+    assert relaunch_calls[0]["launch_env"] == {"START_DATE": "2023-01-01"}
+    assert relaunch_calls[0]["checkpoint"] == {"last_completed_date": "2023-12-27"}
+    assert route_result["effective_tier"] == "auto_recover"
 
 
 # ── JSON-sentinel freshness on a bare-last_modified bucket (regression 2026-06-23) ──
