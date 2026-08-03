@@ -1419,6 +1419,75 @@ export -f gcloud
         assert vm_name.startswith("canonical-migration-defi-curve-optm-reclass-"), vm_name
         assert len(vm_name) <= 63, f"'{vm_name}' is {len(vm_name)} chars, exceeds GCE's 63-char limit"
 
+    @pytest.mark.parametrize(
+        "category,surface",
+        [("sports-mdps", "mdps"), ("sports-instruments", "instruments")],
+    )
+    def test_sports_split_categories_use_v9_module_and_correct_surface(
+        self, launcher_path: Path, tmp_path: Path, category: str, surface: str
+    ) -> None:
+        """vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md todo 11 (operator ruling
+        2026-08-03, option A): the old bare "sports" category invoked a module that doesn't exist
+        (migrate_sports_canonical, not _v9) and never passed the real script's REQUIRED --surface
+        selector. Split into sports-mdps/sports-instruments, each hardcoding its own --surface so
+        the choice is never silently defaulted."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" {category} 2026-01-01 2026-01-01 dry\n'
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        assert "migrate_sports_canonical_v9" in call
+        assert f"--surface {surface}" in call
+
+    @pytest.mark.parametrize("category", ["sports-mdps", "sports-instruments"])
+    def test_sports_split_categories_dry_by_default_no_dry_run_flag(
+        self, launcher_path: Path, tmp_path: Path, category: str
+    ) -> None:
+        """migrate_sports_canonical_v9 has NO --dry-run flag at all (dry-by-default, --apply to
+        write) -- unlike the generic launcher convention. dry mode must NOT append --dry-run
+        (that would be an unrecognized argument the real script's argparse rejects outright)."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" {category} 2026-01-01 2026-01-01 dry\n'
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        assert "--dry-run" not in call
+        assert "--apply" not in call
+
+    @pytest.mark.parametrize("category", ["sports-mdps", "sports-instruments"])
+    def test_sports_split_categories_full_mode_uses_apply_flag(
+        self, launcher_path: Path, tmp_path: Path, category: str
+    ) -> None:
+        """`full` mode must pass --apply, not --dry-run — the actual data-mutating run."""
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        script = self._mock_preamble_full_args(gcloud_log) + (
+            f'\nbash "{launcher_path}" {category} 2026-01-01 2026-01-01 full\n'
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "LC_TARBALL_FRESHNESS": "off"},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        call = gcloud_log.read_text()
+        assert "--apply" in call
+        assert "--dry-run" not in call
+
 
 class TestCanonicalMigrationStallDetection:
     """Todo 3+4, /plans/active/issues/migration_vm_hung_detection_monitoring_gap_2026_07_27.md
