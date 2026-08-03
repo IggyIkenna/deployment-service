@@ -1170,6 +1170,17 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     # ------------------------------------------------------------------
     "tradfi-fwd-daily-cron-": None,
     "cefi-fwd-daily-cron-": None,
+    # Onchain-perp forward-poll cron host (LIGHTER-ZKSYNC + EXTENDED-STARKNET +
+    # HYPERLIQUID + ASTER) — fires launch-cefi-onchain-forward-poll.sh daily at
+    # 09:30 UTC. Same pattern as the two entries above; closes a real 5+ day
+    # silent capture outage found + root-caused in
+    # cefi_onchain_perp_forward_capture_outage_2026_08_03.md (the capture had
+    # NO scheduler wiring at all — manual/ad-hoc only).
+    # Launcher: launch-cefi-onchain-fwd-daily-cron-vm.sh
+    # Singleton-locked; --force bypasses. After updating this dict, relaunch
+    # the watchdog VM. Registered 2026-08-03 per CLAUDE.md "VM Naming
+    # Convention" HARD RULE + Phase A.2 lifecycle_class requirement.
+    "cefi-onchain-fwd-daily-cron-": None,
     # Phase 2.6 bucket-rsync VMs (gap-2.6.A; flat→env-tiered cutover Wave 2-5 workers).
     # Heartbeat-only; output is the dest-bucket itself (not per-VM manifest shards).
     # Launcher: launch-bucket-rsync-vm.sh; singleton-locked per source-bucket-hash.

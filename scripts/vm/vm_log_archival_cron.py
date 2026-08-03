@@ -139,6 +139,7 @@ _LONG_LIVED_VM_PREFIXES: tuple[str, ...] = (
     "honest-coverage-",
     "tradfi-fwd-daily-cron-",
     "cefi-fwd-daily-cron-",
+    "cefi-onchain-fwd-daily-cron-",
 )
 
 

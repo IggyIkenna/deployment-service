@@ -383,6 +383,7 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "batch-live-smoke-matrix-": None,  # smoke-matrix cron — scheduler-owned
     "tradfi-fwd-daily-cron-": None,  # cron HOST (spawns tradfi-fwd-* workers) — not itself a backfill
     "cefi-fwd-daily-cron-": None,  # cron HOST (spawns cefi-fwd-* workers) — not itself a backfill
+    "cefi-onchain-fwd-daily-cron-": None,  # cron HOST (spawns cefi-lighter-/cefi-extended-/cefi-hyperliquid-/aster-fwd- workers) — not itself a backfill
     "bucket-rsync-": None,  # one-off bucket rsync — campaign cutover, no recurring launcher
     "vm-zombie-watchdog-": None,  # the watchdog itself — never a relaunch target
     "dm-": None,  # deploy-missing surgical VM — launched by deployment-api, not a recurring launcher
