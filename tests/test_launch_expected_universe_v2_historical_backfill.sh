@@ -67,11 +67,18 @@ chmod +x "$STUB_DIR/gcloud"
 
 # Child-launcher stub: mimics launch-expected-universe-v2-vm.sh's stdout
 # contract ("VM launched: <name>") and echoes the ENUM_START_DATE/END_DATE it
-# was called with (captured to a file for assertions).
+# was called with (captured to a file for assertions). If
+# $STUB_DIR/child_should_fail exists, simulates a child-launcher failure (e.g.
+# a PERMISSION_DENIED from a clobbered gcloud identity) instead — prints a
+# diagnostic to stderr and exits 1, no "VM launched" line.
 CHILD_CAPTURE_FILE="$STUB_DIR/child_calls.log"
 cat > "$STUB_DIR/child_launcher_stub.sh" <<STUB
 #!/usr/bin/env bash
 echo "\${ENUM_START_DATE:-}|\${ENUM_END_DATE:-}|\$*" >> "${CHILD_CAPTURE_FILE}"
+if [[ -f "${STUB_DIR}/child_should_fail" ]]; then
+    echo "ERROR: (gcloud.compute.instances.create) Could not fetch resource: simulated PERMISSION_DENIED" >&2
+    exit 1
+fi
 echo "VM launched: stub-vm-\${ENUM_START_DATE//-/}"
 STUB
 chmod +x "$STUB_DIR/child_launcher_stub.sh"
@@ -220,6 +227,29 @@ else
     FAIL=$((FAIL + 1))
     FAILED_CASES+=("(l) MAX_CHUNK_ATTEMPTS exhaustion did not hard-fail as expected")
     echo "  ❌ (l) MAX_CHUNK_ATTEMPTS exhaustion did not hard-fail as expected"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (m) a failing child launcher (e.g. a real PERMISSION_DENIED) surfaces its
+# output and hard-aborts instead of silently dying at the `set -e`-guarded
+# assignment with zero diagnostics (the exact failure mode hit live
+# 2026-08-03: a sibling slot's `gcloud config set account` clobbered the
+# shared host's active identity mid-run and the pre-fix script died silently
+# on the very next chunk retry).
+rm -f "$CHILD_CAPTURE_FILE"
+touch "$STUB_DIR/child_should_fail"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+rm -f "$STUB_DIR/child_should_fail"
+if [[ "$EXIT" == "1" ]] && grep -q "simulated PERMISSION_DENIED" <<<"$OUTPUT" \
+    && grep -q "child launcher exited 1 for chunk 2026-02-01..2026-04-04" <<<"$OUTPUT"; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (m) failing child launcher surfaces output + hard-aborts"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(m) failing child launcher did not surface output / hard-abort as expected")
+    echo "  ❌ (m) failing child launcher did not surface output / hard-abort as expected"
     $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
 fi
 

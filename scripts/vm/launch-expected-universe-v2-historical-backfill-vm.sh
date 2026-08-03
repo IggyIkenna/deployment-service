@@ -274,9 +274,23 @@ for chunk in "${CHUNKS[@]}"; do
             echo "--- Chunk ${CHUNK_NUM}/${#CHUNKS[@]} retry ${attempt}/${MAX_CHUNK_ATTEMPTS} (prior attempt hit the enumerator's max-writes-per-run halt-safety; rows it already wrote are excluded from this attempt's candidate count, so this only seeds the remaining backlog for the same window) ---"
         fi
 
+        # set +e around the substitution: under `set -e`, a failing command
+        # substitution in an assignment aborts the script AT THE ASSIGNMENT —
+        # before the echo below ever runs — so a real child-launcher failure
+        # (e.g. a PERMISSION_DENIED from a clobbered active gcloud identity)
+        # would silently vanish with zero diagnostic output. Capture the exit
+        # code explicitly instead so the failure is always visible.
+        set +e
         LAUNCH_OUTPUT="$(ENUM_START_DATE="$chunk_start" ENUM_END_DATE="$chunk_end" \
             bash "$CHILD_LAUNCHER" --env "$DEPLOYMENT_ENV" "$ASSET_GROUP" --apply-write 2>&1)"
+        LAUNCH_EXIT=$?
+        set -e
         echo "$LAUNCH_OUTPUT"
+
+        if [[ "$LAUNCH_EXIT" -ne 0 ]]; then
+            echo "ERROR: child launcher exited ${LAUNCH_EXIT} for chunk ${chunk_start}..${chunk_end} (see output above) — aborting" >&2
+            exit 1
+        fi
 
         VM_NAME="$(grep -oE '^VM launched: .*' <<<"$LAUNCH_OUTPUT" | sed 's/^VM launched: //')"
         if [[ -z "$VM_NAME" ]]; then
