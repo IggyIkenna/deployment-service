@@ -32,6 +32,13 @@
 # per launch), so a re-run of this script (or a partial retry after a failed
 # chunk) is safe to repeat — it recomputes + rewrites only that chunk's shard.
 #
+# This idempotency is also what makes the automatic same-chunk RETRY below
+# safe: the enumerator discovers already-written per-VM shards via a live
+# `_index/per_vm/*.parquet` glob (enumerate_expected_universe.py:~3575), so a
+# retry of the exact same [start,end] window excludes rows the prior (halted)
+# attempt already wrote and only seeds the remaining backlog — it converges,
+# it does not restart from zero or double-write.
+#
 # Usage:
 #   bash launch-expected-universe-v2-historical-backfill-vm.sh sports
 #   bash launch-expected-universe-v2-historical-backfill-vm.sh sports --dry-run
@@ -60,6 +67,18 @@
 #                             — a full calendar year of enumeration is a larger
 #                             cross-join than the recurring job's bounded
 #                             120-day window)
+#   MAX_CHUNK_ATTEMPTS        max relaunches of the SAME chunk window before
+#                             aborting the whole script (default 50). Needed
+#                             because a full calendar-year window for a
+#                             448K+-instrument catalog (sports) routinely
+#                             exceeds the enumerator's own
+#                             --max-writes-per-run halt-safety (default 1M,
+#                             enumerate_expected_universe.py) on the FIRST
+#                             attempt (confirmed live 2026-08-03: chunk
+#                             2020-06-06..2020-12-31 tripped it in <1 min).
+#                             VM-terminal status alone does NOT mean the
+#                             enumerator succeeded — see the EXIT_STATUS check
+#                             below.
 #
 # Execution ownership (Runbook SSOT):
 #   execution:
@@ -84,7 +103,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHILD_LAUNCHER="${CHILD_LAUNCHER:-${SCRIPT_DIR}/launch-expected-universe-v2-vm.sh}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-60}"
 CHUNK_TIMEOUT_SECONDS="${CHUNK_TIMEOUT_SECONDS:-21600}"
+MAX_CHUNK_ATTEMPTS="${MAX_CHUNK_ATTEMPTS:-50}"
 ZONE="asia-northeast1-c"
+# Matches the hardcoded PROJECT the child launcher itself uses
+# (launch-expected-universe-v2-vm.sh) — the vm-logs code bucket is always
+# `deployment-scripts-<project>` (lib/launcher_common.sh's lc_code_bucket).
+PROJECT="central-element-323112"
 
 if [[ ! -f "$CHILD_LAUNCHER" ]]; then
     echo "ERROR: child launcher not found at $CHILD_LAUNCHER" >&2
@@ -192,6 +216,21 @@ if $DRY_RUN; then
 fi
 
 # --- sequential launch + wait-for-terminal loop -----------------------------
+# _read_exit_status <vm_name>
+# Reads the durable terminal EXIT_STATUS marker (lc_log_upload_trap_block,
+# lib/launcher_common.sh) — the enumerator's OWN exit code, distinct from the
+# GCE VM's compute lifecycle state. A VM reaching TERMINATED/GONE only means
+# the compute resource stopped; it does NOT mean the enumerator run inside it
+# succeeded (rc=0). Written to GCS by the VM's EXIT trap BEFORE it
+# self-deletes, so this is safe to read immediately after
+# _wait_for_vm_terminal returns. Empty output means the marker is missing
+# (e.g. the whole VM unit was SIGKILLed before the trap could run) — treated
+# as a failure, never as an implicit success.
+_read_exit_status() {
+    local vm_name="$1"
+    gcloud storage cat "gs://deployment-scripts-${PROJECT}/vm-logs/${vm_name}/EXIT_STATUS" 2>/dev/null || echo ""
+}
+
 _wait_for_vm_terminal() {
     local vm_name="$1"
     local waited=0
@@ -224,18 +263,48 @@ for chunk in "${CHUNKS[@]}"; do
     echo ""
     echo "=== Chunk ${CHUNK_NUM}/${#CHUNKS[@]}: ${chunk_start}..${chunk_end} ==="
 
-    LAUNCH_OUTPUT="$(ENUM_START_DATE="$chunk_start" ENUM_END_DATE="$chunk_end" \
-        bash "$CHILD_LAUNCHER" --env "$DEPLOYMENT_ENV" "$ASSET_GROUP" --apply-write 2>&1)"
-    echo "$LAUNCH_OUTPUT"
+    attempt=0
+    while true; do
+        attempt=$((attempt + 1))
+        if [[ "$attempt" -gt "$MAX_CHUNK_ATTEMPTS" ]]; then
+            echo "ERROR: chunk ${chunk_start}..${chunk_end} still hit the max-writes-per-run halt-safety after ${MAX_CHUNK_ATTEMPTS} attempts — this is no longer the expected large-historical-window backlog, it may be a runaway candidate generator (the same bug class as the 2026-07-14 tradfi + 2026-08-01 defi incidents). STOPPING — do not raise MAX_CHUNK_ATTEMPTS or --max-writes-per-run to push through without investigating first." >&2
+            exit 1
+        fi
+        if [[ "$attempt" -gt 1 ]]; then
+            echo "--- Chunk ${CHUNK_NUM}/${#CHUNKS[@]} retry ${attempt}/${MAX_CHUNK_ATTEMPTS} (prior attempt hit the enumerator's max-writes-per-run halt-safety; rows it already wrote are excluded from this attempt's candidate count, so this only seeds the remaining backlog for the same window) ---"
+        fi
 
-    VM_NAME="$(grep -oE '^VM launched: .*' <<<"$LAUNCH_OUTPUT" | sed 's/^VM launched: //')"
-    if [[ -z "$VM_NAME" ]]; then
-        echo "ERROR: could not determine VM name from launcher output for chunk ${chunk_start}..${chunk_end}" >&2
-        exit 1
-    fi
+        LAUNCH_OUTPUT="$(ENUM_START_DATE="$chunk_start" ENUM_END_DATE="$chunk_end" \
+            bash "$CHILD_LAUNCHER" --env "$DEPLOYMENT_ENV" "$ASSET_GROUP" --apply-write 2>&1)"
+        echo "$LAUNCH_OUTPUT"
 
-    echo "Waiting for ${VM_NAME} to complete (poll every ${POLL_INTERVAL_SECONDS}s, timeout ${CHUNK_TIMEOUT_SECONDS}s)..."
-    _wait_for_vm_terminal "$VM_NAME"
+        VM_NAME="$(grep -oE '^VM launched: .*' <<<"$LAUNCH_OUTPUT" | sed 's/^VM launched: //')"
+        if [[ -z "$VM_NAME" ]]; then
+            echo "ERROR: could not determine VM name from launcher output for chunk ${chunk_start}..${chunk_end}" >&2
+            exit 1
+        fi
+
+        echo "Waiting for ${VM_NAME} to complete (poll every ${POLL_INTERVAL_SECONDS}s, timeout ${CHUNK_TIMEOUT_SECONDS}s)..."
+        _wait_for_vm_terminal "$VM_NAME"
+
+        # VM-terminal is a compute-lifecycle signal, not a success signal —
+        # check the enumerator's OWN exit code before trusting this chunk.
+        exit_status="$(_read_exit_status "$VM_NAME")"
+        case "$exit_status" in
+            0)
+                echo "  -> ${VM_NAME}: enumerator EXIT_STATUS=0 (success)"
+                break
+                ;;
+            5)
+                echo "  -> ${VM_NAME}: enumerator EXIT_STATUS=5 (max-writes-per-run halt-safety — chunk partially seeded, safe to retry the same window)"
+                continue
+                ;;
+            *)
+                echo "ERROR: ${VM_NAME} enumerator EXIT_STATUS='${exit_status:-<missing>}' (expected 0=success or 5=retriable halt-safety) — aborting the whole backfill; do NOT trust chunks after this one. Inspect gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/run.log" >&2
+                exit 1
+                ;;
+        esac
+    done
 done
 
 echo ""

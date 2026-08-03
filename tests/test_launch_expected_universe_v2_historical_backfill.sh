@@ -41,11 +41,25 @@ STUB_DIR="$(mktemp -d)"
 trap 'rm -rf "$STUB_DIR"' EXIT
 
 # gcloud stub: "instances describe" always reports TERMINATED so the wait loop
-# exits immediately.
+# exits immediately. "storage cat ...EXIT_STATUS" pops the next value off
+# $STUB_DIR/exit_status_queue (one status per launch attempt); an empty/absent
+# queue defaults to "0" (success) so pre-existing tests that never touch the
+# queue keep seeing success, matching the original stub's behavior.
+export STUB_DIR
 cat > "$STUB_DIR/gcloud" <<'STUB'
 #!/usr/bin/env bash
 case "${1:-}-${2:-}-${3:-}" in
     compute-instances-describe) echo "TERMINATED"; exit 0 ;;
+    storage-cat-gs://*)
+        QUEUE="${STUB_DIR}/exit_status_queue"
+        if [[ -s "$QUEUE" ]]; then
+            head -1 "$QUEUE"
+            tail -n +2 "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+        else
+            echo "0"
+        fi
+        exit 0
+        ;;
     *) exit 0 ;;
 esac
 STUB
@@ -152,6 +166,61 @@ else
     FAILED_CASES+=("(i) sequential launch chunk dates/count mismatch")
     echo "  ❌ (i) sequential launch chunk dates/count mismatch"
     $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; sed 's/^/     capture: /' "$CHILD_CAPTURE_FILE" 2>/dev/null; }
+fi
+
+# (j) enumerator halt-safety (EXIT_STATUS=5) on the first attempt triggers an
+# automatic retry of the SAME window; the second attempt succeeds
+# (EXIT_STATUS=0) -> the chunk completes with 2 launches, not 1.
+rm -f "$CHILD_CAPTURE_FILE"
+printf '5\n0\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+if [[ "$EXIT" == "0" ]] && grep -q "All 1 chunks launched" <<<"$OUTPUT" \
+    && grep -q "retry 2/50" <<<"$OUTPUT" \
+    && [[ -f "$CHILD_CAPTURE_FILE" ]] \
+    && [[ "$(wc -l < "$CHILD_CAPTURE_FILE")" == "2" ]]; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (j) halt-safety EXIT_STATUS=5 triggers same-window retry, then succeeds"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(j) halt-safety retry behavior mismatch")
+    echo "  ❌ (j) halt-safety retry behavior mismatch"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (k) an unexpected/non-retriable EXIT_STATUS hard-fails the whole script
+# instead of advancing to the next chunk (VM-terminal != enumerator success).
+rm -f "$CHILD_CAPTURE_FILE"
+printf '7\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+if [[ "$EXIT" == "1" ]] && grep -qE "EXIT_STATUS='7'.*aborting the whole backfill" <<<"$OUTPUT"; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (k) unexpected EXIT_STATUS hard-fails instead of advancing"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(k) unexpected EXIT_STATUS did not hard-fail as expected")
+    echo "  ❌ (k) unexpected EXIT_STATUS did not hard-fail as expected"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (l) MAX_CHUNK_ATTEMPTS exhausted (every attempt keeps hitting halt-safety) ->
+# hard-fail rather than retry forever.
+rm -f "$CHILD_CAPTURE_FILE"
+printf '5\n5\n5\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 MAX_CHUNK_ATTEMPTS=2 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+if [[ "$EXIT" == "1" ]] && grep -q "still hit the max-writes-per-run halt-safety after 2 attempts" <<<"$OUTPUT"; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (l) MAX_CHUNK_ATTEMPTS exhausted hard-fails"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(l) MAX_CHUNK_ATTEMPTS exhaustion did not hard-fail as expected")
+    echo "  ❌ (l) MAX_CHUNK_ATTEMPTS exhaustion did not hard-fail as expected"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
 fi
 
 echo ""
