@@ -231,6 +231,44 @@ resource "google_project_iam_member" "uts_migration_objectviewer" {
   member  = "serviceAccount:${google_service_account.uts_migration.email}"
 }
 
+# P2.2f/g (bucket_iam_write_protection_per_tier_2026_06_09.md) — uts-migration-sa
+# held ONLY objectViewer despite being "the sanctioned cross-tier writer" per this
+# plan's own design intent. Live-audit 2026-08-03 of the 3 launchers this grant was
+# meant to unblock found: launch-legacy-bucket-migration-sharded.sh and
+# launch-gcs-migration-bundle-vm.sh are BOTH dead code (their target scripts were
+# deleted 2026-07-25 and 2026-05-20 respectively, each for a completed, already-
+# verified migration — not a live blocker; see the plan's P2.2f addendum for the
+# exact commits). Only launch-bucket-rsync-vm.sh (Lifecycle: permanent) is live.
+#
+# Unconditioned (not scoped like uts_prd_objectadmin_group_a/b above) because this
+# launcher is a GENERIC cross-family migration tool — its --dest-bucket varies
+# per invocation (market-data-tick-{ag}, strategy-store-{ag}, manual-audit, ... —
+# an open set that grows with each future cutover wave, unlike uts-prd-sa/
+# uts-test-sa's fixed, enumerable Group A/B prefix lists). GCP IAM Conditions on
+# resource.name support only startsWith/endsWith (see group-a-prd-tier-only's
+# comment above) — startsWith needs a fixed family prefix, and endsWith can't
+# reach the bucket segment for an Object-level condition (resource.name is
+# projects/_/buckets/{bucket}/objects/{object}; the unbounded object key, not the
+# bucket name, sits at the end of the string). Neither works when the family
+# prefix is a variable, so a real least-privilege CEL condition is not achievable
+# here — an unconditioned grant IS the correct design for this SA's declared
+# purpose ("sanctioned cross-tier write exception... used only by migration
+# scripts"), not a shortcut around scoping it.
+#
+# INERT today: launch-bucket-rsync-vm.sh does not pass --service-account at all
+# (confirmed by reading the launcher source 2026-08-03) — its VM currently runs
+# under the project default compute SA, not uts-migration-sa. Wiring the launcher
+# to actually authenticate as uts-migration-sa is tracked separately (P2.2h) since
+# it is a code change, not an IAM change; this grant is forward-provisioned so
+# that todo is unblocked the moment it lands, mirroring this file's own
+# established "grant now, INERT until a runtime is wired to it" pattern (see the
+# P2.2b section below).
+resource "google_project_iam_member" "uts_migration_objectadmin" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.uts_migration.email}"
+}
+
 # ---------------------------------------------------------------------------
 # P2.2b — non-storage roles for uts-prd-sa / uts-test-sa / uts-migration-sa
 # (plans/active/bucket_iam_write_protection_per_tier_2026_06_09.md).

@@ -89,7 +89,10 @@ now_epoch=$(date +%s)
 
 while IFS= read -r instance; do
     [[ -z "$instance" ]] && continue
-    log_path="gs://${BUCKET}/logs/${instance}/run.log"
+    # Canonical path per unified_trading_library::vm_log_stream_uri and
+    # launcher_common.sh's "Canonical run.log path" (vm-logs/, not logs/) —
+    # see plans/active/issues/reap_zombies_wrong_log_path_kills_healthy_vms_2026_08_03.md.
+    log_path="gs://${BUCKET}/vm-logs/${instance}/run.log"
 
     # Read the last 10 lines (L1 correct pattern — NOT tail -1).
     # `gcloud storage`, not `gsutil` — gsutil resolves creds from the CLI's

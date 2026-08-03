@@ -240,6 +240,11 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "orphan-sweep-defi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-tradfi-": "launch-orphan-sweep-vm.sh",
     "orphan-sweep-prediction-": "launch-orphan-sweep-vm.sh",
+    # features-service GCS→manifest orphan sweep (feature_orphan_sweep.py) — read-only,
+    # checkpoint-resumable per family x asset_group cell. One prefix covers every cell
+    # (VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-{ts}), same reasoning as the
+    # single "gcs-migration-phase0-" entry above.
+    "feat-orph-": "launch-feature-orphan-sweep-vm.sh",
     # Sports derived_features post-floor residue census — read-only + idempotent
     # (re-running just re-scans and overwrites the same fixed report path), so a
     # SPOT preemption relaunch is a safe restart-from-scratch.
@@ -255,6 +260,10 @@ LAUNCHER_FOR_VM_PREFIX: dict[str, str | None] = {
     "backfill-candle-manifest-defi-": "launch-backfill-candle-manifest-vm.sh",
     "backfill-candle-manifest-tradfi-": "launch-backfill-candle-manifest-vm.sh",
     "backfill-candle-manifest-prediction-": "launch-backfill-candle-manifest-vm.sh",
+    # DeFi dex_pool_swaps source correction (copy-not-move + record_captured) —
+    # own day-level checkpoint makes a SPOT preemption relaunch resume from
+    # measured progress rather than restart-from-scratch.
+    "backfill-defi-dex-swaps-": "launch-backfill-defi-dex-swaps-source-correction-vm.sh",
     "gcs-migration-phase0-": None,  # read-only calibration audit
     "batch-live-recon-": None,  # nightly recon cron — scheduler-owned
     "expected-universe-v2-": "launch-expected-universe-v2-vm.sh",

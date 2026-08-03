@@ -678,6 +678,25 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "orphan-sweep-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "orphan-sweep-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
+    # features-service GCS->manifest orphan sweep (launch-feature-orphan-sweep-vm.sh) --
+    # runs features-service/scripts/feature_orphan_sweep.py --feature-family <family>
+    # [--asset-group <ag>] for ONE (feature_family x asset_group) cell (todo 2b of
+    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md). Sibling of
+    # orphan-sweep-* above but ONE prefix covers every cell (family x asset_group,
+    # up to ~18 combinations) since VM_NAME = feat-orph-{family_abbrev}-{ag_abbrev}-
+    # {ts} and prefix matching is startswith-based -- no per-cell registry entry
+    # needed (mirrors the single "gcs-migration-phase0-" entry's same reasoning).
+    # Writes a FIXED per-cell report path staged under CODE_BUCKET (not the
+    # family's own features bucket -- several families share a folded per-ag
+    # `features-{ag}` bucket, so a fixed in-bucket path would collide across
+    # families), so bucket=None (heartbeat-only), same as orphan-sweep-* above.
+    # Singleton-locked per (family, asset_group) cell. commodity is EXCLUDED (no
+    # verified bucket/prefix config yet -- flat JSON signal file, not parquet).
+    # SSOT: unified-trading-pm/plans/active/issues/
+    # mdps_features_ml_strategy_orphan_sweep_tooling_gap_2026_07_27.md todo 2b.
+    # ------------------------------------------------------------------
+    "feat-orph-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
     # Sports derived_features post-floor residue census (launch-sports-derived-
     # features-census-vm.sh) — runs features-service/scripts/purge_sports_derived_
     # features_post_floor_residue_2026_07_27.py in CENSUS mode (no --apply; read-only
@@ -722,6 +741,18 @@ VM_PREFIX_TO_BUCKET: dict[str, VmPrefixSpec | None] = {
     "backfill-candle-manifest-defi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "backfill-candle-manifest-tradfi-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     "backfill-candle-manifest-prediction-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
+    # ------------------------------------------------------------------
+    # DeFi dex_pool_swaps mis-tagged pipeline_mode=batch_onchain_rpc source
+    # correction (launch-backfill-defi-dex-swaps-source-correction-vm.sh) — runs
+    # market-data-processing-service/scripts/backfill_defi_dex_pool_swaps_source_correction.py
+    # --apply. Per-object destination-path existence check (own day-level
+    # checkpoint file, not a per-VM shard) -- bucket=None, heartbeat-only, same
+    # reasoning as its candle-manifest sibling above. defi-only (this specific
+    # source-registration bug never affected other asset_groups).
+    # SSOT: unified-trading-pm/plans/active/issues/mdps_candle_manifest_near_total_coverage_gap_2026_07_27.md
+    # (last open todo).
+    # ------------------------------------------------------------------
+    "backfill-defi-dex-swaps-": VmPrefixSpec(bucket=None, lifecycle_class=LifecycleClass.EPHEMERAL_BATCH),
     # ------------------------------------------------------------------
     # GCS migration bundle Phase 0 calibration VM (2026-05-10) — read-only
     # all-asset-group reconciler dry-run that feeds §§(c)(d)(e) of the

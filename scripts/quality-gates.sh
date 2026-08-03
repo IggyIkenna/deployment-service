@@ -15,6 +15,21 @@ SOURCE_DIR="deployment_service"
 MIN_COVERAGE=70
 RUN_INTEGRATION=false
 PYTEST_WORKERS=${PYTEST_WORKERS:-2}
+# Wall-clock timeouts raised, repo-local (shared base-service.sh defaults of
+# PYTEST_TIMEOUT=150s / PYRIGHT_TIMEOUT=120s have repeatedly proven insufficient for this
+# repo under severe self-hosted-runner host contention — 4 consecutive quality-gates-v2
+# failures on live-defi-rollout across 2026-08-03 (03:04Z/03:32Z/05:33Z/06:39Z runs), via
+# `Failed: Timeout (>150.0s) from pytest-timeout` (tests leg, e.g.
+# TestApiFootballLauncherHardenedPreemptionSignal — trivial subprocess invocations, not an
+# algorithmic hang) and `Type check FAILED/timeout (exit=124)` (checks leg, basedpyright).
+# Both reproduce green locally with zero timeouts (7/7 passed in 74s). This mirrors the
+# sanctioned fix philosophy already validated on unified-trading-api@71cdda0 and
+# features-service@c092df50: raising a wall-clock deadline to absorb scheduling variance
+# does not weaken any check's assertion. SSOTs:
+# plans/active/issues/pytest_timeout_60s_flaky_under_contention_continued_2026_08_02.md,
+# plans/active/issues/fleet_wide_qg_capacity_crisis_continues_day2_2026_07_29.md
+PYTEST_TIMEOUT=${PYTEST_TIMEOUT:-300}
+PYRIGHT_TIMEOUT=${PYRIGHT_TIMEOUT:-300}
 # deployment-api is a TEST-ONLY peer dep: deployment_service/ source never imports it,
 # but tests/ do (tests/mocks.py → deployment_api.utils.path_combinatorics). It is NOT a
 # [project.dependencies] entry because deployment-api -> deployment-service is the real
