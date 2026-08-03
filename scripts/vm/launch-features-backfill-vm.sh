@@ -66,19 +66,12 @@
 
 set -euo pipefail
 
-# shellcheck source=lib/launcher_common.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
-
 SERVICE_SHORT="${1:-}"
 ASSET_GROUP="${2:-}"
 START_DATE="${3:-}"
 END_DATE="${4:-}"
 MODE="${5:-dry}"  # dry | full
 DEPLOYMENT_ENV="${DEPLOYMENT_ENV:-prod}"
-# Idempotent backfill defaults to SPOT (~60-91% cheaper); GCP promo credits
-# exhausted 2026-06-20 so on-demand burns real cash. --on-demand forces standard.
-# SSOT: codex/05-infrastructure/spot-vms-for-backfill.md.
-ON_DEMAND="${ON_DEMAND:-false}"
 
 # DEPRECATED 2026-05-08 / hard-redirect 2026-05-17 (slot-1-main).
 # Per `plans/active/issues/features_vm_uv_resolution_unsatisfiable_2026_05_16.md`
@@ -121,39 +114,15 @@ EOM
             --launch-mode "${MODE}" \
             --env "${DEPLOYMENT_ENV}"
 fi
-# If we get here, args were incomplete — fall through to the usage banner
-# (the legacy per-family code path below is unreachable in the common case;
-# it stays only as a hard-fail safety net for callers passing partial args).
 
-# Allow --env <prod|staging|dev> override (kept as a 6th positional-or-flag
-# slot for legacy callers). Shift positional args to the end if --env flag
-# is supplied via remaining tail-args.
-_REMAINING_ARGS=("${@:6}")
-_PARSED_ARGS=()
-while [[ ${#_REMAINING_ARGS[@]} -gt 0 ]]; do
-    case "${_REMAINING_ARGS[0]}" in
-        --env)
-            DEPLOYMENT_ENV="${_REMAINING_ARGS[1]:-prod}"
-            _REMAINING_ARGS=("${_REMAINING_ARGS[@]:2}")
-            ;;
-        *)
-            _PARSED_ARGS+=("${_REMAINING_ARGS[0]}")
-            _REMAINING_ARGS=("${_REMAINING_ARGS[@]:1}")
-            ;;
-    esac
-done
-
-case "$DEPLOYMENT_ENV" in
-  prod|staging|dev) ;;
-  *) echo "ERROR: --env must be one of prod/staging/dev (got: $DEPLOYMENT_ENV)" >&2; exit 1 ;;
-esac
-
-ZONE="asia-northeast1-c"
-PROJECT="central-element-323112"
-CODE_BUCKET="deployment-scripts-${PROJECT}"
-MACHINE_TYPE="e2-standard-8"
-BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
-
+# If we get here, either a required positional arg was missing or the
+# consolidated launcher (launch-features-vm.sh) could not be found. The
+# standalone per-family VM-launch implementation this script used to fall
+# through to (viable-cell matrix, python-module resolution, gcloud create)
+# was deleted — it was unreachable dead code: the redirect above always
+# fires once all 4 required args are present and the consolidated launcher
+# exists, so nothing past this point could ever legitimately run it. This
+# is now a plain usage/config-error fallback only.
 if [[ -z "$SERVICE_SHORT" || -z "$ASSET_GROUP" || -z "$START_DATE" || -z "$END_DATE" ]]; then
     cat <<EOF
 Usage: $0 <feature_service_short> <ASSET_GROUP> <start-date> <end-date> [dry|full] [--env <prod|staging|dev>]
@@ -167,144 +136,5 @@ EOF
     exit 2
 fi
 
-# (feature_service_short, ASSET_GROUP) validity matrix.
-_is_viable_cell() {
-    local svc="$1" cat="$2"
-    case "$svc/$cat" in
-        delta-one/CEFI|delta-one/DEFI|delta-one/TRADFI|delta-one/PREDICTION) return 0 ;;
-        volatility/CEFI|volatility/TRADFI) return 0 ;;
-        onchain/DEFI) return 0 ;;
-        sports/SPORTS) return 0 ;;
-        calendar/CEFI|calendar/TRADFI) return 0 ;;
-        multi-timeframe/CEFI|multi-timeframe/DEFI|multi-timeframe/TRADFI) return 0 ;;
-        cross-instrument/CEFI|cross-instrument/TRADFI|cross-instrument/PREDICTION) return 0 ;;
-        commodity/TRADFI) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-if ! _is_viable_cell "$SERVICE_SHORT" "$ASSET_GROUP"; then
-    echo "Not a viable (service × category) cell: $SERVICE_SHORT × $ASSET_GROUP"
-    echo "See header for the viable matrix."
-    exit 2
-fi
-
-# Python module name for each service — matches the dash→underscore rule.
-_python_module_for() {
-    case "$1" in
-        delta-one)        echo "features_delta_one_service" ;;
-        volatility)       echo "features_volatility_service" ;;
-        onchain)          echo "features_onchain_service" ;;
-        sports)           echo "features_sports_service" ;;
-        calendar)         echo "features_calendar_service" ;;
-        multi-timeframe)  echo "features_multi_timeframe_service" ;;
-        cross-instrument) echo "features_cross_instrument_service" ;;
-        commodity)        echo "features_commodity_service" ;;
-        *) echo ""; return 1 ;;
-    esac
-}
-
-PY_MODULE="$(_python_module_for "$SERVICE_SHORT")"
-RUN_TS="$(date +%Y%m%d-%H%M%S)"
-ASSET_GROUP_LOWER="$(echo "$ASSET_GROUP" | tr '[:upper:]' '[:lower:]')"  # bash-3-compat (${var,,} is bash 4+)
-VM_NAME="features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-backfill-${RUN_TS}"
-
-# Canonical service CLI convention (codex/06-coding-standards/cli-convention.md).
-# 2026-05-01: features-* services standardised on --operation=compute (with
-# --mode batch for backfill, --mode live for pubsub). The legacy
-# --operation=backfill choice was removed during the asset_group rename
-# (Wave A); using it here caused argparse exit rc=2 in 16 backfill VMs.
-CMD="python -m ${PY_MODULE} --operation compute --mode batch"
-CMD="$CMD --start-date ${START_DATE} --end-date ${END_DATE}"
-# 2026-05-01: calendar's CLI does NOT accept --asset-group (output is global,
-# not per-asset_group; calendar_orchestrator.py:373 passes asset_group=""
-# through to the manifest writer). Every other features-* service requires it.
-case "$SERVICE_SHORT" in
-    calendar) ;;
-    *) CMD="$CMD --asset-group ${ASSET_GROUP}" ;;
-esac
-# 2026-05-01: delta-one / volatility / onchain require --feature-group; the
-# other services don't accept the flag at all. Backfill defaults to ALL —
-# strategy-/scenario-driven targeted runs override via FEATURE_GROUP env var.
-# 2026-05-05: also support SKIP_DEPENDENCY_CHECK env override for narrow-scope
-# feature-group runs that don't actually read processed_candles (e.g. lst_yields,
-# lending_rates, funding_oi all read raw_tick_data directly per the carry-tracer
-# pipeline) — bypasses the global preflight that would otherwise block.
-case "$SERVICE_SHORT" in
-    delta-one|volatility|onchain) CMD="$CMD --feature-group ${FEATURE_GROUP:-ALL}" ;;
-esac
-if [[ -n "${SKIP_DEPENDENCY_CHECK:-}" ]]; then
-    CMD="$CMD --skip-dependency-check"
-fi
-# 2026-05-07: FORCE env var override for reprocess scenarios. Without
-# this, the orchestrator's check_shard_freshness skip-if-exists fires
-# the moment the manifest shows captured rows for the date range —
-# even when the goal is to REWRITE the parquets with new schema (e.g.
-# Phase 9 canonical column emission per features-onchain@7f1b2a1).
-if [[ -n "${FORCE:-}" ]]; then
-    CMD="$CMD --force"
-fi
-if [[ "$MODE" == "dry" ]]; then
-    CMD="$CMD --dry-run"
-fi
-
-# SPOT by default; --on-demand / ON_DEMAND=true forces standard provisioning.
-PROVISIONING_FLAGS="--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure"
-if $ON_DEMAND; then PROVISIONING_FLAGS=""; fi
-
-echo "Launching $VM_NAME [$([[ -n "$PROVISIONING_FLAGS" ]] && echo SPOT || echo on-demand)]"
-echo "  cmd: $CMD"
-echo "  zone: $ZONE, machine: $MACHINE_TYPE, boot: ${BOOT_DISK_GB}G"
-
-MD="VM_TASK=features-backfill"
-MD="${MD},VM_SERVICE=${PY_MODULE}"
-MD="${MD},VM_OPERATION=backfill-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}"
-MD="${MD},VM_ASSET_GROUP=${ASSET_GROUP}"
-MD="${MD},VM_START_DATE=${START_DATE}"
-MD="${MD},VM_END_DATE=${END_DATE}"
-MD="${MD},VM_BACKFILL_CMD=${CMD}"
-MD="${MD},VM_BACKFILL_MODE=${MODE}"
-MD="${MD},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
-# 2026-05-01: opt-in auto-delete after task completion (read by
-# vm-exec-with-gcs-tee.sh:253). Without this, one-shot backfill VMs sat
-# RUNNING idle after rc!=0 (or even rc==0) until manually killed — cost leak.
-MD="${MD},VM_SHUTDOWN_ON_COMPLETION=true"
-
-# shellcheck disable=SC2086
-if [[ "${DRY_RUN:-false}" != "true" ]]; then
-    lc_verify_tarball_freshness "$CODE_BUCKET" \
-        features-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
-        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-fi
-
-if [[ "${DRY_RUN:-false}" != "true" ]]; then
-    lc_verify_tarball_freshness "$CODE_BUCKET" \
-        features-service market-tick-data-service unified-api-contracts unified-trading-library deployment-service \
-        || { echo "ERROR: aborting launch on stale tarball(s) — see above" >&2; exit 1; }
-fi
-
-# Download-heavy backfill VM: pd-balanced >=250GB is MANDATORY. A pd-standard 50GB
-# boot disk sustains only ~6 MB/s of writes and its burst credits deplete by CUMULATIVE
-# BYTES WRITTEN — measured 2026-07-18, it throttled the CeFi backfill to 2.36 MB/s after
-# ~7.5GB (iostat %util 99.94, w_await 1015ms, CPU idle, RAM free). On pd-balanced 250GB the
-# same workload sustained 11.1 MB/s to 18.7GB+ with peaks of 18.15 MB/s — a 4.7x gain.
-# Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
-gcloud compute instances create "$VM_NAME" \
-    --project="$PROJECT" \
-    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT")" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE_TYPE" \
-    ${PROVISIONING_FLAGS} \
-    --boot-disk-size="${BOOT_DISK_GB}GB" --boot-disk-type="${BOOT_DISK_TYPE:-pd-balanced}" \
-    --image-family=ubuntu-2404-lts-amd64 \
-    --image-project=ubuntu-os-cloud \
-    --scopes=cloud-platform \
-    --metadata="startup-script-url=gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh,${MD}" \
-    --labels=purpose=features-backfill,service="${SERVICE_SHORT}",category="${ASSET_GROUP_LOWER}",mode="${MODE}",env="${DEPLOYMENT_ENV}",run-ts="${RUN_TS}",managed-by=deployment-service
-echo "  SSH: gcloud compute ssh $VM_NAME --zone=$ZONE"
-echo "  Delete: gcloud compute instances delete $VM_NAME --zone=$ZONE --quiet"
-echo ""
-echo "Post-backfill manifest rebuild (one per features bucket):"
-echo "  python -c \"from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths('features-${SERVICE_SHORT}-${ASSET_GROUP_LOWER}-central-element-323112', \\"
-echo "      service_name='features-${SERVICE_SHORT}-service', prefix='features/by_date')\""
+echo "ERROR: consolidated launcher not found: $CONSOLIDATED" >&2
+exit 1
