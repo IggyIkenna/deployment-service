@@ -61,10 +61,15 @@ source "${SCRIPT_DIR}/_tradfi-ohlcv-launcher-lib.sh"
 # accumulation within mtds_chunk_loop.sh's multi-day chunks, NOT vendor payload
 # size — the original "small JSON payloads, no need for a bigger profile"
 # reasoning here was the same mistake both prior incidents already disproved.
-# Direct assignment (not `:-`): the lib already set these at SOURCE time
-# (line ~35/40 of _tradfi-ohlcv-launcher-lib.sh), so a self-referential
+# Direct assignment against the DIFFERENTLY-NAMED MACHINE_TYPE (not `:-` against
+# TRADFI_OHLCV_MACHINE itself): the lib already set TRADFI_OHLCV_MACHINE at SOURCE
+# time (line ~49 of _tradfi-ohlcv-launcher-lib.sh), so a self-referential
 # `${TRADFI_OHLCV_MACHINE:-...}` here would be a no-op (var already non-empty).
-TRADFI_OHLCV_MACHINE="e2-highmem-4"
+# MACHINE_TYPE is the env escalation._recover_backfill_vm's OOM `bigger_machine`
+# hint actually sets (KEY #4) — honoring it here lets an OOM relaunch escalate
+# past this FRED-specific e2-highmem-4 default instead of silently re-OOMing on
+# the same machine every time.
+TRADFI_OHLCV_MACHINE="${MACHINE_TYPE:-e2-highmem-4}"
 TRADFI_OHLCV_BOOT_GB="50"
 # yield_curve (BOND-classified KEY_SERIES) + ohlcv_1d (INDEX-classified) — the
 # adapter's real, already-correct wire contract (VENUE_DATA_TYPE_CAPABILITIES

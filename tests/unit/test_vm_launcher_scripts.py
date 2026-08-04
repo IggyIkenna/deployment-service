@@ -3242,6 +3242,118 @@ export -f gsutil
         assert "2015-06-01" in call
         assert "2020-01-01" not in call
 
+    def test_machine_type_env_escalates_past_the_fred_default(self, launcher_path: Path, tmp_path: Path) -> None:
+        """Regression guard for
+        fred_backfill_early_date_indefinite_stall_2026_07_30.md's follow-up: verify
+        escalation._recover_backfill_vm's OOM `bigger_machine` hint (KEY #4, which sets a
+        MACHINE_TYPE env) actually reaches this launcher. Before the fix, FRED
+        unconditionally re-hardcoded TRADFI_OHLCV_MACHINE="e2-highmem-4" right after
+        sourcing the shared lib, silently discarding any inherited MACHINE_TYPE — an OOM
+        relaunch always landed back on e2-highmem-4 and would just re-OOM."""
+        call = self._created_metadata(launcher_path, [], tmp_path, {**os.environ, "MACHINE_TYPE": "e2-highmem-32"})
+        assert "--machine-type=e2-highmem-32" in call
+        assert "--machine-type=e2-highmem-4" not in call
+
+
+class TestTradfiOhlcvMachineTypeEscalation:
+    """Regression guard for
+    fred_backfill_early_date_indefinite_stall_2026_07_30.md's follow-up: verify
+    escalation._recover_backfill_vm's OOM `bigger_machine` hint (KEY #4,
+    deployment_service/data_pipeline_monitors/escalation.py) actually reaches the shared
+    tradfi OHLCV launcher family (CME/ICE/NASDAQ/NYSE/CBOE/CFE/KRX/FX). Before the fix,
+    _tradfi-ohlcv-launcher-lib.sh only ever read the differently-named
+    TRADFI_OHLCV_MACHINE — the escalation actuator injects MACHINE_TYPE, a name this lib
+    never looked at, so the hint was a silent no-op for the whole family and an OOM
+    relaunch always landed back on the same undersized machine."""
+
+    LAUNCHER = "scripts/vm/launch-tradfi-bf-cme-ohlcv-1m.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def _created_metadata(self, launcher_path: Path, args: list[str], tmp_path: Path, env: dict) -> str:
+        gcloud_log = tmp_path / "gcloud_create_calls.log"
+        preamble = f'''
+gcloud() {{
+    if [[ "$1 $2 $3" == "compute instances create" ]]; then
+        printf '%s\\n' "$*" >> "{gcloud_log}"
+        return 0
+    fi
+    return 0
+}}
+export -f gcloud
+gsutil() {{ return 0; }}
+export -f gsutil
+'''
+        script = preamble + f'\nbash "{launcher_path}" {" ".join(args)}\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        return gcloud_log.read_text()
+
+    def test_default_machine_type_is_the_family_default(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(launcher_path, ["--only-root", "ES"], tmp_path, {**os.environ})
+        assert "--machine-type=e2-highmem-16" in call
+
+    def test_machine_type_env_escalates_past_the_family_default(self, launcher_path: Path, tmp_path: Path) -> None:
+        call = self._created_metadata(
+            launcher_path, ["--only-root", "ES"], tmp_path, {**os.environ, "MACHINE_TYPE": "e2-highmem-32"}
+        )
+        assert "--machine-type=e2-highmem-32" in call
+        assert "--machine-type=e2-highmem-16" not in call
+
+    def test_tradfi_ohlcv_machine_env_override_still_wins_over_machine_type(
+        self, launcher_path: Path, tmp_path: Path
+    ) -> None:
+        """MACHINE_TYPE (the escalation actuator's hint) takes priority, but a caller
+        setting the family-specific TRADFI_OHLCV_MACHINE directly (the pre-existing
+        override convention) still works when MACHINE_TYPE is absent."""
+        call = self._created_metadata(
+            launcher_path,
+            ["--only-root", "ES"],
+            tmp_path,
+            {**os.environ, "TRADFI_OHLCV_MACHINE": "e2-highmem-8"},
+        )
+        assert "--machine-type=e2-highmem-8" in call
+        assert "--machine-type=e2-highmem-16" not in call
+
+
+class TestTradfiBackfillVmMachineTypeEscalation:
+    """Regression guard for
+    fred_backfill_early_date_indefinite_stall_2026_07_30.md's follow-up: verify
+    escalation._recover_backfill_vm's OOM `bigger_machine` hint (KEY #4) actually reaches
+    this launcher (the generic CME/BTC/ETH tradfi backfill launcher). Before the fix,
+    MACHINE_TYPE was a hardcoded direct assignment ("e2-standard-4"), silently discarding
+    any inherited MACHINE_TYPE env — an OOM relaunch always landed back on the same
+    undersized machine and would just re-OOM."""
+
+    LAUNCHER = "scripts/vm/launch-tradfi-backfill-vm.sh"
+
+    @pytest.fixture
+    def launcher_path(self) -> Path:
+        return Path(__file__).parent.parent.parent / self.LAUNCHER
+
+    def test_default_machine_type_is_e2_standard_4(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--year", "2026"],
+            capture_output=True,
+            text=True,
+            env={**os.environ},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "machine=e2-standard-4" in result.stdout
+
+    def test_machine_type_env_escalates_past_the_default(self, launcher_path: Path) -> None:
+        result = subprocess.run(
+            ["bash", str(launcher_path), "--dry-run", "--year", "2026"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "MACHINE_TYPE": "e2-highmem-16"},
+        )
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert "machine=e2-highmem-16" in result.stdout
+        assert "machine=e2-standard-4" not in result.stdout
+
 
 class TestChunkLoopPartialPayloadLossGating:
     """Regression guard for
