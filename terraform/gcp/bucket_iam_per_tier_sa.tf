@@ -231,6 +231,43 @@ resource "google_project_iam_member" "uts_migration_objectviewer" {
   member  = "serviceAccount:${google_service_account.uts_migration.email}"
 }
 
+# ---------------------------------------------------------------------------
+# P3 (issues/bucket_iam_per_tier_dev_stg_retired_ssot_contradiction_2026_07_27.md)
+# — CI/CD SA (github-actions-deploy) read-only on Group A's -test-/-prd- bucket
+# families (bucket-isolation-model.md §8 "CI/CD SA read-only on prod").
+#
+# github-actions-deploy is NOT terraform-managed (it predates this repo's IaC
+# adoption — confirmed 2026-07-28 via exhaustive grep of every
+# google_service_account in this directory: zero matches). Its binding is a
+# literal-email reference, never a google_service_account resource (creating
+# one would either error on import-collision or create a stray duplicate of a
+# real, already-provisioned identity).
+#
+# Scoped to Group A only (Group B's features-{ag} fold is still in its own
+# plan's IAM phase — bucket_fold_features_2026_07_17.md). Both -prd- and -test-
+# tiers: CI reads both (tofu plan against prod state, test-run validation
+# against ephemeral test buckets). GCP IAM Condition CEL supports only
+# startsWith/endsWith on resource.name (see group-a-prd-tier-only's comment
+# above), so this uses the same single-startsWith-per-prefix+tier pattern.
+resource "google_project_iam_member" "github_actions_deploy_objectviewer_group_a" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:github-actions-deploy@${var.project_id}.iam.gserviceaccount.com"
+
+  condition {
+    title       = "ci-read-group-a-prd-test"
+    description = "github-actions-deploy reads Group A -prd- and -test- buckets (bucket_iam_per_tier_dev_stg_retired_ssot_contradiction_2026_07_27.md P3). See group-a-prd-tier-only's comment for why this is startsWith-only."
+    expression = join(" || ", concat(
+      [for prefix in local.group_a_bucket_prefixes :
+        "resource.name.startsWith(\"projects/_/buckets/${prefix}prd-\")"
+      ],
+      [for prefix in local.group_a_bucket_prefixes :
+        "resource.name.startsWith(\"projects/_/buckets/${prefix}test-\")"
+      ],
+    ))
+  }
+}
+
 # P2.2f/g (bucket_iam_write_protection_per_tier_2026_06_09.md) — uts-migration-sa
 # held ONLY objectViewer despite being "the sanctioned cross-tier writer" per this
 # plan's own design intent. Live-audit 2026-08-03 of the 3 launchers this grant was
