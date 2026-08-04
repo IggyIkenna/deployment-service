@@ -29,6 +29,7 @@ from deployment_service.data_pipeline_monitors import (
     meta_targets,
     meta_watchers,
 )
+from deployment_service.data_pipeline_monitors.launcher_registry import LAUNCHER_FOR_VM_PREFIX
 from tests.unit.test_data_pipeline_monitors import LOG_BUCKET, FakeStorage
 
 
@@ -70,6 +71,37 @@ def test_asset_group_for_vm(vm, expected):
 )
 def test_is_data_vm_filters_infra(vm, is_data):
     assert cli._is_data_vm(vm) is is_data
+
+
+def test_data_vm_prefixes_cover_every_relaunchable_launcher() -> None:
+    """Every genuinely auto-relaunchable prefix must be visible to ``_is_data_vm``.
+
+    Guards the whole bug class af_backfill_preemption_auto_recovery_not_firing_2026_08_04.md
+    found (not just the two prefixes it happened to catch): a VM prefix with a real
+    (non-None) ``launcher_registry.LAUNCHER_FOR_VM_PREFIX`` entry IS a genuinely
+    relaunchable data-pipeline VM, so ``cli._is_data_vm`` must return True for it — a
+    False here means ``exit_code_fleet_monitor.sweep()`` would never even consider that
+    VM for PREEMPTED classification, so ``RelaunchPreemptedVm`` could never fire on
+    preemption, regardless of budget/wiring/cadence being otherwise correct. Checking
+    the bare prefix (not a fabricated example name) is deliberate — a runtime VM name
+    can accidentally satisfy the ASSET_GROUPS substring check for SOME of a launcher's
+    invocations (e.g. feat-orph- embeds ASSET_GROUP_ABBREV literally for cefi/defi/
+    sports) while missing it for others (tradfi->tfi, prediction->pred, no
+    --asset-group->gl) — the prefix itself is the only invocation-independent check.
+    A None launcher is excluded: those are documented non-relaunch targets (one-off
+    audits, reserved/read-only/live-service prefixes) that exit_code_fleet_monitor
+    is not expected to auto-recover.
+    """
+    missing = sorted(
+        prefix
+        for prefix, launcher in LAUNCHER_FOR_VM_PREFIX.items()
+        if launcher is not None and not cli._is_data_vm(prefix)
+    )
+    assert not missing, (
+        "LAUNCHER_FOR_VM_PREFIX prefixes with a real launcher but invisible to "
+        "cli._is_data_vm() — add each to cli._DATA_VM_PREFIXES (or an ASSET_GROUPS "
+        "substring already covers it, in which case this list is stale):\n" + "\n".join(missing)
+    )
 
 
 def test_minutes_since_missing_is_zero():
