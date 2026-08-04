@@ -40,6 +40,17 @@ dependencies = [
 [project.scripts]
 deploy-shards = "deployment_service.cli.main:main"
 
+[tool.uv]
+# Transitive security pins (pip-audit) — keep at or above fix versions
+override-dependencies = [
+    # cryptography>=50.0.0 closes CVE-2026-69247 (PKCS#7 EnvelopedData decryption Bleichenbacher
+    # oracle via distinguishable errors/timing, introduced in 44.0.0) found in 49.0.0 by pip-audit
+    # fleet sweep 2026-08-03 (issues/cve_affected_pinned_deps_remediation_2026_06_18.md). No BACKWARDS
+    # INCOMPATIBLE changes in the 50.0.0 changelog; deployment-service has no direct `cryptography`
+    # import (transitive only).
+    "cryptography>=50.0.0,<51.0.0",
+]
+
 [tool.uv.sources.unified-trading-library]
 path = "../unified-trading-library"
 editable = true
