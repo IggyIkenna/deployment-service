@@ -121,7 +121,7 @@ echo "Launching $VM_NAME: MDPS+features-asset-scoped live asset_group=${ASSET_GR
 
 METADATA="VM_TASK=mdps-features-live"
 METADATA="${METADATA},VM_SERVICE=market_data_processing_service+features_service"
-METADATA="${METADATA},VM_OPERATION=live_aggregate_and_compute"
+METADATA="${METADATA},VM_OPERATION=streaming-aggregation"
 METADATA="${METADATA},VM_MODE=live"
 METADATA="${METADATA},VM_ASSET_GROUP=${ASSET_GROUP^^}"
 METADATA="${METADATA},DEPLOYMENT_ENV=${DEPLOYMENT_ENV}"
