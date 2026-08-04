@@ -27,7 +27,6 @@ import json
 import logging
 import sys
 import time
-from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
@@ -524,98 +523,6 @@ def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
     return _read
 
 
-def _make_consolidator_execution_oom_reader() -> consolidator_oom_watcher.ConsolidatorExecutionOomReader:
-    """Return ``asset_groups -> {ag: oom_diagnostics | None}`` for DP-WATCHER-005.
-
-    Reads the latest execution of each ``manifest-consolidator-{ag}`` Cloud Run Job
-    via ``run_v2.ExecutionsClient``. Returns OOM diagnostics when the latest
-    execution has ``failed_count > 0`` AND the conditions carry a known OOM signature
-    (signal 9 / exit 137 / "out of memory" / "OOMKilled"). Returns ``None`` per-AG
-    when the latest execution SUCCEEDED, no executions were found, or the API errors.
-
-    Deferred-import of ``google.cloud.run_v2`` (credential-bound SDK boundary).
-    An SDK import failure returns an empty dict for every call (fail toward silence
-    on a transient API unavailability — the index-staleness watcher at
-    ``check_cron_fired`` still catches a genuinely-dead consolidator).
-    """
-    project = _project_id()
-    location = "asia-northeast1"
-    env_prefix = _scheduler_env_prefix()
-    try:
-        run_mod = importlib.import_module("google.cloud.run_v2")  # noqa: imports-inside-functions
-        executions_client = run_mod.ExecutionsClient()  # pyright: ignore[reportAny]
-    except Exception as exc:
-        logger.info("consolidator-oom reader unavailable (DP-WATCHER-005 off this sweep): %s", exc)
-        return lambda _ags: {}
-
-    def _read(asset_groups: Iterable[str]) -> dict[str, dict[str, object] | None]:
-        if not project:
-            return dict.fromkeys(asset_groups, None)
-        result: dict[str, dict[str, object] | None] = {}
-        for ag in asset_groups:
-            job_name = f"{env_prefix}-manifest-consolidator-market-data-{ag}"
-            parent = f"projects/{project}/locations/{location}/jobs/{job_name}"
-            result[ag] = None
-            try:
-                latest_failed: object | None = None
-                latest_completion: datetime | None = None
-                for execution in executions_client.list_executions(parent=parent):  # pyright: ignore[reportAny]
-                    failed_count = int(getattr(execution, "failed_count", 0) or 0)  # pyright: ignore[reportAny]
-                    if failed_count <= 0:
-                        continue
-                    completion = getattr(execution, "completion_time", None)  # pyright: ignore[reportAny]
-                    if completion is None:
-                        continue
-                    completed_dt = (
-                        completion if isinstance(completion, datetime) else completion.ToDatetime(tzinfo=UTC)  # pyright: ignore[reportAny]
-                    )
-                    if latest_completion is None or completed_dt > latest_completion:
-                        latest_completion = completed_dt
-                        latest_failed = execution  # pyright: ignore[reportAny]
-                if latest_failed is None:
-                    continue
-                conditions = list(getattr(latest_failed, "conditions", []) or [])  # pyright: ignore[reportAny]
-                oom_reason = consolidator_oom_watcher.classify_oom_from_conditions(conditions)
-                if not oom_reason:
-                    # Failed execution but no OOM signature in conditions — not our signal.
-                    continue
-                completion_age = (
-                    (datetime.now(UTC) - latest_completion).total_seconds() / 60.0
-                    if latest_completion is not None
-                    else None
-                )
-                result[ag] = {
-                    "failed_count": int(getattr(latest_failed, "failed_count", 0) or 0),
-                    "oom_reason": oom_reason,
-                    "completion_age_min": completion_age,
-                }
-            except Exception as exc:
-                logger.info("consolidator-oom lookup for %s → unknown: %s", job_name, exc)
-        return result
-
-    return _read
-
-
-def _make_consolidator_index_age_reader(
-    storage_client: StorageClient,
-) -> consolidator_oom_watcher.IndexAgeReader:
-    """Return ``asset_group -> index blob age in minutes`` for DP-WATCHER-005.
-
-    Wraps ``_gcs.blob_age_minutes`` against each per-AG
-    ``_index/availability_index.parquet``. ``None`` = blob absent or unreadable.
-    A resolution failure (no bucket for the AG) also returns ``None``.
-    """
-
-    def _read(asset_group: str) -> float | None:
-        try:
-            bucket = _market_data_bucket(asset_group)
-        except Exception:
-            return None
-        return _gcs.blob_age_minutes(storage_client, bucket, "_index/availability_index.parquet")
-
-    return _read
-
-
 # Storm-mode re-sweep (asia_northeast1_c_spot_preemption_storm_2026_08_04.md
 # todo 3): a VM whose whole lifetime fits inside one ~5-min
 # dp_exit_code_monitor_cron tick never enters sweep()'s `prior` census before
@@ -931,18 +838,15 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
             )
-            # DP-WATCHER-005: detect OOM-killed consolidator executions + index
-            # staleness. Reads the latest Cloud Run execution for each per-AG
-            # consolidator job, classifies OOM from the execution conditions, ANDs
-            # with the index blob staleness, then emits CONSOLIDATOR_DOWN with
-            # details["oom"]=True — which the existing escalation hop routes to
-            # RelaunchConsolidator.relaunch(oom=True) (machine-tier escalation).
-            # Gated on the same MissTracker so a transient OOM blip only pages
-            # when sustained. (cefi_hl_aster_batch_data_gaps_2026_06_22.md P3)
+            # DP-WATCHER-005: OOM-killed consolidator → CONSOLIDATOR_DOWN with oom=True (cefi_hl_aster P3)
             consolidator_oom_watcher.check_consolidator_oom(
                 asset_groups=ASSET_GROUPS,
-                execution_oom_reader=_make_consolidator_execution_oom_reader(),
-                index_age_reader=_make_consolidator_index_age_reader(storage_client),
+                execution_oom_reader=consolidator_oom_watcher.make_consolidator_execution_oom_reader(
+                    project_id=_project_id(), env_prefix=_scheduler_env_prefix()
+                ),
+                index_age_reader=consolidator_oom_watcher.make_consolidator_index_age_reader(
+                    storage_client, _market_data_bucket
+                ),
                 pm_repo_path=pm_repo_path,
                 dry_run=dry_run,
                 miss_tracker=miss_tracker,
