@@ -79,6 +79,31 @@
 #                             VM-terminal status alone does NOT mean the
 #                             enumerator succeeded — see the EXIT_STATUS check
 #                             below.
+#   PREEMPTION_BACKOFF_BASE_SECONDS / PREEMPTION_BACKOFF_MAX_SECONDS
+#                             backoff before relaunching after a CONFIRMED
+#                             SPOT preemption specifically (doubles per
+#                             consecutive preemption of the same chunk,
+#                             capped; default base=60s, max=600s — resets to
+#                             0 the moment a launch reaches EXIT_STATUS
+#                             0/5, i.e. an actual enumerator run, not just
+#                             another preemption). Added 2026-08-04
+#                             (`plans/active/issues/asia_northeast1_c_spot_preemption_storm_2026_08_04.md`
+#                             todo 4): the pre-fix loop retried a confirmed
+#                             preemption with ZERO delay
+#                             (`continue` straight back to the top), which on
+#                             a sustained `e2-standard-4`/`asia-northeast1-c`
+#                             SPOT capacity crunch (the SAME zone+machine-type
+#                             `launch-api-football-backfill-vm.sh` was also
+#                             hitting concurrently) produced a tight relaunch
+#                             loop that kept colliding with the same
+#                             constrained pool — confirmed live: 48
+#                             `expected-universe-v2-sports-*` VMs launched
+#                             2026-08-03T23:07Z-2026-08-04T06:30Z, the large
+#                             majority preempted within 1-3 min of creation,
+#                             each relaunch attempt immediate. Backoff gives
+#                             the SPOT pool room to free up between attempts
+#                             instead of re-entering it at the same instant it
+#                             just reclaimed capacity.
 #
 # Execution ownership (Runbook SSOT):
 #   execution:
@@ -114,6 +139,8 @@ CHILD_LAUNCHER="${CHILD_LAUNCHER:-${SCRIPT_DIR}/launch-expected-universe-v2-vm.s
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-60}"
 CHUNK_TIMEOUT_SECONDS="${CHUNK_TIMEOUT_SECONDS:-21600}"
 MAX_CHUNK_ATTEMPTS="${MAX_CHUNK_ATTEMPTS:-50}"
+PREEMPTION_BACKOFF_BASE_SECONDS="${PREEMPTION_BACKOFF_BASE_SECONDS:-60}"
+PREEMPTION_BACKOFF_MAX_SECONDS="${PREEMPTION_BACKOFF_MAX_SECONDS:-600}"
 ZONE="asia-northeast1-c"
 # Matches the hardcoded PROJECT the child launcher itself uses
 # (launch-expected-universe-v2-vm.sh) — the vm-logs code bucket is always
@@ -257,6 +284,26 @@ _was_preempted() {
         --format='value(name)' 2>/dev/null | grep -q .
 }
 
+# _preemption_backoff_seconds <consecutive_preemption_count>
+# Doubles PREEMPTION_BACKOFF_BASE_SECONDS per consecutive CONFIRMED preemption
+# of the same chunk, capped at PREEMPTION_BACKOFF_MAX_SECONDS. Only the
+# preemption path calls this — halt-safety (EXIT_STATUS=5) retries immediately
+# since that is real enumerator progress hitting a write cap, not a SPOT
+# capacity collision, and re-entering the SAME constrained pool at the instant
+# it just reclaimed capacity is exactly the zero-backoff pattern that produced
+# the residual `expected-universe-v2-sports-*` preemption cluster this backoff
+# was added to fix.
+_preemption_backoff_seconds() {
+    local streak="$1"
+    local shift_exp=$((streak - 1))
+    [[ "$shift_exp" -gt 10 ]] && shift_exp=10 # guard against shell overflow on a long streak
+    local backoff=$((PREEMPTION_BACKOFF_BASE_SECONDS * (1 << shift_exp)))
+    if [[ "$backoff" -gt "$PREEMPTION_BACKOFF_MAX_SECONDS" ]]; then
+        backoff="$PREEMPTION_BACKOFF_MAX_SECONDS"
+    fi
+    echo "$backoff"
+}
+
 _wait_for_vm_terminal() {
     local vm_name="$1"
     local waited=0
@@ -290,6 +337,7 @@ for chunk in "${CHUNKS[@]}"; do
     echo "=== Chunk ${CHUNK_NUM}/${#CHUNKS[@]}: ${chunk_start}..${chunk_end} ==="
 
     attempt=0
+    consecutive_preemptions=0
     while true; do
         attempt=$((attempt + 1))
         if [[ "$attempt" -gt "$MAX_CHUNK_ATTEMPTS" ]]; then
@@ -336,12 +384,16 @@ for chunk in "${CHUNKS[@]}"; do
                 break
                 ;;
             5)
+                consecutive_preemptions=0
                 echo "  -> ${VM_NAME}: enumerator EXIT_STATUS=5 (max-writes-per-run halt-safety — chunk partially seeded, safe to retry the same window)"
                 continue
                 ;;
             "")
                 if _was_preempted "$VM_NAME"; then
-                    echo "  -> ${VM_NAME}: no EXIT_STATUS, but confirmed preempted (compute.instances.preempted — normal SPOT reclaim) — retrying the same window"
+                    consecutive_preemptions=$((consecutive_preemptions + 1))
+                    backoff_seconds="$(_preemption_backoff_seconds "$consecutive_preemptions")"
+                    echo "  -> ${VM_NAME}: no EXIT_STATUS, but confirmed preempted (compute.instances.preempted — normal SPOT reclaim) — backing off ${backoff_seconds}s before retrying the same window (consecutive preemption #${consecutive_preemptions})"
+                    sleep "$backoff_seconds"
                     continue
                 fi
                 echo "ERROR: ${VM_NAME} has no EXIT_STATUS marker and was NOT preempted (checked gcloud compute operations list) — a genuine unknown failure, not routine SPOT reclaim. Aborting the whole backfill; do NOT trust chunks after this one. Inspect gs://deployment-scripts-${PROJECT}/vm-logs/${VM_NAME}/run.log (may be empty/absent) and the VM's serial console." >&2

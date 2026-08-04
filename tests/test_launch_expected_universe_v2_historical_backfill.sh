@@ -298,14 +298,17 @@ rm -f "$CHILD_CAPTURE_FILE"
 touch "$STUB_DIR/simulate_preempted"
 printf 'EMPTY\n0\n' > "$STUB_DIR/exit_status_queue"
 OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    PREEMPTION_BACKOFF_BASE_SECONDS=0 \
     bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
 EXIT=$?
 rm -f "$STUB_DIR/simulate_preempted"
 if [[ "$EXIT" == "0" ]] && grep -q "confirmed preempted" <<<"$OUTPUT" \
+    && grep -q "backing off 0s" <<<"$OUTPUT" \
+    && grep -q "consecutive preemption #1" <<<"$OUTPUT" \
     && grep -q "All 1 chunks launched" <<<"$OUTPUT" \
     && [[ -f "$CHILD_CAPTURE_FILE" ]] && [[ "$(wc -l < "$CHILD_CAPTURE_FILE")" == "2" ]]; then
     PASS=$((PASS + 1))
-    $VERBOSE && echo "  ✅ (n) missing EXIT_STATUS + confirmed preemption retries, then succeeds"
+    $VERBOSE && echo "  ✅ (n) missing EXIT_STATUS + confirmed preemption backs off, retries, then succeeds"
 else
     FAIL=$((FAIL + 1))
     FAILED_CASES+=("(n) preemption retry behavior mismatch")
@@ -327,6 +330,33 @@ else
     FAIL=$((FAIL + 1))
     FAILED_CASES+=("(o) missing EXIT_STATUS without preemption did not hard-fail as expected")
     echo "  ❌ (o) missing EXIT_STATUS without preemption did not hard-fail as expected"
+    $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
+fi
+
+# (p) consecutive preemptions of the SAME chunk back off with growing delay,
+# capped at PREEMPTION_BACKOFF_MAX_SECONDS, and the streak resets to 0 the
+# moment a launch actually reaches the enumerator (EXIT_STATUS=0). Uses tiny
+# base/max (1s/3s) so the test still runs fast while exercising real growth:
+# expected backoffs 1s (streak #1), 2s (#2), min(4,3)=3s capped (#3).
+rm -f "$CHILD_CAPTURE_FILE"
+touch "$STUB_DIR/simulate_preempted"
+printf 'EMPTY\nEMPTY\nEMPTY\n0\n' > "$STUB_DIR/exit_status_queue"
+OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECONDS=0 CHUNK_TIMEOUT_SECONDS=5 \
+    PREEMPTION_BACKOFF_BASE_SECONDS=1 PREEMPTION_BACKOFF_MAX_SECONDS=3 \
+    bash "$LAUNCHER" sports --floor-date 2026-02-01 2>&1)"
+EXIT=$?
+rm -f "$STUB_DIR/simulate_preempted"
+if [[ "$EXIT" == "0" ]] \
+    && grep -q "backing off 1s.*consecutive preemption #1" <<<"$OUTPUT" \
+    && grep -q "backing off 2s.*consecutive preemption #2" <<<"$OUTPUT" \
+    && grep -q "backing off 3s.*consecutive preemption #3" <<<"$OUTPUT" \
+    && [[ -f "$CHILD_CAPTURE_FILE" ]] && [[ "$(wc -l < "$CHILD_CAPTURE_FILE")" == "4" ]]; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (p) consecutive preemptions back off with growing, capped delay"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(p) preemption backoff growth/cap behavior mismatch")
+    echo "  ❌ (p) preemption backoff growth/cap behavior mismatch"
     $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; }
 fi
 
