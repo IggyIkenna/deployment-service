@@ -240,12 +240,46 @@ def _make_captured_reader(storage_client: StorageClient):
     bucket and counts ``capture_status == "captured"`` rows. Returns 0 on any
     read miss (a VM with no shard yet / heartbeat-only VM) — the cross-check then
     treats it as "no captured progress", the fail-safe direction.
+
+    When ``_shard_bucket_for_vm`` can't resolve the bucket from the VM name
+    (e.g. ``fs-backfill-*`` for sports), probes every asset-group market-data
+    bucket to find the per-VM shard — closes the consolidation-lag false-positive
+    where a VM that wrote real rows alerts CRITICAL DP_VM_GONE_NO_CAPTURE.
     """
+
+    _shard_buckets_cache: list[str] | None = None
+
+    def _shard_buckets() -> list[str]:
+        nonlocal _shard_buckets_cache
+        if _shard_buckets_cache is None:
+            buckets: list[str] = []
+            for ag in ASSET_GROUPS:
+                try:
+                    buckets.append(resolve_bucket_name(cloud="gcp", kind="market-data", asset_group=ag))
+                except Exception:
+                    continue
+            _shard_buckets_cache = buckets
+        return _shard_buckets_cache
+
+    def _probe_all(vm_name: str) -> int:
+        blob_path = _PER_VM_SHARD.format(vm=vm_name)
+        for bucket in _shard_buckets():
+            try:
+                if not storage_client.blob_exists(bucket, blob_path):
+                    continue
+                raw = storage_client.download_bytes(bucket, blob_path)
+                frame = pd.read_parquet(io.BytesIO(raw))
+                if "capture_status" not in frame.columns:
+                    return len(frame)
+                return int((frame["capture_status"] == "captured").sum())
+            except Exception:
+                continue
+        return 0
 
     def _read(vm_name: str) -> int:
         bucket = _shard_bucket_for_vm(vm_name)
         if not bucket:
-            return 0
+            return _probe_all(vm_name)
         blob_path = _PER_VM_SHARD.format(vm=vm_name)
         try:
             if not storage_client.blob_exists(bucket, blob_path):
