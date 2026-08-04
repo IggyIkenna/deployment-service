@@ -1727,6 +1727,65 @@ def test_is_backfill_vm_matches_migration_launcher_family():
     assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
 
 
+def test_is_backfill_vm_todo7_close_tracking_gap():
+    """Todo 7 — migration_vm_hung_detection_monitoring_gap_2026_07_27.md todo 7.
+
+    (a) VM_TASK-verify each of the ~35 unverified launchers from the todo 5 audit.
+    (b) Fix the batch-live-recon mis-route.
+
+    Every VM_NAME prefix below is a real launcher output, confirmed by a fresh
+    2026-08-04 per-launcher audit against each ``VM_NAME=`` line under
+    ``deployment-service/scripts/vm/launch-*-vm.sh``.
+    """
+
+    # ── item (b): batch-live-recon — nightly T+1 batch reconciliation cron ──
+    # Its name coincidentally contains "-live-" but it is a continuously-logging
+    # batch workload (Class-A, VM_TASK=batch-live-recon), NOT a live-capture VM.
+    assert heartbeat_stall_watcher._is_backfill_vm("batch-live-recon-20260803-120000")
+
+    # ── item (a): newly-verified Class-A batch prefixes ──
+    # Each was individually confirmed: (i) uses setup-data-pipeline-vm.sh
+    # (Class A — stall-kill live), (ii) static/deterministic VM_NAME prefix,
+    # (iii) no naming collision with a legitimately-live VM.
+
+    # canonical-migration family (missed by todo 2 — VM_NAME does not start
+    # with "canonical-migration" despite VM_TASK=canonical-migration).
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-migrate-perp-funding-restamp")
+
+    # Manifest/phantom reconciliation audits (Class A, batch logging).
+    assert heartbeat_stall_watcher._is_backfill_vm("blank-reason-recon-cefi-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("defi-phantom-recon-cefi-20260804-120000")
+
+    # Batch compute / measurement / gap-fill (Class A).
+    assert heartbeat_stall_watcher._is_backfill_vm("expected-universe-v2-cefi-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("measure-honest-coverage-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("fill-missing-player-stats-20260804-120000")
+
+    # Backfill launchers whose FILENAME says "backfill" but VM_NAME does not.
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-lending-indices-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-lst-rates-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-pyth-archive-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-vault-share-price-20260804-120000")
+
+    # Features/SFI progressive backfill + gas fees fleet.
+    assert heartbeat_stall_watcher._is_backfill_vm("features-sfi-progressive-20260804-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-gas-fees-ethereum")
+
+    # ── regression: the -live-/-live early-out must STILL win for genuinely-live VMs ──
+    assert not heartbeat_stall_watcher._is_backfill_vm("mtds-live-cefi-okx-trades-2026")
+    assert not heartbeat_stall_watcher._is_backfill_vm("prediction-live-kalshi-trades")
+    # A genuinely-live VM whose name just happens to start with a new prefix
+    # must still be excluded by the -live- early-out (not the prefix match).
+    assert not heartbeat_stall_watcher._is_backfill_vm("mtds-gas-fees-live-stream")
+    assert not heartbeat_stall_watcher._is_backfill_vm("expected-universe-v2-live")
+
+    # ── regression: existing patterns must still pass unchanged ──
+    assert heartbeat_stall_watcher._is_backfill_vm("tm-backfill-20260622-211407")
+    assert heartbeat_stall_watcher._is_backfill_vm("tradfi-bf-cme-ohlcv-1m-rb-2025")
+    assert heartbeat_stall_watcher._is_backfill_vm("canonical-migration-cefi-relabel-20260727-120000")
+    assert heartbeat_stall_watcher._is_backfill_vm("mtds-dex-pools-backfill")
+
+
 def test_live_vm_with_quiet_runlog_reads_alive_in_sweep(monkeypatch):
     """End-to-end of the false-positive fix: a LIVE VM with a FRESH PIPELINE_HEARTBEAT
     marker but a long-quiet DATA run.log line (296 min, like the real mtds-live-deribit)

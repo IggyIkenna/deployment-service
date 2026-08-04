@@ -141,8 +141,58 @@ def _is_backfill_vm(vm_name: str) -> bool:
       - ``mdps-sports-bucket`` — launch-mdps-sports-bucket-vm.sh.
       - ``sports-manifest-rescan`` — launch-sports-manifest-rescan-vm.sh
         (covers its ``-coord-``/``-chunk-`` shard variants too, same prefix).
+
+    Todo 7 (2026-08-04) — close the tracking gap left open by the todo 5 audit.
+    The additional prefixes below were individually verified against every
+    ``launch-*-vm.sh`` under ``deployment-service/scripts/vm/``:
+    (a) the launcher uses ``setup-data-pipeline-vm.sh`` (Class A — stall-kill
+        via ``_launch_with_tee()`` → ``vm-exec-with-gcs-tee.sh`` is live),
+    (b) the VM_NAME prefix is static/deterministic (not a runtime variable), and
+    (c) no naming collision with a legitimately-live/continuous VM exists
+        (the ``-live-``/``-live`` early-out below catches any future name with
+        those markers regardless of prefix match):
+      - ``mtds-migrate-perp-funding-restamp`` — launch-perp-funding-manifest-
+        restamp-vm.sh (VM_TASK=canonical-migration, same family as above).
+      - ``blank-reason-recon`` — launch-blank-reason-recon-vm.sh (manifest
+        reconciliation audit).
+      - ``defi-phantom-recon`` — launch-defi-phantom-recon-vm.sh (phantom recon).
+      - ``expected-universe-v2`` — launch-expected-universe-v2-vm.sh (universe
+        computation, batch).
+      - ``measure-honest-coverage`` — launch-measure-honest-coverage-vm.sh
+        (coverage measurement).
+      - ``fill-missing-player-stats`` — launch-fill-missing-player-stats-vm.sh
+        (sports gap fill).
+      - ``mtds-lending-indices`` — launch-mtds-lending-indices-backfill-vm.sh
+        (filename says backfill but VM_NAME does not contain it).
+      - ``mtds-lst-rates`` — launch-mtds-lst-rates-backfill-vm.sh (same
+        filename-vs-VM_NAME mismatch).
+      - ``mtds-pyth-archive`` — launch-mtds-pyth-archive-backfill-vm.sh (same
+        filename-vs-VM_NAME mismatch).
+      - ``mtds-vault-share-price`` — launch-mtds-vault-share-price-backfill-
+        vm.sh (same filename-vs-VM_NAME mismatch).
+      - ``features-sfi-progressive`` — launch-sfi-progressive-features-
+        backfill-vm.sh (features backfill, Class A).
+      - ``mtds-gas-fees`` — launch-mtds-gas-fees-fleet-vm.sh (defi-backfill).
+
+    Launchers with runtime-variable VM_NAME prefixes (``${VM_PREFIX}``,
+    ``${SINGLETON_PREFIX}``, ``$1``/``$2``) were individually checked
+    but NOT added — their actual prefix is unknowable statically and a
+    heuristic guess risks a naming collision with a legitimately-live VM.
+    Likewise, genuinely one-off/standing-infra launchers
+    (``*-dashboard-*``, ``*-planning-*``, ``*-orchestrator-worker-*``,
+    ``*-ec2-*``) and already-excluded live/paper/continuous VMs
+    (``defi-paper-*``, ``strategy-paper-*``, ``strategy-live-*``,
+    ``funding-ensemble-paper-*``, ``sports-scheduler-*``) were verified
+    but correctly omitted from the match set.
     """
     lowered = vm_name.lower()
+    # batch-live-recon is a nightly T+1 batch reconciliation cron job
+    # (NOT a live-capture VM) — its name coincidentally contains "-live-" but
+    # it is a continuously-logging batch workload dispatched via Class-A
+    # setup-data-pipeline-vm.sh → _launch_with_tee() → vm-exec-with-gcs-tee.sh.
+    # Must be checked BEFORE the -live- early-out below.
+    if lowered.startswith("batch-live-recon"):
+        return True
     if "-live-" in lowered or lowered.endswith("-live"):
         return False
     if "backfill" in lowered or "-bf-" in lowered:
@@ -159,6 +209,19 @@ def _is_backfill_vm(vm_name: str) -> bool:
             "sports-v9-migration",
             "mdps-sports-bucket",
             "sports-manifest-rescan",
+            # Todo 7 additions (2026-08-04) — individually verified Class-A batch launchers
+            "mtds-migrate-perp-funding-restamp",
+            "blank-reason-recon",
+            "defi-phantom-recon",
+            "expected-universe-v2",
+            "measure-honest-coverage",
+            "fill-missing-player-stats",
+            "mtds-lending-indices",
+            "mtds-lst-rates",
+            "mtds-pyth-archive",
+            "mtds-vault-share-price",
+            "features-sfi-progressive",
+            "mtds-gas-fees",
         )
     )
 
