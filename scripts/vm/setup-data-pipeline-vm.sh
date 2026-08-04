@@ -2471,8 +2471,15 @@ for family, ags in sorted(FEATURE_FAMILY_ASSET_GROUPS.items()):
       _mfl_dtype="${_mfl_shard##*:}"
       printf 'echo "[mdps-features-live] MDPS worker %s (VM_NAME=%s-mdps-p%s) shard-spec=%s:%s:%s"\n' \
         "$_mfl_k" "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
-      printf 'VM_NAME="%s-mdps-p%s" "%s" -m market_data_processing_service process --start-date %s --end-date %s --mode live --operation streaming-aggregation --shard-spec %s:%s:%s &\n' \
-        "$VM_NAME_SELF" "$_mfl_k" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype"
+      # Real entry point is ServiceBootstrap (`python -m market_data_processing_service`),
+      # whose own top-level --operation axis has choices={process} only — the legacy
+      # streaming-aggregation operation + --shard-spec bridge in via the MDPS_OPERATION /
+      # MDPS_SHARD_SPEC env vars (_bridge_operation_and_build_continuous_args(),
+      # market-data-processing-service@213e133), never as positional/flag argv the real
+      # entry point can't reach. See mdps_features_live_streaming_aggregation_never_actually_invocable
+      # issue doc, 2026-08-04.
+      printf 'VM_NAME="%s-mdps-p%s" MDPS_OPERATION=streaming-aggregation MDPS_SHARD_SPEC=%s:%s:%s "%s" -m market_data_processing_service --operation process --mode live --start-date %s --end-date %s &\n' \
+        "$VM_NAME_SELF" "$_mfl_k" "$_AG_LOWER" "$_mfl_venue" "$_mfl_dtype" "$VENV/bin/python" "$_MFL_TODAY" "$_MFL_TODAY"
       echo 'PIDS+=($!)'
       _mfl_k=$((_mfl_k + 1))
     done
