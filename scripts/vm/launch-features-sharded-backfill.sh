@@ -321,10 +321,20 @@ echo ""
 echo "Tail any VM:"
 echo "  gsutil cat gs://${CODE_BUCKET}/vm-logs/<vm-name>/run.log"
 echo ""
-echo "Post-backfill manifest rebuild (one per features bucket, do NOT hardcode a prefix —"
-echo "sports is 'sports_features/by_date', not 'features/by_date'):"
+# Build the correct manifest prefix for the post-backfill reminder.
+# Most families write under '<family>/by_date'; verified exceptions noted below.
+# SSOT: each family's feature_writer/dependency_checker prefix constant.
+case "$FAMILY" in
+    sports)           _MF_PREFIX="sports_features/by_date" ;;
+    cross_instrument) _MF_PREFIX="cross_venue_arb/by_date" ;;
+    calendar)         _MF_PREFIX="calendar" ;;
+    multi_timeframe)  _MF_PREFIX="mtf" ;;
+    *)                _MF_PREFIX="${FAMILY}/by_date" ;;  # delta_one, volatility, onchain, commodity
+esac
+echo "Post-backfill manifest merge (additive — safe, no existing rows deleted; one per"
+echo "features bucket, family prefix = '${_MF_PREFIX}'):"
 echo "  python -c \"from unified_trading_library import resolve_bucket_name; \\"
-echo "    from unified_trading_library.manifest_writer import rebuild_manifest_from_canonical_paths; \\"
-echo "    rebuild_manifest_from_canonical_paths( \\"
+echo "    from unified_trading_library.manifest_writer import merge_manifest_from_canonical_paths; \\"
+echo "    merge_manifest_from_canonical_paths( \\"
 echo "      resolve_bucket_name(cloud='gcp', kind='features', asset_group='${ASSET_GROUP_LOWER}'), \\"
-echo "      service_name='features-service')\""
+echo "      service_name='features-service', prefix='${_MF_PREFIX}')\""
