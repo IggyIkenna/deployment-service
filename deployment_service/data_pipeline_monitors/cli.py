@@ -26,6 +26,7 @@ import io
 import json
 import logging
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
@@ -521,6 +522,19 @@ def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
     return _read
 
 
+# Storm-mode re-sweep (asia_northeast1_c_spot_preemption_storm_2026_08_04.md
+# todo 3): a VM whose whole lifetime fits inside one ~5-min
+# dp_exit_code_monitor_cron tick never enters sweep()'s `prior` census before
+# it's gone, so the terminated-diff can never see it (confirmed live:
+# af-backfill-20260804-004955, ~1.5min). Fix: on a pass with >= threshold
+# PREEMPTED verdicts (storm evidence), re-sweep at a short in-process interval
+# — bounded so the worst case stays under the 5-min gap to the next scheduled
+# invocation and inside the Job's own 900s timeout. Never fires in --dry-run.
+_STORM_PREEMPTION_THRESHOLD = 2
+_STORM_RESWEEP_INTERVAL_SECS = 60.0
+_STORM_MAX_RESWEEPS = 4
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Data-pipeline fleet monitors")
     parser.add_argument("--mode", required=True, choices=["exit-code", "heartbeat", "meta"])
@@ -563,71 +577,91 @@ def main(argv: list[str] | None = None) -> int:
         log_bucket = _log_bucket()
 
         if mode == "exit-code":
-            all_running_vms = _list_running_vms()
-            running = [vm for vm in all_running_vms if _is_data_vm(vm[0])]
-            ec_findings: list[PipelineFinding] = []
-            results = exit_code_fleet_monitor.sweep(
-                storage_client=storage_client,
-                log_bucket=log_bucket,
-                running_vms=running,
-                captured_reader=captured_reader,
-                asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
-                launcher_for_vm=_launcher_for_vm,
-                umbrella_for_vm=_umbrella_for_vm,
-                preemption_op_checker=_compute_ops.make_preemption_op_checker(_project_id()),
-                finding_sink=ec_findings,
-                pm_repo_path=pm_repo_path,
-                dry_run=dry_run,
-            )
-            # "clean" + "expected_no_capture" are both benign (the latter = rows
-            # written but consolidated lags / honest-absence / shard already
-            # complete — the 2026-06-23 false-positive killer). "rate_limited" is a
-            # real-transient finding, so it counts as non_clean (it alerts WARN).
-            non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture")]
-            logger.info(
-                "exit-code sweep: %d terminated, %d non-clean (%s)",
-                len(results),
-                len(non_clean),
-                ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
-            )
-            if not dry_run:
-                _gcs.write_monitor_last_run(
-                    storage_client,
-                    log_bucket,
-                    "exit-code",
-                    ok=True,
-                    counts={"terminated": len(results), "non_clean": len(non_clean)},
+            sweep_pass = 0
+            while True:
+                sweep_pass += 1
+                all_running_vms = _list_running_vms()
+                running = [vm for vm in all_running_vms if _is_data_vm(vm[0])]
+                ec_findings: list[PipelineFinding] = []
+                results = exit_code_fleet_monitor.sweep(
+                    storage_client=storage_client,
+                    log_bucket=log_bucket,
+                    running_vms=running,
+                    captured_reader=captured_reader,
+                    asset_group_for_vm=_make_shard_backed_ag_fn(storage_client),
+                    launcher_for_vm=_launcher_for_vm,
+                    umbrella_for_vm=_umbrella_for_vm,
+                    preemption_op_checker=_compute_ops.make_preemption_op_checker(_project_id()),
+                    finding_sink=ec_findings,
+                    pm_repo_path=pm_repo_path,
+                    dry_run=dry_run,
                 )
-                # DeploymentsRegistry.reap_stale() was already implemented + unit-tested
-                # but had zero callers — a deployments/active/*.json registration whose
-                # GCE instance is confirmed gone stayed status="running" forever (live-
-                # verified: one record stayed "running" 4 days after its instance was
-                # deleted). Wire it here using the SAME running-VM census this sweep
-                # already fetched (unfiltered by _is_data_vm — registry entries are not
-                # limited to data VMs). Best-effort: a failure here must never abort the
-                # exit-code sweep itself.
-                try:
-                    reaped = DeploymentsRegistry().reap_stale(
-                        running_vm_names={vm_name for vm_name, _zone in all_running_vms}
+                # "clean" + "expected_no_capture" are both benign (the latter = rows
+                # written but consolidated lags / honest-absence / shard already
+                # complete — the 2026-06-23 false-positive killer). "rate_limited" is a
+                # real-transient finding, so it counts as non_clean (it alerts WARN).
+                non_clean = [r for r in results if r.verdict.value not in ("clean", "expected_no_capture")]
+                preempted_count = sum(
+                    1 for r in results if r.verdict is exit_code_fleet_monitor.TerminationVerdict.PREEMPTED
+                )
+                logger.info(
+                    "exit-code sweep (pass %d): %d terminated, %d non-clean, %d preempted (%s)",
+                    sweep_pass,
+                    len(results),
+                    len(non_clean),
+                    preempted_count,
+                    ", ".join(f"{r.vm_name}:{r.verdict}" for r in non_clean) or "none",
+                )
+                if not dry_run:
+                    _gcs.write_monitor_last_run(
+                        storage_client,
+                        log_bucket,
+                        "exit-code",
+                        ok=True,
+                        counts={"terminated": len(results), "non_clean": len(non_clean)},
                     )
-                    if reaped:
-                        logger.info(
-                            "exit-code sweep: reap_stale archived %d stale deployment registration(s): %s",
-                            len(reaped),
-                            ", ".join(e.deployment_id for e in reaped),
+                    # DeploymentsRegistry.reap_stale() was already implemented + unit-tested
+                    # but had zero callers — a deployments/active/*.json registration whose
+                    # GCE instance is confirmed gone stayed status="running" forever (live-
+                    # verified: one record stayed "running" 4 days after its instance was
+                    # deleted). Wire it here using the SAME running-VM census this sweep
+                    # already fetched (unfiltered by _is_data_vm — registry entries are not
+                    # limited to data VMs). Best-effort: a failure here must never abort the
+                    # exit-code sweep itself.
+                    try:
+                        reaped = DeploymentsRegistry().reap_stale(
+                            running_vm_names={vm_name for vm_name, _zone in all_running_vms}
                         )
-                except Exception as exc:
-                    logger.warning("exit-code sweep: reap_stale failed (best-effort): %s", exc)
-            # RESOLVED bookend (alert-lifecycle, extended to exit-code 2026-06-24): a
-            # DP_VM_GONE/DP_VM_EXIT that fired last sweep but not this one (the cell got
-            # captured / relaunched) posts a ✅ RESOLVED. Own active blob (disjoint events).
-            meta_watchers.reconcile_resolved(
-                storage_client=storage_client,
-                log_bucket=log_bucket,
-                active_blob="vm-census/active-dp-alerts-exit-code.json",
-                emitted={meta_watchers.alert_key(f): f.event for f in ec_findings},
-                dry_run=dry_run,
-            )
+                        if reaped:
+                            logger.info(
+                                "exit-code sweep: reap_stale archived %d stale deployment registration(s): %s",
+                                len(reaped),
+                                ", ".join(e.deployment_id for e in reaped),
+                            )
+                    except Exception as exc:
+                        logger.warning("exit-code sweep: reap_stale failed (best-effort): %s", exc)
+                # RESOLVED bookend (alert-lifecycle, extended to exit-code 2026-06-24): a
+                # DP_VM_GONE/DP_VM_EXIT that fired last sweep but not this one (the cell got
+                # captured / relaunched) posts a ✅ RESOLVED. Own active blob (disjoint events).
+                meta_watchers.reconcile_resolved(
+                    storage_client=storage_client,
+                    log_bucket=log_bucket,
+                    active_blob="vm-census/active-dp-alerts-exit-code.json",
+                    emitted={meta_watchers.alert_key(f): f.event for f in ec_findings},
+                    dry_run=dry_run,
+                )
+                if dry_run or preempted_count < _STORM_PREEMPTION_THRESHOLD or sweep_pass >= _STORM_MAX_RESWEEPS:
+                    break
+                logger.info(
+                    "exit-code sweep: storm mode — %d PREEMPTED this pass (>=%d) — re-sweeping in %.0fs "
+                    "(pass %d/%d) to catch VMs whose entire lifetime falls inside one tick",
+                    preempted_count,
+                    _STORM_PREEMPTION_THRESHOLD,
+                    _STORM_RESWEEP_INTERVAL_SECS,
+                    sweep_pass,
+                    _STORM_MAX_RESWEEPS,
+                )
+                time.sleep(_STORM_RESWEEP_INTERVAL_SECS)
         elif mode == "heartbeat":
             running = [vm for vm in _list_running_vms() if _is_data_vm(vm[0])]
             prior = exit_code_fleet_monitor.load_census(storage_client, log_bucket)
