@@ -551,7 +551,7 @@ log "VM metadata: STRATEGY=$VM_STRATEGY PIPELINE_MODE=$VM_PIPELINE_MODE DEPLOYME
 #   unified-trading-library-code.tar.gz (core)
 #   mtds-code.tar.gz                   (core)
 #   instruments-service-code.tar.gz    (optional)
-#   features-sports-service-code.tar.gz (optional)
+#   features-service-code.tar.gz       (optional)
 #   ... any --include repo
 log "Deploying code from GCS..."
 mkdir -p "$WORKSPACE/uac" "$WORKSPACE/utl" "$WORKSPACE/mtds" "$LOGS"
@@ -561,24 +561,26 @@ mkdir -p "$WORKSPACE/uac" "$WORKSPACE/utl" "$WORKSPACE/mtds" "$LOGS"
 declare -A SERVICE_TARBALLS=(
   ["market_tick_data_service"]="mtds-code"
   ["instruments_service"]="instruments-service-code"
-  ["features_sports_service"]="features-sports-service-code"
-  ["features_onchain_service"]="features-onchain-service-code"
-  # features_service is the consolidated post-2026-05-08 module (features_repo_consolidation_2026_05_08.md).
+  # features_service is the consolidated post-2026-05-08 module (features_repo_consolidation_2026_05_08.md);
+  # the 8 pre-consolidation per-domain keys (features_sports_service, features_onchain_service,
+  # features_delta_one_service, features_volatility_service, features_cross_instrument_service,
+  # features_calendar_service, features_multi_timeframe_service, features_commodity_service) were
+  # deleted 2026-08-04 (mdps_features_deadcode_consolidation_2026_07_20.md #5) — no launcher has set
+  # VM_SERVICE to any of them since Phase 8A (launch-features-vm.sh only ever sets
+  # VM_SERVICE=features_service), and create-code-tarballs.sh no longer builds their tarballs.
   # Without this mapping the script falls through to "install all" which pulls
   # execution-service + e2e-testing transitive deps and hits the unsatisfiable
   # betfairlightweight/requests resolve. Added 2026-05-16 after attempts 3-5 of
   # features-onchain DeFi VM all failed at uv pip install with conflicting pins.
   ["features_service"]="features-service-code"
   ["market_data_processing_service"]="market-data-processing-service-code"
-  ["features_delta_one_service"]="features-delta-one-service-code"
   ["strategy_service"]="strategy-service-code"
   ["execution_service"]="execution-service-code"
   ["pnl_attribution_service"]="pnl-attribution-service-code"
   ["risk_and_exposure_service"]="risk-and-exposure-service-code"
-  ["ml_training_service"]="ml-training-service-code"
-  ["ml_inference_service"]="ml-inference-service-code"
-  # ml-service is the REAL, current repo (ml-training-service/ml-inference-service above
-  # are stale keys — no such repos/tarballs exist anymore, per create-code-tarballs.sh's
+  # ml-service is the REAL, current repo. The pre-consolidation ml_training_service/
+  # ml_inference_service keys were deleted 2026-08-04 (mdps_features_deadcode_consolidation_2026_07_20.md
+  # #5) — no such repos/tarballs exist anymore, per create-code-tarballs.sh's
   # CEFI_REPOS/SPORTS_REPOS/ML_TRAINING_REPOS arrays, which all list bare `ml-service` ->
   # default `${repo}-code` derivation = ml-service-code). Found 2026-08-03 while building
   # launch-ml-strategy-orphan-sweep-vm.sh (todo 3b of
@@ -590,11 +592,6 @@ declare -A SERVICE_TARBALLS=(
   # extracted on ANY VM_SERVICE=ml_service VM until this fix.
   ["ml_service"]="ml-service-code"
   ["position_balance_monitor_service"]="position-balance-monitor-service-code"
-  ["features_volatility_service"]="features-volatility-service-code"
-  ["features_cross_instrument_service"]="features-cross-instrument-service-code"
-  ["features_calendar_service"]="features-calendar-service-code"
-  ["features_multi_timeframe_service"]="features-multi-timeframe-service-code"
-  ["features_commodity_service"]="features-commodity-service-code"
   ["deployment_service"]="deployment-service-code"
   ["batch_live_reconciliation_service"]="batch-live-reconciliation-service-code"
   ["alerting_service"]="alerting-service-code"
@@ -619,26 +616,16 @@ declare -A TARBALL_DIRS=(
   ["mtds-code"]="mtds"
   ["instruments-service-code"]="instruments"
   ["features-service-code"]="features"
-  ["features-sports-service-code"]="fss"
-  ["features-onchain-service-code"]="fos"
   ["market-data-processing-service-code"]="mdps"
-  ["features-delta-one-service-code"]="fd1"
   ["strategy-service-code"]="strategy"
   ["execution-service-code"]="execution"
   ["pnl-attribution-service-code"]="pnl"
   ["risk-and-exposure-service-code"]="risk"
-  ["ml-training-service-code"]="ml-train"
-  ["ml-inference-service-code"]="ml-infer"
   # ml-service-code -- the REAL, current tarball (see SERVICE_TARBALLS["ml_service"]
   # above for the full "was missing" incident note). "ml" (not "ml-service") to match
   # the short single-word convention every other entry in this table uses.
   ["ml-service-code"]="ml"
   ["position-balance-monitor-service-code"]="pbm"
-  ["features-volatility-service-code"]="fvol"
-  ["features-cross-instrument-service-code"]="fci"
-  ["features-calendar-service-code"]="fcal"
-  ["features-multi-timeframe-service-code"]="fmt"
-  ["features-commodity-service-code"]="fcom"
   ["deployment-service-code"]="deployment"
   ["batch-live-reconciliation-service-code"]="blr"
   ["alerting-service-code"]="alerting"
@@ -660,14 +647,6 @@ declare -A TARBALL_DIRS=(
 # 2026-07-26, see issues/mdps_features_live_launcher_shared_venv_dependency_conflict_2026_07_26.md.
 MTDS_DEPENDENT_SERVICES=(
   "market_data_processing_service"
-  "features_delta_one_service"
-  "features_onchain_service"
-  "features_volatility_service"
-  "features_calendar_service"
-  "features_multi_timeframe_service"
-  "features_cross_instrument_service"
-  "features_commodity_service"
-  "features_sports_service"
   "features_service"
 )
 
@@ -712,7 +691,7 @@ elif [[ "$VM_TASK" == "synthetic-benchmark" || "$VM_SERVICE" == "synthetic_bench
     "mtds-code"
     "market-data-processing-service-code"
     "features-service-code"
-    "ml-inference-service-code"
+    "ml-service-code"
     "strategy-service-code"
     "execution-service-code"
   )

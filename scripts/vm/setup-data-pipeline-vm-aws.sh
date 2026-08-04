@@ -148,7 +148,6 @@ _fetch_tarball "deployment-service-code" "deployment-service"
 declare -A SERVICE_TARBALLS=(
     ["market_tick_data_service"]="mtds-code"          # already installed above
     ["instruments_service"]="instruments-service-code"
-    ["features_sports_service"]="features-sports-service-code"
     ["features_onchain_service"]="features-service-code"
     ["strategy_service"]="strategy-service-code"
     ["execution_service"]="execution-service-code"
