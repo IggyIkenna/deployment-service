@@ -229,10 +229,9 @@ def _make_shard_backed_ag_fn(storage_client: StorageClient):
 
 
 # VM-name prefixes that ARE data-pipeline backfill / live-capture VMs (the only
-# ones that emit a PIPELINE_HEARTBEAT + write a per-VM manifest shard). The
-# heartbeat / exit-code sweeps must SKIP infra VMs (zombie-watchdog, orchestrator,
-# consolidator, qg-snapshot, …) — they never heartbeat, so sweeping them produced
-# a flood of false EVENT_LOOP_STARVED verdicts (2026-06-22 BUG2).
+# ones that emit PIPELINE_HEARTBEAT + write a per-VM manifest shard) — infra
+# VMs never heartbeat, so sweeping them produced false EVENT_LOOP_STARVED
+# verdicts (2026-06-22 BUG2). Must stay in sync with launcher_registry.py.
 _DATA_VM_PREFIXES = (
     "mtds-",
     "tm-backfill",
@@ -256,10 +255,9 @@ _DATA_VM_PREFIXES = (
 def _is_data_vm(vm_name: str) -> bool:
     """True when ``vm_name`` is a data-pipeline VM (heartbeats + per-VM shard).
 
-    Filters the RUNNING census down to the data VMs the heartbeat/exit-code
-    sweeps apply to. An AG segment in the name (cefi/defi/tradfi/sports/
-    prediction) OR a known data-VM prefix qualifies; everything else (infra /
-    orchestrator / watchdog VMs) is skipped so they never false-alert.
+    Filters the RUNNING census to data VMs: an AG segment (cefi/defi/tradfi/
+    sports/prediction) OR a known data-VM prefix qualifies; infra/watchdog
+    VMs are skipped so they never false-alert.
     """
     lowered = vm_name.lower()
     if _asset_group_for_vm(vm_name) != "unknown":
