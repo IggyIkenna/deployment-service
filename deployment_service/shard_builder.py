@@ -34,7 +34,7 @@ _SERVICE_STORAGE_DOMAINS: dict[str, list[str]] = {
     "features-onchain-service": ["features-onchain"],
     "ml-service": ["ml-store"],
     "strategy-service": ["strategy-store"],
-    "execution-services": ["execution-store"],
+    "execution-service": ["execution-store"],
 }
 
 

@@ -478,6 +478,21 @@ class TestBuildStorageEnvVars:
         assert result == {}
 
     @pytest.mark.unit
+    def test_execution_service_injects_bucket(self):
+        """Regression: execution-service (singular) must resolve, not silently miss.
+
+        The dict key was ``"execution-services"`` (plural) while ``state.service``
+        from the sharding YAML always carries the singular ``"execution-service"``,
+        so the ``.get()`` returned ``[]`` and no ``EXECUTION_STORE_GCS_BUCKET`` was
+        injected — a silent correctness gap (2026-08-03).
+        """
+        loader = self._mock_loader("execution-store-cefi-staging-myproject")
+        with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
+            result = build_storage_env_vars("execution-service", {"asset_group": "CEFI"})
+        assert result == {"EXECUTION_STORE_CEFI_GCS_BUCKET": "execution-store-cefi-staging-myproject"}
+        loader.get_bucket_name.assert_called_once_with("execution-store", "CEFI")
+
+    @pytest.mark.unit
     def test_category_uppercased_in_env_key(self):
         loader = self._mock_loader("strategy-store-tradfi-prod-myproject")
         with patch("deployment_service.shard_builder.ConfigLoader", return_value=loader):
