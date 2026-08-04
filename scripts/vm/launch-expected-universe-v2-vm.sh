@@ -72,6 +72,19 @@
 
 set -euo pipefail
 
+# Pin the gcloud identity PER-INVOCATION rather than relying on the ambient
+# `gcloud config` active account — that config is HOST-WIDE, shared by every
+# concurrent slot on this box (~/.config/gcloud is deliberately NOT per-slot,
+# codex/05-infrastructure/per-tab-worktrees.md § "On-demand artifact
+# pattern"), so a sibling slot's `gcloud config set account` can silently
+# swap in a less-privileged identity mid-run. Confirmed live 2026-08-04:
+# this exact launcher hit PERMISSION_DENIED on compute.instances.create 3
+# times in one session purely from cross-slot account clobbering — see
+# plans/active/issues/shared_host_gcloud_active_account_cross_slot_clobber_2026_08_04.md.
+# CLOUDSDK_CORE_ACCOUNT overrides the active config for every gcloud call in
+# this process tree without mutating shared state.
+export CLOUDSDK_CORE_ACCOUNT="${CLOUDSDK_CORE_ACCOUNT:-unified-trading-sa@central-element-323112.iam.gserviceaccount.com}"
+
 # shellcheck source=lib/launcher_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/launcher_common.sh"
 
