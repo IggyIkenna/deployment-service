@@ -854,10 +854,13 @@ resource "google_project_iam_member" "unified_trading_storage_full_admin" {
 
 # Granted 2026-07-24 — Link 3 of the deployment-registry Firestore dual-write migration
 # (plans/active/deployment_registry_firestore_p0_unblock_2026_07_14.md). VMs write the
-# deployment registry via the DEFAULT compute SA (155/156 launchers under
-# deployment-service/scripts/vm/launch-*.sh pass NO --service-account=, so gcloud falls
-# back to `{project_number}-compute@developer.gserviceaccount.com` — mirrors the same
-# default-SA pattern already used by alerting_relay_pubsub.tf/catalogue_regen_scheduler.tf).
+# deployment registry via the DEFAULT compute SA (as of 2026-08-04: 53/169 launchers under
+# deployment-service/scripts/vm/launch-*.sh still pass NO --service-account=; 116 migrated to
+# explicit SAs via lc_tier_service_account() per the DP-VM-002 rollout —
+# bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md P0 "hybrid"
+# ruling). gcloud falls back to `{project_number}-compute@developer.gserviceaccount.com` for the
+# remaining 53 — mirrors the same default-SA pattern already used by
+# alerting_relay_pubsub.tf/catalogue_regen_scheduler.tf.
 # Firestore writes from `_maybe_build_registry_store()`
 # (unified_trading_library/deployment_registry.py) need `roles/datastore.user`; without it
 # the dual-write path degrades to GCS-only + a warning (best-effort by design), which is
