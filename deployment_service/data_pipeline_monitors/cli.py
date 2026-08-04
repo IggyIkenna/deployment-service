@@ -71,6 +71,8 @@ from deployment_service.data_pipeline_monitors.meta_targets import (
 from deployment_service.data_pipeline_monitors.meta_targets import market_data_bucket as _market_data_bucket
 from deployment_service.data_pipeline_monitors.meta_targets import scheduler_env_prefix as _scheduler_env_prefix
 from deployment_service.data_pipeline_monitors.renag_tracker import RenagTracker
+from deployment_service.data_pipeline_monitors.vm_classification import asset_group_for_vm as _asset_group_for_vm
+from deployment_service.data_pipeline_monitors.vm_classification import is_data_vm as _is_data_vm
 from deployment_service.deployment_classification import (
     UnclassifiedDeploymentError,
     umbrella_for_vm_name,
@@ -201,15 +203,6 @@ def _list_running_vms() -> list[tuple[str, str]]:
         return []
 
 
-def _asset_group_for_vm(vm_name: str) -> str:
-    """Best-effort asset_group from the VM-name segment (cefi/defi/tradfi/...)."""
-    lowered = vm_name.lower()
-    for ag in ASSET_GROUPS:
-        if ag in lowered:
-            return ag
-    return "unknown"
-
-
 def _make_shard_backed_ag_fn(storage_client: StorageClient):
     def _probe(ag: str, blob: str) -> bool:
         try:
@@ -226,88 +219,6 @@ def _make_shard_backed_ag_fn(storage_client: StorageClient):
         return found[0] if len(found) == 1 else ("multi" if found else "unknown")
 
     return _fn
-
-
-# VM-name prefixes that ARE data-pipeline backfill/live-capture VMs (emit PIPELINE_HEARTBEAT + a
-# per-VM manifest shard) — sweeps SKIP infra VMs (zombie-watchdog, …) or false EVENT_LOOP_STARVED
-# fires (2026-06-22 BUG2). A missing prefix ALSO drops the VM from exit-code PREEMPTED
-# classification (RelaunchPreemptedVm never fires — af_backfill_preemption_auto_recovery_not_firing_2026_08_04.md).
-#
-# The 2026-08-04 audit (same doc, follow-up todo) cross-referenced EVERY
-# ``launcher_registry.LAUNCHER_FOR_VM_PREFIX`` entry with a real (non-None) launcher —
-# i.e. every genuinely auto-relaunchable data VM — against this tuple + the ASSET_GROUPS
-# substring check. 29 more prefixes shared the exact af-backfill-/af-audit- shape (a
-# real relaunch launcher, but a VM name carrying no cefi/defi/tradfi/sports/prediction
-# substring), so PREEMPTED classification would have silently never fired for any of
-# them either. ``feat-orph-``/``feat-orph-bf-`` are the clearest case why prefix
-# membership can't be inferred from "usually contains the asset group": their VM names
-# embed ``ASSET_GROUP_ABBREV`` (launch-feature-orphan-{sweep,backfill}-vm.sh), which
-# passes cefi/defi/sports through literally but remaps tradfi->tfi, prediction->pred,
-# and no --asset-group at all -> gl — so only 3 of 5 asset-group cells accidentally
-# matched via substring; the other 2 (+ the global family) were silently invisible.
-# test_data_vm_prefixes_cover_every_relaunchable_launcher (test_data_pipeline_monitors_cli.py)
-# guards this class going forward: any future LAUNCHER_FOR_VM_PREFIX entry with a real
-# launcher must resolve True through _is_data_vm(), or CI fails.
-_DATA_VM_PREFIXES = (
-    "mtds-",
-    "tm-backfill",
-    "tm-forward-poll-",
-    "fs-backfill",
-    "fts-backfill",
-    "instruments-",
-    "tradfi-bf",
-    "tradfi-fwd",
-    "cefi-",
-    "defi-",
-    "sports-",
-    "prediction-",
-    "weather-backfill",
-    "solana-",
-    "af-backfill-",
-    "af-audit-",
-    "af-recover-",
-    "aster-fwd-",
-    "blank-reason-recon-",
-    "deribit-opts-fwd-",
-    "dvol-deribit-",
-    "expected-universe-v2-",
-    "feat-orph-",
-    "features-",
-    "fill-missing-player-stats-",
-    "footystats-fwd-",
-    "fss-backfill-vm-",
-    "governance-backfill-",
-    "instr-backfill-pred",
-    "jito-solana-backfill-",
-    "marinade-backfill-",
-    "ml-orph-",
-    "opt-cboe-",
-    "opt-cme-",
-    "opt-deribit-",
-    "opt-okx-",
-    "pyth-lst-backfill-",
-    "replay-",
-    "scenario-matrix-",
-    "sfi-backfill-",
-    "sfi-fwd-",
-    "strat-orph-",
-    "us-backfill-",
-    "us-forward-poll-",
-)
-
-
-def _is_data_vm(vm_name: str) -> bool:
-    """True when ``vm_name`` is a data-pipeline VM (heartbeats + per-VM shard).
-
-    Filters the RUNNING census down to the data VMs the heartbeat/exit-code
-    sweeps apply to. An AG segment in the name (cefi/defi/tradfi/sports/
-    prediction) OR a known data-VM prefix qualifies; everything else (infra /
-    orchestrator / watchdog VMs) is skipped so they never false-alert.
-    """
-    lowered = vm_name.lower()
-    if _asset_group_for_vm(vm_name) != "unknown":
-        return True
-    return any(lowered.startswith(p) for p in _DATA_VM_PREFIXES)
 
 
 def _shard_bucket_for_vm(vm_name: str) -> str | None:

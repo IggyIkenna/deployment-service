@@ -99,8 +99,8 @@ def test_data_vm_prefixes_cover_every_relaunchable_launcher() -> None:
     )
     assert not missing, (
         "LAUNCHER_FOR_VM_PREFIX prefixes with a real launcher but invisible to "
-        "cli._is_data_vm() — add each to cli._DATA_VM_PREFIXES (or an ASSET_GROUPS "
-        "substring already covers it, in which case this list is stale):\n" + "\n".join(missing)
+        "cli._is_data_vm() — add each to vm_classification.DATA_VM_PREFIXES (or an "
+        "ASSET_GROUPS substring already covers it, in which case this list is stale):\n" + "\n".join(missing)
     )
 
 
