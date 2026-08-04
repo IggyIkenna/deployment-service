@@ -437,47 +437,6 @@ def _make_scheduler_state_reader() -> meta_watchers.SchedulerStateReader:
     return _read
 
 
-def _make_consolidator_scheduler_lister() -> consolidator_scheduler_watcher.SchedulerJobLister:
-    """Return ``() -> every manifest-consolidator scheduler job's short name``.
-
-    Lists the fleet's Cloud Scheduler jobs LIVE and filters to
-    ``manifest-consolidator`` in the name, rather than reconstructing names from a
-    per-asset_group/kind list (which drifts — ``manifest_consolidator_buckets`` in
-    ``manifest_consolidator_scheduler.tf`` has 10+ market-data/instruments keys plus
-    legacy variants). Deferred-import, mirrors ``_make_scheduler_state_reader``. An
-    error / missing client returns an empty list (fail toward checking nothing
-    this sweep, never toward inventing job names).
-    """
-    project = _project_id()
-    location = "asia-northeast1"  # the fleet's canonical region (all schedulers + GCS)
-    try:
-        scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions — credential-bound SDK, deferred
-        client = scheduler_mod.CloudSchedulerClient()  # pyright: ignore[reportAny] — dynamic cloud-SDK boundary
-    except Exception as exc:
-        logger.info("consolidator-scheduler lister unavailable (DP-WATCHER-003 off this sweep): %s", exc)
-        return lambda: []
-
-    def _list() -> list[str]:
-        if not project:
-            return []
-        parent = f"projects/{project}/locations/{location}"
-        try:
-            names: list[str] = []
-            for job in client.list_jobs(  # pyright: ignore[reportAny] — dynamic SDK page iterator
-                parent=parent, timeout=_SCHEDULER_RPC_TIMEOUT_SECS
-            ):
-                full_name = str(getattr(job, "name", "") or "")  # pyright: ignore[reportAny] — dynamic SDK attr
-                short_name = full_name.rsplit("/", 1)[-1]
-                if "manifest-consolidator" in short_name:
-                    names.append(short_name)
-            return names
-        except Exception as exc:
-            logger.info("consolidator-scheduler list_jobs failed → skipping DP-WATCHER-003 this sweep: %s", exc)
-            return []
-
-    return _list
-
-
 def _make_execution_history_reader() -> meta_watchers.ExecutionHistoryReader:
     """Return ``job_stem -> minutes since last SUCCEEDED Cloud Run execution | None``.
 
@@ -831,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
             # maintenance_window_reader (2026-07-29): a live, plan-tracked pause
             # downgrades to INFO instead of paging — see its factory's docstring.
             consolidator_scheduler_watcher.check_consolidator_scheduler_paused(
-                scheduler_job_lister=_make_consolidator_scheduler_lister(),
+                scheduler_job_lister=consolidator_scheduler_watcher.make_consolidator_scheduler_lister(
+                    project_id=_project_id(), scheduler_rpc_timeout_secs=_SCHEDULER_RPC_TIMEOUT_SECS
+                ),
                 scheduler_state_reader=scheduler_state_reader,
                 maintenance_window_reader=consolidator_scheduler_watcher.make_consolidator_maintenance_window_reader(),
                 pm_repo_path=pm_repo_path,
