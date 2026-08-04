@@ -195,7 +195,7 @@ def make_consolidator_scheduler_lister(
     it sits alongside) specifically so it doesn't grow that file — ``cli.py`` is at
     its own QG file-size ceiling already.
     """
-    import importlib
+    import importlib  # noqa: imports-inside-functions
 
     try:
         scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions

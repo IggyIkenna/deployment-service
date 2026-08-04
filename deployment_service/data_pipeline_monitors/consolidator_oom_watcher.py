@@ -221,8 +221,8 @@ def make_consolidator_execution_oom_reader(
     on a transient API unavailability — the index-staleness watcher at
     ``check_cron_fired`` still catches a genuinely-dead consolidator).
     """
-    import importlib
-    from datetime import UTC, datetime
+    import importlib  # noqa: imports-inside-functions
+    from datetime import UTC, datetime  # noqa: imports-inside-functions
 
     try:
         run_mod = importlib.import_module("google.cloud.run_v2")  # noqa: imports-inside-functions
