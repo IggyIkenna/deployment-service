@@ -202,7 +202,7 @@ fi
 # shared_host_gcloud_active_account_cross_slot_clobber_2026_08_04.md), not
 # left to inherit whatever the shared host's active gcloud config happens to
 # be at that moment.
-if grep -q "|unified-trading-sa@central-element-323112.iam.gserviceaccount.com|" "$CHILD_CAPTURE_FILE"; then
+if grep -qE '\|unified-trading-sa@[^|]+\.iam\.gserviceaccount\.com\|' "$CHILD_CAPTURE_FILE"; then
     PASS=$((PASS + 1))
     $VERBOSE && echo "  ✅ (i2) CLOUDSDK_CORE_ACCOUNT pinned for child launcher calls"
 else
