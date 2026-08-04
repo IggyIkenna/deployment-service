@@ -96,6 +96,22 @@ resource "google_service_account_iam_member" "honest_coverage_launcher_actas_def
   member             = "serviceAccount:instruments-service-cloud-run@${var.project_id}.iam.gserviceaccount.com"
 }
 
+# The DP-VM-002 rollout (2026-08-01, lc_tier_service_account()) changed launch-measure-honest-coverage-vm.sh's
+# --env prod invocation (the Cloud Scheduler's only invocation mode for this job) to attach the VM to uts-prd-sa
+# instead of the default compute SA above -- but the launcher SA's actAs binding was never extended to the new
+# target, so the nightly cron silently stopped writing coverage.json from ~2026-08-01/08-02 (VM creation failed
+# with "The user does not have access to service account 'uts-prd-sa@...'"). See
+# plans/active/issues/honest_coverage_cron_run_job_sa_missing_actas_uts_prd_sa_2026_08_03.md (option b -- this
+# grant does not conflict with bucket_iam_p2_tier_sa_scope_gap_and_default_compute_sa_overprivilege_2026_07_30.md's
+# P0 "hybrid" ruling, which already ratified uts-prd-sa as the correct per-tier target for prod VM launchers).
+# Granted imperatively 2026-08-04 (live-verified: honest-coverage-daily-launcher execution + VM creation both
+# succeeded post-grant); this block makes it the IaC SSOT.
+resource "google_service_account_iam_member" "honest_coverage_launcher_actas_uts_prd_sa" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/uts-prd-sa@${var.project_id}.iam.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:instruments-service-cloud-run@${var.project_id}.iam.gserviceaccount.com"
+}
+
 resource "google_cloud_scheduler_job" "honest_coverage_daily" {
   project          = var.project_id
   region           = var.region
