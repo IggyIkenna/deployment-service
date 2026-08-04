@@ -639,6 +639,28 @@ def sweep(
             if needs_reason
             else NoCaptureReason.SILENT
         )
+        # Consolidation-lag debounce — closes the DP_VM_GONE_NO_CAPTURE
+        # false-positive class for short-lived backfill VMs that self-delete
+        # before the consolidator (~30 min cycle) merges their per-VM shard.
+        # Option (A): per-VM shard read is already handled by _make_captured_reader
+        # (cli.py probes ALL asset-group buckets when the VM name alone can't
+        # resolve one, so captured_after is correct for e.g. fs-backfill-*
+        # sports VMs).  Option (B) fallback: when a VM's per-VM shard truly
+        # cannot be found (VM never wrote one / already GC'd), suppress
+        # GONE_NO_CAPTURE if the run.log is <35 min old — the consolidator
+        # hasn't had time to process it yet.
+        if needs_reason and no_capture_reason is NoCaptureReason.SILENT:
+            log_signals = _gcs.run_log_signals(storage_client, log_bucket, name)
+            if log_signals.run_log_age_min is not None and log_signals.run_log_age_min < 35:
+                no_capture_reason = NoCaptureReason.PROGRESS
+                logger.info(
+                    "DP_VM_GONE_NO_CAPTURE suppressed for %s: run.log age %.1f min < 35 min "
+                    "(consolidation-lag debounce — option A per-VM shard captured=%d, "
+                    "option B fallback)",
+                    name,
+                    log_signals.run_log_age_min,
+                    captured_after,
+                )
         result = classify_terminated_vm(
             name,
             exit_code=exit_code,
