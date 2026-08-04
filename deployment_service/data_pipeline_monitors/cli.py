@@ -228,11 +228,10 @@ def _make_shard_backed_ag_fn(storage_client: StorageClient):
     return _fn
 
 
-# VM-name prefixes that ARE data-pipeline backfill / live-capture VMs (the only
-# ones that emit a PIPELINE_HEARTBEAT + write a per-VM manifest shard). The
-# heartbeat / exit-code sweeps must SKIP infra VMs (zombie-watchdog, orchestrator,
-# consolidator, qg-snapshot, …) — they never heartbeat, so sweeping them produced
-# a flood of false EVENT_LOOP_STARVED verdicts (2026-06-22 BUG2).
+# VM-name prefixes that ARE data-pipeline backfill/live-capture VMs (emit PIPELINE_HEARTBEAT + a
+# per-VM manifest shard) — sweeps SKIP infra VMs (zombie-watchdog, …) or false EVENT_LOOP_STARVED
+# fires (2026-06-22 BUG2). A missing prefix ALSO drops the VM from exit-code PREEMPTED
+# classification (RelaunchPreemptedVm never fires — af_backfill_preemption_auto_recovery_not_firing_2026_08_04.md).
 _DATA_VM_PREFIXES = (
     "mtds-",
     "tm-backfill",
