@@ -56,6 +56,13 @@ def test_asset_group_for_vm(vm, expected):
         ("mtds-live-cefi-okx-trades-2026", True),
         ("tradfi-bf-cme-ohlcv-1m-es-2025", True),
         ("prediction-live-kalshi-trades", True),
+        # af-backfill-*/af-audit-* (API-Football launcher naming) carry no
+        # asset_group substring in their name and were missing from
+        # _DATA_VM_PREFIXES entirely — silently invisible to the exit-code
+        # sweep's PREEMPTED/exit_nonzero classification, so RelaunchPreemptedVm
+        # never fired on preemption (af_backfill_preemption_auto_recovery_not_firing_2026_08_04.md).
+        ("af-backfill-20260804-002608", True),
+        ("af-audit-20260804-000001", True),
         # infra VMs are NOT data VMs — must be skipped so they never false-alert.
         ("vm-zombie-watchdog-20260528-212634", False),
         ("agent-orchestrator-vm-1", False),
