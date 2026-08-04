@@ -16,6 +16,7 @@ Coverage includes:
 """
 
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -684,6 +685,55 @@ class TestSpecificLauncherScripts:
         import re
 
         assert re.match(r"^\d{8}-\d{6}$", timestamp), "Invalid timestamp format for VM naming"
+
+
+class TestForwardPollCronHostSingletonCollision:
+    """Regression test for perp_funding_data_semantics_and_cadence-014 (2026-08-04).
+
+    `launch-cefi-forward-poll.sh` / `launch-tradfi-forward-poll.sh` singleton-check
+    for an "already running" worker VM via a `name~"^cefi-fwd-"` / `name~"^tradfi-fwd-"`
+    gcloud filter. The persistent cron HOST VM that fires these launchers daily is
+    named `cefi-fwd-daily-cron-*` / `tradfi-fwd-daily-cron-*` — which ALSO matches that
+    same bare prefix, so once the cron host is running it sees itself as an
+    "already running" worker and refuses to launch its own daily worker VM, forever,
+    silently (the failure only reaches a log file on the cron host, not any monitor).
+    The fix anchors the filter on a digit immediately after the prefix (the RUN_TS
+    timestamp genuine workers use), which the cron host's `-daily-cron-` suffix never
+    satisfies.
+    """
+
+    _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts" / "vm"
+
+    @staticmethod
+    def _extract_singleton_filter_pattern(script_content: str) -> str:
+        """Pull the `^<prefix>-[0-9]` regex out of a launcher's `name~"..."` filter."""
+        match = re.search(r'name~"(\^[^"]+)"', script_content)
+        assert match, 'expected a name~"^..." gcloud filter pattern in the script'
+        return match.group(1)
+
+    def test_cefi_forward_poll_filter_excludes_its_own_cron_host(self):
+        script_content = (self._SCRIPTS_DIR / "launch-cefi-forward-poll.sh").read_text()
+        pattern = self._extract_singleton_filter_pattern(script_content)
+
+        assert re.search(pattern, "cefi-fwd-daily-cron-20260804-012950") is None, (
+            "cefi-fwd-daily-cron- (the cron HOST) must NOT match the daily-worker "
+            "singleton filter, or the cron host permanently blocks its own fires"
+        )
+        assert re.search(pattern, "cefi-fwd-20260804-091500") is not None, (
+            "a genuine cefi-fwd-<timestamp> worker VM must still match the filter"
+        )
+
+    def test_tradfi_forward_poll_filter_excludes_its_own_cron_host(self):
+        script_content = (self._SCRIPTS_DIR / "launch-tradfi-forward-poll.sh").read_text()
+        pattern = self._extract_singleton_filter_pattern(script_content)
+
+        assert re.search(pattern, "tradfi-fwd-daily-cron-20260804-091500") is None, (
+            "tradfi-fwd-daily-cron- (the cron HOST) must NOT match the daily-worker "
+            "singleton filter, or the cron host permanently blocks its own fires"
+        )
+        assert re.search(pattern, "tradfi-fwd-20260804-061500") is not None, (
+            "a genuine tradfi-fwd-<timestamp> worker VM must still match the filter"
+        )
 
 
 class TestErrorHandling:

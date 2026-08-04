@@ -91,8 +91,15 @@ PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 
 if ! $FORCE; then
+  # Anchor on a digit right after the prefix (the RUN_TS timestamp) so this
+  # never matches the persistent `tradfi-fwd-daily-cron-*` cron-HOST VM, which
+  # also starts with "tradfi-fwd-" — a bare `^tradfi-fwd-` match made the cron
+  # host see itself as an "already running" worker and refuse every single
+  # cron-triggered daily fire, silently, for as long as the host stayed up
+  # (same bug class as the CeFi twin, found+fixed 2026-08-04,
+  # perp_funding_data_semantics_and_cadence-014).
   EXISTING="$(gcloud compute instances list \
-    --filter='name~"^tradfi-fwd-" AND status=RUNNING' \
+    --filter='name~"^tradfi-fwd-[0-9]" AND status=RUNNING' \
     --zones="$ZONE" \
     --format='value(name)' 2>/dev/null | head -1)"
   if [[ -n "$EXISTING" ]]; then
