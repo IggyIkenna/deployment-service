@@ -99,6 +99,16 @@
 
 set -euo pipefail
 
+# Pin the gcloud identity PER-INVOCATION — the ambient `gcloud config`
+# active account is HOST-WIDE (shared by every concurrent slot, not
+# per-slot), so a sibling slot's `gcloud config set account` can silently
+# swap in a less-privileged identity between this script's own gcloud calls
+# (instances describe / operations list / storage cat, used by the wait +
+# EXIT_STATUS + preemption checks below). Same rationale + confirmed
+# 2026-08-04 incident as launch-expected-universe-v2-vm.sh — see
+# plans/active/issues/shared_host_gcloud_active_account_cross_slot_clobber_2026_08_04.md.
+export CLOUDSDK_CORE_ACCOUNT="${CLOUDSDK_CORE_ACCOUNT:-unified-trading-sa@central-element-323112.iam.gserviceaccount.com}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHILD_LAUNCHER="${CHILD_LAUNCHER:-${SCRIPT_DIR}/launch-expected-universe-v2-vm.sh}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-60}"

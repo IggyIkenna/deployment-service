@@ -37,6 +37,19 @@ if [[ ! -f "$LAUNCHER" ]]; then
     exit 1
 fi
 
+# Mirror the launcher's OWN rolling-boundary computation (today - 120d, minus
+# 1 day for END_BOUNDARY) so date-window assertions below don't hardcode a
+# literal that silently goes stale the next time the wall-clock date rolls
+# over (bit us live 2026-08-03 -> 2026-08-04 mid-session: a hardcoded
+# "2026-04-04" broke the instant the boundary shifted to "2026-04-05").
+_test_today_minus_days() {
+    date -u -d "-${1} days" +%F 2>/dev/null || date -u -v-"${1}"d +%F
+}
+_test_date_minus_one_day() {
+    date -u -d "${1} - 1 day" +%F 2>/dev/null || date -u -v-1d -j -f '%Y-%m-%d' "$1" +%F
+}
+END_BOUNDARY="$(_test_date_minus_one_day "$(_test_today_minus_days 120)")"
+
 STUB_DIR="$(mktemp -d)"
 trap 'rm -rf "$STUB_DIR"' EXIT
 
@@ -83,7 +96,7 @@ chmod +x "$STUB_DIR/gcloud"
 CHILD_CAPTURE_FILE="$STUB_DIR/child_calls.log"
 cat > "$STUB_DIR/child_launcher_stub.sh" <<STUB
 #!/usr/bin/env bash
-echo "\${ENUM_START_DATE:-}|\${ENUM_END_DATE:-}|\$*" >> "${CHILD_CAPTURE_FILE}"
+echo "\${ENUM_START_DATE:-}|\${ENUM_END_DATE:-}|\${CLOUDSDK_CORE_ACCOUNT:-}|\$*" >> "${CHILD_CAPTURE_FILE}"
 if [[ -f "${STUB_DIR}/child_should_fail" ]]; then
     echo "ERROR: (gcloud.compute.instances.create) Could not fetch resource: simulated PERMISSION_DENIED" >&2
     exit 1
@@ -174,7 +187,7 @@ if [[ "$EXIT" == "0" ]] && grep -q "All 2 chunks launched" <<<"$OUTPUT" \
     && [[ -f "$CHILD_CAPTURE_FILE" ]] \
     && [[ "$(wc -l < "$CHILD_CAPTURE_FILE")" == "2" ]] \
     && grep -q "^2025-06-01|2025-12-31|" "$CHILD_CAPTURE_FILE" \
-    && grep -q "^2026-01-01|2026-04-04|" "$CHILD_CAPTURE_FILE"; then
+    && grep -q "^2026-01-01|${END_BOUNDARY}|" "$CHILD_CAPTURE_FILE"; then
     PASS=$((PASS + 1))
     $VERBOSE && echo "  ✅ (i) sequential launch reaches child launcher with correct per-chunk dates"
 else
@@ -182,6 +195,21 @@ else
     FAILED_CASES+=("(i) sequential launch chunk dates/count mismatch")
     echo "  ❌ (i) sequential launch chunk dates/count mismatch"
     $VERBOSE && { echo "$OUTPUT" | head -30 | sed 's/^/     /'; sed 's/^/     capture: /' "$CHILD_CAPTURE_FILE" 2>/dev/null; }
+fi
+
+# (i2) CLOUDSDK_CORE_ACCOUNT is pinned to the ambient identity for every child
+# launcher call (per-invocation account pin — see
+# shared_host_gcloud_active_account_cross_slot_clobber_2026_08_04.md), not
+# left to inherit whatever the shared host's active gcloud config happens to
+# be at that moment.
+if grep -qE '\|unified-trading-sa@[^|]+\.iam\.gserviceaccount\.com\|' "$CHILD_CAPTURE_FILE"; then
+    PASS=$((PASS + 1))
+    $VERBOSE && echo "  ✅ (i2) CLOUDSDK_CORE_ACCOUNT pinned for child launcher calls"
+else
+    FAIL=$((FAIL + 1))
+    FAILED_CASES+=("(i2) CLOUDSDK_CORE_ACCOUNT not pinned for child launcher calls")
+    echo "  ❌ (i2) CLOUDSDK_CORE_ACCOUNT not pinned for child launcher calls"
+    $VERBOSE && sed 's/^/     capture: /' "$CHILD_CAPTURE_FILE" 2>/dev/null
 fi
 
 # (j) enumerator halt-safety (EXIT_STATUS=5) on the first attempt triggers an
@@ -252,7 +280,7 @@ OUTPUT="$(CHILD_LAUNCHER="$STUB_DIR/child_launcher_stub.sh" POLL_INTERVAL_SECOND
 EXIT=$?
 rm -f "$STUB_DIR/child_should_fail"
 if [[ "$EXIT" == "1" ]] && grep -q "simulated PERMISSION_DENIED" <<<"$OUTPUT" \
-    && grep -q "child launcher exited 1 for chunk 2026-02-01..2026-04-04" <<<"$OUTPUT"; then
+    && grep -q "child launcher exited 1 for chunk 2026-02-01..${END_BOUNDARY}" <<<"$OUTPUT"; then
     PASS=$((PASS + 1))
     $VERBOSE && echo "  ✅ (m) failing child launcher surfaces output + hard-aborts"
 else

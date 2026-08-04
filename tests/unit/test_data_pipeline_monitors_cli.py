@@ -29,6 +29,7 @@ from deployment_service.data_pipeline_monitors import (
     meta_targets,
     meta_watchers,
 )
+from deployment_service.data_pipeline_monitors.launcher_registry import LAUNCHER_FOR_VM_PREFIX
 from tests.unit.test_data_pipeline_monitors import LOG_BUCKET, FakeStorage
 
 
@@ -70,6 +71,37 @@ def test_asset_group_for_vm(vm, expected):
 )
 def test_is_data_vm_filters_infra(vm, is_data):
     assert cli._is_data_vm(vm) is is_data
+
+
+def test_data_vm_prefixes_cover_every_relaunchable_launcher() -> None:
+    """Every genuinely auto-relaunchable prefix must be visible to ``_is_data_vm``.
+
+    Guards the whole bug class af_backfill_preemption_auto_recovery_not_firing_2026_08_04.md
+    found (not just the two prefixes it happened to catch): a VM prefix with a real
+    (non-None) ``launcher_registry.LAUNCHER_FOR_VM_PREFIX`` entry IS a genuinely
+    relaunchable data-pipeline VM, so ``cli._is_data_vm`` must return True for it — a
+    False here means ``exit_code_fleet_monitor.sweep()`` would never even consider that
+    VM for PREEMPTED classification, so ``RelaunchPreemptedVm`` could never fire on
+    preemption, regardless of budget/wiring/cadence being otherwise correct. Checking
+    the bare prefix (not a fabricated example name) is deliberate — a runtime VM name
+    can accidentally satisfy the ASSET_GROUPS substring check for SOME of a launcher's
+    invocations (e.g. feat-orph- embeds ASSET_GROUP_ABBREV literally for cefi/defi/
+    sports) while missing it for others (tradfi->tfi, prediction->pred, no
+    --asset-group->gl) — the prefix itself is the only invocation-independent check.
+    A None launcher is excluded: those are documented non-relaunch targets (one-off
+    audits, reserved/read-only/live-service prefixes) that exit_code_fleet_monitor
+    is not expected to auto-recover.
+    """
+    missing = sorted(
+        prefix
+        for prefix, launcher in LAUNCHER_FOR_VM_PREFIX.items()
+        if launcher is not None and not cli._is_data_vm(prefix)
+    )
+    assert not missing, (
+        "LAUNCHER_FOR_VM_PREFIX prefixes with a real launcher but invisible to "
+        "cli._is_data_vm() — add each to vm_classification.DATA_VM_PREFIXES (or an "
+        "ASSET_GROUPS substring already covers it, in which case this list is stale):\n" + "\n".join(missing)
+    )
 
 
 def test_minutes_since_missing_is_zero():
@@ -259,6 +291,108 @@ def test_main_exit_code_mode_reaps_gone_vm_registry_entry(monkeypatch):
     stored = json.loads(reg_storage.download_string(DEFAULT_BUCKET, archive_keys[0]))
     assert stored["status"] == "failed"
     assert stored["extras"]["reap_reason"] == "vm_not_running"
+
+
+def _preempted_result(name: str) -> exit_code_fleet_monitor.TerminationResult:
+    return exit_code_fleet_monitor.TerminationResult(
+        vm_name=name,
+        verdict=exit_code_fleet_monitor.TerminationVerdict.PREEMPTED,
+        exit_code=None,
+        captured_before=0,
+        captured_after=0,
+        preempted=True,
+    )
+
+
+def test_main_exit_code_mode_storm_resweeps_then_stops(monkeypatch):
+    """asia_northeast1_c_spot_preemption_storm_2026_08_04.md todo 3: sweep()'s
+    prior-vs-running census diff can never see a VM whose entire lifetime fits
+    inside one tick. cli.main's exit-code mode now re-sweeps at a short interval
+    while a pass observes >= _STORM_PREEMPTION_THRESHOLD PREEMPTED verdicts
+    (storm evidence), bounded by _STORM_MAX_RESWEEPS total passes."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: [])
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+
+    reg_storage = InMemoryStorageClient()
+    registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=reg_storage)
+    monkeypatch.setattr(cli, "DeploymentsRegistry", lambda *_a, **_kw: registry)
+
+    call_count = {"n": 0}
+
+    def _fake_sweep(**_kwargs):
+        call_count["n"] += 1
+        # Every pass looks like an active storm (>= threshold PREEMPTED) — the
+        # loop must still stop at _STORM_MAX_RESWEEPS, never run unbounded.
+        return [
+            _preempted_result(f"af-backfill-{call_count['n']}-a"),
+            _preempted_result(f"af-backfill-{call_count['n']}-b"),
+        ]
+
+    monkeypatch.setattr(exit_code_fleet_monitor, "sweep", _fake_sweep)
+    sleeps: list[float] = []
+    monkeypatch.setattr(cli.time, "sleep", lambda s: sleeps.append(s))
+
+    rc = cli.main(["--mode", "exit-code"])
+    assert rc == 0
+    assert call_count["n"] == cli._STORM_MAX_RESWEEPS
+    assert sleeps == [cli._STORM_RESWEEP_INTERVAL_SECS] * (cli._STORM_MAX_RESWEEPS - 1)
+
+
+def test_main_exit_code_mode_no_storm_sweeps_once(monkeypatch):
+    """Below-threshold PREEMPTED count (the common, non-storm case) must sweep
+    exactly once — no behavior change from before this fix."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: [])
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+
+    reg_storage = InMemoryStorageClient()
+    registry = DeploymentsRegistry(bucket=DEFAULT_BUCKET, storage=reg_storage)
+    monkeypatch.setattr(cli, "DeploymentsRegistry", lambda *_a, **_kw: registry)
+
+    call_count = {"n": 0}
+
+    def _fake_sweep(**_kwargs):
+        call_count["n"] += 1
+        return [_preempted_result("af-backfill-only-one")]
+
+    monkeypatch.setattr(exit_code_fleet_monitor, "sweep", _fake_sweep)
+    sleeps: list[float] = []
+    monkeypatch.setattr(cli.time, "sleep", lambda s: sleeps.append(s))
+
+    rc = cli.main(["--mode", "exit-code"])
+    assert rc == 0
+    assert call_count["n"] == 1
+    assert sleeps == []
+
+
+def test_main_exit_code_mode_dry_run_never_resweeps(monkeypatch):
+    """dry_run must stay single-pass even amid apparent storm evidence — matches
+    sweep()'s own 'classify + return, emit/persist nothing' dry_run contract."""
+    storage = FakeStorage({})
+    _stub_main_cloud(monkeypatch)
+    monkeypatch.setattr(cli, "get_storage_client", lambda: storage)
+    monkeypatch.setattr(cli, "_list_running_vms", lambda: [])
+    monkeypatch.setattr(cli, "resolve_bucket_name", lambda **_kw: "market-data-tick-cefi-prd-x")
+
+    call_count = {"n": 0}
+
+    def _fake_sweep(**_kwargs):
+        call_count["n"] += 1
+        return [_preempted_result("af-backfill-x"), _preempted_result("af-backfill-y")]
+
+    monkeypatch.setattr(exit_code_fleet_monitor, "sweep", _fake_sweep)
+    sleeps: list[float] = []
+    monkeypatch.setattr(cli.time, "sleep", lambda s: sleeps.append(s))
+
+    rc = cli.main(["--mode", "exit-code", "--dry-run"])
+    assert rc == 0
+    assert call_count["n"] == 1
+    assert sleeps == []
 
 
 def test_main_heartbeat_mode_dry_run(monkeypatch):

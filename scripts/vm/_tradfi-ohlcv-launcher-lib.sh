@@ -46,7 +46,14 @@ TRADFI_OHLCV_PROJECT="${TRADFI_OHLCV_PROJECT:-central-element-323112}"
 # e2-standard-4's 16GB ceiling → OOM-crash-loop on 16GB (verified 2026-06-24: gc-2025
 # cleared >1 7-day chunk on 32GB, zero OOM). SSOT: tradfi_backfill_oom_remediation_2026_06_24.md,
 # tradfi_backfill_throughput_followups_2026_07_24.md (A3.1 + the OHLCV_FLEET_CONCURRENCY_CAP raise below).
-TRADFI_OHLCV_MACHINE="${TRADFI_OHLCV_MACHINE:-e2-highmem-16}"
+# MACHINE_TYPE (the fleet-wide convention every other launcher's `${MACHINE_TYPE:-default}`
+# already honors) wins over the family-specific TRADFI_OHLCV_MACHINE default when set --
+# this is what escalation._recover_backfill_vm's OOM `bigger_machine` hint (KEY #4,
+# deployment_service/data_pipeline_monitors/escalation.py) actually sets on a relaunch.
+# Before this, the hint was a silent no-op for the whole tradfi OHLCV launcher family: it
+# injected MACHINE_TYPE, but this lib only ever read the differently-named
+# TRADFI_OHLCV_MACHINE — see verify_bigger_machine_hint_reaches_tradfi_launchers finding.
+TRADFI_OHLCV_MACHINE="${MACHINE_TYPE:-${TRADFI_OHLCV_MACHINE:-e2-highmem-16}}"
 # pd-balanced 250GB: pd-standard throttles sustained writes hard (~0.17 MB/s/GB,
 # measured disk-bound on cefi backfills); pd-balanced is SSD-backed and scales
 # write throughput with size, so a larger balanced disk lifts the download→parquet

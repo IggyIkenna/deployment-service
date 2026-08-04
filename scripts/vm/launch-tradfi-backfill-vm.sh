@@ -137,7 +137,11 @@ ZONE="asia-northeast1-c"
 PROJECT="central-element-323112"
 CODE_BUCKET="deployment-scripts-${PROJECT}"
 STARTUP="gs://${CODE_BUCKET}/vm/setup-data-pipeline-vm.sh"
-MACHINE_TYPE="e2-standard-4"
+# Env-overridable (the fleet-wide convention every other launcher's
+# `${MACHINE_TYPE:-default}` already follows): this was previously a hardcoded
+# direct assignment, which silently no-op'd escalation._recover_backfill_vm's OOM
+# `bigger_machine` hint (KEY #4) — a same-machine OOM relaunch just re-OOMs.
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-4}"
 BOOT_DISK_GB="${BOOT_DISK_GB:-250}"
 
 # ── Validate root ──
