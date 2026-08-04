@@ -247,6 +247,9 @@ _DATA_VM_PREFIXES = (
     "prediction-",
     "weather-backfill",
     "solana-",
+    "af-backfill",
+    "af-audit",
+    "af-recover",
 )
 
 

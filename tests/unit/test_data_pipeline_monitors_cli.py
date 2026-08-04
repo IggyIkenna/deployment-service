@@ -56,6 +56,9 @@ def test_asset_group_for_vm(vm, expected):
         ("mtds-live-cefi-okx-trades-2026", True),
         ("tradfi-bf-cme-ohlcv-1m-es-2025", True),
         ("prediction-live-kalshi-trades", True),
+        ("af-backfill-20260803-233053", True),
+        ("af-audit-20260721-000000", True),
+        ("af-recover-20260721-000000", True),
         # infra VMs are NOT data VMs — must be skipped so they never false-alert.
         ("vm-zombie-watchdog-20260528-212634", False),
         ("agent-orchestrator-vm-1", False),
