@@ -176,9 +176,59 @@ def make_consolidator_maintenance_window_reader() -> MaintenanceWindowReader:
     return _read
 
 
+def make_consolidator_scheduler_lister(
+    project_id: str,
+    *,
+    location: str = "asia-northeast1",
+    scheduler_rpc_timeout_secs: float = 10.0,
+) -> SchedulerJobLister:
+    """Return ``() -> every manifest-consolidator scheduler job's short name``.
+
+    Lists the fleet's Cloud Scheduler jobs LIVE and filters to
+    ``manifest-consolidator`` in the name, rather than reconstructing names from a
+    per-asset_group/kind list (which drifts — ``manifest_consolidator_buckets`` in
+    ``manifest_consolidator_scheduler.tf`` has 10+ market-data/instruments keys plus
+    legacy variants). Deferred-import. An error / missing client returns an empty
+    list (fail toward checking nothing this sweep, never toward inventing job names).
+
+    Lives here (not in ``cli.py``, unlike the credential-bound ``_make_*`` factories
+    it sits alongside) specifically so it doesn't grow that file — ``cli.py`` is at
+    its own QG file-size ceiling already.
+    """
+    import importlib  # noqa: imports-inside-functions
+
+    try:
+        scheduler_mod = importlib.import_module("google.cloud.scheduler_v1")  # noqa: imports-inside-functions
+        client = scheduler_mod.CloudSchedulerClient()  # pyright: ignore[reportAny]
+    except Exception as exc:
+        logger.info("consolidator-scheduler lister unavailable (DP-WATCHER-003 off this sweep): %s", exc)
+        return lambda: []
+
+    def _list() -> list[str]:
+        if not project_id:
+            return []
+        parent = f"projects/{project_id}/locations/{location}"
+        try:
+            names: list[str] = []
+            for job in client.list_jobs(  # pyright: ignore[reportAny]
+                parent=parent, timeout=scheduler_rpc_timeout_secs
+            ):
+                full_name = str(getattr(job, "name", "") or "")  # pyright: ignore[reportAny]
+                short_name = full_name.rsplit("/", 1)[-1]
+                if "manifest-consolidator" in short_name:
+                    names.append(short_name)
+            return names
+        except Exception as exc:
+            logger.info("consolidator-scheduler list_jobs failed -> skipping DP-WATCHER-003 this sweep: %s", exc)
+            return []
+
+    return _list
+
+
 __all__ = [
     "MaintenanceWindowReader",
     "SchedulerJobLister",
     "check_consolidator_scheduler_paused",
     "make_consolidator_maintenance_window_reader",
+    "make_consolidator_scheduler_lister",
 ]

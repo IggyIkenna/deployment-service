@@ -203,7 +203,8 @@ if [[ "${DRY_RUN:-false}" != "true" ]]; then
 fi
 
 lc_gcloud_create "$VM_NAME" "$PROJECT" "$ZONE" "$MACHINE_TYPE" "$BOOT_DISK_GB" \
-    "$METADATA" "$LABELS"
+    "$METADATA" "$LABELS" \
+    "$(lc_tier_service_account "$DEPLOYMENT_ENV" "$PROJECT")"
 
 echo ""
 echo "VM launched: $VM_NAME"

@@ -416,11 +416,22 @@ def test_main_meta_mode_dry_run(monkeypatch):
     # that pytest-socket blocks, and the GAPIC client's default retry policy stalls
     # past the pytest-timeout window instead of failing fast.
     monkeypatch.setattr(cli, "_make_scheduler_state_reader", lambda: lambda _job: None)
-    monkeypatch.setattr(cli, "_make_consolidator_scheduler_lister", lambda: lambda: [])
+    monkeypatch.setattr(
+        cli.consolidator_scheduler_watcher,
+        "make_consolidator_scheduler_lister",
+        lambda project_id, scheduler_rpc_timeout_secs=10.0: lambda: [],
+    )
     # KEY #4 execution-history reader (google-cloud-run, a pre-existing real
     # dependency) has the identical real-client shape and was never stubbed here
     # either — stub it too so this test doesn't attempt a live Cloud Run RPC.
     monkeypatch.setattr(cli, "_make_execution_history_reader", lambda: lambda _job: None)
+    # DP-WATCHER-005 consolidator OOM reader (google-cloud-run, same shape as
+    # execution-history reader) — stub so this test doesn't attempt live RPCs.
+    monkeypatch.setattr(
+        cli.consolidator_oom_watcher,
+        "make_consolidator_execution_oom_reader",
+        lambda project_id, env_prefix="", location="asia-northeast1": lambda _ags: {},
+    )
     rc = cli.main(["--mode", "meta", "--dry-run"])
     assert rc == 0
 

@@ -254,6 +254,7 @@ printf '%s' "$STARTUP_SCRIPT" > "$STARTUP_FILE"
 echo "Creating VM ${VM_NAME}..."
 gcloud compute instances create "${VM_NAME}" \
   --project="${PROJECT_ID}" \
+  --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT_ID")" \
   --zone="${ZONE}" \
   --machine-type="${MACHINE_TYPE}" \
   --scopes=cloud-platform \

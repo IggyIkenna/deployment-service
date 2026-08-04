@@ -275,6 +275,7 @@ fi
 # (2026-07-18). Enforced by scripts/quality_gates/check_backfill_vm_disk_provisioning.py.
 gcloud compute instances create "${VM_NAME}" \
     --project="${PROJECT_ID}" \
+    --service-account="$(lc_tier_service_account "${DEPLOYMENT_ENV}" "$PROJECT_ID")" \
     --zone="${ZONE}" \
     --machine-type="${MACHINE_TYPE}" \
     --boot-disk-size="${DISK_SIZE}" \
