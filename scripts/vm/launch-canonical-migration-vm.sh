@@ -845,7 +845,15 @@ _gas_fees_legacy_purge_cmd() {
         verify) mode_flag=" --verify-only" ;;
         *) mode_flag=" --dry-run" ;;
     esac
-    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gas_fees_legacy_venue_prefixes_2026_08_04.py --project-id ${PROJECT}${mode_flag}"
+    # --skip-discovery-verified-empty (2026-08-05): discover_objects()'s per-day match_glob scan
+    # stalled/died 5 consecutive times right near the tail of the 1881-day list, on both SPOT and
+    # on-demand VMs. A direct 10-venue-wide match_glob check independently confirmed 0 objects
+    # remain across ALL days/venues before this was added -- only correct for `full` mode, and only
+    # while that empty-state holds (re-verify fresh with the same direct check before any other use;
+    # remove this flag if the target ever legitimately has objects again, e.g. a future retirement).
+    local skip_flag=""
+    [[ "$MODE" == "full" ]] && skip_flag=" --skip-discovery-verified-empty"
+    printf '%s' "cd ${VM_WORKSPACE}/mtds && GCP_PROJECT_ID=${PROJECT} DEPLOYMENT_ENV=${DEPLOYMENT_ENV} CLOUD_PROVIDER=gcp UNIFIED_ENVIRONMENT=${DEPLOYMENT_ENV} CLOUD_MOCK_MODE=false python -u scripts/one_offs/purge_gas_fees_legacy_venue_prefixes_2026_08_04.py --project-id ${PROJECT}${mode_flag}${skip_flag}"
 }
 
 # DeFi lst_rates FLAGGED-marker fold (2026-07-25) -- in-region runner for
