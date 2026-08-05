@@ -4,7 +4,7 @@
 
 # Operations Runbooks
 
-**Last consolidated:** 2026-02-09
+**Last consolidated:** 2026-08-05
 
 This document consolidates operational runbooks for the unified trading deployment system.
 
@@ -168,3 +168,92 @@ If Status tab works for one user but not another: the failing user likely lacks 
 - [ ] `roles/iam.serviceAccountTokenCreator` on github-token-sa
 
 **The last one (SA impersonation) is often missing.**
+
+---
+
+## Part 3: `DP_RUN_MOSTLY_EMPTY` — `check_high_attempted_failed` Alerts (DP-FETCH-009)
+
+### What This Monitor Does
+
+`check_high_attempted_failed` (`meta_watchers.py`, DP-FETCH-009) pages when a
+`(asset_group, data_type)` cell in the consolidated availability manifest has a HIGH
+`attempted_failed` count or ratio. It reuses the `DP_RUN_MOSTLY_EMPTY` event (CRITICAL,
+PAGE_OPERATOR, routed to `#data-pipeline-alerts`).
+
+A cell is HIGH when either:
+
+- `attempted_failed` count ≥ `ATTEMPTED_FAILED_ABS_THRESHOLD` (default 500), **OR**
+- `attempted_failed` count ≥ `MIN_ATTEMPTED_FAILED_FOR_RATIO` (default 100) **AND**
+  `attempted_failed / (captured + attempted_failed)` ≥ `ATTEMPTED_FAILED_RATIO_THRESHOLD`
+  (default 0.10 / 10%)
+
+The monitor reads the same consolidated `_index/availability_index.parquet` blob the
+manifest consolidator writes — it does NOT walk GCS objects. It gates on
+`min_consecutive` consecutive sweeps before paging (transient-blip suppression), and
+annotates stale cells with `STATIC BACKLOG` labels (≥1 day since newest
+`attempted_failed` row) via `attempted_failed_staleness.py`.
+
+### Known Alert: sports/TRADES ~87.2% Ratio Spike (K1/K2 Denominator-Shrink Artifact)
+
+**Symptom:** `DP_RUN_MOSTLY_EMPTY` fires for `(sports, TRADES)` with an
+`attempted_failed` ratio in the 80-90% range (observed ~87.2%).
+
+**Root cause — K1/K2 casing-migration denominator shrink.** The K1/K2 casing migration
+(`market-tick-data-service@2536b91c` / `@ad4f1872`, 2026-07-20) physically copied
+~260,298 GCS objects + manifest rows from lower-case to UPPER-case paths for sports
+`instrument_type=ODDS, data_type=TRADES`. This doubled the denominator
+(`captured + attempted_failed`) in the consolidated manifest — but the UPPER-case twin
+cells are predominantly `attempted_failed` (historical residue from before the casing
+flip, never genuinely captured at the uppercase path), while the lower-case originals
+continue to capture normally. The net effect: a single `(sports, TRADES)` cell
+aggregates both populations, producing an ~87.2% ratio from the uppercase twin's
+`attempted_failed` tail dwarfing the genuine lower-case `captured` count.
+
+**Status — already-dead residue, NOT a live outage.** The K1/K2 migration is slated for
+REVERT (Track C, `sports_consolidated_closeout_2026_07_19.md`). The uppercase twin
+objects are frozen historical residue — no new attempts are being made against those
+paths. The lower-case originals continue to capture normally. The `DP_RUN_MOSTLY_EMPTY`
+alert is a denominator artifact, not evidence of a new capture regression.
+
+**What to do when this alert fires:**
+
+1. **Check for fresh activity.** Verify whether the cell's `max_attempted_at` timestamp
+   is recent (within the last day) or stale. If the newest `attempted_failed` row is
+   days/weeks old, the alert is the known K1/K2 backlog — acknowledge and suppress.
+2. **Check the STATIC BACKLOG annotation.** The alert body includes staleness
+   annotations from `attempted_failed_staleness.py`. A "STATIC BACKLOG" label with
+   `no new attempted_failed activity in Nd` confirms this is the known artifact.
+3. **Verify via the manifest.** Query `instruments-store-sports-prd-central-element-323112`
+   `_index/availability_index.parquet` for `asset_group=sports, data_type=TRADES`
+   — check whether `captured` is still climbing (normal lower-case capture continues)
+   while `attempted_failed` is static.
+4. **Do NOT re-diagnose from scratch.** This is a tracked, pending-revert artifact.
+   The resolution is the K1/K2 casing REVERT (Track C, operator-scheduled) — not a new
+   capture bug, not a writer regression, not a credential gap.
+
+**Related:**
+
+- Plan: `/plans/active/sports_consolidated_closeout_2026_07_19.md` Track S2,
+  Track C (K1/K2 revert)
+- Issue: `/plans/active/issues/cefi_high_attempted_failed_batch_cluster_2026_07_23.md`
+  (alerting-hygiene question, staleness labeling)
+- Code: `deployment_service/data_pipeline_monitors/attempted_failed_staleness.py`
+  (staleness labeling), `known_dead_cells_registry.py` (suppression registry —
+  sports/TRADES is NOT registered here because it is pending-revert, not
+  deliberately-narrowed)
+
+### Other Known-False or Static-Backlog Cells
+
+The `known_dead_cells_registry.py` (`KNOWN_DEAD_CELLS` dict) registers cells whose
+`attempted_failed` population is deliberately-deferred — their UAC
+`expected_coverage`/`VENUE_DATA_TYPE_CAPABILITIES` entry was narrowed to stop new
+attempts, freezing the historical count. See that module's docstring for the full
+registry and its safety gate (any new activity AFTER `narrowed_at` re-enables paging).
+
+**Currently registered:** `(tradfi, ohlcv_15m)` — CBOE ohlcv_15m narrowed 2026-07-15
+(`unified-api-contracts@78b9e899`).
+
+**Adding a new entry:** confirm the cell has zero new `attempted_failed` activity since
+the narrowing date, then add a `KnownDeadCell` entry to `KNOWN_DEAD_CELLS`. The entry
+suppresses only while `max_attempted_at ≤ narrowed_at` — new activity automatically
+re-enables paging without a code change.
