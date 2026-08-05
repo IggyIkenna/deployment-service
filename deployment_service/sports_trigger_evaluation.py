@@ -113,9 +113,10 @@ def evaluate_pre_match_triggers(
 
             # Fire if we're within tolerance window
             if delta_minutes <= tolerance_minutes:
-                services = trigger.get("services", [])
-                if not isinstance(services, list):
-                    services = []
+                services_raw = trigger.get("services", [])
+                if not isinstance(services_raw, list):
+                    services_raw = []
+                services: list[dict[str, object]] = [s for s in services_raw if isinstance(s, dict)]
 
                 # ---- league odds-coverage filter ----
                 # sports_fast_t1_recon_oom_live_capture_outage_2026_08_01.md
@@ -130,9 +131,7 @@ def evaluate_pre_match_triggers(
                 # Other service entries (instruments-service,
                 # features-service, ml-service) are left untouched.
                 if not _league_has_odds_coverage(fixture["league_id"]):
-                    services = [
-                        s for s in services if isinstance(s, dict) and s.get("service") != "market-tick-data-service"
-                    ]
+                    services = [svc for svc in services if svc.get("service") != "market-tick-data-service"]
 
                 if services:
                     events.append(
@@ -142,7 +141,7 @@ def evaluate_pre_match_triggers(
                             league_id=fixture["league_id"],
                             kickoff_utc=fixture["kickoff_utc"],
                             fire_at_utc=fire_at.isoformat(),
-                            services=[s for s in services if isinstance(s, dict)],
+                            services=[cast(dict[str, str], svc) for svc in services],
                         )
                     )
 
