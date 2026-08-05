@@ -1801,12 +1801,11 @@ _launch() {
     # (tradfi-catalogue-canon forked each CANON_SHARDS shard to its OWN `/tmp/canon_shard{i}.log`,
     # only tailed after ALL shards finished) -- FIXED 2026-08-05 (todo 9): _catalogue_canon_cmd()
     # now uses `>(tee ...)` process substitution to fan per-shard progress to stdout in real time,
-    # and the STALL_PROGRESS_REGEX below now covers this category. *-iah/*-iah-purge were also
-    # left unset: their "progress: N/M objects
-    # processed" line is gated `done % 5000 == 0`, but the per-asset_group candidate_count is
-    # unverified per bucket (452,793 IA + 12,582 ML objects split across 5 buckets total) -- an
-    # asset_group with <5000 candidates would NEVER match, which is the worse-than-fallback failure
-    # mode above; filed as todo 10 below rather than guessed at.
+    # and the STALL_PROGRESS_REGEX below now covers this category. *-iah/*-iah-purge were
+    # also fixed (todo 10): "progress: N/M objects processed" was gated `done % 5000 == 0`
+    # but the per-asset_group candidate_count (~2,516-90K/AG) meant smaller buckets might
+    # never match. Fixed by lowering the modulus to `done == 1 or done % 500 == 0` in both
+    # target scripts (instruments-service) + adding STALL_PROGRESS_REGEX below.
     if [[ "$cat" == "tradfi-cme-monolith" ]]; then
         # migrate_cme_monolith_trades_2026_07_26.py::run_migrate logs "day=%s groups=%d stats=%s"
         # UNCONDITIONALLY per day (not gated by a modulus) against a fixed, tiny 30-day worklist.
@@ -1902,6 +1901,20 @@ _launch() {
         # fold_lst_rates_migrated_markers_2026_07_25.py logs "%d/%d processed in %ds -- %s" every 50
         # markers over the tool's own fixed 346-marker population -- trivially fast.
         md="${md},STALL_PROGRESS_REGEX=processed in [0-9]+s"
+    elif [[ "$cat" == *-iah || "$cat" == *-iah-purge ]]; then
+        # Todo 10 (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md): the migrate
+        # (migrate_instrument_availability_hive_2026_08_03.py) and purge
+        # (purge_flat_instrument_availability_hive_2026_08_03.py) scripts both log
+        # "  progress: N/M objects processed" -- formerly gated `done % 5000 == 0`, now lowered
+        # to `done == 1 or done % 500 == 0` (instruments-service) so it fires on the first object
+        # and then every 500 thereafter, guaranteeing progress lines even for small per-AG
+        # populations (prediction's market_lifecycle candidate_count ~2,516/AG, or a post-migrate
+        # purge with very few remaining flat candidates -- both scenarios would previously have
+        # NEVER matched under the 5000-only gate). At the fleet-measured ~8,500 parquets/min
+        # aggregate throughput (same order as *-candle-apply), a 500-object gap is ~3.5s -- >>500x
+        # headroom under STALL_TIMEOUT_SEC=1800s for this category. The `:,` format spec in the
+        # f-string produces comma-separated numbers; the regex below matches that.
+        md="${md},STALL_PROGRESS_REGEX=progress: [0-9,]+/[0-9,]+ objects processed"
     fi
     # TODO(low-severity, adversarial review 2026-07-22): for *-candle-census categories, $MODE is
     # silently ignored by _candle_census_cmd() (always emits --dry-run, no reachable --apply path),

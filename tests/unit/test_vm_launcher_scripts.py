@@ -1634,10 +1634,10 @@ export -f gsutil
             # tradfi-catalogue-canon: FIXED 2026-08-05 (todo 9) -- _catalogue_canon_cmd() now fans
             # per-shard progress to stdout via `>(tee ...)`, and the STALL_PROGRESS_REGEX is verified
             # in the positive test below. Removed from this negative guard.
-            # *-iah: the script's "progress: N/M objects processed" marker is gated every 5000,
-            # but per-asset_group candidate_count is unverified and may never reach 5000 for the
-            # smaller buckets -- setting this blind risks a worse-than-fallback false kill (todo 10).
-            ["cefi-iah", "2026-08-03", "2026-08-03", "dry"],
+            # *-iah/*-iah-purge: FIXED 2026-08-05 (todo 10) -- progress modulus lowered from 5000
+            # to `done == 1 or done % 500 == 0` in both target scripts (instruments-service), so
+            # STALL_PROGRESS_REGEX is now safe even for the smallest per-AG populations (e.g.
+            # prediction's market_lifecycle at ~2,516 objects/AG). Verified in the positive test below.
         ],
     )
     def test_other_categories_get_no_stall_progress_regex_yet(
@@ -1645,11 +1645,9 @@ export -f gsutil
     ) -> None:
         """Regression guard for the narrow scoping: these categories were deliberately left
         WITHOUT a STALL_PROGRESS_REGEX after todo 5's full per-category audit -- either their
-        target script has no genuine per-item marker at all, only an unmeasured periodic
-        checkpoint, or (*-iah) a specific proven risk that setting one would make stall detection
-        WORSE than the byte-growth fallback it replaces. Broadening a regex onto any of these
-        without first closing that specific gap would risk a false-positive stall-kill on a
-        legitimately slow/quiet phase, or (the *-iah case) guarantee one."""
+        target script has no genuine per-item marker at all, or only an unmeasured periodic
+        checkpoint. Broadening a regex onto any of these without first closing that specific gap
+        would risk a false-positive stall-kill on a legitimately slow/quiet phase."""
         call = self._created_metadata(launcher_path, args, tmp_path)
         assert "STALL_PROGRESS_REGEX=" not in call
 
@@ -1722,6 +1720,19 @@ export -f gsutil
             (
                 ["defi-lst-rates-fold", "2020-01-01", "2026-07-25", "dry"],
                 r"processed in [0-9]+s",
+            ),
+            # Todo 10 (vm_exec_stall_watchdog_checkpoint_regex_mismatch_2026_08_03.md): *-iah /
+            # *-iah-purge progress modulus lowered from 5000 to `done == 1 or done % 500 == 0`
+            # (instruments-service), guaranteeing the `progress: N/M objects processed` line fires
+            # even for small per-AG populations. All 10 categories (5 AGs × 2 scripts) share the
+            # same regex; one representative of each suffix pattern is tested here.
+            (
+                ["cefi-iah", "2026-08-03", "2026-08-03", "dry"],
+                r"progress: [0-9,]+/[0-9,]+ objects processed",
+            ),
+            (
+                ["defi-iah-purge", "2026-08-03", "2026-08-03", "dry"],
+                r"progress: [0-9,]+/[0-9,]+ objects processed",
             ),
         ],
     )
