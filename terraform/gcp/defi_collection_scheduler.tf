@@ -140,9 +140,9 @@ locals {
     "lst-rates" = {
       schedule    = "0 1 * * *"
       cpu         = "1"
-      memory      = "2Gi"
+      memory      = "4Gi"
       timeout     = 1200
-      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block."
+      description = "DeFi collect-lst-rates — 11 EVM LST exchange rates (Lido stETH, RocketPool rETH, etc.) at historical block. Bumped 2Gi->4Gi 2026-08-05: OOM-killed (signal 9) on every run since 2026-08-02 at ~70% of 2Gi (rss~2040MiB) -- see plans/active/issues/defi_hyperliquid_residual_manifest_rows_2026_08_04.md's BLAZESTAKE finding (this job also covers the Solana LST leg, incl. bSOL/BLAZESTAKE)."
     }
     "vault-share-price" = {
       schedule    = "10 1 * * *"
